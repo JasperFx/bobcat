@@ -1,6 +1,4 @@
-using System.Diagnostics;
-
-namespace Bobcat.Model
+namespace Bobcat.Engine
 {
     // TODO -- split the interface for what's valid to the execution step
     // and what's valid to the engine
@@ -17,10 +15,6 @@ namespace Bobcat.Model
         // TODO -- tie into ILogger here, correlate logs captured to
         // the SpecResults
 
-        IReadOnlyList<IExecutionStep> Steps { get; }
-        
-        TimeSpan Timeout { get; }
-        
         IEnumerable<Exception> Exceptions { get; }
         void MarkCancelled(string reason);
         StepResult StepStarted(IExecutionStep step, long elapsedMilliseconds);

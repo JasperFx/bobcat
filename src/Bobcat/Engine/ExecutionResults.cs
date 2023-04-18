@@ -1,4 +1,4 @@
-namespace Bobcat.Model;
+namespace Bobcat.Engine;
 
 public class ExecutionResults
 {

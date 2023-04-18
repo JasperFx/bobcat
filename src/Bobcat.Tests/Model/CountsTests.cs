@@ -1,4 +1,4 @@
-using Bobcat.Model;
+using Bobcat.Engine;
 using Shouldly;
 
 namespace Bobcat.Tests.Model;

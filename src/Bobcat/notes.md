@@ -1,7 +1,9 @@
 ## Design Notes
 
 * `Fixture` classes. 
-* `IExecutionStep` will be the primary runtime model. The "display" model will be different, and maybe that can be more metadata driven
+* `IExecutionStep` will be the primary **runtime** model. The "display" model will be different, and maybe that can be more metadata driven
+* The rendering model will be model-driven or metadata driven to allow for more variance in grammars
+* `Grammar` abstraction will be responsible for building 
 
 ## Fixture classes
 

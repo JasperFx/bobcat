@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Bobcat.Model;
+namespace Bobcat.Engine;
 
 public class Executor
 {
@@ -13,17 +13,17 @@ public class Executor
         _stopwatch = new Stopwatch();
     }
 
-    public async Task Execute(IExecutionContext context)
+    public async Task Execute(ExecutionPlan plan, IExecutionContext context)
     {
         var cancellation = new CancellationTokenSource();
-        cancellation.CancelAfter(context.Timeout);
+        cancellation.CancelAfter(plan.Timeout);
         
         _stopwatch.Restart();
         context.ExecutionStarted();
 
         try
         {
-            foreach (var step in context.Steps)
+            foreach (var step in plan.Steps)
             {
                 if (cancellation.IsCancellationRequested)
                 {
