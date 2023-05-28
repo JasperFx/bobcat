@@ -38,11 +38,13 @@ public class Step
     {
         // Determine the id. Top level, use the grammar key. If more than one, add suffixes
 
-        var id = Id == RootName ? grammar.Name;
+        //var id = Id == RootName ? grammar.Name;
         
-        var step = new Step(grammar, )
+        //var step = new Step(grammar, )
             
             // add to children
+
+            throw new NotImplementedException();
     }
 
     public int FixtureCount() => _children.Select(x => x.Grammar).OfType<Fixture>().Count();
@@ -63,6 +65,22 @@ public class Fixture : IGrammar
     public Fixture(Type fixtureType)
     {
         
+    }
+
+    public string Name { get; }
+    public void CreatePlan(ExecutionPlan plan, Step step, Step? parent = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IRenderable RenderPreviewForConsole(Step step)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IRenderable RenderResultsForConsole(Step step, ExecutionResults results)
+    {
+        throw new NotImplementedException();
     }
 }
 
