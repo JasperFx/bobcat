@@ -17,7 +17,7 @@ public class Executor
     {
         var cancellation = new CancellationTokenSource();
         cancellation.CancelAfter(plan.Timeout);
-        
+
         _stopwatch.Restart();
         context.ExecutionStarted();
 
@@ -56,6 +56,7 @@ public class Executor
 
         try
         {
+            // Steps see only IStepContext, not the full IExecutionContext
             await step.Execute(context, result, cancellation.Token);
         }
         catch (Exception e)
@@ -68,7 +69,7 @@ public class Executor
             context.StepFinished(result);
         }
 
-        if (ShouldStop(context, step, out var reason))
+        if (ShouldStop(context, step, result, out var reason))
         {
             context.MarkCancelled(reason);
             return true;
@@ -77,11 +78,11 @@ public class Executor
         return false;
     }
 
-    internal bool ShouldStop(IExecutionContext context, IExecutionStep lastStep, out string reason)
+    internal bool ShouldStop(IExecutionContext context, IExecutionStep lastStep, StepResult result, out string reason)
     {
         foreach (var rule in _rules)
         {
-            if (rule.ShouldStop(context, lastStep, out reason))
+            if (rule.ShouldStop(context, lastStep, result, out reason))
             {
                 return true;
             }
@@ -90,5 +91,4 @@ public class Executor
         reason = string.Empty;
         return false;
     }
-
 }

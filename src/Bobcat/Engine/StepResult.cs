@@ -3,11 +3,14 @@ namespace Bobcat.Engine;
 public class StepResult
 {
     public string StepId { get; }
+    public StepKind StepKind { get; }
+    public FailureLevel FailureLevel { get; private set; } = FailureLevel.None;
 
-    public StepResult(string stepId, long start, ResultStatus status = ResultStatus.ok)
+    public StepResult(string stepId, long start, StepKind stepKind = StepKind.Then, ResultStatus status = ResultStatus.ok)
     {
         StepId = stepId;
         Start = start;
+        StepKind = stepKind;
         StepStatus = status;
     }
 
@@ -31,6 +34,20 @@ public class StepResult
         StepStatus = ResultStatus.error;
         End = end;
 
+        FailureLevel = ex switch
+        {
+            SpecCatastrophicException => FailureLevel.Catastrophic,
+            SpecCriticalException => FailureLevel.Critical,
+            _ => StepKind == StepKind.Then ? FailureLevel.Critical : FailureLevel.Critical
+        };
+
+        return this;
+    }
+
+    public StepResult MarkFailed()
+    {
+        StepStatus = ResultStatus.failed;
+        FailureLevel = FailureLevel.Assertion;
         return this;
     }
 

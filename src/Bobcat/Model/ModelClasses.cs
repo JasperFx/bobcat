@@ -1,31 +1,18 @@
-
 using Bobcat.Engine;
-using Spectre.Console.Rendering;
 
 namespace Bobcat.Model;
 
-public class Section
-{
-
-}
-
-// Want this to be dumb. And it'll be an n-deep thing this time
+/// <summary>
+/// An AST node representing a step in a specification.
+/// Steps form a tree: root → children, each referencing an IGrammar.
+/// </summary>
 public class Step
 {
-    private Dictionary<string, Step> _headers = new();
     private readonly List<Step> _children = new();
     private readonly Dictionary<string, object> _values = new();
-    
+
     public IGrammar Grammar { get; }
-    
-    public Step Parent { get; private set; }
-    
-    /*
-     * If spec, use "root"
-     * if parent is "root", use index + 1
-     * if step is under a section, use index-parent name-index
-     * if step is a header, use {parent id}-{key}
-     */
+    public Step? Parent { get; private set; }
     public string Id { get; internal set; }
 
     public Step(IGrammar grammar, string id)
@@ -36,18 +23,33 @@ public class Step
 
     public Step Add(IGrammar grammar)
     {
-        // Determine the id. Top level, use the grammar key. If more than one, add suffixes
+        // Count existing children using the same grammar name for dedup
+        var baseName = grammar.Name;
+        var existingCount = _children.Count(c => c.Grammar.Name == baseName);
+        var suffix = existingCount > 0 ? $".{existingCount + 1}" : "";
 
-        //var id = Id == RootName ? grammar.Name;
-        
-        //var step = new Step(grammar, )
-            
-            // add to children
+        var childId = Id == RootName
+            ? $"{baseName}{suffix}"
+            : $"{Id}.{baseName}{suffix}";
 
-            throw new NotImplementedException();
+        var step = new Step(grammar, childId) { Parent = this };
+        _children.Add(step);
+        return step;
     }
 
-    public int FixtureCount() => _children.Select(x => x.Grammar).OfType<Fixture>().Count();
+    public Step WithValue(string name, object value)
+    {
+        _values[name] = value;
+        return this;
+    }
+
+    public bool TryGetValue(string name, out object value)
+    {
+        return _values.TryGetValue(name, out value!);
+    }
+
+    public IReadOnlyList<Step> Children => _children;
+    public IReadOnlyDictionary<string, object> Values => _values;
 
     public static Step ForSpecification(string title)
     {
@@ -57,45 +59,9 @@ public class Step
     public const string RootName = "Root";
 }
 
-// do we even want this? Might not be necessary
-// Could say there's no rendering of any of this if there's only one used
-// Mostly necessary for set up / teardown issues
-public class Fixture : IGrammar
-{
-    public Fixture(Type fixtureType)
-    {
-        
-    }
-
-    public string Name { get; }
-    public void CreatePlan(ExecutionPlan plan, Step step, Step? parent = null)
-    {
-        throw new NotImplementedException();
-    }
-
-    public IRenderable RenderPreviewForConsole(Step step)
-    {
-        throw new NotImplementedException();
-    }
-
-    public IRenderable RenderResultsForConsole(Step step, ExecutionResults results)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-public interface IGrammar
-{
-    // Use the method name
-    string Name { get; }
-
-    void CreatePlan(ExecutionPlan plan, Step step, Step? parent = null);
-
-    IRenderable RenderPreviewForConsole(Step step);
-    IRenderable RenderResultsForConsole(Step step, ExecutionResults results);
-
-}
-
+/// <summary>
+/// The root grammar of a specification — walks its children to build the execution plan.
+/// </summary>
 public class SpecificationRoot : IGrammar
 {
     public string Title { get; }
@@ -106,18 +72,12 @@ public class SpecificationRoot : IGrammar
     }
 
     public string Name { get; } = Step.RootName;
-    public void CreatePlan(ExecutionPlan plan, Step step, Step? parent = null)
-    {
-        throw new NotImplementedException();
-    }
 
-    public IRenderable RenderPreviewForConsole(Step step)
+    public void CreatePlan(ExecutionPlan plan, Step step, FixtureInstance fixture)
     {
-        throw new NotImplementedException();
-    }
-
-    public IRenderable RenderResultsForConsole(Step step, ExecutionResults results)
-    {
-        throw new NotImplementedException();
+        foreach (var child in step.Children)
+        {
+            child.Grammar.CreatePlan(plan, child, fixture);
+        }
     }
 }

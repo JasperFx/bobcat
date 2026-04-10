@@ -1,52 +1,27 @@
-using System.Linq.Expressions;
+using Bobcat.Engine;
 
 namespace Bobcat;
 
-public class Specification
+/// <summary>
+/// Base class for test fixtures. Subclass this and add methods with
+/// [Given], [When], [Then], [Fact] attributes to define your test vocabulary.
+/// </summary>
+public abstract class Fixture
 {
-    public static Specification operator +(Specification spec, Expression<Action> action) => spec;
+    /// <summary>
+    /// Override to perform setup before each scenario.
+    /// Prefer using [SetUp] attributed methods instead.
+    /// </summary>
+    public virtual Task SetUp() => Task.CompletedTask;
 
-}
+    /// <summary>
+    /// Override to perform cleanup after each scenario (always runs, even on failure).
+    /// Prefer using [TearDown] attributed methods instead.
+    /// </summary>
+    public virtual Task TearDown() => Task.CompletedTask;
 
-
-public class Fixture
-{
-    public void Define(Expression<Func<object[]>> expression)
-    {
-
-    }
-    
-    public Specification Spec { get; protected set; }
-
-    public class ReturnValue<T>
-    {
-        public void ToBe(T value)
-        {
-        }
-    }
-
-    public ReturnValue<T> Expect<T>(Expression<Func<T>> expression)
-    {
-        return new ReturnValue<T>();
-    }
-
-    public string NameIs()
-    {
-        return "foo";
-    }
-
-
-
-    public void Stuff()
-    {
-        Spec += () => NameIs().ShouldBe("foo");
-    }
-}
-
-public static class Expectations
-{
-    public static void ShouldBe<T>(this T value, T expected)
-    {
-        
-    }
+    /// <summary>
+    /// The step context for the currently executing scenario. Available during step execution.
+    /// </summary>
+    public IStepContext? Context { get; internal set; }
 }

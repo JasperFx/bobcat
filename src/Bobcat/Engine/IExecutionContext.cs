@@ -1,27 +1,18 @@
-namespace Bobcat.Engine
-{
-    // TODO -- split the interface for what's valid to the execution step
-    // and what's valid to the engine
-    public interface IExecutionContext
-    {
-        string SpecId { get; }
-        
-        // Timings?
-        // Record outputs?
-        // Expose a service locator?
-        // Track counts and results
-        // Expose extended logging
-        // Custom tracing for troubleshooting?
-        // TODO -- tie into ILogger here, correlate logs captured to
-        // the SpecResults
+namespace Bobcat.Engine;
 
-        IEnumerable<Exception> Exceptions { get; }
-        void MarkCancelled(string reason);
-        StepResult StepStarted(IExecutionStep step, long elapsedMilliseconds);
-        void ExecutionStarted();
-        void ExecutionFailed(Exception exception, long elapsedMilliseconds);
-        void ExecutionFinished(long elapsedMilliseconds);
-        void StepFinished(StepResult result);
-        void TimedOut(long elapsedMilliseconds);
-    }
+/// <summary>
+/// Engine-internal context used by the Executor to manage lifecycle.
+/// Extends IStepContext so it can be passed to steps (which only see the narrow interface).
+/// </summary>
+public interface IExecutionContext : IStepContext
+{
+    IEnumerable<Exception> Exceptions { get; }
+    ExecutionResults Results { get; }
+    void MarkCancelled(string reason);
+    StepResult StepStarted(IExecutionStep step, long elapsedMilliseconds);
+    void ExecutionStarted();
+    void ExecutionFailed(Exception exception, long elapsedMilliseconds);
+    void ExecutionFinished(long elapsedMilliseconds);
+    void StepFinished(StepResult result);
+    void TimedOut(long elapsedMilliseconds);
 }

@@ -57,7 +57,7 @@ public class StepResultTests
     [InlineData(2, 0, 3, ResultStatus.ok, ResultStatus.success, ResultStatus.success, ResultStatus.error, ResultStatus.invalid, ResultStatus.missing)]
     public void mark_cells(int rights, int wrongs, int errors, params ResultStatus[] statuses)
     {
-        var result = new StepResult(Guid.NewGuid().ToString(), 0, statuses.First());
+        var result = new StepResult(Guid.NewGuid().ToString(), 0, status: statuses.First());
         
         var cells = statuses.Skip(1)
             .Select(status => new CellResult(Guid.NewGuid().ToString(), status, "whatever"))

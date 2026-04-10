@@ -23,9 +23,9 @@ public class ExecutionResults
         StartTime = startTime;
     }
 
-    public StepResult StartStep(string stepId, long elapsedMilliseconds)
+    public StepResult StartStep(string stepId, long elapsedMilliseconds, StepKind stepKind = StepKind.Then)
     {
-        var result = new StepResult(stepId, elapsedMilliseconds);
+        var result = new StepResult(stepId, elapsedMilliseconds, stepKind);
         _stepResults.Add(result);
 
         return result;

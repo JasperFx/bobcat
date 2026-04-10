@@ -67,7 +67,7 @@ public class ExecutionResultsTests
         execution.Tabulate(result2);
         
         var result3 = execution.StartStep("bar3", 55);
-        result2.MarkErrored(new DivideByZeroException(), 70);
+        result3.MarkErrored(new DivideByZeroException(), 70);
         execution.Tabulate(result3);
         
         execution.AllExceptions().Count().ShouldBe(2);

@@ -9,6 +9,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Tests", "src\Bobcat.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsolePreview", "src\ConsolePreview\ConsolePreview.csproj", "{87280248-398A-4D19-AE9B-787FBE4EB4EE}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionItems", "SolutionItems", "{F10D3735-265F-4A45-8D95-EBC409ADB7DB}"
+	ProjectSection(SolutionItems) = preProject
+		spec-driven-development-design.md = spec-driven-development-design.md
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
