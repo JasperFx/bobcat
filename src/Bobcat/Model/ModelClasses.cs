@@ -10,6 +10,8 @@ public class Step
 {
     private readonly List<Step> _children = new();
     private readonly Dictionary<string, object> _values = new();
+    private readonly List<Dictionary<string, object>> _rows = new();
+    private readonly List<string> _tags = new();
 
     public IGrammar Grammar { get; }
     public Step? Parent { get; private set; }
@@ -48,6 +50,20 @@ public class Step
         return _values.TryGetValue(name, out value!);
     }
 
+    public Step AddRow(Dictionary<string, object> row)
+    {
+        _rows.Add(row);
+        return this;
+    }
+
+    public Step WithTag(string tag)
+    {
+        _tags.Add(tag);
+        return this;
+    }
+
+    public IReadOnlyList<Dictionary<string, object>> Rows => _rows;
+    public IReadOnlyList<string> Tags => _tags;
     public IReadOnlyList<Step> Children => _children;
     public IReadOnlyDictionary<string, object> Values => _values;
 

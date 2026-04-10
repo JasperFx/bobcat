@@ -1,3 +1,5 @@
+using Bobcat.Runtime;
+
 namespace Bobcat.Engine;
 
 /// <summary>
@@ -12,6 +14,11 @@ public interface IStepContext
     /// Resolve a service from the test system's DI container.
     /// </summary>
     T GetService<T>() where T : notnull;
+
+    /// <summary>
+    /// Look up a test resource by type and optional name.
+    /// </summary>
+    T GetResource<T>(string? name = null) where T : class, ITestResource;
 
     /// <summary>
     /// Log a message that will be correlated to the current step in results.

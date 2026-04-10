@@ -62,22 +62,114 @@ public class CommandLineRenderer
             AnsiConsole.MarkupLine($"      [yellow]{Markup.Escape(step.Exception.GetType().Name)}: {Markup.Escape(step.Exception.Message)}[/]");
         }
 
-        if (step.StepStatus == ResultStatus.failed)
+        if (step.StepStatus == ResultStatus.failed && !step.IsSetVerification)
         {
             AnsiConsole.MarkupLine($"      [red]Assertion failed[/]");
         }
 
-        foreach (var cell in step.Cells)
+        if (step.IsSetVerification && step.Cells.Count > 0)
         {
-            var cellIcon = cell.Status switch
-            {
-                ResultStatus.success => "[green]✓[/]",
-                ResultStatus.failed => "[red]✗[/]",
-                ResultStatus.error => "[yellow]![/]",
-                _ => " "
-            };
-            AnsiConsole.MarkupLine($"        {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+            RenderSetVerificationTable(step);
         }
+        else
+        {
+            foreach (var cell in step.Cells)
+            {
+                var cellIcon = cell.Status switch
+                {
+                    ResultStatus.success => "[green]✓[/]",
+                    ResultStatus.failed => "[red]✗[/]",
+                    ResultStatus.error => "[yellow]![/]",
+                    _ => " "
+                };
+                AnsiConsole.MarkupLine(
+                    $"        {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+            }
+        }
+    }
+
+    public void RenderSetVerificationTable(StepResult step)
+    {
+        var columns = step.SetVerificationColumns ?? [];
+        if (columns.Count == 0)
+        {
+            // No structured columns — render cells as flat list
+            foreach (var cell in step.Cells)
+            {
+                var icon = cell.Status switch
+                {
+                    ResultStatus.missing => "[red]✗[/]",
+                    ResultStatus.invalid => "[yellow]?[/]",
+                    _ => " "
+                };
+                AnsiConsole.MarkupLine($"        {icon} {Markup.Escape(cell.DisplayText)}");
+            }
+            return;
+        }
+
+        var table = new Spectre.Console.Table();
+        table.Border(TableBorder.Rounded);
+        table.AddColumn(new TableColumn("[dim]#[/]").Centered());
+        foreach (var col in columns)
+        {
+            table.AddColumn(new TableColumn(Markup.Escape(col)));
+        }
+        table.AddColumn(new TableColumn("[dim]Status[/]").Centered());
+
+        // Group cells by RowIndex
+        var rows = step.Cells.GroupBy(c => c.RowIndex).OrderBy(g => g.Key);
+        foreach (var row in rows)
+        {
+            var rowCells = row.ToList();
+
+            // Check for special row types
+            var missingCell = rowCells.FirstOrDefault(c => c.Name == "missing-row");
+            if (missingCell != null)
+            {
+                var emptyCols = columns.Select(_ => "[red]-[/]").ToList();
+                emptyCols.Insert(0, $"[dim]{row.Key + 1}[/]");
+                emptyCols.Add("[red]MISSING[/]");
+                table.AddRow(emptyCols.ToArray());
+                continue;
+            }
+
+            var extraCell = rowCells.FirstOrDefault(c => c.Name == "extra-row");
+            if (extraCell != null)
+            {
+                var emptyCols = columns.Select(_ => "[yellow]...[/]").ToList();
+                emptyCols.Insert(0, $"[dim]{row.Key + 1}[/]");
+                emptyCols.Add("[yellow]EXTRA[/]");
+                table.AddRow(emptyCols.ToArray());
+                continue;
+            }
+
+            // Normal matched/compared row
+            var values = new List<string> { $"[dim]{row.Key + 1}[/]" };
+            var allOk = true;
+            foreach (var col in columns)
+            {
+                var cell = rowCells.FirstOrDefault(c => c.Name == col);
+                if (cell == null)
+                {
+                    values.Add("[dim]-[/]");
+                    continue;
+                }
+
+                values.Add(cell.Status switch
+                {
+                    ResultStatus.success => $"[green]{Markup.Escape(cell.DisplayText)}[/]",
+                    ResultStatus.failed => $"[red]{Markup.Escape(cell.DisplayText)}[/]",
+                    _ => Markup.Escape(cell.DisplayText)
+                });
+
+                if (cell.Status != ResultStatus.success) allOk = false;
+            }
+
+            values.Add(allOk ? "[green]OK[/]" : "[red]FAIL[/]");
+            table.AddRow(values.ToArray());
+        }
+
+        AnsiConsole.Write(table);
     }
 
     public void RenderCounts(Counts counts)

@@ -12,7 +12,12 @@ public class CellResult
         Status = status;
         DisplayText = displayText;
     }
-    
+
     public Exception? Exception { get; init; }
+
+    /// <summary>
+    /// Row index for set verification results (0-based). -1 for non-table cells.
+    /// </summary>
+    public int RowIndex { get; init; } = -1;
 }
 

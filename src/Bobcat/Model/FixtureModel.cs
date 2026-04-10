@@ -41,24 +41,40 @@ public class FixtureModel
                 continue;
             }
 
+            var isTable = method.GetCustomAttribute<TableAttribute>() != null;
+            var setVerification = method.GetCustomAttribute<SetVerificationAttribute>();
+
             var given = method.GetCustomAttribute<GivenAttribute>();
             if (given != null)
             {
-                _grammars[method.Name] = new Sentence(method, given, StepKind.Given);
+                _grammars[method.Name] = isTable
+                    ? new TableGrammar(method, given, StepKind.Given)
+                    : new Sentence(method, given, StepKind.Given);
                 continue;
             }
 
             var when = method.GetCustomAttribute<WhenAttribute>();
             if (when != null)
             {
-                _grammars[method.Name] = new Sentence(method, when, StepKind.When);
+                _grammars[method.Name] = isTable
+                    ? new TableGrammar(method, when, StepKind.When)
+                    : new Sentence(method, when, StepKind.When);
                 continue;
             }
 
             var then = method.GetCustomAttribute<ThenAttribute>();
             if (then != null)
             {
-                _grammars[method.Name] = new Sentence(method, then, StepKind.Then);
+                if (setVerification != null)
+                {
+                    _grammars[method.Name] = new SetVerificationGrammar(method, then, setVerification);
+                }
+                else
+                {
+                    _grammars[method.Name] = isTable
+                        ? new TableGrammar(method, then, StepKind.Then)
+                        : new Sentence(method, then, StepKind.Then);
+                }
                 continue;
             }
 

@@ -64,3 +64,24 @@ public class CheckAttribute : StepAttribute
 {
     public CheckAttribute(string expression) : base(expression) { }
 }
+
+/// <summary>
+/// Marks a step method as accepting table data. Each row in the table
+/// becomes a separate invocation of the method.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class TableAttribute : Attribute { }
+
+/// <summary>
+/// Marks a Then method as a set verification step. The method must return
+/// IEnumerable of some type. Bobcat compares the returned collection against
+/// expected table data, producing per-cell diffs.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class SetVerificationAttribute : Attribute
+{
+    /// <summary>
+    /// Comma-separated column names that uniquely identify a row for matching.
+    /// </summary>
+    public string KeyColumns { get; set; } = "";
+}

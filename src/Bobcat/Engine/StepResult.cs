@@ -60,6 +60,17 @@ public class StepResult
         }
     }
 
+    /// <summary>
+    /// When true, cells represent a set verification table and should be
+    /// rendered as a table with per-cell coloring.
+    /// </summary>
+    public bool IsSetVerification { get; set; }
+
+    /// <summary>
+    /// Column headers for set verification table rendering.
+    /// </summary>
+    public IReadOnlyList<string>? SetVerificationColumns { get; set; }
+
     public long Start { get; }
     public long End { get; private set; }
 

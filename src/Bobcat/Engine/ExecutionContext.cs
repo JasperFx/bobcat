@@ -1,15 +1,19 @@
+using Bobcat.Runtime;
+
 namespace Bobcat.Engine;
 
 public class SpecExecutionContext : IExecutionContext
 {
     private readonly IServiceProvider? _services;
+    private readonly TestSuite? _suite;
     private readonly List<Exception> _exceptions = new();
     private readonly List<string> _log = new();
 
-    public SpecExecutionContext(string specId, IServiceProvider? services = null)
+    public SpecExecutionContext(string specId, IServiceProvider? services = null, TestSuite? suite = null)
     {
         SpecId = specId;
         _services = services;
+        _suite = suite;
         Results = new ExecutionResults(specId, DateTimeOffset.UtcNow);
     }
 
@@ -22,10 +26,18 @@ public class SpecExecutionContext : IExecutionContext
     public T GetService<T>() where T : notnull
     {
         if (_services == null)
-            throw new InvalidOperationException("No service provider configured. Register an ISystem to provide services.");
+            throw new InvalidOperationException("No service provider configured.");
 
         return (T)(_services.GetService(typeof(T))
                    ?? throw new InvalidOperationException($"Service {typeof(T).Name} not registered."));
+    }
+
+    public T GetResource<T>(string? name = null) where T : class, ITestResource
+    {
+        if (_suite == null)
+            throw new InvalidOperationException("No TestSuite configured.");
+
+        return _suite.GetResource<T>(name);
     }
 
     public void Log(string message)
@@ -40,7 +52,6 @@ public class SpecExecutionContext : IExecutionContext
 
     public void MarkCancelled(string reason)
     {
-        // Could track the cancellation reason for rendering
     }
 
     public StepResult StepStarted(IExecutionStep step, long elapsedMilliseconds)
