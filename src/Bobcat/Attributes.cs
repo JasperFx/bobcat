@@ -1,4 +1,18 @@
+using System.Text.RegularExpressions;
+
 namespace Bobcat;
+
+/// <summary>
+/// Sets the title used to match this fixture to a Gherkin Feature.
+/// If not specified, the title is derived from the class name
+/// (e.g., OrderAggregateFixture → "Order Aggregate").
+/// </summary>
+[AttributeUsage(AttributeTargets.Class)]
+public class FixtureTitleAttribute : Attribute
+{
+    public string Title { get; }
+    public FixtureTitleAttribute(string title) => Title = title;
+}
 
 /// <summary>
 /// Marks a fixture method as a Given step (data setup).

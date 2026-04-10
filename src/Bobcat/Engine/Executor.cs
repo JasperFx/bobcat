@@ -1,15 +1,18 @@
 using System.Diagnostics;
+using Bobcat.Runtime;
 
 namespace Bobcat.Engine;
 
 public class Executor
 {
     private readonly IContinuationRule[] _rules;
+    private readonly IExecutionObserver _observer;
     private readonly Stopwatch _stopwatch;
 
-    public Executor(IContinuationRule[] rules)
+    public Executor(IContinuationRule[] rules, IExecutionObserver? observer = null)
     {
         _rules = rules;
+        _observer = observer ?? NullObserver.Instance;
         _stopwatch = new Stopwatch();
     }
 
@@ -54,9 +57,11 @@ public class Executor
     {
         var result = context.StepStarted(step, _stopwatch.ElapsedMilliseconds);
 
+        var stepText = step is DelegateExecutionStep del ? del.StepText : step.StepId;
+        _observer.StepStarted(step.StepId, step.StepKind, stepText);
+
         try
         {
-            // Steps see only IStepContext, not the full IExecutionContext
             await step.Execute(context, result, cancellation.Token);
         }
         catch (Exception e)
@@ -67,6 +72,7 @@ public class Executor
         {
             result.MarkEnded(_stopwatch.ElapsedMilliseconds);
             context.StepFinished(result);
+            _observer.StepFinished(result);
         }
 
         if (ShouldStop(context, step, result, out var reason))

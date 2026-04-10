@@ -6,6 +6,11 @@ public class StepResult
     public StepKind StepKind { get; }
     public FailureLevel FailureLevel { get; private set; } = FailureLevel.None;
 
+    /// <summary>
+    /// Original Gherkin step text for rendering (e.g., "the left operand is 25").
+    /// </summary>
+    public string? StepText { get; set; }
+
     public StepResult(string stepId, long start, StepKind stepKind = StepKind.Then, ResultStatus status = ResultStatus.ok)
     {
         StepId = stepId;
