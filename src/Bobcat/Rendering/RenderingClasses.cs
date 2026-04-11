@@ -38,8 +38,3 @@ public class Line : IEnumerable<Cell>
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
-public class Table
-{
-    public string HeaderText { get; set; } = "Table Header";
-    public List<string> Headers { get; } = new();
-}
