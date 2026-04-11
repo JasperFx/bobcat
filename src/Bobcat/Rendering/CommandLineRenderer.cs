@@ -91,6 +91,26 @@ public class CommandLineRenderer
             AnsiConsole.MarkupLine(
                 $"        {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
         }
+
+        // Render correlated logs
+        if (step.Logs.Count > 0)
+        {
+            AnsiConsole.MarkupLine("      [dim]Logs:[/]");
+            foreach (var log in step.Logs)
+            {
+                AnsiConsole.MarkupLine($"      [dim]  {Markup.Escape(log)}[/]");
+            }
+        }
+
+        // Render diagnostics
+        if (step.Diagnostics.Count > 0)
+        {
+            AnsiConsole.MarkupLine("      [dim]Diagnostics:[/]");
+            foreach (var (key, value) in step.Diagnostics)
+            {
+                AnsiConsole.MarkupLine($"      [dim]  {Markup.Escape(key)}: {Markup.Escape(value)}[/]");
+            }
+        }
     }
 
     public void RenderSetVerification(SetVerificationRender sv)

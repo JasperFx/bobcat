@@ -47,6 +47,8 @@ public class StepRender
     public string? ExceptionType { get; init; }
     public SetVerificationRender? SetVerification { get; init; }
     public List<CellRender> Cells { get; init; } = new();
+    public List<string> Logs { get; init; } = new();
+    public Dictionary<string, string> Diagnostics { get; init; } = new();
 
     public static StepRender FromStepResult(StepResult result)
     {
@@ -78,7 +80,10 @@ public class StepRender
             ErrorMessage = result.Exception?.Message,
             ExceptionType = result.Exception?.GetType().Name,
             SetVerification = sv,
-            Cells = cells
+            Cells = cells,
+            Logs = result.Logs.ToList(),
+            Diagnostics = result.Diagnostics.ToDictionary(
+                kv => kv.Key, kv => kv.Value?.ToString() ?? "")
         };
     }
 }

@@ -16,6 +16,7 @@ public class BobcatRunner
     private IExecutionObserver _observer = NullObserver.Instance;
 
     public TestSuite Suite => _suite;
+    internal bool SuppressConsoleOutput { get; set; }
 
     public BobcatRunner WithObserver(IExecutionObserver observer)
     {
@@ -96,7 +97,7 @@ public class BobcatRunner
     private async Task<FeatureResults> RunFeature(FeatureDefinition feature, string? tagFilter)
     {
         var featureResults = new FeatureResults(feature.Title);
-        _renderer.RenderFeatureHeader(feature.Title);
+        if (!SuppressConsoleOutput) _renderer.RenderFeatureHeader(feature.Title);
         _observer.FeatureStarted(feature.Title);
 
         var scenarios = feature.Scenarios.AsEnumerable();
@@ -114,9 +115,12 @@ public class BobcatRunner
             var result = await RunScenario(feature, scenario);
             featureResults.Add(result);
 
-            // Render immediately
-            var specRender = SpecRender.FromResults(scenario.Title, result.Results, feature.Title);
-            _renderer.Render(specRender);
+            // Render immediately (unless suppressed for JSON mode)
+            if (!SuppressConsoleOutput)
+            {
+                var specRender = SpecRender.FromResults(scenario.Title, result.Results, feature.Title);
+                _renderer.Render(specRender);
+            }
 
             // Stop feature on catastrophic
             if (result.Results.Steps.Any(s => s.FailureLevel == FailureLevel.Catastrophic))
@@ -213,6 +217,7 @@ public class BobcatRunner
 
         string? featureFilter = null;
         string? tagFilter = null;
+        bool jsonOutput = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -220,10 +225,21 @@ public class BobcatRunner
                 featureFilter = args[++i];
             if (args[i] == "--tag" && i + 1 < args.Length)
                 tagFilter = args[++i];
+            if (args[i] == "--json")
+                jsonOutput = true;
         }
 
+        runner.SuppressConsoleOutput = jsonOutput;
         var results = await runner.RunAll(featureFilter, tagFilter);
-        runner.RenderSummary(results);
+
+        if (jsonOutput)
+        {
+            Console.WriteLine(Rendering.JsonRenderer.RenderSuite(results));
+        }
+        else
+        {
+            runner.RenderSummary(results);
+        }
 
         return results.ExitCode;
     }

@@ -80,6 +80,28 @@ public class StepResult
     public long End { get; private set; }
 
     private readonly List<CellResult> _cells = new();
+    private readonly Dictionary<string, object> _diagnostics = new();
+    private readonly List<string> _logs = new();
+
+    /// <summary>
+    /// Diagnostic data attached during step execution (SQL queries, HTTP calls, etc).
+    /// </summary>
+    public IReadOnlyDictionary<string, object> Diagnostics => _diagnostics;
+
+    /// <summary>
+    /// Log messages correlated to this step's execution.
+    /// </summary>
+    public IReadOnlyList<string> Logs => _logs;
+
+    public void AttachDiagnostic(string key, object data)
+    {
+        _diagnostics[key] = data;
+    }
+
+    public void AddLog(string message)
+    {
+        _logs.Add(message);
+    }
 
     public IReadOnlyList<CellResult> Cells => _cells;
 

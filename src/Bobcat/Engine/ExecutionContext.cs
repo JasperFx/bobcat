@@ -7,7 +7,11 @@ public class SpecExecutionContext : IExecutionContext
     private readonly IServiceProvider? _services;
     private readonly TestSuite? _suite;
     private readonly List<Exception> _exceptions = new();
-    private readonly List<string> _log = new();
+
+    /// <summary>
+    /// The currently executing step's result — Log() and AttachDiagnostic() route here.
+    /// </summary>
+    internal StepResult? CurrentStep { get; set; }
 
     public SpecExecutionContext(string specId, IServiceProvider? services = null, TestSuite? suite = null)
     {
@@ -42,12 +46,12 @@ public class SpecExecutionContext : IExecutionContext
 
     public void Log(string message)
     {
-        _log.Add(message);
+        CurrentStep?.AddLog(message);
     }
 
     public void AttachDiagnostic(string key, object data)
     {
-        // Diagnostics bag — will be expanded in Phase 3
+        CurrentStep?.AttachDiagnostic(key, data);
     }
 
     public void MarkCancelled(string reason)
@@ -56,7 +60,9 @@ public class SpecExecutionContext : IExecutionContext
 
     public StepResult StepStarted(IExecutionStep step, long elapsedMilliseconds)
     {
-        return Results.StartStep(step.StepId, elapsedMilliseconds, step.StepKind);
+        var result = Results.StartStep(step.StepId, elapsedMilliseconds, step.StepKind);
+        CurrentStep = result;
+        return result;
     }
 
     public void ExecutionStarted()
@@ -72,11 +78,13 @@ public class SpecExecutionContext : IExecutionContext
     public void ExecutionFinished(long elapsedMilliseconds)
     {
         Results.EndTime = DateTimeOffset.UtcNow;
+        CurrentStep = null;
     }
 
     public void StepFinished(StepResult result)
     {
         Results.Tabulate(result);
+        CurrentStep = null;
     }
 
     public void TimedOut(long elapsedMilliseconds)
