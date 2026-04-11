@@ -26,4 +26,7 @@ public class CalculatorFixture : Fixture
         if (Result != expected)
             throw new Exception($"Expected {expected} but got {Result}");
     }
+
+    [Check("the result is not negative")]
+    public bool TheResultIsNotNegative() => Result >= 0;
 }
