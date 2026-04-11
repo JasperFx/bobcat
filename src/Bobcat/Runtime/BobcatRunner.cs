@@ -96,6 +96,7 @@ public class BobcatRunner
     private async Task<FeatureResults> RunFeature(FeatureDefinition feature, string? tagFilter)
     {
         var featureResults = new FeatureResults(feature.Title);
+        _renderer.RenderFeatureHeader(feature.Title);
         _observer.FeatureStarted(feature.Title);
 
         var scenarios = feature.Scenarios.AsEnumerable();

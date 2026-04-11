@@ -122,11 +122,37 @@ public class SetVerificationRender
             }
             else if (extraCell != null)
             {
-                rows.Add(new SetVerificationRowRender
+                var extraRow = new SetVerificationRowRender
                 {
                     RowType = SetVerificationRowType.Extra,
                     Description = extraCell.DisplayText
-                });
+                };
+
+                // Parse "Extra row: Key=Value, Key=Value" into cells
+                var desc = extraCell.DisplayText;
+                if (desc.StartsWith("Extra row: "))
+                {
+                    var pairs = desc["Extra row: ".Length..].Split(", ");
+                    var parsed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var pair in pairs)
+                    {
+                        var eq = pair.IndexOf('=');
+                        if (eq > 0)
+                            parsed[pair[..eq]] = pair[(eq + 1)..];
+                    }
+
+                    foreach (var col in columns)
+                    {
+                        extraRow.Cells.Add(new SetVerificationCellRender
+                        {
+                            Column = col,
+                            Status = ResultStatus.invalid,
+                            DisplayText = parsed.GetValueOrDefault(col, "")
+                        });
+                    }
+                }
+
+                rows.Add(extraRow);
             }
             else
             {

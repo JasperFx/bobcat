@@ -22,9 +22,9 @@ Feature: Inventory
       | sku      | productName   | quantity |
       | SKU-001  | Widget        | 100      |
       | SKU-002  | Gadget        | 50       |
+      | SKU-003  | Doohickey     | 10       |
     When 10 units of "SKU-001" are sold
     Then the inventory should be
       | Sku      | ProductName   | Quantity |
       | SKU-001  | Widget        | 999      |
-      | SKU-002  | Gadget        | 50       |
       | SKU-099  | Phantom       | 1        |

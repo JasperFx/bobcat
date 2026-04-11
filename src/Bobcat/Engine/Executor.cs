@@ -58,6 +58,7 @@ public class Executor
         var result = context.StepStarted(step, _stopwatch.ElapsedMilliseconds);
 
         var stepText = step is DelegateExecutionStep del ? del.StepText : step.StepId;
+        result.StepText = stepText;
         _observer.StepStarted(step.StepId, step.StepKind, stepText);
 
         try

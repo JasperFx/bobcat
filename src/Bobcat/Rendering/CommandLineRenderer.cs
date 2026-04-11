@@ -6,6 +6,13 @@ namespace Bobcat.Rendering;
 
 public class CommandLineRenderer
 {
+    public void RenderFeatureHeader(string featureTitle)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[bold]Feature: {Markup.Escape(featureTitle)}[/]");
+        AnsiConsole.MarkupLine($"[dim]{new string('═', Math.Min(featureTitle.Length + 10, 60))}[/]");
+    }
+
     // --- SpecRender-based rendering (primary) ---
 
     public void Render(SpecRender spec)
@@ -115,8 +122,18 @@ public class CommandLineRenderer
                 }
                 case SetVerificationRowType.Extra:
                 {
-                    var cols = sv.Columns.Select(_ => "[yellow]...[/]").ToList();
-                    cols.Insert(0, $"[dim]{rowNum}[/]");
+                    var cols = new List<string> { $"[dim]{rowNum}[/]" };
+                    if (row.Cells.Count > 0)
+                    {
+                        foreach (var cell in row.Cells)
+                        {
+                            cols.Add($"[yellow]{Markup.Escape(cell.DisplayText)}[/]");
+                        }
+                    }
+                    else
+                    {
+                        cols.AddRange(sv.Columns.Select(_ => "[yellow]...[/]"));
+                    }
                     cols.Add("[yellow]EXTRA[/]");
                     table.AddRow(cols.ToArray());
                     break;
