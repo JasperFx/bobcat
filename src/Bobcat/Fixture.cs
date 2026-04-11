@@ -23,7 +23,7 @@ public abstract partial class Fixture
     /// <summary>
     /// The step context for the currently executing scenario. Available during step execution.
     /// </summary>
-    public IStepContext? Context { get; internal set; }
+    public IStepContext? Context { get; set; }
 
     /// <summary>
     /// Derive a feature title from a fixture type. Uses [FixtureTitle] if present,

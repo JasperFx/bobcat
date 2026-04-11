@@ -5,8 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
-using Gherkin;
-using Gherkin.Ast;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -76,78 +74,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
     private static FeatureInfo? ParseFeatureFile(string path, string content)
     {
-        if (string.IsNullOrWhiteSpace(content)) return null;
-
-        try
-        {
-            var parser = new Parser();
-            var doc = parser.Parse(new StringReader(content));
-            var feature = doc.Feature;
-            if (feature == null) return null;
-
-            var info = new FeatureInfo
-            {
-                Title = feature.Name ?? "",
-                FilePath = path,
-            };
-
-            foreach (var child in feature.Children)
-            {
-                if (child is Scenario scenario)
-                {
-                    var scenarioInfo = new ScenarioInfo
-                    {
-                        Title = scenario.Name ?? "",
-                        Tags = scenario.Tags?.Select(t => t.Name.TrimStart('@')).ToList() ?? new()
-                    };
-
-                    string lastKeyword = "Given";
-                    foreach (var step in scenario.Steps)
-                    {
-                        var keyword = step.Keyword.Trim();
-                        var resolved = keyword;
-                        if (keyword == "And" || keyword == "But" || keyword == "*")
-                        {
-                            resolved = lastKeyword;
-                        }
-                        else
-                        {
-                            lastKeyword = keyword;
-                        }
-
-                        var stepInfo = new StepInfo
-                        {
-                            Keyword = keyword,
-                            ResolvedKeyword = resolved,
-                            Text = step.Text?.Trim() ?? ""
-                        };
-
-                        if (step.Argument is DataTable dataTable)
-                        {
-                            var rows = dataTable.Rows.ToList();
-                            if (rows.Count > 0)
-                            {
-                                stepInfo.TableHeaders = rows[0].Cells.Select(c => c.Value).ToList();
-                                stepInfo.TableRows = rows.Skip(1)
-                                    .Select(r => r.Cells.Select(c => c.Value).ToList())
-                                    .ToList();
-                            }
-                        }
-
-                        scenarioInfo.Steps.Add(stepInfo);
-                    }
-
-                    info.Scenarios.Add(scenarioInfo);
-                }
-                // TODO: Handle Background, ScenarioOutline
-            }
-
-            return info;
-        }
-        catch
-        {
-            return null;
-        }
+        return SimpleGherkinParser.Parse(content, path);
     }
 
     private static FixtureInfo? ExtractFixtureInfo(GeneratorSyntaxContext ctx, CancellationToken ct)

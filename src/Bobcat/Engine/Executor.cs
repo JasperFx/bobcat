@@ -63,6 +63,12 @@ public class Executor
         try
         {
             await step.Execute(context, result, cancellation.Token);
+
+            // Auto-mark success if the step completed without setting a status
+            if (result.StepStatus == ResultStatus.ok)
+            {
+                result.MarkSuccess();
+            }
         }
         catch (Exception e)
         {
