@@ -4,85 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Bobcat?
 
-Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. It targets the Critter Stack ecosystem (Wolverine, Marten, Polecat) and aims to provide robust, human-readable integration testing with intelligent execution control. Tests are C#-first with optional Gherkin support planned.
+Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. `.feature` files are compiled to direct fixture method calls via a Roslyn source generator — no runtime reflection, compile-time step matching with compile errors for unmatched steps.
 
 ## Build & Test Commands
 
 ```bash
-# Build
+# Build everything
 dotnet build
 
-# Run all tests
+# Run unit tests
 dotnet test
 
-# Run a single test
-dotnet test --filter "FullyQualifiedName~Bobcat.Tests.EndToEnd.PipelineTests.full_pipeline_passing_scenario"
+# Run the spec runner demo (uses source-generated code from .feature files)
+dotnet run --project src/ConsolePreview/ -- run
 
-# Run tests in a specific class
-dotnet test --filter "FullyQualifiedName~Bobcat.Tests.Model.CountsTests"
+# List discovered features/scenarios
+dotnet run --project src/ConsolePreview/ -- list
 
-# Run the ConsolePreview demo
-dotnet run --project src/ConsolePreview/
+# Filter by feature name
+dotnet run --project src/ConsolePreview/ -- run --feature "Calculator"
+
+# Filter by tag
+dotnet run --project src/ConsolePreview/ -- run --tag regression
+
+# Run a specific test class
+dotnet test --filter "FullyQualifiedName~Bobcat.Tests.EndToEnd.PipelineTests"
+
+# Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-All projects target .NET 10.0. Test framework is xUnit with Shouldly assertions and NSubstitute for mocking.
+All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use xUnit + Shouldly + NSubstitute.
 
 ## Architecture
 
-The codebase follows a **Model (AST) → Plan → Execute → Results → Render** pipeline.
+### Source Generator Pipeline (primary authoring flow)
+
+`.feature` file → **Bobcat.Generators** (compile time) → generated C# with direct method calls → **Executor** (runtime) → **SpecRender** → console/HTML output
+
+1. **Feature files** are `<AdditionalFiles>` in the consuming project's `.csproj`
+2. **Source generator** (`BobcatGenerator`) reads features + fixture Roslyn symbols in same pass
+3. **Cucumber Expression parser** matches step text to `[Given]`/`[When]`/`[Then]` methods at compile time
+4. **Generated code** creates `FeatureDefinition` with `DelegateExecutionStep` lambdas (no reflection)
+5. **BobcatRunner** discovers generated features, manages resources, executes via `Executor`, renders results
+
+### Fixture → Feature Mapping
+One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
-Fixture methods are marked with `[Given("...")]`, `[When("...")]`, `[Then("...")]`, or `[Check("...")]` attributes using Gherkin Expression syntax. These mirror Reqnroll's attribute shape (without the dependency) for future compatibility. `[SetUp]` and `[TearDown]` mark fixture lifecycle methods.
+`[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison. `[SetUp]`/`[TearDown]` for lifecycle.
 
-**Important:** `[Check]` (not `[Fact]`) is used for boolean assertions to avoid collision with xUnit's `[Fact]`.
-
-### Fixtures (`src/Bobcat/Fixture.cs`, `src/Bobcat/Model/FixtureModel.cs`)
-- **`Fixture`** — Base class for test fixtures. Subclass and add attributed methods.
-- **`FixtureModel`** — Discovered structure of a fixture class (grammars, setup, teardown). Built once via reflection.
-- **`FixtureInstance`** — Live instance for a scenario execution.
-
-### Grammar System (`src/Bobcat/Model/`)
-- **`IGrammar`** — Interface: `Name`, `CreatePlan()`. Each grammar knows how to add `IExecutionStep`s to an `ExecutionPlan`.
-- **`Sentence`** — Wraps an attributed method. Resolves parameters from Step values.
-- **`Fact`** — Wraps a `[Check]` method returning `bool`/`Task<bool>`. Returns Assertion failure (not Critical) on false.
-- **`Step`** — AST node tree. `Step.Add(grammar)` generates name-based IDs with dedup suffixes.
-- **`SpecificationRoot`** — Root grammar that walks children to build the plan.
+**Important:** `[Check]` (not `[Fact]`) for boolean assertions — avoids xUnit collision.
 
 ### Engine (`src/Bobcat/Engine/`)
-- **`IStepContext`** — Narrow interface visible to step execution code: `GetService<T>()`, `Log()`, `AttachDiagnostic()`.
-- **`IExecutionContext`** — Engine-internal interface extending `IStepContext` with lifecycle methods.
-- **`SpecExecutionContext`** — Concrete implementation (named to avoid `System.Threading.ExecutionContext` collision).
-- **`Executor`** — Runs steps sequentially with timeout, cancellation, and `IContinuationRule[]`.
-- **`StepKind`** — Given, When, Then, SetUp, TearDown. Drives automatic failure classification.
-- **`FailureLevel`** — None, Assertion, Critical, Catastrophic. Set by `StepResult.MarkErrored()` based on exception type and `StepKind`.
-- **`FailureLevelContinuationRule`** — Stops on Critical/Catastrophic, continues on Assertion.
-- **`SpecCriticalException`** / **`SpecCatastrophicException`** — Throw to force failure level.
+- **`Executor`** — Sequential step execution with timeout, cancellation, `IContinuationRule[]`, `IExecutionObserver`
+- **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
+- **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
+- **`StepKind`** / **`FailureLevel`** — drives automatic failure classification
+- Auto-marks success when steps complete without error
 
-### Three-Level Failure Semantics
-1. **Assertion** — `[Check]` returns false → continue to next step (gather all failures)
-2. **Critical** — Exception in any step, or `SpecCriticalException` → abort scenario
-3. **Catastrophic** — `SpecCatastrophicException` → stop entire suite
+### Runtime (`src/Bobcat/Runtime/`)
+- **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.
+- **`FeatureDefinition`** / **`ScenarioDefinition`** — compiled feature structure from generator
+- **`TestSuite`** — Named resource registry (start/reset/teardown lifecycle)
+- **`ITestResource`** — Database, IHost, Docker container, etc.
+- **`SetVerificationComparer`** — Static comparison utility called by generated code
+- **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 
 ### Rendering (`src/Bobcat/Rendering/`)
-- **`CommandLineRenderer`** — Renders `ExecutionResults` as Spectre.Console ANSI markup with status icons, step kinds, timing, exception messages.
-- **`Line`/`Cell`/`Mode`** — Composable styled text segments for inline rendering.
+- **`SpecRender`** — Intermediate model (feeds both Spectre.Console and future HTML)
+- **`CommandLineRenderer`** — Consumes `SpecRender`, outputs Spectre.Console ANSI markup
+- **`SpectreProgressObserver`** — `IExecutionObserver` for live progress during long tests
+- Set verification renders as table with per-cell coloring (green/red/yellow)
+
+### Three-Level Failure Semantics
+1. **Assertion** — `[Check]` returns false → continue (gather all failures)
+2. **Critical** — Exception in any step → abort scenario
+3. **Catastrophic** — `SpecCatastrophicException` → stop entire suite
+
+### Model (`src/Bobcat/Model/`) — Legacy
+AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
+
+## Package Structure
+
+| Package | Target | Status | Responsibility |
+|---------|--------|--------|---------------|
+| **Bobcat** | net10.0 | Active | Runtime: engine, rendering, resources, runner |
+| **Bobcat.Generators** | netstandard2.0 | Active | Source generator: Gherkin parser, Cucumber Expressions, code gen |
+| **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
+| **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 
 ## Key Dependencies
 
-- **JasperFx** — Utility library (used in core Bobcat)
+- **JasperFx** — Utility library (core Bobcat). Source at ~/code/jasperfx
 - **Spectre.Console** — Terminal rendering
+- **Microsoft.CodeAnalysis.CSharp** — Roslyn (generator only, compile time)
+
+## Consuming Project Setup
+
+```xml
+<ProjectReference Include="Bobcat" />
+<ProjectReference Include="Bobcat.Generators" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+<AdditionalFiles Include="Features/**/*.feature" />
+```
 
 ## Design References
 
-- `spec-driven-development-design.md` — Comprehensive design document covering Gherkin integration, Critter Stack step definitions, failure semantics, and the full vision.
-- `.claude/plans/declarative-roaming-kazoo.md` — Phased implementation plan (Phase 0 through Phase 5).
-
-## Package Structure (Planned)
-
-| Package | Status | Responsibility |
-|---------|--------|---------------|
-| **Bobcat** | Active | Core: engine, model, grammars, fixtures, rendering |
-| **Bobcat.Testing** | Planned | xUnit adapter via source generators |
-| **Bobcat.Gherkin** | Planned | .feature file parsing and step definition discovery |
-| **Bobcat.CritterStack** | Planned | Wolverine/Marten/Polecat step definitions |
-| **Bobcat.Reqnroll** | Planned | Reqnroll compatibility bridge |
+- `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
+- `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
+- Alba source at ~/code/alba, JasperFx source at ~/code/jasperfx
