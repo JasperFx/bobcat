@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <StartupObject>SpecsRunner</StartupObject>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Shouldly" Version="4.3.0" />
+    <PackageReference Include="WolverineFx.Marten" Version="5.30.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoreSpeakers.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Alba\Bobcat.Alba.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Wolverine\Bobcat.Wolverine.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\Features\**\*.feature" />
+  </ItemGroup>
+
+</Project>

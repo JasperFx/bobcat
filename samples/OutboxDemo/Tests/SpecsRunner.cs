@@ -1,0 +1,15 @@
+using Alba;
+using Bobcat.Runtime;
+using Marten;
+
+public class SpecsRunner
+{
+    public static async Task<int> Main(string[] args) =>
+        await BobcatRunner.Run(args, runner =>
+        {
+            runner.Suite.AddResource(new AlbaResource<Program>(
+                reset: async host => await host.CleanAllMartenDataAsync()));
+
+            runner.ScanForFeatures(typeof(OutboxDemo.Tests.RegistrationFixture).Assembly);
+        });
+}
