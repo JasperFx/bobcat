@@ -1,4 +1,5 @@
 using Alba;
+using Bobcat.Alba;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 
@@ -9,7 +10,7 @@ namespace Bobcat.Runtime;
 /// Use this when you want full control over IHostBuilder construction rather than
 /// bootstrapping from a TProgram entry point.
 /// </summary>
-public class AlbaResource : IHostResource
+public class AlbaResource : IHostResource, IAlbaResource
 {
     private readonly Func<Task<IAlbaHost>> _factory;
     private readonly Func<IAlbaHost, Task>? _reset;
@@ -66,7 +67,7 @@ public class AlbaResource : IHostResource
 /// Implements IHostResource so that Wolverine, Marten, and other extensions can locate
 /// the host without knowing the specific resource type.
 /// </summary>
-public class AlbaResource<TProgram> : IHostResource where TProgram : class
+public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgram : class
 {
     private readonly Action<IWebHostBuilder>? _configure;
     private readonly IAlbaExtension[] _extensions;
@@ -98,8 +99,8 @@ public class AlbaResource<TProgram> : IHostResource where TProgram : class
     public async Task Start()
     {
         _albaHost = _configure != null
-            ? await Alba.AlbaHost.For<TProgram>(_configure, _extensions)
-            : await Alba.AlbaHost.For<TProgram>(_extensions);
+            ? await global::Alba.AlbaHost.For<TProgram>(_configure, _extensions)
+            : await global::Alba.AlbaHost.For<TProgram>(_extensions);
     }
 
     public async Task ResetBetweenScenarios()

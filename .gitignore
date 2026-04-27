@@ -350,3 +350,6 @@ MigrationBackup/
 .ionide/
 
 .idea
+
+# Claire/Cowork worktree directories (mirror of .claude/worktrees)
+.claire/

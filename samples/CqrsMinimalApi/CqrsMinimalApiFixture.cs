@@ -4,17 +4,29 @@ using Bobcat.Alba;
 namespace CqrsMinimalApi.Tests;
 
 [FixtureTitle("CQRS Minimal API Students")]
-public class CqrsMinimalApiFixture
+public class CqrsMinimalApiFixture : Fixture
 {
     private Guid _studentId;
     private int _lastStatusCode;
     private List<StudentDto> _students = [];
 
-    [When("I create a student with name {string} and email {string}")]
-    [Given("I create a student with name {string} and email {string}")]
-    public async Task CreateStudent(IStepContext context, string name, string email)
+    public override Task SetUp()
     {
-        var result = await context.PostJsonAsync<CreateStudentRequest, CreateStudentResponse>(
+        _studentId = Guid.Empty;
+        _lastStatusCode = 0;
+        _students = [];
+        return Task.CompletedTask;
+    }
+
+    [Given("I create a student with name {string} and email {string}")]
+    public Task GivenCreateStudent(string name, string email) => CreateStudentCore(name, email);
+
+    [When("I create a student with name {string} and email {string}")]
+    public Task WhenCreateStudent(string name, string email) => CreateStudentCore(name, email);
+
+    private async Task CreateStudentCore(string name, string email)
+    {
+        var result = await Context!.PostJsonAsync<CreateStudentRequest, CreateStudentResponse>(
             "/api/students",
             new CreateStudentRequest(name, email));
         _lastStatusCode = result.StatusCode;
@@ -23,57 +35,53 @@ public class CqrsMinimalApiFixture
     }
 
     [When("I get all students")]
-    public async Task GetAllStudents(IStepContext context)
+    public async Task GetAllStudents()
     {
-        var result = await context.GetJsonAsync<List<StudentDto>>("/api/students");
+        var result = await Context!.GetJsonAsync<List<StudentDto>>("/api/students");
         _lastStatusCode = result.StatusCode;
         _students = result.Body ?? [];
     }
 
     [When("I get student by id {string}")]
-    public async Task GetStudentByStringId(IStepContext context, string id)
+    public async Task GetStudentByStringId(string id)
     {
-        var result = await context.GetJsonAsync<StudentDto>($"/api/students/{id}");
+        var result = await Context!.GetJsonAsync<StudentDto>($"/api/students/{id}");
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I get the student by id")]
-    public async Task GetStudentById(IStepContext context)
+    public async Task GetStudentById()
     {
-        var result = await context.GetJsonAsync<StudentDto>($"/api/students/{_studentId}");
+        var result = await Context!.GetJsonAsync<StudentDto>($"/api/students/{_studentId}");
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I update the student name to {string}")]
-    public async Task UpdateStudent(IStepContext context, string newName)
+    public async Task UpdateStudent(string newName)
     {
-        var result = await context.PostJsonAsync<UpdateStudentRequest, object>(
+        var result = await Context!.PostJsonAsync<UpdateStudentRequest, object>(
             $"/api/students/{_studentId}",
             new UpdateStudentRequest(_studentId, newName));
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I delete the student")]
-    public async Task DeleteStudent(IStepContext context)
+    public async Task DeleteStudent()
     {
-        var result = await context.DeleteAsync($"/api/students/{_studentId}");
+        var result = await Context!.DeleteAsync($"/api/students/{_studentId}");
         _lastStatusCode = result.StatusCode;
     }
 
-    [Then("the response status is {int}")]
-    [Check]
+    [Check("the response status is {int}")]
     public bool StatusIs(int expected) => _lastStatusCode == expected;
 
-    [Then("the student id is returned")]
-    [Check]
+    [Check("the student id is returned")]
     public bool StudentIdReturned() => _studentId != Guid.Empty;
 
-    [Then("at least {int} students are returned")]
-    [Check]
+    [Check("at least {int} students are returned")]
     public bool AtLeastNStudents(int min) => _students.Count >= min;
 
-    [Then("they are ordered by name")]
-    [Check]
+    [Check("they are ordered by name")]
     public bool OrderedByName()
     {
         var names = _students.Select(s => s.Name).ToList();
