@@ -3,12 +3,16 @@ using Bobcat.Alba;
 
 namespace CqrsMinimalApi.Tests;
 
+// Reuses the host's Student / CreateStudentRequest / CreateStudentResponse /
+// UpdateStudentRequest types directly via the project reference, so the
+// fixture and endpoints can't drift on shape. (Earlier this file shadowed
+// those types with locally-declared records that didn't match the API.)
 [FixtureTitle("CQRS Minimal API Students")]
 public class CqrsMinimalApiFixture : Fixture
 {
     private Guid _studentId;
     private int _lastStatusCode;
-    private List<StudentDto> _students = [];
+    private List<Student> _students = [];
 
     public override Task SetUp()
     {
@@ -37,7 +41,7 @@ public class CqrsMinimalApiFixture : Fixture
     [When("I get all students")]
     public async Task GetAllStudents()
     {
-        var result = await Context!.GetJsonAsync<List<StudentDto>>("/api/students");
+        var result = await Context!.GetJsonAsync<List<Student>>("/api/students");
         _lastStatusCode = result.StatusCode;
         _students = result.Body ?? [];
     }
@@ -45,23 +49,26 @@ public class CqrsMinimalApiFixture : Fixture
     [When("I get student by id {string}")]
     public async Task GetStudentByStringId(string id)
     {
-        var result = await Context!.GetJsonAsync<StudentDto>($"/api/students/{id}");
+        var result = await Context!.GetJsonAsync<Student>($"/api/students/{id}");
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I get the student by id")]
     public async Task GetStudentById()
     {
-        var result = await Context!.GetJsonAsync<StudentDto>($"/api/students/{_studentId}");
+        var result = await Context!.GetJsonAsync<Student>($"/api/students/{_studentId}");
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I update the student name to {string}")]
     public async Task UpdateStudent(string newName)
     {
-        var result = await Context!.PostJsonAsync<UpdateStudentRequest, object>(
+        // Use the POST alias for update so the spec text "update the student"
+        // exercises a full round-trip without committing the spec to a verb;
+        // the host endpoint accepts both POST and PUT at /api/students/{id}.
+        var result = await Context!.PostJsonAsync<UpdateStudentRequest, Student>(
             $"/api/students/{_studentId}",
-            new UpdateStudentRequest(_studentId, newName));
+            new UpdateStudentRequest(newName));
         _lastStatusCode = result.StatusCode;
     }
 
@@ -88,8 +95,3 @@ public class CqrsMinimalApiFixture : Fixture
         return names.SequenceEqual(names.OrderBy(n => n));
     }
 }
-
-record CreateStudentRequest(string Name, string Email);
-record CreateStudentResponse(Guid Id);
-record UpdateStudentRequest(Guid Id, string Name);
-record StudentDto(Guid Id, string Name, string Email);

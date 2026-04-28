@@ -75,7 +75,7 @@ Bobcat.CritterStack (TODO — assumes Wolverine + Marten together)
 
 | Project | Feature File | Fixture | Wired Up | Tests Pass |
 |---------|-------------|---------|----------|------------|
-| CqrsMinimalApi | ✅ | ✅ | ❌ | ❌ |
+| CqrsMinimalApi | ✅ | ✅ | ✅ | ✅ (5/5) |
 | CleanArchitectureTodos | ✅ | ✅ | ❌ | ❌ |
 | BankAccountES | ✅ | ✅ | ❌ | ❌ |
 | EcommerceMicroservices | ✅ | ✅ | ❌ | ❌ |

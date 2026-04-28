@@ -18,8 +18,9 @@ builder.Services.AddMarten(opts =>
     opts.Connection(connectionString);
     opts.DatabaseSchemaName = "cqrs_demo";
 
-    // Use HiLo sequence for int-based identity (matching the original project's int IDs)
-    opts.Schema.For<CqrsMinimalApi.Student>().UseNumericRevisions(true);
+    // Student is Guid-keyed (the RESTful API expects Guid ids per the spec);
+    // Marten's default Guid identity is fine here. UseNumericRevisions / HiLo
+    // were dropped along with the old int-based contract.
     opts.Schema.For<CqrsMinimalApi.Student>().Index(x => x.Name);
 })
 .IntegrateWithWolverine()
@@ -54,12 +55,13 @@ static async Task SeedData(WebApplication app)
     var existing = await session.Query<CqrsMinimalApi.Student>().AnyAsync();
     if (!existing)
     {
+        // Explicit ids so the seeded set is reproducible and stable across restarts.
         session.Store(
-            new CqrsMinimalApi.Student { Name = "Tonny Blatt", Address = "123 Main St", Email = "tonny@example.com", DateOfBirth = new DateTime(1991, 10, 7) },
-            new CqrsMinimalApi.Student { Name = "Anitta Goldman", Address = "456 Oak Ave", Email = "anitta@example.com", DateOfBirth = new DateTime(1975, 5, 31) },
-            new CqrsMinimalApi.Student { Name = "Alan Ford", Address = "789 Pine Rd", Email = "alan@example.com", DateOfBirth = new DateTime(2000, 8, 26) },
-            new CqrsMinimalApi.Student { Name = "Jim Beam", Address = "321 Elm St", Email = "jim@example.com", DateOfBirth = new DateTime(1984, 1, 12) },
-            new CqrsMinimalApi.Student { Name = "Suzanne White", Address = "654 Birch Ln", Email = "suzanne@example.com", DateOfBirth = new DateTime(1992, 3, 10) }
+            new CqrsMinimalApi.Student { Id = Guid.NewGuid(), Name = "Tonny Blatt", Address = "123 Main St", Email = "tonny@example.com", DateOfBirth = new DateTime(1991, 10, 7) },
+            new CqrsMinimalApi.Student { Id = Guid.NewGuid(), Name = "Anitta Goldman", Address = "456 Oak Ave", Email = "anitta@example.com", DateOfBirth = new DateTime(1975, 5, 31) },
+            new CqrsMinimalApi.Student { Id = Guid.NewGuid(), Name = "Alan Ford", Address = "789 Pine Rd", Email = "alan@example.com", DateOfBirth = new DateTime(2000, 8, 26) },
+            new CqrsMinimalApi.Student { Id = Guid.NewGuid(), Name = "Jim Beam", Address = "321 Elm St", Email = "jim@example.com", DateOfBirth = new DateTime(1984, 1, 12) },
+            new CqrsMinimalApi.Student { Id = Guid.NewGuid(), Name = "Suzanne White", Address = "654 Birch Ln", Email = "suzanne@example.com", DateOfBirth = new DateTime(1992, 3, 10) }
         );
         await session.SaveChangesAsync();
     }

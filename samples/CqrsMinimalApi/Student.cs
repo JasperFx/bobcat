@@ -1,11 +1,13 @@
 namespace CqrsMinimalApi;
 
 /// <summary>
-/// Student document stored in Marten. Uses int identity with HiLo sequence.
+/// Student document stored in Marten. Guid-keyed for the RESTful API
+/// (POST returns 201 with the assigned id; collection routes are
+/// `/api/students/{id}`).
 /// </summary>
 public class Student
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
     public string? Email { get; set; }

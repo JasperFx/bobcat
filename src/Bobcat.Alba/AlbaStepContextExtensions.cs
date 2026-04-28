@@ -31,6 +31,12 @@ public static class AlbaStepContextExtensions
         IScenarioResult result = await host.Scenario(s =>
         {
             s.Post.Json(body).ToUrl(url);
+            // Suppress Alba's implicit StatusCodeShouldBeOk() assertion. We
+            // surface the status code on HttpResult so step assertions can
+            // verify whatever the spec actually expects (201 / 204 / 404 /
+            // anything else) instead of failing scenarios that intentionally
+            // exercise non-200 paths.
+            s.IgnoreStatusCode();
         });
         var statusCode = result.Context.Response.StatusCode;
         TResponse? responseBody = default;
@@ -45,6 +51,7 @@ public static class AlbaStepContextExtensions
         IScenarioResult result = await host.Scenario(s =>
         {
             s.Get.Url(url);
+            s.IgnoreStatusCode();
         });
         var statusCode = result.Context.Response.StatusCode;
         TResponse? body = default;
@@ -59,6 +66,7 @@ public static class AlbaStepContextExtensions
         IScenarioResult result = await host.Scenario(s =>
         {
             s.Delete.Url(url);
+            s.IgnoreStatusCode();
         });
         return new HttpResult<object>(result.Context.Response.StatusCode, null);
     }
