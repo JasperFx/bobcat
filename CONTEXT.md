@@ -147,9 +147,66 @@ The built-in demo runs 3 features (Calculator, Inventory, Invoicing) with 8 scen
 - Session assertions: `session.Sent.SingleMessage<T>()`, `session.Executed.SingleHandler<T>()`
 - In main `WolverineFx` package (no separate testing package)
 
-## Next Steps
+## Next Steps (filed as GitHub issues)
 1. Wire up sample specs to actually compile and run (need Bobcat refs, runner setup, PostgreSQL)
 2. Build `Bobcat.Marten` package (MartenStepContextExtensions)
 3. Build `Bobcat.CritterStack` package (combined Wolverine + Marten)
 4. Revisit state management pattern after more real-world usage
 5. Consider adding Storyteller-style `Context.State` bag to Bobcat core
+
+---
+
+# Update — April 29, 2026
+
+## Status snapshot
+- `main` HEAD: `3ac44fa` ("CqrsMinimalApi spec passes 5/5 — refactor to RESTful Guid contract (Path A)")
+- Working tree clean, in sync with `origin/main` — no uncommitted work to flush.
+- All in-flight Bobcat work has been parked and the remaining items are tracked as GitHub issues.
+
+## What landed since the April 12 dump
+- `7e6f4f1` Wire CqrsMinimalApi sample to the BobcatRunner end-to-end — first sample that
+  actually compiles, runs against a live PostgreSQL, and exercises the Alba + Wolverine
+  step-context extensions through the full BobcatRunner CLI path.
+- `3ac44fa` CqrsMinimalApi spec passes 5/5 — refactor to RESTful Guid contract (Path A)
+  was the sample-side change to expose stable Guid resource ids over a clean REST surface
+  so the spec could assert against id-stable URIs instead of in-memory positional refs.
+
+## PAL_SEHException root cause + fix (resolved)
+A spurious native crash on Apple-silicon hosts was traced to two collisions when the
+sample app and SpecsRunner shared a process:
+1. **TFM mismatch** — sample built `net9.0` while Bobcat built `net10.0`. The runtime
+   loaded the wrong AOT-compiled native bits and aborted in PAL.
+2. **Top-level-statements `Program` collision** — both projects emitted a synthesized
+   `Program` class at the root namespace.
+**Fix:** bumped the sample TFM to match Bobcat's, and converted SpecsRunner to an explicit
+`Main` method in a named class so there's no synthesized `Program` to collide.
+
+This is no longer an active blocker. If a similar PAL crash resurfaces, those two angles
+are the right first checks.
+
+## Postgres-on-arm64 note (cross-cut)
+The CritterWatch docker-compose was switched from `postgis/postgis:17-3.4` (amd64-only
+manifest) to `pgvector/pgvector:pg17` (multi-arch). Bobcat samples that run against the
+shared local Postgres benefit from the same change — exit-code-126 on the postgres
+container was masking what looked like Bobcat-specific failures.
+
+## Open issues parked for the next session
+- **#8** Wire up remaining 10 sample projects to BobcatRunner (template established by
+  CqrsMinimalApi). The CqrsMinimalApi case study under `samples/CqrsMinimalApi/` is the
+  reference pattern: project file references for Bobcat / Bobcat.Alba / Bobcat.Generators,
+  a SpecsRunner with `BobcatRunner.Run()`, and an `AlbaResource<Program>` registration on
+  the `TestSuite`.
+- **#9** Build `Bobcat.Marten` — `MartenStepContextExtensions` analogous to the
+  Wolverine extensions: `CleanAllMartenDataAsync`, `QueryByIdAsync`, `FetchStreamAsync`,
+  etc., resolving `IDocumentStore` via the registered `IHostResource`.
+- **#10** Build `Bobcat.CritterStack` — assumes Wolverine + Marten together. Combined
+  helpers for tracked sessions + event-store assertions, aggregate-handler testing,
+  projection wait helpers.
+- **#11** Improve diagnostics for sample-wiring footguns + document the playbook so the
+  next person wiring a sample doesn't have to rediscover the five blockers from the
+  Sample Projects Status table above.
+
+## Resuming in a new chat window
+Bring this file plus the open issue numbers (#8 / #9 / #10 / #11). The bobcat repo
+itself is at a clean stopping point, so resuming is "pick an issue, read the relevant
+section here for context, go." No mid-flight branches to clean up.
