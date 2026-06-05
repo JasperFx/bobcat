@@ -142,6 +142,9 @@ public class BobcatRunner
         var context = new SpecExecutionContext(scenario.Title, suite: _suite);
         fixture.Context = context;
 
+        // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
+        Engine.BobcatClock.ResetToControllable();
+
         _observer.ScenarioStarted(feature.Title, scenario.Title);
 
         await fixture.SetUp();

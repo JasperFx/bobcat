@@ -144,6 +144,14 @@ internal sealed class DateTimeChecker : IValueChecker<DateTime>
     public CheckResult Check(DateTime actual, string expectedText, CheckOptions options)
     {
         var actualText = CheckFormat.Of(actual);
+
+        if (RelativeTimeResolver.TryResolve(expectedText, BobcatClock.Current, out var token, out var tokenNote))
+        {
+            return token == actual
+                ? CheckResult.Match(CheckFormat.Of(token), actualText, tokenNote)
+                : CheckResult.Mismatch(CheckFormat.Of(token), actualText, tokenNote);
+        }
+
         if (!DateTime.TryParse(expectedText.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var expected))
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid DateTime");
 
@@ -158,6 +166,15 @@ internal sealed class DateOnlyChecker : IValueChecker<DateOnly>
     public CheckResult Check(DateOnly actual, string expectedText, CheckOptions options)
     {
         var actualText = CheckFormat.Of(actual);
+
+        if (RelativeTimeResolver.TryResolve(expectedText, BobcatClock.Current, out var token, out var tokenNote))
+        {
+            var tokenDate = DateOnly.FromDateTime(token);
+            return tokenDate == actual
+                ? CheckResult.Match(CheckFormat.Of(tokenDate), actualText, tokenNote)
+                : CheckResult.Mismatch(CheckFormat.Of(tokenDate), actualText, tokenNote);
+        }
+
         if (!DateOnly.TryParse(expectedText.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var expected))
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid DateOnly");
 
@@ -172,6 +189,15 @@ internal sealed class TimeOnlyChecker : IValueChecker<TimeOnly>
     public CheckResult Check(TimeOnly actual, string expectedText, CheckOptions options)
     {
         var actualText = CheckFormat.Of(actual);
+
+        if (RelativeTimeResolver.TryResolve(expectedText, BobcatClock.Current, out var token, out var tokenNote))
+        {
+            var tokenTime = TimeOnly.FromDateTime(token);
+            return tokenTime == actual
+                ? CheckResult.Match(CheckFormat.Of(tokenTime), actualText, tokenNote)
+                : CheckResult.Mismatch(CheckFormat.Of(tokenTime), actualText, tokenNote);
+        }
+
         if (!TimeOnly.TryParse(expectedText.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var expected))
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid TimeOnly");
 
