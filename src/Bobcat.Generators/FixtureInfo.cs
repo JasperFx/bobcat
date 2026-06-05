@@ -13,6 +13,44 @@ public class FixtureInfo
     public string Title { get; set; } = "";
     public string FullyQualifiedName { get; set; } = "";
     public List<StepMethodInfo> StepMethods { get; set; } = new();
+
+    /// <summary>Grammar modules composed in via [IncludeGrammars].</summary>
+    public List<ModuleInfo> Modules { get; set; } = new();
+
+    /// <summary>All step methods available to the feature: the fixture's own plus all modules'.</summary>
+    public IEnumerable<StepMethodInfo> AllStepMethods()
+    {
+        foreach (var m in StepMethods) yield return m;
+        foreach (var module in Modules)
+            foreach (var m in module.StepMethods)
+                yield return m;
+    }
+
+    /// <summary>Local variable name used for a module instance within a scenario.</summary>
+    public string ModuleLocal(string fullyQualifiedName)
+    {
+        for (var i = 0; i < Modules.Count; i++)
+            if (Modules[i].FullyQualifiedName == fullyQualifiedName)
+                return "__m" + i;
+        return "__m";
+    }
+
+    public ModuleInfo? FindModule(string fullyQualifiedName)
+    {
+        foreach (var m in Modules)
+            if (m.FullyQualifiedName == fullyQualifiedName) return m;
+        return null;
+    }
+}
+
+/// <summary>
+/// Compile-time model of a grammar module composed in via [IncludeGrammars].
+/// </summary>
+public class ModuleInfo
+{
+    public string FullyQualifiedName { get; set; } = "";
+    public bool IsFixture { get; set; }
+    public List<StepMethodInfo> StepMethods { get; set; } = new();
 }
 
 /// <summary>
@@ -51,6 +89,12 @@ public class StepMethodInfo
 
     public List<ParameterInfo> Parameters { get; set; } = new();
     public CucumberExpressionParser.ParsedExpression? ParsedExpression { get; set; }
+
+    /// <summary>
+    /// Fully-qualified name of the grammar module that declares this step, or null when it
+    /// belongs to the fixture itself. Drives call routing in the emitter.
+    /// </summary>
+    public string? DeclaringModule { get; set; }
 
     /// <summary>Input (non-out) parameters in declaration order.</summary>
     public List<ParameterInfo> InputParameters

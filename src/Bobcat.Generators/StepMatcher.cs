@@ -31,7 +31,7 @@ public static class StepMatcher
 
         var candidates = new List<(StepMethodInfo method, List<string> values)>();
 
-        foreach (var method in fixture.StepMethods)
+        foreach (var method in fixture.AllStepMethods())
         {
             // Check kind match — "Check" methods match as "Then"
             var methodKind = method.StepKind == "Check" ? "Then" : method.StepKind;

@@ -15,6 +15,19 @@ public class FixtureTitleAttribute : Attribute
 }
 
 /// <summary>
+/// Composes shared/library grammar modules into a fixture. The generator also scans the
+/// listed module types for [Given]/[When]/[Then]/[Check] methods and matches their steps to
+/// the feature, alongside the fixture's own. Repeatable/composable. Modules are instantiated
+/// once per scenario; a module that inherits <see cref="Fixture"/> receives the step context.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+public class IncludeGrammarsAttribute : Attribute
+{
+    public Type[] Modules { get; }
+    public IncludeGrammarsAttribute(params Type[] modules) => Modules = modules;
+}
+
+/// <summary>
 /// Marks a fixture method as a Given step (data setup).
 /// Uses Gherkin Expression syntax for the pattern.
 /// </summary>

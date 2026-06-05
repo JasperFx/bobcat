@@ -122,7 +122,44 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         }
 
+        // Collect [IncludeGrammars] modules
+        foreach (var attr in symbol.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name != "IncludeGrammarsAttribute") continue;
+
+            foreach (var arg in attr.ConstructorArguments)
+            {
+                // params Type[] arrives as an array typed constant
+                foreach (var typeConstant in arg.Values)
+                {
+                    if (typeConstant.Value is INamedTypeSymbol moduleSymbol)
+                        info.Modules.Add(ExtractModuleInfo(moduleSymbol));
+                }
+            }
+        }
+
         return info;
+    }
+
+    private static ModuleInfo ExtractModuleInfo(INamedTypeSymbol moduleSymbol)
+    {
+        var module = new ModuleInfo
+        {
+            FullyQualifiedName = moduleSymbol.ToDisplayString(),
+            IsFixture = InheritsFrom(moduleSymbol, "Bobcat.Fixture"),
+        };
+
+        foreach (var member in moduleSymbol.GetMembers().OfType<IMethodSymbol>())
+        {
+            var stepMethod = ExtractStepMethod(member);
+            if (stepMethod != null)
+            {
+                stepMethod.DeclaringModule = module.FullyQualifiedName;
+                module.StepMethods.Add(stepMethod);
+            }
+        }
+
+        return module;
     }
 
     private static StepMethodInfo? ExtractStepMethod(IMethodSymbol method)
