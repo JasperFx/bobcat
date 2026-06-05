@@ -7,8 +7,9 @@ namespace Bobcat.Generators;
 /// <summary>
 /// Minimal Gherkin parser that handles the subset Bobcat needs.
 /// Avoids the Gherkin NuGet dependency loading issue with source generators.
-/// Supports: Feature, Scenario, Given/When/Then/And/But, Data Tables, Tags.
-/// Does NOT support: Scenario Outline, Background, DocStrings, i18n.
+/// Supports: Feature, Background, Scenario, Scenario Outline + Examples,
+/// Given/When/Then/And/But, Data Tables, DocStrings, Tags.
+/// Does NOT support: i18n.
 /// </summary>
 public static class SimpleGherkinParser
 {
@@ -18,31 +19,48 @@ public static class SimpleGherkinParser
 
         var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
         var feature = new FeatureInfo { FilePath = filePath };
-        ScenarioInfo? currentScenario = null;
+
+        var background = new List<StepInfo>();
+        var pendingTags = new List<string>();
+
+        // The step list the parser is currently appending to (background, a concrete
+        // scenario, or a scenario-outline template).
+        List<StepInfo>? currentSteps = null;
         StepInfo? currentStep = null;
         string lastKeyword = "Given";
-        var pendingTags = new List<string>();
+
+        // Scenario-outline state (flushed/expanded when the next block or EOF is reached).
+        OutlineState? outline = null;
+        // Examples table accumulation for the current outline.
+        List<string>? exampleHeaders = null;
+        List<List<string>>? exampleRows = null;
+        var inExamples = false;
+
+        void FlushOutline()
+        {
+            if (outline != null && exampleHeaders != null && exampleRows != null)
+            {
+                ExpandOutline(feature, background, outline, exampleHeaders, exampleRows);
+            }
+            outline = null;
+            exampleHeaders = null;
+            exampleRows = null;
+            inExamples = false;
+        }
 
         for (var i = 0; i < lines.Length; i++)
         {
-            var line = lines[i];
-            var trimmed = line.Trim();
+            var raw = lines[i];
+            var trimmed = raw.Trim();
 
-            // Skip empty lines and comments
             if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#"))
-            {
                 continue;
-            }
 
             // Tags
             if (trimmed.StartsWith("@"))
             {
-                var tags = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var tag in tags)
-                {
-                    if (tag.StartsWith("@"))
-                        pendingTags.Add(tag.Substring(1));
-                }
+                foreach (var tag in trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (tag.StartsWith("@")) pendingTags.Add(tag.Substring(1));
                 continue;
             }
 
@@ -54,65 +72,169 @@ public static class SimpleGherkinParser
                 continue;
             }
 
+            // Background
+            if (trimmed.StartsWith("Background:"))
+            {
+                FlushOutline();
+                currentSteps = background;
+                currentStep = null;
+                lastKeyword = "Given";
+                pendingTags.Clear();
+                continue;
+            }
+
+            // Scenario Outline / Template
+            if (trimmed.StartsWith("Scenario Outline:") || trimmed.StartsWith("Scenario Template:"))
+            {
+                FlushOutline();
+                var title = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
+                outline = new OutlineState { Title = title, Tags = new List<string>(pendingTags) };
+                currentSteps = outline.Steps;
+                currentStep = null;
+                lastKeyword = "Given";
+                pendingTags.Clear();
+                continue;
+            }
+
             // Scenario
             if (trimmed.StartsWith("Scenario:"))
             {
-                currentStep = null;
-                currentScenario = new ScenarioInfo
+                FlushOutline();
+                var scenario = new ScenarioInfo
                 {
                     Title = trimmed.Substring("Scenario:".Length).Trim(),
                     Tags = new List<string>(pendingTags)
                 };
-                pendingTags.Clear();
-                feature.Scenarios.Add(currentScenario);
+                // Background steps run first.
+                scenario.Steps.AddRange(background.Select(s => s.Clone()));
+                feature.Scenarios.Add(scenario);
+                currentSteps = scenario.Steps;
+                currentStep = null;
                 lastKeyword = "Given";
+                pendingTags.Clear();
                 continue;
             }
 
-            // Background (treat steps as Given)
-            if (trimmed.StartsWith("Background:"))
+            // Examples (belongs to the current outline)
+            if (trimmed.StartsWith("Examples:") || trimmed.StartsWith("Scenarios:"))
             {
-                // TODO: Background support
+                inExamples = true;
+                currentStep = null;
                 continue;
             }
 
-            // Scenario Outline
-            if (trimmed.StartsWith("Scenario Outline:") || trimmed.StartsWith("Scenario Template:"))
+            // DocString — consume until the closing fence.
+            if (trimmed == "\"\"\"" || trimmed == "'''")
             {
-                // TODO: Scenario Outline support
+                var fence = trimmed;
+                var indent = raw.Length - raw.TrimStart().Length;
+                var docLines = new List<string>();
+                i++;
+                while (i < lines.Length && lines[i].Trim() != fence)
+                {
+                    var docLine = lines[i];
+                    docLines.Add(docLine.Length >= indent ? docLine.Substring(indent) : docLine.TrimStart());
+                    i++;
+                }
+                if (currentStep != null)
+                    currentStep.DocString = string.Join("\n", docLines);
                 continue;
             }
 
-            // Data table row (starts with |)
-            if (trimmed.StartsWith("|") && currentStep != null)
+            // Table row
+            if (trimmed.StartsWith("|"))
             {
                 var cells = ParseTableRow(trimmed);
-                if (currentStep.TableHeaders == null)
+
+                if (inExamples)
                 {
-                    currentStep.TableHeaders = cells;
-                    currentStep.TableRows = new List<List<string>>();
+                    if (exampleHeaders == null) { exampleHeaders = cells; exampleRows = new List<List<string>>(); }
+                    else exampleRows!.Add(cells);
+                    continue;
                 }
-                else
+
+                if (currentStep != null)
                 {
-                    currentStep.TableRows!.Add(cells);
+                    if (currentStep.TableHeaders == null)
+                    {
+                        currentStep.TableHeaders = cells;
+                        currentStep.TableRows = new List<List<string>>();
+                    }
+                    else
+                    {
+                        currentStep.TableRows!.Add(cells);
+                    }
                 }
                 continue;
             }
 
-            // Step keywords
-            if (currentScenario != null)
+            // Step keyword
+            if (currentSteps != null)
             {
                 var step = TryParseStep(trimmed, ref lastKeyword);
                 if (step != null)
                 {
+                    currentSteps.Add(step);
                     currentStep = step;
-                    currentScenario.Steps.Add(step);
                     continue;
                 }
             }
         }
 
+        FlushOutline();
+
         return feature.Title.Length > 0 ? feature : null;
+    }
+
+    private sealed class OutlineState
+    {
+        public string Title = "";
+        public List<string> Tags = new();
+        public List<StepInfo> Steps = new();
+    }
+
+    private static void ExpandOutline(FeatureInfo feature, List<StepInfo> background,
+        OutlineState outline, List<string> headers, List<List<string>> rows)
+    {
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var row = rows[r];
+            var substitutions = new Dictionary<string, string>();
+            for (var c = 0; c < headers.Count && c < row.Count; c++)
+                substitutions["<" + headers[c] + ">"] = row[c];
+
+            var scenario = new ScenarioInfo
+            {
+                Title = $"{outline.Title} [Example {r + 1}]",
+                Tags = new List<string>(outline.Tags)
+            };
+
+            scenario.Steps.AddRange(background.Select(s => s.Clone()));
+            foreach (var template in outline.Steps)
+                scenario.Steps.Add(Substitute(template, substitutions));
+
+            feature.Scenarios.Add(scenario);
+        }
+    }
+
+    private static StepInfo Substitute(StepInfo template, Dictionary<string, string> substitutions)
+    {
+        var step = template.Clone();
+        step.Text = Replace(step.Text, substitutions);
+        if (step.DocString != null)
+            step.DocString = Replace(step.DocString, substitutions);
+        if (step.TableHeaders != null)
+            step.TableHeaders = step.TableHeaders.Select(h => Replace(h, substitutions)).ToList();
+        if (step.TableRows != null)
+            step.TableRows = step.TableRows.Select(rr => rr.Select(v => Replace(v, substitutions)).ToList()).ToList();
+        return step;
+    }
+
+    private static string Replace(string text, Dictionary<string, string> substitutions)
+    {
+        foreach (var kv in substitutions)
+            text = text.Replace(kv.Key, kv.Value);
+        return text;
     }
 
     private static StepInfo? TryParseStep(string line, ref string lastKeyword)
@@ -128,20 +250,11 @@ public static class SimpleGherkinParser
                 var resolved = keyword;
 
                 if (keyword == "And" || keyword == "But" || keyword == "*")
-                {
                     resolved = lastKeyword;
-                }
                 else
-                {
                     lastKeyword = keyword;
-                }
 
-                return new StepInfo
-                {
-                    Keyword = keyword,
-                    ResolvedKeyword = resolved,
-                    Text = text
-                };
+                return new StepInfo { Keyword = keyword, ResolvedKeyword = resolved, Text = text };
             }
         }
 
@@ -153,15 +266,11 @@ public static class SimpleGherkinParser
         var cells = new List<string>();
         var trimmed = line.Trim();
 
-        // Remove leading and trailing |
         if (trimmed.StartsWith("|")) trimmed = trimmed.Substring(1);
         if (trimmed.EndsWith("|")) trimmed = trimmed.Substring(0, trimmed.Length - 1);
 
-        var parts = trimmed.Split('|');
-        foreach (var part in parts)
-        {
+        foreach (var part in trimmed.Split('|'))
             cells.Add(part.Trim());
-        }
 
         return cells;
     }

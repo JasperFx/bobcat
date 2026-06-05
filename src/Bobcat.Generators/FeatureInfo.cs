@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Bobcat.Generators;
 
@@ -28,4 +29,18 @@ public class StepInfo
     public string Text { get; set; } = "";
     public List<List<string>>? TableRows { get; set; }
     public List<string>? TableHeaders { get; set; }
+
+    /// <summary>Triple-quoted DocString argument attached to the step, if any.</summary>
+    public string? DocString { get; set; }
+
+    /// <summary>Deep copy used when expanding Scenario Outlines and prepending Background.</summary>
+    public StepInfo Clone() => new()
+    {
+        Keyword = Keyword,
+        ResolvedKeyword = ResolvedKeyword,
+        Text = Text,
+        DocString = DocString,
+        TableHeaders = TableHeaders == null ? null : new List<string>(TableHeaders),
+        TableRows = TableRows?.Select(r => new List<string>(r)).ToList()
+    };
 }

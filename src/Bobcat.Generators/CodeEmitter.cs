@@ -151,7 +151,7 @@ public static class CodeEmitter
         else
         {
             // Regular sentence step
-            var args = BuildSentenceArgs(method, values);
+            var args = BuildSentenceArgs(method, values, step.DocString);
             var awaitPrefix = method.IsAsync ? "await " : "";
             var returnSuffix = method.IsAsync ? "" : " return Task.CompletedTask;";
 
@@ -477,7 +477,7 @@ public static class CodeEmitter
         }
         else if (method.StepKind == "Check")
         {
-            var args = BuildSentenceArgs(method, values);
+            var args = BuildSentenceArgs(method, values, step.DocString);
             sb.AppendLine($"                            var ok__ = {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            var cell__ = new CellResult(\"result\", ok__ ? ResultStatus.success : ResultStatus.failed) { Expected = \"true\", Actual = ok__ ? \"true\" : \"false\" };");
             sb.AppendLine("                            return new WaitAttempt(ok__, new[] { cell__ });");
@@ -485,7 +485,7 @@ public static class CodeEmitter
         else
         {
             // void / no-throw action
-            var args = BuildSentenceArgs(method, values);
+            var args = BuildSentenceArgs(method, values, step.DocString);
             sb.AppendLine($"                            {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
         }
@@ -501,16 +501,30 @@ public static class CodeEmitter
         return "null";
     }
 
-    private static string BuildSentenceArgs(StepMethodInfo method, List<string> values)
+    private static string BuildSentenceArgs(StepMethodInfo method, List<string> values, string? docString = null)
     {
-        if (method.Parameters.Count == 0 || values.Count == 0) return "";
+        if (method.Parameters.Count == 0) return "";
+        if (values.Count == 0 && docString == null) return "";
 
         var args = new List<string>();
-        for (var i = 0; i < method.Parameters.Count && i < values.Count; i++)
+        var vi = 0;
+        foreach (var param in method.Parameters)
         {
-            var param = method.Parameters[i];
-            var value = values[i];
-            args.Add(CucumberExpressionParser.ToCSharpLiteral(value, param.Type));
+            if (vi < values.Count)
+            {
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param.Type));
+                vi++;
+            }
+            else if (docString != null && param.Type == "string")
+            {
+                // A DocString fills the trailing string parameter not covered by captures.
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(docString, "string"));
+                docString = null;
+            }
+            else
+            {
+                args.Add($"default({param.Type})");
+            }
         }
 
         return string.Join(", ", args);
