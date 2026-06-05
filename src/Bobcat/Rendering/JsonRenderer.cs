@@ -76,26 +76,55 @@ public static class JsonRenderer
             ExceptionType = step.ExceptionType,
             Logs = step.Logs.Count > 0 ? step.Logs : null,
             Diagnostics = step.Diagnostics.Count > 0 ? step.Diagnostics : null,
+            Cells = step.Cells.Count > 0
+                ? step.Cells.Select(c => CellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                : null,
             SetVerification = step.SetVerification != null ? SvToJson(step.SetVerification) : null
         };
     }
 
     private static JsonSetVerificationOutput SvToJson(SetVerificationRender sv)
     {
+        var rows = new List<JsonSvRowOutput>();
+        var rowIndex = 0;
+        foreach (var r in sv.Rows)
+        {
+            rows.Add(new JsonSvRowOutput
+            {
+                Row = rowIndex,
+                Type = r.RowType.ToString(),
+                Cells = r.Cells.Count > 0
+                    ? r.Cells.Select(c => CellToJson(c.Column, rowIndex, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                    : null,
+                Description = r.Description
+            });
+            rowIndex++;
+        }
+
         return new JsonSetVerificationOutput
         {
             Columns = sv.Columns,
-            Rows = sv.Rows.Select(r => new JsonSvRowOutput
-            {
-                Type = r.RowType.ToString(),
-                Cells = r.Cells.Count > 0 ? r.Cells.Select(c => new JsonSvCellOutput
-                {
-                    Column = c.Column,
-                    Status = c.Status.ToString(),
-                    Value = c.DisplayText
-                }).ToList() : null,
-                Description = r.Description
-            }).ToList()
+            Rows = rows
+        };
+    }
+
+    /// <summary>
+    /// Build the AI-optimized structured cell. Emits expected/actual/note when the cell
+    /// carried a typed comparison; falls back to a plain value for input/echo cells.
+    /// </summary>
+    private static JsonCellOutput CellToJson(string column, int? row, ResultStatus status,
+        string? expected, string? actual, string? note, string displayText)
+    {
+        var hasStructured = expected != null || actual != null;
+        return new JsonCellOutput
+        {
+            Column = column,
+            Row = row,
+            Status = status.ToString(),
+            Expected = expected,
+            Actual = actual,
+            Note = note,
+            Value = hasStructured ? null : displayText
         };
     }
 
@@ -150,6 +179,10 @@ internal class JsonStepOutput
     public string? ExceptionType { get; set; }
     public List<string>? Logs { get; set; }
     public Dictionary<string, string>? Diagnostics { get; set; }
+
+    /// <summary>Scalar comparison cells (return-value / out-param verification).</summary>
+    public List<JsonCellOutput>? Cells { get; set; }
+
     public JsonSetVerificationOutput? SetVerification { get; set; }
 }
 
@@ -161,16 +194,27 @@ internal class JsonSetVerificationOutput
 
 internal class JsonSvRowOutput
 {
+    public int Row { get; set; }
     public string Type { get; set; } = "";
-    public List<JsonSvCellOutput>? Cells { get; set; }
+    public List<JsonCellOutput>? Cells { get; set; }
     public string? Description { get; set; }
 }
 
-internal class JsonSvCellOutput
+/// <summary>
+/// AI-optimized structured cell: row/column coordinates plus typed expected/actual/note,
+/// so an agent can jump straight to the failure without parsing a display string.
+/// </summary>
+internal class JsonCellOutput
 {
     public string Column { get; set; } = "";
+    public int? Row { get; set; }
     public string Status { get; set; } = "";
-    public string Value { get; set; } = "";
+    public string? Expected { get; set; }
+    public string? Actual { get; set; }
+    public string? Note { get; set; }
+
+    /// <summary>Plain value for input/echo cells that carry no typed comparison.</summary>
+    public string? Value { get; set; }
 }
 
 internal class JsonCountsOutput
