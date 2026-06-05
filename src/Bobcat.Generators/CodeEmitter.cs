@@ -123,6 +123,10 @@ public static class CodeEmitter
             // Set verification — emit comparison code
             EmitSetVerificationStep(sb, step, method, stepId, stepKind);
         }
+        else if (method.WaitForTimeoutMs.HasValue)
+        {
+            EmitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison);
+        }
         else if (isComparison)
         {
             EmitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn);
@@ -382,6 +386,89 @@ public static class CodeEmitter
         sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
         if (!method.IsAsync)
             sb.AppendLine("                        return Task.CompletedTask;");
+        sb.AppendLine("                    }));");
+    }
+
+    /// <summary>
+    /// Emit a [WaitFor] step: the step's success criterion (return/out comparison, a [Check]
+    /// bool, or a void no-throw action) is retried via WaitForRunner until it converges or
+    /// times out.
+    /// </summary>
+    private static void EmitWaitForStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
+        string stepId, string stepKind, List<string> values, bool compareReturn, bool isComparison)
+    {
+        var timeout = method.WaitForTimeoutMs!.Value;
+        var poll = method.WaitForPollMs;
+        var opts = EmitCheckOptions(method);
+        var awaitKw = method.IsAsync ? "await " : "";
+
+        sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
+        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        {stepKind},");
+        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        async (ctx, result, ct) =>");
+        sb.AppendLine("                    {");
+        sb.AppendLine($"                        await WaitForRunner.Poll(result, {timeout}, {poll}, async (pollCt) =>");
+        sb.AppendLine("                        {");
+        if (!method.IsAsync)
+            sb.AppendLine("                            await Task.CompletedTask;");
+
+        if (isComparison)
+        {
+            var callArgs = new List<string>();
+            var outCompares = new List<(string Name, string Local, string Type, string Expected)>();
+            for (var i = 0; i < method.Parameters.Count; i++)
+            {
+                var p = method.Parameters[i];
+                var capture = i < values.Count ? values[i] : "";
+                if (p.IsOut)
+                {
+                    var local = "out__" + p.Name;
+                    sb.AppendLine($"                            {p.Type} {local};");
+                    callArgs.Add($"out {local}");
+                    outCompares.Add((p.Name, local, p.Type, capture));
+                }
+                else
+                {
+                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p.Type));
+                }
+            }
+
+            var argList = string.Join(", ", callArgs);
+            if (compareReturn)
+                sb.AppendLine($"                            var actual__ret = {awaitKw}f.{method.MethodName}({argList});");
+            else
+                sb.AppendLine($"                            {awaitKw}f.{method.MethodName}({argList});");
+
+            sb.AppendLine("                            var cells__ = new System.Collections.Generic.List<CellResult>();");
+            foreach (var (name, local, type, expected) in outCompares)
+                sb.AppendLine($"                            cells__.Add(CellCheck.For<{type}>(\"{EscapeString(name)}\", {local}, \"{EscapeString(expected)}\", {opts}));");
+
+            if (compareReturn)
+            {
+                var col = method.ReturnColumn ?? "result";
+                var retExpected = values[method.Parameters.Count];
+                sb.AppendLine($"                            cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+            }
+
+            sb.AppendLine("                            return new WaitAttempt(cells__.TrueForAll(c => c.Status == ResultStatus.success), cells__.ToArray());");
+        }
+        else if (method.StepKind == "Check")
+        {
+            var args = BuildSentenceArgs(method, values);
+            sb.AppendLine($"                            var ok__ = {awaitKw}f.{method.MethodName}({args});");
+            sb.AppendLine("                            var cell__ = new CellResult(\"result\", ok__ ? ResultStatus.success : ResultStatus.failed) { Expected = \"true\", Actual = ok__ ? \"true\" : \"false\" };");
+            sb.AppendLine("                            return new WaitAttempt(ok__, new[] { cell__ });");
+        }
+        else
+        {
+            // void / no-throw action
+            var args = BuildSentenceArgs(method, values);
+            sb.AppendLine($"                            {awaitKw}f.{method.MethodName}({args});");
+            sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
+        }
+
+        sb.AppendLine("                        }, ct);");
         sb.AppendLine("                    }));");
     }
 

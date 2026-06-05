@@ -79,4 +79,20 @@ public class CellResult
     /// Row index for set verification results (0-based). -1 for non-table cells.
     /// </summary>
     public int RowIndex { get; init; } = -1;
+
+    /// <summary>
+    /// Return a copy of this cell with <paramref name="note"/> appended to any existing note.
+    /// </summary>
+    public CellResult WithNote(string note)
+    {
+        var combined = string.IsNullOrEmpty(Note) ? note : $"{Note}; {note}";
+        return new CellResult(Name, Status)
+        {
+            Expected = Expected,
+            Actual = Actual,
+            Note = combined,
+            Exception = Exception,
+            RowIndex = RowIndex
+        };
+    }
 }
