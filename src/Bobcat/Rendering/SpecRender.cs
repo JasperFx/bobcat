@@ -194,7 +194,14 @@ public class SetVerificationRowRender
     public SetVerificationRowType RowType { get; init; }
     public List<SetVerificationCellRender> Cells { get; init; } = new();
     public string? Description { get; init; }
-    public bool AllCellsOk => Cells.All(c => c.Status == ResultStatus.success);
+
+    /// <summary>
+    /// A row passes when it has no bad cells. Plain input/echo cells (status <c>ok</c>)
+    /// from decision tables do not count against the row.
+    /// </summary>
+    public bool AllCellsOk => Cells.All(c =>
+        c.Status is not (ResultStatus.failed or ResultStatus.invalid
+            or ResultStatus.error or ResultStatus.missing));
 }
 
 public class SetVerificationCellRender

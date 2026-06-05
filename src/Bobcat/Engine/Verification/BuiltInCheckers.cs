@@ -35,20 +35,22 @@ internal abstract class NumericChecker<T> : IValueChecker<T>
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid {typeof(T).Name}");
 
         var actualValue = ToDouble(actual);
-        var expectedText2 = expected.ToString(CultureInfo.InvariantCulture);
+        // Echo the author's expected text (preserves scale like "9.00") rather than the
+        // reduced double representation.
+        var expectedDisplay = text;
 
         if (options.Tolerance is { } tol)
         {
             var within = Math.Abs(actualValue - expected) <= tol;
             var note = $"±{tol.ToString(CultureInfo.InvariantCulture)}";
             return within
-                ? CheckResult.Match(expectedText2, actualText, note)
-                : CheckResult.Mismatch(expectedText2, actualText, note);
+                ? CheckResult.Match(expectedDisplay, actualText, note)
+                : CheckResult.Mismatch(expectedDisplay, actualText, note);
         }
 
         return actualValue == expected
-            ? CheckResult.Match(expectedText2, actualText)
-            : CheckResult.Mismatch(expectedText2, actualText);
+            ? CheckResult.Match(expectedDisplay, actualText)
+            : CheckResult.Mismatch(expectedDisplay, actualText);
     }
 }
 
