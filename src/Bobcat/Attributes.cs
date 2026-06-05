@@ -99,3 +99,26 @@ public class SetVerificationAttribute : Attribute
     /// </summary>
     public string KeyColumns { get; set; } = "";
 }
+
+/// <summary>
+/// Overrides the value checker used for a comparison. The supplied type must implement
+/// <c>IValueChecker&lt;T&gt;</c> for the value being checked and have a parameterless
+/// constructor. Highest precedence in the checker resolution chain.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Parameter | AttributeTargets.Property)]
+public class ComparisonAttribute : Attribute
+{
+    public Type CheckerType { get; }
+    public ComparisonAttribute(Type checkerType) => CheckerType = checkerType;
+}
+
+/// <summary>
+/// Compares numeric values with an absolute tolerance instead of exact equality.
+/// Flows into <c>CheckOptions.Tolerance</c>.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Parameter | AttributeTargets.Property)]
+public class ApproxAttribute : Attribute
+{
+    public double Tolerance { get; }
+    public ApproxAttribute(double tolerance) => Tolerance = tolerance;
+}
