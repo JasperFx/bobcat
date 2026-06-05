@@ -172,6 +172,13 @@ public class BobcatGenerator : IIncrementalGenerator
                     if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is double tol)
                         info.ApproxTolerance = tol;
                     break;
+                case "WaitForAttribute":
+                    if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int timeout)
+                        info.WaitForTimeoutMs = timeout;
+                    var pollProp = attr.NamedArguments.FirstOrDefault(a => a.Key == "PollAt");
+                    if (pollProp.Value.Value is int poll)
+                        info.WaitForPollMs = poll;
+                    break;
                 case "ExpectedAttribute":
                     var colArg = attr.ConstructorArguments.Length > 0 ? attr.ConstructorArguments[0].Value?.ToString() : null;
                     var colNamed = attr.NamedArguments.FirstOrDefault(a => a.Key == "Column").Value.Value?.ToString();

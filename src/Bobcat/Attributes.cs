@@ -58,6 +58,25 @@ public abstract class StepAttribute : Attribute
 }
 
 /// <summary>
+/// Polling modifier for eventual-consistency assertions. Retries the step's own success
+/// criterion — return/out comparison until it matches, a <c>[Check]</c> until it returns
+/// true, or a void action until it completes without throwing — attempting at t=0 then
+/// every <see cref="PollAt"/> ms until <see cref="TimeoutMs"/> elapses. Exceptions during
+/// the window are treated as "not ready yet" and retried; the last one surfaces on timeout.
+/// Both values are milliseconds.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class WaitForAttribute : Attribute
+{
+    public int TimeoutMs { get; }
+
+    /// <summary>Poll interval in milliseconds. Defaults to 100ms.</summary>
+    public int PollAt { get; set; } = 100;
+
+    public WaitForAttribute(int timeoutMs) => TimeoutMs = timeoutMs;
+}
+
+/// <summary>
 /// Marks a method to run before each scenario in a fixture.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]

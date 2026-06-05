@@ -43,6 +43,12 @@ public class StepMethodInfo
     /// <summary>Tolerance from a method-level [Approx], or null.</summary>
     public double? ApproxTolerance { get; set; }
 
+    /// <summary>WaitFor timeout in ms (null when the step is not a [WaitFor] step).</summary>
+    public int? WaitForTimeoutMs { get; set; }
+
+    /// <summary>WaitFor poll interval in ms (defaults to 100).</summary>
+    public int WaitForPollMs { get; set; } = 100;
+
     public List<ParameterInfo> Parameters { get; set; } = new();
     public CucumberExpressionParser.ParsedExpression? ParsedExpression { get; set; }
 
