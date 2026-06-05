@@ -141,24 +141,42 @@ public class BobcatGenerator : IIncrementalGenerator
 
         if (expression == null || kind == null) return null;
 
+        var (returnType, isAwaitable) = UnwrapReturnType(method.ReturnType);
+
         var info = new StepMethodInfo
         {
             MethodName = method.Name,
             Expression = expression,
             StepKind = kind,
-            IsAsync = method.IsAsync || method.ReturnType.Name == "Task",
+            IsAsync = isAwaitable,
+            ReturnType = returnType,
         };
 
-        // Check for [Table] and [SetVerification]
+        // Check for [Table], [SetVerification], [DecisionTable], [Approx], [Expected]
         foreach (var attr in method.GetAttributes())
         {
-            if (attr.AttributeClass?.Name == "TableAttribute")
-                info.IsTable = true;
-            if (attr.AttributeClass?.Name == "SetVerificationAttribute")
+            switch (attr.AttributeClass?.Name)
             {
-                info.IsSetVerification = true;
-                var keyProp = attr.NamedArguments.FirstOrDefault(a => a.Key == "KeyColumns");
-                info.SetVerificationKeyColumns = keyProp.Value.Value?.ToString() ?? "";
+                case "TableAttribute":
+                    info.IsTable = true;
+                    break;
+                case "SetVerificationAttribute":
+                    info.IsSetVerification = true;
+                    var keyProp = attr.NamedArguments.FirstOrDefault(a => a.Key == "KeyColumns");
+                    info.SetVerificationKeyColumns = keyProp.Value.Value?.ToString() ?? "";
+                    break;
+                case "DecisionTableAttribute":
+                    info.IsDecisionTable = true;
+                    break;
+                case "ApproxAttribute":
+                    if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is double tol)
+                        info.ApproxTolerance = tol;
+                    break;
+                case "ExpectedAttribute":
+                    var colArg = attr.ConstructorArguments.Length > 0 ? attr.ConstructorArguments[0].Value?.ToString() : null;
+                    var colNamed = attr.NamedArguments.FirstOrDefault(a => a.Key == "Column").Value.Value?.ToString();
+                    info.ReturnColumn = colArg ?? colNamed;
+                    break;
             }
         }
 
@@ -168,7 +186,8 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Parameters.Add(new ParameterInfo
             {
                 Name = param.Name,
-                Type = param.Type.ToDisplayString()
+                Type = param.Type.ToDisplayString(),
+                IsOut = param.RefKind == RefKind.Out
             });
         }
 
@@ -220,6 +239,29 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return hasErrors ? null : matched;
+    }
+
+    /// <summary>
+    /// Returns the effective return type (Task/ValueTask unwrapped to their argument, or
+    /// "void" for void/Task/ValueTask) and whether the method is awaitable.
+    /// </summary>
+    private static (string ReturnType, bool IsAwaitable) UnwrapReturnType(ITypeSymbol returnType)
+    {
+        if (returnType.SpecialType == SpecialType.System_Void)
+            return ("void", false);
+
+        if (returnType is INamedTypeSymbol named)
+        {
+            var name = named.Name;
+            if (name == "Task" || name == "ValueTask")
+            {
+                if (named.TypeArguments.Length == 1)
+                    return (named.TypeArguments[0].ToDisplayString(), true);
+                return ("void", true); // non-generic Task/ValueTask
+            }
+        }
+
+        return (returnType.ToDisplayString(), false);
     }
 
     private static bool InheritsFrom(INamedTypeSymbol symbol, string baseTypeName)

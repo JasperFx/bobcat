@@ -87,6 +87,32 @@ public class CheckAttribute : StepAttribute
 public class TableAttribute : Attribute { }
 
 /// <summary>
+/// Marks a step method as a decision table. The accompanying data table is matched
+/// positionally per row: columns whose names match input parameters supply inputs,
+/// and the remaining columns (matched to <c>out</c> parameters or the method's return
+/// value) are <b>expected</b> outputs compared via the type-aware checker. Input cells
+/// render plain; expected cells are colored by pass/fail.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class DecisionTableAttribute : Attribute { }
+
+/// <summary>
+/// Marks a step method's return value as the actual value compared against an expected
+/// capture/column. Optional — a non-void <c>[Then]</c> method is treated as a
+/// return-value verification by convention. Use to set an explicit column name in a
+/// decision table when the method name is not the desired column.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.ReturnValue)]
+public class ExpectedAttribute : Attribute
+{
+    /// <summary>Optional decision-table column name that maps to the return value.</summary>
+    public string? Column { get; set; }
+
+    public ExpectedAttribute() { }
+    public ExpectedAttribute(string column) => Column = column;
+}
+
+/// <summary>
 /// Marks a Then method as a set verification step. The method must return
 /// IEnumerable of some type. Bobcat compares the returned collection against
 /// expected table data, producing per-cell diffs.

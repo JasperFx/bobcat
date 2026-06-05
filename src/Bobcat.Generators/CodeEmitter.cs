@@ -20,6 +20,7 @@ public static class CodeEmitter
         sb.AppendLine("#nullable enable");
         sb.AppendLine("using Bobcat;");
         sb.AppendLine("using Bobcat.Engine;");
+        sb.AppendLine("using Bobcat.Engine.Verification;");
         sb.AppendLine("using Bobcat.Runtime;");
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -89,7 +90,17 @@ public static class CodeEmitter
 
         var stepId = method.MethodName;
 
-        if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
+        // Does this comparison have a return-value capture? (one capture beyond the params)
+        var compareReturn = method.HasReturnValue && method.StepKind == "Then"
+            && values.Count == method.Parameters.Count + 1;
+        var isComparison = !method.IsTable && !method.IsSetVerification && !method.IsDecisionTable
+            && (method.OutParameters.Count > 0 || compareReturn);
+
+        if (method.IsDecisionTable && step.TableRows != null && step.TableHeaders != null)
+        {
+            EmitDecisionTableStep(sb, step, method, stepId);
+        }
+        else if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
         {
             // Table grammar — emit one step per row
             for (var rowIdx = 0; rowIdx < step.TableRows.Count; rowIdx++)
@@ -111,6 +122,10 @@ public static class CodeEmitter
         {
             // Set verification — emit comparison code
             EmitSetVerificationStep(sb, step, method, stepId, stepKind);
+        }
+        else if (isComparison)
+        {
+            EmitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn);
         }
         else
         {
@@ -203,6 +218,178 @@ public static class CodeEmitter
         }
 
         sb.AppendLine("                    }));");
+    }
+
+    /// <summary>
+    /// Emit a sentence step that verifies actual-vs-expected via the return value and/or
+    /// out parameters. Captures map positionally to parameters; the return-value expected
+    /// (when present) is the trailing capture.
+    /// </summary>
+    private static void EmitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
+        string stepId, string stepKind, List<string> values, bool compareReturn)
+    {
+        sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
+        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        {stepKind},");
+        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
+        sb.AppendLine("                    {");
+
+        var callArgs = new List<string>();
+        var outCompares = new List<(string Name, string Local, string Type, string Expected)>();
+        for (var i = 0; i < method.Parameters.Count; i++)
+        {
+            var p = method.Parameters[i];
+            var capture = i < values.Count ? values[i] : "";
+            if (p.IsOut)
+            {
+                var local = "out__" + p.Name;
+                sb.AppendLine($"                        {p.Type} {local};");
+                callArgs.Add($"out {local}");
+                outCompares.Add((p.Name, local, p.Type, capture));
+            }
+            else
+            {
+                callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p.Type));
+            }
+        }
+
+        var opts = EmitCheckOptions(method);
+        var awaitKw = method.IsAsync ? "await " : "";
+        var argList = string.Join(", ", callArgs);
+
+        if (compareReturn)
+            sb.AppendLine($"                        var actual__ret = {awaitKw}f.{method.MethodName}({argList});");
+        else
+            sb.AppendLine($"                        {awaitKw}f.{method.MethodName}({argList});");
+
+        sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
+
+        foreach (var (name, local, type, expected) in outCompares)
+        {
+            sb.AppendLine($"                        cells__.Add(CellCheck.For<{type}>(\"{EscapeString(name)}\", {local}, \"{EscapeString(expected)}\", {opts}));");
+        }
+
+        if (compareReturn)
+        {
+            var col = method.ReturnColumn ?? "result";
+            var retExpected = values[method.Parameters.Count];
+            sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+        }
+
+        sb.AppendLine("                        result.MarkCells(cells__.ToArray());");
+        sb.AppendLine("                        if (cells__.Exists(c => c.Status != ResultStatus.success)) result.MarkFailed(); else result.MarkSuccess();");
+
+        if (!method.IsAsync)
+            sb.AppendLine("                        return Task.CompletedTask;");
+
+        sb.AppendLine("                    }));");
+    }
+
+    /// <summary>
+    /// Emit a decision table: one method call per row, with input columns supplying
+    /// arguments and out/return columns compared as expected outputs. Renders as a grid.
+    /// </summary>
+    private static void EmitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId)
+    {
+        var headers = step.TableHeaders!;
+        var rows = step.TableRows!;
+
+        // Classify each header: input param, out param, the return value, or unknown (echo).
+        var returnColumn = method.ReturnColumn
+            ?? (method.HasReturnValue ? method.MethodName : null);
+
+        ParameterInfo? FindParam(string header) =>
+            method.Parameters.FirstOrDefault(p =>
+                string.Equals(p.Name, header, StringComparison.OrdinalIgnoreCase));
+
+        var opts = EmitCheckOptions(method);
+
+        sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
+        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        StepKind.Then,");
+        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
+        sb.AppendLine("                    {");
+        sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
+
+        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{EscapeString(h)}\""));
+        var awaitKw = method.IsAsync ? "await " : "";
+
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var row = rows[r];
+            string Cell(string header)
+            {
+                var idx = headers.FindIndex(h => string.Equals(h, header, StringComparison.OrdinalIgnoreCase));
+                return idx >= 0 && idx < row.Count ? row[idx] : "";
+            }
+
+            sb.AppendLine($"                        // row {r + 1}");
+
+            // Declare out locals
+            foreach (var outParam in method.OutParameters)
+            {
+                sb.AppendLine($"                        {outParam.Type} dt{r}__{outParam.Name};");
+            }
+
+            // Build the call argument list in declaration order
+            var callArgs = new List<string>();
+            foreach (var p in method.Parameters)
+            {
+                if (p.IsOut)
+                {
+                    callArgs.Add($"out dt{r}__{p.Name}");
+                }
+                else
+                {
+                    var idx = headers.FindIndex(h => string.Equals(h, p.Name, StringComparison.OrdinalIgnoreCase));
+                    if (idx >= 0 && idx < row.Count)
+                        callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p.Type));
+                    else
+                        callArgs.Add($"default({p.Type})");
+                }
+            }
+
+            var argList = string.Join(", ", callArgs);
+            if (returnColumn != null)
+                sb.AppendLine($"                        var dt{r}__ret = {awaitKw}f.{method.MethodName}({argList});");
+            else
+                sb.AppendLine($"                        {awaitKw}f.{method.MethodName}({argList});");
+
+            // Emit one cell per header, in header order
+            foreach (var header in headers)
+            {
+                var value = Cell(header);
+                var param = FindParam(header);
+
+                if (param != null && param.IsOut)
+                {
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.Type}>(\"{EscapeString(header)}\", dt{r}__{param.Name}, \"{EscapeString(value)}\", {opts}, {r}));");
+                }
+                else if (returnColumn != null && string.Equals(header, returnColumn, StringComparison.OrdinalIgnoreCase))
+                {
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(header)}\", dt{r}__ret, \"{EscapeString(value)}\", {opts}, {r}));");
+                }
+                else
+                {
+                    // input or unknown column — render plain
+                    sb.AppendLine($"                        cells__.Add(new CellResult(\"{EscapeString(header)}\", ResultStatus.ok, \"{EscapeString(value)}\") {{ RowIndex = {r} }});");
+                }
+            }
+        }
+
+        sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        if (!method.IsAsync)
+            sb.AppendLine("                        return Task.CompletedTask;");
+        sb.AppendLine("                    }));");
+    }
+
+    private static string EmitCheckOptions(StepMethodInfo method)
+    {
+        if (method.ApproxTolerance.HasValue)
+            return $"new CheckOptions {{ Tolerance = {method.ApproxTolerance.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} }}";
+        return "null";
     }
 
     private static string BuildSentenceArgs(StepMethodInfo method, List<string> values)
