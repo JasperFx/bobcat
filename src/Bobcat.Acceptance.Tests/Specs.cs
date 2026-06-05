@@ -25,6 +25,9 @@ public static class Specs
         var context = new SpecExecutionContext(scenario.Title, suite: new TestSuite());
         fixture.Context = context;
 
+        // Mirror the runner: fresh controllable clock per scenario.
+        BobcatClock.ResetToControllable();
+
         await fixture.SetUp();
         try
         {
