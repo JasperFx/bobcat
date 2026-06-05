@@ -65,7 +65,10 @@ public class StepRender
             {
                 Name = c.Name,
                 Status = c.Status,
-                DisplayText = c.DisplayText
+                DisplayText = c.DisplayText,
+                Expected = c.Expected,
+                Actual = c.Actual,
+                Note = c.Note
             }).ToList();
         }
 
@@ -96,6 +99,9 @@ public class CellRender
     public string Name { get; init; } = "";
     public ResultStatus Status { get; init; }
     public string DisplayText { get; init; } = "";
+    public string? Expected { get; init; }
+    public string? Actual { get; init; }
+    public string? Note { get; init; }
 }
 
 /// <summary>
@@ -169,7 +175,10 @@ public class SetVerificationRender
                     {
                         Column = col,
                         Status = cell?.Status ?? ResultStatus.ok,
-                        DisplayText = cell?.DisplayText ?? ""
+                        DisplayText = cell?.DisplayText ?? "",
+                        Expected = cell?.Expected,
+                        Actual = cell?.Actual,
+                        Note = cell?.Note
                     });
                 }
                 rows.Add(row);
@@ -193,6 +202,9 @@ public class SetVerificationCellRender
     public string Column { get; init; } = "";
     public ResultStatus Status { get; init; }
     public string DisplayText { get; init; } = "";
+    public string? Expected { get; init; }
+    public string? Actual { get; init; }
+    public string? Note { get; init; }
 }
 
 public enum SetVerificationRowType
