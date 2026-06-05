@@ -66,6 +66,17 @@ public static class CodeEmitter
         sb.AppendLine("                {");
         sb.AppendLine($"                    var f = ({fixture.FullyQualifiedName})fixture;");
 
+        // Declare instances for the grammar modules used by this scenario (one per scenario).
+        var usedModules = scenario.Steps
+            .Select(s => s.Match.Method.DeclaringModule)
+            .Where(m => m != null)
+            .Distinct()
+            .ToList();
+        foreach (var moduleFqn in usedModules)
+        {
+            sb.AppendLine($"                    var {fixture.ModuleLocal(moduleFqn!)} = new {moduleFqn}();");
+        }
+
         foreach (var matched in scenario.Steps)
         {
             EmitStep(sb, matched, fixture);
@@ -90,6 +101,12 @@ public static class CodeEmitter
 
         var stepId = method.MethodName;
 
+        // Call routing: the fixture itself ("f") or a per-scenario grammar-module instance.
+        var target = method.DeclaringModule == null ? "f" : fixture.ModuleLocal(method.DeclaringModule);
+        var module = method.DeclaringModule == null ? null : fixture.FindModule(method.DeclaringModule);
+        // A module that inherits Fixture receives the step context before its method runs.
+        var ctxStmt = module is { IsFixture: true } ? $"{target}.Context = ctx; " : "";
+
         // Does this comparison have a return-value capture? (one capture beyond the params)
         var compareReturn = method.HasReturnValue && method.StepKind == "Then"
             && values.Count == method.Parameters.Count + 1;
@@ -98,7 +115,7 @@ public static class CodeEmitter
 
         if (method.IsDecisionTable && step.TableRows != null && step.TableHeaders != null)
         {
-            EmitDecisionTableStep(sb, step, method, stepId);
+            EmitDecisionTableStep(sb, step, method, stepId, target, ctxStmt);
         }
         else if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
         {
@@ -115,21 +132,21 @@ public static class CodeEmitter
                 sb.AppendLine($"                        \"{EscapeString(rowStepId)}\",");
                 sb.AppendLine($"                        {stepKind},");
                 sb.AppendLine($"                        \"{EscapeString(step.Text)} (row {rowIdx + 1})\",");
-                sb.AppendLine($"                        (ctx, result, ct) => {{ f.{method.MethodName}({args}); return Task.CompletedTask; }}));");
+                sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{target}.{method.MethodName}({args}); return Task.CompletedTask; }}));");
             }
         }
         else if (method.IsSetVerification && step.TableRows != null && step.TableHeaders != null)
         {
             // Set verification — emit comparison code
-            EmitSetVerificationStep(sb, step, method, stepId, stepKind);
+            EmitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt);
         }
         else if (method.WaitForTimeoutMs.HasValue)
         {
-            EmitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison);
+            EmitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison, target, ctxStmt);
         }
         else if (isComparison)
         {
-            EmitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn);
+            EmitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn, target, ctxStmt);
         }
         else
         {
@@ -147,11 +164,11 @@ public static class CodeEmitter
                 sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ if (!await f.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); }}));");
+                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}if (!await {target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); }}));");
                 }
                 else
                 {
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ if (!f.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); return Task.CompletedTask; }}));");
+                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}if (!{target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); return Task.CompletedTask; }}));");
                 }
             }
             else
@@ -162,17 +179,17 @@ public static class CodeEmitter
                 sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {awaitPrefix}f.{method.MethodName}({args}); }}));");
+                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{awaitPrefix}{target}.{method.MethodName}({args}); }}));");
                 }
                 else
                 {
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ f.{method.MethodName}({args});{returnSuffix} }}));");
+                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{target}.{method.MethodName}({args});{returnSuffix} }}));");
                 }
             }
         }
     }
 
-    private static void EmitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind)
+    private static void EmitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)
     {
         var keyColumns = string.IsNullOrEmpty(method.SetVerificationKeyColumns)
             ? "Array.Empty<string>()"
@@ -193,9 +210,10 @@ public static class CodeEmitter
         }
 
         sb.AppendLine("                    {");
+        if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
 
         var awaitPrefix = method.IsAsync ? "await " : "";
-        sb.AppendLine($"                        var actual = {awaitPrefix}f.{method.MethodName}();");
+        sb.AppendLine($"                        var actual = {awaitPrefix}{target}.{method.MethodName}();");
         sb.AppendLine($"                        var expected = new List<Dictionary<string, string>>");
         sb.AppendLine("                        {");
 
@@ -230,7 +248,7 @@ public static class CodeEmitter
     /// (when present) is the trailing capture.
     /// </summary>
     private static void EmitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
-        string stepId, string stepKind, List<string> values, bool compareReturn)
+        string stepId, string stepKind, List<string> values, bool compareReturn, string target, string ctxStmt)
     {
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
         sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
@@ -238,6 +256,7 @@ public static class CodeEmitter
         sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
         sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
         sb.AppendLine("                    {");
+        if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
 
         var callArgs = new List<string>();
         var outCompares = new List<(string Name, string Local, string Type, string Expected)>();
@@ -263,9 +282,9 @@ public static class CodeEmitter
         var argList = string.Join(", ", callArgs);
 
         if (compareReturn)
-            sb.AppendLine($"                        var actual__ret = {awaitKw}f.{method.MethodName}({argList});");
+            sb.AppendLine($"                        var actual__ret = {awaitKw}{target}.{method.MethodName}({argList});");
         else
-            sb.AppendLine($"                        {awaitKw}f.{method.MethodName}({argList});");
+            sb.AppendLine($"                        {awaitKw}{target}.{method.MethodName}({argList});");
 
         sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
 
@@ -294,7 +313,7 @@ public static class CodeEmitter
     /// Emit a decision table: one method call per row, with input columns supplying
     /// arguments and out/return columns compared as expected outputs. Renders as a grid.
     /// </summary>
-    private static void EmitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId)
+    private static void EmitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string target, string ctxStmt)
     {
         var headers = step.TableHeaders!;
         var rows = step.TableRows!;
@@ -315,6 +334,7 @@ public static class CodeEmitter
         sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
         sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
         sb.AppendLine("                    {");
+        if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
         sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
 
         var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{EscapeString(h)}\""));
@@ -357,9 +377,9 @@ public static class CodeEmitter
 
             var argList = string.Join(", ", callArgs);
             if (returnColumn != null)
-                sb.AppendLine($"                        var dt{r}__ret = {awaitKw}f.{method.MethodName}({argList});");
+                sb.AppendLine($"                        var dt{r}__ret = {awaitKw}{target}.{method.MethodName}({argList});");
             else
-                sb.AppendLine($"                        {awaitKw}f.{method.MethodName}({argList});");
+                sb.AppendLine($"                        {awaitKw}{target}.{method.MethodName}({argList});");
 
             // Emit one cell per header, in header order
             foreach (var header in headers)
@@ -395,7 +415,8 @@ public static class CodeEmitter
     /// times out.
     /// </summary>
     private static void EmitWaitForStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
-        string stepId, string stepKind, List<string> values, bool compareReturn, bool isComparison)
+        string stepId, string stepKind, List<string> values, bool compareReturn, bool isComparison,
+        string target, string ctxStmt)
     {
         var timeout = method.WaitForTimeoutMs!.Value;
         var poll = method.WaitForPollMs;
@@ -412,6 +433,7 @@ public static class CodeEmitter
         sb.AppendLine("                        {");
         if (!method.IsAsync)
             sb.AppendLine("                            await Task.CompletedTask;");
+        if (ctxStmt.Length > 0) sb.AppendLine($"                            {ctxStmt.TrimEnd()}");
 
         if (isComparison)
         {
@@ -436,9 +458,9 @@ public static class CodeEmitter
 
             var argList = string.Join(", ", callArgs);
             if (compareReturn)
-                sb.AppendLine($"                            var actual__ret = {awaitKw}f.{method.MethodName}({argList});");
+                sb.AppendLine($"                            var actual__ret = {awaitKw}{target}.{method.MethodName}({argList});");
             else
-                sb.AppendLine($"                            {awaitKw}f.{method.MethodName}({argList});");
+                sb.AppendLine($"                            {awaitKw}{target}.{method.MethodName}({argList});");
 
             sb.AppendLine("                            var cells__ = new System.Collections.Generic.List<CellResult>();");
             foreach (var (name, local, type, expected) in outCompares)
@@ -456,7 +478,7 @@ public static class CodeEmitter
         else if (method.StepKind == "Check")
         {
             var args = BuildSentenceArgs(method, values);
-            sb.AppendLine($"                            var ok__ = {awaitKw}f.{method.MethodName}({args});");
+            sb.AppendLine($"                            var ok__ = {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            var cell__ = new CellResult(\"result\", ok__ ? ResultStatus.success : ResultStatus.failed) { Expected = \"true\", Actual = ok__ ? \"true\" : \"false\" };");
             sb.AppendLine("                            return new WaitAttempt(ok__, new[] { cell__ });");
         }
@@ -464,7 +486,7 @@ public static class CodeEmitter
         {
             // void / no-throw action
             var args = BuildSentenceArgs(method, values);
-            sb.AppendLine($"                            {awaitKw}f.{method.MethodName}({args});");
+            sb.AppendLine($"                            {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
         }
 
