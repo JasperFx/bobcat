@@ -1,9 +1,32 @@
 using Alba;
 using Bobcat.Alba;
+using Bobcat.Engine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 
 namespace Bobcat.Runtime;
+
+/// <summary>
+/// Diagnostics for the Alba host bootstrap footguns documented in docs/sample-wiring.md.
+/// </summary>
+public static class AlbaResourceDiagnostics
+{
+    /// <summary>
+    /// Turn the nested-Tests content-root failure (a bare <see cref="DirectoryNotFoundException"/>
+    /// from WebApplicationFactory) into a clear, actionable configuration error. Other
+    /// exceptions pass through unchanged.
+    /// </summary>
+    public static Exception WrapStartException(Exception ex, string program)
+        => ex is DirectoryNotFoundException
+            ? new BobcatConfigurationException(ContentRootHelp(program), ex)
+            : ex;
+
+    public static string ContentRootHelp(string program)
+        => $"Alba could not resolve the content root while starting host '{program}'. When the Tests project is " +
+           "nested inside the host project, WebApplicationFactory resolves a doubled directory path. Fix: add " +
+           "[assembly: WebApplicationFactoryContentRoot(\"<HostAssemblyName>\", \"../../../..\", \"appsettings.json\", \"1\")] " +
+           "to the test assembly, or call AlbaResource<TProgram>.WithContentRoot(path). See docs/sample-wiring.md.";
+}
 
 /// <summary>
 /// A test resource that wraps an Alba IAlbaHost built from a user-provided factory.
@@ -73,6 +96,7 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
     private readonly IAlbaExtension[] _extensions;
     private readonly Func<IAlbaHost, Task>? _reset;
     private IAlbaHost? _albaHost;
+    private string? _contentRoot;
 
     /// <summary>
     /// The underlying IAlbaHost. Use this for Scenario() calls and Alba-specific APIs.
@@ -96,11 +120,42 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
         _extensions = extensions;
     }
 
+    /// <summary>
+    /// Set the host content root explicitly, bypassing WebApplicationFactory's discovery dance.
+    /// Use this when the Tests project is nested inside the host project (see docs/sample-wiring.md).
+    /// </summary>
+    public AlbaResource<TProgram> WithContentRoot(string contentRoot)
+    {
+        _contentRoot = contentRoot;
+        return this;
+    }
+
     public async Task Start()
     {
-        _albaHost = _configure != null
-            ? await global::Alba.AlbaHost.For<TProgram>(_configure, _extensions)
-            : await global::Alba.AlbaHost.For<TProgram>(_extensions);
+        var configure = ComposeConfigure();
+        try
+        {
+            _albaHost = configure != null
+                ? await global::Alba.AlbaHost.For<TProgram>(configure, _extensions)
+                : await global::Alba.AlbaHost.For<TProgram>(_extensions);
+        }
+        catch (Exception ex)
+        {
+            throw AlbaResourceDiagnostics.WrapStartException(ex, typeof(TProgram).Name);
+        }
+    }
+
+    private Action<IWebHostBuilder>? ComposeConfigure()
+    {
+        if (_contentRoot == null) return _configure;
+
+        var contentRoot = _contentRoot;
+        var userConfigure = _configure;
+        return builder =>
+        {
+            builder.UseContentRoot(contentRoot);
+            userConfigure?.Invoke(builder);
+        };
     }
 
     public async Task ResetBetweenScenarios()
