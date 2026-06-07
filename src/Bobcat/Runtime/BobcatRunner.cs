@@ -198,6 +198,56 @@ public class BobcatRunner
         Console.WriteLine($"  {passed}/{total} scenarios passed");
     }
 
+    /// <summary>
+    /// Detects the top-level-statements footgun: when SpecsRunner.cs uses top-level
+    /// statements AND project-references a host that also does, both compilations synthesize
+    /// a global-namespace 'Program'. AlbaResource&lt;Program&gt; then binds to the wrong entry
+    /// point and Alba crashes natively (PAL_SEHException, no managed stack). We turn that into
+    /// a clear managed error before any resource starts.
+    /// </summary>
+    internal static void GuardAgainstProgramCollision()
+    {
+        var entry = Assembly.GetEntryAssembly();
+        var entryHasProgram = entry?.GetType("Program") != null;
+
+        var others = new List<(string Name, bool HasProgram)>();
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (assembly == entry || assembly.IsDynamic) continue;
+            bool hasProgram;
+            try { hasProgram = assembly.GetType("Program") != null; }
+            catch { continue; } // ignore assemblies that can't be reflected over
+            others.Add((assembly.GetName().Name ?? "?", hasProgram));
+        }
+
+        var message = DescribeProgramCollision(entry?.GetName().Name, entryHasProgram, others);
+        if (message != null)
+            throw new BobcatConfigurationException(message);
+    }
+
+    /// <summary>
+    /// Pure collision check (testable): returns a diagnostic message when the entry assembly
+    /// and another loaded assembly both define a global-namespace 'Program', else null.
+    /// </summary>
+    internal static string? DescribeProgramCollision(
+        string? entryName, bool entryHasProgram, IEnumerable<(string Name, bool HasProgram)> others)
+    {
+        if (entryName == null || !entryHasProgram) return null;
+
+        foreach (var (name, hasProgram) in others)
+        {
+            if (!hasProgram) continue;
+            return $"Ambiguous 'Program' type: the test runner assembly ('{entryName}') and the host assembly " +
+                   $"('{name}') both define a global-namespace 'Program'. This usually means SpecsRunner.cs uses " +
+                   "top-level statements, which collide with the host's 'Program' so AlbaResource<Program> binds to " +
+                   "the wrong entry point (often a native PAL_SEHException with no managed stack). Fix: make " +
+                   "SpecsRunner.cs an explicit 'static class SpecsRunner { static Task Main(string[] args) ... }' " +
+                   "rather than top-level statements. See docs/sample-wiring.md.";
+        }
+
+        return null;
+    }
+
     // --- Convenience static entry point ---
 
     /// <summary>
@@ -208,6 +258,10 @@ public class BobcatRunner
     {
         var runner = new BobcatRunner();
         configure(runner);
+
+        // configure() typically constructs AlbaResource<Program>, which loads the host
+        // assembly — so run the collision guard after it, once both assemblies are present.
+        GuardAgainstProgramCollision();
 
         // Simple arg parsing (will move to JasperFx commands later)
         var command = args.Length > 0 ? args[0] : "run";
