@@ -7,6 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="JasperFx" Version="2.2.3" />
+    <PackageReference Include="JasperFx" />
   </ItemGroup>
 </Project>
