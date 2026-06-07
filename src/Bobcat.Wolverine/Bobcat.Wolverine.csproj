@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + Wolverine integration — IStepContext extensions for tracked-session message dispatch in specs.</Description>
   </PropertyGroup>
 
   <ItemGroup>

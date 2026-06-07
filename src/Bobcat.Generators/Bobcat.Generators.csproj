@@ -6,6 +6,13 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat source generator — compiles .feature files into direct fixture method calls at build time (no runtime reflection). Reference as an analyzer.</Description>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <!-- Source generators ship the analyzer assembly only, with no lib/ output or deps. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +21,11 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <!-- Pack the generator into the analyzer path so consumers pick it up via PackageReference. -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
 </Project>
