@@ -19,3 +19,13 @@ public class SpecCatastrophicException : Exception
     public SpecCatastrophicException(string message) : base(message) { }
     public SpecCatastrophicException(string message, Exception inner) : base(message, inner) { }
 }
+
+/// <summary>
+/// Signals a misconfigured Bobcat test run (wiring footguns) — surfaced with actionable
+/// guidance instead of a cryptic downstream or native failure.
+/// </summary>
+public class BobcatConfigurationException : Exception
+{
+    public BobcatConfigurationException(string message) : base(message) { }
+    public BobcatConfigurationException(string message, Exception inner) : base(message, inner) { }
+}
