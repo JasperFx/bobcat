@@ -90,9 +90,18 @@ Bobcat.CritterStack (TODO — assumes Wolverine + Marten together)
 ### Blockers for Running Sample Specs
 1. **No Bobcat project references** — sample .csproj files don't reference Bobcat, Bobcat.Alba, or Bobcat.Generators
 2. **No runner setup** — samples need a `Program.cs` (or separate test project) that calls `BobcatRunner.Run()` with `AlbaResource` registered on `TestSuite`
-3. **Fixture API mismatch** — generated fixtures use extension methods (`PostJsonAsync`, `GetJsonAsync`) that need `IStepContext` passed in, but the source generator doesn't inject `IStepContext` as a parameter to step methods. Fixtures need to access context via `this.Context` property instead.
-4. **PostgreSQL required** — all sample projects use Wolverine/Marten which need a running PostgreSQL instance. Docker-compose from critterstacksamples provides this on port 5432.
-5. **`[Check]` attribute** requires a string argument (the step text), not bare like `[Fact]`
+3. **PostgreSQL required** — all sample projects use Wolverine/Marten which need a running PostgreSQL instance. Docker-compose from critterstacksamples provides this on port 5432.
+4. **`[Check]` attribute** requires a string argument (the step text), not bare like `[Fact]`
+
+~~**Fixture API mismatch**~~ — RESOLVED: fixtures access resources via the `this.Context`
+property (`IStepContext`), proven end-to-end by CqrsMinimalApi. The package extensions
+(`PostJsonAsync`, Marten/Wolverine/CritterStack helpers) hang off `IStepContext`.
+
+The wiring footguns (top-level-statements `Program` collision, nested-Tests content root,
+`(body, IResult)` tuple returns) now surface as clear errors or are documented — see
+[docs/sample-wiring.md](docs/sample-wiring.md): `BobcatRunner.Run` throws a
+`BobcatConfigurationException` on a `Program` collision, and `AlbaResource<TProgram>` turns the
+content-root `DirectoryNotFoundException` into actionable guidance (or use `WithContentRoot(path)`).
 
 ### What CqrsMinimalApi Wiring Revealed
 - The Bobcat source generator produces a `{Feature}_Feature.g.cs` file
