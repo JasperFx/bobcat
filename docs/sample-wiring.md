@@ -18,7 +18,8 @@ For each sample, replicate what `CqrsMinimalApi` has:
    - `AssemblyAttributes.cs` —
      `[assembly: WebApplicationFactoryContentRoot("<HostAssemblyName>", "../../../..", "appsettings.json", "1")]`
      so Alba can find the host's content root despite the nested layout (footgun #2).
-2. **Update the host `.csproj`:**
+2. **Update the host `.csproj`:** (target the canonical [version matrix](versions.md) — `net10.0`,
+   `WolverineFx.* 6.5.1`, `Marten 9.6.0`; the move off `5.30.0`/`net9.0` is a major upgrade)
    - Bump `TargetFramework` to `net10.0` if still on `net9.0` (footgun #1 also presents as a TFM mismatch).
    - `<InternalsVisibleTo Include="<Project>.Tests" />`.
    - Exclude the fixture from the host compile group: `<Compile Remove="<Project>Fixture.cs" />`.

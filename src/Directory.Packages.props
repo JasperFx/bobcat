@@ -1,0 +1,38 @@
+<Project>
+
+  <!--
+    Central Package Management for the Bobcat source tree (src/). One pinned version per
+    package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
+    canonical, mutually-compatible alignment that consuming samples must also target:
+
+      WolverineFx 6.5.1  ↔  Marten 9.6.0  ↔  JasperFx(.Events) 2.8.2
+
+    (WolverineFx.Marten 6.5.1 depends on Marten 9.6.0, which depends on JasperFx 2.8.2.)
+    See docs/versions.md for the full matrix and the samples' target set.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Critter Stack — mutually-compatible aligned set -->
+    <PackageVersion Include="WolverineFx" Version="6.5.1" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.5.1" />
+    <PackageVersion Include="Marten" Version="9.6.0" />
+    <PackageVersion Include="JasperFx" Version="2.8.2" />
+    <PackageVersion Include="Alba" Version="8.5.2" />
+
+    <!-- Roslyn (source generator only) -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+
+    <!-- Test stack -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="NSubstitute" Version="5.3.0" />
+    <PackageVersion Include="coverlet.collector" Version="3.1.2" />
+  </ItemGroup>
+
+</Project>

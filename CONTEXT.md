@@ -92,6 +92,10 @@ Bobcat.CritterStack (TODO — assumes Wolverine + Marten together)
 2. **No runner setup** — samples need a `Program.cs` (or separate test project) that calls `BobcatRunner.Run()` with `AlbaResource` registered on `TestSuite`
 3. **PostgreSQL required** — all sample projects use Wolverine/Marten which need a running PostgreSQL instance. Docker-compose from critterstacksamples provides this on port 5432.
 4. **`[Check]` attribute** requires a string argument (the step text), not bare like `[Fact]`
+5. **Version upgrade** — samples are on `WolverineFx.* 5.30.0` / `net9.0`; the canonical set is
+   `WolverineFx.* 6.5.1` / `Marten 9.6.0` / `net10.0` (a Wolverine major upgrade). See
+   [docs/versions.md](docs/versions.md). The Bobcat.* side is now reconciled and centralized via
+   `src/Directory.Packages.props`; each sample still needs the upgrade applied + API fixes.
 
 ~~**Fixture API mismatch**~~ — RESOLVED: fixtures access resources via the `this.Context`
 property (`IStepContext`), proven end-to-end by CqrsMinimalApi. The package extensions
