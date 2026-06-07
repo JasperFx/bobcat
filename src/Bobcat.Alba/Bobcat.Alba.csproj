@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + Alba integration — IStepContext extensions and an AlbaResource for HTTP/ASP.NET Core integration testing in specs.</Description>
   </PropertyGroup>
 
   <ItemGroup>

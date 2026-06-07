@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + Marten integration — IStepContext extensions for document and event-store work in specs.</Description>
   </PropertyGroup>
 
   <ItemGroup>

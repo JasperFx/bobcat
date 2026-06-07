@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    Shared MSBuild properties for the Bobcat source tree (src/).
+
+    The released NuGet version is centralized here: bump <Version> to release a new version
+    of every Bobcat.* library together. Projects are non-packable by default; each library
+    that ships as a NuGet opts in with <IsPackable>true</IsPackable>.
+  -->
+  <PropertyGroup>
+    <Version>0.5.0</Version>
+
+    <Authors>Jeremy D. Miller</Authors>
+    <Company>JasperFx Software</Company>
+    <Product>Bobcat</Product>
+    <PackageProjectUrl>https://github.com/JasperFx/bobcat</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/JasperFx/bobcat</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>testing;integration-testing;bdd;gherkin;specification;critterstack</PackageTags>
+
+    <!-- Released libraries opt back in individually. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
