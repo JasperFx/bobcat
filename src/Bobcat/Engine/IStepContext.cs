@@ -30,5 +30,12 @@ public interface IStepContext
     /// </summary>
     void AttachDiagnostic(string key, object data);
 
+    /// <summary>
+    /// Report interim progress for the currently executing step — a partial result or short
+    /// status message — so live renderers can update the step's row before it finishes.
+    /// Safe to call from a long-running poll loop; a no-op when no step is executing.
+    /// </summary>
+    void ReportProgress(StepUpdate update);
+
     CancellationToken Cancellation { get; }
 }

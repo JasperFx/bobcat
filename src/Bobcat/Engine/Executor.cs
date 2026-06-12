@@ -61,6 +61,10 @@ public class Executor
         result.StepText = stepText;
         _observer.StepStarted(step.StepId, step.StepKind, stepText);
 
+        // Relay any interim progress the running step reports to the observer, tagged with this
+        // step's id. Cleared in the finally so progress can't leak across step boundaries.
+        context.ProgressSink = update => _observer.StepProgress(step.StepId, update);
+
         try
         {
             await step.Execute(context, result, cancellation.Token);
@@ -77,6 +81,7 @@ public class Executor
         }
         finally
         {
+            context.ProgressSink = null;
             result.MarkEnded(_stopwatch.ElapsedMilliseconds);
             context.StepFinished(result);
             _observer.StepFinished(result);
