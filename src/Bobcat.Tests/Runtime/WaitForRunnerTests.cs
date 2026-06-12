@@ -54,4 +54,49 @@ public class WaitForRunnerTests
         step.StepStatus.ShouldBe(ResultStatus.failed);
         step.Cells.Single().Note!.ShouldContain("last error: boom");
     }
+
+    [Fact]
+    public async Task reports_interim_progress_with_last_value_before_converging()
+    {
+        var step = new StepResult("s", 0);
+        var updates = new List<StepUpdate>();
+        var context = new SpecExecutionContext("spec") { ProgressSink = updates.Add };
+
+        var attempts = 0;
+
+        await WaitForRunner.Poll(step, 2000, 1, _ =>
+        {
+            attempts++;
+            var ok = attempts >= 3;
+            return Task.FromResult(new WaitAttempt(ok, One(ok ? ResultStatus.success : ResultStatus.failed, "0", ok ? "0" : "5")));
+        }, CancellationToken.None, context);
+
+        step.StepStatus.ShouldBe(ResultStatus.success);
+
+        // Two non-converged attempts before the third converges → at least one live update,
+        // each carrying the latest "last value" and the per-attempt cells.
+        updates.ShouldNotBeEmpty();
+        updates.ShouldAllBe(u => u.Message!.Contains("last value 5"));
+        updates[0].Cells.Single().Actual.ShouldBe("5");
+    }
+
+    [Fact]
+    public async Task reports_last_error_while_polling_through_a_swallowed_exception()
+    {
+        var step = new StepResult("s", 0);
+        var updates = new List<StepUpdate>();
+        var context = new SpecExecutionContext("spec") { ProgressSink = updates.Add };
+
+        var attempts = 0;
+
+        await WaitForRunner.Poll(step, 2000, 1, _ =>
+        {
+            attempts++;
+            if (attempts < 3) throw new InvalidOperationException("not ready");
+            return Task.FromResult(new WaitAttempt(true, One(ResultStatus.success, "0", "0")));
+        }, CancellationToken.None, context);
+
+        step.StepStatus.ShouldBe(ResultStatus.success);
+        updates.ShouldContain(u => u.Message!.Contains("last error: not ready"));
+    }
 }

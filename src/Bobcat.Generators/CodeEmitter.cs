@@ -490,7 +490,7 @@ public static class CodeEmitter
             sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
         }
 
-        sb.AppendLine("                        }, ct);");
+        sb.AppendLine("                        }, ct, ctx);");
         sb.AppendLine("                    }));");
     }
 
