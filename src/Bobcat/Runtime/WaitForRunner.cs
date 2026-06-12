@@ -33,7 +33,8 @@ public static class WaitForRunner
         int timeoutMs,
         int pollAtMs,
         Func<CancellationToken, Task<WaitAttempt>> attempt,
-        CancellationToken ct)
+        CancellationToken ct,
+        IStepContext? progress = null)
     {
         var sw = Stopwatch.StartNew();
         var attempts = 0;
@@ -83,6 +84,10 @@ public static class WaitForRunner
                 return;
             }
 
+            // Non-converged, not yet timed out: surface the latest value live so the step's row
+            // animates during a long poll instead of freezing between StepStarted and StepFinished.
+            ReportAttempt(progress, attempts, sw.ElapsedMilliseconds, last, haveLast, lastException);
+
             try
             {
                 await Task.Delay(pollAtMs, ct);
@@ -92,6 +97,37 @@ public static class WaitForRunner
                 throw;
             }
         }
+    }
+
+    private static void ReportAttempt(IStepContext? progress, int attempts, long elapsedMs,
+        WaitAttempt last, bool haveLast, Exception? lastException)
+    {
+        if (progress == null) return;
+
+        var prefix = $"waiting… (attempt {attempts}, {elapsedMs}ms)";
+
+        if (lastException != null)
+        {
+            progress.ReportProgress(new StepUpdate($"{prefix}; last error: {lastException.Message}"));
+            return;
+        }
+
+        var cells = haveLast ? last.Cells : System.Array.Empty<CellResult>();
+        var value = DescribeLast(cells);
+        var message = value == null ? prefix : $"{prefix}; last value {value}";
+        progress.ReportProgress(new StepUpdate(message) { Cells = cells });
+    }
+
+    private static string? DescribeLast(CellResult[] cells)
+    {
+        if (cells.Length == 0) return null;
+        if (cells.Length == 1) return cells[0].Actual ?? cells[0].DisplayText;
+
+        var parts = new string[cells.Length];
+        for (var i = 0; i < cells.Length; i++)
+            parts[i] = $"{cells[i].Name}={cells[i].Actual ?? "?"}";
+
+        return string.Join(", ", parts);
     }
 
     private static void MarkCells(StepResult result, CellResult[] cells, string note,
