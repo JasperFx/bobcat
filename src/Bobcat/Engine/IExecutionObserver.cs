@@ -10,6 +10,14 @@ public interface IExecutionObserver
     void FeatureFinished(string featureTitle);
     void ScenarioStarted(string featureTitle, string scenarioTitle);
     void StepStarted(string stepId, StepKind kind, string stepText);
+
+    /// <summary>
+    /// Interim progress raised by a running step before it finishes — partial results or a
+    /// short status message. Renderers should update the step's live row in place. May be
+    /// called any number of times (including zero) between StepStarted and StepFinished.
+    /// </summary>
+    void StepProgress(string stepId, StepUpdate update);
+
     void StepFinished(StepResult result);
     void ScenarioFinished(ExecutionResults results);
 }
@@ -25,6 +33,7 @@ public class NullObserver : IExecutionObserver
     public void FeatureFinished(string featureTitle) { }
     public void ScenarioStarted(string featureTitle, string scenarioTitle) { }
     public void StepStarted(string stepId, StepKind kind, string stepText) { }
+    public void StepProgress(string stepId, StepUpdate update) { }
     public void StepFinished(StepResult result) { }
     public void ScenarioFinished(ExecutionResults results) { }
 }

@@ -24,6 +24,7 @@ public class SpecExecutionContext : IExecutionContext
     public string SpecId { get; }
     public ExecutionResults Results { get; }
     public CancellationToken Cancellation { get; set; }
+    public Action<StepUpdate>? ProgressSink { get; set; }
 
     public IEnumerable<Exception> Exceptions => _exceptions;
 
@@ -52,6 +53,11 @@ public class SpecExecutionContext : IExecutionContext
     public void AttachDiagnostic(string key, object data)
     {
         CurrentStep?.AttachDiagnostic(key, data);
+    }
+
+    public void ReportProgress(StepUpdate update)
+    {
+        ProgressSink?.Invoke(update);
     }
 
     public void MarkCancelled(string reason)

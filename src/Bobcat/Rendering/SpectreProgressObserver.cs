@@ -11,6 +11,7 @@ public class SpectreProgressObserver : IExecutionObserver
 {
     private string _currentFeature = "";
     private string _currentScenario = "";
+    private string _currentStepText = "";
     private int _stepCount;
     private int _passCount;
     private int _failCount;
@@ -38,6 +39,25 @@ public class SpectreProgressObserver : IExecutionObserver
     public void StepStarted(string stepId, StepKind kind, string stepText)
     {
         _stepCount++;
+        _currentStepText = stepText;
+    }
+
+    public void StepProgress(string stepId, StepUpdate update)
+    {
+        // Stream interim feedback so a long-running step shows a live status instead of a frozen
+        // line. The full console renderer will move this into an in-place Live region; for now we
+        // emit a dim status line per update, which the carriage-return-free console preserves.
+        var label = string.IsNullOrEmpty(_currentStepText) ? stepId : _currentStepText;
+
+        if (!string.IsNullOrEmpty(update.Message))
+        {
+            AnsiConsole.MarkupLine($"[grey]  → {Markup.Escape(label)}: {Markup.Escape(update.Message!)}[/]");
+        }
+
+        foreach (var cell in update.Cells)
+        {
+            AnsiConsole.MarkupLine($"[grey]  → {Markup.Escape(label)}: {Markup.Escape(cell.DisplayText)}[/]");
+        }
     }
 
     public void StepFinished(StepResult result)
