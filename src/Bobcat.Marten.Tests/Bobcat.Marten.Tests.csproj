@@ -24,6 +24,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.Marten\Bobcat.Marten.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Features\**\*.feature" />
   </ItemGroup>
 
 </Project>

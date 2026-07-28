@@ -12,6 +12,27 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    # This job runs the full suite before packing, so it needs the same database the
+    # Marten integration tests use.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bobcat_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5445:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      BOBCAT_POSTGRES: "Host=localhost;Port=5445;Database=bobcat_test;Username=postgres;Password=postgres"
+
     steps:
       - uses: actions/checkout@v4
 

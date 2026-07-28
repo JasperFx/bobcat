@@ -68,6 +68,9 @@ public class GrammarMethodInfo
     /// <summary>The (Task-unwrapped) return type, or "void".</summary>
     public string ReturnType { get; set; } = "void";
 
+    /// <summary>The <c>global::</c>-qualified return type — use this when emitting.</summary>
+    public string QualifiedReturnType { get; set; } = "void";
+
     public bool HasReturnValue => ReturnType != "void";
 
     public List<ParameterInfo> Parameters { get; set; } = new();

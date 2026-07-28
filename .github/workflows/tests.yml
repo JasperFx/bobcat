@@ -9,6 +9,28 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # The Marten integration tests exercise the [MartenEntities] persistence recipe against a
+    # real database. They are never skipped here — see PostgresFactAttribute: the skip only
+    # applies off-CI, so a missing database on CI is a failure rather than a silent pass.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bobcat_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5445:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      BOBCAT_POSTGRES: "Host=localhost;Port=5445;Database=bobcat_test;Username=postgres;Password=postgres"
+
     steps:
       - uses: actions/checkout@v4
 

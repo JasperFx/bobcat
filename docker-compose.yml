@@ -1,0 +1,23 @@
+# Local Postgres for the Bobcat Marten integration tests.
+#
+#   docker compose up -d
+#   dotnet test
+#
+# Published on 5445, well away from 5432, so it never fights a Postgres you already run — the
+# default connection string points here. Override with BOBCAT_POSTGRES to use your own database
+# instead. Without one the Marten integration tests skip locally (saying so); never on CI, where
+# the workflow supplies a Postgres service and a missing database fails the build.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bobcat_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5445:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
