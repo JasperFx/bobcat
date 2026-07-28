@@ -17,6 +17,14 @@ public class FixtureInfo
     /// <summary>Grammar modules composed in via [IncludeGrammars].</summary>
     public List<ModuleInfo> Modules { get; set; } = new();
 
+    /// <summary>Discovered lifecycle hooks, in declaration order.</summary>
+    public List<HookMethodInfo> Hooks { get; set; } = new();
+
+    public IEnumerable<HookMethodInfo> HooksOf(HookKind kind)
+    {
+        foreach (var h in Hooks) if (h.Kind == kind) yield return h;
+    }
+
     /// <summary>All step methods available to the feature: the fixture's own plus all modules'.</summary>
     public IEnumerable<StepMethodInfo> AllStepMethods()
     {
@@ -41,6 +49,31 @@ public class FixtureInfo
             if (m.FullyQualifiedName == fullyQualifiedName) return m;
         return null;
     }
+}
+
+public enum HookKind
+{
+    /// <summary>Per scenario, inside the scenario's DI scope.</summary>
+    BeforeEach,
+    AfterEach,
+
+    /// <summary>Once per feature, before any scenario scope exists. Must be static.</summary>
+    BeforeAll,
+    AfterAll
+}
+
+/// <summary>
+/// Compile-time model of a discovered lifecycle hook on a fixture.
+/// </summary>
+public class HookMethodInfo
+{
+    public string MethodName { get; set; } = "";
+    public HookKind Kind { get; set; }
+    public bool IsAsync { get; set; }
+    public bool IsStatic { get; set; }
+    public List<ParameterInfo> Parameters { get; set; } = new();
+
+    public bool IsFeatureLevel => Kind == HookKind.BeforeAll || Kind == HookKind.AfterAll;
 }
 
 /// <summary>
@@ -189,6 +222,9 @@ public enum ParameterBinding
 
     /// <summary>Resolved from the per-scenario DI scope.</summary>
     ScopedService,
+
+    /// <summary>A registered <c>ITestResource</c>, looked up on the suite.</summary>
+    Resource,
 
     /// <summary>Resolved from the host's root container.</summary>
     RootService,

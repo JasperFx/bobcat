@@ -45,11 +45,49 @@ public static class CodeEmitter
             EmitScenario(sb, scenario, fixture);
         }
 
-        sb.AppendLine("            });");
+        sb.AppendLine("            })");
+        sb.AppendLine("        {");
+        EmitHook(sb, fixture, HookKind.BeforeEach);
+        EmitHook(sb, fixture, HookKind.AfterEach);
+        EmitHook(sb, fixture, HookKind.BeforeAll);
+        EmitHook(sb, fixture, HookKind.AfterAll);
+        sb.AppendLine("        };");
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Emit the discovered lifecycle hooks of one kind as a single delegate. Parameters are
+    /// resolved by type at compile time, exactly like step arguments — no reflection.
+    /// </summary>
+    private static void EmitHook(StringBuilder sb, FixtureInfo fixture, HookKind kind)
+    {
+        var hooks = fixture.HooksOf(kind).ToList();
+        if (hooks.Count == 0) return;
+
+        var featureLevel = kind == HookKind.BeforeAll || kind == HookKind.AfterAll;
+        var signature = featureLevel ? "async (ctx) =>" : "async (fixture, ctx) =>";
+
+        sb.AppendLine($"            {kind} = {signature}");
+        sb.AppendLine("            {");
+
+        if (!featureLevel)
+            sb.AppendLine($"                var f = ({fixture.FullyQualifiedName})fixture;");
+
+        // Keeps the lambda legally async even when every hook is synchronous.
+        sb.AppendLine("                await Task.CompletedTask;");
+
+        foreach (var hook in hooks)
+        {
+            var target = featureLevel ? fixture.FullyQualifiedName : "f";
+            var args = string.Join(", ", hook.Parameters.Select(p => InjectionExpression(p, null)));
+            var awaitKw = hook.IsAsync ? "await " : "";
+            sb.AppendLine($"                {awaitKw}{target}.{hook.MethodName}({args});");
+        }
+
+        sb.AppendLine("            },");
     }
 
     private static void EmitScenario(StringBuilder sb, MatchedScenario scenario, FixtureInfo fixture)
@@ -633,6 +671,9 @@ public static class CodeEmitter
         {
             case ParameterBinding.StepContext:
                 return "ctx";
+
+            case ParameterBinding.Resource:
+                return $"ctx.GetResource<{p.Type}>({resource})";
 
             case ParameterBinding.RootService:
                 return $"Bobcat.Runtime.HostResourceExtensions.GetRootService<{p.Type}>(ctx, {resource})";

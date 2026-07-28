@@ -28,7 +28,7 @@ public static class Specs
         // Mirror the runner: fresh controllable clock per scenario.
         BobcatClock.ResetToControllable();
 
-        await fixture.SetUp();
+        if (feature.BeforeEach != null) await feature.BeforeEach(fixture, context);
         try
         {
             var executor = new Executor([new FailureLevelContinuationRule()]);
@@ -36,7 +36,7 @@ public static class Specs
         }
         finally
         {
-            await fixture.TearDown();
+            if (feature.AfterEach != null) await feature.AfterEach(fixture, context);
         }
 
         return context.Results;

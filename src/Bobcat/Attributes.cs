@@ -90,16 +90,37 @@ public class WaitForAttribute : Attribute
 }
 
 /// <summary>
-/// Marks a method to run before each scenario in a fixture.
+/// Overrides the naming convention to mark a fixture method as a per-scenario setup hook.
+/// By convention any method named <c>BeforeEach</c> (or <c>BeforeEachAsync</c>) is one already.
+/// Runs INSIDE the scenario's DI scope, so it can inject the same scoped services the steps see.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
-public class SetUpAttribute : Attribute { }
+public class BeforeEachAttribute : Attribute { }
 
 /// <summary>
-/// Marks a method to run after each scenario in a fixture (always runs, even on failure).
+/// Overrides the naming convention to mark a fixture method as a per-scenario teardown hook
+/// (always runs, even on failure). By convention any method named <c>AfterEach</c> (or
+/// <c>AfterEachAsync</c>) is one already. Runs INSIDE the scenario's DI scope.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
-public class TearDownAttribute : Attribute { }
+public class AfterEachAttribute : Attribute { }
+
+/// <summary>
+/// Overrides the naming convention to mark a <b>static</b> fixture method as a once-per-feature
+/// setup hook. By convention any static method named <c>BeforeAll</c> (or <c>BeforeAllAsync</c>)
+/// is one already. Runs BEFORE any scenario scope exists, so it may inject the step context,
+/// test resources, and root services — but not scoped services.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class BeforeAllAttribute : Attribute { }
+
+/// <summary>
+/// Overrides the naming convention to mark a <b>static</b> fixture method as a once-per-feature
+/// teardown hook (always runs). By convention any static method named <c>AfterAll</c> (or
+/// <c>AfterAllAsync</c>) is one already. Same injection rules as <see cref="BeforeAllAttribute"/>.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class AfterAllAttribute : Attribute { }
 
 /// <summary>
 /// Marks a method as a boolean check — a Then step that returns bool (true = pass, false = fail).

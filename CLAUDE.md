@@ -51,7 +51,22 @@ All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests u
 One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
-`[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison. `[SetUp]`/`[TearDown]` for lifecycle.
+`[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
+
+### Lifecycle (convention-discovered)
+Declare hooks on the fixture by name — the generator emits the calls with parameters resolved
+by type, so there is no reflection:
+- **Per scenario:** `BeforeEach` / `AfterEach` (+`Async`). Runs *inside* the scenario's DI scope,
+  so it injects the same scoped services the steps see.
+- **Per feature:** `static BeforeAll` / `AfterAll` (+`Async`). Runs before any scenario scope
+  exists — may inject `IStepContext`, test resources, and `[FromRootService]` values, but a
+  scoped ask is a compile error (BOBCAT004).
+- **Per run:** `IGlobalAction` registered explicitly with `suite.AddGlobalAction(...)`. `SetUp`
+  runs after `StartAll` and before the first feature; `TearDown` after the last feature and
+  before `DisposeAsync`, in reverse order. Resource-shaped work belongs in an `ITestResource`.
+
+`[BeforeEach]`/`[AfterEach]`/`[BeforeAll]`/`[AfterAll]` override the naming convention. There is
+no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
 
 **Important:** `[Check]` (not `[Fact]`) for boolean assertions — avoids xUnit collision.
 

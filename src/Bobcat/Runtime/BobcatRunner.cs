@@ -69,21 +69,32 @@ public class BobcatRunner
 
         try
         {
-            var features = _features.AsEnumerable();
+            // Global actions run with resources up but before any feature, and tear down
+            // after the last feature but before resources are disposed.
+            await _suite.RunGlobalSetUp();
 
-            if (featureFilter != null)
+            try
             {
-                features = features.Where(f =>
-                    f.Title.Contains(featureFilter, StringComparison.OrdinalIgnoreCase));
+                var features = _features.AsEnumerable();
+
+                if (featureFilter != null)
+                {
+                    features = features.Where(f =>
+                        f.Title.Contains(featureFilter, StringComparison.OrdinalIgnoreCase));
+                }
+
+                foreach (var feature in features)
+                {
+                    var featureResults = await RunFeature(feature, tagFilter);
+                    suiteResults.Add(featureResults);
+
+                    // Stop on catastrophic
+                    if (featureResults.WasCatastrophic) break;
+                }
             }
-
-            foreach (var feature in features)
+            finally
             {
-                var featureResults = await RunFeature(feature, tagFilter);
-                suiteResults.Add(featureResults);
-
-                // Stop on catastrophic
-                if (featureResults.WasCatastrophic) break;
+                await _suite.RunGlobalTearDown();
             }
         }
         finally
@@ -108,35 +119,48 @@ public class BobcatRunner
                 s.Tags.Any(t => t.Equals(tagFilter, StringComparison.OrdinalIgnoreCase)));
         }
 
-        foreach (var scenario in scenarios)
+        // BeforeAll/AfterAll run once per feature, outside any scenario scope. They get a
+        // feature-level context so they can reach resources and root services — asking it
+        // for a scoped service throws, which is the intended rejection.
+        var featureContext = new SpecExecutionContext(feature.Title, suite: _suite);
+        if (feature.BeforeAll != null) await feature.BeforeAll(featureContext);
+
+        try
         {
-            // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
-            // then open a fresh DI scope over it.
-            await _suite.ResetAll();
-            await _suite.BeginScenarioAll();
-
-            ScenarioResult result;
-            try
+            foreach (var scenario in scenarios)
             {
-                result = await RunScenario(feature, scenario);
-            }
-            finally
-            {
-                await _suite.EndScenarioAll();
-            }
+                // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
+                // then open a fresh DI scope over it.
+                await _suite.ResetAll();
+                await _suite.BeginScenarioAll();
 
-            featureResults.Add(result);
+                ScenarioResult result;
+                try
+                {
+                    result = await RunScenario(feature, scenario);
+                }
+                finally
+                {
+                    await _suite.EndScenarioAll();
+                }
 
-            // Render immediately (unless suppressed for JSON mode)
-            if (!SuppressConsoleOutput)
-            {
-                var specRender = SpecRender.FromResults(scenario.Title, result.Results, feature.Title);
-                _renderer.Render(specRender);
+                featureResults.Add(result);
+
+                // Render immediately (unless suppressed for JSON mode)
+                if (!SuppressConsoleOutput)
+                {
+                    var specRender = SpecRender.FromResults(scenario.Title, result.Results, feature.Title);
+                    _renderer.Render(specRender);
+                }
+
+                // Stop feature on catastrophic
+                if (result.Results.Steps.Any(s => s.FailureLevel == FailureLevel.Catastrophic))
+                    break;
             }
-
-            // Stop feature on catastrophic
-            if (result.Results.Steps.Any(s => s.FailureLevel == FailureLevel.Catastrophic))
-                break;
+        }
+        finally
+        {
+            if (feature.AfterAll != null) await feature.AfterAll(featureContext);
         }
 
         _observer.FeatureFinished(feature.Title);
@@ -159,7 +183,9 @@ public class BobcatRunner
 
         _observer.ScenarioStarted(feature.Title, scenario.Title);
 
-        await fixture.SetUp();
+        // BeforeEach/AfterEach run inside the scenario's DI scope (opened by the caller), so
+        // they inject the same scoped services the steps see.
+        if (feature.BeforeEach != null) await feature.BeforeEach(fixture, context);
 
         try
         {
@@ -168,7 +194,7 @@ public class BobcatRunner
         }
         finally
         {
-            await fixture.TearDown();
+            if (feature.AfterEach != null) await feature.AfterEach(fixture, context);
         }
 
         _observer.ScenarioFinished(context.Results);
