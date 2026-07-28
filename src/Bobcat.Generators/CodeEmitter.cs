@@ -260,7 +260,7 @@ public static class CodeEmitter
         StepMatcher.TableGrammarMatch match, string stepKind)
     {
         var grammar = match.Grammar;
-        var row = grammar.Row!;
+        var row = grammar.Row;
         var headers = step.TableHeaders!;
         var rows = step.TableRows!;
         var values = match.ExtractedValues;
@@ -269,7 +269,7 @@ public static class CodeEmitter
         // claims a column, so [FromScopedService] on a parameter named like a header still
         // leaves that header available as an expected value.
         var boundHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in row.Parameters)
+        foreach (var p in row?.Parameters ?? new List<ParameterInfo>())
         {
             if (p.IsExplicitlyInjected) continue;
             var header = headers.FirstOrDefault(h => string.Equals(h, p.Name, StringComparison.OrdinalIgnoreCase));
@@ -279,10 +279,13 @@ public static class CodeEmitter
         var leftover = headers.Where(h => !boundHeaders.Contains(h)).ToList();
 
         // Decision-table disambiguation: a Row return plus exactly one unbound column means
-        // that column is the expected output. [Expected("col")] on Row names it explicitly.
-        var expectedColumn = grammar.RowExpectedColumn != null
-            ? headers.FirstOrDefault(h => string.Equals(h, grammar.RowExpectedColumn, StringComparison.OrdinalIgnoreCase))
-            : (row.HasReturnValue && leftover.Count == 1 ? leftover[0] : null);
+        // that column is the expected output. WITH a recipe, Row's return is a product to
+        // persist instead, so nothing is treated as an expected value.
+        var expectedColumn = grammar.HasRecipe
+            ? null
+            : grammar.RowExpectedColumn != null
+                ? headers.FirstOrDefault(h => string.Equals(h, grammar.RowExpectedColumn, StringComparison.OrdinalIgnoreCase))
+                : (row is { HasReturnValue: true } && leftover.Count == 1 ? leftover[0] : null);
 
         var opts = grammar.ApproxTolerance.HasValue
             ? $"new CheckOptions {{ Tolerance = {grammar.ApproxTolerance.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} }}"
@@ -301,8 +304,19 @@ public static class CodeEmitter
         // Fresh instance per execution, so Before's session and After's save share fields.
         sb.AppendLine($"                        var g__ = new {grammar.FullyQualifiedName}();");
         sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
+
+        if (grammar.HasRecipe)
+        {
+            // The one runtime-resolved piece: the recipe's behavior lives in the extension
+            // package (Marten/EF), which the netstandard2.0 generator must not reference.
+            sb.AppendLine($"                        await using var behavior__ = Bobcat.Runtime.GrammarBehaviors.Resolve(typeof({grammar.FullyQualifiedName}));");
+        }
+
         sb.AppendLine("                        try");
         sb.AppendLine("                        {");
+
+        if (grammar.HasRecipe)
+            sb.AppendLine("                            await behavior__.Open(ctx);");
 
         if (grammar.Before != null)
         {
@@ -311,7 +325,7 @@ public static class CodeEmitter
             sb.AppendLine($"                            {awaitBefore}g__.{grammar.Before.MethodName}({beforeArgs});");
         }
 
-        var awaitRow = row.IsAsync ? "await " : "";
+        var awaitRow = row is { IsAsync: true } ? "await " : "";
 
         for (var r = 0; r < rows.Count; r++)
         {
@@ -328,12 +342,28 @@ public static class CodeEmitter
                 sb.AppendLine($"                                using var __sc{r} = Bobcat.Runtime.HostResourceExtensions.CreateChildScope(ctx, {resource});");
             }
 
-            var rowArgs = BuildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider);
+            if (grammar.HasRecipe)
+            {
+                // With a recipe, each row produces a product that the behavior persists.
+                // A hand-written Row is the override for custom construction; without one,
+                // columns bind straight to the entity's constructor or settable properties.
+                var product = row != null
+                    ? $"{awaitRow}g__.{row.MethodName}({BuildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider)})"
+                    : BuildEntityFromColumns(grammar, headers, rowCells);
 
-            if (expectedColumn != null)
+                sb.AppendLine($"                                var product{r}__ = {product};");
+                sb.AppendLine($"                                await behavior__.Row(product{r}__);");
+            }
+            else if (expectedColumn != null)
+            {
+                var rowArgs = BuildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                var row{r}__ = {awaitRow}g__.{row.MethodName}({rowArgs});");
+            }
             else
+            {
+                var rowArgs = BuildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                {awaitRow}g__.{row.MethodName}({rowArgs});");
+            }
 
             foreach (var header in headers)
             {
@@ -342,7 +372,7 @@ public static class CodeEmitter
 
                 if (expectedColumn != null && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row.ReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row!.ReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
@@ -364,14 +394,69 @@ public static class CodeEmitter
             var awaitAfter = grammar.After.IsAsync ? "await " : "";
             sb.AppendLine($"                            {awaitAfter}g__.{grammar.After.MethodName}({afterArgs});");
         }
-        else
+        else if (!grammar.HasRecipe)
         {
             sb.AppendLine("                            // no After method on this grammar");
         }
 
+        // The recipe closes last, so a hand-written After can still touch the session before
+        // the single SaveChangesAsync.
+        if (grammar.HasRecipe)
+            sb.AppendLine("                            await behavior__.Close();");
+
         sb.AppendLine("                        }");
         sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
         sb.AppendLine("                    }));");
+    }
+
+    /// <summary>
+    /// Convention entity construction: bind columns to the entity's constructor parameters
+    /// first (records-friendly), then to settable properties, by header name with the same
+    /// type conversion the rest of the generator uses. Emitted as a direct <c>new Customer(...)</c>
+    /// — no runtime binder. A hand-written <c>Row</c> is the override for anything this can't do.
+    /// </summary>
+    private static string BuildEntityFromColumns(TableGrammarInfo grammar, List<string> headers, List<string> row)
+    {
+        var entity = grammar.RecipeEntity!;
+
+        string? Cell(string name)
+        {
+            var idx = headers.FindIndex(h => string.Equals(h, name, StringComparison.OrdinalIgnoreCase));
+            return idx >= 0 && idx < row.Count ? row[idx] : null;
+        }
+
+        // Prefer the public constructor that covers the most headers and whose every parameter
+        // a column can actually supply.
+        List<ParameterInfo>? best = null;
+        foreach (var ctor in entity.Constructors)
+        {
+            var usable = ctor.All(p => p.IsSimpleType && Cell(p.Name) != null);
+            if (!usable) continue;
+            if (best == null || ctor.Count > best.Count) best = ctor;
+        }
+
+        if (best != null)
+        {
+            var args = best.Select(p =>
+                $"{p.Name}: {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p.Type)}");
+            return $"new {entity.FullyQualifiedName}({string.Join(", ", args)})";
+        }
+
+        if (entity.HasParameterlessConstructor)
+        {
+            var assignments = entity.SettableProperties
+                .Where(p => p.IsSimpleType && Cell(p.Name) != null)
+                .Select(p => $"{p.Name} = {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p.Type)}")
+                .ToList();
+
+            if (assignments.Count > 0)
+                return $"new {entity.FullyQualifiedName} {{ {string.Join(", ", assignments)} }}";
+        }
+
+        throw new InvalidOperationException(
+            $"Cannot construct '{entity.Name}' from the columns [{string.Join(", ", headers)}] on grammar " +
+            $"'{grammar.ClassName}'. No public constructor's parameters are all supplied by columns, and " +
+            "no settable properties match. Write a Row method returning the entity to control construction.");
     }
 
     private static void EmitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)

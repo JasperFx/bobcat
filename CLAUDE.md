@@ -70,6 +70,28 @@ keyword-agnostic, so a shared grammar drops into any feature.
   comparison failures gather and render the full table; `SpecCatastrophicException` stops the
   suite. `After` always runs in a `finally`.
 
+### Persistence Recipes
+A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
+persistence sink, so a data-setup table needs almost no code:
+
+```csharp
+[TableGrammar("the following customers exist")]
+[MartenEntities<Customer>]          // or [EfCoreEntities<Customer>(ContextType = typeof(ShopContext))]
+public class CustomerEntities { }   // no Row body — columns bind to Customer's constructor
+```
+
+- **Seam:** `IGrammarBehavior` (Open / Row / Close) + `GrammarBehaviorAttribute` in core. The
+  netstandard2.0 generator must never reference Marten or EF; it only recognizes "this attribute
+  derives from `GrammarBehaviorAttribute`" and emits a generic envelope call. `GrammarBehaviors.Resolve`
+  is the one runtime-resolved piece — the accepted, bounded softening of "no reflection".
+- **The behavior** lives in the extension package and resolves its session/context from
+  `IHostResource.CurrentServices`, so the recipe's session and a hand-injected
+  `[FromScopedService] IDocumentSession` are the **same instance** — that is what batches the save.
+- **Entity construction** is compile-time: columns bind to the entity's constructor parameters
+  first (records-friendly), then to settable properties, by header name. A hand-written `Row`
+  returning the entity is the override for custom construction. With a recipe applied, `Row`'s
+  return means "a product to persist", never an expected value.
+
 ### Lifecycle (convention-discovered)
 Declare hooks on the fixture by name — the generator emits the calls with parameters resolved
 by type, so there is no reflection:
@@ -137,6 +159,8 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 |---------|--------|--------|---------------|
 | **Bobcat** | net10.0 | Active | Runtime: engine, rendering, resources, runner |
 | **Bobcat.Generators** | netstandard2.0 | Active | Source generator: Gherkin parser, Cucumber Expressions, code gen |
+| **Bobcat.Marten** | net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
+| **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 
