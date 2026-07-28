@@ -8,8 +8,6 @@ using Shouldly;
 
 namespace Bobcat.Marten.Tests;
 
-public record Customer(string Name, int Orders);
-
 /// <summary>
 /// The Marten recipe's contract, exercised against a substituted <see cref="IDocumentSession"/>
 /// so no Postgres is needed — the point under test is the envelope's behavior (resolve from the
@@ -64,8 +62,8 @@ public class MartenEntitiesTests
         var behavior = new MartenStorageBehavior();
         await behavior.Open(StepContextFor(resource));
 
-        var first = new Customer("Acme", 3);
-        var second = new Customer("Globex", 1);
+        var first = new Customer("Acme", "West", 3);
+        var second = new Customer("Globex", "East", 1);
         await behavior.Row(first);
         await behavior.Row(second);
 

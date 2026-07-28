@@ -15,6 +15,11 @@ dotnet build
 # Run unit tests
 dotnet test
 
+# Start the local Postgres the Marten integration tests use (published on 5445 so it
+# never collides with a Postgres you already run). Without it those tests SKIP locally
+# — on CI they never skip, so a missing database fails the build.
+docker compose up -d
+
 # Run the spec runner demo (uses source-generated code from .feature files)
 dotnet run --project src/ConsolePreview/ -- run
 
@@ -34,6 +39,18 @@ dotnet test --filter "FullyQualifiedName~Bobcat.Tests.EndToEnd.PipelineTests"
 ```
 
 All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use xUnit + Shouldly + NSubstitute.
+
+**Database-backed tests:** `Bobcat.Marten.Tests` exercises the `[MartenEntities]` recipe against a
+real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to
+the `docker-compose.yml` instance on **5445**. The skip is deliberately disabled when `CI=true`,
+so CI can never report a silent pass for a missing database.
+
+**Generator note:** every type name emitted *as a type* (casts, generic args, local declarations,
+`default(...)`, `typeof(...)`, `new`) must use `ParameterInfo.QualifiedType` /
+`QualifiedReturnType` / the `global::`-qualified class FQNs. Generated code lives in the fixture's
+own namespace, where an unqualified name binds to the wrong type — e.g. `Marten.IDocumentSession`
+resolving to `Bobcat.Marten.IDocumentSession` inside `Bobcat.Marten.Tests`. The plain `Type`
+string stays short ("int", "string") because the Gherkin literal conversion switches on it.
 
 ## Architecture
 

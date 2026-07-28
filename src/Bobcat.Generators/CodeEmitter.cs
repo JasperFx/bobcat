@@ -372,7 +372,7 @@ public static class CodeEmitter
 
                 if (expectedColumn != null && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row!.ReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row!.QualifiedReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
@@ -547,9 +547,9 @@ public static class CodeEmitter
             if (p.IsOut)
             {
                 var local = "out__" + p.Name;
-                sb.AppendLine($"                        {p.Type} {local};");
+                sb.AppendLine($"                        {p.QualifiedType} {local};");
                 callArgs.Add($"out {local}");
-                outCompares.Add((p.Name, local, p.Type, capture));
+                outCompares.Add((p.Name, local, p.QualifiedType, capture));
             }
             else
             {
@@ -577,7 +577,7 @@ public static class CodeEmitter
         {
             var col = method.ReturnColumn ?? "result";
             var retExpected = values[ValueParamCount(method)];
-            sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+            sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
         }
 
         sb.AppendLine("                        result.MarkCells(cells__.ToArray());");
@@ -637,10 +637,10 @@ public static class CodeEmitter
             // Declare out locals (outside any per-row scope block so the cells can read them)
             foreach (var outParam in method.OutParameters)
             {
-                sb.AppendLine($"                        {outParam.Type} dt{r}__{outParam.Name};");
+                sb.AppendLine($"                        {outParam.QualifiedType} dt{r}__{outParam.Name};");
             }
             if (returnColumn != null)
-                sb.AppendLine($"                        {method.ReturnType} dt{r}__ret;");
+                sb.AppendLine($"                        {method.QualifiedReturnType} dt{r}__ret;");
 
             // [ScopePerRow] — each row's injected services come from their own child scope.
             var rowScopeLocal = $"__sc{r}";
@@ -672,7 +672,7 @@ public static class CodeEmitter
                 else if (idx >= 0 && idx < row.Count)
                     callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p.Type));
                 else
-                    callArgs.Add($"default({p.Type})");
+                    callArgs.Add($"default({p.QualifiedType})");
             }
 
             var argList = string.Join(", ", callArgs);
@@ -692,11 +692,11 @@ public static class CodeEmitter
 
                 if (param != null && param.IsOut)
                 {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.Type}>(\"{EscapeString(header)}\", dt{r}__{param.Name}, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.QualifiedType}>(\"{EscapeString(header)}\", dt{r}__{param.Name}, \"{EscapeString(value)}\", {opts}, {r}));");
                 }
                 else if (returnColumn != null && string.Equals(header, returnColumn, StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(header)}\", dt{r}__ret, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(header)}\", dt{r}__ret, \"{EscapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
@@ -758,9 +758,9 @@ public static class CodeEmitter
                 if (p.IsOut)
                 {
                     var local = "out__" + p.Name;
-                    sb.AppendLine($"                            {p.Type} {local};");
+                    sb.AppendLine($"                            {p.QualifiedType} {local};");
                     callArgs.Add($"out {local}");
-                    outCompares.Add((p.Name, local, p.Type, capture));
+                    outCompares.Add((p.Name, local, p.QualifiedType, capture));
                 }
                 else
                 {
@@ -782,7 +782,7 @@ public static class CodeEmitter
             {
                 var col = method.ReturnColumn ?? "result";
                 var retExpected = values[ValueParamCount(method)];
-                sb.AppendLine($"                            cells__.Add(CellCheck.For<{method.ReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+                sb.AppendLine($"                            cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
             }
 
             sb.AppendLine("                            return new WaitAttempt(cells__.TrueForAll(c => c.Status == ResultStatus.success), cells__.ToArray());");
@@ -847,7 +847,7 @@ public static class CodeEmitter
             }
             else
             {
-                args.Add($"default({param.Type})");
+                args.Add($"default({param.QualifiedType})");
             }
         }
 
@@ -882,7 +882,7 @@ public static class CodeEmitter
             }
             else
             {
-                args.Add($"default({param.Type})");
+                args.Add($"default({param.QualifiedType})");
             }
         }
 
@@ -904,21 +904,21 @@ public static class CodeEmitter
                 return "ctx";
 
             case ParameterBinding.Resource:
-                return $"ctx.GetResource<{p.Type}>({resource})";
+                return $"ctx.GetResource<{p.QualifiedType}>({resource})";
 
             case ParameterBinding.RootService:
-                return $"Bobcat.Runtime.HostResourceExtensions.GetRootService<{p.Type}>(ctx, {resource})";
+                return $"Bobcat.Runtime.HostResourceExtensions.GetRootService<{p.QualifiedType}>(ctx, {resource})";
 
             case ParameterBinding.KeyedService:
                 var key = p.ServiceKey == null ? "null" : $"\"{EscapeString(p.ServiceKey)}\"";
                 return scopeProvider != null
-                    ? $"Microsoft.Extensions.DependencyInjection.ServiceProviderKeyedServiceExtensions.GetRequiredKeyedService<{p.Type}>({scopeProvider}, {key})"
-                    : $"Bobcat.Runtime.HostResourceExtensions.GetKeyedHostService<{p.Type}>(ctx, {key}, {resource})";
+                    ? $"Microsoft.Extensions.DependencyInjection.ServiceProviderKeyedServiceExtensions.GetRequiredKeyedService<{p.QualifiedType}>({scopeProvider}, {key})"
+                    : $"Bobcat.Runtime.HostResourceExtensions.GetKeyedHostService<{p.QualifiedType}>(ctx, {key}, {resource})";
 
             default:
                 return scopeProvider != null
-                    ? $"Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{p.Type}>({scopeProvider})"
-                    : $"Bobcat.Runtime.HostResourceExtensions.GetHostService<{p.Type}>(ctx, {resource})";
+                    ? $"Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{p.QualifiedType}>({scopeProvider})"
+                    : $"Bobcat.Runtime.HostResourceExtensions.GetHostService<{p.QualifiedType}>(ctx, {resource})";
         }
     }
 

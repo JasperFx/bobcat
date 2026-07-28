@@ -106,6 +106,9 @@ public class StepMethodInfo
     /// </summary>
     public string ReturnType { get; set; } = "void";
 
+    /// <summary>The <c>global::</c>-qualified return type — use this when emitting.</summary>
+    public string QualifiedReturnType { get; set; } = "void";
+
     public bool HasReturnValue => ReturnType != "void";
 
     /// <summary>Optional decision-table column name bound to the return value (from [Expected]).</summary>
@@ -183,7 +186,22 @@ public class StepMethodInfo
 public class ParameterInfo
 {
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// The readable type name ("int", "string", "MyApp.Customer"). Used for the Gherkin-value
+    /// conversion rules, NOT for emission.
+    /// </summary>
     public string Type { get; set; } = "";
+
+    /// <summary>
+    /// The <c>global::</c>-qualified type name. Everything emitted INTO generated code as a type
+    /// — casts, generic arguments, local declarations, <c>default(...)</c> — must use this: the
+    /// generated file lives in the fixture's namespace, where an unqualified name can bind to the
+    /// wrong type (e.g. <c>Marten.IDocumentSession</c> resolving to <c>Bobcat.Marten.IDocumentSession</c>
+    /// inside <c>Bobcat.Marten.Tests</c>).
+    /// </summary>
+    public string QualifiedType { get; set; } = "";
+
     public bool IsOut { get; set; }
 
     /// <summary>How this parameter is supplied at runtime. <see cref="Binding.Value"/> means

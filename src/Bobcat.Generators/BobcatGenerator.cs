@@ -105,7 +105,7 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             ClassName = symbol.Name,
             Namespace = symbol.ContainingNamespace.ToDisplayString(),
-            FullyQualifiedName = symbol.ToDisplayString(),
+            FullyQualifiedName = Qualified(symbol),
         };
 
         // Check for [FixtureTitle]
@@ -164,7 +164,7 @@ public class BobcatGenerator : IIncrementalGenerator
     {
         var module = new ModuleInfo
         {
-            FullyQualifiedName = moduleSymbol.ToDisplayString(),
+            FullyQualifiedName = Qualified(moduleSymbol),
             IsFixture = InheritsFrom(moduleSymbol, "Bobcat.Fixture"),
         };
 
@@ -197,7 +197,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
         if (expression == null || kind == null) return null;
 
-        var (returnType, isAwaitable) = UnwrapReturnType(method.ReturnType);
+        var (returnType, qualifiedReturnType, isAwaitable) = UnwrapReturnType(method.ReturnType);
 
         var info = new StepMethodInfo
         {
@@ -206,6 +206,7 @@ public class BobcatGenerator : IIncrementalGenerator
             StepKind = kind,
             IsAsync = isAwaitable,
             ReturnType = returnType,
+            QualifiedReturnType = qualifiedReturnType,
         };
 
         // Check for [Table], [SetVerification], [DecisionTable], [Approx], [Expected]
@@ -301,7 +302,7 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         }
 
-        var (_, isAwaitable) = UnwrapReturnType(method.ReturnType);
+        var (_, _, isAwaitable) = UnwrapReturnType(method.ReturnType);
 
         var hook = new HookMethodInfo
         {
@@ -390,6 +391,7 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             Name = param.Name,
             Type = param.Type.ToDisplayString(),
+            QualifiedType = Qualified(param.Type),
             IsOut = param.RefKind == RefKind.Out,
             IsSimpleType = IsSimpleType(param.Type),
         };
@@ -601,7 +603,7 @@ public class BobcatGenerator : IIncrementalGenerator
         var info = new TableGrammarInfo
         {
             ClassName = symbol.Name,
-            FullyQualifiedName = symbol.ToDisplayString(),
+            FullyQualifiedName = Qualified(symbol),
         };
 
         var isTableGrammar = false;
@@ -643,12 +645,13 @@ public class BobcatGenerator : IIncrementalGenerator
             var role = TableGrammarRole(member);
             if (role == null) continue;
 
-            var (returnType, isAwaitable) = UnwrapReturnType(member.ReturnType);
+            var (returnType, qualifiedReturnType, isAwaitable) = UnwrapReturnType(member.ReturnType);
             var grammarMethod = new GrammarMethodInfo
             {
                 MethodName = member.Name,
                 IsAsync = isAwaitable,
                 ReturnType = returnType,
+                QualifiedReturnType = qualifiedReturnType,
             };
 
             foreach (var param in member.Parameters)
@@ -718,7 +721,7 @@ public class BobcatGenerator : IIncrementalGenerator
     {
         var info = new EntityTypeInfo
         {
-            FullyQualifiedName = entity.ToDisplayString(),
+            FullyQualifiedName = Qualified(entity),
             Name = entity.Name,
         };
 
@@ -747,6 +750,7 @@ public class BobcatGenerator : IIncrementalGenerator
             {
                 Name = member.Name,
                 Type = member.Type.ToDisplayString(),
+                QualifiedType = Qualified(member.Type),
                 IsSimpleType = IsSimpleType(member.Type),
             });
         }
@@ -790,10 +794,10 @@ public class BobcatGenerator : IIncrementalGenerator
     /// Returns the effective return type (Task/ValueTask unwrapped to their argument, or
     /// "void" for void/Task/ValueTask) and whether the method is awaitable.
     /// </summary>
-    private static (string ReturnType, bool IsAwaitable) UnwrapReturnType(ITypeSymbol returnType)
+    private static (string ReturnType, string QualifiedReturnType, bool IsAwaitable) UnwrapReturnType(ITypeSymbol returnType)
     {
         if (returnType.SpecialType == SpecialType.System_Void)
-            return ("void", false);
+            return ("void", "void", false);
 
         if (returnType is INamedTypeSymbol named)
         {
@@ -801,13 +805,23 @@ public class BobcatGenerator : IIncrementalGenerator
             if (name == "Task" || name == "ValueTask")
             {
                 if (named.TypeArguments.Length == 1)
-                    return (named.TypeArguments[0].ToDisplayString(), true);
-                return ("void", true); // non-generic Task/ValueTask
+                {
+                    var arg = named.TypeArguments[0];
+                    return (arg.ToDisplayString(), Qualified(arg), true);
+                }
+                return ("void", "void", true); // non-generic Task/ValueTask
             }
         }
 
-        return (returnType.ToDisplayString(), false);
+        return (returnType.ToDisplayString(), Qualified(returnType), false);
     }
+
+    /// <summary>
+    /// The <c>global::</c>-qualified name of a type. Generated code lives in the fixture's own
+    /// namespace, so an unqualified name can bind to a different type than the author meant.
+    /// </summary>
+    private static string Qualified(ITypeSymbol type)
+        => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
     private static bool InheritsFrom(INamedTypeSymbol symbol, string baseTypeName)
     {
