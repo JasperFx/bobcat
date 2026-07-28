@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Spike.BobcatHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The platform only. No xUnit, no tUnit — this is Bobcat standing on its own as a host. -->
+    <PackageReference Include="Microsoft.Testing.Platform" Version="2.3.3" />
+  </ItemGroup>
+
+</Project>
