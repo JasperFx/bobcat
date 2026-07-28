@@ -1,6 +1,7 @@
 using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Rendering;
+using Bobcat.Resilience;
 
 namespace Bobcat.Runtime;
 
@@ -13,9 +14,28 @@ public class BobcatRunner
     private readonly TestSuite _suite = new();
     private readonly List<FeatureDefinition> _features = new();
     private readonly CommandLineRenderer _renderer = new();
+    private readonly List<IFailurePolicy> _policies = new();
     private IExecutionObserver _observer = NullObserver.Instance;
 
     public TestSuite Suite => _suite;
+
+    /// <summary>
+    /// Caps how much retrying this run may do. Defaults to <see cref="RetryBudget.None"/> —
+    /// retries are opt-in, so an unconfigured run behaves exactly as it did before.
+    /// </summary>
+    public RetryBudget RetryBudget { get; set; } = RetryBudget.None;
+
+    /// <summary>
+    /// Registered policies, tried in order; <see cref="DefaultFailurePolicy"/> always decides
+    /// last so a custom policy can abstain on cases it does not care about.
+    /// </summary>
+    public BobcatRunner AddFailurePolicy(IFailurePolicy policy)
+    {
+        _policies.Add(policy);
+        return this;
+    }
+
+    private IFailurePolicy Policy => new FailurePolicyChain([.. _policies, new DefaultFailurePolicy()]);
     /// <summary>
     /// Skip the live Spectre.Console rendering. Set for JSON output, and by tests that assert
     /// on <see cref="SuiteResults"/> rather than on what the terminal showed.
@@ -133,20 +153,7 @@ public class BobcatRunner
         {
             foreach (var scenario in scenarios)
             {
-                // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
-                // then open a fresh DI scope over it.
-                await _suite.ResetAll();
-                await _suite.BeginScenarioAll();
-
-                ScenarioResult result;
-                try
-                {
-                    result = await RunScenario(feature, scenario);
-                }
-                finally
-                {
-                    await _suite.EndScenarioAll();
-                }
+                var result = await RunScenarioWithRetries(feature, scenario);
 
                 featureResults.Add(result);
 
@@ -155,10 +162,12 @@ public class BobcatRunner
                 {
                     var specRender = SpecRender.FromResults(scenario.Title, result.Results, feature.Title);
                     _renderer.Render(specRender);
+                    _renderer.RenderRetrySummary(result);
                 }
 
-                // Stop feature on catastrophic
-                if (result.Results.Steps.Any(s => s.FailureLevel == FailureLevel.Catastrophic))
+                // Stop feature on catastrophic, or when a policy said to abort the run
+                if (result.Outcome == RunOutcome.Aborted ||
+                    result.Results.Steps.Any(s => s.FailureLevel == FailureLevel.Catastrophic))
                     break;
             }
         }
@@ -169,6 +178,109 @@ public class BobcatRunner
 
         _observer.FeatureFinished(feature.Title);
         return featureResults;
+    }
+
+    /// <summary>
+    /// Runs one scenario, consulting the failure policy after each attempt and retrying while it
+    /// asks for one and the budget allows it.
+    /// </summary>
+    /// <remarks>
+    /// Every attempt — including retries — gets the full <c>ResetAll</c> → <c>BeginScenarioAll</c>
+    /// → <c>EndScenarioAll</c> bracket. A retry that reused dirty state from the failed attempt
+    /// would be testing something other than the scenario.
+    /// </remarks>
+    private async Task<ScenarioResult> RunScenarioWithRetries(FeatureDefinition feature, ScenarioDefinition scenario)
+    {
+        var traits = ResilienceTags.ToTraits(scenario.Tags);
+        var testId = $"{feature.Title}/{scenario.Title}";
+        var policy = Policy;
+        var attempts = new List<AttemptRecord>();
+
+        for (var attemptNumber = 1; ; attemptNumber++)
+        {
+            // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
+            // then open a fresh DI scope over it.
+            await _suite.ResetAll();
+            await _suite.BeginScenarioAll();
+
+            ScenarioResult result;
+            try
+            {
+                result = await RunScenario(feature, scenario);
+            }
+            finally
+            {
+                await _suite.EndScenarioAll();
+            }
+
+            var succeeded = result.Results.Counts.Succeeded;
+
+            var decided = policy.Decide(new AttemptContext
+            {
+                TestId = testId,
+                Title = scenario.Title,
+                AttemptNumber = attemptNumber,
+                Succeeded = succeeded,
+                FailureLevel = WorstFailureLevel(result.Results),
+                Exception = result.Results.AllExceptions().FirstOrDefault(),
+                Traits = traits,
+                RetriesAvailable = RetryBudget.CanRetry(testId, traits),
+                AttemptsAllowed = RetryBudget.AttemptsAllowedFor(traits)
+            }) ?? Disposition.FailAndContinue("failed");
+
+            var (effective, unsupported, willRetry) = Resolve(decided, testId, traits);
+
+            attempts.Add(new AttemptRecord(attemptNumber, succeeded, effective) { Unsupported = unsupported });
+
+            if (!willRetry)
+            {
+                return new ScenarioResult(scenario.Title, scenario.Tags, result.Results) { Attempts = attempts };
+            }
+
+            _observer.ScenarioRetrying(scenario.Title, attemptNumber + 1, effective.Reason);
+            if (!SuppressConsoleOutput) _renderer.RenderRetryNotice(scenario.Title, attemptNumber + 1, effective.Reason);
+        }
+    }
+
+    /// <summary>
+    /// Turns a policy's wish into what will actually happen. Two things can stand in the way:
+    /// the retry budget, and dispositions that need the out-of-process supervisor. Neither is
+    /// silently downgraded — the reason is recorded on the attempt and surfaced in the report,
+    /// because a run report that implies a retry happened when it did not is worse than no
+    /// report at all.
+    /// </summary>
+    private (Disposition Effective, string? Unsupported, bool WillRetry) Resolve(
+        Disposition decided, string testId, IReadOnlyDictionary<string, string> traits)
+    {
+        if (!decided.IsRetry) return (decided, null, false);
+
+        if (decided.RequiresSupervisor)
+        {
+            var step = decided.Kind == DispositionKind.RetryInFreshProcess
+                ? "the supervisor/worker process split"
+                : "supervisor-owned recyclable resources";
+
+            return (decided,
+                $"{decided.Kind} needs {step}, which is not built yet — this attempt was NOT retried",
+                false);
+        }
+
+        if (RetryBudget.TryConsume(testId, traits, out var denial))
+        {
+            return (decided, null, true);
+        }
+
+        return (Disposition.FailAndContinue($"a retry was requested ({decided.Reason}) but {denial}"), null, false);
+    }
+
+    private static FailureLevel WorstFailureLevel(ExecutionResults results)
+    {
+        var worst = FailureLevel.None;
+        foreach (var step in results.Steps)
+        {
+            if (step.FailureLevel > worst) worst = step.FailureLevel;
+        }
+        return worst;
     }
 
     private async Task<ScenarioResult> RunScenario(FeatureDefinition feature, ScenarioDefinition scenario)
@@ -238,6 +350,9 @@ public class BobcatRunner
         var total = results.Features.SelectMany(f => f.Scenarios).Count();
         var passed = results.Features.SelectMany(f => f.Scenarios).Count(s => s.Results.Counts.Succeeded);
         Console.WriteLine($"  {passed}/{total} scenarios passed");
+
+        // Clean-pass and pass-on-retry are reported as different facts, never merged.
+        _renderer.RenderResilienceSummary(results);
     }
 
     /// <summary>

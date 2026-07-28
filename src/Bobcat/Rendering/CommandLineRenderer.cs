@@ -1,4 +1,6 @@
 using Bobcat.Engine;
+using Bobcat.Resilience;
+using Bobcat.Runtime;
 using JasperFx.Core;
 using Spectre.Console;
 
@@ -191,6 +193,67 @@ public class CommandLineRenderer
     {
         var color = counts.Succeeded ? "green" : "red";
         AnsiConsole.MarkupLine($"  [{color}]{counts}[/]");
+    }
+
+    // --- Retry reporting ---
+    //
+    // Retries are shown as they happen and again on the scenario's own line. A retry that only
+    // appears in the final summary reads as a clean pass while the run is in flight, which is
+    // exactly the laundering this feature has to avoid.
+
+    /// <summary>Announces a retry before the next attempt starts.</summary>
+    public void RenderRetryNotice(string scenarioTitle, int nextAttempt, string reason)
+    {
+        AnsiConsole.MarkupLine(
+            $"  [yellow]↻ retrying[/] [italic]{Markup.Escape(scenarioTitle)}[/] " +
+            $"[grey](attempt {nextAttempt}: {Markup.Escape(reason)})[/]");
+    }
+
+    /// <summary>
+    /// Marks a scenario that needed more than one attempt, or whose requested retry could not
+    /// be honoured. Silent for the ordinary clean-pass case.
+    /// </summary>
+    public void RenderRetrySummary(ScenarioResult result)
+    {
+        if (result.Outcome == RunOutcome.PassOnRetry)
+        {
+            AnsiConsole.MarkupLine(
+                $"  [yellow]⚠ passed on retry[/] [grey]after {result.AttemptCount} attempts — " +
+                "not a clean pass[/]");
+        }
+
+        foreach (var unsupported in result.UnsupportedDispositions)
+        {
+            AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
+        }
+    }
+
+    /// <summary>The run-level flakiness ledger. Silent when everything passed cleanly.</summary>
+    public void RenderResilienceSummary(SuiteResults results)
+    {
+        var passedOnRetry = results.PassedOnRetry;
+        if (passedOnRetry.Count == 0 && results.UnsupportedDispositions.Count == 0) return;
+
+        AnsiConsole.WriteLine();
+
+        if (passedOnRetry.Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"  [yellow]{passedOnRetry.Count} scenario(s) passed on retry[/] " +
+                $"[grey]({results.RetriesPerformed} retries performed)[/]");
+
+            foreach (var scenario in passedOnRetry)
+            {
+                AnsiConsole.MarkupLine(
+                    $"    [yellow]•[/] {Markup.Escape(scenario.Title)} " +
+                    $"[grey]({scenario.AttemptCount} attempts)[/]");
+            }
+        }
+
+        foreach (var unsupported in results.UnsupportedDispositions)
+        {
+            AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
+        }
     }
 
     public void Render(Line line)
