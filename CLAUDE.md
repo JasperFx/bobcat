@@ -67,8 +67,23 @@ One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming 
 - **`FeatureDefinition`** / **`ScenarioDefinition`** — compiled feature structure from generator
 - **`TestSuite`** — Named resource registry (start/reset/teardown lifecycle)
 - **`ITestResource`** — Database, IHost, Docker container, etc.
+- **`IHostResource`** — A resource that owns a DI container. Exposes `RootServices` (the host's
+  root container) and `CurrentServices` (the per-scenario scope), and owns the scope itself via
+  `BeginScenarioScope()`/`EndScenarioScope()`. `CurrentServices` **throws** outside a scenario —
+  there is no silent root fallback.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
+
+### Per-Scenario DI Scope
+Each scenario runs as `ResetAll()` → `BeginScenarioAll()` → scenario → `EndScenarioAll()`. Persistent
+state (DB rows, queues) is cleaned first, then a fresh DI scope is opened over it. Scope disposal
+resets service *instances*; `ResetBetweenScenarios` resets *persistent* state — both matter.
+
+Step/grammar parameter binding: `IStepContext` and any type a Gherkin cell can't produce are
+resolved from the scenario scope; a name matching a data-table header wins over convention
+injection. Overrides: `[FromScopedService]`, `[FromRootService]`, `[FromKeyedServices]` (all take
+an optional `Resource` for multi-host suites), plus `[NewScope]` (child scope for one step) and
+`[ScopePerRow]` (child scope per table row).
 
 ### Rendering (`src/Bobcat/Rendering/`)
 - **`SpecRender`** — Intermediate model (feeds both Spectre.Console and future HTML)

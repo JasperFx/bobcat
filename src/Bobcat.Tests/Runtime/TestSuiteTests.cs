@@ -119,6 +119,22 @@ public class TestSuiteTests
     }
 
     [Fact]
+    public async Task opens_scenario_scopes_in_registration_order_and_closes_in_reverse()
+    {
+        var order = new List<string>();
+        var suite = new TestSuite();
+        suite.AddResource(new TrackingResource("plain", order));
+        suite.AddResource(new TrackingHostResource("first", order));
+        suite.AddResource(new TrackingHostResource("second", order));
+
+        await suite.BeginScenarioAll();
+        await suite.EndScenarioAll();
+
+        // The plain (non-host) resource has no DI container and is skipped entirely.
+        order.ShouldBe(["first:begin", "second:begin", "second:end", "first:end"]);
+    }
+
+    [Fact]
     public async Task resource_accessible_from_step_context()
     {
         var suite = new TestSuite();
@@ -153,6 +169,52 @@ internal class TrackingResource : ITestResource
     {
         _log.Add($"{Name}:reset");
         return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _log.Add($"{Name}:dispose");
+        return ValueTask.CompletedTask;
+    }
+}
+
+internal class TrackingHostResource : IHostResource
+{
+    private readonly List<string> _log;
+
+    public TrackingHostResource(string name, List<string> log)
+    {
+        Name = name;
+        _log = log;
+    }
+
+    public string Name { get; }
+    public Microsoft.Extensions.Hosting.IHost Host => throw new NotSupportedException();
+    public IServiceProvider RootServices => throw new NotSupportedException();
+    public IServiceProvider CurrentServices => throw new NotSupportedException();
+
+    public Task Start()
+    {
+        _log.Add($"{Name}:start");
+        return Task.CompletedTask;
+    }
+
+    public Task ResetBetweenScenarios()
+    {
+        _log.Add($"{Name}:reset");
+        return Task.CompletedTask;
+    }
+
+    public ValueTask BeginScenarioScope()
+    {
+        _log.Add($"{Name}:begin");
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask EndScenarioScope()
+    {
+        _log.Add($"{Name}:end");
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask DisposeAsync()

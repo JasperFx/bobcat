@@ -56,6 +56,31 @@ public class TestSuite : IAsyncDisposable
     }
 
     /// <summary>
+    /// Open a per-scenario DI scope on every host resource, in registration order.
+    /// Called by the runner AFTER <see cref="ResetAll"/> — persistent state is cleaned
+    /// first, then a fresh scope is opened over it.
+    /// </summary>
+    public async Task BeginScenarioAll()
+    {
+        foreach (var resource in _resources.OfType<IHostResource>())
+        {
+            await resource.BeginScenarioScope();
+        }
+    }
+
+    /// <summary>
+    /// Dispose each host resource's per-scenario DI scope, in reverse registration order.
+    /// </summary>
+    public async Task EndScenarioAll()
+    {
+        var hosts = _resources.OfType<IHostResource>().ToList();
+        for (var i = hosts.Count - 1; i >= 0; i--)
+        {
+            await hosts[i].EndScenarioScope();
+        }
+    }
+
+    /// <summary>
     /// Look up a resource by type and optional name.
     /// If name is null and exactly one resource of that type exists, returns it.
     /// If multiple exist, throws — caller must provide a name.

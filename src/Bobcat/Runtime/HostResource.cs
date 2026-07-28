@@ -11,9 +11,13 @@ public class HostResource : IHostResource
 {
     private readonly Func<Task<IHost>> _hostFactory;
     private readonly Func<IHost, Task>? _reset;
+    private readonly ScenarioScope _scope;
 
     public IHost Host { get; private set; } = null!;
     public string Name { get; }
+
+    public IServiceProvider RootServices => _scope.Root;
+    public IServiceProvider CurrentServices => _scope.Current;
 
     /// <summary>
     /// Create a HostResource with an async factory that builds and returns the IHost.
@@ -23,6 +27,7 @@ public class HostResource : IHostResource
         _hostFactory = hostFactory;
         Name = name ?? "Host";
         _reset = reset;
+        _scope = new ScenarioScope(Name, () => Host?.Services);
     }
 
     /// <summary>
@@ -45,8 +50,14 @@ public class HostResource : IHostResource
             await _reset(Host);
     }
 
+    public ValueTask BeginScenarioScope() => _scope.Begin();
+
+    public ValueTask EndScenarioScope() => _scope.End();
+
     public async ValueTask DisposeAsync()
     {
+        await _scope.End();
+
         if (Host != null)
         {
             await Host.StopAsync();
@@ -64,15 +75,20 @@ public class HostResource<TProgram> : IHostResource where TProgram : class
 {
     private readonly Action<HostApplicationBuilder>? _configure;
     private readonly Func<IHost, Task>? _reset;
+    private readonly ScenarioScope _scope;
 
     public IHost Host { get; private set; } = null!;
     public string Name { get; }
+
+    public IServiceProvider RootServices => _scope.Root;
+    public IServiceProvider CurrentServices => _scope.Current;
 
     public HostResource(Action<HostApplicationBuilder>? configure = null, string? name = null, Func<IHost, Task>? reset = null)
     {
         Name = name ?? typeof(TProgram).Name;
         _configure = configure;
         _reset = reset;
+        _scope = new ScenarioScope(Name, () => Host?.Services);
     }
 
     public async Task Start()
@@ -89,8 +105,14 @@ public class HostResource<TProgram> : IHostResource where TProgram : class
             await _reset(Host);
     }
 
+    public ValueTask BeginScenarioScope() => _scope.Begin();
+
+    public ValueTask EndScenarioScope() => _scope.End();
+
     public async ValueTask DisposeAsync()
     {
+        await _scope.End();
+
         if (Host != null)
         {
             await Host.StopAsync();
