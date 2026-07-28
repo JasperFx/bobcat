@@ -221,18 +221,21 @@ public class BobcatGenerator : IIncrementalGenerator
                     var colNamed = attr.NamedArguments.FirstOrDefault(a => a.Key == "Column").Value.Value?.ToString();
                     info.ReturnColumn = colArg ?? colNamed;
                     break;
+                case "NewScopeAttribute":
+                    info.NewScope = true;
+                    info.ScopeResourceName ??= NamedString(attr, "Resource");
+                    break;
+                case "ScopePerRowAttribute":
+                    info.ScopePerRow = true;
+                    info.ScopeResourceName ??= NamedString(attr, "Resource");
+                    break;
             }
         }
 
         // Collect parameters
         foreach (var param in method.Parameters)
         {
-            info.Parameters.Add(new ParameterInfo
-            {
-                Name = param.Name,
-                Type = param.Type.ToDisplayString(),
-                IsOut = param.RefKind == RefKind.Out
-            });
+            info.Parameters.Add(ExtractParameter(param));
         }
 
         // Parse the expression
@@ -247,6 +250,123 @@ public class BobcatGenerator : IIncrementalGenerator
 
         return info;
     }
+
+    /// <summary>
+    /// Build the compile-time model for one parameter, deciding up front whether it is
+    /// supplied by the Gherkin text/table or resolved from DI.
+    ///
+    /// The binder rule: <c>IStepContext</c> and explicitly-attributed parameters are always
+    /// injected; a parameter whose type cannot be parsed out of a Gherkin cell is treated as
+    /// a service and resolved from the per-scenario scope; everything else is a value.
+    /// </summary>
+    internal static ParameterInfo ExtractParameter(IParameterSymbol param)
+    {
+        var info = new ParameterInfo
+        {
+            Name = param.Name,
+            Type = param.Type.ToDisplayString(),
+            IsOut = param.RefKind == RefKind.Out,
+            IsSimpleType = IsSimpleType(param.Type),
+        };
+
+        foreach (var attr in param.GetAttributes())
+        {
+            switch (attr.AttributeClass?.Name)
+            {
+                case "FromScopedServiceAttribute":
+                    info.Binding = ParameterBinding.ScopedService;
+                    info.ResourceName = PositionalOrNamedString(attr, "Resource");
+                    break;
+                case "FromRootServiceAttribute":
+                    info.Binding = ParameterBinding.RootService;
+                    info.ResourceName = PositionalOrNamedString(attr, "Resource");
+                    break;
+                case "FromKeyedServicesAttribute":
+                    info.Binding = ParameterBinding.KeyedService;
+                    info.ServiceKey = attr.ConstructorArguments.Length > 0
+                        ? attr.ConstructorArguments[0].Value?.ToString()
+                        : null;
+                    info.ResourceName = NamedString(attr, "Resource");
+                    break;
+            }
+        }
+
+        if (info.Binding != ParameterBinding.Value)
+        {
+            info.IsExplicitlyInjected = true;
+            return info;
+        }
+
+        if (param.Type.ToDisplayString() == "Bobcat.Engine.IStepContext")
+        {
+            info.Binding = ParameterBinding.StepContext;
+            info.IsExplicitlyInjected = true;
+        }
+        else if (!info.IsSimpleType && param.RefKind != RefKind.Out)
+        {
+            // A type no Gherkin cell can produce — resolve it from the scenario scope.
+            info.Binding = ParameterBinding.ScopedService;
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// True for types a Gherkin cell can be converted into: string, primitives, enums,
+    /// decimal, Guid, and the date/time types (plus their nullable forms).
+    /// </summary>
+    internal static bool IsSimpleType(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable
+            && nullable.IsGenericType
+            && nullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+
+        if (type.TypeKind == TypeKind.Enum) return true;
+
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean:
+            case SpecialType.System_Char:
+            case SpecialType.System_SByte:
+            case SpecialType.System_Byte:
+            case SpecialType.System_Int16:
+            case SpecialType.System_UInt16:
+            case SpecialType.System_Int32:
+            case SpecialType.System_UInt32:
+            case SpecialType.System_Int64:
+            case SpecialType.System_UInt64:
+            case SpecialType.System_Single:
+            case SpecialType.System_Double:
+            case SpecialType.System_Decimal:
+            case SpecialType.System_String:
+            case SpecialType.System_Object:
+            case SpecialType.System_DateTime:
+                return true;
+        }
+
+        switch (type.ToDisplayString())
+        {
+            case "System.Guid":
+            case "System.TimeSpan":
+            case "System.DateOnly":
+            case "System.TimeOnly":
+            case "System.DateTimeOffset":
+            case "System.Uri":
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string? PositionalOrNamedString(AttributeData attr, string namedKey)
+        => (attr.ConstructorArguments.Length > 0 ? attr.ConstructorArguments[0].Value?.ToString() : null)
+           ?? NamedString(attr, namedKey);
+
+    private static string? NamedString(AttributeData attr, string key)
+        => attr.NamedArguments.FirstOrDefault(a => a.Key == key).Value.Value?.ToString();
 
     private static FixtureInfo? FindFixture(FeatureInfo feature, ImmutableArray<FixtureInfo> fixtures)
     {

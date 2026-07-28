@@ -37,6 +37,7 @@ public class AlbaResource : IHostResource, IAlbaResource
 {
     private readonly Func<Task<IAlbaHost>> _factory;
     private readonly Func<IAlbaHost, Task>? _reset;
+    private readonly ScenarioScope _scope;
     private IAlbaHost? _albaHost;
 
     /// <summary>
@@ -50,6 +51,9 @@ public class AlbaResource : IHostResource, IAlbaResource
     /// </summary>
     public IHost Host => AlbaHost;
 
+    public IServiceProvider RootServices => _scope.Root;
+    public IServiceProvider CurrentServices => _scope.Current;
+
     public string Name { get; }
 
     public AlbaResource(Func<Task<IAlbaHost>> factory, string? name = null, Func<IAlbaHost, Task>? reset = null)
@@ -57,6 +61,7 @@ public class AlbaResource : IHostResource, IAlbaResource
         _factory = factory;
         Name = name ?? "AlbaHost";
         _reset = reset;
+        _scope = new ScenarioScope(Name, () => _albaHost?.Services);
     }
 
     public AlbaResource(Func<IAlbaHost> factory, string? name = null, Func<IAlbaHost, Task>? reset = null)
@@ -75,8 +80,14 @@ public class AlbaResource : IHostResource, IAlbaResource
             await _reset(_albaHost!);
     }
 
+    public ValueTask BeginScenarioScope() => _scope.Begin();
+
+    public ValueTask EndScenarioScope() => _scope.End();
+
     public async ValueTask DisposeAsync()
     {
+        await _scope.End();
+
         if (_albaHost != null)
             await _albaHost.DisposeAsync();
     }
@@ -95,6 +106,7 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
     private readonly Action<IWebHostBuilder>? _configure;
     private readonly IAlbaExtension[] _extensions;
     private readonly Func<IAlbaHost, Task>? _reset;
+    private readonly ScenarioScope _scope;
     private IAlbaHost? _albaHost;
     private string? _contentRoot;
 
@@ -109,6 +121,9 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
     /// </summary>
     public IHost Host => AlbaHost;
 
+    public IServiceProvider RootServices => _scope.Root;
+    public IServiceProvider CurrentServices => _scope.Current;
+
     public string Name { get; }
 
     public AlbaResource(string? name = null, Action<IWebHostBuilder>? configure = null,
@@ -118,6 +133,7 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
         _configure = configure;
         _reset = reset;
         _extensions = extensions;
+        _scope = new ScenarioScope(Name, () => _albaHost?.Services);
     }
 
     /// <summary>
@@ -164,8 +180,14 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
             await _reset(_albaHost!);
     }
 
+    public ValueTask BeginScenarioScope() => _scope.Begin();
+
+    public ValueTask EndScenarioScope() => _scope.End();
+
     public async ValueTask DisposeAsync()
     {
+        await _scope.End();
+
         if (_albaHost != null)
             await _albaHost.DisposeAsync();
     }

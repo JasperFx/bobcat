@@ -110,9 +110,21 @@ public class BobcatRunner
 
         foreach (var scenario in scenarios)
         {
+            // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
+            // then open a fresh DI scope over it.
             await _suite.ResetAll();
+            await _suite.BeginScenarioAll();
 
-            var result = await RunScenario(feature, scenario);
+            ScenarioResult result;
+            try
+            {
+                result = await RunScenario(feature, scenario);
+            }
+            finally
+            {
+                await _suite.EndScenarioAll();
+            }
+
             featureResults.Add(result);
 
             // Render immediately (unless suppressed for JSON mode)

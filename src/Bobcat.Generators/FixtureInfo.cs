@@ -90,6 +90,26 @@ public class StepMethodInfo
     public List<ParameterInfo> Parameters { get; set; } = new();
     public CucumberExpressionParser.ParsedExpression? ParsedExpression { get; set; }
 
+    /// <summary>[NewScope] — run this step inside a child DI scope.</summary>
+    public bool NewScope { get; set; }
+
+    /// <summary>[ScopePerRow] — run each table row inside its own child DI scope.</summary>
+    public bool ScopePerRow { get; set; }
+
+    /// <summary>Resource name for the [NewScope]/[ScopePerRow] child scope.</summary>
+    public string? ScopeResourceName { get; set; }
+
+    /// <summary>Parameters that come from Gherkin text/table data (not DI).</summary>
+    public List<ParameterInfo> ValueParameters
+    {
+        get
+        {
+            var list = new List<ParameterInfo>();
+            foreach (var p in Parameters) if (!p.IsInjected) list.Add(p);
+            return list;
+        }
+    }
+
     /// <summary>
     /// Fully-qualified name of the grammar module that declares this step, or null when it
     /// belongs to the fixture itself. Drives call routing in the emitter.
@@ -132,4 +152,47 @@ public class ParameterInfo
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public bool IsOut { get; set; }
+
+    /// <summary>How this parameter is supplied at runtime. <see cref="Binding.Value"/> means
+    /// "from a Cucumber capture, a table column, or a DocString".</summary>
+    public ParameterBinding Binding { get; set; } = ParameterBinding.Value;
+
+    /// <summary>Resource name for a service resolution (null = the single host resource).</summary>
+    public string? ResourceName { get; set; }
+
+    /// <summary>Service key literal for <c>[FromKeyedServices]</c>.</summary>
+    public string? ServiceKey { get; set; }
+
+    /// <summary>
+    /// True for types a Gherkin cell can be converted into — primitives, string, enums,
+    /// DateTime/DateOnly/TimeSpan/Guid/decimal and their nullable forms. Anything else is
+    /// treated as a service to resolve rather than a value to parse.
+    /// </summary>
+    public bool IsSimpleType { get; set; } = true;
+
+    public bool IsInjected => Binding != ParameterBinding.Value;
+
+    /// <summary>
+    /// True when an attribute — not the type convention — asked for injection. These win
+    /// over a matching data-table header; convention-injected parameters do not.
+    /// </summary>
+    public bool IsExplicitlyInjected { get; set; }
+}
+
+public enum ParameterBinding
+{
+    /// <summary>Supplied by a Cucumber capture, table column, or DocString.</summary>
+    Value,
+
+    /// <summary>The executing step's <c>IStepContext</c>.</summary>
+    StepContext,
+
+    /// <summary>Resolved from the per-scenario DI scope.</summary>
+    ScopedService,
+
+    /// <summary>Resolved from the host's root container.</summary>
+    RootService,
+
+    /// <summary>Resolved as a keyed service from the per-scenario DI scope.</summary>
+    KeyedService
 }
