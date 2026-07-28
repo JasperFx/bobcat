@@ -16,7 +16,11 @@ public class BobcatRunner
     private IExecutionObserver _observer = NullObserver.Instance;
 
     public TestSuite Suite => _suite;
-    internal bool SuppressConsoleOutput { get; set; }
+    /// <summary>
+    /// Skip the live Spectre.Console rendering. Set for JSON output, and by tests that assert
+    /// on <see cref="SuiteResults"/> rather than on what the terminal showed.
+    /// </summary>
+    public bool SuppressConsoleOutput { get; set; }
 
     public BobcatRunner WithObserver(IExecutionObserver observer)
     {

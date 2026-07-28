@@ -549,11 +549,24 @@ public class BobcatGenerator : IIncrementalGenerator
                         continue;
                     }
 
-                    if (grammarMatch.Grammar.Row == null)
+                    var grammar = grammarMatch.Grammar;
+
+                    // A recipe supplies the per-row sink, so Row becomes optional — but only
+                    // when the recipe names the entity type it should construct.
+                    if (grammar.Row == null && !(grammar.HasRecipe && grammar.RecipeEntity != null))
                     {
                         spc.ReportDiagnostic(Diagnostic.Create(
                             Diagnostics.TableGrammarNeedsRow, Microsoft.CodeAnalysis.Location.None,
-                            grammarMatch.Grammar.ClassName));
+                            grammar.ClassName));
+                        hasErrors = true;
+                        continue;
+                    }
+
+                    if (grammar.HasRecipe && grammar.Row is { HasReturnValue: false })
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.RecipeRowMustReturnProduct, Microsoft.CodeAnalysis.Location.None,
+                            grammar.ClassName));
                         hasErrors = true;
                         continue;
                     }
@@ -611,6 +624,14 @@ public class BobcatGenerator : IIncrementalGenerator
                         info.ApproxTolerance = tol;
                     break;
             }
+
+            // A persistence recipe announces itself by deriving from GrammarBehaviorAttribute.
+            // That is all the generator ever knows about it.
+            if (attr.AttributeClass != null && DerivesFrom(attr.AttributeClass, "Bobcat.Runtime.GrammarBehaviorAttribute"))
+            {
+                info.HasRecipe = true;
+                info.RecipeEntity = ExtractRecipeEntity(attr);
+            }
         }
 
         if (!isTableGrammar || info.Expression.Length == 0) return null;
@@ -663,6 +684,85 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return info;
+    }
+
+    /// <summary>
+    /// The recipe's entity type: the attribute's single type argument (<c>[MartenEntities&lt;Customer&gt;]</c>)
+    /// or a <c>typeof(...)</c> constructor argument. Absent means the entity comes from Row's return.
+    /// </summary>
+    private static EntityTypeInfo? ExtractRecipeEntity(AttributeData attr)
+    {
+        INamedTypeSymbol? entity = null;
+
+        if (attr.AttributeClass is { IsGenericType: true } generic && generic.TypeArguments.Length == 1)
+        {
+            entity = generic.TypeArguments[0] as INamedTypeSymbol;
+        }
+
+        if (entity == null)
+        {
+            foreach (var arg in attr.ConstructorArguments)
+            {
+                if (arg.Value is INamedTypeSymbol named) { entity = named; break; }
+            }
+        }
+
+        return entity == null ? null : DescribeEntityType(entity);
+    }
+
+    /// <summary>
+    /// Capture the constructors and settable properties columns can bind to. Records land here
+    /// as their primary constructor, which is why ctor binding comes first.
+    /// </summary>
+    private static EntityTypeInfo DescribeEntityType(INamedTypeSymbol entity)
+    {
+        var info = new EntityTypeInfo
+        {
+            FullyQualifiedName = entity.ToDisplayString(),
+            Name = entity.Name,
+        };
+
+        foreach (var ctor in entity.InstanceConstructors)
+        {
+            if (ctor.DeclaredAccessibility != Accessibility.Public) continue;
+            if (ctor.IsStatic) continue;
+
+            if (ctor.Parameters.Length == 0)
+            {
+                info.HasParameterlessConstructor = true;
+                continue;
+            }
+
+            var parameters = new List<ParameterInfo>();
+            foreach (var p in ctor.Parameters) parameters.Add(ExtractParameter(p));
+            info.Constructors.Add(parameters);
+        }
+
+        foreach (var member in entity.GetMembers().OfType<IPropertySymbol>())
+        {
+            if (member.DeclaredAccessibility != Accessibility.Public) continue;
+            if (member.SetMethod == null || member.SetMethod.DeclaredAccessibility != Accessibility.Public) continue;
+
+            info.SettableProperties.Add(new ParameterInfo
+            {
+                Name = member.Name,
+                Type = member.Type.ToDisplayString(),
+                IsSimpleType = IsSimpleType(member.Type),
+            });
+        }
+
+        return info;
+    }
+
+    private static bool DerivesFrom(INamedTypeSymbol symbol, string baseTypeName)
+    {
+        var current = symbol.BaseType;
+        while (current != null)
+        {
+            if (current.ToDisplayString() == baseTypeName) return true;
+            current = current.BaseType;
+        }
+        return false;
     }
 
     private static string? TableGrammarRole(IMethodSymbol method)
@@ -807,7 +907,17 @@ internal static class Diagnostics
         "BOBCAT009",
         "Table grammar has no Row method",
         "Table grammar '{0}' has no per-row method. Add a method named 'Row' (or 'RowAsync'), " +
-        "or mark one with [Row].",
+        "mark one with [Row], or name the entity type on the recipe (e.g. [MartenEntities<Customer>]) " +
+        "so columns can be bound by convention.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor RecipeRowMustReturnProduct = new(
+        "BOBCAT010",
+        "Recipe Row must return the entity to persist",
+        "Table grammar '{0}' applies a persistence recipe, so its Row method must return the " +
+        "entity to persist. Give Row a return type, or drop the recipe attribute.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

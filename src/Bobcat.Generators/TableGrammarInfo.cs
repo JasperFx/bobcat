@@ -28,6 +28,33 @@ public class TableGrammarInfo
 
     /// <summary>Explicit expected-column name from [Expected] on the Row method.</summary>
     public string? RowExpectedColumn { get; set; }
+
+    /// <summary>
+    /// True when a persistence recipe attribute (one deriving from
+    /// <c>Bobcat.Runtime.GrammarBehaviorAttribute</c>) is applied. The generator learns nothing
+    /// else about it — the behavior is resolved at runtime in the extension package.
+    /// </summary>
+    public bool HasRecipe { get; set; }
+
+    /// <summary>
+    /// The entity type the recipe binds columns to when there is no hand-written <c>Row</c>.
+    /// Null means the entity comes from <c>Row</c>'s return value.
+    /// </summary>
+    public EntityTypeInfo? RecipeEntity { get; set; }
+}
+
+/// <summary>
+/// Compile-time shape of a recipe's entity type: the public constructors and settable
+/// properties columns can bind to. Captured here so the generator can emit a direct
+/// <c>new Customer(...)</c> — construction stays compiled code, not a runtime binder.
+/// </summary>
+public class EntityTypeInfo
+{
+    public string FullyQualifiedName { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool HasParameterlessConstructor { get; set; }
+    public List<List<ParameterInfo>> Constructors { get; set; } = new();
+    public List<ParameterInfo> SettableProperties { get; set; } = new();
 }
 
 /// <summary>
