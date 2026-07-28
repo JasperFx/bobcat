@@ -10,15 +10,14 @@ namespace Bobcat;
 /// </summary>
 public abstract partial class Fixture
 {
-    /// <summary>
-    /// Override to perform setup before each scenario.
-    /// </summary>
-    public virtual Task SetUp() => Task.CompletedTask;
-
-    /// <summary>
-    /// Override to perform cleanup after each scenario (always runs, even on failure).
-    /// </summary>
-    public virtual Task TearDown() => Task.CompletedTask;
+    // Lifecycle is discovered, not inherited. Declare hooks by convention on your fixture:
+    //
+    //   void/Task BeforeEach(...) / AfterEach(...)          — per scenario, inside the DI scope
+    //   static void/Task BeforeAll(...) / AfterAll(...)     — once per feature, outside any scope
+    //
+    // The "Async" suffix is recognized too (BeforeEachAsync, ...), and [BeforeEach]/[AfterEach]/
+    // [BeforeAll]/[AfterAll] override the naming convention. Parameters are injected by type;
+    // the source generator emits the resolution, so there is no runtime reflection.
 
     /// <summary>
     /// The step context for the currently executing scenario. Available during step execution.

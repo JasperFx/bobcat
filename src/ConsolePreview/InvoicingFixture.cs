@@ -8,11 +8,7 @@ public class InvoicingFixture : Fixture
 {
     private readonly List<LineItem> _items = new();
 
-    public override Task SetUp()
-    {
-        _items.Clear();
-        return Task.CompletedTask;
-    }
+    public void BeforeEach() => _items.Clear();
 
     [Given("the following line items")]
     [Table]

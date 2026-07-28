@@ -10,6 +10,19 @@ public class TestSuite : IAsyncDisposable
 {
     private readonly List<ITestResource> _resources = new();
     private readonly Dictionary<string, ITestResource> _byName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<IGlobalAction> _globalActions = new();
+
+    /// <summary>
+    /// Register cross-cutting setup/teardown that runs once for the whole test run.
+    /// Resource-shaped work belongs in an <see cref="ITestResource"/> instead.
+    /// </summary>
+    public TestSuite AddGlobalAction(IGlobalAction action)
+    {
+        _globalActions.Add(action);
+        return this;
+    }
+
+    public IReadOnlyList<IGlobalAction> GlobalActions => _globalActions;
 
     public void AddResource(ITestResource resource)
     {
@@ -53,6 +66,52 @@ public class TestSuite : IAsyncDisposable
         {
             await resource.ResetBetweenScenarios();
         }
+    }
+
+    /// <summary>
+    /// Run every global action's SetUp, in registration order. Called after
+    /// <see cref="StartAll"/> so resources are available, and before the first feature.
+    /// A failure here is catastrophic — nothing downstream can be trusted.
+    /// </summary>
+    public async Task RunGlobalSetUp()
+    {
+        foreach (var action in _globalActions)
+        {
+            try
+            {
+                await action.SetUp();
+            }
+            catch (Exception ex)
+            {
+                throw new SpecCatastrophicException(
+                    $"Global action '{action.GetType().Name}' failed during SetUp: {ex.Message}", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Run every global action's TearDown, in reverse registration order. Called after the
+    /// last feature and before resources are disposed. Every action gets a turn even if an
+    /// earlier one threw; the first failure surfaces once they have all run.
+    /// </summary>
+    public async Task RunGlobalTearDown()
+    {
+        List<Exception>? failures = null;
+
+        for (var i = _globalActions.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                await _globalActions[i].TearDown();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= new List<Exception>()).Add(ex);
+            }
+        }
+
+        if (failures != null)
+            throw new AggregateException("One or more global actions failed during TearDown.", failures);
     }
 
     /// <summary>

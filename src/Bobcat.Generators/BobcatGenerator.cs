@@ -54,6 +54,8 @@ public class BobcatGenerator : IIncrementalGenerator
 
                 try
                 {
+                    if (!ValidateHooks(fixture, spc)) continue;
+
                     var matched = MatchScenarios(feature, fixture, spc);
                     if (matched == null) continue;
 
@@ -112,13 +114,20 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Title = DeriveTitle(name);
         }
 
-        // Collect step methods
+        // Collect step methods and lifecycle hooks
         foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
         {
             var stepMethod = ExtractStepMethod(member);
             if (stepMethod != null)
             {
                 info.StepMethods.Add(stepMethod);
+                continue;
+            }
+
+            var hook = ExtractHook(member);
+            if (hook != null)
+            {
+                info.Hooks.Add(hook);
             }
         }
 
@@ -252,6 +261,112 @@ public class BobcatGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// Discover a lifecycle hook: an attribute wins, otherwise the method name decides.
+    /// Wolverine-style — convention first, attribute only as the override.
+    /// </summary>
+    private static HookMethodInfo? ExtractHook(IMethodSymbol method)
+    {
+        HookKind? kind = null;
+
+        foreach (var attr in method.GetAttributes())
+        {
+            switch (attr.AttributeClass?.Name)
+            {
+                case "BeforeEachAttribute": kind = HookKind.BeforeEach; break;
+                case "AfterEachAttribute": kind = HookKind.AfterEach; break;
+                case "BeforeAllAttribute": kind = HookKind.BeforeAll; break;
+                case "AfterAllAttribute": kind = HookKind.AfterAll; break;
+            }
+        }
+
+        if (kind == null)
+        {
+            switch (StripAsync(method.Name))
+            {
+                case "BeforeEach": kind = HookKind.BeforeEach; break;
+                case "AfterEach": kind = HookKind.AfterEach; break;
+                case "BeforeAll": kind = HookKind.BeforeAll; break;
+                case "AfterAll": kind = HookKind.AfterAll; break;
+                default: return null;
+            }
+        }
+
+        var (_, isAwaitable) = UnwrapReturnType(method.ReturnType);
+
+        var hook = new HookMethodInfo
+        {
+            MethodName = method.Name,
+            Kind = kind.Value,
+            IsAsync = isAwaitable,
+            IsStatic = method.IsStatic,
+        };
+
+        foreach (var param in method.Parameters)
+        {
+            hook.Parameters.Add(ExtractParameter(param));
+        }
+
+        return hook;
+    }
+
+    private static string StripAsync(string name)
+        => name.EndsWith("Async", StringComparison.Ordinal) && name.Length > 5
+            ? name.Substring(0, name.Length - 5)
+            : name;
+
+    /// <summary>
+    /// Feature-level hooks run before any scenario scope exists, so a scoped-service ask
+    /// there is a compile error rather than a runtime surprise. Also catches hooks that
+    /// take a value the Gherkin can't supply, and BeforeAll/AfterAll declared non-static.
+    /// </summary>
+    private static bool ValidateHooks(FixtureInfo fixture, SourceProductionContext spc)
+    {
+        var ok = true;
+
+        foreach (var hook in fixture.Hooks)
+        {
+            if (hook.IsFeatureLevel && !hook.IsStatic)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.HookMustBeStatic, Microsoft.CodeAnalysis.Location.None,
+                    hook.MethodName, fixture.ClassName));
+                ok = false;
+            }
+
+            if (!hook.IsFeatureLevel && hook.IsStatic)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.HookMustBeInstance, Microsoft.CodeAnalysis.Location.None,
+                    hook.MethodName, fixture.ClassName));
+                ok = false;
+            }
+
+            foreach (var p in hook.Parameters)
+            {
+                var isScoped = p.Binding == ParameterBinding.ScopedService
+                               || p.Binding == ParameterBinding.KeyedService;
+
+                if (hook.IsFeatureLevel && isScoped)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.ScopedServiceInFeatureHook, Microsoft.CodeAnalysis.Location.None,
+                        p.Name, p.Type, hook.MethodName));
+                    ok = false;
+                }
+                else if (p.Binding == ParameterBinding.Value)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.UninjectableHookParameter, Microsoft.CodeAnalysis.Location.None,
+                        p.Name, p.Type, hook.MethodName));
+                    ok = false;
+                }
+            }
+        }
+
+        return ok;
+    }
+
+    /// <summary>
     /// Build the compile-time model for one parameter, deciding up front whether it is
     /// supplied by the Gherkin text/table or resolved from DI.
     ///
@@ -302,6 +417,11 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Binding = ParameterBinding.StepContext;
             info.IsExplicitlyInjected = true;
         }
+        else if (ImplementsInterface(param.Type, "Bobcat.Runtime.ITestResource"))
+        {
+            info.Binding = ParameterBinding.Resource;
+            info.IsExplicitlyInjected = true;
+        }
         else if (!info.IsSimpleType && param.RefKind != RefKind.Out)
         {
             // A type no Gherkin cell can produce — resolve it from the scenario scope.
@@ -309,6 +429,18 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return info;
+    }
+
+    private static bool ImplementsInterface(ITypeSymbol type, string interfaceName)
+    {
+        if (type.ToDisplayString() == interfaceName) return true;
+
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (iface.ToDisplayString() == interfaceName) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -481,6 +613,43 @@ internal static class Diagnostics
         "BOBCAT003",
         "Code generation error",
         "Error generating code for feature '{0}': {1}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor ScopedServiceInFeatureHook = new(
+        "BOBCAT004",
+        "Scoped service in a feature-level hook",
+        "Parameter '{0}' of type '{1}' cannot be injected into '{2}' — BeforeAll/AfterAll run once " +
+        "per feature, before any scenario DI scope exists. Use [FromRootService], inject a test " +
+        "resource, or move the work to BeforeEach/AfterEach.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor UninjectableHookParameter = new(
+        "BOBCAT005",
+        "Uninjectable lifecycle hook parameter",
+        "Parameter '{0}' of type '{1}' on hook '{2}' cannot be resolved. Lifecycle hooks take " +
+        "IStepContext, test resources, or services — not values from the Gherkin.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor HookMustBeStatic = new(
+        "BOBCAT006",
+        "Feature-level hook must be static",
+        "'{0}' on fixture '{1}' must be static — BeforeAll/AfterAll run once per feature, while " +
+        "fixture instances are created per scenario.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor HookMustBeInstance = new(
+        "BOBCAT007",
+        "Scenario-level hook must be an instance method",
+        "'{0}' on fixture '{1}' must be an instance method — BeforeEach/AfterEach run against the " +
+        "scenario's fixture instance.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

@@ -8,11 +8,7 @@ public class InventoryFixture : Fixture
 {
     private readonly Dictionary<string, InventoryItem> _inventory = new();
 
-    public override Task SetUp()
-    {
-        _inventory.Clear();
-        return Task.CompletedTask;
-    }
+    public void BeforeEach() => _inventory.Clear();
 
     [Given("the warehouse is empty")]
     public void TheWarehouseIsEmpty()
