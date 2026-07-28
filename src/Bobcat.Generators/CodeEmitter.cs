@@ -106,7 +106,8 @@ public static class CodeEmitter
 
         // Declare instances for the grammar modules used by this scenario (one per scenario).
         var usedModules = scenario.Steps
-            .Select(s => s.Match.Method.DeclaringModule)
+            .Where(s => s.Match != null)
+            .Select(s => s.Match!.Method.DeclaringModule)
             .Where(m => m != null)
             .Distinct()
             .ToList();
@@ -126,8 +127,6 @@ public static class CodeEmitter
     private static void EmitStep(StringBuilder sb, MatchedStep matched, FixtureInfo fixture)
     {
         var step = matched.Step;
-        var method = matched.Match.Method;
-        var values = matched.Match.ExtractedValues;
 
         var stepKind = step.ResolvedKeyword.Trim() switch
         {
@@ -136,6 +135,15 @@ public static class CodeEmitter
             "Then" => "StepKind.Then",
             _ => "StepKind.Then"
         };
+
+        if (matched.GrammarMatch != null)
+        {
+            EmitTableGrammarStep(sb, step, matched.GrammarMatch, stepKind);
+            return;
+        }
+
+        var method = matched.Match!.Method;
+        var values = matched.Match.ExtractedValues;
 
         var stepId = method.MethodName;
 
@@ -241,6 +249,129 @@ public static class CodeEmitter
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Emit a <c>[TableGrammar]</c> envelope: a fresh grammar instance, <c>Before</c> once,
+    /// then one <c>Row</c> call per table row, then <c>After</c> in a <c>finally</c> so it runs
+    /// even when <c>Before</c> or a row threw.
+    /// </summary>
+    private static void EmitTableGrammarStep(StringBuilder sb, StepInfo step,
+        StepMatcher.TableGrammarMatch match, string stepKind)
+    {
+        var grammar = match.Grammar;
+        var row = grammar.Row!;
+        var headers = step.TableHeaders!;
+        var rows = step.TableRows!;
+        var values = match.ExtractedValues;
+
+        // Columns the Row method consumes as inputs. An explicitly-injected parameter never
+        // claims a column, so [FromScopedService] on a parameter named like a header still
+        // leaves that header available as an expected value.
+        var boundHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in row.Parameters)
+        {
+            if (p.IsExplicitlyInjected) continue;
+            var header = headers.FirstOrDefault(h => string.Equals(h, p.Name, StringComparison.OrdinalIgnoreCase));
+            if (header != null) boundHeaders.Add(header);
+        }
+
+        var leftover = headers.Where(h => !boundHeaders.Contains(h)).ToList();
+
+        // Decision-table disambiguation: a Row return plus exactly one unbound column means
+        // that column is the expected output. [Expected("col")] on Row names it explicitly.
+        var expectedColumn = grammar.RowExpectedColumn != null
+            ? headers.FirstOrDefault(h => string.Equals(h, grammar.RowExpectedColumn, StringComparison.OrdinalIgnoreCase))
+            : (row.HasReturnValue && leftover.Count == 1 ? leftover[0] : null);
+
+        var opts = grammar.ApproxTolerance.HasValue
+            ? $"new CheckOptions {{ Tolerance = {grammar.ApproxTolerance.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} }}"
+            : "null";
+
+        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{EscapeString(h)}\""));
+
+        sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
+        sb.AppendLine($"                        \"{EscapeString(grammar.ClassName)}\",");
+        sb.AppendLine($"                        {stepKind},");
+        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        async (ctx, result, ct) =>");
+        sb.AppendLine("                    {");
+        // Keeps the lambda legally async when every envelope method is synchronous.
+        sb.AppendLine("                        await Task.CompletedTask;");
+        // Fresh instance per execution, so Before's session and After's save share fields.
+        sb.AppendLine($"                        var g__ = new {grammar.FullyQualifiedName}();");
+        sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
+        sb.AppendLine("                        try");
+        sb.AppendLine("                        {");
+
+        if (grammar.Before != null)
+        {
+            var beforeArgs = BuildArgsFromCaptures(grammar.Before.Parameters, values, null, null);
+            var awaitBefore = grammar.Before.IsAsync ? "await " : "";
+            sb.AppendLine($"                            {awaitBefore}g__.{grammar.Before.MethodName}({beforeArgs});");
+        }
+
+        var awaitRow = row.IsAsync ? "await " : "";
+
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var rowCells = rows[r];
+            sb.AppendLine($"                            // row {r + 1}");
+            sb.AppendLine("                            {");
+
+            var rowScopeProvider = grammar.ScopePerRow ? $"__sc{r}.ServiceProvider" : null;
+            if (grammar.ScopePerRow)
+            {
+                var resource = grammar.ScopeResourceName == null
+                    ? "null"
+                    : $"\"{EscapeString(grammar.ScopeResourceName)}\"";
+                sb.AppendLine($"                                using var __sc{r} = Bobcat.Runtime.HostResourceExtensions.CreateChildScope(ctx, {resource});");
+            }
+
+            var rowArgs = BuildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider);
+
+            if (expectedColumn != null)
+                sb.AppendLine($"                                var row{r}__ = {awaitRow}g__.{row.MethodName}({rowArgs});");
+            else
+                sb.AppendLine($"                                {awaitRow}g__.{row.MethodName}({rowArgs});");
+
+            foreach (var header in headers)
+            {
+                var idx = headers.FindIndex(h => string.Equals(h, header, StringComparison.OrdinalIgnoreCase));
+                var value = idx >= 0 && idx < rowCells.Count ? rowCells[idx] : "";
+
+                if (expectedColumn != null && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase))
+                {
+                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row.ReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
+                }
+                else
+                {
+                    // Input (or otherwise unconsumed) column — rendered plain.
+                    sb.AppendLine($"                                cells__.Add(new CellResult(\"{EscapeString(header)}\", ResultStatus.ok, \"{EscapeString(value)}\") {{ RowIndex = {r} }});");
+                }
+            }
+
+            sb.AppendLine("                            }");
+        }
+
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        finally");
+        sb.AppendLine("                        {");
+
+        if (grammar.After != null)
+        {
+            var afterArgs = BuildArgsFromCaptures(grammar.After.Parameters, values, null, null);
+            var awaitAfter = grammar.After.IsAsync ? "await " : "";
+            sb.AppendLine($"                            {awaitAfter}g__.{grammar.After.MethodName}({afterArgs});");
+        }
+        else
+        {
+            sb.AppendLine("                            // no After method on this grammar");
+        }
+
+        sb.AppendLine("                        }");
+        sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        sb.AppendLine("                    }));");
     }
 
     private static void EmitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)
@@ -599,12 +730,20 @@ public static class CodeEmitter
 
     private static string BuildSentenceArgs(StepMethodInfo method, List<string> values, string? docString = null,
         string? scopeProvider = null)
+        => BuildArgsFromCaptures(method.Parameters, values, docString, scopeProvider);
+
+    /// <summary>
+    /// Bind parameters to Cucumber captures positionally, skipping injected ones. A trailing
+    /// DocString fills the first uncovered string parameter.
+    /// </summary>
+    private static string BuildArgsFromCaptures(List<ParameterInfo> parameters, List<string> values,
+        string? docString, string? scopeProvider)
     {
-        if (method.Parameters.Count == 0) return "";
+        if (parameters.Count == 0) return "";
 
         var args = new List<string>();
         var vi = 0;
-        foreach (var param in method.Parameters)
+        foreach (var param in parameters)
         {
             if (param.IsInjected)
             {
@@ -632,9 +771,16 @@ public static class CodeEmitter
 
     private static string BuildTableRowArgs(StepMethodInfo method, List<string> headers, List<string> row,
         string? scopeProvider = null)
+        => BuildArgsFromColumns(method.Parameters, headers, row, scopeProvider);
+
+    /// <summary>
+    /// Bind parameters to a table row by header name, with injection for the rest.
+    /// </summary>
+    private static string BuildArgsFromColumns(List<ParameterInfo> parameters, List<string> headers,
+        List<string> row, string? scopeProvider)
     {
         var args = new List<string>();
-        foreach (var param in method.Parameters)
+        foreach (var param in parameters)
         {
             // A header match wins over convention-based injection; [FromScopedService] and
             // friends are the explicit override that wins over a header match.
@@ -740,5 +886,10 @@ public class MatchedScenario
 public class MatchedStep
 {
     public StepInfo Step { get; set; } = null!;
-    public StepMatcher.MatchResult Match { get; set; } = null!;
+
+    /// <summary>Set when the step matched a fixture/module step method.</summary>
+    public StepMatcher.MatchResult? Match { get; set; }
+
+    /// <summary>Set when the step matched a <c>[TableGrammar]</c> class instead.</summary>
+    public StepMatcher.TableGrammarMatch? GrammarMatch { get; set; }
 }
