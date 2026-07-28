@@ -62,4 +62,41 @@ public static class StepMatcher
             ExtractedValues = candidates[0].values
         };
     }
+
+    public class TableGrammarMatch
+    {
+        public TableGrammarInfo Grammar { get; set; } = null!;
+        public List<string> ExtractedValues { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Match a step against the compilation's table grammars. A table grammar declares its own
+    /// step text and is deliberately keyword-agnostic — "the following customers exist" reads as
+    /// a Given, a When, or a Then depending on the spec, and the text carries the meaning.
+    /// </summary>
+    public static TableGrammarMatch? MatchTableGrammar(StepInfo step, IEnumerable<TableGrammarInfo> grammars)
+    {
+        var candidates = new List<TableGrammarMatch>();
+
+        foreach (var grammar in grammars)
+        {
+            if (grammar.ParsedExpression == null) continue;
+
+            var values = CucumberExpressionParser.TryMatch(grammar.ParsedExpression, step.Text);
+            if (values != null)
+            {
+                candidates.Add(new TableGrammarMatch { Grammar = grammar, ExtractedValues = values });
+            }
+        }
+
+        if (candidates.Count == 0) return null;
+        if (candidates.Count > 1)
+        {
+            var names = string.Join(", ", candidates.Select(c => c.Grammar.ClassName));
+            throw new InvalidOperationException(
+                $"Ambiguous table-grammar match for '{step.Text}': matches {names}");
+        }
+
+        return candidates[0];
+    }
 }

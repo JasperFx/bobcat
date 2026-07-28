@@ -53,6 +53,23 @@ One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
 
+### Table Grammar (`[TableGrammar]`)
+`[TableGrammar("step text")]` on a **class** gives one grammar a Before-once / per-row /
+After-once envelope inside a single scenario — batched setup and decision tables. Surface syntax
+is a normal Gherkin step plus a trailing `|...|` table; no new keywords. Internals are discovered
+by convention (`Before` / `Row` / `After`, `Async` suffix recognized; `[Before]`/`[Row]`/`[After]`
+override). Table grammars are discovered across the compilation and matched by step text alone —
+keyword-agnostic, so a shared grammar drops into any feature.
+
+- Fresh instance per execution, so `Before`'s session and `After`'s save share fields.
+- Columns bind to `Row` parameters by header name; a type no cell can produce is injected from
+  the scenario scope. `[ScopePerRow]` on the class gives each row its own child scope.
+- **Decision-table disambiguation:** `Row` returns a value + exactly one unbound column → that
+  column is the *expected* output, compared via `CellCheck`. `[Expected("col")]` on `Row` names it.
+- **Failure tiers:** `Before` throws → critical (rows skipped, `After` still runs); per-row
+  comparison failures gather and render the full table; `SpecCatastrophicException` stops the
+  suite. `After` always runs in a `finally`.
+
 ### Lifecycle (convention-discovered)
 Declare hooks on the fixture by name — the generator emits the calls with parameters resolved
 by type, so there is no reflection:

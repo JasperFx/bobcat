@@ -28,15 +28,25 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(f => f != null)
             .Select((f, _) => f!);
 
-        // 3. Combine features + fixtures
-        var combined = featureFiles.Collect()
-            .Combine(fixtureClasses.Collect());
+        // 3. Collect [TableGrammar] classes — Before-once/per-row/After-once envelopes
+        var tableGrammars = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.AttributeLists.Count > 0,
+                transform: (ctx, ct) => ExtractTableGrammar(ctx, ct))
+            .Where(g => g != null)
+            .Select((g, _) => g!);
 
-        // 4. Generate source
+        // 4. Combine features + fixtures + table grammars
+        var combined = featureFiles.Collect()
+            .Combine(fixtureClasses.Collect())
+            .Combine(tableGrammars.Collect());
+
+        // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left;
-            var fixtures = pair.Right;
+            var features = pair.Left.Left;
+            var fixtures = pair.Left.Right;
+            var grammars = pair.Right;
 
             foreach (var feature in features)
             {
@@ -56,7 +66,7 @@ public class BobcatGenerator : IIncrementalGenerator
                 {
                     if (!ValidateHooks(fixture, spc)) continue;
 
-                    var matched = MatchScenarios(feature, fixture, spc);
+                    var matched = MatchScenarios(feature, fixture, grammars, spc);
                     if (matched == null) continue;
 
                     var source = CodeEmitter.EmitFeature(feature, fixture, matched);
@@ -506,7 +516,8 @@ public class BobcatGenerator : IIncrementalGenerator
             string.Equals(f.Title, feature.Title, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static List<MatchedScenario>? MatchScenarios(FeatureInfo feature, FixtureInfo fixture, SourceProductionContext spc)
+    private static List<MatchedScenario>? MatchScenarios(FeatureInfo feature, FixtureInfo fixture,
+        ImmutableArray<TableGrammarInfo> grammars, SourceProductionContext spc)
     {
         var matched = new List<MatchedScenario>();
         var hasErrors = false;
@@ -518,23 +529,161 @@ public class BobcatGenerator : IIncrementalGenerator
             foreach (var step in scenario.Steps)
             {
                 var match = StepMatcher.Match(step, fixture);
-                if (match == null)
+                if (match != null)
                 {
-                    spc.ReportDiagnostic(Diagnostic.Create(
-                        Diagnostics.UnmatchedStep,
-                        Microsoft.CodeAnalysis.Location.None,
-                        step.Text, fixture.ClassName));
-                    hasErrors = true;
+                    matchedScenario.Steps.Add(new MatchedStep { Step = step, Match = match });
                     continue;
                 }
 
-                matchedScenario.Steps.Add(new MatchedStep { Step = step, Match = match });
+                // A table grammar declares its own step text and is matched independently of
+                // the fixture, so a shared grammar can be dropped into any feature.
+                var grammarMatch = StepMatcher.MatchTableGrammar(step, grammars);
+                if (grammarMatch != null)
+                {
+                    if (step.TableRows == null || step.TableHeaders == null)
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.TableGrammarNeedsTable, Microsoft.CodeAnalysis.Location.None,
+                            step.Text, grammarMatch.Grammar.ClassName));
+                        hasErrors = true;
+                        continue;
+                    }
+
+                    if (grammarMatch.Grammar.Row == null)
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.TableGrammarNeedsRow, Microsoft.CodeAnalysis.Location.None,
+                            grammarMatch.Grammar.ClassName));
+                        hasErrors = true;
+                        continue;
+                    }
+
+                    matchedScenario.Steps.Add(new MatchedStep { Step = step, GrammarMatch = grammarMatch });
+                    continue;
+                }
+
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.UnmatchedStep,
+                    Microsoft.CodeAnalysis.Location.None,
+                    step.Text, fixture.ClassName));
+                hasErrors = true;
             }
 
             matched.Add(matchedScenario);
         }
 
         return hasErrors ? null : matched;
+    }
+
+    /// <summary>
+    /// Build the compile-time model for a <c>[TableGrammar]</c> class, discovering its
+    /// <c>Before</c>/<c>Row</c>/<c>After</c> methods by convention (attributes override).
+    /// </summary>
+    private static TableGrammarInfo? ExtractTableGrammar(GeneratorSyntaxContext ctx, CancellationToken ct)
+    {
+        var classDecl = (ClassDeclarationSyntax)ctx.Node;
+        if (ctx.SemanticModel.GetDeclaredSymbol(classDecl, ct) is not INamedTypeSymbol symbol) return null;
+        if (symbol.IsAbstract) return null;
+
+        var info = new TableGrammarInfo
+        {
+            ClassName = symbol.Name,
+            FullyQualifiedName = symbol.ToDisplayString(),
+        };
+
+        var isTableGrammar = false;
+        foreach (var attr in symbol.GetAttributes())
+        {
+            switch (attr.AttributeClass?.Name)
+            {
+                case "TableGrammarAttribute":
+                    isTableGrammar = true;
+                    info.Expression = attr.ConstructorArguments.Length > 0
+                        ? attr.ConstructorArguments[0].Value?.ToString() ?? ""
+                        : "";
+                    break;
+                case "ScopePerRowAttribute":
+                    info.ScopePerRow = true;
+                    info.ScopeResourceName = NamedString(attr, "Resource");
+                    break;
+                case "ApproxAttribute":
+                    if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is double tol)
+                        info.ApproxTolerance = tol;
+                    break;
+            }
+        }
+
+        if (!isTableGrammar || info.Expression.Length == 0) return null;
+
+        foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
+        {
+            if (member.MethodKind != MethodKind.Ordinary) continue;
+
+            var role = TableGrammarRole(member);
+            if (role == null) continue;
+
+            var (returnType, isAwaitable) = UnwrapReturnType(member.ReturnType);
+            var grammarMethod = new GrammarMethodInfo
+            {
+                MethodName = member.Name,
+                IsAsync = isAwaitable,
+                ReturnType = returnType,
+            };
+
+            foreach (var param in member.Parameters)
+            {
+                grammarMethod.Parameters.Add(ExtractParameter(param));
+            }
+
+            switch (role)
+            {
+                case "Before": info.Before = grammarMethod; break;
+                case "After": info.After = grammarMethod; break;
+                case "Row":
+                    info.Row = grammarMethod;
+                    foreach (var attr in member.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name != "ExpectedAttribute") continue;
+                        var colArg = attr.ConstructorArguments.Length > 0
+                            ? attr.ConstructorArguments[0].Value?.ToString()
+                            : null;
+                        info.RowExpectedColumn = colArg ?? NamedString(attr, "Column");
+                    }
+                    break;
+            }
+        }
+
+        try
+        {
+            info.ParsedExpression = CucumberExpressionParser.Parse(info.Expression);
+        }
+        catch
+        {
+            // Reported as an unmatched step downstream.
+        }
+
+        return info;
+    }
+
+    private static string? TableGrammarRole(IMethodSymbol method)
+    {
+        foreach (var attr in method.GetAttributes())
+        {
+            switch (attr.AttributeClass?.Name)
+            {
+                case "BeforeAttribute": return "Before";
+                case "RowAttribute": return "Row";
+                case "AfterAttribute": return "After";
+            }
+        }
+
+        switch (StripAsync(method.Name))
+        {
+            case "Before": return "Before";
+            case "Row": return "Row";
+            case "After": return "After";
+            default: return null;
+        }
     }
 
     /// <summary>
@@ -641,6 +790,24 @@ internal static class Diagnostics
         "Feature-level hook must be static",
         "'{0}' on fixture '{1}' must be static — BeforeAll/AfterAll run once per feature, while " +
         "fixture instances are created per scenario.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor TableGrammarNeedsTable = new(
+        "BOBCAT008",
+        "Table grammar step has no data table",
+        "Step '{0}' matches the table grammar '{1}' but has no trailing data table. A table " +
+        "grammar runs once-before, once per row, then once-after — it needs rows.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor TableGrammarNeedsRow = new(
+        "BOBCAT009",
+        "Table grammar has no Row method",
+        "Table grammar '{0}' has no per-row method. Add a method named 'Row' (or 'RowAsync'), " +
+        "or mark one with [Row].",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
