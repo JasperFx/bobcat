@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat.Supervisor\Bobcat.Supervisor.csproj" />
+
+    <!-- Build ordering only. The sample worker is launched as a process, not linked. -->
+    <ProjectReference Include="..\Bobcat.Supervisor.SampleWorker\Bobcat.Supervisor.SampleWorker.csproj"
+                      ReferenceOutputAssembly="false" />
+
+    <!-- Also build ordering only: Bobcat.Tests is an xUnit v3 MTP host, and driving it proves
+         the supervisor works against a framework that is not Bobcat. -->
+    <ProjectReference Include="..\Bobcat.Tests\Bobcat.Tests.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
