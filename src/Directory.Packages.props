@@ -26,20 +26,34 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
-    <!-- Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host) -->
-    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.3.3" />
+    <!--
+      Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host).
+
+      Pinned to 1.9.1 to match what xunit.v3 3.2.2 builds against (its package is literally named
+      xunit.v3.core.mtp-v1). Forcing 2.x here loads a platform assembly whose types have moved,
+      and xUnit's auto-registered MSBuild extension dies with a TypeLoadException on
+      IDataConsumer. Aligning on the version the xUnit v3 ecosystem uses is also what lets a
+      consumer mix Bobcat specs and xUnit v3 tests in one solution — the point of issue #41.
+    -->
+    <PackageVersion Include="Microsoft.Testing.Platform" Version="1.9.1" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="1.9.1" />
 
     <!-- Roslyn (source generator only) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
 
-    <!-- Test stack -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
-    <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <!--
+      Test stack. xUnit v3 ships as a Microsoft.Testing.Platform test host, so the test projects
+      are self-executing MTP applications rather than VSTest assemblies. That means no
+      Microsoft.NET.Test.Sdk, no xunit.runner.visualstudio, and no coverlet.collector (a VSTest
+      data collector) — MTP supplies its own equivalents.
+
+      This also lets Bobcat's own specs run beside these projects under one runner, which is the
+      point of the MTP work in issue #41.
+    -->
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
-    <PackageVersion Include="coverlet.collector" Version="3.1.2" />
   </ItemGroup>
 
 </Project>
