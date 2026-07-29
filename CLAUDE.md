@@ -201,6 +201,49 @@ report never implies a retry that never happened.
 Every attempt gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket; a retry
 reusing dirty state would be testing something other than the scenario.
 
+### MTP Host (`src/Bobcat.Mtp/`)
+Bobcat's spec runner exposed as a **Microsoft.Testing.Platform test host**, so an IDE Test
+Explorer, CI, or a future Bobcat supervisor sees scenarios as ordinary tests. This is the
+"expose" half of the #41 seam; the "drive" half (supervisor) is still to come.
+
+```csharp
+public static class SpecsRunner
+{
+    public static Task<int> Main(string[] args)
+        => BobcatTestApplication.Run(args, runner =>
+        {
+            runner.ScanForFeatures(typeof(SpecsRunner).Assembly);
+            runner.Suite.AddResource(new AlbaResource<Program>());
+        });
+}
+```
+
+- **One scenario = one MTP test node.** Features are not nodes — they are a grouping concept
+  owning `BeforeAll`/`AfterAll`, and making them nodes would imply the platform could schedule
+  them independently.
+- **`SpecNodeMapping`** is pure and static so the projection is testable without launching a
+  host. Uid is `"{Feature}/{Scenario}"` — deliberately **the same string `BobcatRunner` uses as
+  the retry budget's test id**, so one scenario has one identity everywhere.
+- **`failed` vs `error` is honoured** (a comparison disagreed vs an exception escaped), because
+  that split is what a supervisor's `Disposition` policy keys off.
+- Tags travel as MTP traits via `ResilienceTags`, so `@isolated` / `@recycle(...)` are readable
+  by a supervisor that knows nothing about Gherkin.
+- MTP has no "passed on retry" state, so `RunOutcome` travels as `bobcat.outcome` /
+  `bobcat.attempts` metadata rather than being collapsed into a clean pass.
+- Discovery **never starts resources** — IDEs discover on every build.
+
+**`dotnet test` caveat (verified 2026-07-28, SDK 10.0.101):** running an MTP host through
+`dotnet test` requires opting the *whole repo* into MTP mode with a root `global.json`
+(`{"test":{"runner":"Microsoft.Testing.Platform"}}`). This repo cannot do that — the xUnit 2.9.3
+projects are VSTest-based and would stop running. The host executable itself works directly
+(`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is what `Bobcat.Mtp.Tests` exercises.
+A control run of xUnit v3 — a shipping MTP host — behaves identically under `dotnet test` here,
+so this is a toolchain constraint rather than something Bobcat.Mtp does wrong.
+
+`Bobcat.Mtp.SampleHost` is a spec project run as a host; `IsTestProject=false` keeps `dotnet
+test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
+an executable instead.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 
@@ -212,6 +255,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Generators** | netstandard2.0 | Active | Source generator: Gherkin parser, Cucumber Expressions, code gen |
 | **Bobcat.Marten** | net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
 | **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
+| **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
 | **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 

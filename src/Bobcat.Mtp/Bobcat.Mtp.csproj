@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>
+      Runs Bobcat specifications as a Microsoft.Testing.Platform test host, so `dotnet test`,
+      IDE Test Explorers and CI treat Bobcat features like any other test project.
+    </Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Kept out of core Bobcat deliberately: consumers who never want an MTP host should not
+         inherit the platform dependency. -->
+    <PackageReference Include="Microsoft.Testing.Platform" />
+  </ItemGroup>
+
+</Project>

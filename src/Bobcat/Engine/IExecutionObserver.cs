@@ -30,6 +30,15 @@ public interface IExecutionObserver
     /// <param name="nextAttempt">1-based number of the attempt about to start.</param>
     /// <param name="reason">The policy's explanation for retrying.</param>
     void ScenarioRetrying(string scenarioTitle, int nextAttempt, string reason) { }
+
+    /// <summary>
+    /// A scenario is finished for good — all attempts done, disposition settled. Unlike
+    /// <see cref="ScenarioFinished"/>, which fires once per attempt with only that attempt's
+    /// results, this carries the whole <see cref="Runtime.ScenarioResult"/> including the
+    /// attempt history and <see cref="Resilience.RunOutcome"/>. A front-end reporting one
+    /// result per test — an MTP host, say — wants this one.
+    /// </summary>
+    void ScenarioCompleted(string featureTitle, Runtime.ScenarioResult result) { }
 }
 
 /// <summary>

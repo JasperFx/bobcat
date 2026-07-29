@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+
+    <!-- This IS a test host, but it is driven by Bobcat.Mtp.Tests as an executable rather than
+         collected by `dotnet test` itself — otherwise its deliberately-failing scenarios would
+         fail the build. -->
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat.Mtp\Bobcat.Mtp.csproj" />
+  </ItemGroup>
+
+</Project>
