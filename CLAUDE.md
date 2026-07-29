@@ -265,6 +265,46 @@ what `Bobcat.Mtp.Tests` exercises.
 test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
 an executable instead.
 
+### Supervisor (`src/Bobcat.Supervisor/`)
+The out-of-process half of #41: runs a suite across **worker processes** and applies the
+resilience policy at the only altitude that can act on it. `RetryInFreshProcess` and running an
+`[Isolated]` test alone cannot be decided or performed by the thing running inside the process
+that needs replacing.
+
+```csharp
+var supervisor = new Supervisor(new MtpWorkerFactory("path/to/MySpecs"))
+{
+    RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
+};
+var results = await supervisor.Run();   // results.ExitCode, results.PassedOnRetry, …
+```
+
+- **`IWorkerClient` is the seam.** Every wire detail — JSON-RPC framing, MTP node shapes,
+  parameter names — lives behind it. That was the #43 spike's top-listed mitigation: MTP's server
+  mode is undocumented and has moved between versions, so if it shifts (or we ever want the
+  native-protocol fallback) it is one implementation, not a refactor.
+- **No `Microsoft.Testing.Platform` dependency.** The supervisor speaks the wire protocol rather
+  than hosting the platform. That is part of what lets it drive xUnit v3 and tUnit workers as
+  readily as Bobcat's own — there is a test that drives `Bobcat.Tests` (an xUnit v3 host) to prove
+  it, not just assert it.
+- **Scheduling:** isolated tests are identified from **discovery traits, before anything runs**,
+  and each gets its own process. Everything else shares one worker, which is also reused for
+  same-process retries. Discovery itself uses a throwaway worker so it neither inherits nor
+  leaves state.
+- **`GuardAgainstAnUnfilteredRun` is not optional.** MTP silently ignores an unrecognised subset
+  parameter and runs the whole suite, which is indistinguishable from a filter matching
+  everything. A retry that did that would fold unrelated failures into the attempt, so a
+  mismatch is treated as a protocol fault rather than trusted.
+- **A crashed worker yields `Indeterminate`, never "failed".** The spike measured 0-of-9 outcomes
+  surviving a crash on some hosts, so silence is absence of evidence. Indeterminate maps to exit
+  code **2**, not 1 — "we don't know what happened" is not an ordinary red build.
+- **`RetryAfterRecycle` is still recorded as unhonoured** — it needs `IRecyclableResource`
+  (build-order step 4).
+
+`Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
+per-process counter), so the isolation tests prove isolation happened rather than merely proving
+a process was launched. There is a control test showing the same scenario fails when batched.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 
@@ -277,6 +317,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Marten** | net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
 | **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
+| **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
 | **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>
+      Runs Microsoft.Testing.Platform test hosts as worker processes and layers Bobcat's retry,
+      isolation and abort policy on top — the out-of-process half of the resilient test runner.
+    </Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Bobcat only, for Disposition / IFailurePolicy / RetryBudget. Deliberately NOT
+      Microsoft.Testing.Platform: the supervisor speaks the server-mode wire protocol rather than
+      hosting the platform, and staying off the SDK is part of what lets it drive xUnit v3 and
+      tUnit workers as readily as Bobcat's own.
+    -->
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The unfiltered-run guard and the indeterminate-completion rule are safety-critical and
+         deserve direct tests, but neither belongs on the public surface. -->
+    <InternalsVisibleTo Include="Bobcat.Supervisor.Tests" />
+  </ItemGroup>
+
+</Project>
