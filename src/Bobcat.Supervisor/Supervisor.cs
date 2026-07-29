@@ -1,5 +1,6 @@
 using Bobcat.Engine;
 using Bobcat.Resilience;
+using Bobcat.Runtime;
 
 namespace Bobcat.Supervisor;
 
@@ -25,6 +26,8 @@ public sealed class Supervisor
     private readonly List<IFailurePolicy> _policies = new();
 
     private readonly List<string> _workerFaults = new();
+    private readonly Dictionary<string, IRecyclableResource> _recyclable = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _recyclings = new();
 
     private IWorkerClient? _sharedWorker;
     private int _workersLaunched;
@@ -43,6 +46,27 @@ public sealed class Supervisor
         return this;
     }
 
+    /// <summary>
+    /// Registers infrastructure the supervisor owns and may throw away between attempts.
+    /// A worker cannot recycle the broker it is about to be replaced alongside, so these are
+    /// hoisted to supervisor scope.
+    /// </summary>
+    public Supervisor AddRecyclableResource(IRecyclableResource resource)
+    {
+        _recyclable[resource.Name] = resource;
+        return this;
+    }
+
+    /// <summary>Resources recycled during the run, in order. Reported: recycling is not free.</summary>
+    public IReadOnlyList<string> Recyclings => _recyclings;
+
+    /// <summary>
+    /// Checks run ONCE before any worker is launched. This is the Playwright-never-renders case
+    /// promoted to a first-class, test-independent stage: a broken environment aborts in seconds
+    /// instead of after thousands of identical failures.
+    /// </summary>
+    public Preflight Preflight { get; } = new();
+
     private IFailurePolicy Policy => new FailurePolicyChain([.. _policies, new DefaultFailurePolicy()]);
 
     public async Task<SupervisorResults> Run(CancellationToken ct = default)
@@ -52,6 +76,19 @@ public sealed class Supervisor
 
         try
         {
+            // Before any worker exists. Nothing downstream is meaningful if the environment is
+            // broken, and finding that out per-test wastes the whole CI slot.
+            var preflight = await RunPreflight(ct);
+            if (preflight is not null)
+            {
+                return new SupervisorResults
+                {
+                    Tests = [],
+                    AbortReason = preflight,
+                    WorkersLaunched = 0
+                };
+            }
+
             var tests = await Discover(ct);
             if (tests.Count == 0)
             {
@@ -92,8 +129,24 @@ public sealed class Supervisor
                 .ToList(),
             AbortReason = abortReason,
             WorkersLaunched = _workersLaunched,
-            WorkerFaults = _workerFaults
+            WorkerFaults = _workerFaults,
+            Recyclings = _recyclings
         };
+    }
+
+    private async Task<string?> RunPreflight(CancellationToken ct)
+    {
+        // Recyclable infrastructure is supervisor-owned, so the supervisor is the only thing
+        // that can check it before the run starts.
+        Preflight.AddResourceChecks(_recyclable.Values);
+        if (Preflight.IsEmpty) return null;
+
+        var results = await Preflight.Run(ct);
+        if (results.Succeeded()) return null;
+
+        var description = Bobcat.Runtime.Preflight.Describe(results);
+        Log?.Invoke(description);
+        return description;
     }
 
     private async Task<IReadOnlyList<WorkerTest>> Discover(CancellationToken ct)
@@ -151,6 +204,7 @@ public sealed class Supervisor
 
             var sameProcess = new List<string>();
             var freshProcess = new List<string>();
+            var afterRecycle = new List<(string Uid, IReadOnlyList<string> Resources)>();
 
             foreach (var (uid, history) in attempts)
             {
@@ -158,8 +212,12 @@ public sealed class Supervisor
                 if (latest.Succeeded) continue;
                 if (!latest.Disposition.IsRetry || latest.Unsupported is not null) continue;
 
-                if (latest.Disposition.Kind == DispositionKind.RetryInFreshProcess ||
-                    IsIsolated(TraitsFor(traits, uid)))
+                if (latest.Disposition.Kind == DispositionKind.RetryAfterRecycle)
+                {
+                    afterRecycle.Add((uid, latest.Disposition.Resources));
+                }
+                else if (latest.Disposition.Kind == DispositionKind.RetryInFreshProcess ||
+                         IsIsolated(TraitsFor(traits, uid)))
                 {
                     freshProcess.Add(uid);
                 }
@@ -169,7 +227,7 @@ public sealed class Supervisor
                 }
             }
 
-            if (sameProcess.Count == 0 && freshProcess.Count == 0) return null;
+            if (sameProcess.Count == 0 && freshProcess.Count == 0 && afterRecycle.Count == 0) return null;
 
             if (sameProcess.Count > 0)
             {
@@ -192,6 +250,22 @@ public sealed class Supervisor
                 var result = await RunAlone(uid, ct);
 
                 var abort = Record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
+                if (abort is not null) return abort;
+            }
+
+            foreach (var (uid, resources) in afterRecycle)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Recycle FIRST, then run alone in a fresh process. Reusing the shared worker
+                // would leave it connected to the broker we just threw away.
+                var recycleFailure = await Recycle(resources, ct);
+                if (recycleFailure is not null) return recycleFailure;
+
+                Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
+                var result = await RunAlone(uid, ct);
+
+                var abort = Record(result, AttemptPlacement.RecycledProcess, traits, attempts);
                 if (abort is not null) return abort;
             }
         }
@@ -265,11 +339,16 @@ public sealed class Supervisor
 
         if (decided.Kind == DispositionKind.RetryAfterRecycle)
         {
-            // Recycling needs supervisor-owned IRecyclableResource — issue #41 build-order
-            // step 4, not built yet.
-            return (decided,
-                $"RetryAfterRecycle({string.Join(", ", decided.Resources)}) needs supervisor-owned " +
-                "recyclable resources, which are not built yet — this attempt was NOT retried");
+            // Naming a resource nobody registered is a wiring mistake, and silently retrying
+            // without recycling would hide it behind an ordinary flaky-test failure.
+            var unknown = decided.Resources.Where(r => !_recyclable.ContainsKey(r)).ToList();
+            if (unknown.Count > 0)
+            {
+                return (decided,
+                    $"RetryAfterRecycle names [{string.Join(", ", unknown)}], which " +
+                    (unknown.Count == 1 ? "is" : "are") + " not registered with the supervisor — " +
+                    "this attempt was NOT retried. Register with AddRecyclableResource(...).");
+            }
         }
 
         if (RetryBudget.TryConsume(uid, traits, out var denial)) return (decided, null);
@@ -298,6 +377,37 @@ public sealed class Supervisor
         => traits.TryGetValue(uid, out var found)
             ? found
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Throws the named resources away and stands fresh ones up. A recycle that fails is
+    /// catastrophic by nature — the retry would run against infrastructure in an unknown state,
+    /// so it is better to stop than to produce a result nobody can trust.
+    /// </summary>
+    private async Task<string?> Recycle(IReadOnlyList<string> resources, CancellationToken ct)
+    {
+        foreach (var name in resources)
+        {
+            if (!_recyclable.TryGetValue(name, out var resource)) continue;
+
+            Log?.Invoke($"recycling {name}");
+
+            try
+            {
+                await resource.Recycle(ct);
+                _recyclings.Add(name);
+            }
+            catch (Exception e)
+            {
+                // Reported as an abort rather than thrown, so everything already learned this
+                // run survives. A thrown exception here would discard every result collected
+                // so far, which is the opposite of useful when infrastructure breaks late.
+                return $"Recycling the resource '{name}' failed, so the retry would run against " +
+                       $"infrastructure in an unknown state: {e.Message}";
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Keeps a worker's dying words so the report can explain an indeterminate result.</summary>
     private void RecordFault(WorkerRunResult result)

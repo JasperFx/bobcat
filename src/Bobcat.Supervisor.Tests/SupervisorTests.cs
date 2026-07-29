@@ -1,4 +1,6 @@
+using Bobcat.Engine;
 using Bobcat.Resilience;
+using Bobcat.Runtime;
 using Shouldly;
 
 namespace Bobcat.Supervisor.Tests;
@@ -160,23 +162,131 @@ public class SupervisorTests
         results.Summarize().ShouldContain("1 passed on retry");
     }
 
+    // ---------------------------------------------------------------- recycling
+
     [Fact]
-    public async Task a_recycle_disposition_is_recorded_as_unhonoured_rather_than_downgraded()
+    public async Task a_recycle_disposition_throws_the_resource_away_before_retrying()
     {
+        var rabbit = new FakeRecyclableResource("rabbit");
+
         var factory = new FakeWorkerFactory
         {
             Tests = [FakeWorkerFactory.Test("brokered", "RecycleOnRetry=rabbit", "Retry=2")],
+            Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
+        };
+
+        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        supervisor.AddRecyclableResource(rabbit);
+
+        var results = await supervisor.Run();
+
+        rabbit.RecycleCount.ShouldBe(1);
+
+        var test = results.Tests.ShouldHaveSingleItem();
+        test.Outcome.ShouldBe(RunOutcome.PassOnRetry);
+
+        // Recycled, then run alone in a fresh process — reusing the shared worker would leave it
+        // connected to the broker we just discarded.
+        test.Attempts[1].Placement.ShouldBe(AttemptPlacement.RecycledProcess);
+        results.Recyclings.ShouldBe(["rabbit"]);
+        results.Summarize().ShouldContain("Recycled: rabbit");
+    }
+
+    [Fact]
+    public async Task the_recycle_happens_before_the_retry_runs_not_after()
+    {
+        // Ordering is the whole point: a retry against the old broker proves nothing.
+        var order = new List<string>();
+        var rabbit = new FakeRecyclableResource("rabbit", () => order.Add("recycle"));
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("brokered", "RecycleOnRetry=rabbit", "Retry=2")],
+            Outcome = (_, attempt, _) =>
+            {
+                order.Add($"run{attempt}");
+                return attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed;
+            }
+        };
+
+        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        supervisor.AddRecyclableResource(rabbit);
+
+        await supervisor.Run();
+
+        order.ShouldBe(["run1", "recycle", "run2"]);
+    }
+
+    [Fact]
+    public async Task naming_a_resource_nobody_registered_is_reported_not_silently_ignored()
+    {
+        // A wiring mistake. Retrying without recycling would hide it behind an ordinary flaky
+        // failure.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("brokered", "RecycleOnRetry=kafka", "Retry=2")],
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
         var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         var test = results.Tests.ShouldHaveSingleItem();
-        test.AttemptCount.ShouldBe(1); // not retried — quietly retrying without recycling would be a lie
+        test.AttemptCount.ShouldBe(1);
 
         var unsupported = test.UnsupportedDispositions.ShouldHaveSingleItem();
-        unsupported.ShouldContain("RetryAfterRecycle(rabbit)");
-        unsupported.ShouldContain("NOT retried");
+        unsupported.ShouldContain("kafka");
+        unsupported.ShouldContain("not registered");
+        unsupported.ShouldContain("AddRecyclableResource");
+    }
+
+    [Fact]
+    public async Task a_failed_recycle_aborts_rather_than_retrying_against_unknown_infrastructure()
+    {
+        var rabbit = new FakeRecyclableResource("rabbit",
+            () => throw new InvalidOperationException("docker is not responding"));
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("brokered", "RecycleOnRetry=rabbit", "Retry=2")],
+            Outcome = (_, _, _) => WorkerTestState.Failed
+        };
+
+        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        supervisor.AddRecyclableResource(rabbit);
+
+        var results = await supervisor.Run();
+
+        // Aborted rather than thrown, so everything already learned this run survives — a
+        // thrown exception would discard the results collected before the infrastructure broke.
+        results.AbortReason.ShouldNotBeNull();
+        results.AbortReason.ShouldContain("docker is not responding");
+        results.AbortReason.ShouldContain("unknown state");
+        results.ExitCode.ShouldBe(2);
+        results.Tests.ShouldNotBeEmpty();
+    }
+
+    private sealed class FakeRecyclableResource(string name, Action? onRecycle = null) : IRecyclableResource
+    {
+        public string Name { get; } = name;
+        public int RecycleCount { get; private set; }
+        public Action? OnCheck { get; init; }
+
+        public Task Check(CancellationToken token)
+        {
+            OnCheck?.Invoke();
+            return Task.CompletedTask;
+        }
+
+        public Task Recycle(CancellationToken token = default)
+        {
+            RecycleCount++;
+            onRecycle?.Invoke();
+            return Task.CompletedTask;
+        }
+
+        public Task Start() => Task.CompletedTask;
+        public Task ResetBetweenScenarios() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => default;
     }
 
     // ---------------------------------------------------------------- crash handling
@@ -249,6 +359,70 @@ public class SupervisorTests
 
         factory.RunningWorkers.Count.ShouldBe(2);
         results.Tests.ShouldHaveSingleItem().Outcome.ShouldBe(RunOutcome.PassOnRetry);
+    }
+
+    // ---------------------------------------------------------------- preflight
+
+    [Fact]
+    public async Task a_failing_preflight_aborts_before_a_single_worker_is_launched()
+    {
+        // The Playwright-never-renders case: if the environment is broken, launching workers
+        // just buys thousands of identical failures.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = Build(factory);
+        supervisor.Preflight.Add("docker is running", () => throw new InvalidOperationException("connection refused"));
+
+        var results = await supervisor.Run();
+
+        factory.Launched.ShouldBeEmpty(); // not even the discovery worker
+        results.AbortReason.ShouldContain("connection refused");
+        results.ExitCode.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task recyclable_resources_are_checked_during_preflight()
+    {
+        // Supervisor-owned infrastructure is the only thing the supervisor can check itself.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = Build(factory);
+        supervisor.AddRecyclableResource(new FakeRecyclableResource("rabbit")
+        {
+            OnCheck = () => throw new InvalidOperationException("broker unreachable")
+        });
+
+        var results = await supervisor.Run();
+
+        results.AbortReason.ShouldContain("rabbit");
+        results.AbortReason.ShouldContain("broker unreachable");
+        factory.Launched.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_passing_preflight_lets_the_run_proceed()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = Build(factory);
+        supervisor.Preflight.Add("docker is running", () => { });
+
+        var results = await supervisor.Run();
+
+        results.AbortReason.ShouldBeNull();
+        results.CleanPasses.ShouldHaveSingleItem();
     }
 
     // ---------------------------------------------------------------- abort

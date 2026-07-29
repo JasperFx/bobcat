@@ -1,0 +1,126 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Bobcat.Resilience;
+
+namespace Bobcat.Supervisor;
+
+/// <summary>
+/// Renders a supervised run two ways: for a person reading a CI log, and for a machine.
+/// </summary>
+/// <remarks>
+/// Both views report <see cref="RunOutcome.CleanPass"/> and <see cref="RunOutcome.PassOnRetry"/>
+/// as different facts, and neither ever folds one into the other. Retries hide flakiness and
+/// silent green destroys CI trust; if resilience shipped without honest reporting, the feature
+/// would just be a way to launder red into green.
+/// </remarks>
+public static class RunReport
+{
+    /// <summary>The human view.</summary>
+    public static string ToText(SupervisorResults results)
+    {
+        var report = new StringBuilder();
+
+        if (results.AbortReason is not null)
+        {
+            report.AppendLine($"RUN ABORTED: {results.AbortReason}").AppendLine();
+        }
+
+        report.AppendLine(results.Summarize());
+
+        Section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
+            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {Placements(test)}");
+
+        Section(report, "Failed", results.Failed,
+            test => $"{test.DisplayName} — {Reason(test)}");
+
+        Section(report, "Indeterminate (result never established)", results.Indeterminate,
+            test => $"{test.DisplayName} — {test.Final.Outcome.ErrorMessage ?? "no result reported"}");
+
+        Section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
+            test => $"{test.DisplayName} — {test.AttemptCount} attempts, final: {test.Outcome}");
+
+        if (results.UnsupportedDispositions.Count > 0)
+        {
+            report.AppendLine().AppendLine("Retry requests that were NOT honoured:");
+            foreach (var unsupported in results.UnsupportedDispositions)
+            {
+                report.AppendLine($"  ! {unsupported}");
+            }
+        }
+
+        return report.ToString().TrimEnd();
+    }
+
+    private static void Section(
+        StringBuilder report, string title, IReadOnlyList<TestReport> tests, Func<TestReport, string> describe)
+    {
+        if (tests.Count == 0) return;
+
+        report.AppendLine().AppendLine($"{title}:");
+        foreach (var test in tests) report.AppendLine($"  • {describe(test)}");
+    }
+
+    private static string Placements(TestReport test)
+        => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
+
+    private static string Reason(TestReport test)
+        => test.Final.Outcome.ErrorMessage?.Split('\n')[0].Trim() is { Length: > 0 } message
+            ? message
+            : test.Final.Outcome.State.ToString();
+
+    /// <summary>
+    /// The machine view — Bobcat project goal #2's AI outbox. Structured rather than scraped:
+    /// an agent asking "which tests are flaky and under what conditions" should read fields,
+    /// not parse a console log.
+    /// </summary>
+    public static string ToJson(SupervisorResults results)
+    {
+        var document = new JsonObject
+        {
+            ["exitCode"] = results.ExitCode,
+            ["abortReason"] = results.AbortReason,
+            ["summary"] = new JsonObject
+            {
+                ["cleanPass"] = results.CleanPasses.Count,
+                ["passOnRetry"] = results.PassedOnRetry.Count,
+                ["failed"] = results.Failed.Count,
+                ["indeterminate"] = results.Indeterminate.Count,
+                ["retriesPerformed"] = results.RetriesPerformed,
+                ["workersLaunched"] = results.WorkersLaunched
+            },
+            ["recyclings"] = new JsonArray(results.Recyclings.Select(r => (JsonNode)r!).ToArray()),
+            ["workerFaults"] = new JsonArray(results.WorkerFaults.Select(f => (JsonNode)f!).ToArray()),
+            ["unsupportedDispositions"] =
+                new JsonArray(results.UnsupportedDispositions.Select(u => (JsonNode)u!).ToArray()),
+            ["quarantine"] = new JsonArray(results.Quarantine.Select(t => (JsonNode)t.Uid!).ToArray()),
+            ["tests"] = new JsonArray(results.Tests.Select(Describe).ToArray<JsonNode>())
+        };
+
+        return document.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static JsonObject Describe(TestReport test) => new()
+    {
+        ["uid"] = test.Uid,
+        ["displayName"] = test.DisplayName,
+        ["outcome"] = test.Outcome.ToString(),
+        ["attempts"] = test.AttemptCount,
+        ["quarantineCandidate"] = test.WasRetried,
+        ["attemptDetail"] = new JsonArray(test.Attempts.Select(attempt => (JsonNode)new JsonObject
+        {
+            ["attempt"] = attempt.AttemptNumber,
+            ["state"] = attempt.Outcome.State.ToString(),
+            ["placement"] = attempt.Placement.ToString(),
+            ["disposition"] = attempt.Disposition.Kind.ToString(),
+            ["reason"] = attempt.Disposition.Reason,
+            ["recycled"] = attempt.Disposition.Resources.Count == 0
+                ? null
+                : new JsonArray(attempt.Disposition.Resources.Select(r => (JsonNode)r!).ToArray()),
+            ["notHonoured"] = attempt.Unsupported,
+            ["errorType"] = attempt.Outcome.ErrorType,
+            ["errorMessage"] = attempt.Outcome.ErrorMessage,
+            ["durationMs"] = attempt.Outcome.Duration?.TotalMilliseconds
+        }).ToArray())
+    };
+}

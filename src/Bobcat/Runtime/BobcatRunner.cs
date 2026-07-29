@@ -32,6 +32,12 @@ public class BobcatRunner
     public Func<FeatureDefinition, ScenarioDefinition, bool>? ScenarioFilter { get; set; }
 
     /// <summary>
+    /// Checks run once before any feature. A failure aborts the run in seconds rather than
+    /// producing thousands of identical downstream failures.
+    /// </summary>
+    public Preflight Preflight { get; } = new();
+
+    /// <summary>
     /// Caps how much retrying this run may do. Defaults to <see cref="RetryBudget.None"/> —
     /// retries are opt-in, so an unconfigured run behaves exactly as it did before.
     /// </summary>
@@ -103,6 +109,16 @@ public class BobcatRunner
 
         await _suite.StartAll();
 
+        // Preflight runs with resources up but before any feature: checking a database means
+        // little until the resource that owns the connection has started.
+        var preflight = await RunPreflight();
+        if (preflight is not null)
+        {
+            await _suite.DisposeAsync();
+            suiteResults.PreflightFailure = preflight;
+            return suiteResults;
+        }
+
         try
         {
             // Global actions run with resources up but before any feature, and tear down
@@ -139,6 +155,21 @@ public class BobcatRunner
         }
 
         return suiteResults;
+    }
+
+    /// <summary>Returns a description of the failure, or null when the environment is fine.</summary>
+    private async Task<string?> RunPreflight()
+    {
+        Preflight.AddResourceChecks(_suite.Resources);
+        if (Preflight.IsEmpty) return null;
+
+        var results = await Preflight.Run();
+        if (results.Succeeded()) return null;
+
+        var description = Runtime.Preflight.Describe(results);
+        if (!SuppressConsoleOutput) Console.WriteLine(description);
+
+        return description;
     }
 
     private async Task<FeatureResults> RunFeature(FeatureDefinition feature, string? tagFilter)

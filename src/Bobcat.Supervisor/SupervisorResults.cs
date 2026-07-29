@@ -12,7 +12,10 @@ public enum AttemptPlacement
     SameProcess,
 
     /// <summary>Ran alone in a process of its own.</summary>
-    IsolatedProcess
+    IsolatedProcess,
+
+    /// <summary>Ran alone in a fresh process, after the named resources were recycled.</summary>
+    RecycledProcess
 }
 
 /// <summary>One attempt at one test, and what the supervisor decided afterwards.</summary>
@@ -78,6 +81,13 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<string> WorkerFaults { get; init; } = [];
 
+    /// <summary>
+    /// Resources recycled during the run, in order. Reported because throwing a broker away and
+    /// standing a new one up is expensive, and a suite that does it constantly is telling you
+    /// something.
+    /// </summary>
+    public IReadOnlyList<string> Recyclings { get; init; } = [];
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 
@@ -93,6 +103,18 @@ public sealed class SupervisorResults
         => Tests.Where(t => t.IsIndeterminate).ToList();
 
     public int RetriesPerformed => Tests.Sum(t => t.AttemptCount - 1);
+
+    /// <summary>
+    /// Tests that needed more than one attempt, whether or not they eventually passed — the set
+    /// worth quarantining.
+    /// </summary>
+    /// <remarks>
+    /// Membership is "was retried", not "eventually failed", on purpose. A test that passes on
+    /// the third attempt every run is unreliable, and a green build is exactly the situation in
+    /// which that fact would otherwise go unnoticed. "Flaky under broker contention" is also
+    /// precisely the behavioural insight the AI outbox wants.
+    /// </remarks>
+    public IReadOnlyList<TestReport> Quarantine => Tests.Where(t => t.WasRetried).ToList();
 
     public IReadOnlyList<string> UnsupportedDispositions
         => Tests.SelectMany(t => t.UnsupportedDispositions).Distinct().ToList();
@@ -126,6 +148,11 @@ public sealed class SupervisorResults
         summary = $"{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
 
         // An indeterminate count with no explanation is not a report. Lead with the reason.
+        if (Recyclings.Count > 0)
+        {
+            summary += $"{Environment.NewLine}Recycled: {string.Join(", ", Recyclings)}";
+        }
+
         if (WorkerFaults.Count > 0)
         {
             summary += $"{Environment.NewLine}Worker faults:{Environment.NewLine}  " +
