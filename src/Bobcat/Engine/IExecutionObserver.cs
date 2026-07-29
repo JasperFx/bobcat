@@ -20,6 +20,16 @@ public interface IExecutionObserver
 
     void StepFinished(StepResult result);
     void ScenarioFinished(ExecutionResults results);
+
+    /// <summary>
+    /// A scenario failed and is about to be attempted again. Renderers should make this
+    /// visible as it happens — a retry that only shows up in the final summary reads as a
+    /// clean pass while the run is in progress.
+    /// </summary>
+    /// <param name="scenarioTitle">The scenario being retried.</param>
+    /// <param name="nextAttempt">1-based number of the attempt about to start.</param>
+    /// <param name="reason">The policy's explanation for retrying.</param>
+    void ScenarioRetrying(string scenarioTitle, int nextAttempt, string reason) { }
 }
 
 /// <summary>

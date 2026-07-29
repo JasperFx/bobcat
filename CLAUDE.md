@@ -167,6 +167,40 @@ an optional `Resource` for multi-host suites), plus `[NewScope]` (child scope fo
 2. **Critical** — Exception in any step → abort scenario
 3. **Catastrophic** — `SpecCatastrophicException` → stop entire suite
 
+### Resilience (`src/Bobcat/Resilience/`)
+The retry policy layer — `FailureLevel` promoted to a decision the *caller* of the executor acts
+on. Framework-neutral by design: nothing here references Gherkin, so the same engine can drive a
+`dotnet test` alternative over xUnit/tUnit (issue #41).
+
+- **`Disposition`** — `Pass` / `FailAndContinue` / `RetryInProcess` / `RetryInFreshProcess` /
+  `RetryAfterRecycle(resources…)` / `AbortRun`, each with a human-readable `Reason` that reaches
+  the report.
+- **`IFailurePolicy`** — `AttemptContext → Disposition?`. **Returning null abstains**, so narrow
+  policies compose; `FailurePolicyChain` takes the first non-null and `DefaultFailurePolicy`
+  always decides last. Register with `runner.AddFailurePolicy(...)`.
+- **`RetryBudget`** — two independent ceilings because they fail differently:
+  `MaxAttemptsPerTest` stops one pathological test, `MaxRetriesPerRun` stops a pathological
+  *environment*. Default is `RetryBudget.None`, so an unconfigured run behaves exactly as before.
+- **`ResilienceTags`** — projects Gherkin tags onto the trait dictionary policies read:
+  `@retry(N)` → `Retry`, `@isolated` → `Isolated`, `@recycle(rabbit,kafka)` → `RecycleOnRetry`.
+  Unrecognized tags pass through as `tag => "true"`. The #43 spike found traits are the only
+  metadata channel that survives every front-end intact, which is why policy keys off **traits,
+  not exception types** — tUnit erases exception types entirely on the MTP wire.
+
+**Retries are opt-in.** An untagged failure is never retried, even with a budget configured.
+Retrying by default would turn every genuine assertion failure into a slower one and make flaky
+indistinguishable from broken.
+
+**Honest reporting ships with it** — `RunOutcome` is `CleanPass` / `PassOnRetry` / `Failed` /
+`Aborted`, and `PassOnRetry` is never folded into `CleanPass`. `SuiteResults.PassedOnRetry` is
+the run's flakiness ledger; a pass-on-retry still exits 0 but is reported separately. Retry
+dispositions the runner cannot yet honour (`RetryInFreshProcess`, `RetryAfterRecycle` — both need
+the supervisor) are recorded in `UnsupportedDispositions` rather than silently downgraded, so a
+report never implies a retry that never happened.
+
+Every attempt gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket; a retry
+reusing dirty state would be testing something other than the scenario.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 
