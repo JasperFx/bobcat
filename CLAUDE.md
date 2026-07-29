@@ -297,13 +297,42 @@ var results = await supervisor.Run();   // results.ExitCode, results.PassedOnRet
   mismatch is treated as a protocol fault rather than trusted.
 - **A crashed worker yields `Indeterminate`, never "failed".** The spike measured 0-of-9 outcomes
   surviving a crash on some hosts, so silence is absence of evidence. Indeterminate maps to exit
-  code **2**, not 1 — "we don't know what happened" is not an ordinary red build.
+  code **2**, not 1 — "we don't know what happened" is not an ordinary red build. Every
+  indeterminate outcome carries the worker's **exit code and last standard error** (bounded to
+  the final 20 lines) in its `ErrorMessage`, and the run collects them in
+  `SupervisorResults.WorkerFaults`. An indeterminate count with no explanation is not a report.
 - **`RetryAfterRecycle` is still recorded as unhonoured** — it needs `IRecyclableResource`
   (build-order step 4).
 
 `Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
 per-process counter), so the isolation tests prove isolation happened rather than merely proving
 a process was launched. There is a control test showing the same scenario fails when batched.
+
+#### Decided against: an `ITestHostLauncher`-style abstraction
+
+**Do not add a separate launcher seam between the supervisor and the worker process.** Process
+creation stays inside `MtpWorkerClient.Launch`, and `IWorkerFactory` remains the only injection
+point. Revisit only if a concrete requirement below actually arrives.
+
+The idea was to port VSTest's `ITestHostLauncher` — let a caller supply the process. Rejected
+because:
+
+- **Its main purpose does not apply.** VSTest's launcher exists chiefly so an IDE can start the
+  host itself and attach a debugger. In MTP that is a *protocol* concern, not a launch one: the
+  client advertises `capabilities.testing.debuggerProvider` during `initialize` and the host then
+  sends `client/attachDebugger`. We currently pass `false`. Building a launcher to solve
+  debugging would solve it in the wrong layer.
+- **The real gap it would have carried is now fixed directly** — worker exit code and standard
+  error are captured and reported (see above). That was the concrete defect; it did not need an
+  abstraction.
+- **`IWorkerFactory` already covers the seam we use.** `FakeWorkerFactory` in the tests proves it,
+  and a second interface would be ceremony.
+
+The remaining motivations are speculative: per-worker environment shaping (each isolated worker
+pointed at its own broker/schema — likely to become real with `IRecyclableResource`, build-order
+step 4), and container or remote workers. If step 4 needs per-launch environments, add the seam
+*then*, shaped by that requirement, and name it `IWorkerLauncher` — not `ITestHostLauncher`, whose
+name imports VSTest's debugger semantics and would mislead.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.

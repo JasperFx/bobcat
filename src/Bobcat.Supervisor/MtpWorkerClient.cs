@@ -12,22 +12,34 @@ namespace Bobcat.Supervisor;
 /// </remarks>
 public sealed class MtpWorkerClient : IWorkerClient
 {
+    /// <summary>Stderr lines kept for diagnostics. Bounded — a chatty worker must not grow this forever.</summary>
+    private const int StandardErrorLinesKept = 20;
+
     private readonly Process _process;
     private readonly JsonRpcConnection _rpc;
     private readonly ServerModeListener _listener;
     private readonly Dictionary<string, WorkerOutcome> _outcomes = new();
+    private readonly Queue<string> _standardError;
     private readonly object _lock = new();
 
-    private MtpWorkerClient(Process process, JsonRpcConnection rpc, ServerModeListener listener)
+    private MtpWorkerClient(Process process, JsonRpcConnection rpc, ServerModeListener listener, Queue<string> standardError)
     {
         _process = process;
         _rpc = rpc;
         _listener = listener;
+        _standardError = standardError;
         _rpc.OnNotification(HandleNotification);
     }
 
     /// <summary>How long to wait for a launched host to dial back.</summary>
     public static TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long to wait for a dying worker to actually exit before reporting its code. The
+    /// socket usually closes a moment before the process does, so reading the exit code
+    /// immediately would almost always miss it.
+    /// </summary>
+    public static TimeSpan ExitCodeGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
     public static async Task<MtpWorkerClient> Launch(
         string executable,
@@ -63,9 +75,22 @@ public sealed class MtpWorkerClient : IWorkerClient
         var process = Process.Start(info)
             ?? throw new InvalidOperationException($"Could not start the worker '{executable}'.");
 
-        // Drain the pipes; a full buffer would deadlock the worker.
+        // Both pipes must be drained or a full buffer deadlocks the worker. Stderr is also kept:
+        // it is where an unhandled exception lands, and it is the only explanation a crashed
+        // worker ever gives us.
+        var standardError = new Queue<string>();
+
         process.OutputDataReceived += (_, _) => { };
-        process.ErrorDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is null) return;
+            lock (standardError)
+            {
+                standardError.Enqueue(e.Data);
+                while (standardError.Count > StandardErrorLinesKept) standardError.Dequeue();
+            }
+        };
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
@@ -78,7 +103,7 @@ public sealed class MtpWorkerClient : IWorkerClient
             var rpc = new JsonRpcConnection(stream);
             rpc.Start();
 
-            var client = new MtpWorkerClient(process, rpc, listener);
+            var client = new MtpWorkerClient(process, rpc, listener, standardError);
 
             await rpc.Request("initialize", new
             {
@@ -133,14 +158,20 @@ public sealed class MtpWorkerClient : IWorkerClient
         }
         catch (Exception e) when (e is IOException or WorkerProtocolException or ObjectDisposedException)
         {
-            return new WorkerRunResult(Complete(uids, Snapshot())) { Fault = e.Message };
+            var (fault, exitCode, standardError) = await DescribeFault(e);
+            return new WorkerRunResult(Complete(uids, Snapshot(), fault))
+            {
+                Fault = fault,
+                ExitCode = exitCode,
+                StandardError = standardError
+            };
         }
 
         var outcomes = Snapshot();
 
         if (uids is not null) GuardAgainstAnUnfilteredRun(uids, outcomes);
 
-        return new WorkerRunResult(Complete(uids, outcomes));
+        return new WorkerRunResult(Complete(uids, outcomes, fault: null));
     }
 
     /// <summary>
@@ -171,17 +202,76 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// never "failed". A crashed worker loses results it had already produced, so silence is
     /// an absence of evidence, not evidence of failure.
     /// </summary>
+    /// <remarks>
+    /// The worker's fault is stamped onto each synthesized outcome, so a report can say *why*
+    /// a specific test has no result. "Indeterminate" on its own tells a user nothing they can
+    /// act on.
+    /// </remarks>
     internal static IReadOnlyList<WorkerOutcome> Complete(
-        IReadOnlyList<string>? requested, IReadOnlyList<WorkerOutcome> outcomes)
+        IReadOnlyList<string>? requested, IReadOnlyList<WorkerOutcome> outcomes, string? fault)
     {
         if (requested is null) return outcomes;
 
         var reported = outcomes.Select(o => o.Uid).ToHashSet(StringComparer.Ordinal);
+        var explanation = fault ?? "the worker finished without reporting a result for this test";
+
         var missing = requested
             .Where(uid => !reported.Contains(uid))
-            .Select(uid => new WorkerOutcome(uid, uid, WorkerTestState.Indeterminate));
+            .Select(uid => new WorkerOutcome(uid, uid, WorkerTestState.Indeterminate)
+            {
+                ErrorMessage = explanation
+            });
 
         return outcomes.Concat(missing).ToList();
+    }
+
+    /// <summary>
+    /// Builds an account of a dead worker worth reading: the exit code and its last words,
+    /// rather than a bare "the connection closed".
+    /// </summary>
+    private async Task<(string Fault, int? ExitCode, string? StandardError)> DescribeFault(Exception cause)
+    {
+        // The socket usually closes just before the process does, so give it a moment — reading
+        // the exit code immediately would nearly always miss it.
+        try
+        {
+            await _process.WaitForExitAsync(new CancellationTokenSource(ExitCodeGracePeriod).Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Still running: the connection broke without the process dying. Also worth saying.
+        }
+
+        int? exitCode = null;
+        try
+        {
+            if (_process.HasExited) exitCode = _process.ExitCode;
+        }
+        catch (InvalidOperationException)
+        {
+            // Process was disposed underneath us; the exit code is simply unavailable.
+        }
+
+        var standardError = RecentStandardError();
+
+        var description = exitCode is null
+            ? $"the worker stopped responding but is still running ({cause.Message})"
+            : $"the worker exited with code {exitCode}";
+
+        if (!string.IsNullOrWhiteSpace(standardError))
+        {
+            description += $". Last standard error:{Environment.NewLine}{standardError}";
+        }
+
+        return (description, exitCode, standardError);
+    }
+
+    private string? RecentStandardError()
+    {
+        lock (_standardError)
+        {
+            return _standardError.Count == 0 ? null : string.Join(Environment.NewLine, _standardError);
+        }
     }
 
     private void HandleNotification(string method, JsonNode? parameters)

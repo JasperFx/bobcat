@@ -55,8 +55,18 @@ public sealed record WorkerOutcome(string Uid, string DisplayName, WorkerTestSta
 /// <summary>The result of asking a worker to run a set of tests.</summary>
 public sealed record WorkerRunResult(IReadOnlyList<WorkerOutcome> Outcomes)
 {
-    /// <summary>Set when the worker process died or the connection broke mid-run.</summary>
+    /// <summary>
+    /// Set when the worker process died or the connection broke mid-run. Written to be read by
+    /// a human at 2am: it names the exit code and the worker's last words, not just
+    /// "the connection closed".
+    /// </summary>
     public string? Fault { get; init; }
+
+    /// <summary>The worker's exit code, when it had exited by the time we looked.</summary>
+    public int? ExitCode { get; init; }
+
+    /// <summary>The tail of the worker's standard error — where an unhandled exception lands.</summary>
+    public string? StandardError { get; init; }
 
     public bool Crashed => Fault is not null;
 }

@@ -205,6 +205,36 @@ public class SupervisorTests
     }
 
     [Fact]
+    public async Task an_indeterminate_test_carries_the_reason_its_worker_died()
+    {
+        // "Indeterminate" with no explanation tells a user something went wrong and nothing
+        // they can act on.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("lost")],
+            Outcome = (_, _, _) => null,
+            Fault = w => w.Runs.Count > 0 ? "the worker exited with code 70" : null
+        };
+
+        var results = await Build(factory).Run();
+
+        results.Tests.ShouldHaveSingleItem()
+            .Final.Outcome.ErrorMessage.ShouldBe("the worker exited with code 70");
+
+        results.WorkerFaults.ShouldContain("the worker exited with code 70");
+        results.Summarize().ShouldContain("exited with code 70");
+    }
+
+    [Fact]
+    public void a_test_nobody_reported_without_a_crash_says_exactly_that()
+    {
+        var completed = MtpWorkerClient.Complete(["asked"], [], fault: null);
+
+        completed.ShouldHaveSingleItem()
+            .ErrorMessage.ShouldBe("the worker finished without reporting a result for this test");
+    }
+
+    [Fact]
     public async Task a_dead_shared_worker_is_replaced_before_the_next_retry()
     {
         var factory = new FakeWorkerFactory

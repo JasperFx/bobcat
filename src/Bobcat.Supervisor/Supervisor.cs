@@ -24,6 +24,8 @@ public sealed class Supervisor
     private readonly IWorkerFactory _factory;
     private readonly List<IFailurePolicy> _policies = new();
 
+    private readonly List<string> _workerFaults = new();
+
     private IWorkerClient? _sharedWorker;
     private int _workersLaunched;
 
@@ -89,7 +91,8 @@ public sealed class Supervisor
                 .OrderBy(t => t.DisplayName, StringComparer.Ordinal)
                 .ToList(),
             AbortReason = abortReason,
-            WorkersLaunched = _workersLaunched
+            WorkersLaunched = _workersLaunched,
+            WorkerFaults = _workerFaults
         };
     }
 
@@ -113,6 +116,7 @@ public sealed class Supervisor
             var worker = await SharedWorker(ct);
             var result = await worker.Run(batched, ct);
             if (result.Crashed) InvalidateSharedWorker(result.Fault!);
+            RecordFault(result);
 
             var abort = Record(result, AttemptPlacement.Batched, traits, attempts);
             if (abort is not null) return abort;
@@ -174,6 +178,7 @@ public sealed class Supervisor
                 var worker = await SharedWorker(ct);
                 var result = await worker.Run(sameProcess, ct);
                 if (result.Crashed) InvalidateSharedWorker(result.Fault!);
+                RecordFault(result);
 
                 var abort = Record(result, AttemptPlacement.SameProcess, traits, attempts);
                 if (abort is not null) return abort;
@@ -196,7 +201,9 @@ public sealed class Supervisor
     private async Task<WorkerRunResult> RunAlone(string uid, CancellationToken ct)
     {
         await using var worker = await LaunchWorker(ct);
-        return await worker.Run([uid], ct);
+        var result = await worker.Run([uid], ct);
+        RecordFault(result);
+        return result;
     }
 
     /// <summary>
@@ -291,6 +298,12 @@ public sealed class Supervisor
         => traits.TryGetValue(uid, out var found)
             ? found
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Keeps a worker's dying words so the report can explain an indeterminate result.</summary>
+    private void RecordFault(WorkerRunResult result)
+    {
+        if (result.Fault is not null) _workerFaults.Add(result.Fault);
+    }
 
     private async Task<IWorkerClient> SharedWorker(CancellationToken ct)
         => _sharedWorker ??= await LaunchWorker(ct);
