@@ -154,6 +154,44 @@ public class SupervisorEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task a_worker_crash_reports_the_exit_code_rather_than_just_the_closed_socket()
+    {
+        // The sample worker exits 70 on purpose. Reporting only "the connection closed" would
+        // leave the user with an indeterminate run and nothing to act on.
+        var supervisor = new Supervisor(Factory(new Dictionary<string, string>
+        {
+            ["BOBCAT_CRASH"] = "true"
+        }));
+
+        var results = await supervisor.Run();
+
+        results.WorkerFaults.ShouldNotBeEmpty();
+        results.WorkerFaults.ShouldContain(f => f.Contains("exited with code 70"));
+
+        // And it reaches the individual tests that were lost, not just the run summary.
+        results.Indeterminate.ShouldAllBe(t => t.Final.Outcome.ErrorMessage!.Contains("code 70"));
+        results.Summarize().ShouldContain("code 70");
+    }
+
+    [Fact]
+    public async Task a_worker_that_dies_with_an_unhandled_exception_reports_its_standard_error()
+    {
+        // A crash with a real stack trace is the common case, and stderr is the only place the
+        // worker gets to explain itself.
+        await using var worker = await MtpWorkerClient.Launch(WorkerPath, new Dictionary<string, string>
+        {
+            ["BOBCAT_UNHANDLED"] = "true"
+        });
+
+        var result = await worker.Run(["Fussy/dies with an unhandled exception when armed"]);
+
+        result.Crashed.ShouldBeTrue();
+        result.StandardError.ShouldNotBeNullOrWhiteSpace();
+        result.StandardError.ShouldContain("the worker fell over");
+        result.Fault.ShouldContain("standard error");
+    }
+
+    [Fact]
     public async Task the_run_reports_how_many_worker_processes_isolation_cost()
     {
         var supervisor = new Supervisor(Factory());

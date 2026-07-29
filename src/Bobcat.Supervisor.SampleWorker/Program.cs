@@ -67,6 +67,18 @@ public static class Program
             Scenario("kills the worker when armed", [], () =>
             {
                 if (Environment.GetEnvironmentVariable("BOBCAT_CRASH") == "true") Environment.Exit(70);
+            }),
+
+            // Dies the way a real worker usually does: an unhandled exception on a foreground
+            // thread, which terminates the process after the CLR prints a stack trace to stderr.
+            // Join never returns, so this is deterministic rather than timing-dependent.
+            Scenario("dies with an unhandled exception when armed", [], () =>
+            {
+                if (Environment.GetEnvironmentVariable("BOBCAT_UNHANDLED") != "true") return;
+
+                var thread = new Thread(() => throw new InvalidOperationException("the worker fell over"));
+                thread.Start();
+                thread.Join();
             })
         ]);
 

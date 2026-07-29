@@ -72,6 +72,12 @@ public sealed class SupervisorResults
     /// <summary>Worker processes launched. Surfaced because isolation is not free.</summary>
     public int WorkersLaunched { get; init; }
 
+    /// <summary>
+    /// Every worker death, with its exit code and last standard error. Without these,
+    /// <see cref="Indeterminate"/> tells a user that something went wrong but nothing about what.
+    /// </summary>
+    public IReadOnlyList<string> WorkerFaults { get; init; } = [];
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 
@@ -117,7 +123,16 @@ public sealed class SupervisorResults
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
 
         var summary = string.Join(", ", parts);
-        return $"{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
+        summary = $"{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
+
+        // An indeterminate count with no explanation is not a report. Lead with the reason.
+        if (WorkerFaults.Count > 0)
+        {
+            summary += $"{Environment.NewLine}Worker faults:{Environment.NewLine}  " +
+                       string.Join($"{Environment.NewLine}  ", WorkerFaults);
+        }
+
+        return summary;
     }
 }
 

@@ -45,7 +45,7 @@ public sealed class FakeWorker : IWorkerClient
         var fault = _factory.FaultFor(this);
 
         return Task.FromResult(new WorkerRunResult(
-            MtpWorkerClient.Complete(uids, outcomes)) { Fault = fault });
+            MtpWorkerClient.Complete(uids, outcomes, fault)) { Fault = fault });
     }
 
     public ValueTask DisposeAsync()
