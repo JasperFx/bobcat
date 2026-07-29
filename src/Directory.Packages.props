@@ -26,6 +26,9 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
+    <!-- Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host) -->
+    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.3.3" />
+
     <!-- Roslyn (source generator only) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />

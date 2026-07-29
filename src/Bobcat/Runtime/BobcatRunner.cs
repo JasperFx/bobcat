@@ -20,6 +20,18 @@ public class BobcatRunner
     public TestSuite Suite => _suite;
 
     /// <summary>
+    /// Registered features. Exposed so a front-end can enumerate the run without executing it —
+    /// what an MTP host does for <c>--list-tests</c> and IDE Test Explorer discovery.
+    /// </summary>
+    public IReadOnlyList<FeatureDefinition> Features => _features;
+
+    /// <summary>
+    /// Narrows the run to specific scenarios, on top of the feature/tag filters. An MTP host
+    /// sets this from the platform's uid filter so a supervisor can re-run exactly one scenario.
+    /// </summary>
+    public Func<FeatureDefinition, ScenarioDefinition, bool>? ScenarioFilter { get; set; }
+
+    /// <summary>
     /// Caps how much retrying this run may do. Defaults to <see cref="RetryBudget.None"/> —
     /// retries are opt-in, so an unconfigured run behaves exactly as it did before.
     /// </summary>
@@ -143,6 +155,11 @@ public class BobcatRunner
                 s.Tags.Any(t => t.Equals(tagFilter, StringComparison.OrdinalIgnoreCase)));
         }
 
+        if (ScenarioFilter != null)
+        {
+            scenarios = scenarios.Where(s => ScenarioFilter(feature, s));
+        }
+
         // BeforeAll/AfterAll run once per feature, outside any scenario scope. They get a
         // feature-level context so they can reach resources and root services — asking it
         // for a scoped service throws, which is the intended rejection.
@@ -156,6 +173,7 @@ public class BobcatRunner
                 var result = await RunScenarioWithRetries(feature, scenario);
 
                 featureResults.Add(result);
+                _observer.ScenarioCompleted(feature.Title, result);
 
                 // Render immediately (unless suppressed for JSON mode)
                 if (!SuppressConsoleOutput)
