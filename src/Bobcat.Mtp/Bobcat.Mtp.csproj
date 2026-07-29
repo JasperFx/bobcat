@@ -19,6 +19,15 @@
     <!-- Kept out of core Bobcat deliberately: consumers who never want an MTP host should not
          inherit the platform dependency. -->
     <PackageReference Include="Microsoft.Testing.Platform" />
+
+    <!-- Supplies `dotnet test` support and the ProjectCapability that Visual Studio / VS Code
+         Test Explorers look for. Without it a Bobcat host is only runnable as a bare executable. -->
+    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ships in the nupkg so consumers inherit the entry-point setting. See the file. -->
+    <None Include="buildTransitive\Bobcat.Mtp.props" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
 </Project>

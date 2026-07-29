@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    Flows to any project that references the Bobcat.Mtp package.
+
+    Microsoft.Testing.Platform.MSBuild normally synthesizes a Main for the test host. Bobcat spec
+    projects write their own — `BobcatTestApplication.Run(args, ...)` is how features and
+    resources get registered — so the generated one would be a second entry point and the build
+    fails with CS0017. Turning it off here means a consumer never has to discover that.
+  -->
+  <PropertyGroup>
+    <GenerateTestingPlatformEntryPoint Condition="'$(GenerateTestingPlatformEntryPoint)' == ''">false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+
+</Project>

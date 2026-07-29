@@ -11,6 +11,11 @@
          collected by `dotnet test` itself — otherwise its deliberately-failing scenarios would
          fail the build. -->
     <IsTestProject>false</IsTestProject>
+
+    <!-- A package consumer inherits this from Bobcat.Mtp's buildTransitive props. A
+         ProjectReference does not consume another project's build assets, so in-repo it has to
+         be set here. Without it the synthesized Main collides with Program.Main (CS0017). -->
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
   </PropertyGroup>
 
   <ItemGroup>

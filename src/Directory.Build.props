@@ -23,4 +23,17 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!--
+    Test projects run on Microsoft.Testing.Platform rather than VSTest. xUnit v3 ships as an MTP
+    test host, so each *.Tests project compiles to a self-executing test application. Applied
+    here rather than per-project so a new test project cannot silently fall back to VSTest and
+    diverge from the rest.
+  -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <!-- A v3 test project IS the test host, so it has to be executable. -->
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
 </Project>

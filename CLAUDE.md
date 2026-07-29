@@ -32,13 +32,31 @@ dotnet run --project src/ConsolePreview/ -- run --feature "Calculator"
 # Filter by tag
 dotnet run --project src/ConsolePreview/ -- run --tag regression
 
-# Run a specific test class
-dotnet test --filter "FullyQualifiedName~Bobcat.Tests.EndToEnd.PipelineTests"
+# Run a specific test class. Tests run on Microsoft.Testing.Platform, not VSTest, so the
+# old `--filter "FullyQualifiedName~X"` is gone. Arguments after `--` go to the test host.
+dotnet test src/Bobcat.Tests/ -- --filter-class "*PipelineTests"
+dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
+
+# A test project is a self-executing MTP application, so it can also be run directly:
+./src/Bobcat.Tests/bin/Debug/net10.0/Bobcat.Tests --list-tests
 
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use xUnit + Shouldly + NSubstitute.
+All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use **xUnit v3 +
+Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather than VSTest.
+
+Every `*.Tests` project is therefore a self-executing MTP test host — `OutputType=Exe`,
+`UseMicrosoftTestingPlatformRunner`, `TestingPlatformDotnetTestSupport` are set once in
+`src/Directory.Build.props` for any project whose name ends in `.Tests`, so a new test project
+cannot silently fall back to VSTest. There is no `Microsoft.NET.Test.Sdk`, no
+`xunit.runner.visualstudio`, and no `coverlet.collector` (a VSTest data collector) — MTP supplies
+its own equivalents.
+
+**Version pin that matters:** `Microsoft.Testing.Platform` is held at **1.9.1** because that is
+what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mtp-v1`). Moving it
+to 2.x loads a platform assembly whose types have moved and xUnit's auto-registered MSBuild
+extension dies with a `TypeLoadException` on `IDataConsumer`.
 
 **Database-backed tests:** `Bobcat.Marten.Tests` exercises the `[MartenEntities]` recipe against a
 real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to
@@ -232,13 +250,16 @@ public static class SpecsRunner
   `bobcat.attempts` metadata rather than being collapsed into a clean pass.
 - Discovery **never starts resources** — IDEs discover on every build.
 
-**`dotnet test` caveat (verified 2026-07-28, SDK 10.0.101):** running an MTP host through
-`dotnet test` requires opting the *whole repo* into MTP mode with a root `global.json`
-(`{"test":{"runner":"Microsoft.Testing.Platform"}}`). This repo cannot do that — the xUnit 2.9.3
-projects are VSTest-based and would stop running. The host executable itself works directly
-(`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is what `Bobcat.Mtp.Tests` exercises.
-A control run of xUnit v3 — a shipping MTP host — behaves identically under `dotnet test` here,
-so this is a toolchain constraint rather than something Bobcat.Mtp does wrong.
+**`dotnet test` works** — it needs `Microsoft.Testing.Platform.MSBuild`, which `Bobcat.Mtp`
+depends on, so a consumer gets it transitively. That package also supplies the `ProjectCapability`
+Visual Studio and VS Code Test Explorers look for. It normally synthesizes a `Main`, which would
+be a second entry point beside the consumer's own `BobcatTestApplication.Run` (CS0017), so
+`Bobcat.Mtp` ships `buildTransitive/Bobcat.Mtp.props` turning that off. A `ProjectReference` does
+not consume another project's build assets, so in-repo projects must set
+`GenerateTestingPlatformEntryPoint=false` themselves — `Bobcat.Mtp.SampleHost` does.
+
+The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
+what `Bobcat.Mtp.Tests` exercises.
 
 `Bobcat.Mtp.SampleHost` is a spec project run as a host; `IsTestProject=false` keeps `dotnet
 test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
