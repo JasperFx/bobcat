@@ -33,6 +33,7 @@ public class SuiteResults
     {
         get
         {
+            if (PreflightFailure is not null) return 2;
             if (_features.Any(f => f.WasCatastrophic)) return 2;
             if (_features.Any(f => f.WasAborted)) return 2;
             // Only regression failures break the build
@@ -40,6 +41,12 @@ public class SuiteResults
             return 0;
         }
     }
+
+    /// <summary>
+    /// Set when the environment preflight failed, in which case no feature ran at all. Exits 2:
+    /// a broken harness is not the same fact as failing tests.
+    /// </summary>
+    public string? PreflightFailure { get; set; }
 
     public IEnumerable<ScenarioResult> AllScenarios => _features.SelectMany(f => f.Scenarios);
 

@@ -301,12 +301,39 @@ var results = await supervisor.Run();   // results.ExitCode, results.PassedOnRet
   indeterminate outcome carries the worker's **exit code and last standard error** (bounded to
   the final 20 lines) in its `ErrorMessage`, and the run collects them in
   `SupervisorResults.WorkerFaults`. An indeterminate count with no explanation is not a report.
-- **`RetryAfterRecycle` is still recorded as unhonoured** — it needs `IRecyclableResource`
-  (build-order step 4).
+- **`RetryAfterRecycle` recycles, then runs the test alone in a fresh process.** Reusing the
+  shared worker would leave it connected to the broker we just discarded. Naming a resource
+  nobody registered is reported as a wiring mistake, not silently retried without recycling. A
+  recycle that *fails* aborts the run with `AbortReason` rather than throwing, so results
+  gathered before the infrastructure broke survive.
+- **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
+  before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
+- **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
+  needed more than one attempt — membership is *"was retried"*, not *"eventually failed"*,
+  because a green build is exactly when chronic flakiness would otherwise go unnoticed.
 
 `Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
 per-process counter), so the isolation tests prove isolation happened rather than merely proving
 a process was launched. There is a control test showing the same scenario fails when batched.
+
+#### Environment checks reuse JasperFx — there is no Bobcat `IEnvironmentCheck`
+
+**Do not define one.** Issue #41's text sketched a new `IEnvironmentCheck` interface; that was
+written before checking, and JasperFx already owns the concept. Note also that the *old Oakton*
+`IEnvironmentCheck` interface no longer exists in JasperFx 2.x — what exists is:
+
+- `JasperFx.Environment.EnvironmentCheckResults` — `RegisterSuccess` / `RegisterFailure` /
+  `Succeeded()` / `Assert()`
+- `JasperFx.Environment.EnvironmentChecker.ExecuteAllEnvironmentChecks(IServiceProvider, ct)`,
+  which collects checks from `ISystemPart.AssertEnvironmentAsync`,
+  `JasperFx.Resources.IStatefulResource.Check`, and Microsoft's `IHealthCheck`
+- `EnvironmentCheckException`, `LambdaCheck`
+
+So `Bobcat.Runtime.Preflight` is a **thin collector that returns `EnvironmentCheckResults`**, and
+`ITestResource.Check(CancellationToken)` is a default interface method deliberately mirroring
+`IStatefulResource.Check` — same verb, same "throw to fail" contract — so one resource satisfies
+both without adapting. `Preflight.AddContainerChecks(...)` delegates straight to
+`EnvironmentChecker`. A Critter Stack user must never have to write their checks twice.
 
 #### Decided against: an `ITestHostLauncher`-style abstraction
 
