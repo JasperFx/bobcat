@@ -29,13 +29,54 @@ public sealed class Supervisor
     private readonly Dictionary<string, IRecyclableResource> _recyclable = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _recyclings = new();
 
-    private IWorkerClient? _sharedWorker;
+    // One slot per lane. Each slot is touched by exactly one task while a pass is in flight, and
+    // the list is sized before any of them start, so the slots need no lock of their own.
+    private readonly List<IWorkerClient?> _lanes = [];
+    private readonly Dictionary<string, int> _laneOfTest = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
+
     private int _workersLaunched;
 
     public Supervisor(IWorkerFactory factory) => _factory = factory;
 
     /// <summary>Caps the retrying. Defaults to none, so retries are always an explicit choice.</summary>
     public RetryBudget RetryBudget { get; set; } = RetryBudget.None;
+
+    /// <summary>
+    /// How many worker processes may run concurrently. Defaults to 1 — a run is sequential
+    /// unless someone asks for otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Opt-in for the same reason retries are: parallelism changes what a suite means. Tests that
+    /// share a database, a broker, or a fixed port pass alone and fail alongside each other, and
+    /// turning that on by default would convert a working suite into a flaky one on upgrade.
+    /// </para>
+    /// <para>
+    /// <see cref="WorkPlan"/> keeps each test class whole, which is what makes this safe for
+    /// class-scoped state. It cannot protect against state shared <em>between</em> classes —
+    /// a fixed port, or one database every class truncates. Those need per-worker environments.
+    /// </para>
+    /// </remarks>
+    public int MaxParallelWorkers { get; set; } = 1;
+
+    /// <summary>
+    /// Overrides how tests are grouped into units that must stay in one process. Defaults to
+    /// <see cref="WorkPlan.ClassOf"/>.
+    /// </summary>
+    public Func<WorkerTest, string>? PartitionKey { get; set; }
+
+    /// <summary>
+    /// Previously observed per-test durations, keyed by uid, used to balance the lanes.
+    /// </summary>
+    /// <remarks>
+    /// Optional, and a first run has none — then partitions are weighted by test count, which is
+    /// a poor proxy. Measured on Wolverine's <c>PersistenceTests</c>: count-balanced lanes finished
+    /// at 101.5s and 11.4s, so nearly a quarter of the fleet sat idle. The natural source is the
+    /// committed ledger of issues #44 and #56; until that exists a caller can persist
+    /// <c>WorkerOutcome.Duration</c> from the previous run itself.
+    /// </remarks>
+    public IReadOnlyDictionary<string, TimeSpan>? KnownTestDurations { get; set; }
 
     /// <summary>Progress, for a console or a log. Never required.</summary>
     public Action<string>? Log { get; set; }
@@ -100,7 +141,7 @@ public sealed class Supervisor
             // Isolation is decided from discovery metadata, before anything runs. That is the
             // point of Q4 in the #43 spike: traits arrive early enough to plan scheduling.
             var isolated = tests.Where(t => IsIsolated(t.Traits)).Select(t => t.Uid).ToList();
-            var batched = tests.Where(t => !IsIsolated(t.Traits)).Select(t => t.Uid).ToList();
+            var batched = tests.Where(t => !IsIsolated(t.Traits)).ToList();
 
             Log?.Invoke($"{tests.Count} test(s): {batched.Count} batched, {isolated.Count} isolated");
 
@@ -113,7 +154,7 @@ public sealed class Supervisor
         }
         finally
         {
-            if (_sharedWorker is not null) await _sharedWorker.DisposeAsync();
+            await DisposeLanes();
         }
 
         return new SupervisorResults
@@ -158,7 +199,7 @@ public sealed class Supervisor
     }
 
     private async Task<string?> FirstPass(
-        IReadOnlyList<string> batched,
+        IReadOnlyList<WorkerTest> batched,
         IReadOnlyList<string> isolated,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
         Dictionary<string, List<SupervisorAttempt>> attempts,
@@ -166,13 +207,37 @@ public sealed class Supervisor
     {
         if (batched.Count > 0)
         {
-            var worker = await SharedWorker(ct);
-            var result = await worker.Run(batched, ct);
-            if (result.Crashed) InvalidateSharedWorker(result.Fault!);
-            RecordFault(result);
+            var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
 
-            var abort = Record(result, AttemptPlacement.Batched, traits, attempts);
-            if (abort is not null) return abort;
+            if (plan.Count > 1)
+            {
+                Log?.Invoke($"{plan.Count} lanes: " +
+                            string.Join(", ", plan.Select(l => $"{l.Uids.Count} test(s) in {l.Partitions.Count} class(es)")));
+            }
+
+            // Sized before any lane starts, so each task owns its slot outright.
+            lock (_gate)
+            {
+                while (_lanes.Count < plan.Count) _lanes.Add(null);
+                foreach (var lane in plan)
+                {
+                    foreach (var uid in lane.Uids) _laneOfTest[uid] = lane.Index;
+                }
+            }
+
+            var results = await Task.WhenAll(plan.Select(lane => RunLane(lane.Index, lane.Uids, ct)));
+
+            // Recording is deliberately serial and in lane order: it mutates the attempt history
+            // and consults the policy, and a run's report should not depend on which worker
+            // happened to finish first.
+            foreach (var (index, result) in results.OrderBy(r => r.Index))
+            {
+                if (result.Crashed) InvalidateLane(index, result.Fault!);
+                RecordFault(result);
+
+                var abort = Record(result, AttemptPlacement.Batched, traits, attempts);
+                if (abort is not null) return abort;
+            }
         }
 
         foreach (var uid in isolated)
@@ -231,15 +296,26 @@ public sealed class Supervisor
 
             if (sameProcess.Count > 0)
             {
-                Log?.Invoke($"retrying {sameProcess.Count} test(s) in the shared worker");
+                Log?.Invoke($"retrying {sameProcess.Count} test(s) in place");
 
-                var worker = await SharedWorker(ct);
-                var result = await worker.Run(sameProcess, ct);
-                if (result.Crashed) InvalidateSharedWorker(result.Fault!);
-                RecordFault(result);
+                // Back to the lane the test already ran in, not merely to some warm process. A
+                // class's static state lives in the process that ran it, so retrying elsewhere
+                // would be a fresh-process retry wearing a same-process label.
+                var byLane = sameProcess
+                    .GroupBy(uid => _laneOfTest.TryGetValue(uid, out var lane) ? lane : 0)
+                    .OrderBy(g => g.Key)
+                    .ToList();
 
-                var abort = Record(result, AttemptPlacement.SameProcess, traits, attempts);
-                if (abort is not null) return abort;
+                var results = await Task.WhenAll(byLane.Select(g => RunLane(g.Key, g.ToList(), ct)));
+
+                foreach (var (index, result) in results.OrderBy(r => r.Index))
+                {
+                    if (result.Crashed) InvalidateLane(index, result.Fault!);
+                    RecordFault(result);
+
+                    var abort = Record(result, AttemptPlacement.SameProcess, traits, attempts);
+                    if (abort is not null) return abort;
+                }
             }
 
             foreach (var uid in freshProcess)
@@ -415,25 +491,68 @@ public sealed class Supervisor
         if (result.Fault is not null) _workerFaults.Add(result.Fault);
     }
 
-    private async Task<IWorkerClient> SharedWorker(CancellationToken ct)
-        => _sharedWorker ??= await LaunchWorker(ct);
+    /// <summary>Runs one lane's tests in that lane's own long-lived worker.</summary>
+    private async Task<(int Index, WorkerRunResult Result)> RunLane(
+        int index, IReadOnlyList<string> uids, CancellationToken ct)
+    {
+        var worker = await LaneWorker(index, ct);
+        var result = await worker.Run(uids, ct);
+        return (index, result);
+    }
+
+    private async Task<IWorkerClient> LaneWorker(int index, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            while (_lanes.Count <= index) _lanes.Add(null);
+            if (_lanes[index] is { } existing) return existing;
+        }
+
+        // Launched outside the lock — starting a process is slow, and every lane launches its
+        // own at the same moment. Only this lane's task reaches this line for this index, so
+        // there is no race to lose.
+        var worker = await LaunchWorker(ct);
+
+        lock (_gate) _lanes[index] = worker;
+        return worker;
+    }
 
     /// <summary>
-    /// Drops a worker that died, so the next same-process retry gets a live one instead of
-    /// failing against a corpse.
+    /// Drops a lane's worker after it died, so the next retry in that lane gets a live process
+    /// instead of failing against a corpse.
     /// </summary>
-    private void InvalidateSharedWorker(string fault)
+    private void InvalidateLane(int index, string fault)
     {
-        Log?.Invoke($"the shared worker died ({fault}); a replacement will be launched if needed");
+        Log?.Invoke($"worker for lane {index} died ({fault}); a replacement will be launched if needed");
 
-        var dead = _sharedWorker;
-        _sharedWorker = null;
+        IWorkerClient? dead;
+        lock (_gate)
+        {
+            dead = index < _lanes.Count ? _lanes[index] : null;
+            if (index < _lanes.Count) _lanes[index] = null;
+        }
+
         if (dead is not null) _ = dead.DisposeAsync().AsTask();
+    }
+
+    private async Task DisposeLanes()
+    {
+        IWorkerClient?[] workers;
+        lock (_gate)
+        {
+            workers = _lanes.ToArray();
+            _lanes.Clear();
+        }
+
+        foreach (var worker in workers)
+        {
+            if (worker is not null) await worker.DisposeAsync();
+        }
     }
 
     private async Task<IWorkerClient> LaunchWorker(CancellationToken ct)
     {
-        _workersLaunched++;
+        Interlocked.Increment(ref _workersLaunched);
         return await _factory.Launch(ct);
     }
 }

@@ -288,9 +288,45 @@ var results = await supervisor.Run();   // results.ExitCode, results.PassedOnRet
   readily as Bobcat's own — there is a test that drives `Bobcat.Tests` (an xUnit v3 host) to prove
   it, not just assert it.
 - **Scheduling:** isolated tests are identified from **discovery traits, before anything runs**,
-  and each gets its own process. Everything else shares one worker, which is also reused for
-  same-process retries. Discovery itself uses a throwaway worker so it neither inherits nor
-  leaves state.
+  and each gets its own process. Everything else is spread across `MaxParallelWorkers` lanes (one
+  by default). Discovery itself uses a throwaway worker so it neither inherits nor leaves state.
+
+#### Parallel worker pool (`WorkPlan`)
+
+`MaxParallelWorkers` defaults to **1**, so a run is sequential unless asked otherwise — parallelism
+changes what a suite means, and turning it on by default would convert working suites into flaky
+ones on upgrade. Same reasoning as retries being opt-in.
+
+- **Partitioning is by test class, and that is a correctness rule, not a tuning knob.** Measured on
+  Wolverine's `PersistenceTests`: splitting the same 78 tests across 4 workers *per test* failed
+  1–4 non-deterministically, while splitting *per class* passed 78/78 at the same wall clock. A
+  test class is the unit every framework's isolation contract is written against — fixtures,
+  `IAsyncLifetime`, and any static state. The real example that made this concrete was a class
+  whose setup read `var schemaName = "sqlserver" + ++count;` from a `static int`: split across four
+  processes, each restarts at zero and all four collide. **Nothing about that is visible in the
+  test list**, so the planner must never separate tests the author kept together.
+- **`WorkPlan.ClassOf` derives the key from the display name** because that is the only structural
+  naming signal every front-end supplies. It handles Bobcat's `Feature/Scenario` and the dotted
+  `Namespace.Class.method`, stripping theory arguments first so `method(x: "a.b")` does not shatter
+  into a partition per argument. `Supervisor.PartitionKey` overrides it when the real coupling is
+  something else.
+- **Balancing is longest-processing-time-first over whole partitions**, fed by
+  `Supervisor.KnownTestDurations` (per-test, by uid). A first run has none and falls back to test
+  count; tests missing from partial data are charged the **median** of what is known, so adding a
+  test to a suite of 30-second integration tests is not costed at a nominal second.
+- **The largest partition sets the floor.** Wall clock is the slowest lane, so no fleet size beats
+  the slowest single class. Measured: 164s baseline → 73.2s at 4 workers (count-balanced) → 70.3s
+  duration-balanced → **66.8s at 8 workers**. Doubling the fleet bought 3.5s because one 61-second
+  test dominates. That is why issue #56 (find the hot spots) and this feature are the same
+  bottleneck from two directions.
+- **A same-process retry returns to the lane the test ran in**, not merely to some warm worker.
+  A class's static state lives in the process that ran it, so retrying elsewhere would be a
+  fresh-process retry wearing a same-process label.
+- **Recording is serial and in lane order** even though lanes finish in whatever order the OS
+  decides — a report must not depend on which worker won the race.
+- **What it cannot protect against** is state shared *between* classes: a fixed port, or one
+  database every class truncates. That needs per-worker environments (`IWorkerLauncher`), which is
+  still unbuilt. `PersistenceTests` did not need it; running several *projects* concurrently will.
 - **`GuardAgainstAnUnfilteredRun` is not optional.** MTP silently ignores an unrecognised subset
   parameter and runs the whole suite, which is indistinguishable from a filter matching
   everything. A retry that did that would fold unrelated failures into the attempt, so a

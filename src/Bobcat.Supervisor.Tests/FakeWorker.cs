@@ -58,11 +58,19 @@ public sealed class FakeWorker : IWorkerClient
 /// <summary>Builds <see cref="FakeWorker"/>s and scripts what they report.</summary>
 public sealed class FakeWorkerFactory : IWorkerFactory
 {
+    // Locked throughout: with MaxParallelWorkers > 1 several lanes call into this factory at the
+    // same moment, and an unsynchronised counter would make the parallel tests flaky — which is a
+    // uniquely bad property for the tests that exist to prove parallelism is safe.
     private readonly Dictionary<string, int> _attempts = new(StringComparer.Ordinal);
+    private readonly List<FakeWorker> _launched = [];
+    private readonly object _gate = new();
 
     public string Description => "fake";
 
-    public List<FakeWorker> Launched { get; } = [];
+    public IReadOnlyList<FakeWorker> Launched
+    {
+        get { lock (_gate) return _launched.ToList(); }
+    }
 
     public required IReadOnlyList<WorkerTest> Tests { get; init; }
 
@@ -74,16 +82,22 @@ public sealed class FakeWorkerFactory : IWorkerFactory
 
     public Task<IWorkerClient> Launch(CancellationToken ct = default)
     {
-        var worker = new FakeWorker(this) { Index = Launched.Count };
-        Launched.Add(worker);
-        return Task.FromResult<IWorkerClient>(worker);
+        lock (_gate)
+        {
+            var worker = new FakeWorker(this) { Index = _launched.Count };
+            _launched.Add(worker);
+            return Task.FromResult<IWorkerClient>(worker);
+        }
     }
 
     internal int RecordAttempt(string uid)
     {
-        _attempts.TryGetValue(uid, out var count);
-        _attempts[uid] = ++count;
-        return count;
+        lock (_gate)
+        {
+            _attempts.TryGetValue(uid, out var count);
+            _attempts[uid] = ++count;
+            return count;
+        }
     }
 
     internal WorkerTestState? StateFor(string uid, int attempt, FakeWorker worker)
@@ -93,6 +107,10 @@ public sealed class FakeWorkerFactory : IWorkerFactory
 
     /// <summary>Workers that actually ran something (the first is always discovery).</summary>
     public IReadOnlyList<FakeWorker> RunningWorkers => Launched.Where(w => w.Runs.Count > 0).ToList();
+
+    /// <summary>A test whose display name places it in <paramref name="className"/>.</summary>
+    public static WorkerTest InClass(string className, string method, params string[] traits)
+        => Test($"{className}.{method}", traits);
 
     public static WorkerTest Test(string uid, params string[] traits)
         => new(uid, uid)
