@@ -53,7 +53,15 @@ public class BobcatRunner
         return this;
     }
 
-    private IFailurePolicy Policy => new FailurePolicyChain([.. _policies, new DefaultFailurePolicy()]);
+    /// <summary>
+    /// Author-declared knowledge about which failures recover how — issue #44 layer 1. Populated
+    /// from <see cref="RecoveryHintAttribute"/>s on fixtures as features are added, and open for
+    /// hints added directly.
+    /// </summary>
+    public RecoveryHintSet RecoveryHints { get; } = new();
+
+    private IFailurePolicy Policy => new FailurePolicyChain(
+        [.. _policies, new HintedFailurePolicy(RecoveryHints), new DefaultFailurePolicy()]);
     /// <summary>
     /// Skip the live Spectre.Console rendering. Set for JSON output, and by tests that assert
     /// on <see cref="SuiteResults"/> rather than on what the terminal showed.
@@ -72,6 +80,11 @@ public class BobcatRunner
     public BobcatRunner AddFeature(FeatureDefinition feature)
     {
         _features.Add(feature);
+
+        // A fixture owns exactly one feature, so its hints scope to that feature by test-id
+        // prefix — the same "{Feature}/{Scenario}" identity the retry budget and MTP host use.
+        RecoveryHints.AddFromType(feature.FixtureType, $"{feature.Title}/");
+
         return this;
     }
 
@@ -81,6 +94,9 @@ public class BobcatRunner
     /// </summary>
     public BobcatRunner ScanForFeatures(Assembly assembly)
     {
+        // Assembly-level hints are the run-wide defaults a fixture can then override.
+        RecoveryHints.AddFromAssembly(assembly);
+
         foreach (var type in assembly.GetTypes())
         {
             if (!type.IsClass || !type.IsAbstract || !type.IsSealed) continue; // static classes
@@ -91,7 +107,7 @@ public class BobcatRunner
             var feature = (FeatureDefinition?)defineMethod.Invoke(null, null);
             if (feature != null)
             {
-                _features.Add(feature);
+                AddFeature(feature);
             }
         }
 

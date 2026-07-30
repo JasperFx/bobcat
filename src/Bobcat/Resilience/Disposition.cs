@@ -59,6 +59,18 @@ public sealed record Disposition
     /// <summary>Resources to recycle. Only meaningful for <see cref="DispositionKind.RetryAfterRecycle"/>.</summary>
     public IReadOnlyList<string> Resources { get; }
 
+    /// <summary>
+    /// The author-declared <see cref="RecoveryHint"/> behind this decision, when one was. Null
+    /// for the ordinary tag-driven case.
+    /// </summary>
+    /// <remarks>
+    /// Carried structurally rather than left to be read out of <see cref="Reason"/>, because the
+    /// case that most needs reporting is a hint that <em>suppressed</em> a retry: without this a
+    /// tagged test would just fail once, and the author would be left wondering why their tag
+    /// stopped working.
+    /// </remarks>
+    public RecoveryHint? Hint { get; init; }
+
     public bool IsRetry => Kind is DispositionKind.RetryInProcess
         or DispositionKind.RetryInFreshProcess
         or DispositionKind.RetryAfterRecycle;

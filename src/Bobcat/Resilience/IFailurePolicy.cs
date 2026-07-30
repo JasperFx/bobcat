@@ -29,6 +29,23 @@ public sealed class AttemptContext
     /// <summary>The first exception thrown, when there was one.</summary>
     public Exception? Exception { get; init; }
 
+    private readonly FailureSignature? _failure;
+
+    /// <summary>
+    /// The failure's class, for matching <see cref="RecoveryHint"/>s.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to the inheritance chain of <see cref="Exception"/>, which is right in process.
+    /// A front-end that learned the type name some other way — a supervisor reading it off the
+    /// MTP wire, where the exception object never existed — sets this instead, because deriving
+    /// it from the stand-in exception would report the wrapper's type rather than the failure's.
+    /// </remarks>
+    public FailureSignature Failure
+    {
+        get => _failure ?? FailureSignature.FromException(Exception);
+        init => _failure = value;
+    }
+
     /// <summary>
     /// Key/value metadata: Gherkin tags projected by <see cref="ResilienceTags"/>, or traits read
     /// off an xUnit <c>[Trait]</c> / tUnit <c>[Property]</c> through the MTP wire. The spike for

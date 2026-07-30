@@ -38,6 +38,7 @@ public sealed class FakeWorker : IWorkerClient
             outcomes.Add(new WorkerOutcome(uid, test?.DisplayName ?? uid, state.Value)
             {
                 Traits = test?.Traits ?? new Dictionary<string, string>(),
+                ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
                 ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}"
             });
         }
@@ -72,6 +73,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// <summary>Optional per-worker fault, modelling a crashed process.</summary>
     public Func<FakeWorker, string?> Fault { get; init; } = _ => null;
 
+    /// <summary>
+    /// The exception type name a failing test reports. Null models a framework that erases it —
+    /// tUnit does exactly that on the MTP wire.
+    /// </summary>
+    public Func<string, int, string?> ErrorType { get; init; } = (_, _) => null;
+
     public Task<IWorkerClient> Launch(CancellationToken ct = default)
     {
         var worker = new FakeWorker(this) { Index = Launched.Count };
@@ -90,6 +97,8 @@ public sealed class FakeWorkerFactory : IWorkerFactory
         => Outcome(uid, attempt, worker);
 
     internal string? FaultFor(FakeWorker worker) => Fault(worker);
+
+    internal string? ErrorTypeFor(string uid, int attempt) => ErrorType(uid, attempt);
 
     /// <summary>Workers that actually ran something (the first is always discovery).</summary>
     public IReadOnlyList<FakeWorker> RunningWorkers => Launched.Where(w => w.Runs.Count > 0).ToList();

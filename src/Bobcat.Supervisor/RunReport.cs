@@ -34,6 +34,23 @@ public static class RunReport
         Section(report, "Failed", results.Failed,
             test => $"{test.DisplayName} — {Reason(test)}");
 
+        // Which author-declared hints actually fired. A hint that suppressed a retry has to be
+        // visible, or a tagged test that failed once looks like the tag stopped working.
+        var hinted = results.Tests
+            .SelectMany(test => test.Attempts.Select(attempt => (test, attempt.Disposition.Hint)))
+            .Where(pair => pair.Hint is not null)
+            .DistinctBy(pair => (pair.test.Uid, pair.Hint!.FailureTypeName, pair.Hint.Kind))
+            .ToList();
+
+        if (hinted.Count > 0)
+        {
+            report.AppendLine().AppendLine("Recovery hints applied:");
+            foreach (var (test, hint) in hinted)
+            {
+                report.AppendLine($"  ↯ {test.DisplayName} — {hint}");
+            }
+        }
+
         Section(report, "Indeterminate (result never established)", results.Indeterminate,
             test => $"{test.DisplayName} — {test.Final.Outcome.ErrorMessage ?? "no result reported"}");
 
@@ -118,6 +135,15 @@ public static class RunReport
                 ? null
                 : new JsonArray(attempt.Disposition.Resources.Select(r => (JsonNode)r!).ToArray()),
             ["notHonoured"] = attempt.Unsupported,
+            ["hint"] = attempt.Disposition.Hint is not { } hint
+                ? null
+                : new JsonObject
+                {
+                    ["failureType"] = hint.FailureTypeName,
+                    ["recovery"] = hint.Kind.ToString(),
+                    ["because"] = hint.Because,
+                    ["declaredOn"] = hint.Source
+                },
             ["errorType"] = attempt.Outcome.ErrorType,
             ["errorMessage"] = attempt.Outcome.ErrorMessage,
             ["durationMs"] = attempt.Outcome.Duration?.TotalMilliseconds
