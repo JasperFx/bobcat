@@ -3,14 +3,12 @@ using TripDomain;
 
 public class TripProjection: SingleStreamProjection<Trip, Guid>
 {
-    public TripProjection()
-    {
-        DeleteEvent<TripAborted>();
-
-        DeleteEvent<Breakdown>(x => x.IsCritical);
-
-        DeleteEvent<VacationOver>((trip, _) => trip.Traveled > 1000);
-    }
+    // Marten 9 replaced the predicate overloads of DeleteEvent<T>() with the ShouldDelete
+    // convention. The parameterless DeleteEvent<T>() still exists, but expressing all three
+    // the same way keeps the rule for each event in one place.
+    public bool ShouldDelete(TripAborted _) => true;
+    public bool ShouldDelete(Breakdown e) => e.IsCritical;
+    public bool ShouldDelete(VacationOver _, Trip trip) => trip.Traveled > 1000;
 
     // These methods can be either public, internal, or private but there's
     // a small performance gain to making them public
