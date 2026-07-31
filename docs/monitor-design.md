@@ -1,0 +1,116 @@
+# Bobcat.Monitor — design notes
+
+A deployable web console that shows live progress for every Bobcat test suite running on the
+box. Primary purpose: visualizing AI-agent-driven test runs — much of Critter Stack development
+is gated on testing time, and this makes that time observable. It grows toward two futures:
+the Bobcat test *runner* tool (the working plan is that this UI tool eventually becomes
+"Bobcat" proper and the base library gets renamed), and an AI agent progress/planning
+visualization surface.
+
+Decisions of record (2026-07-31):
+
+## Stack — CritterWatch's, on purpose
+
+Vue 3 + Pinia + Element Plus + `@microsoft/signalr` frontend, ASP.NET + Wolverine +
+Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
+
+- One `HubConnection` owned by `useSignalR.ts`, retry-forever backoff, rAF-batched flush into
+  `relayToStore.ts`, which switches on snake_case envelope types and fans out to Pinia stores.
+  Stores never touch SignalR.
+- Color tokens in `src/styles/variables.css` — the JasperFx orange Element Plus ramp, `--bm-`
+  prefix. The test-state grammar (running blue / passed green / failed red / retrying orange)
+  is adapted from CritterWatch's Event Modeling grammar.
+- Backend flow: `[WolverinePost]` ingestion endpoint cascades `MonitorEvent`s → one publish
+  rule relays every `WebSocketMessage` to the hub at `/api/messages`. CritterWatch's 100ms
+  `SignalRBatchAccumulator` is the known next step if per-message sends ever matter.
+- TS mirrors of the contracts are hand-written for now; lift CritterWatch's NJsonSchema
+  codegen (records → `.ts` + `relayToStore` case insertion) when the contract count justifies.
+- No Aspire. The Vite dev server proxies `/api` (ws included) to the host's fixed dev port
+  5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
+  unrelated to this tool's dev workflow.
+
+Packaging: `dotnet tool` (`ToolCommandName: bobcat-monitor`), with the Vite build embedded as
+resources for the published tool (CritterWatch's `EmbedFrontend` + `EmbeddedFileProvider`
+middleware pattern — still to lift).
+
+## Transport: HTTP, fire-and-forget, never slows a run
+
+Publishers (BobcatRunner, the supervisor, worker processes) POST batches of events to
+`/api/ingest`. HTTP over raw TCP because the emitting client must be dependency-free
+(`HttpClient` + STJ only — no Wolverine in Bobcat), and events arrive at tens/second, not
+thousands. The invariant that outranks all others: **a test run is never slowed or failed by
+the monitor.** Probe `GET /api/ping` once at startup with a tight timeout → publisher goes
+no-op for the run if nothing answers; bounded channel, drop on backpressure; discovery via
+`BOBCAT_MONITOR_URL` (default `http://localhost:5525`).
+
+## Event model
+
+`src/Bobcat.Monitor/Contracts/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
+type discriminator and the Wolverine message type name are pinned to the same snake_case
+string, so ingestion JSON and the SignalR envelope agree by construction. Identity: `RunId`
+(minted per run) + scenario uid `"{Feature}/{Scenario}"` — the string BobcatRunner,
+`RetryBudget`, `SpecNodeMapping`, and `WorkPlan` already share. `RunStarted` carries the root
+repository path + branch, the dashboard's grouping key for parallel suites on one box.
+`RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
+
+When the publisher client gets built inside Bobcat, these records move to a tiny shared
+contracts package; the wire shape, not the assembly, is the contract.
+
+## Seams still needed in Bobcat (the actual next work)
+
+1. **`CompositeObserver`** — `BobcatRunner.WithObserver` is single-slot today; a monitor
+   publisher must ride alongside the MTP `PublishingObserver`/console output.
+2. **`ISupervisorObserver`** — the supervisor has only `Action<string>? Log`. Fire from
+   `record(...)`, lane start/finish, recycle, worker faults. `MtpWorkerClient.handleNotification`
+   already receives live per-test `testing/testUpdates/tests` updates and discards them —
+   that's the tap for a live per-test feed.
+3. **Worker-side step publishing** — step-level detail dies at the MTP boundary (the wire has
+   no channel for it). Workers publish their own step events directly to the monitor, tagged
+   with the RunId the supervisor passes down via environment variable. Supervisor publishes
+   topology (lanes, retries, dispositions, faults); Bobcat workers publish Gherkin steps; a
+   plain xUnit worker just contributes per-test states.
+
+## Ejecting results: CTRF primary, JUnit XML fallback
+
+Researched 2026-07-31 (GitHubActionsTestLogger, MTP-native reports, CTRF, JUnit):
+
+- **CTRF** (ctrf.io) is the primary export. It is the only CI format with first-class
+  `retries`, `retryAttempts[]`, `flaky`, and `steps[]` — Bobcat's attempt history,
+  `PassedOnRetry` ledger, and Gherkin steps map onto schema-blessed fields. Richer data
+  (Disposition reasons, recovery hints, worker/lane ids) rides the spec's `extra` object,
+  allowed at every level. Microsoft standardized on CTRF + JUnit + TRX for MTP 2.3's
+  first-party report extensions, and xunit.v3 ships `--report-ctrf` working today on the
+  MTP 1.9.1 pin (verified against the built `Bobcat.Tests` host), so the format is aligned
+  with where the platform is going *and* usable now. `ctrf-io/github-test-reporter` covers
+  GitHub PR reporting over it.
+- **JUnit XML** is the lossy compatibility floor: native ingestion in GitLab, Jenkins, Azure
+  DevOps, CircleCI. Accept the lossiness.
+- **Not**: TRX (only AzDO wants it, and AzDO eats JUnit); a bespoke JSON (CTRF `extra`
+  removes the justification); GitHubActionsTestLogger as a base (VSTest logger at the wrong
+  altitude; its MTP mode needs MTP 2.x + `xunit.v3.mtp-v2`, excluded by the 1.9.1 pin).
+- Persist each run's raw ingested event stream as NDJSON — export and replay-for-debugging
+  both fall out of it. "Eject" in the UI = export (CTRF/JUnit/NDJSON) + remove from dashboard.
+
+## MCP
+
+The host will expose streamable-HTTP MCP tools mirroring the UI's queries —
+`list_running_suites`, `suite_progress`, `failing_tests`, `flaky_ledger`, and (the agent
+killer feature) `await_suite_completion`. CritterWatch's MCP packages are the house pattern.
+
+## Testing
+
+Vitest is the whole UI test story for now: store/dispatcher logic tested by feeding recorded
+event sequences at the Pinia stores (`src/stores/__tests__`, `src/messages/__tests__`),
+happy-dom for component mounts, CI gate in `.github/workflows/monitor-frontend.yml`
+(path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`). End-to-end tests dogfood
+the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, deliberately.
+
+## Not built yet
+
+- The publisher client + the three Bobcat seams above (next PR-sized chunk).
+- Embedded-SPA serving for the packed tool; SignalR relay verified only by the publish-rule
+  wiring, not yet by a browser-level test.
+- Server-side batching, NDJSON persistence, CTRF/JUnit exporters, MCP endpoints, retention.
+- The `Wolverine` 6.24.x vs 6.5.1 split: monitor packages ride 6.24.2 (what ships
+  Wolverine.SignalR) via two isolated pins + a `VersionOverride` for RuntimeCompilation;
+  nothing else may reference them. Collapse when the sample-alignment set catches up.
