@@ -1,0 +1,102 @@
+name: samples
+
+# The samples are not in bobcat.sln, so tests.yml never touches them. That gap let nine projects
+# rot undetected: each fails with "Bobcat / IStepContext / ThenAttribute could not be found",
+# because they carry spec fixtures the host project has no reference to. Nothing reported it,
+# because nothing built them.
+#
+# This job builds them. It does not run them — they want Postgres, brokers and wiring tests.yml
+# does not provide, and compiling is the check that would have caught the rot.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'samples/**'
+      - 'src/**'
+      - '.github/workflows/samples.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build every sample project
+        run: |
+          # The nine that do not compile today, named individually rather than skipped as a
+          # group. Two rules, and the second is the one that matters:
+          #
+          #   * a project outside this list that fails  -> new rot, fail the build
+          #   * a project inside this list that BUILDS  -> the list is stale, fail the build
+          #
+          # A quarantine that only ever forgives is how a permanently-red job becomes background
+          # noise. This one has to shrink: fix a sample, and CI tells you to delete its line.
+          # Tracked by the "fix the samples" issue.
+          quarantined=(
+            "samples/BankAccountES/BankAccountES.csproj"
+            "samples/BookingMonolith/BookingMonolith.csproj"
+            "samples/CleanArchitectureTodos/CleanArchitectureTodos.csproj"
+            "samples/CqrsMinimalApi/Tests/Tests.csproj"
+            "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"
+            "samples/MeetingGroupMonolith/MeetingGroupMonolith.csproj"
+            "samples/MoreSpeakers/MoreSpeakers.csproj"
+            "samples/OutboxDemo/OutboxDemo.csproj"
+            "samples/PaymentsMonolith/PaymentsMonolith.csproj"
+          )
+
+          is_quarantined() {
+            local needle="$1"
+            for q in "${quarantined[@]}"; do [ "$q" = "$needle" ] && return 0; done
+            return 1
+          }
+
+          regressions=()
+          recovered=()
+
+          while IFS= read -r project; do
+            echo "::group::$project"
+            if dotnet build "$project" -c Release --nologo; then
+              if is_quarantined "$project"; then
+                echo "::error file=$project::builds now — remove it from the quarantine list"
+                recovered+=("$project")
+              else
+                echo "OK  $project"
+              fi
+            else
+              if is_quarantined "$project"; then
+                echo "known broken (quarantined): $project"
+              else
+                echo "::error file=$project::sample failed to build"
+                regressions+=("$project")
+              fi
+            fi
+            echo "::endgroup::"
+          done < <(find samples -name '*.csproj' | sort)
+
+          echo
+          echo "===================== summary ====================="
+          echo "quarantined: ${#quarantined[@]}"
+
+          status=0
+
+          if [ ${#regressions[@]} -gt 0 ]; then
+            echo "${#regressions[@]} sample(s) newly broken:"
+            printf '  %s\n' "${regressions[@]}"
+            status=1
+          fi
+
+          if [ ${#recovered[@]} -gt 0 ]; then
+            echo "${#recovered[@]} quarantined sample(s) now build — shrink the list:"
+            printf '  %s\n' "${recovered[@]}"
+            status=1
+          fi
+
+          [ $status -eq 0 ] && echo "no regressions"
+          exit $status
