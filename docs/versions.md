@@ -10,9 +10,9 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Http`, `WolverineFx.*` | `6.5.1` |
-| Document/event store | `Marten` | `9.6.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.8.2` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Http`, `WolverineFx.*` | `6.24.2` |
+| Document/event store | `Marten` | `9.22.0` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.36.3` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
@@ -21,13 +21,19 @@ target the **same** set when wired up (issue #8).
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.5.1  →  Marten 9.6.0  →  JasperFx(.Events) 2.8.2
+WolverineFx.Marten 6.24.2  →  Marten 9.20.0+  →  JasperFx(.Events) 2.36.1+
 ```
 
-So the entire `WolverineFx.*` family must be **6.5.1** and Marten must be **9.6.0** for a
-single, conflict-free `JasperFx 2.8.2` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x
-with Marten 9.6) splits `JasperFx`/`JasperFx.Events` across major lines and the event types
+So the entire `WolverineFx.*` family must be **6.24.2** and Marten at least **9.20.0** for a
+single, conflict-free `JasperFx` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x
+with Marten 9.x) splits `JasperFx`/`JasperFx.Events` across major lines and the event types
 (`IEvent`, etc.) no longer unify.
+
+The pins above take the newest release of each rather than the exact floor Wolverine declares —
+Marten **9.22.0** over the required 9.20.0, and `JasperFx` **2.36.3** over 2.36.1. That is safe
+here precisely because Marten 9.22.0 itself requires JasperFx 2.36.3: the chain still terminates
+in one JasperFx version, which is the invariant this matrix exists to protect. Check that
+property again on the next bump rather than assuming newest-of-each always preserves it.
 
 ## What changed during reconciliation (issue #8, prerequisite)
 
