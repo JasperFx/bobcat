@@ -75,9 +75,18 @@ public class RunArchiveTests : IDisposable
         flaky.Outcome.ShouldBe("PassOnRetry");
         flaky.Attempts.ShouldBe(2);
         flaky.RetryReasons.ShouldBe(["broker warms up slowly"]);
-        // The retry reset the step list — only the second attempt's step remains, and it passed.
+        // The retry reset the live step list — only the second attempt's step remains here...
         flaky.Steps.ShouldHaveSingleItem().Status.ShouldBe("success");
 
+        // ...but the first attempt's history survived the reset, with the policy's verdict.
+        var prior = flaky.PriorAttempts.ShouldHaveSingleItem();
+        prior.Attempt.ShouldBe(1);
+        prior.Steps.ShouldHaveSingleItem().Status.ShouldBe("error");
+        prior.ErrorMessage.ShouldBe("TimeoutException");
+        prior.Disposition.ShouldBe("RetryInProcess");
+        prior.Reason.ShouldBe("broker warms up slowly");
+
+        run.Scenarios.Single(s => s.Uid == "Calc/adds").PriorAttempts.ShouldBeEmpty();
         run.Scenarios.Single(s => s.Uid == "Calc/lost").Outcome.ShouldBeNull();
     }
 
@@ -208,13 +217,37 @@ public class RunArchiveTests : IDisposable
         summary.GetProperty("passed").GetInt32().ShouldBe(2);   // clean + pass-on-retry
         summary.GetProperty("failed").GetInt32().ShouldBe(1);
         summary.GetProperty("pending").GetInt32().ShouldBe(1);  // the lost scenario
+        summary.GetProperty("flaky").GetInt32().ShouldBe(1);
 
         var tests = results.GetProperty("tests").EnumerateArray().ToArray();
         var flaky = tests.Single(t => t.GetProperty("name").GetString() == "Orders: broker");
         flaky.GetProperty("status").GetString().ShouldBe("passed");
+        // suite is a hierarchy ARRAY in the spec, not a string — pinned after live schema
+        // validation caught the original string form.
+        flaky.GetProperty("suite")[0].GetString().ShouldBe("Orders");
         flaky.GetProperty("flaky").GetBoolean().ShouldBeTrue();
         flaky.GetProperty("retries").GetInt32().ShouldBe(1);
         flaky.GetProperty("extra").GetProperty("retryReasons")[0].GetString().ShouldBe("broker warms up slowly");
+
+        // The full attempt history, spec-shaped: the retried-away attempt AND the final one
+        // (the spec's own with-retries example ends its list with the passing attempt). Step
+        // detail and the policy verdict ride each attempt's extra.
+        var attempts = flaky.GetProperty("retryAttempts").EnumerateArray().ToArray();
+        attempts.Length.ShouldBe(2);
+        attempts[0].GetProperty("attempt").GetInt32().ShouldBe(1);
+        attempts[0].GetProperty("status").GetString().ShouldBe("failed");
+        attempts[0].GetProperty("message").GetString().ShouldBe("TimeoutException");
+        attempts[0].GetProperty("extra").GetProperty("disposition").GetString().ShouldBe("RetryInProcess");
+        attempts[0].GetProperty("extra").GetProperty("reason").GetString().ShouldBe("broker warms up slowly");
+        attempts[0].GetProperty("extra").GetProperty("steps")[0].GetProperty("status").GetString().ShouldBe("failed");
+        attempts[1].GetProperty("attempt").GetInt32().ShouldBe(2);
+        attempts[1].GetProperty("status").GetString().ShouldBe("passed");
+        attempts[1].GetProperty("extra").GetProperty("steps")[0].GetProperty("status").GetString().ShouldBe("passed");
+
+        // A never-retried test carries no retryAttempts at all — not an empty array, and
+        // never a null (CTRF's typed fields don't admit null).
+        tests.Single(t => t.GetProperty("name").GetString() == "Calc: adds")
+            .TryGetProperty("retryAttempts", out _).ShouldBeFalse();
 
         var failed = tests.Single(t => t.GetProperty("name").GetString() == "Calc: bad");
         failed.GetProperty("status").GetString().ShouldBe("failed");

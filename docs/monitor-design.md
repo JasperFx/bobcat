@@ -169,11 +169,20 @@ RunId today. That is the known cost of leaving the supervisor untouched; the des
 the supervisor setting `BOBCAT_RUN_ID` for its workers (plus dashboard grouping by
 repository), when supervisor work opens up.
 
+## CTRF retryAttempts (built 2026-07-31)
+
+`RunProjection` keeps every retried-away attempt's step history (`ScenarioProjection.
+PriorAttempts`, snapshotted when `RetryScheduled` arrives — with the policy's disposition and
+reason — or on the next attempt's start as fallback). The CTRF export renders the FULL attempt
+list including the final attempt, matching the spec's own with-retries example; attempt objects
+admit no extra members, so step detail and disposition/reason ride each attempt's `extra`.
+Exports are validated against the official `ctrf-io/ctrf` schema — which also caught that
+`suite` must be an ARRAY (hierarchy), fixed at the same time. Null-valued fields are omitted
+(CTRF's typed fields don't admit null).
+
 ## Not built yet
 
-- CTRF `retryAttempts[]` detail (needs per-attempt step history in `RunProjection` — today an
-  attempt overwrites the step list; the NDJSON has everything, only the projection forgets),
-  TS codegen for the contract mirrors.
+- TS codegen for the contract mirrors.
 - Supervisor-side `BOBCAT_RUN_ID` grouping + `ISupervisorObserver` (when supervisor work
   opens up); Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool
   becomes "Bobcat").
