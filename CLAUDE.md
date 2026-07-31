@@ -219,6 +219,55 @@ report never implies a retry that never happened.
 Every attempt gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket; a retry
 reusing dirty state would be testing something other than the scenario.
 
+#### Recovery hints — author-declared, per failure class (issue #44 layer 1)
+
+A tag says *this test* is unreliable; a hint says **which failure** is unreliable and what fixes
+it. Declared on the fixture, so an assertion failure on the same scenario is still reported as
+the bug it is:
+
+```csharp
+[ClearsOnRetry(typeof(TimeoutException), Because = "the broker is slow to warm up")]
+[ClearsOnRecycle("rabbit,kafka", typeof(BrokerUnavailableException))]
+[ClearsInFreshProcess(typeof(BadImageFormatException))]
+[NeverRecovers(typeof(SomeDeterministicBug), Because = "this is a real bug")]
+public class OrderFixture : Fixture;
+```
+
+- **`HintedFailurePolicy` sits between the user's policies and `DefaultFailurePolicy`** — explicit
+  code still wins, and any failure no hint describes falls through to the tag-driven default
+  unchanged. A run with no hints behaves exactly as it did before.
+- **A hint never widens the budget.** `RetryBudget.MaxAttemptsPerTest` is the operator's ceiling;
+  an unconfigured run still retries nothing however many hints are declared. Knowledge of what
+  recovers belongs to the test's author, how much time the run may spend belongs to whoever runs
+  it, and conflating them would let a spec author escape the ceiling.
+- **`NeverRecovers` is the counterweight.** Without it the only way to stop a broad `@retry(3)`
+  re-running a deterministic bug is to remove the tag, which also stops the retries that were
+  pulling their weight.
+- **`FailureSignature` is the matching key** — type *names*, not `Type`, because out of process a
+  name is all there ever is. In process it holds the whole inheritance chain, so a hint on a base
+  class matches a derived failure; from the MTP wire it holds one name, so a base-class hint
+  abstains. That asymmetry is deliberate and degrades to "no hint applied" — never to a wrong
+  retry. A worker that erases the type entirely (tUnit) simply matches nothing.
+- **Hints do not cross the process boundary as attributes.** The supervisor drives the worker as a
+  process and never loads its assembly, so `Supervisor.RecoveryHints` takes `RecoveryHint` records
+  directly. Projecting a worker's own hints across the wire is the follow-on. This is why
+  `RecoveryHint` exists separately from `RecoveryHintAttribute` — it is also the shape the layer-2
+  ledger will produce.
+- **Scope beats type specificity.** Assembly < fixture < test, and the narrowest declaration wins
+  even when it names a less specific type, so a fixture can override a run-wide default without
+  knowing what that default names. Within one scope, the hint naming the exact type wins.
+- **The hint travels on the `Disposition`**, not just inside its `Reason` prose, because the case
+  most needing a report is a hint that *suppressed* a retry — otherwise a tagged test that failed
+  once looks like its tag stopped working. Surfaced as `↯ recovery hint applied` in the console
+  and as a `hint` object per attempt in `RunReport.ToJson`.
+
+**Not built yet: layer 2, the committed failure ledger.** The issue's own build order puts it
+second, and its open questions (on-disk format, how a failure class is keyed, merge strategy for
+concurrent CI appends, aging) are decisions rather than code. `RecoveryHint` is the shape it will
+emit. The DECIDED fork stands: the ledger may *propose* a hint, but a human accepts it — a policy
+that silently learns "just retry this" is exactly how red gets laundered into green with nobody
+deciding to.
+
 ### MTP Host (`src/Bobcat.Mtp/`)
 Bobcat's spec runner exposed as a **Microsoft.Testing.Platform test host**, so an IDE Test
 Explorer, CI, or a future Bobcat supervisor sees scenarios as ordinary tests. This is the

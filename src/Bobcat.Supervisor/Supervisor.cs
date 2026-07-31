@@ -108,7 +108,20 @@ public sealed class Supervisor
     /// </summary>
     public Preflight Preflight { get; } = new();
 
-    private IFailurePolicy Policy => new FailurePolicyChain([.. _policies, new DefaultFailurePolicy()]);
+    /// <summary>
+    /// Author-declared knowledge about which failures recover how — issue #44 layer 1.
+    /// </summary>
+    /// <remarks>
+    /// Registered as <see cref="RecoveryHint"/>s rather than read from
+    /// <see cref="RecoveryHintAttribute"/>s, because the supervisor drives the worker as a
+    /// <em>process</em> and never loads the assembly the attributes are compiled into. Projecting
+    /// a worker's own hints across the wire is the follow-on; until then a supervised run states
+    /// its hints here, in the same place it states its budget.
+    /// </remarks>
+    public RecoveryHintSet RecoveryHints { get; } = new();
+
+    private IFailurePolicy Policy => new FailurePolicyChain(
+        [.. _policies, new HintedFailurePolicy(RecoveryHints), new DefaultFailurePolicy()]);
 
     public async Task<SupervisorResults> Run(CancellationToken ct = default)
     {
@@ -385,6 +398,9 @@ public sealed class Supervisor
                 Succeeded = outcome.Succeeded,
                 FailureLevel = FailureLevelFor(outcome),
                 Exception = ExceptionFor(outcome),
+                // Set explicitly: deriving it from ExceptionFor's stand-in would report
+                // WorkerFailureException, which describes our wrapper rather than the failure.
+                Failure = FailureSignature.FromReportedType(outcome.ErrorType, outcome.ErrorMessage),
                 Traits = testTraits,
                 RetriesAvailable = RetryBudget.CanRetry(outcome.Uid, testTraits),
                 AttemptsAllowed = RetryBudget.AttemptsAllowedFor(testTraits)

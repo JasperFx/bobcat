@@ -222,6 +222,14 @@ public class CommandLineRenderer
                 "not a clean pass[/]");
         }
 
+        // A hint that stopped a tagged scenario from retrying is the case most in need of saying
+        // so out loud: nothing else on screen would explain why the tag appeared not to work.
+        if (result.Attempts.LastOrDefault() is { Disposition: { Hint: { } hint, IsRetry: false } })
+        {
+            AnsiConsole.MarkupLine(
+                $"  [grey]↯ recovery hint applied:[/] [italic]{Markup.Escape(hint.ToString())}[/]");
+        }
+
         foreach (var unsupported in result.UnsupportedDispositions)
         {
             AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
