@@ -1,5 +1,6 @@
 import { useRunsStore } from '@/stores/runs-store'
 import type {
+  BatchedWebSocketPayload,
   MonitorEnvelope,
   RetryScheduled,
   RunFinished,
@@ -23,6 +24,15 @@ export function relayToStore(message: unknown): void {
   const runs = useRunsStore()
 
   switch (envelope.type) {
+    case 'batched_web_socket_payload': {
+      // Server-side batched frame: unwrap and dispatch each inner {type, data} item in
+      // order — every item is exactly the per-event envelope the cases below handle.
+      const batch = envelope.data as BatchedWebSocketPayload
+      for (const item of batch?.items ?? []) {
+        relayToStore(item)
+      }
+      break
+    }
     case 'run_started':
       runs.handleRunStarted(envelope.data as RunStarted)
       break

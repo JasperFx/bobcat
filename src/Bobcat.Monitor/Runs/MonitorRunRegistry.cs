@@ -16,15 +16,21 @@ namespace Bobcat.Monitor.Runs;
 /// <c>ejected/</c> subfolder — never deleted, but excluded from boot rehydration so an eject
 /// survives a monitor restart. Data location: <c>Monitor:DataPath</c> configuration, then the
 /// <c>BOBCAT_MONITOR_DATA</c> environment variable, then <c>~/.bobcat/monitor/runs</c>.
+/// Retention: <c>Monitor:RetentionDays</c>, then <c>BOBCAT_MONITOR_RETENTION_DAYS</c>, then
+/// 14 days; see <see cref="SweepAging"/> for what aging means.
 /// </remarks>
 public sealed class MonitorRunRegistry : IDisposable
 {
     public const string DataPathVariable = "BOBCAT_MONITOR_DATA";
+    public const string RetentionVariable = "BOBCAT_MONITOR_RETENTION_DAYS";
     public const string EjectedFolder = "ejected";
+
+    public static readonly TimeSpan DefaultRetention = TimeSpan.FromDays(14);
 
     private static readonly JsonSerializerOptions serializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _dataPath;
+    private readonly TimeSpan _retention;
     private readonly Dictionary<Guid, Entry> _entries = new();
     private readonly Lock _gate = new();
 
@@ -39,7 +45,7 @@ public sealed class MonitorRunRegistry : IDisposable
         public StreamWriter? Writer { get; set; }
     }
 
-    public MonitorRunRegistry(string? dataPath = null)
+    public MonitorRunRegistry(string? dataPath = null, TimeSpan? retention = null)
     {
         _dataPath = dataPath
                     ?? Environment.GetEnvironmentVariable(DataPathVariable)
@@ -47,9 +53,21 @@ public sealed class MonitorRunRegistry : IDisposable
                         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                         ".bobcat", "monitor", "runs");
 
+        // Zero or negative disables aging; the on/off switch and the length are one knob.
+        _retention = retention
+                     ?? retentionFromEnvironment()
+                     ?? DefaultRetention;
+
         Directory.CreateDirectory(_dataPath);
+        // Age before rehydrating, so a long-dead archive is never loaded just to be swept.
+        SweepAging();
         rehydrate();
     }
+
+    private static TimeSpan? retentionFromEnvironment()
+        => double.TryParse(Environment.GetEnvironmentVariable(RetentionVariable), out var days)
+            ? TimeSpan.FromDays(days)
+            : null;
 
     /// <summary>
     /// Replays every non-ejected archive back into a projection, so a monitor restart forgets
@@ -91,6 +109,82 @@ public sealed class MonitorRunRegistry : IDisposable
     }
 
     public string DataPath => _dataPath;
+
+    /// <summary>Zero or negative means aging is disabled.</summary>
+    public TimeSpan Retention => _retention;
+
+    /// <summary>
+    /// Age the archive directory: any archive whose last write is older than the retention
+    /// period is retired. A stale live archive is ejected exactly like a manual
+    /// <see cref="Remove"/> (dropped from the dashboard, moved to <c>ejected/</c>); a stale
+    /// ejected archive is deleted. Moving preserves the file's timestamp, so a run aged out
+    /// of the live folder falls to the delete pass in the same sweep — the grace period in
+    /// <c>ejected/</c> exists for runs ejected by hand, not as a second countdown. The mtime
+    /// is the aging clock on purpose: every ingested event (heartbeats included) appends to
+    /// the archive, so a file untouched for the whole retention period has had a dead
+    /// publisher for exactly that long. Runs on construction (before rehydrate, so a
+    /// long-dead archive is never loaded just to be swept) and periodically from
+    /// <see cref="ArchiveRetentionService"/>.
+    /// </summary>
+    public (int Ejected, int Deleted) SweepAging()
+    {
+        if (_retention <= TimeSpan.Zero) return (0, 0);
+
+        var cutoff = DateTime.UtcNow - _retention;
+        var ejected = 0;
+        var deleted = 0;
+
+        lock (_gate)
+        {
+            foreach (var file in Directory.EnumerateFiles(_dataPath, "*.ndjson"))
+            {
+                if (File.GetLastWriteTimeUtc(file) >= cutoff) continue;
+
+                if (Guid.TryParse(Path.GetFileNameWithoutExtension(file), out var runId)
+                    && _entries.ContainsKey(runId))
+                {
+                    // System.Threading.Lock is reentrant, so reusing the one eject code path
+                    // from under the sweep's own lock is safe.
+                    if (Remove(runId)) ejected++;
+                }
+                else
+                {
+                    // Boot-time sweep (nothing rehydrated yet) or a file nobody tracks.
+                    try
+                    {
+                        Directory.CreateDirectory(Path.Combine(_dataPath, EjectedFolder));
+                        File.Move(file, Path.Combine(_dataPath, EjectedFolder, Path.GetFileName(file)), overwrite: true);
+                        ejected++;
+                    }
+                    catch
+                    {
+                        // A file that can't be moved right now ages again on the next sweep.
+                    }
+                }
+            }
+
+            var ejectedDir = Path.Combine(_dataPath, EjectedFolder);
+            if (Directory.Exists(ejectedDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(ejectedDir, "*.ndjson"))
+                {
+                    if (File.GetLastWriteTimeUtc(file) >= cutoff) continue;
+
+                    try
+                    {
+                        File.Delete(file);
+                        deleted++;
+                    }
+                    catch
+                    {
+                        // Same rule: failure to delete now is retried by the next sweep.
+                    }
+                }
+            }
+        }
+
+        return (ejected, deleted);
+    }
 
     public string ArchiveFileFor(Guid runId) => Path.Combine(_dataPath, $"{runId}.ndjson");
 

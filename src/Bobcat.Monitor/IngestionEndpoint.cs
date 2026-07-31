@@ -1,6 +1,5 @@
 using Bobcat.Monitor.Contracts;
 using Bobcat.Monitor.Runs;
-using Wolverine;
 using Wolverine.Http;
 
 namespace Bobcat.Monitor;
@@ -22,20 +21,17 @@ public static class IngestionEndpoint
             typeof(IngestionEndpoint).Assembly.GetName().Version?.ToString(3) ?? "0.0.0");
 
     /// <summary>
-    /// The single ingestion seam: a batch of MonitorEvents, cascaded straight onto Wolverine's
-    /// bus where the publish rule in Program.cs relays every WebSocketMessage to the SignalR
-    /// hub. Accepted (202) is deliberate — ingestion is fire-and-forget for the publisher, and
-    /// nothing downstream of the cascade can fail the POST.
+    /// The single ingestion seam: a batch of MonitorEvents, folded into the registry and
+    /// queued for the SignalR batch flush. Accepted (202) is deliberate — ingestion is
+    /// fire-and-forget for the publisher, and nothing downstream of the queue can fail the POST.
     /// </summary>
     [WolverinePost("/api/ingest")]
-    public static (IResult, OutgoingMessages) Ingest(IngestBatch batch, MonitorRunRegistry registry)
+    public static IResult Ingest(IngestBatch batch, MonitorRunRegistry registry, SignalRBatchAccumulator accumulator)
     {
-        // Fold + archive synchronously (cheap local work), THEN cascade to SignalR. Ordering
+        // Fold + archive synchronously (cheap local work), THEN queue for SignalR. Ordering
         // matters: the registry must never lag behind what a browser has already been shown.
         registry.Record(batch.Events);
-
-        var messages = new OutgoingMessages();
-        messages.AddRange(batch.Events);
-        return (Results.Accepted(), messages);
+        accumulator.Enqueue(batch.Events);
+        return Results.Accepted();
     }
 }

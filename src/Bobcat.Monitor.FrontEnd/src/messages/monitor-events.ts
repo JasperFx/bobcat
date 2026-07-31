@@ -13,6 +13,20 @@ export interface MonitorEnvelope {
   data: unknown
 }
 
+/**
+ * Server-side batching (SignalRBatchAccumulator): every event ingested within one flush tick
+ * arrives as a single `batched_web_socket_payload` frame whose items are ordinary
+ * {type, data} envelopes — relayToStore unwraps and re-dispatches each one.
+ */
+export interface BatchedWebSocketItem {
+  type: string
+  data: unknown
+}
+
+export interface BatchedWebSocketPayload {
+  items: BatchedWebSocketItem[]
+}
+
 export interface RunStarted {
   runId: string
   suite: string

@@ -41,11 +41,14 @@ function flushPendingMessages() {
 function scheduleFlush() {
   if (flushScheduled) return
   flushScheduled = true
-  const raf =
-    typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-      ? window.requestAnimationFrame
-      : (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 0)
-  raf(flushPendingMessages)
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(flushPendingMessages)
+  }
+  // rAF never fires while the document is hidden, so a backgrounded (or headless) dashboard
+  // would queue events forever and only fold them on refocus. The timer backstop always runs;
+  // whichever fires first drains the queue and the straggler finds it empty. 50ms keeps the
+  // hidden-tab path batching bursts about as coarsely as the visible-tab frame does.
+  setTimeout(flushPendingMessages, 50)
 }
 
 function getConnection(): HubConnection {

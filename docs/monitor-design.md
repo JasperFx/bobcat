@@ -16,13 +16,21 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
 
 - One `HubConnection` owned by `useSignalR.ts`, retry-forever backoff, rAF-batched flush into
   `relayToStore.ts`, which switches on snake_case envelope types and fans out to Pinia stores.
-  Stores never touch SignalR.
+  Stores never touch SignalR. The rAF flush has a plain-timer backstop because rAF never fires
+  in a hidden tab — without it a backgrounded (or headless) dashboard queues events until
+  refocus, which also breaks any headless e2e against the UI (found live 2026-07-31).
 - Color tokens in `src/styles/variables.css` — the JasperFx orange Element Plus ramp, `--bm-`
   prefix. The test-state grammar (running blue / passed green / failed red / retrying orange)
   is adapted from CritterWatch's Event Modeling grammar.
-- Backend flow: `[WolverinePost]` ingestion endpoint cascades `MonitorEvent`s → one publish
-  rule relays every `WebSocketMessage` to the hub at `/api/messages`. CritterWatch's 100ms
-  `SignalRBatchAccumulator` is the known next step if per-message sends ever matter.
+- Backend flow (built 2026-07-31): the `[WolverinePost]` ingestion endpoint folds into the
+  registry, then queues events into `SignalRBatchAccumulator` — CritterWatch's 100ms
+  accumulator, lifted but simplified: ingestion is the only producer, so the endpoint feeds it
+  directly (no per-type relay handlers, no static-instance hack). Each flush publishes one
+  `BatchedWebSocketPayload : WebSocketMessage` (so the existing publish rule routes it and
+  Wolverine's WebSocketMessage naming yields `batched_web_socket_payload` with no attribute;
+  no loop risk because no publish rule feeds the accumulator). `relayToStore` unwraps the
+  `{type, data}` items recursively; wire names are pinned to the STJ discriminators by
+  `SignalRBatchingTests`.
 - TS mirrors of the contracts are hand-written for now; lift CritterWatch's NJsonSchema
   codegen (records → `.ts` + `relayToStore` case insertion) when the contract count justifies.
 - No Aspire. The Vite dev server proxies `/api` (ws included) to the host's fixed dev port
@@ -128,6 +136,18 @@ happy-dom for component mounts, CI gate in `.github/workflows/monitor-frontend.y
 (path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`). End-to-end tests dogfood
 the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, deliberately.
 
+## Retention (built 2026-07-31)
+
+The archive directory ages instead of growing forever. The NDJSON file's mtime is the aging
+clock — every ingested event (heartbeats included) appends, so a file untouched for the whole
+retention period has had a dead publisher exactly that long. A stale live archive is ejected
+exactly like a manual eject (off the dashboard, into `ejected/`); a stale ejected archive is
+deleted. Nothing is ever deleted straight out of the live folder, and a manual eject keeps its
+data for the rest of the retention window. One knob: `Monitor:RetentionDays` config →
+`BOBCAT_MONITOR_RETENTION_DAYS` env var → 14 days; zero or negative disables aging entirely.
+Swept at boot (before rehydration, so a long-dead archive is never loaded just to be swept)
+and hourly by `ArchiveRetentionService`.
+
 ## Hydration (built 2026-07-31)
 
 Both directions are archive replays — one fold, two transports, nothing to keep in sync:
@@ -151,8 +171,9 @@ repository), when supervisor work opens up.
 
 ## Not built yet
 
-- Server-side batching, CTRF `retryAttempts[]` detail, retention/aging of the archive
-  directory, TS codegen for the contract mirrors.
+- CTRF `retryAttempts[]` detail (needs per-attempt step history in `RunProjection` — today an
+  attempt overwrites the step list; the NDJSON has everything, only the projection forgets),
+  TS codegen for the contract mirrors.
 - Supervisor-side `BOBCAT_RUN_ID` grouping + `ISupervisorObserver` (when supervisor work
   opens up); Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool
   becomes "Bobcat").
