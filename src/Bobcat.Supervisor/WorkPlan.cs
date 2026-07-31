@@ -45,23 +45,43 @@ public static class WorkPlan
     /// </summary>
     /// <remarks>
     /// Derived from the display name because it is the only structural naming signal every
-    /// front-end supplies. Two shapes are recognised — Bobcat's <c>Feature/Scenario</c> and the
-    /// dotted <c>Namespace.Class.method</c> of xUnit, tUnit and friends. Theory arguments are
-    /// stripped first, since <c>method(value: "a.b")</c> would otherwise split one method into
-    /// partitions per argument.
+    /// front-end supplies. Three shapes are recognised — <c>Feature/Scenario</c>, Bobcat's own
+    /// <c>Feature: Scenario</c> display name, and the dotted <c>Namespace.Class.method</c> of
+    /// xUnit, tUnit and friends.
+    /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// The <c>Feature: Scenario</c> shape is not decoration. <c>SpecNodeMapping</c> builds uids as
+    /// <c>Feature/Scenario</c> but display names as <c>Feature: Scenario</c>, and this method reads
+    /// the display name — so recognising only the slash meant every Bobcat scenario fell through to
+    /// "no separator found" and became its own partition. Class-level partitioning silently
+    /// degraded to per-test for Bobcat's own workers, which is the one thing the partitioner exists
+    /// to prevent. Found by an end-to-end isolation sweep, which expected two features and got
+    /// seven scenarios.
+    /// </para>
+    /// <para>
+    /// Arguments are stripped <em>before</em> any separator is looked for, not after. A theory
+    /// argument can contain any of these separators — <c>method(path: "a/b")</c> — and splitting on
+    /// one inside the parentheses would shatter a method into a partition per argument, which is
+    /// the same defect from the other direction.
+    /// </para>
     /// </remarks>
     public static string ClassOf(WorkerTest test)
     {
         var name = test.DisplayName;
         if (string.IsNullOrWhiteSpace(name)) return test.Uid;
 
-        // Bobcat uids and display names are "Feature/Scenario"; the feature is the grouping.
-        var slash = name.LastIndexOf('/');
-        if (slash > 0) return name[..slash];
-
-        // Strip theory/parameterised arguments before looking for the method separator.
         var openParen = name.IndexOf('(');
         var withoutArguments = openParen > 0 ? name[..openParen] : name;
+
+        // "Feature/Scenario" — the uid shape, and what a front-end using paths will produce.
+        var slash = withoutArguments.LastIndexOf('/');
+        if (slash > 0) return withoutArguments[..slash];
+
+        // "Feature: Scenario" — Bobcat's display name. First colon, because the feature is the
+        // prefix and a scenario title may well contain another one.
+        var colon = withoutArguments.IndexOf(": ", StringComparison.Ordinal);
+        if (colon > 0) return withoutArguments[..colon];
 
         var dot = withoutArguments.LastIndexOf('.');
         return dot > 0 ? withoutArguments[..dot] : withoutArguments;

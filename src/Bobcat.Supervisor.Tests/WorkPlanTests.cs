@@ -27,11 +27,37 @@ public class WorkPlanTests
     }
 
     [Fact]
+    public void a_bobcat_display_name_partitions_on_the_feature_too()
+    {
+        // The regression that mattered: SpecNodeMapping builds uids as "Feature/Scenario" but
+        // display names as "Feature: Scenario", and ClassOf reads the display name. Recognising
+        // only the slash meant every Bobcat scenario became its own partition, so class-level
+        // partitioning quietly became per-test for Bobcat's own workers.
+        WorkPlan.ClassOf(test("Order Processing: places an order")).ShouldBe("Order Processing");
+    }
+
+    [Fact]
+    public void a_scenario_title_containing_a_colon_still_partitions_on_the_feature()
+    {
+        // The feature is the prefix, so the first colon is the separator — not the last.
+        WorkPlan.ClassOf(test("Order Processing: given a cart: it totals")).ShouldBe("Order Processing");
+    }
+
+    [Fact]
     public void theory_arguments_do_not_split_a_method_into_separate_partitions()
     {
         // A dot inside an argument would otherwise be read as the method separator, scattering
         // one theory's cases across lanes.
         WorkPlan.ClassOf(test("Ns.SomeClass.a_theory(input: \"a.b.c\")")).ShouldBe("Ns.SomeClass");
+    }
+
+    [Fact]
+    public void a_separator_inside_a_theory_argument_is_not_read_as_the_separator()
+    {
+        // Arguments are stripped before any separator is looked for. A slash or colon inside them
+        // is data, not structure — the same defect as the dot case, from the other direction.
+        WorkPlan.ClassOf(test("Ns.SomeClass.a_theory(path: \"a/b\")")).ShouldBe("Ns.SomeClass");
+        WorkPlan.ClassOf(test("Ns.SomeClass.a_theory(text: \"x: y\")")).ShouldBe("Ns.SomeClass");
     }
 
     [Fact]
