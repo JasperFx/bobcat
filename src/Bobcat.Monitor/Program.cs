@@ -1,3 +1,4 @@
+using Bobcat.Monitor.Hosting;
 using Bobcat.Monitor.Mcp;
 using Bobcat.Monitor.Runs;
 using JasperFx;
@@ -36,6 +37,10 @@ builder.Services.AddMcpServer()
     .WithTools<MonitorTools>();
 
 var app = builder.Build();
+
+// No-op in a dev build (Vite serves the SPA); in an EmbedFrontend build this serves the
+// embedded console at the root with an index.html fallback for the Vue Router's routes.
+app.UseBobcatMonitorSpa();
 
 app.MapWolverineEndpoints();
 app.MapWolverineSignalRHub("/api/messages");
