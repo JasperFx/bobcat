@@ -21,6 +21,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Explicit because MonitorEvents uses JasperFx.Testing.DispositionKind. Without a direct
+      reference the version came in transitively from WolverineFx.Http, which asks for 2.36.1 —
+      below the centrally pinned version, and Central Package Management only pins what a project
+      actually references. The result was a project compiling against a JasperFx nobody chose.
+    -->
+    <PackageReference Include="JasperFx" />
     <PackageReference Include="WolverineFx.Http" />
     <PackageReference Include="WolverineFx.SignalR" />
     <!--

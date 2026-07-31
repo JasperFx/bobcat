@@ -12,7 +12,7 @@ target the **same** set when wired up (issue #8).
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
 | Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Http`, `WolverineFx.*` | `6.24.2` |
 | Document/event store | `Marten` | `9.22.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.36.3` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.37.0` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
@@ -30,8 +30,8 @@ with Marten 9.x) splits `JasperFx`/`JasperFx.Events` across major lines and the 
 (`IEvent`, etc.) no longer unify.
 
 The pins above take the newest release of each rather than the exact floor Wolverine declares —
-Marten **9.22.0** over the required 9.20.0, and `JasperFx` **2.36.3** over 2.36.1. That is safe
-here precisely because Marten 9.22.0 itself requires JasperFx 2.36.3: the chain still terminates
+Marten **9.22.0** over the required 9.20.0, and `JasperFx` **2.37.0** over the 2.36.x floors. That is safe
+here precisely because every declared floor is below it: the chain still terminates
 in one JasperFx version, which is the invariant this matrix exists to protect. Check that
 property again on the next bump rather than assuming newest-of-each always preserves it.
 

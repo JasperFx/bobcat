@@ -266,6 +266,23 @@ the bug it is:
 public class OrderFixture : Fixture;
 ```
 
+- **The attributes and `DispositionKind` live in JasperFx, not Bobcat** — namespace
+  `JasperFx.Testing`, from **JasperFx 2.37.0** (issue #63). Any suite already referencing JasperFx,
+  directly or through Marten/Wolverine/Polecat, can annotate itself **without referencing Bobcat**.
+  That mattered because `docs/parallel-ready-suites.md` Step 0 sells "a test project needs no
+  reference to Bobcat", and shipping the attributes as Bobcat types would quietly have spent it.
+  One enum rather than a Bobcat copy mapped at a seam: two enums meaning the same thing is how the
+  vocabulary drifts, and the drift would stay invisible until a hint silently stopped matching.
+  Everything that *acts* on a hint stays here — `RecoveryHint`, `RecoveryHintSet.Best`,
+  `HintedFailurePolicy`, the scope rule.
+  - Consequence worth knowing: **a project using `DispositionKind` must reference `JasperFx`
+    directly.** `Bobcat.Monitor` did not, and picked up 2.36.1 transitively from `WolverineFx.Http`
+    — Central Package Management only pins what a project actually references, so the central
+    2.37.0 did not apply and it compiled against a JasperFx nobody chose.
+  - `ClearsOnRecycle` parses its resource list independently of `ResilienceTags.ParseResources`,
+    because JasperFx must not reference Bobcat. `ResourceParsingAgreementTests` pins the two
+    together; without it they can diverge silently and a tag and a hint naming the same brokers
+    would resolve to different names.
 - **`HintedFailurePolicy` sits between the user's policies and `DefaultFailurePolicy`** — explicit
   code still wins, and any failure no hint describes falls through to the tag-driven default
   unchanged. A run with no hints behaves exactly as it did before.

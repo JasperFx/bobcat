@@ -1,3 +1,4 @@
+using JasperFx.Testing;
 using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
