@@ -214,4 +214,55 @@ public class SupervisorEndToEndTests : IDisposable
 
         results.Tests.Single(t => t.Uid == "Basics/always fails").AttemptCount.ShouldBe(1);
     }
+
+    [Fact]
+    public async Task an_isolation_sweep_separates_a_real_interference_victim_from_ordinary_red()
+    {
+        // The fake-worker tests prove the classification; this proves the isolation was real.
+        // "Fussy/only works alone" throws when anything else has executed in its process, so it
+        // can only come back green from the sweep if that process genuinely contained one test.
+        // A sweep whose isolation did not isolate would report it as failing both ways, which is
+        // exactly the false negative worth catching here rather than in a fake.
+        var sweep = new IsolationSweep(factory())
+        {
+            Granularity = SweepGranularity.PerTest,
+            MaxParallelWorkers = 2
+        };
+
+        var results = await sweep.Run();
+
+        results.Discovered.ShouldBe(7);
+        results.Partitions.ShouldBe(7);
+
+        results.InterferenceVictims.Select(f => f.Uid).ShouldBe(["Fussy/only works alone"]);
+
+        // Fails with the suite and alone — a real bug, and the sweep must not dress it up as an
+        // isolation problem.
+        results.FailedInBoth.Select(f => f.Uid).ShouldBe(["Basics/always fails"]);
+
+        // Nothing here passes only because something else ran first.
+        results.OrderDependent.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_per_class_sweep_groups_by_feature_over_the_wire()
+    {
+        // Two features, so two processes — which only holds because ClassOf understands Bobcat's
+        // "Feature: Scenario" display name. Before that fix this returned seven, and the supervisor
+        // was quietly partitioning Bobcat suites per test.
+        var sweep = new IsolationSweep(factory()) { Granularity = SweepGranularity.PerClass };
+
+        var results = await sweep.Run();
+
+        results.Partitions.ShouldBe(2);
+        results.Findings.ShouldAllBe(f => f.Partition == "Basics" || f.Partition == "Fussy");
+
+        // "only works alone" is still found here, and the reason is worth knowing: it is the first
+        // scenario registered in Fussy, so when that feature runs as its own group it executes
+        // first and nothing has polluted the process yet. Per-class is not blind to this defect —
+        // it is blind to one where the *classmate that runs before it* is the culprit, which
+        // IsolationSweepTests covers directly.
+        results.InterferenceVictims.Select(f => f.Uid).ShouldBe(["Fussy/only works alone"]);
+        results.FailedInBoth.Select(f => f.Uid).ShouldBe(["Basics/always fails"]);
+    }
 }
