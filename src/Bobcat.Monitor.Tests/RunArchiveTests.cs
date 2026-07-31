@@ -106,18 +106,91 @@ public class RunArchiveTests : IDisposable
     }
 
     [Fact]
-    public void ejecting_forgets_the_run_but_keeps_the_archive_and_reappearance_appends()
+    public void ejecting_forgets_the_run_and_moves_the_archive_aside_never_deleting_it()
     {
         using var registry = new MonitorRunRegistry(_dataPath);
         registry.Record(realisticRun());
 
         registry.Remove(runId).ShouldBeTrue();
         registry.Find(runId).ShouldBeNull();
-        File.Exists(registry.ArchiveFileFor(runId)).ShouldBeTrue();
 
-        var before = File.ReadAllLines(registry.ArchiveFileFor(runId)).Length;
+        // The archive moved to ejected/ (so boot rehydration skips it) — data never deleted.
+        File.Exists(registry.ArchiveFileFor(runId)).ShouldBeFalse();
+        File.Exists(registry.EjectedFileFor(runId)).ShouldBeTrue();
+        File.ReadAllLines(registry.EjectedFileFor(runId)).Length.ShouldBe(realisticRun().Count);
+
+        // A run re-appearing after its eject starts a fresh archive in the live folder.
         registry.Record([new RunHeartbeat(runId, DateTimeOffset.UtcNow)]);
-        File.ReadAllLines(registry.ArchiveFileFor(runId)).Length.ShouldBe(before + 1);
+        File.ReadAllLines(registry.ArchiveFileFor(runId)).Length.ShouldBe(1);
+    }
+
+    [Fact]
+    public void a_restarted_registry_rehydrates_finished_runs_from_the_archives()
+    {
+        using (var first = new MonitorRunRegistry(_dataPath))
+        {
+            first.Record(realisticRun());
+        }
+
+        using var restarted = new MonitorRunRegistry(_dataPath);
+
+        var run = restarted.Find(runId).ShouldNotBeNull();
+        run.Suite.ShouldBe("Demo");
+        run.Finished.ShouldBeTrue();
+        run.Orphaned.ShouldBeFalse();
+        run.Scenarios.Count.ShouldBe(4);
+        run.Scenarios.Single(s => s.Uid == "Orders/broker").Outcome.ShouldBe("PassOnRetry");
+    }
+
+    [Fact]
+    public void a_rehydrated_run_with_no_terminal_event_is_orphaned_until_it_publishes_again()
+    {
+        using (var first = new MonitorRunRegistry(_dataPath))
+        {
+            // Everything except the RunFinished — the publisher died mid-run.
+            first.Record(realisticRun().SkipLast(1).ToArray());
+        }
+
+        using var restarted = new MonitorRunRegistry(_dataPath);
+        var run = restarted.Find(runId).ShouldNotBeNull();
+        run.Finished.ShouldBeFalse();
+        run.Orphaned.ShouldBeTrue();
+
+        // The publisher outlived the monitor's restart after all — a live event un-orphans,
+        // and the continued archive holds the full history.
+        restarted.Record([new RunFinished(runId, 0, 3, 0, 1, 0, DateTimeOffset.UtcNow)]);
+        run.Orphaned.ShouldBeFalse();
+        run.Finished.ShouldBeTrue();
+        File.ReadAllLines(restarted.ArchiveFileFor(runId)).Length.ShouldBe(realisticRun().Count);
+    }
+
+    [Fact]
+    public void ejected_runs_do_not_rehydrate()
+    {
+        using (var first = new MonitorRunRegistry(_dataPath))
+        {
+            first.Record(realisticRun());
+            first.Remove(runId);
+        }
+
+        using var restarted = new MonitorRunRegistry(_dataPath);
+        restarted.Find(runId).ShouldBeNull();
+        restarted.All().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_torn_tail_line_does_not_sink_rehydration()
+    {
+        using (var first = new MonitorRunRegistry(_dataPath))
+        {
+            first.Record(realisticRun());
+        }
+
+        // Simulate the monitor being killed mid-write: a truncated final line.
+        File.AppendAllText(Path.Combine(_dataPath, $"{runId}.ndjson"), "{\"type\":\"run_hea");
+
+        using var restarted = new MonitorRunRegistry(_dataPath);
+        restarted.Find(runId).ShouldNotBeNull().Scenarios.Count.ShouldBe(4);
     }
 
     [Fact]

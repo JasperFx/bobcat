@@ -11,6 +11,7 @@ public record RunSummary(
     string? Branch,
     string Mode,
     bool Finished,
+    bool Orphaned,
     int? ExitCode,
     int Scenarios,
     DateTimeOffset? StartedAt,
@@ -24,7 +25,7 @@ public static class RunEndpoints
             .OrderByDescending(r => r.StartedAt ?? DateTimeOffset.MinValue)
             .Select(r => new RunSummary(
                 r.RunId, r.Suite, r.Repository, r.Branch, r.Mode,
-                r.Finished, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt))
+                r.Finished, r.Orphaned, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt))
             .ToArray();
 
     /// <summary>

@@ -116,9 +116,29 @@ the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, 
 
 ## Not built yet
 
+## Hydration (built 2026-07-31)
+
+Both directions are archive replays — one fold, two transports, nothing to keep in sync:
+
+- **Monitor restart**: the registry replays every non-ejected NDJSON archive back into
+  projections on boot. A rehydrated run with no terminal `RunFinished` is **orphaned** (its
+  publisher is gone; rendering it "running" forever would lie) — any later event un-orphans
+  it. Eject moves the archive to `ejected/` (never deletes) precisely so an eject survives
+  restart. Torn tail lines (monitor killed mid-write) are skipped, not fatal.
+- **Browser load/reconnect**: `useSignalR` calls `hydrateFromServer()` after connect and on
+  every reconnect — `GET /api/runs`, then each run's NDJSON export replayed through
+  `relayToStore`, i.e. the store's own live-event fold. Store handlers upsert (stepId guard)
+  so replay over already-arrived live events cannot duplicate; local runs the server no
+  longer lists are pruned.
+
+Observed live: a supervisor test suite running in another checkout streamed dozens of
+one-scenario SampleWorker runs, each its own dashboard card — each worker mints its own
+RunId today. That is the known cost of leaving the supervisor untouched; the designed fix is
+the supervisor setting `BOBCAT_RUN_ID` for its workers (plus dashboard grouping by
+repository), when supervisor work opens up.
+
+## Not built yet
+
 - Embedded-SPA serving for the packed tool.
-- Server-side batching, NDJSON persistence, CTRF/JUnit exporters, MCP endpoints, retention.
-- Hydration: a browser joining mid-run only sees a run once its next event/heartbeat arrives
-  (the runs store synthesizes shell runs from any event, and heartbeats come every 10s, so the
-  gap is bounded — but a request/response replay like CritterWatch's epoch hydration is the
-  real fix).
+- Server-side batching, CTRF `retryAttempts[]` detail, MCP endpoints, retention/aging of the
+  archive directory.

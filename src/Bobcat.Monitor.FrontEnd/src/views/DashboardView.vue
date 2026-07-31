@@ -37,8 +37,11 @@ async function eject(run: RunState): Promise<void> {
       <div class="bm-run-meta">
         {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span> · {{ run.mode }}
       </div>
+      <el-tag v-if="run.orphaned" type="warning" size="small">
+        orphaned — publisher gone, run never finished
+      </el-tag>
       <el-progress
-        v-if="!run.finished"
+        v-else-if="!run.finished"
         :percentage="progressPercent(run)"
         :indeterminate="runs.progressOf(run) === null"
       />

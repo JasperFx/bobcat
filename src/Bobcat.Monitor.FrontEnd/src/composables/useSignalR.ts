@@ -4,6 +4,7 @@ import {
   LogLevel,
   type HubConnection,
 } from '@microsoft/signalr'
+import { hydrateFromServer } from '@/messages/hydrate'
 import { relayToStore } from '@/messages/relayToStore'
 import { useConnectionStore } from '@/stores/connection-store'
 
@@ -74,6 +75,9 @@ function getConnection(): HubConnection {
       const store = useConnectionStore()
       store.setConnected()
       store.markSynced()
+      // A reconnected socket may have missed events — replay the registry's archives over
+      // whatever we have (the store's upserts make this safe).
+      void hydrateFromServer().catch(() => {})
     })
 
     connection.onclose(() => {
@@ -94,6 +98,8 @@ export function useSignalR() {
       await conn.start()
       store.setConnected()
       store.markSynced()
+      // Seed current state — the page must not sit empty until the next live event.
+      void hydrateFromServer().catch(() => {})
     } catch (err) {
       store.setError(err instanceof Error ? err.message : String(err))
     }
