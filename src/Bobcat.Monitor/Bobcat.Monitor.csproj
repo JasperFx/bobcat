@@ -25,10 +25,9 @@
     <PackageReference Include="WolverineFx.SignalR" />
     <!--
       Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
-      host dies at startup in TypeLoadMode.Dynamic. VersionOverride because the central pin is
-      the 6.5.1 aligned set — same isolation note as in Directory.Packages.props.
+      host dies at startup in TypeLoadMode.Dynamic.
     -->
-    <PackageReference Include="WolverineFx.RuntimeCompilation" VersionOverride="6.24.2" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
   </ItemGroup>
 
 </Project>

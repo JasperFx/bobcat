@@ -29,11 +29,9 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
     <!--
-      Bobcat.Monitor only. The monitor host rides the newer Wolverine that ships
-      Wolverine.SignalR (the version CritterWatch uses), NOT the 6.5.1 aligned set above —
-      the monitor never touches Marten, so the Marten 9.6.0 alignment doesn't constrain it.
-      These two packages pull WolverineFx 6.24.x transitively; no other project may
-      reference them, or the two Wolverine versions would meet in one output folder.
+      Bobcat.Monitor host. Same 6.24.2 as the aligned set above — the earlier monitor-only
+      version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
+      collapsed when the alignment caught up.
     -->
     <PackageVersion Include="WolverineFx.Http" Version="6.24.2" />
     <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
