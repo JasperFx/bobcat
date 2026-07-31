@@ -6,6 +6,19 @@ namespace Bobcat.Engine;
 /// </summary>
 public interface IExecutionObserver
 {
+    /// <summary>
+    /// The whole run is starting — fired once, before resources start, with the count of
+    /// scenarios that will run after filtering. Default no-op so existing observers are
+    /// unaffected.
+    /// </summary>
+    void RunStarted(int totalScenarios) { }
+
+    /// <summary>
+    /// The whole run is over — fired once with the aggregated results, including on a
+    /// preflight failure (in which case no feature ran). Default no-op.
+    /// </summary>
+    void RunFinished(Runtime.SuiteResults results) { }
+
     void FeatureStarted(string featureTitle);
     void FeatureFinished(string featureTitle);
     void ScenarioStarted(string featureTitle, string scenarioTitle);

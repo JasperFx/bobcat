@@ -1,0 +1,80 @@
+using System.Text.Json.Serialization;
+
+namespace Bobcat.Monitoring;
+
+/// <summary>
+/// Client-side mirrors of the Bobcat.Monitor ingestion contracts
+/// (src/Bobcat.Monitor/Contracts/MonitorEvents.cs). The wire shape — snake_case type
+/// discriminator plus camelCase fields — is the contract, deliberately not a shared assembly:
+/// Bobcat must stay free of the monitor's Wolverine stack, and the monitor must never be a
+/// dependency of the thing it watches. A round-trip test in Bobcat.Monitor.Tests keeps the two
+/// sides honest.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(RunStarted), "run_started")]
+[JsonDerivedType(typeof(RunHeartbeat), "run_heartbeat")]
+[JsonDerivedType(typeof(RunFinished), "run_finished")]
+[JsonDerivedType(typeof(ScenarioStarted), "scenario_started")]
+[JsonDerivedType(typeof(ScenarioFinished), "scenario_finished")]
+[JsonDerivedType(typeof(RetryScheduled), "retry_scheduled")]
+[JsonDerivedType(typeof(StepStarted), "step_started")]
+[JsonDerivedType(typeof(StepFinished), "step_finished")]
+public abstract record MonitorEvent(Guid RunId);
+
+public record RunStarted(
+    Guid RunId,
+    string Suite,
+    string Repository,
+    string? Branch,
+    string Mode,
+    DateTimeOffset StartedAt,
+    int? TotalScenarios) : MonitorEvent(RunId);
+
+public record RunHeartbeat(Guid RunId, DateTimeOffset At) : MonitorEvent(RunId);
+
+public record RunFinished(
+    Guid RunId,
+    int ExitCode,
+    int Passed,
+    int Failed,
+    int PassedOnRetry,
+    int Indeterminate,
+    DateTimeOffset FinishedAt) : MonitorEvent(RunId);
+
+public record ScenarioStarted(
+    Guid RunId,
+    string Uid,
+    string Feature,
+    string Scenario,
+    int Attempt,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+public record ScenarioFinished(
+    Guid RunId,
+    string Uid,
+    string Outcome,
+    int Attempts,
+    long DurationMs,
+    string? ErrorMessage) : MonitorEvent(RunId);
+
+public record RetryScheduled(
+    Guid RunId,
+    string Uid,
+    int NextAttempt,
+    string Disposition,
+    string Reason) : MonitorEvent(RunId);
+
+public record StepStarted(
+    Guid RunId,
+    string Uid,
+    string StepId,
+    string Kind,
+    string Text) : MonitorEvent(RunId);
+
+public record StepFinished(
+    Guid RunId,
+    string Uid,
+    string StepId,
+    string Status,
+    long DurationMs,
+    string? ErrorMessage) : MonitorEvent(RunId);

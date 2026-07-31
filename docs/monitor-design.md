@@ -53,22 +53,31 @@ string, so ingestion JSON and the SignalR envelope agree by construction. Identi
 repository path + branch, the dashboard's grouping key for parallel suites on one box.
 `RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
 
-When the publisher client gets built inside Bobcat, these records move to a tiny shared
-contracts package; the wire shape, not the assembly, is the contract.
+The publisher client lives in Bobcat as `Bobcat.Monitoring` (issue #65): mirror records of
+these contracts, DECIDED to stay deliberately unshared — Bobcat must not depend on the
+monitor's Wolverine stack, and the wire shape (not an assembly) is the contract. The
+round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
 
-## Seams still needed in Bobcat (the actual next work)
+## Bobcat-side seams (issue #65 — built)
 
-1. **`CompositeObserver`** — `BobcatRunner.WithObserver` is single-slot today; a monitor
-   publisher must ride alongside the MTP `PublishingObserver`/console output.
-2. **`ISupervisorObserver`** — the supervisor has only `Action<string>? Log`. Fire from
-   `record(...)`, lane start/finish, recycle, worker faults. `MtpWorkerClient.handleNotification`
-   already receives live per-test `testing/testUpdates/tests` updates and discards them —
-   that's the tap for a live per-test feed.
-3. **Worker-side step publishing** — step-level detail dies at the MTP boundary (the wire has
-   no channel for it). Workers publish their own step events directly to the monitor, tagged
-   with the RunId the supervisor passes down via environment variable. Supervisor publishes
-   topology (lanes, retries, dispositions, faults); Bobcat workers publish Gherkin steps; a
-   plain xUnit worker just contributes per-test states.
+1. **`CompositeObserver` + `BobcatRunner.AddObserver`** — observers fan in additively, so the
+   monitor publisher rides alongside the MTP `PublishingObserver`. `WithObserver` keeps
+   replace semantics. An observer throwing never fails the run or starves other observers.
+2. **`MonitorPublishingObserver` + `MonitorPublisher`** (`src/Bobcat/Monitoring/`) — maps
+   observer callbacks (plus the new `RunStarted`/`RunFinished` run bracket on
+   `IExecutionObserver`) onto the wire events; fire-and-forget HTTP with a bounded
+   drop-on-backpressure channel; probes `/api/ping` once and no-ops when absent.
+   `BOBCAT_MONITOR_URL` overrides the target, `BOBCAT_MONITOR=0` is the kill switch.
+   Publishing is **opt-in** (`BobcatRunner.PublishToMonitor`) and turned on only by the real
+   entry points — `BobcatRunner.Run` and the MTP host's execution path (never discovery) — so
+   unit tests driving the runner never probe. `BOBCAT_RUN_ID` seeds the run identity so a
+   future supervisor can group its workers' streams without supervisor changes.
+3. **`ISupervisorObserver`** — NOT built, deliberately: the supervisor is to be left alone for
+   now (decision 2026-07-31). When it happens: fire from `record(...)`, lane start/finish,
+   recycle, worker faults; `MtpWorkerClient.handleNotification` already receives live per-test
+   `testing/testUpdates/tests` updates and discards them — that's the tap. Meanwhile a
+   supervised run still gets step-level visibility because each worker IS an MTP host running
+   `BobcatRunner`, and its own publisher streams steps directly to the monitor.
 
 ## Ejecting results: CTRF primary, JUnit XML fallback
 

@@ -1,5 +1,6 @@
 using System.Reflection;
 using Bobcat.Engine;
+using Bobcat.Monitoring;
 using Bobcat.Rendering;
 using Bobcat.Resilience;
 
@@ -68,11 +69,42 @@ public class BobcatRunner
     /// </summary>
     public bool SuppressConsoleOutput { get; set; }
 
+    /// <summary>
+    /// Replaces the current observer. Prefer <see cref="AddObserver"/> when the intent is to
+    /// watch the run in addition to whatever a front-end already registered.
+    /// </summary>
     public BobcatRunner WithObserver(IExecutionObserver observer)
     {
         _observer = observer;
         return this;
     }
+
+    /// <summary>
+    /// Attaches an observer WITHOUT displacing the existing one — additional observers fan in
+    /// via <see cref="CompositeObserver"/>, so an MTP host's node publisher and a monitor
+    /// publisher can watch the same run.
+    /// </summary>
+    public BobcatRunner AddObserver(IExecutionObserver observer)
+    {
+        _observer = _observer switch
+        {
+            NullObserver => observer,
+            CompositeObserver composite => new CompositeObserver([.. composite.Observers, observer]),
+            _ => new CompositeObserver(_observer, observer)
+        };
+        return this;
+    }
+
+    /// <summary>
+    /// Opt-in publishing of live progress to a locally running Bobcat.Monitor console. Off by
+    /// default so unit tests driving BobcatRunner directly never probe or publish; the real
+    /// entry points (<see cref="Run"/>, the MTP host) turn it on. Even when on, an absent
+    /// monitor costs exactly one refused local connection — see <see cref="MonitorPublisher"/>.
+    /// </summary>
+    public bool PublishToMonitor { get; set; }
+
+    /// <summary>How this run is hosted, as reported to the monitor ("in-process", "mtp-host").</summary>
+    public string MonitorMode { get; set; } = "in-process";
 
     /// <summary>
     /// Register a feature definition (typically from generated code).
@@ -123,54 +155,106 @@ public class BobcatRunner
     {
         var suiteResults = new SuiteResults();
 
-        await _suite.StartAll();
-
-        // Preflight runs with resources up but before any feature: checking a database means
-        // little until the resource that owns the connection has started.
-        var preflight = await runPreflight();
-        if (preflight is not null)
-        {
-            await _suite.DisposeAsync();
-            suiteResults.PreflightFailure = preflight;
-            return suiteResults;
-        }
+        var features = filteredFeatures(featureFilter).ToArray();
+        var monitor = await tryAttachMonitor();
 
         try
         {
-            // Global actions run with resources up but before any feature, and tear down
-            // after the last feature but before resources are disposed.
-            await _suite.RunGlobalSetUp();
+            _observer.RunStarted(features.Sum(f => filteredScenarios(f, tagFilter).Count()));
+
+            await _suite.StartAll();
+
+            // Preflight runs with resources up but before any feature: checking a database means
+            // little until the resource that owns the connection has started.
+            var preflight = await runPreflight();
+            if (preflight is not null)
+            {
+                await _suite.DisposeAsync();
+                suiteResults.PreflightFailure = preflight;
+                return suiteResults;
+            }
 
             try
             {
-                var features = _features.AsEnumerable();
+                // Global actions run with resources up but before any feature, and tear down
+                // after the last feature but before resources are disposed.
+                await _suite.RunGlobalSetUp();
 
-                if (featureFilter != null)
+                try
                 {
-                    features = features.Where(f =>
-                        f.Title.Contains(featureFilter, StringComparison.OrdinalIgnoreCase));
+                    foreach (var feature in features)
+                    {
+                        var featureResults = await runFeature(feature, tagFilter);
+                        suiteResults.Add(featureResults);
+
+                        // Stop on catastrophic
+                        if (featureResults.WasCatastrophic) break;
+                    }
                 }
-
-                foreach (var feature in features)
+                finally
                 {
-                    var featureResults = await runFeature(feature, tagFilter);
-                    suiteResults.Add(featureResults);
-
-                    // Stop on catastrophic
-                    if (featureResults.WasCatastrophic) break;
+                    await _suite.RunGlobalTearDown();
                 }
             }
             finally
             {
-                await _suite.RunGlobalTearDown();
+                await _suite.DisposeAsync();
             }
+
+            return suiteResults;
         }
         finally
         {
-            await _suite.DisposeAsync();
+            // Fires on the preflight-failure path too — a run that never got going is still a
+            // run the monitor saw start.
+            _observer.RunFinished(suiteResults);
+            if (monitor != null) await monitor.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// When <see cref="PublishToMonitor"/> is on and a monitor answers the ping, attaches a
+    /// publishing observer beside whatever is already registered. Returns the observer so
+    /// <see cref="RunAll"/> can flush and dispose it when the run closes out.
+    /// </summary>
+    private async Task<MonitorPublishingObserver?> tryAttachMonitor()
+    {
+        if (!PublishToMonitor) return null;
+
+        var publisher = await MonitorPublisher.TryConnect();
+        if (publisher == null) return null;
+
+        var observer = new MonitorPublishingObserver(
+            publisher, MonitorRunInfo.Discover(MonitorMode), ownedPublisher: publisher);
+        AddObserver(observer);
+        return observer;
+    }
+
+    private IEnumerable<FeatureDefinition> filteredFeatures(string? featureFilter)
+        => featureFilter == null
+            ? _features
+            : _features.Where(f => f.Title.Contains(featureFilter, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The one place the tag and scenario filters are applied, so the up-front total the
+    /// monitor sees and what <see cref="runFeature"/> actually runs can never disagree.
+    /// </summary>
+    private IEnumerable<ScenarioDefinition> filteredScenarios(FeatureDefinition feature, string? tagFilter)
+    {
+        var scenarios = feature.Scenarios.AsEnumerable();
+
+        if (tagFilter != null)
+        {
+            scenarios = scenarios.Where(s =>
+                s.Tags.Any(t => t.Equals(tagFilter, StringComparison.OrdinalIgnoreCase)));
         }
 
-        return suiteResults;
+        if (ScenarioFilter != null)
+        {
+            scenarios = scenarios.Where(s => ScenarioFilter(feature, s));
+        }
+
+        return scenarios;
     }
 
     /// <summary>Returns a description of the failure, or null when the environment is fine.</summary>
@@ -194,18 +278,7 @@ public class BobcatRunner
         if (!SuppressConsoleOutput) _renderer.RenderFeatureHeader(feature.Title);
         _observer.FeatureStarted(feature.Title);
 
-        var scenarios = feature.Scenarios.AsEnumerable();
-
-        if (tagFilter != null)
-        {
-            scenarios = scenarios.Where(s =>
-                s.Tags.Any(t => t.Equals(tagFilter, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        if (ScenarioFilter != null)
-        {
-            scenarios = scenarios.Where(s => ScenarioFilter(feature, s));
-        }
+        var scenarios = filteredScenarios(feature, tagFilter);
 
         // BeforeAll/AfterAll run once per feature, outside any scenario scope. They get a
         // feature-level context so they can reach resources and root services — asking it
@@ -478,7 +551,12 @@ public class BobcatRunner
     /// </summary>
     public static async Task<int> Run(string[] args, Action<BobcatRunner> configure)
     {
-        var runner = new BobcatRunner();
+        var runner = new BobcatRunner
+        {
+            // A real spec-host entry point (not a unit test driving the runner directly), so
+            // publish live progress when a monitor is running on this box.
+            PublishToMonitor = true
+        };
         configure(runner);
 
         // configure() typically constructs AlbaResource<Program>, which loads the host
