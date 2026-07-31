@@ -1,3 +1,4 @@
+using Bobcat.Monitor.Runs;
 using JasperFx;
 using Wolverine;
 using Wolverine.Http;
@@ -21,6 +22,10 @@ builder.Host.UseWolverine(opts =>
 });
 
 builder.Services.AddWolverineHttp();
+
+// The monitor's memory + on-disk NDJSON archive. Singleton so ingestion, exports, and the
+// UI's run list all see one registry; disposal closes the archive writers.
+builder.Services.AddSingleton(new MonitorRunRegistry(builder.Configuration["Monitor:DataPath"]));
 
 var app = builder.Build();
 

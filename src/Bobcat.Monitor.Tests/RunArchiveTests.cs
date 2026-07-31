@@ -1,0 +1,174 @@
+using System.Text.Json;
+using System.Xml.Linq;
+using Bobcat.Monitor.Contracts;
+using Bobcat.Monitor.Runs;
+using Shouldly;
+
+namespace Bobcat.Monitor.Tests;
+
+/// <summary>
+/// One realistic run folded three ways: into the projection, onto disk as NDJSON, and out
+/// through the CTRF and JUnit exporters. The event stream: a clean pass, a flaky scenario that
+/// passes on retry, a failure, and one scenario with no terminal outcome (publisher died).
+/// </summary>
+public class RunArchiveTests : IDisposable
+{
+    private static readonly Guid runId = Guid.NewGuid();
+    private readonly string _dataPath = Path.Combine(Path.GetTempPath(), $"bobcat-archive-{Guid.NewGuid():N}");
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dataPath, recursive: true); } catch { }
+    }
+
+    private static IReadOnlyList<MonitorEvent> realisticRun()
+    {
+        var t0 = new DateTimeOffset(2026, 7, 31, 12, 0, 0, TimeSpan.Zero);
+        return
+        [
+            new RunStarted(runId, "Demo", "/repo", "main", "in-process", t0, 4),
+
+            new ScenarioStarted(runId, "Calc/adds", "Calc", "adds", 1, t0),
+            new StepStarted(runId, "Calc/adds", "s1", "Given", "a calculator"),
+            new StepFinished(runId, "Calc/adds", "s1", "success", 5, null),
+            new ScenarioFinished(runId, "Calc/adds", "CleanPass", 1, 20, null),
+
+            new ScenarioStarted(runId, "Orders/broker", "Orders", "broker", 1, t0),
+            new StepStarted(runId, "Orders/broker", "s1", "When", "the broker is asked"),
+            new StepFinished(runId, "Orders/broker", "s1", "error", 5000, "TimeoutException"),
+            new RetryScheduled(runId, "Orders/broker", 2, "RetryInProcess", "broker warms up slowly"),
+            new ScenarioStarted(runId, "Orders/broker", "Orders", "broker", 2, t0),
+            new StepStarted(runId, "Orders/broker", "s1", "When", "the broker is asked"),
+            new StepFinished(runId, "Orders/broker", "s1", "success", 90, null),
+            new ScenarioFinished(runId, "Orders/broker", "PassOnRetry", 2, 6000, null),
+
+            new ScenarioStarted(runId, "Calc/bad", "Calc", "bad", 1, t0),
+            new StepStarted(runId, "Calc/bad", "s1", "Then", "the result should be 7"),
+            new StepFinished(runId, "Calc/bad", "s1", "failed", 3, "expected 7 but was 8"),
+            new ScenarioFinished(runId, "Calc/bad", "Failed", 1, 10, "expected 7 but was 8"),
+
+            // Started but never finished — the honest "pending" case.
+            new ScenarioStarted(runId, "Calc/lost", "Calc", "lost", 1, t0),
+
+            new RunFinished(runId, 1, 1, 1, 1, 0, t0.AddMinutes(1))
+        ];
+    }
+
+    private static RunProjection project()
+    {
+        var projection = new RunProjection(runId);
+        foreach (var @event in realisticRun()) projection.Apply(@event);
+        return projection;
+    }
+
+    [Fact]
+    public void the_projection_folds_the_stream_including_retries_and_step_resets()
+    {
+        var run = project();
+
+        run.Suite.ShouldBe("Demo");
+        run.Finished.ShouldBeTrue();
+        run.ExitCode.ShouldBe(1);
+        run.Scenarios.Count.ShouldBe(4);
+
+        var flaky = run.Scenarios.Single(s => s.Uid == "Orders/broker");
+        flaky.Outcome.ShouldBe("PassOnRetry");
+        flaky.Attempts.ShouldBe(2);
+        flaky.RetryReasons.ShouldBe(["broker warms up slowly"]);
+        // The retry reset the step list — only the second attempt's step remains, and it passed.
+        flaky.Steps.ShouldHaveSingleItem().Status.ShouldBe("success");
+
+        run.Scenarios.Single(s => s.Uid == "Calc/lost").Outcome.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_registry_archives_every_event_as_reingestable_ndjson()
+    {
+        using var registry = new MonitorRunRegistry(_dataPath);
+        registry.Record(realisticRun());
+
+        var file = registry.ArchiveFileFor(runId);
+        File.Exists(file).ShouldBeTrue();
+
+        var lines = File.ReadAllLines(file);
+        lines.Length.ShouldBe(realisticRun().Count);
+
+        // Every archived line deserializes straight back into the polymorphic contract —
+        // byte-for-byte re-ingestable, which is what makes replay-for-debugging free.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var replayed = lines.Select(l => JsonSerializer.Deserialize<MonitorEvent>(l, options)!).ToArray();
+        replayed.First().ShouldBeOfType<RunStarted>();
+        replayed.Last().ShouldBeOfType<RunFinished>();
+
+        var reprojected = new RunProjection(runId);
+        foreach (var @event in replayed) reprojected.Apply(@event);
+        reprojected.Scenarios.Count.ShouldBe(4);
+    }
+
+    [Fact]
+    public void ejecting_forgets_the_run_but_keeps_the_archive_and_reappearance_appends()
+    {
+        using var registry = new MonitorRunRegistry(_dataPath);
+        registry.Record(realisticRun());
+
+        registry.Remove(runId).ShouldBeTrue();
+        registry.Find(runId).ShouldBeNull();
+        File.Exists(registry.ArchiveFileFor(runId)).ShouldBeTrue();
+
+        var before = File.ReadAllLines(registry.ArchiveFileFor(runId)).Length;
+        registry.Record([new RunHeartbeat(runId, DateTimeOffset.UtcNow)]);
+        File.ReadAllLines(registry.ArchiveFileFor(runId)).Length.ShouldBe(before + 1);
+    }
+
+    [Fact]
+    public void ctrf_reports_retries_flakiness_steps_and_pending_honestly()
+    {
+        var json = CtrfExport.Render(project());
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        root.GetProperty("reportFormat").GetString().ShouldBe("CTRF");
+        var results = root.GetProperty("results");
+
+        var summary = results.GetProperty("summary");
+        summary.GetProperty("tests").GetInt32().ShouldBe(4);
+        summary.GetProperty("passed").GetInt32().ShouldBe(2);   // clean + pass-on-retry
+        summary.GetProperty("failed").GetInt32().ShouldBe(1);
+        summary.GetProperty("pending").GetInt32().ShouldBe(1);  // the lost scenario
+
+        var tests = results.GetProperty("tests").EnumerateArray().ToArray();
+        var flaky = tests.Single(t => t.GetProperty("name").GetString() == "Orders: broker");
+        flaky.GetProperty("status").GetString().ShouldBe("passed");
+        flaky.GetProperty("flaky").GetBoolean().ShouldBeTrue();
+        flaky.GetProperty("retries").GetInt32().ShouldBe(1);
+        flaky.GetProperty("extra").GetProperty("retryReasons")[0].GetString().ShouldBe("broker warms up slowly");
+
+        var failed = tests.Single(t => t.GetProperty("name").GetString() == "Calc: bad");
+        failed.GetProperty("status").GetString().ShouldBe("failed");
+        failed.GetProperty("steps")[0].GetProperty("status").GetString().ShouldBe("failed");
+
+        results.GetProperty("extra").GetProperty("repository").GetString().ShouldBe("/repo");
+    }
+
+    [Fact]
+    public void junit_maps_failures_errors_and_missing_outcomes_to_the_lossy_floor()
+    {
+        var xml = XDocument.Parse(JUnitExport.Render(project()));
+
+        var suites = xml.Root.ShouldNotBeNull();
+        suites.Attribute("tests")!.Value.ShouldBe("4");
+        suites.Attribute("failures")!.Value.ShouldBe("1");
+
+        var cases = suites.Descendants("testcase").ToArray();
+        cases.Length.ShouldBe(4);
+
+        cases.Single(c => c.Attribute("name")!.Value == "bad")
+            .Element("failure")!.Attribute("message")!.Value.ShouldBe("expected 7 but was 8");
+
+        cases.Single(c => c.Attribute("name")!.Value == "lost")
+            .Element("skipped").ShouldNotBeNull();
+
+        // The flaky pass is a plain green testcase here — retry detail is CTRF's job.
+        cases.Single(c => c.Attribute("name")!.Value == "broker").HasElements.ShouldBeFalse();
+    }
+}
