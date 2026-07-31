@@ -49,8 +49,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     public void RunFinished(SuiteResults results)
     {
-        _heartbeat?.Dispose();
-        _heartbeat = null;
+        stopHeartbeat();
 
         var scenarios = results.AllScenarios.ToArray();
         _sink.Post(new RunFinished(
@@ -110,10 +109,27 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     public void StepProgress(string stepId, StepUpdate update) { }
     public void ScenarioFinished(Engine.ExecutionResults results) { }
 
+    /// <summary>
+    /// Plain Timer.Dispose() does NOT wait for an in-flight callback, so a heartbeat could
+    /// still post after RunFinished on a busy box — the wait-handle overload makes "no
+    /// heartbeats after the run closed" actually true rather than merely likely.
+    /// </summary>
+    private void stopHeartbeat()
+    {
+        var timer = _heartbeat;
+        _heartbeat = null;
+        if (timer == null) return;
+
+        using var drained = new ManualResetEvent(false);
+        if (timer.Dispose(drained))
+        {
+            drained.WaitOne(TimeSpan.FromSeconds(1));
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
-        _heartbeat?.Dispose();
-        _heartbeat = null;
+        stopHeartbeat();
 
         if (_ownedPublisher != null) await _ownedPublisher.DisposeAsync();
     }
