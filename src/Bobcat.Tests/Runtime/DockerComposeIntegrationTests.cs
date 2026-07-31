@@ -4,19 +4,26 @@ using Shouldly;
 namespace Bobcat.Tests.Runtime;
 
 /// <summary>
-/// Against the real daemon and this repository's own <c>docker-compose.yml</c>, which declares a
-/// healthcheck on its Postgres. Skipped when Docker is not reachable, except on CI.
+/// Against the real daemon and an ordinary compose file that declares a healthcheck on its
+/// Postgres. Skipped when Docker is not reachable, except on CI.
 /// </summary>
+/// <remarks>
+/// Deliberately <em>not</em> the repository's own <c>docker-compose.yml</c>. That file publishes
+/// 5445, which CI's Postgres service container already binds, so compose failed with "port is
+/// already allocated" — green locally, red on CI. It is also the developer's own database, and
+/// the recycle test below would force-recreate it out from under the Marten tests. See
+/// <c>ComposeFixture/docker-compose.yml</c>, which publishes no host port at all.
+/// </remarks>
 public class DockerComposeIntegrationTests
 {
     private static DockerComposeResource resource(Action<string>? log = null) =>
         new DockerComposeResource("postgres")
         {
             Services = ["postgres"],
-            WorkingDirectory = repositoryRoot(),
+            WorkingDirectory = fixtureDirectory(),
             StartTimeout = TimeSpan.FromMinutes(2),
             Log = log
-        };
+        }.UsingComposeFile(fixtureComposeFile());
 
     [DockerFact]
     public async Task readiness_comes_from_the_declared_healthcheck()
@@ -45,8 +52,8 @@ public class DockerComposeIntegrationTests
         var missing = new DockerComposeResource("nope")
         {
             Services = ["no-such-service"],
-            WorkingDirectory = repositoryRoot()
-        };
+            WorkingDirectory = fixtureDirectory()
+        }.UsingComposeFile(fixtureComposeFile());
 
         var thrown = await Should.ThrowAsync<Exception>(() => missing.Start());
 
@@ -72,17 +79,25 @@ public class DockerComposeIntegrationTests
 
     private static async Task<string> containerIdOf(string service)
     {
+        // Must name the same compose file the resource used, or this queries a different project
+        // and reports an empty id for a container that is running perfectly well.
         var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("docker")
         {
-            ArgumentList = { "compose", "ps", "-q", service },
+            ArgumentList = { "compose", "-f", fixtureComposeFile(), "ps", "-q", service },
             RedirectStandardOutput = true,
-            WorkingDirectory = repositoryRoot()
+            WorkingDirectory = fixtureDirectory()
         })!;
 
         var id = await process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
         return id.Trim();
     }
+
+    private static string fixtureDirectory() =>
+        Path.Combine(repositoryRoot(), "src", "Bobcat.Tests", "ComposeFixture");
+
+    private static string fixtureComposeFile() =>
+        Path.Combine(fixtureDirectory(), "docker-compose.yml");
 
     private static string repositoryRoot()
     {

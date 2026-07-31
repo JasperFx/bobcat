@@ -1,0 +1,32 @@
+# Compose fixture for DockerComposeIntegrationTests. Not for running anything by hand.
+#
+# These tests need an ordinary compose file that declares a healthcheck, because the claim under
+# test is that DockerComposeResource can read readiness out of one. They used to drive the
+# repository's own docker-compose.yml, which caused two problems:
+#
+#   1. That file publishes 5445, and CI's workflow already binds 5445 for its Postgres service
+#      container. `docker compose up` then fails with "Bind for 0.0.0.0:5445 failed: port is
+#      already allocated" and the tests go red on CI while passing locally.
+#
+#   2. It is the *developer's* database. The recycle test force-recreates the container it points
+#      at, so running the suite locally would throw away the Postgres the Marten tests are using,
+#      mid-run.
+#
+# So this file publishes NO host port. Nothing here needs one: readiness comes from the declared
+# healthcheck via `docker inspect`, not from connecting through the host. Binding no port is also
+# what makes these tests safe to run anywhere, including several worktrees at once.
+#
+# Living in its own directory gives it its own compose project name, so its container can never be
+# confused with the repository's `bobcat-postgres-1`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bobcat_compose_fixture
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

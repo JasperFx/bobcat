@@ -1,9 +1,9 @@
 # Making a test suite safe to run in parallel worker processes
 
 What a .NET integration suite has to satisfy before Bobcat's supervisor can split it across worker
-processes, and the failure modes to expect on the way. Written from three real suites — Wolverine's
-`PersistenceTests`, Polecat's `Polecat.Tests`, and Bobcat's own — so the list is what actually broke,
-not what might.
+processes, and the failure modes to expect on the way. Written from four real suites — Wolverine's
+`PersistenceTests` and `Redis.Tests`, Polecat's `Polecat.Tests`, and Bobcat's own — so the list is
+what actually broke, not what might.
 
 ## Measured so far
 
@@ -11,10 +11,28 @@ not what might.
 |---|---|---|---|---|
 | Polecat.Tests | 1587 | 954s | **366s (2.6x)** | 1587/1587 after two fixes |
 | Wolverine PersistenceTests | 78 | 164s | **73s (2.2x)** | 78/78, no source changes |
+| Wolverine Redis.Tests | 144 | 452s | **206s (2.2x)** | 144/144, no source changes |
 
-Both plateau quickly: on Polecat, 8 workers bought 4% over 4. Beyond a handful of lanes the database
-container is the bottleneck, not the worker count — which is convenient, since CI runners have few
-cores anyway.
+All three plateau quickly — 8 workers bought 4% over 4 on Polecat and 3% on Redis — but **for two
+different reasons, and the difference decides whether the plateau is worth attacking.**
+
+On Polecat it is contention: beyond a handful of lanes the database container is the bottleneck
+rather than the worker count. More hardware would move it.
+
+On Redis it is arithmetic. Partitioning is by class, so a class cannot be split, so **the largest
+class is a floor no fleet size goes below**:
+
+```
+ceiling = sum(all test durations) / largest class's total duration
+```
+
+Redis is 599s of test time with a 188s compliance class in it, so the ceiling is 3.19x and the floor
+is ~188s. Measured: 199s at 8 workers. **The prediction cost one run; the curve that confirmed it
+cost four.** Worth computing before provisioning a fleet — if the ceiling is 3x, asking for 8 workers
+buys nothing but containers.
+
+When the floor is what binds, the fix is not more workers. It is splitting that class, or making the
+tests in it faster: two compliance classes were 61% of the Redis suite's total test time.
 
 ## Step 0 — be an MTP host
 
@@ -74,6 +92,21 @@ new MtpWorkerFactory(path)
 `Lane` is bounded by `MaxParallelWorkers`, so you provision as many databases as workers you asked
 for. That requires the suite to take its connection string from an environment variable — most
 already do; Wolverine's `Servers.cs` was hardcoded constants and needed a small change.
+
+**A suite that starts its own container per process already has this, for free.** Wolverine's Redis
+tests spin up a Testcontainers Redis from a `[ModuleInitializer]`, so every worker gets its own
+broker with its own port and there is nothing to wire — which is why that suite parallelised with no
+source changes at all. Check for this before building per-worker plumbing.
+
+Two things it costs, both worth knowing rather than discovering:
+
+- **Every process pays the container start**, before `Main`, on the critical path — ~0.85s for
+  `redis:7-alpine` including discovery, and far more for heavier images. Irrelevant at four workers;
+  it dominates any mode that starts one process per test.
+- **Nothing reaps those containers if the reaper is off.** A `[ModuleInitializer]` that never
+  disposes leaks one container per process; with Testcontainers' Ryuk disabled this reached 49
+  orphans on one machine. Not Bobcat's bug, but Bobcat's process multiplication is what makes it
+  visible.
 
 ## Step 3 — the two bugs this exposes
 
@@ -143,6 +176,11 @@ away.
 3. **Non-deterministic, same class every time** — a class split across workers. Report it: the
    partitioner should have prevented this.
 
+A fourth shape is worth ruling out *before* the first parallel run rather than triaging after it:
+a test that only ever passed because something else ran first. Running each test alone and diffing
+against the full-suite result finds those, and it is the one class of failure that parallelism
+exposes without having caused. See issue #61.
+
 ## What this does not buy you
 
 Parallelism speeds up a suite; it does not make a flaky one reliable. If stability is the problem,
@@ -152,3 +190,8 @@ that is the retry/quarantine half of the supervisor (`RetryBudget`, `@retry`, `@
 Nor does it fix a suite dominated by one slow test. Wall clock is the slowest lane, so the largest
 partition sets the floor: Wolverine's run bottomed out at ~67s because one test slept for 61 of them.
 See issue #56.
+
+And it does not shorten a CI run whose wall clock is set by a *different* job. Wolverine's matrix
+runs ~30 jobs concurrently, so the workflow takes as long as its slowest; parallelising the Redis
+job from 9m to 5m moved that number by zero, because two 18m jobs set it. Measure which suite is on
+the critical path before optimising the one in front of you.
