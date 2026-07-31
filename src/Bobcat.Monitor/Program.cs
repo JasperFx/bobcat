@@ -1,3 +1,4 @@
+using Bobcat.Monitor.Mcp;
 using Bobcat.Monitor.Runs;
 using JasperFx;
 using Wolverine;
@@ -27,9 +28,17 @@ builder.Services.AddWolverineHttp();
 // UI's run list all see one registry; disposal closes the archive writers.
 builder.Services.AddSingleton(new MonitorRunRegistry(builder.Configuration["Monitor:DataPath"]));
 
+// MCP server (CritterWatch *.Mcp shape): streamable HTTP, stateless so every tool call is a
+// self-contained request. This is the agent-facing surface — every dashboard query, plus
+// await_run_completion for blocking on a suite instead of polling it.
+builder.Services.AddMcpServer()
+    .WithHttpTransport(o => o.Stateless = true)
+    .WithTools<MonitorTools>();
+
 var app = builder.Build();
 
 app.MapWolverineEndpoints();
 app.MapWolverineSignalRHub("/api/messages");
+app.MapMcp("/api/mcp");
 
 return await app.RunJasperFxCommands(args);
