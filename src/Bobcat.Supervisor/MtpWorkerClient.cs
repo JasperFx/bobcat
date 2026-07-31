@@ -411,10 +411,44 @@ public sealed class MtpWorkerFactory : IWorkerFactory
         _environment = environment;
     }
 
+    /// <summary>
+    /// Environment for one specific worker, layered over the constructor's shared environment.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is what makes parallelism safe for a suite whose classes share a database. Class-level
+    /// partitioning keeps a class in one process, but it cannot stop two <em>different</em> classes
+    /// that use the same schema landing in different workers — so the isolation has to be the
+    /// database, and the only way to say which database is per-process environment.
+    /// </para>
+    /// <example>
+    /// <code>
+    /// new MtpWorkerFactory(path)
+    /// {
+    ///     EnvironmentFor = worker => new Dictionary&lt;string, string&gt;
+    ///     {
+    ///         ["POLECAT_TESTING_DATABASE"] = $"...;Initial Catalog=polecat_w{worker.Lane}"
+    ///     }
+    /// }
+    /// </code>
+    /// </example>
+    /// </remarks>
+    public Func<WorkerLaunchContext, IReadOnlyDictionary<string, string>>? EnvironmentFor { get; init; }
+
     public string Description => Path.GetFileName(_executable);
 
-    public Task<IWorkerClient> Launch(CancellationToken ct = default)
-        => MtpWorkerClient.Launch(_executable, _environment, ct).ContinueWith(
-            t => (IWorkerClient)t.GetAwaiter().GetResult(), ct,
-            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    public async Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
+        => await MtpWorkerClient.Launch(_executable, environmentFor(context), ct);
+
+    private IReadOnlyDictionary<string, string>? environmentFor(WorkerLaunchContext context)
+    {
+        var perWorker = EnvironmentFor?.Invoke(context);
+        if (perWorker is null) return _environment;
+        if (_environment is null) return perWorker;
+
+        // Per-worker wins: the shared environment is the baseline, the lane's is the override.
+        var merged = new Dictionary<string, string>(_environment, StringComparer.Ordinal);
+        foreach (var pair in perWorker) merged[pair.Key] = pair.Value;
+        return merged;
+    }
 }

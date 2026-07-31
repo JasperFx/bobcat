@@ -207,7 +207,7 @@ public sealed class Supervisor
     {
         // Discovery gets its own short-lived worker: it must not inherit state from, or leave
         // state in, a process that will go on to run tests.
-        await using var worker = await launchWorker(ct);
+        await using var worker = await launchWorker(WorkerLaunchContext.Discovery, ct);
         return await worker.Discover(ct);
     }
 
@@ -258,7 +258,7 @@ public sealed class Supervisor
             ct.ThrowIfCancellationRequested();
 
             Log?.Invoke($"running alone: {uid}");
-            var result = await runAlone(uid, ct);
+            var result = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
             var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
             if (abort is not null) return abort;
@@ -336,7 +336,7 @@ public sealed class Supervisor
                 ct.ThrowIfCancellationRequested();
 
                 Log?.Invoke($"retrying alone in a fresh process: {uid}");
-                var result = await runAlone(uid, ct);
+                var result = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
                 var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
                 if (abort is not null) return abort;
@@ -352,7 +352,7 @@ public sealed class Supervisor
                 if (recycleFailure is not null) return recycleFailure;
 
                 Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
-                var result = await runAlone(uid, ct);
+                var result = await runAlone(uid, WorkerPurpose.Recycled, ct);
 
                 var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts);
                 if (abort is not null) return abort;
@@ -361,9 +361,11 @@ public sealed class Supervisor
     }
 
     /// <summary>A dedicated process running exactly one test, then thrown away.</summary>
-    private async Task<WorkerRunResult> runAlone(string uid, CancellationToken ct)
+    private async Task<WorkerRunResult> runAlone(string uid, WorkerPurpose purpose, CancellationToken ct)
     {
-        await using var worker = await launchWorker(ct);
+        // Lane 0: these never run while the pool is running, so reusing the first slot's
+        // per-worker resources cannot collide with anything.
+        await using var worker = await launchWorker(new WorkerLaunchContext(0, purpose), ct);
         var result = await worker.Run([uid], ct);
         recordFault(result);
         return result;
@@ -527,7 +529,7 @@ public sealed class Supervisor
         // Launched outside the lock — starting a process is slow, and every lane launches its
         // own at the same moment. Only this lane's task reaches this line for this index, so
         // there is no race to lose.
-        var worker = await launchWorker(ct);
+        var worker = await launchWorker(new WorkerLaunchContext(index, WorkerPurpose.Lane), ct);
 
         lock (_gate) _lanes[index] = worker;
         return worker;
@@ -566,9 +568,9 @@ public sealed class Supervisor
         }
     }
 
-    private async Task<IWorkerClient> launchWorker(CancellationToken ct)
+    private async Task<IWorkerClient> launchWorker(WorkerLaunchContext context, CancellationToken ct)
     {
         Interlocked.Increment(ref _workersLaunched);
-        return await _factory.Launch(ct);
+        return await _factory.Launch(context, ct);
     }
 }
