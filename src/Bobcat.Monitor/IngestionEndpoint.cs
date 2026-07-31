@@ -1,4 +1,5 @@
 using Bobcat.Monitor.Contracts;
+using Bobcat.Monitor.Runs;
 using Wolverine;
 using Wolverine.Http;
 
@@ -27,8 +28,12 @@ public static class IngestionEndpoint
     /// nothing downstream of the cascade can fail the POST.
     /// </summary>
     [WolverinePost("/api/ingest")]
-    public static (IResult, OutgoingMessages) Ingest(IngestBatch batch)
+    public static (IResult, OutgoingMessages) Ingest(IngestBatch batch, MonitorRunRegistry registry)
     {
+        // Fold + archive synchronously (cheap local work), THEN cascade to SignalR. Ordering
+        // matters: the registry must never lag behind what a browser has already been shown.
+        registry.Record(batch.Events);
+
         var messages = new OutgoingMessages();
         messages.AddRange(batch.Events);
         return (Results.Accepted(), messages);

@@ -7,6 +7,23 @@ function progressPercent(run: RunState): number {
   const p = runs.progressOf(run)
   return p === null ? 0 : Math.round(p * 100)
 }
+
+function exportUrl(run: RunState, format: 'ctrf' | 'junit' | 'ndjson'): string {
+  return `/api/runs/${run.runId}/export?format=${format}`
+}
+
+/**
+ * Eject = forget the run server-side (the NDJSON archive stays on disk) and drop the card.
+ * The local removal is unconditional — a dead backend must not leave an unremovable card.
+ */
+async function eject(run: RunState): Promise<void> {
+  try {
+    await fetch(`/api/runs/${run.runId}`, { method: 'DELETE' })
+  } catch {
+    // Server-side eject is best-effort from the UI's perspective.
+  }
+  runs.removeRun(run.runId)
+}
 </script>
 
 <template>
@@ -35,14 +52,12 @@ function progressPercent(run: RunState): number {
           {{ run.counts.indeterminate }} indeterminate
         </span>
       </div>
-      <el-button
-        v-if="run.finished"
-        size="small"
-        class="bm-eject"
-        @click="runs.removeRun(run.runId)"
-      >
-        Eject
-      </el-button>
+      <div v-if="run.finished" class="bm-run-actions">
+        <a :href="exportUrl(run, 'ctrf')" class="bm-export">CTRF</a>
+        <a :href="exportUrl(run, 'junit')" class="bm-export">JUnit</a>
+        <a :href="exportUrl(run, 'ndjson')" class="bm-export">NDJSON</a>
+        <el-button size="small" class="bm-eject" @click="eject(run)">Eject</el-button>
+      </div>
     </el-card>
   </div>
 </template>
@@ -83,7 +98,20 @@ function progressPercent(run: RunState): number {
   color: var(--bm-state-failed);
 }
 
-.bm-eject {
+.bm-run-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-top: 8px;
+}
+
+.bm-export {
+  font-size: 12px;
+  color: var(--bm-primary);
+  text-decoration: none;
+}
+
+.bm-export:hover {
+  text-decoration: underline;
 }
 </style>
