@@ -14,6 +14,9 @@ public sealed class FakeWorker : IWorkerClient
     public int Index { get; init; }
     public bool Disposed { get; private set; }
 
+    /// <summary>What the supervisor said it was launching this worker for.</summary>
+    public WorkerLaunchContext Launch { get; init; } = WorkerLaunchContext.Discovery;
+
     /// <summary>Every Run call this worker received, as the uid list asked for.</summary>
     public List<IReadOnlyList<string>?> Runs { get; } = [];
 
@@ -87,11 +90,11 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// </summary>
     public Func<string, int, string?> ErrorType { get; init; } = (_, _) => null;
 
-    public Task<IWorkerClient> Launch(CancellationToken ct = default)
+    public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {
         lock (_gate)
         {
-            var worker = new FakeWorker(this) { Index = _launched.Count };
+            var worker = new FakeWorker(this) { Index = _launched.Count, Launch = context };
             _launched.Add(worker);
             return Task.FromResult<IWorkerClient>(worker);
         }

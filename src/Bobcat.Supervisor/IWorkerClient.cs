@@ -97,11 +97,50 @@ public interface IWorkerClient : IAsyncDisposable
     Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default);
 }
 
+/// <summary>What the supervisor is about to launch a worker for.</summary>
+public enum WorkerPurpose
+{
+    /// <summary>Enumerating tests without running them. Throwaway.</summary>
+    Discovery,
+
+    /// <summary>One lane of the parallel pool, running a share of the batched tests.</summary>
+    Lane,
+
+    /// <summary>A dedicated process running one test alone.</summary>
+    Isolated,
+
+    /// <summary>A dedicated process for a test whose resources were just recycled.</summary>
+    Recycled
+}
+
+/// <summary>
+/// Which worker is being launched, so a caller can shape its environment.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is the seam <c>CLAUDE.md</c> deferred under the name <c>IWorkerLauncher</c>. The
+/// requirement it was waiting for — pointing each parallel worker at its own database — turned
+/// out to need a launch <em>context</em> rather than a launcher abstraction, so the parameter is
+/// all that was added.
+/// </para>
+/// <para>
+/// <see cref="Lane"/> is bounded by <c>MaxParallelWorkers</c> and is the slot number to key
+/// per-worker resources off — a database name, a schema prefix, a port. Discovery, isolated and
+/// recycled launches all report lane 0: they never run while the pool is running, so reusing the
+/// first slot cannot collide, and it keeps the number of databases a suite needs equal to the
+/// number of workers it asked for rather than the number of processes it happened to start.
+/// </para>
+/// </remarks>
+public sealed record WorkerLaunchContext(int Lane, WorkerPurpose Purpose)
+{
+    public static readonly WorkerLaunchContext Discovery = new(0, WorkerPurpose.Discovery);
+}
+
 /// <summary>Creates worker processes. One call, one fresh process.</summary>
 public interface IWorkerFactory
 {
     /// <summary>A short name for the worker, used in reporting.</summary>
     string Description { get; }
 
-    Task<IWorkerClient> Launch(CancellationToken ct = default);
+    Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default);
 }

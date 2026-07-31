@@ -407,7 +407,7 @@ ones on upgrade. Same reasoning as retries being opt-in.
 - **Recording is serial and in lane order** even though lanes finish in whatever order the OS
   decides — a report must not depend on which worker won the race.
 - **What it cannot protect against** is state shared *between* classes: a fixed port, or one
-  database every class truncates. That needs per-worker environments (`IWorkerLauncher`), which is
+  database every class truncates. That needs per-worker environments (`MtpWorkerFactory.EnvironmentFor`), which is
   still unbuilt. `PersistenceTests` did not need it; running several *projects* concurrently will.
 - **`GuardAgainstAnUnfilteredRun` is not optional.** MTP silently ignores an unrecognised subset
   parameter and runs the whole suite, which is indistinguishable from a filter matching
@@ -474,10 +474,24 @@ because:
   and a second interface would be ceremony.
 
 The remaining motivations are speculative: per-worker environment shaping (each isolated worker
-pointed at its own broker/schema — likely to become real with `IRecyclableResource`, build-order
-step 4), and container or remote workers. If step 4 needs per-launch environments, add the seam
-*then*, shaped by that requirement, and name it `IWorkerLauncher` — not `ITestHostLauncher`, whose
-name imports VSTest's debugger semantics and would mislead.
+pointed at its own broker/schema), and container or remote workers.
+
+**Resolved — and the deferral paid off.** Per-worker environments became real the moment parallel
+workers had to point at their own database. The requirement arrived far smaller than the
+abstraction we would have built for it: `IWorkerFactory.Launch` gained a
+`WorkerLaunchContext(Lane, Purpose)` parameter and `MtpWorkerFactory` an `EnvironmentFor` hook.
+No launcher interface, no second seam. Had we written `IWorkerLauncher` up front we would have
+shipped a whole abstraction where a parameter was wanted.
+
+- `Lane` is bounded by `MaxParallelWorkers` and is the slot to key per-worker resources off — a
+  database name, a schema prefix, a port. Discovery, isolated and recycled launches all report
+  lane 0, because they never run while the pool is running, so the number of databases a suite
+  provisions equals the workers it asked for rather than the processes it happened to start.
+- `Purpose` distinguishes those cases when a caller wants to (a throwaway database for discovery).
+- Per-worker environment layers **over** the factory's shared environment, and the lane's value
+  wins — shared is a baseline, not a ceiling.
+
+Container or remote workers remain speculative. Same rule applies: build it when something needs it.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
