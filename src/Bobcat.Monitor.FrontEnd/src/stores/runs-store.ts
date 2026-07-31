@@ -57,6 +57,8 @@ export interface RunState {
   startedAt: string
   totalScenarios: number | null
   finished: boolean
+  /** Server-declared: rehydrated from an archive with no terminal event — will never finish. */
+  orphaned: boolean
   exitCode: number | null
   counts: RunCounts | null
   finishedAt: string | null
@@ -105,6 +107,7 @@ export const useRunsStore = defineStore('runs', () => {
         startedAt: at ?? new Date().toISOString(),
         totalScenarios: null,
         finished: false,
+        orphaned: false,
         exitCode: null,
         counts: null,
         finishedAt: null,
@@ -207,14 +210,20 @@ export const useRunsStore = defineStore('runs', () => {
   function handleStepStarted(e: StepStarted) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
-    scenario.steps.push({
+    const step: StepState = {
       stepId: e.stepId,
       kind: e.kind,
       text: e.text,
       status: 'running',
       durationMs: null,
       errorMessage: null,
-    })
+    }
+    // Upsert by stepId rather than blind push: hydration replays the archived stream over
+    // whatever live events already arrived, and a duplicated step_started must not render
+    // the step twice.
+    const existing = scenario.steps.findIndex((s) => s.stepId === e.stepId)
+    if (existing >= 0) scenario.steps[existing] = step
+    else scenario.steps.push(step)
   }
 
   function handleStepFinished(e: StepFinished) {
@@ -230,6 +239,23 @@ export const useRunsStore = defineStore('runs', () => {
   /** "Eject": drop a finished run from the dashboard. */
   function removeRun(runId: string) {
     delete runs.value[runId]
+  }
+
+  /** Server-declared orphan (rehydrated, publisher gone). Cleared by any later run event. */
+  function markOrphaned(runId: string) {
+    const run = runs.value[runId]
+    if (run && !run.finished) run.orphaned = true
+  }
+
+  /**
+   * Reconcile after hydration: drop local runs the server no longer knows (ejected from
+   * another browser, or a registry restart that skipped them).
+   */
+  function pruneTo(runIds: string[]) {
+    const keep = new Set(runIds)
+    for (const runId of Object.keys(runs.value)) {
+      if (!keep.has(runId)) delete runs.value[runId]
+    }
   }
 
   return {
@@ -248,5 +274,7 @@ export const useRunsStore = defineStore('runs', () => {
     handleStepStarted,
     handleStepFinished,
     removeRun,
+    markOrphaned,
+    pruneTo,
   }
 })

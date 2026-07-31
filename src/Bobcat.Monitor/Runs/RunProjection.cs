@@ -22,6 +22,12 @@ public class RunProjection
     public int? ExitCode { get; private set; }
     public DateTimeOffset LastEventAt { get; private set; }
 
+    /// <summary>
+    /// Rehydrated from an archive with no terminal RunFinished — the publisher is gone and
+    /// the run will never complete. Cleared by the registry if the run publishes again.
+    /// </summary>
+    public bool Orphaned { get; internal set; }
+
     private readonly Dictionary<string, ScenarioProjection> _scenarios = new();
 
     public RunProjection(Guid runId)
