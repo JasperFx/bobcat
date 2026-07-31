@@ -1,0 +1,36 @@
+name: monitor frontend
+
+# Typecheck + Vitest gate for the Bobcat.Monitor Vue SPA, mirroring CritterWatch's
+# frontend-unit workflow. Runs only when the frontend actually changed — the monitor
+# UI leans entirely on vitest until the Bobcat Gherkin runner is dogfooded for e2e.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'src/Bobcat.Monitor.FrontEnd/**'
+      - '.github/workflows/monitor-frontend.yml'
+
+env:
+  CI: true
+
+jobs:
+  frontend-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Bobcat.Monitor.FrontEnd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (vue-tsc)
+        run: npx vue-tsc -b
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run

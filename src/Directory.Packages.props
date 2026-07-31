@@ -27,6 +27,16 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
     <!--
+      Bobcat.Monitor only. The monitor host rides the newer Wolverine that ships
+      Wolverine.SignalR (the version CritterWatch uses), NOT the 6.5.1 aligned set above —
+      the monitor never touches Marten, so the Marten 9.6.0 alignment doesn't constrain it.
+      These two packages pull WolverineFx 6.24.x transitively; no other project may
+      reference them, or the two Wolverine versions would meet in one output folder.
+    -->
+    <PackageVersion Include="WolverineFx.Http" Version="6.24.2" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
+
+    <!--
       Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host).
 
       Pinned to 1.9.1 to match what xunit.v3 3.2.2 builds against (its package is literally named
