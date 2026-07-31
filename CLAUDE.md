@@ -513,8 +513,9 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 `Bobcat.Monitor` + `src/Bobcat.Monitor.FrontEnd/` (Vue 3 + Pinia + Element Plus + SignalR,
 vitest-gated by `.github/workflows/monitor-frontend.yml`) deliberately mirror CritterWatch's
 stack and palette. The monitor is a *consumer* of test runs over plain HTTP — no Bobcat.*
-library may reference it, and it alone rides Wolverine 6.24.x (which ships Wolverine.SignalR)
-rather than the 6.5.1 aligned set. All decisions of record: `docs/monitor-design.md`.
+library may reference it. All decisions of record: `docs/monitor-design.md`. The publisher
+side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
+`BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
 
 ## Key Dependencies
 

@@ -116,10 +116,9 @@ the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, 
 
 ## Not built yet
 
-- The publisher client + the three Bobcat seams above (next PR-sized chunk).
-- Embedded-SPA serving for the packed tool; SignalR relay verified only by the publish-rule
-  wiring, not yet by a browser-level test.
+- Embedded-SPA serving for the packed tool.
 - Server-side batching, NDJSON persistence, CTRF/JUnit exporters, MCP endpoints, retention.
-- The `Wolverine` 6.24.x vs 6.5.1 split: monitor packages ride 6.24.2 (what ships
-  Wolverine.SignalR) via two isolated pins + a `VersionOverride` for RuntimeCompilation;
-  nothing else may reference them. Collapse when the sample-alignment set catches up.
+- Hydration: a browser joining mid-run only sees a run once its next event/heartbeat arrives
+  (the runs store synthesizes shell runs from any event, and heartbeats come every 10s, so the
+  gap is bounded — but a request/response replay like CritterWatch's epoch hydration is the
+  real fix).
