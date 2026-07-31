@@ -68,6 +68,19 @@ public sealed class Supervisor
     public Func<WorkerTest, string>? PartitionKey { get; set; }
 
     /// <summary>
+    /// Keeps only the tests this run should own. Applied to the discovery list before anything
+    /// is scheduled — an excluded test is never launched, never retried, never reported.
+    /// </summary>
+    /// <remarks>
+    /// This is the supervisor-level equivalent of a <c>dotnet test --filter</c> expression: a CI
+    /// target that skips a quarantined category, or a shard that owns one slice of a heavy suite,
+    /// states that in code against <see cref="WorkerTest.Traits"/> and
+    /// <see cref="WorkerTest.DisplayName"/>. Filtering here rather than on the worker's command
+    /// line keeps the decision in one place for every front-end the supervisor can drive.
+    /// </remarks>
+    public Func<WorkerTest, bool>? TestFilter { get; set; }
+
+    /// <summary>
     /// Previously observed per-test durations, keyed by uid, used to balance the lanes.
     /// </summary>
     /// <remarks>
@@ -145,6 +158,14 @@ public sealed class Supervisor
             }
 
             var tests = await discover(ct);
+
+            if (TestFilter is not null)
+            {
+                var discovered = tests.Count;
+                tests = tests.Where(TestFilter).ToList();
+                Log?.Invoke($"Filter kept {tests.Count} of {discovered} discovered test(s)");
+            }
+
             if (tests.Count == 0)
             {
                 return new SupervisorResults { Tests = [], WorkersLaunched = _workersLaunched };

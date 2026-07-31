@@ -66,6 +66,48 @@ public class SupervisorTests
         results.WorkersLaunched.ShouldBe(3); // 1 discovery + 2 isolated
     }
 
+    // ---------------------------------------------------------------- filtering
+
+    [Fact]
+    public async Task a_filtered_out_test_is_never_run_and_never_reported()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("keep"), FakeWorkerFactory.Test("quarantined", "Category=Flaky")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = build(factory);
+        supervisor.TestFilter = t => !t.Traits.TryGetValue("Category", out var category) || category != "Flaky";
+
+        var results = await supervisor.Run();
+
+        // Excluded before scheduling: no worker was ever asked for it...
+        factory.RunningWorkers.SelectMany(w => w.Runs).ShouldAllBe(uids => !uids!.Contains("quarantined"));
+        // ...and the report does not mention it, even as a skip.
+        results.Tests.Select(t => t.Uid).ShouldBe(["keep"]);
+    }
+
+    [Fact]
+    public async Task a_filter_keeping_nothing_yields_an_empty_clean_run()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = build(factory);
+        supervisor.TestFilter = _ => false;
+
+        var results = await supervisor.Run();
+
+        results.Tests.ShouldBeEmpty();
+        // Only the discovery worker ran. Deciding whether "nothing matched" is an error belongs
+        // to the caller, who knows whether the filter was supposed to match anything.
+        factory.RunningWorkers.ShouldBeEmpty();
+    }
+
     // ---------------------------------------------------------------- retries
 
     [Fact]
