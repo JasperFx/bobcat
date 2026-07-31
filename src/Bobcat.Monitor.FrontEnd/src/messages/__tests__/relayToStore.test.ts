@@ -62,6 +62,62 @@ describe('relayToStore', () => {
     expect(useRunsStore().runById(RUN)).toBeDefined()
   })
 
+  it('unwraps a batched_web_socket_payload and dispatches every inner item in order', () => {
+    // Shape pinned on the .NET side by SignalRBatchingTests: the CloudEvents `data` of a
+    // batched frame is { items: [{ type, data }, ...] } with web-defaults camelCase.
+    relayToStore({
+      type: 'batched_web_socket_payload',
+      data: {
+        items: [
+          {
+            type: 'run_started',
+            data: {
+              runId: RUN,
+              suite: 'Batched Suite',
+              repository: '/repo',
+              branch: 'main',
+              mode: 'in-process',
+              startedAt: '2026-07-31T10:00:00Z',
+              totalScenarios: 1,
+            },
+          },
+          {
+            type: 'scenario_started',
+            data: {
+              runId: RUN,
+              uid: 'Calc/adds',
+              feature: 'Calc',
+              scenario: 'adds',
+              attempt: 1,
+              at: '2026-07-31T10:00:01Z',
+            },
+          },
+          {
+            type: 'scenario_finished',
+            data: {
+              runId: RUN,
+              uid: 'Calc/adds',
+              outcome: 'CleanPass',
+              attempts: 1,
+              durationMs: 20,
+              errorMessage: null,
+            },
+          },
+        ],
+      },
+    })
+
+    const store = useRunsStore()
+    const run = store.runById(RUN)
+    expect(run?.suite).toBe('Batched Suite')
+    expect(run?.scenarios['Calc/adds']?.outcome).toBe('CleanPass')
+  })
+
+  it('tolerates a batched payload with no items', () => {
+    expect(() => relayToStore({ type: 'batched_web_socket_payload', data: {} })).not.toThrow()
+    expect(() => relayToStore({ type: 'batched_web_socket_payload', data: null })).not.toThrow()
+  })
+
   it('ignores unknown message types without throwing', () => {
     expect(() => relayToStore({ type: 'not_a_real_message', data: {} })).not.toThrow()
     expect(useRunsStore().allRuns).toHaveLength(0)
