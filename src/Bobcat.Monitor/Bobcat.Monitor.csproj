@@ -30,6 +30,7 @@
     <PackageReference Include="JasperFx" />
     <PackageReference Include="WolverineFx.Http" />
     <PackageReference Include="WolverineFx.SignalR" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!--
       Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
       host dies at startup in TypeLoadMode.Dynamic.

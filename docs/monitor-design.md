@@ -100,11 +100,21 @@ Researched 2026-07-31 (GitHubActionsTestLogger, MTP-native reports, CTRF, JUnit)
 - Persist each run's raw ingested event stream as NDJSON — export and replay-for-debugging
   both fall out of it. "Eject" in the UI = export (CTRF/JUnit/NDJSON) + remove from dashboard.
 
-## MCP
+## MCP (built 2026-07-31)
 
-The host will expose streamable-HTTP MCP tools mirroring the UI's queries —
-`list_running_suites`, `suite_progress`, `failing_tests`, `flaky_ledger`, and (the agent
-killer feature) `await_suite_completion`. CritterWatch's MCP packages are the house pattern.
+`src/Bobcat.Monitor/Mcp/MonitorTools.cs`, mounted at `/api/mcp` — streamable HTTP, stateless,
+via `ModelContextProtocol.AspNetCore` in the CritterWatch *.Mcp shape (static
+`[McpServerTool]` methods returning camelCase JSON). Six tools: `list_runs`, `run_status`
+(live steps for the executing scenario only), `failing_tests`, `flaky_ledger` (spans all
+known runs — the box's chronic-flakiness view), `export_run` (CTRF/JUnit as a tool result),
+and `await_run_completion` — the agent killer feature: block until the suite settles instead
+of polling, returning `finished`/`orphaned`/`timeout` with the final summary. All tool reads
+go through the registry's locked `Read`/`ReadAll` so live ingestion can never hand a tool a
+torn scenario collection (exports were moved onto the same locked reads).
+
+Live-verified: with several publishers active on the box, a no-runId await honestly latched
+the one in-flight run — which happened to be another session's supervisor worker. Agents on
+a busy box should pass the runId from `list_runs`.
 
 ## Testing
 

@@ -49,14 +49,22 @@ public static class RunEndpoints
             }
 
             case "junit":
-                return run == null
+            {
+                // Rendered under the registry's gate — the projection mutates during live
+                // ingestion, and a torn scenario enumeration must not corrupt an export.
+                var xml = registry.Read(runId, JUnitExport.Render);
+                return xml == null
                     ? Results.NotFound()
-                    : file(JUnitExport.Render(run), "application/xml", $"{fileStem(run, runId)}.junit.xml");
+                    : file(xml, "application/xml", $"{fileStem(run, runId)}.junit.xml");
+            }
 
             case null or "ctrf":
-                return run == null
+            {
+                var json = registry.Read(runId, CtrfExport.Render);
+                return json == null
                     ? Results.NotFound()
-                    : file(CtrfExport.Render(run), "application/json", $"{fileStem(run, runId)}.ctrf.json");
+                    : file(json, "application/json", $"{fileStem(run, runId)}.ctrf.json");
+            }
 
             default:
                 return Results.BadRequest($"unknown format '{format}' — expected ctrf, junit, or ndjson");

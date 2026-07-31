@@ -135,6 +135,28 @@ public sealed class MonitorRunRegistry : IDisposable
     }
 
     /// <summary>
+    /// Shape one run into a result UNDER the registry's gate. Projections mutate while
+    /// ingestion runs, so a reader enumerating scenarios outside the lock can see a torn
+    /// collection — exports and MCP tools read through here instead.
+    /// </summary>
+    public T? Read<T>(Guid runId, Func<RunProjection, T> reader) where T : class
+    {
+        lock (_gate)
+        {
+            return _entries.TryGetValue(runId, out var entry) ? reader(entry.Projection) : null;
+        }
+    }
+
+    /// <summary>All-runs variant of <see cref="Read{T}"/> — same torn-read rationale.</summary>
+    public T ReadAll<T>(Func<IReadOnlyList<RunProjection>, T> reader)
+    {
+        lock (_gate)
+        {
+            return reader(_entries.Values.Select(e => e.Projection).ToList());
+        }
+    }
+
+    /// <summary>
     /// Eject: forget the run and move its archive to <c>ejected/</c>. The data survives on
     /// disk, but boot rehydration skips it — an eject would otherwise silently undo itself on
     /// the next monitor restart.

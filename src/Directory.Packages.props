@@ -35,6 +35,8 @@
     -->
     <PackageVersion Include="WolverineFx.Http" Version="6.24.2" />
     <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
+    <!-- MCP server for Bobcat.Monitor — same package + version CritterWatch's *.Mcp family uses. -->
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
 
     <!--
       Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host).
