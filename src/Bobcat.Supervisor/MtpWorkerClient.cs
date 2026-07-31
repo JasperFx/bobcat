@@ -13,7 +13,7 @@ namespace Bobcat.Supervisor;
 public sealed class MtpWorkerClient : IWorkerClient
 {
     /// <summary>Stderr lines kept for diagnostics. Bounded — a chatty worker must not grow this forever.</summary>
-    private const int StandardErrorLinesKept = 20;
+    private const int standardErrorLinesKept = 20;
 
     private readonly Process _process;
     private readonly JsonRpcConnection _rpc;
@@ -28,7 +28,7 @@ public sealed class MtpWorkerClient : IWorkerClient
         _rpc = rpc;
         _listener = listener;
         _standardError = standardError;
-        _rpc.OnNotification(HandleNotification);
+        _rpc.OnNotification(handleNotification);
     }
 
     /// <summary>How long to wait for a launched host to dial back.</summary>
@@ -87,7 +87,7 @@ public sealed class MtpWorkerClient : IWorkerClient
             lock (standardError)
             {
                 standardError.Enqueue(e.Data);
-                while (standardError.Count > StandardErrorLinesKept) standardError.Dequeue();
+                while (standardError.Count > standardErrorLinesKept) standardError.Dequeue();
             }
         };
 
@@ -117,7 +117,7 @@ public sealed class MtpWorkerClient : IWorkerClient
         catch
         {
             listener.Dispose();
-            TryKill(process);
+            tryKill(process);
             process.Dispose();
             throw;
         }
@@ -125,17 +125,17 @@ public sealed class MtpWorkerClient : IWorkerClient
 
     public async Task<IReadOnlyList<WorkerTest>> Discover(CancellationToken ct = default)
     {
-        Reset();
+        reset();
         await _rpc.Request("testing/discoverTests", new { runId = Guid.NewGuid() }, ct);
 
-        return Snapshot()
+        return snapshot()
             .Select(o => new WorkerTest(o.Uid, o.DisplayName) { Traits = o.Traits })
             .ToList();
     }
 
     public async Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default)
     {
-        Reset();
+        reset();
 
         // The subset parameter is `tests`. Getting this name wrong is NOT an error — the platform
         // silently ignores an unknown property and runs the whole suite. Hence the guard below.
@@ -158,8 +158,8 @@ public sealed class MtpWorkerClient : IWorkerClient
         }
         catch (Exception e) when (e is IOException or WorkerProtocolException or ObjectDisposedException)
         {
-            var (fault, exitCode, standardError) = await DescribeFault(e);
-            return new WorkerRunResult(Complete(uids, Snapshot(), fault))
+            var (fault, exitCode, standardError) = await describeFault(e);
+            return new WorkerRunResult(Complete(uids, snapshot(), fault))
             {
                 Fault = fault,
                 ExitCode = exitCode,
@@ -167,7 +167,7 @@ public sealed class MtpWorkerClient : IWorkerClient
             };
         }
 
-        var outcomes = Snapshot();
+        var outcomes = snapshot();
 
         if (uids is not null) GuardAgainstAnUnfilteredRun(uids, outcomes);
 
@@ -229,7 +229,7 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// Builds an account of a dead worker worth reading: the exit code and its last words,
     /// rather than a bare "the connection closed".
     /// </summary>
-    private async Task<(string Fault, int? ExitCode, string? StandardError)> DescribeFault(Exception cause)
+    private async Task<(string Fault, int? ExitCode, string? StandardError)> describeFault(Exception cause)
     {
         // The socket usually closes just before the process does, so give it a moment — reading
         // the exit code immediately would nearly always miss it.
@@ -252,7 +252,7 @@ public sealed class MtpWorkerClient : IWorkerClient
             // Process was disposed underneath us; the exit code is simply unavailable.
         }
 
-        var standardError = RecentStandardError();
+        var standardError = recentStandardError();
 
         var description = exitCode is null
             ? $"the worker stopped responding but is still running ({cause.Message})"
@@ -266,7 +266,7 @@ public sealed class MtpWorkerClient : IWorkerClient
         return (description, exitCode, standardError);
     }
 
-    private string? RecentStandardError()
+    private string? recentStandardError()
     {
         lock (_standardError)
         {
@@ -274,7 +274,7 @@ public sealed class MtpWorkerClient : IWorkerClient
         }
     }
 
-    private void HandleNotification(string method, JsonNode? parameters)
+    private void handleNotification(string method, JsonNode? parameters)
     {
         if (method != "testing/testUpdates/tests" || parameters?["changes"] is not JsonArray changes) return;
 
@@ -283,14 +283,14 @@ public sealed class MtpWorkerClient : IWorkerClient
             if (change?["node"] is not JsonObject node) continue;
             if (node["uid"]?.ToString() is not { } uid) continue;
 
-            var outcome = ReadNode(uid, node);
+            var outcome = readNode(uid, node);
 
             lock (_lock)
             {
                 // Nodes arrive at least twice — in-progress, then final. Never let a
                 // non-terminal update overwrite a decided one.
                 if (_outcomes.TryGetValue(uid, out var existing) &&
-                    IsTerminal(existing.State) && !IsTerminal(outcome.State))
+                    isTerminal(existing.State) && !isTerminal(outcome.State))
                 {
                     continue;
                 }
@@ -304,7 +304,7 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// A test node is a flat object of dotted keys — <c>execution-state</c>, <c>error.message</c>,
     /// <c>time.duration-ms</c>, <c>traits</c> — not the property bag the in-process model uses.
     /// </summary>
-    private static WorkerOutcome ReadNode(string uid, JsonObject node)
+    private static WorkerOutcome readNode(string uid, JsonObject node)
     {
         var traits = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (node["traits"] is JsonArray traitArray)
@@ -319,10 +319,10 @@ public sealed class MtpWorkerClient : IWorkerClient
 
         var message = node["error.message"]?.ToString();
 
-        return new WorkerOutcome(uid, node["display-name"]?.ToString() ?? uid, StateFrom(node["execution-state"]?.ToString()))
+        return new WorkerOutcome(uid, node["display-name"]?.ToString() ?? uid, stateFrom(node["execution-state"]?.ToString()))
         {
             ErrorMessage = message,
-            ErrorType = ExceptionTypeFrom(message),
+            ErrorType = exceptionTypeFrom(message),
             StackTrace = node["error.stacktrace"]?.ToString(),
             Duration = node["time.duration-ms"] is { } ms && double.TryParse(ms.ToString(), out var value)
                 ? TimeSpan.FromMilliseconds(value)
@@ -331,7 +331,7 @@ public sealed class MtpWorkerClient : IWorkerClient
         };
     }
 
-    private static WorkerTestState StateFrom(string? state) => state switch
+    private static WorkerTestState stateFrom(string? state) => state switch
     {
         "passed" => WorkerTestState.Passed,
         "failed" => WorkerTestState.Failed,
@@ -347,7 +347,7 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// "Namespace.ExceptionType : message" so the type is recoverable by convention; tUnit drops
     /// it entirely. Best-effort only — this is exactly why policy keys off traits instead.
     /// </summary>
-    private static string? ExceptionTypeFrom(string? message)
+    private static string? exceptionTypeFrom(string? message)
     {
         if (message is null) return null;
 
@@ -358,20 +358,20 @@ public sealed class MtpWorkerClient : IWorkerClient
         return candidate.Contains('.') && !candidate.Contains(' ') ? candidate : null;
     }
 
-    private static bool IsTerminal(WorkerTestState state)
+    private static bool isTerminal(WorkerTestState state)
         => state is not (WorkerTestState.Indeterminate);
 
-    private void Reset()
+    private void reset()
     {
         lock (_lock) _outcomes.Clear();
     }
 
-    private IReadOnlyList<WorkerOutcome> Snapshot()
+    private IReadOnlyList<WorkerOutcome> snapshot()
     {
         lock (_lock) return _outcomes.Values.ToList();
     }
 
-    private static void TryKill(Process process)
+    private static void tryKill(Process process)
     {
         try
         {
@@ -394,7 +394,7 @@ public sealed class MtpWorkerClient : IWorkerClient
 
         await _rpc.DisposeAsync();
         _listener.Dispose();
-        TryKill(_process);
+        tryKill(_process);
         _process.Dispose();
     }
 }

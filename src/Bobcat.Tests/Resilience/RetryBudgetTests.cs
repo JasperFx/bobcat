@@ -5,10 +5,10 @@ namespace Bobcat.Tests.Resilience;
 
 public class RetryBudgetTests
 {
-    private static readonly IReadOnlyDictionary<string, string> NoTraits =
+    private static readonly IReadOnlyDictionary<string, string> noTraits =
         new Dictionary<string, string>();
 
-    private static IReadOnlyDictionary<string, string> Traits(params (string Key, string Value)[] pairs)
+    private static IReadOnlyDictionary<string, string> traits(params (string Key, string Value)[] pairs)
         => pairs.ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
 
     [Fact]
@@ -16,9 +16,9 @@ public class RetryBudgetTests
     {
         var budget = RetryBudget.None;
 
-        budget.AttemptsAllowedFor(NoTraits).ShouldBe(1);
-        budget.CanRetry("a", NoTraits).ShouldBeFalse();
-        budget.TryConsume("a", NoTraits, out var denial).ShouldBeFalse();
+        budget.AttemptsAllowedFor(noTraits).ShouldBe(1);
+        budget.CanRetry("a", noTraits).ShouldBeFalse();
+        budget.TryConsume("a", noTraits, out var denial).ShouldBeFalse();
         denial.ShouldBe("retries are not enabled for this test");
     }
 
@@ -27,8 +27,8 @@ public class RetryBudgetTests
     {
         var budget = new RetryBudget { MaxAttemptsPerTest = 2 };
 
-        budget.TryConsume("a", NoTraits, out _).ShouldBeTrue();
-        budget.TryConsume("a", NoTraits, out var denial).ShouldBeFalse();
+        budget.TryConsume("a", noTraits, out _).ShouldBeTrue();
+        budget.TryConsume("a", noTraits, out var denial).ShouldBeFalse();
 
         denial.ShouldBe("this test has used all 2 allowed attempts");
         budget.RetriesSpent.ShouldBe(1);
@@ -39,8 +39,8 @@ public class RetryBudgetTests
     {
         var budget = new RetryBudget { MaxAttemptsPerTest = 2 };
 
-        budget.TryConsume("a", NoTraits, out _).ShouldBeTrue();
-        budget.TryConsume("b", NoTraits, out _).ShouldBeTrue();
+        budget.TryConsume("a", noTraits, out _).ShouldBeTrue();
+        budget.TryConsume("b", noTraits, out _).ShouldBeTrue();
 
         budget.RetriesSpent.ShouldBe(2);
     }
@@ -50,7 +50,7 @@ public class RetryBudgetTests
     {
         var budget = new RetryBudget { MaxAttemptsPerTest = 5 };
 
-        budget.AttemptsAllowedFor(Traits((ResilienceTags.Retry, "2"))).ShouldBe(2);
+        budget.AttemptsAllowedFor(traits((ResilienceTags.Retry, "2"))).ShouldBe(2);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class RetryBudgetTests
         // escape it by asking for more in a tag.
         var budget = new RetryBudget { MaxAttemptsPerTest = 2 };
 
-        budget.AttemptsAllowedFor(Traits((ResilienceTags.Retry, "99"))).ShouldBe(2);
+        budget.AttemptsAllowedFor(traits((ResilienceTags.Retry, "99"))).ShouldBe(2);
     }
 
     [Fact]
@@ -70,12 +70,12 @@ public class RetryBudgetTests
         // burning the whole CI slot.
         var budget = new RetryBudget { MaxAttemptsPerTest = 5, MaxRetriesPerRun = 2 };
 
-        budget.TryConsume("a", NoTraits, out _).ShouldBeTrue();
-        budget.TryConsume("b", NoTraits, out _).ShouldBeTrue();
-        budget.TryConsume("c", NoTraits, out var denial).ShouldBeFalse();
+        budget.TryConsume("a", noTraits, out _).ShouldBeTrue();
+        budget.TryConsume("b", noTraits, out _).ShouldBeTrue();
+        budget.TryConsume("c", noTraits, out var denial).ShouldBeFalse();
 
         denial.ShouldBe("the run's retry budget is exhausted (2 retries)");
-        budget.CanRetry("d", NoTraits).ShouldBeFalse();
+        budget.CanRetry("d", noTraits).ShouldBeFalse();
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class RetryBudgetTests
     {
         var budget = new RetryBudget { MaxAttemptsPerTest = 1 };
 
-        budget.TryConsume("a", NoTraits, out _).ShouldBeFalse();
+        budget.TryConsume("a", noTraits, out _).ShouldBeFalse();
 
         budget.RetriesSpent.ShouldBe(0);
     }
@@ -93,7 +93,7 @@ public class RetryBudgetTests
     {
         var budget = new RetryBudget { MaxAttemptsPerTest = 3 };
 
-        budget.AttemptsAllowedFor(Traits((ResilienceTags.Retry, "not-a-number"))).ShouldBe(3);
-        budget.AttemptsAllowedFor(Traits((ResilienceTags.Retry, "0"))).ShouldBe(3);
+        budget.AttemptsAllowedFor(traits((ResilienceTags.Retry, "not-a-number"))).ShouldBe(3);
+        budget.AttemptsAllowedFor(traits((ResilienceTags.Retry, "0"))).ShouldBe(3);
     }
 }

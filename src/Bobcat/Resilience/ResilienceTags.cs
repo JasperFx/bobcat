@@ -33,11 +33,11 @@ public static class ResilienceTags
 
         foreach (var tag in tags)
         {
-            if (TryParseArgument(tag, "retry", out var retry))
+            if (tryParseArgument(tag, "retry", out var retry))
             {
                 traits[Retry] = retry;
             }
-            else if (TryParseArgument(tag, "recycle", out var resources))
+            else if (tryParseArgument(tag, "recycle", out var resources))
             {
                 traits[RecycleOnRetry] = resources;
             }
@@ -55,7 +55,7 @@ public static class ResilienceTags
     }
 
     /// <summary>Parses <c>name(argument)</c>, e.g. <c>recycle(rabbit,kafka)</c>.</summary>
-    private static bool TryParseArgument(string tag, string name, out string argument)
+    private static bool tryParseArgument(string tag, string name, out string argument)
     {
         argument = "";
 

@@ -18,28 +18,28 @@ public static class Program
     public static Task<int> Main(string[] args)
         => BobcatTestApplication.Run(args, runner =>
         {
-            runner.AddFeature(Basics());
+            runner.AddFeature(basics());
             // Registered last so that, when batched, it runs after the others — which is what
             // makes "did anything else run in my process?" a reliable signal.
-            runner.AddFeature(Fussy());
+            runner.AddFeature(fussy());
         });
 
     public class SampleFixture : Fixture;
 
-    private static FeatureDefinition Basics() => new(
+    private static FeatureDefinition basics() => new(
         "Basics", typeof(SampleFixture),
         [
-            Scenario("passes", [], () => { }),
-            Scenario("also passes", [], () => { }),
-            Scenario("always fails", [], () => throw new InvalidOperationException("this one never works"))
+            scenario("passes", [], () => { }),
+            scenario("also passes", [], () => { }),
+            scenario("always fails", [], () => throw new InvalidOperationException("this one never works"))
         ]);
 
-    private static FeatureDefinition Fussy() => new(
+    private static FeatureDefinition fussy() => new(
         "Fussy", typeof(SampleFixture),
         [
             // Only passes when nothing else ran in this process — the Marten/Wolverine
             // "only works if it is the only test in the process" case, made observable.
-            Scenario("only works alone", ["isolated", "retry(2)"], () =>
+            scenario("only works alone", ["isolated", "retry(2)"], () =>
             {
                 if (_executedInThisProcess > 1)
                 {
@@ -51,7 +51,7 @@ public static class Program
             // Fails on its first execution and passes afterwards. The counter lives in a file so
             // it survives the process being thrown away, which is the whole point when the retry
             // happens somewhere else.
-            Scenario("flaky until second attempt", ["retry(3)"], () =>
+            scenario("flaky until second attempt", ["retry(3)"], () =>
             {
                 var path = Environment.GetEnvironmentVariable("BOBCAT_FLAKY_STATE");
                 if (path is null) return; // not armed — behave
@@ -64,7 +64,7 @@ public static class Program
             }),
 
             // Kills the worker outright, so the supervisor's crash handling is exercised for real.
-            Scenario("kills the worker when armed", [], () =>
+            scenario("kills the worker when armed", [], () =>
             {
                 if (Environment.GetEnvironmentVariable("BOBCAT_CRASH") == "true") Environment.Exit(70);
             }),
@@ -72,7 +72,7 @@ public static class Program
             // Dies the way a real worker usually does: an unhandled exception on a foreground
             // thread, which terminates the process after the CLR prints a stack trace to stderr.
             // Join never returns, so this is deterministic rather than timing-dependent.
-            Scenario("dies with an unhandled exception when armed", [], () =>
+            scenario("dies with an unhandled exception when armed", [], () =>
             {
                 if (Environment.GetEnvironmentVariable("BOBCAT_UNHANDLED") != "true") return;
 
@@ -82,7 +82,7 @@ public static class Program
             })
         ]);
 
-    private static ScenarioDefinition Scenario(string title, string[] tags, Action body)
+    private static ScenarioDefinition scenario(string title, string[] tags, Action body)
         => new(title, tags, (_, plan) =>
             plan.Add(new DelegateExecutionStep("step-1", StepKind.Then, title, (_, _, _) =>
             {

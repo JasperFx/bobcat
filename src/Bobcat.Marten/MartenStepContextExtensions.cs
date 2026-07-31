@@ -13,7 +13,7 @@ namespace Bobcat.Marten;
 /// </summary>
 public static class MartenStepContextExtensions
 {
-    private static IDocumentStore Store(IStepContext context, string? resourceName)
+    private static IDocumentStore store(IStepContext context, string? resourceName)
         => context.GetResource<IMartenResource>(resourceName).DocumentStore;
 
     // --- Document operations ---
@@ -21,7 +21,7 @@ public static class MartenStepContextExtensions
     public static async Task<T?> QueryByIdAsync<T>(this IStepContext context, object id, string? resourceName = null)
         where T : notnull
     {
-        await using var session = Store(context, resourceName).QuerySession();
+        await using var session = store(context, resourceName).QuerySession();
         return id switch
         {
             Guid g => await session.LoadAsync<T>(g),
@@ -34,14 +34,14 @@ public static class MartenStepContextExtensions
 
     public static async Task<IReadOnlyList<T>> QueryAllAsync<T>(this IStepContext context, string? resourceName = null)
     {
-        await using var session = Store(context, resourceName).QuerySession();
+        await using var session = store(context, resourceName).QuerySession();
         return await session.Query<T>().ToListAsync();
     }
 
     public static async Task StoreAsync<T>(this IStepContext context, T document, string? resourceName = null)
         where T : notnull
     {
-        await using var session = Store(context, resourceName).LightweightSession();
+        await using var session = store(context, resourceName).LightweightSession();
         session.Store(document);
         await session.SaveChangesAsync();
     }
@@ -49,7 +49,7 @@ public static class MartenStepContextExtensions
     public static async Task DeleteByIdAsync<T>(this IStepContext context, object id, string? resourceName = null)
         where T : notnull
     {
-        await using var session = Store(context, resourceName).LightweightSession();
+        await using var session = store(context, resourceName).LightweightSession();
         switch (id)
         {
             case Guid g: session.Delete<T>(g); break;
@@ -65,24 +65,24 @@ public static class MartenStepContextExtensions
 
     public static async Task<IReadOnlyList<IEvent>> FetchStreamAsync(this IStepContext context, Guid streamId, string? resourceName = null)
     {
-        await using var session = Store(context, resourceName).QuerySession();
+        await using var session = store(context, resourceName).QuerySession();
         return await session.Events.FetchStreamAsync(streamId);
     }
 
     public static async Task<T?> AggregateStreamAsync<T>(this IStepContext context, Guid streamId, string? resourceName = null)
         where T : class
     {
-        await using var session = Store(context, resourceName).QuerySession();
+        await using var session = store(context, resourceName).QuerySession();
         return await session.Events.AggregateStreamAsync<T>(streamId);
     }
 
     // --- Hygiene helpers (between-scenario reset, or dedicated [Given] clean steps) ---
 
     public static Task CleanAllMartenDataAsync(this IStepContext context, string? resourceName = null)
-        => CleanAllMartenDataAsync(Store(context, resourceName));
+        => CleanAllMartenDataAsync(store(context, resourceName));
 
     public static async Task CompletelyRemoveAllAsync(this IStepContext context, string? resourceName = null)
-        => await Store(context, resourceName).Advanced.Clean.CompletelyRemoveAllAsync();
+        => await store(context, resourceName).Advanced.Clean.CompletelyRemoveAllAsync();
 
     internal static async Task CleanAllMartenDataAsync(IDocumentStore store)
     {

@@ -34,7 +34,7 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
 
     public void OnNotification(Action<string, JsonNode?> handler) => _handlers.Add(handler);
 
-    public void Start() => _readLoop = Task.Run(ReadLoop);
+    public void Start() => _readLoop = Task.Run(readLoop);
 
     public async Task<JsonNode?> Request(string method, object? parameters, CancellationToken ct = default)
     {
@@ -42,7 +42,7 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         var completion = new TaskCompletionSource<JsonNode?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = completion;
 
-        await Send(new JsonObject
+        await send(new JsonObject
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id,
@@ -54,14 +54,14 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
     }
 
     public Task Notify(string method, object? parameters = null)
-        => Send(new JsonObject
+        => send(new JsonObject
         {
             ["jsonrpc"] = "2.0",
             ["method"] = method,
             ["params"] = parameters is null ? new JsonObject() : JsonSerializer.SerializeToNode(parameters)
         });
 
-    private async Task Send(JsonObject message)
+    private async Task send(JsonObject message)
     {
         var body = Encoding.UTF8.GetBytes(message.ToJsonString());
         var header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
@@ -79,16 +79,16 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         }
     }
 
-    private async Task ReadLoop()
+    private async Task readLoop()
     {
         try
         {
             while (!_shutdown.IsCancellationRequested)
             {
-                var body = await ReadFrame();
+                var body = await readFrame();
                 if (body is null) break;
 
-                Dispatch(JsonNode.Parse(body));
+                dispatch(JsonNode.Parse(body));
             }
         }
         catch (Exception e) when (!_shutdown.IsCancellationRequested)
@@ -105,7 +105,7 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         }
     }
 
-    private void Dispatch(JsonNode? message)
+    private void dispatch(JsonNode? message)
     {
         if (message is not JsonObject obj) return;
 
@@ -130,7 +130,7 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         // The platform sends us requests too (logging, telemetry). Answer them or it blocks.
         if (hasId)
         {
-            _ = Send(new JsonObject
+            _ = send(new JsonObject
             {
                 ["jsonrpc"] = "2.0",
                 ["id"] = idNode!.DeepClone(),
@@ -139,13 +139,13 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         }
     }
 
-    private async Task<string?> ReadFrame()
+    private async Task<string?> readFrame()
     {
         var contentLength = 0;
 
         while (true)
         {
-            var line = await ReadLine();
+            var line = await readLine();
             if (line is null) return null;
             if (line.Length == 0) break;
 
@@ -171,7 +171,7 @@ internal sealed class JsonRpcConnection : IAsyncDisposable
         return Encoding.UTF8.GetString(buffer);
     }
 
-    private async Task<string?> ReadLine()
+    private async Task<string?> readLine()
     {
         var builder = new StringBuilder();
         var one = new byte[1];

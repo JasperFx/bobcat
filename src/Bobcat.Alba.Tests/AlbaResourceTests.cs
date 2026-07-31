@@ -11,7 +11,7 @@ namespace Bobcat.Alba.Tests;
 public class AlbaResourceTests
 {
     // Factory that builds a minimal web app using WebApplicationBuilder (no TProgram entry point needed)
-    private static Task<IAlbaHost> BuildTestAlbaHost()
+    private static Task<IAlbaHost> buildTestAlbaHost()
         => AlbaHost.For(WebApplication.CreateBuilder(), app =>
         {
             app.MapGet("/hello", () => "Hello from TestApp!");
@@ -53,35 +53,35 @@ public class AlbaResourceTests
     [Fact]
     public void factory_implements_IHostResource()
     {
-        var resource = new AlbaResource(BuildTestAlbaHost);
+        var resource = new AlbaResource(buildTestAlbaHost);
         resource.ShouldBeAssignableTo<IHostResource>();
     }
 
     [Fact]
     public void factory_default_name_is_AlbaHost()
     {
-        var resource = new AlbaResource(BuildTestAlbaHost);
+        var resource = new AlbaResource(buildTestAlbaHost);
         resource.Name.ShouldBe("AlbaHost");
     }
 
     [Fact]
     public void factory_custom_name_is_used()
     {
-        var resource = new AlbaResource(BuildTestAlbaHost, name: "Api");
+        var resource = new AlbaResource(buildTestAlbaHost, name: "Api");
         resource.Name.ShouldBe("Api");
     }
 
     [Fact]
     public void factory_Host_throws_before_Start()
     {
-        var resource = new AlbaResource(BuildTestAlbaHost);
+        var resource = new AlbaResource(buildTestAlbaHost);
         Should.Throw<InvalidOperationException>(() => _ = resource.Host);
     }
 
     [Fact]
     public async Task Start_creates_running_host()
     {
-        await using var resource = new AlbaResource(BuildTestAlbaHost);
+        await using var resource = new AlbaResource(buildTestAlbaHost);
 
         await resource.Start();
 
@@ -92,7 +92,7 @@ public class AlbaResourceTests
     [Fact]
     public async Task Host_is_IAlbaHost()
     {
-        await using var resource = new AlbaResource(BuildTestAlbaHost);
+        await using var resource = new AlbaResource(buildTestAlbaHost);
 
         await resource.Start();
 
@@ -103,7 +103,7 @@ public class AlbaResourceTests
     [Fact]
     public async Task can_execute_http_scenario()
     {
-        await using var resource = new AlbaResource(BuildTestAlbaHost);
+        await using var resource = new AlbaResource(buildTestAlbaHost);
 
         await resource.Start();
 
@@ -120,7 +120,7 @@ public class AlbaResourceTests
     [Fact]
     public async Task ResetBetweenScenarios_with_no_reset_does_nothing()
     {
-        await using var resource = new AlbaResource(BuildTestAlbaHost);
+        await using var resource = new AlbaResource(buildTestAlbaHost);
         await resource.Start();
 
         await Should.NotThrowAsync(() => resource.ResetBetweenScenarios());
@@ -132,7 +132,7 @@ public class AlbaResourceTests
         var resetCalled = false;
 
         await using var resource = new AlbaResource(
-            BuildTestAlbaHost,
+            buildTestAlbaHost,
             reset: _ => { resetCalled = true; return Task.CompletedTask; });
 
         await resource.Start();
@@ -144,7 +144,7 @@ public class AlbaResourceTests
     [Fact]
     public async Task can_resolve_services_via_IHostResource()
     {
-        await using var resource = new AlbaResource(BuildTestAlbaHost);
+        await using var resource = new AlbaResource(buildTestAlbaHost);
         await resource.Start();
 
         var services = resource.Host.Services;

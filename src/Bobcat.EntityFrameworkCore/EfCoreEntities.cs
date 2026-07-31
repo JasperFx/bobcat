@@ -80,7 +80,7 @@ public class EfCoreStorageBehavior : IGrammarBehavior
             throw new BobcatConfigurationException(
                 "An [EfCoreEntities] row produced null. Row must return the entity to persist.");
 
-        RequireContext().Add(product);
+        requireContext().Add(product);
         return default;
     }
 
@@ -100,6 +100,6 @@ public class EfCoreStorageBehavior : IGrammarBehavior
         return default;
     }
 
-    private DbContext RequireContext() => _context
+    private DbContext requireContext() => _context
         ?? throw new InvalidOperationException("The EF Core storage behavior has not been opened.");
 }

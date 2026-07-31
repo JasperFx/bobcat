@@ -43,9 +43,9 @@ public abstract partial class Fixture
 
     internal static string PascalCaseToTitle(string name)
     {
-        return PascalCaseSplitter().Replace(name, " $1").Trim();
+        return pascalCaseSplitter().Replace(name, " $1").Trim();
     }
 
     [GeneratedRegex(@"(?<=[a-z])([A-Z])|(?<=[A-Z])([A-Z][a-z])")]
-    private static partial Regex PascalCaseSplitter();
+    private static partial Regex pascalCaseSplitter();
 }

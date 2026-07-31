@@ -8,7 +8,7 @@ namespace Bobcat.Acceptance.Tests;
 
 public class LifecycleTests
 {
-    private static BobcatRunner BuildRunner(params IGlobalAction[] globals)
+    private static BobcatRunner buildRunner(params IGlobalAction[] globals)
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Lifecycle_Feature.Define());
@@ -25,7 +25,7 @@ public class LifecycleTests
         return runner;
     }
 
-    private static void ShouldHaveNoFailures(SuiteResults results)
+    private static void shouldHaveNoFailures(SuiteResults results)
     {
         var failed = results.Features
             .SelectMany(f => f.Scenarios)
@@ -42,9 +42,9 @@ public class LifecycleTests
     {
         LifecycleFixture.Reset();
 
-        var results = await BuildRunner().RunAll();
+        var results = await buildRunner().RunAll();
 
-        ShouldHaveNoFailures(results);
+        shouldHaveNoFailures(results);
 
         LifecycleFixture.BeforeAllCount.ShouldBe(1);
         LifecycleFixture.AfterAllCount.ShouldBe(1);
@@ -58,9 +58,9 @@ public class LifecycleTests
         LifecycleFixture.Reset();
 
         var action = new RecordingGlobalAction();
-        var results = await BuildRunner(action).RunAll();
+        var results = await buildRunner(action).RunAll();
 
-        ShouldHaveNoFailures(results);
+        shouldHaveNoFailures(results);
 
         action.SetUpCount.ShouldBe(1);
         action.TearDownCount.ShouldBe(1);

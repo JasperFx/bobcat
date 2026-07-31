@@ -14,7 +14,7 @@ public class RecoveryHintSetTests
 
     private sealed class UnhintedFixture;
 
-    private static FailureSignature Failure<T>() where T : Exception, new()
+    private static FailureSignature failure<T>() where T : Exception, new()
         => FailureSignature.FromException(new T());
 
     [Fact]
@@ -53,7 +53,7 @@ public class RecoveryHintSetTests
         // who named the exact type knew more, so recycling wins over a plain retry.
         var hints = new RecoveryHintSet().AddFromType(typeof(HintedFixture));
 
-        hints.Best("any/test", Failure<BrokerUnavailableException>())!
+        hints.Best("any/test", failure<BrokerUnavailableException>())!
             .Kind.ShouldBe(DispositionKind.RetryAfterRecycle);
     }
 
@@ -62,7 +62,7 @@ public class RecoveryHintSetTests
     {
         var hints = new RecoveryHintSet().AddFromType(typeof(HintedFixture));
 
-        hints.Best("any/test", Failure<TimeoutException>())!.Kind.ShouldBe(DispositionKind.RetryInProcess);
+        hints.Best("any/test", failure<TimeoutException>())!.Kind.ShouldBe(DispositionKind.RetryInProcess);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class RecoveryHintSetTests
     {
         var hints = new RecoveryHintSet().AddFromType(typeof(HintedFixture));
 
-        hints.Best("any/test", Failure<InvalidOperationException>()).ShouldBeNull();
+        hints.Best("any/test", failure<InvalidOperationException>()).ShouldBeNull();
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class RecoveryHintSetTests
                 Source = "TheFixture"
             });
 
-        hints.Best("any/test", Failure<BrokerUnavailableException>())!.Source.ShouldBe("TheFixture");
+        hints.Best("any/test", failure<BrokerUnavailableException>())!.Source.ShouldBe("TheFixture");
     }
 
     [Fact]
@@ -103,8 +103,8 @@ public class RecoveryHintSetTests
         // A fixture's hints must not silence retries in some other feature.
         var hints = new RecoveryHintSet().AddFromType(typeof(HintedFixture), "Orders/");
 
-        hints.Best("Orders/places an order", Failure<TimeoutException>()).ShouldNotBeNull();
-        hints.Best("Shipping/ships it", Failure<TimeoutException>()).ShouldBeNull();
+        hints.Best("Orders/places an order", failure<TimeoutException>()).ShouldNotBeNull();
+        hints.Best("Shipping/ships it", failure<TimeoutException>()).ShouldBeNull();
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class RecoveryHintSetTests
     {
         var hints = new RecoveryHintSet().AddFromType(typeof(HintedFixture));
 
-        hints.Best("Shipping/ships it", Failure<TimeoutException>()).ShouldNotBeNull();
+        hints.Best("Shipping/ships it", failure<TimeoutException>()).ShouldNotBeNull();
     }
 
     [Fact]

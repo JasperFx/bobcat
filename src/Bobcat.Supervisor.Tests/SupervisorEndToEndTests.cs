@@ -10,10 +10,10 @@ namespace Bobcat.Supervisor.Tests;
 /// </summary>
 public class SupervisorEndToEndTests : IDisposable
 {
-    private static readonly string WorkerPath = LocateWorker();
+    private static readonly string workerPath = locateWorker();
     private readonly List<string> _tempFiles = [];
 
-    private static string LocateWorker()
+    private static string locateWorker()
     {
         var configuration = Path.GetFileName(
             Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))!);
@@ -30,13 +30,13 @@ public class SupervisorEndToEndTests : IDisposable
                 : "Bobcat.Supervisor.SampleWorker");
     }
 
-    private MtpWorkerFactory Factory(Dictionary<string, string>? environment = null)
+    private MtpWorkerFactory factory(Dictionary<string, string>? environment = null)
     {
-        File.Exists(WorkerPath).ShouldBeTrue($"The sample worker was not built at {WorkerPath}");
-        return new MtpWorkerFactory(WorkerPath, environment);
+        File.Exists(workerPath).ShouldBeTrue($"The sample worker was not built at {workerPath}");
+        return new MtpWorkerFactory(workerPath, environment);
     }
 
-    private string TempFile()
+    private string tempFile()
     {
         var path = Path.Combine(Path.GetTempPath(), $"bobcat-spike-{Guid.NewGuid():N}.txt");
         _tempFiles.Add(path);
@@ -54,7 +54,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task discovery_reads_tests_and_their_traits_over_the_wire()
     {
-        await using var worker = await MtpWorkerClient.Launch(WorkerPath);
+        await using var worker = await MtpWorkerClient.Launch(workerPath);
 
         var tests = await worker.Discover();
 
@@ -70,7 +70,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_filtered_run_executes_only_what_was_asked_for()
     {
-        await using var worker = await MtpWorkerClient.Launch(WorkerPath);
+        await using var worker = await MtpWorkerClient.Launch(workerPath);
 
         var result = await worker.Run(["Basics/passes"]);
 
@@ -83,7 +83,7 @@ public class SupervisorEndToEndTests : IDisposable
     {
         // Control. Without this, the headline test below would pass even if isolation did
         // nothing at all.
-        await using var worker = await MtpWorkerClient.Launch(WorkerPath);
+        await using var worker = await MtpWorkerClient.Launch(workerPath);
 
         var result = await worker.Run([
             "Basics/passes", "Basics/also passes", "Fussy/only works alone"
@@ -99,7 +99,7 @@ public class SupervisorEndToEndTests : IDisposable
     {
         // The headline: the same test that fails when batched passes under the supervisor,
         // because it was scheduled alone in a fresh process.
-        var supervisor = new Supervisor(Factory());
+        var supervisor = new Supervisor(factory());
 
         var results = await supervisor.Run();
 
@@ -115,8 +115,8 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_flaky_test_passes_on_retry_and_is_reported_as_such()
     {
-        var state = TempFile();
-        var supervisor = new Supervisor(Factory(new Dictionary<string, string>
+        var state = tempFile();
+        var supervisor = new Supervisor(factory(new Dictionary<string, string>
         {
             ["BOBCAT_FLAKY_STATE"] = state
         }))
@@ -139,7 +139,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_worker_that_dies_mid_run_leaves_indeterminate_results_not_invented_failures()
     {
-        var supervisor = new Supervisor(Factory(new Dictionary<string, string>
+        var supervisor = new Supervisor(factory(new Dictionary<string, string>
         {
             ["BOBCAT_CRASH"] = "true"
         }));
@@ -158,7 +158,7 @@ public class SupervisorEndToEndTests : IDisposable
     {
         // The sample worker exits 70 on purpose. Reporting only "the connection closed" would
         // leave the user with an indeterminate run and nothing to act on.
-        var supervisor = new Supervisor(Factory(new Dictionary<string, string>
+        var supervisor = new Supervisor(factory(new Dictionary<string, string>
         {
             ["BOBCAT_CRASH"] = "true"
         }));
@@ -178,7 +178,7 @@ public class SupervisorEndToEndTests : IDisposable
     {
         // A crash with a real stack trace is the common case, and stderr is the only place the
         // worker gets to explain itself.
-        await using var worker = await MtpWorkerClient.Launch(WorkerPath, new Dictionary<string, string>
+        await using var worker = await MtpWorkerClient.Launch(workerPath, new Dictionary<string, string>
         {
             ["BOBCAT_UNHANDLED"] = "true"
         });
@@ -194,7 +194,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task the_run_reports_how_many_worker_processes_isolation_cost()
     {
-        var supervisor = new Supervisor(Factory());
+        var supervisor = new Supervisor(factory());
 
         var results = await supervisor.Run();
 
@@ -205,7 +205,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task an_untagged_failure_is_not_retried_even_with_a_budget_available()
     {
-        var supervisor = new Supervisor(Factory())
+        var supervisor = new Supervisor(factory())
         {
             RetryBudget = new RetryBudget { MaxAttemptsPerTest = 5 }
         };

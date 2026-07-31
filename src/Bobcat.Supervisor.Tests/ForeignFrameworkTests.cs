@@ -13,7 +13,7 @@ namespace Bobcat.Supervisor.Tests;
 /// </remarks>
 public class ForeignFrameworkTests
 {
-    private static string XunitWorkerPath()
+    private static string xunitWorkerPath()
     {
         var configuration = Path.GetFileName(
             Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))!);
@@ -31,7 +31,7 @@ public class ForeignFrameworkTests
     [Fact]
     public async Task the_supervisor_can_discover_and_run_a_single_xunit_test_by_uid()
     {
-        var path = XunitWorkerPath();
+        var path = xunitWorkerPath();
         File.Exists(path).ShouldBeTrue($"The xUnit worker was not built at {path}");
 
         await using var worker = await MtpWorkerClient.Launch(path);
@@ -55,17 +55,17 @@ public class ForeignFrameworkTests
     [Fact]
     public async Task xunit_uids_are_stable_across_separate_processes()
     {
-        var path = XunitWorkerPath();
+        var path = xunitWorkerPath();
 
-        var first = await DiscoverUids(path);
-        var second = await DiscoverUids(path);
+        var first = await discoverUids(path);
+        var second = await discoverUids(path);
 
         // A retry happens in a later process. If identity drifted, it would target nothing.
         first.ShouldBe(second);
         first.ShouldNotBeEmpty();
     }
 
-    private static async Task<List<string>> DiscoverUids(string path)
+    private static async Task<List<string>> discoverUids(string path)
     {
         await using var worker = await MtpWorkerClient.Launch(path);
         var tests = await worker.Discover();

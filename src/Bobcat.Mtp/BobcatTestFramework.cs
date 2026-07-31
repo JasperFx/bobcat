@@ -46,11 +46,11 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             switch (context.Request)
             {
                 case DiscoverTestExecutionRequest discover:
-                    await Discover(discover, context);
+                    await this.discover(discover, context);
                     break;
 
                 case RunTestExecutionRequest run:
-                    await Run(run, context);
+                    await this.run(run, context);
                     break;
             }
         }
@@ -65,18 +65,18 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
     /// resources. Discovery must not stand up a database or a host: IDEs discover on every
     /// build.
     /// </summary>
-    private async Task Discover(DiscoverTestExecutionRequest request, ExecuteRequestContext context)
+    private async Task discover(DiscoverTestExecutionRequest request, ExecuteRequestContext context)
     {
-        var runner = BuildRunner();
+        var runner = buildRunner();
 
-        foreach (var (feature, scenario) in Scenarios(runner))
+        foreach (var (feature, scenario) in scenarios(runner))
         {
-            if (!Matches(request.Filter, SpecNodeMapping.Uid(feature, scenario))) continue;
+            if (!matches(request.Filter, SpecNodeMapping.Uid(feature, scenario))) continue;
 
             var properties = new PropertyBag(DiscoveredTestNodeStateProperty.CachedInstance);
             foreach (var trait in SpecNodeMapping.Traits(scenario.Tags)) properties.Add(trait);
 
-            await Publish(context, request.Session.SessionUid, new TestNode
+            await publish(context, request.Session.SessionUid, new TestNode
             {
                 Uid = SpecNodeMapping.Uid(feature, scenario),
                 DisplayName = SpecNodeMapping.DisplayName(feature.Title, scenario.Title),
@@ -85,21 +85,21 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         }
     }
 
-    private async Task Run(RunTestExecutionRequest request, ExecuteRequestContext context)
+    private async Task run(RunTestExecutionRequest request, ExecuteRequestContext context)
     {
-        var runner = BuildRunner();
+        var runner = buildRunner();
 
         // The platform hands the requested subset down as a filter. Honouring it is what makes
         // a supervisor's selective re-run and [Isolated] scheduling work against this host.
         runner.ScenarioFilter = (feature, scenario) =>
-            Matches(request.Filter, SpecNodeMapping.Uid(feature, scenario));
+            matches(request.Filter, SpecNodeMapping.Uid(feature, scenario));
 
         runner.WithObserver(new PublishingObserver(this, context, request.Session.SessionUid));
 
         await runner.RunAll();
     }
 
-    private BobcatRunner BuildRunner()
+    private BobcatRunner buildRunner()
     {
         // The platform owns stdout — Spectre rendering would interleave with its own reporting
         // and corrupt the console output.
@@ -108,21 +108,21 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         return runner;
     }
 
-    private static IEnumerable<(FeatureDefinition Feature, ScenarioDefinition Scenario)> Scenarios(BobcatRunner runner)
+    private static IEnumerable<(FeatureDefinition Feature, ScenarioDefinition Scenario)> scenarios(BobcatRunner runner)
     {
         foreach (var feature in runner.Features)
             foreach (var scenario in feature.Scenarios)
                 yield return (feature, scenario);
     }
 
-    private static bool Matches(ITestExecutionFilter filter, string uid)
+    private static bool matches(ITestExecutionFilter filter, string uid)
         => filter switch
         {
             TestNodeUidListFilter uids => uids.TestNodeUids.Any(u => u.Value == uid),
             _ => true
         };
 
-    private Task Publish(ExecuteRequestContext context, SessionUid sessionUid, TestNode node)
+    private Task publish(ExecuteRequestContext context, SessionUid sessionUid, TestNode node)
         => context.MessageBus.PublishAsync(this, new TestNodeUpdateMessage(sessionUid, node));
 
     /// <summary>
@@ -144,7 +144,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
 
         public void ScenarioStarted(string featureTitle, string scenarioTitle)
         {
-            Publish(new TestNode
+            publish(new TestNode
             {
                 Uid = SpecNodeMapping.Uid(featureTitle, scenarioTitle),
                 DisplayName = SpecNodeMapping.DisplayName(featureTitle, scenarioTitle),
@@ -161,7 +161,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             foreach (var trait in SpecNodeMapping.Traits(result.Tags)) properties.Add(trait);
             foreach (var metadata in SpecNodeMapping.OutcomeMetadata(result)) properties.Add(metadata);
 
-            Publish(new TestNode
+            publish(new TestNode
             {
                 Uid = SpecNodeMapping.Uid(featureTitle, result.Title),
                 DisplayName = SpecNodeMapping.DisplayName(featureTitle, result.Title),
@@ -169,12 +169,12 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             });
         }
 
-        private void Publish(TestNode node)
+        private void publish(TestNode node)
         {
             // The observer contract is synchronous; the message bus is not. Blocking here keeps
             // node updates ordered, which matters because a later state must not overtake an
             // earlier one for the same uid.
-            _framework.Publish(_context, _sessionUid, node).GetAwaiter().GetResult();
+            _framework.publish(_context, _sessionUid, node).GetAwaiter().GetResult();
         }
 
         public void FeatureStarted(string featureTitle) { }

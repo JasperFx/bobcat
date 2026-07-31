@@ -31,27 +31,27 @@ public class CritterStackTests
         a.ShouldBeSameAs(aggregate);
     }
 
-    private static IStepContext EmptyContext()
+    private static IStepContext emptyContext()
         => new SpecExecutionContext("spec", suite: new TestSuite());
 
     [Fact]
     public async Task reset_resolves_marten_resource_and_reports_when_missing()
     {
         await Should.ThrowAsync<InvalidOperationException>(
-            () => EmptyContext().ResetCritterStackAsync());
+            () => emptyContext().ResetCritterStackAsync());
     }
 
     [Fact]
     public async Task execute_aggregate_command_requires_a_marten_resource()
     {
         await Should.ThrowAsync<InvalidOperationException>(
-            () => EmptyContext().ExecuteAggregateCommandAsync<Account>(new object(), Guid.NewGuid()));
+            () => emptyContext().ExecuteAggregateCommandAsync<Account>(new object(), Guid.NewGuid()));
     }
 
     [Fact]
     public async Task wait_for_projection_requires_a_marten_resource()
     {
         await Should.ThrowAsync<InvalidOperationException>(
-            () => EmptyContext().WaitForProjectionAsync<Account>(Guid.NewGuid(), minSequence: 1));
+            () => emptyContext().WaitForProjectionAsync<Account>(Guid.NewGuid(), minSequence: 1));
     }
 }

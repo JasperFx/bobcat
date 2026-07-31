@@ -9,7 +9,7 @@ namespace Bobcat.Supervisor.Tests;
 /// </summary>
 public class SupervisorRecoveryHintTests
 {
-    private static RecoveryHint ClearsOnRetry(string typeName) => new()
+    private static RecoveryHint clearsOnRetry(string typeName) => new()
     {
         FailureTypeName = typeName,
         Kind = DispositionKind.RetryInProcess,
@@ -17,7 +17,7 @@ public class SupervisorRecoveryHintTests
         Source = "run configuration"
     };
 
-    private static Supervisor Supervised(
+    private static Supervisor supervised(
         FakeWorkerFactory factory, params RecoveryHint[] hints)
     {
         var supervisor = new Supervisor(factory)
@@ -39,7 +39,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Error
         };
 
-        var results = await Supervised(factory, ClearsOnRetry("System.TimeoutException")).Run();
+        var results = await supervised(factory, clearsOnRetry("System.TimeoutException")).Run();
 
         var test = results.Tests.Single();
         test.AttemptCount.ShouldBe(2);
@@ -59,7 +59,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Error
         };
 
-        var results = await Supervised(factory, ClearsOnRetry("System.TimeoutException")).Run();
+        var results = await supervised(factory, clearsOnRetry("System.TimeoutException")).Run();
 
         results.Tests.Single().AttemptCount.ShouldBe(2);
     }
@@ -75,7 +75,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, _, _) => WorkerTestState.Error
         };
 
-        var results = await Supervised(factory, ClearsOnRetry("System.TimeoutException")).Run();
+        var results = await supervised(factory, clearsOnRetry("System.TimeoutException")).Run();
 
         results.Tests.Single().AttemptCount.ShouldBe(1);
         results.ExitCode.ShouldBe(1);
@@ -93,7 +93,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Error
         };
 
-        var results = await Supervised(factory, ClearsOnRetry("System.TimeoutException")).Run();
+        var results = await supervised(factory, clearsOnRetry("System.TimeoutException")).Run();
 
         results.Tests.Single().AttemptCount.ShouldBe(1);
     }
@@ -110,7 +110,7 @@ public class SupervisorRecoveryHintTests
 
         var rabbit = new StubRecyclable("rabbit");
 
-        var supervisor = Supervised(factory, new RecoveryHint
+        var supervisor = supervised(factory, new RecoveryHint
         {
             FailureTypeName = "BrokerUnavailableException",
             Kind = DispositionKind.RetryAfterRecycle,
@@ -138,7 +138,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Supervised(factory, new RecoveryHint
+        var results = await supervised(factory, new RecoveryHint
         {
             FailureTypeName = "System.NotSupportedException",
             Kind = DispositionKind.FailAndContinue,
@@ -161,7 +161,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Error
         };
 
-        var results = await Supervised(factory).Run();
+        var results = await supervised(factory).Run();
 
         results.Tests.Single().AttemptCount.ShouldBe(1);
     }
@@ -178,7 +178,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Supervised(factory, new RecoveryHint
+        var results = await supervised(factory, new RecoveryHint
         {
             FailureTypeName = "System.NotSupportedException",
             Kind = DispositionKind.FailAndContinue,
@@ -202,7 +202,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Error
         };
 
-        var results = await Supervised(factory, ClearsOnRetry("System.TimeoutException")).Run();
+        var results = await supervised(factory, clearsOnRetry("System.TimeoutException")).Run();
 
         var hint = System.Text.Json.JsonDocument.Parse(RunReport.ToJson(results)).RootElement
             .GetProperty("tests").EnumerateArray().Single()
@@ -224,7 +224,7 @@ public class SupervisorRecoveryHintTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Supervised(factory).Run();
+        var results = await supervised(factory).Run();
 
         RunReport.ToText(results).ShouldNotContain("Recovery hints");
 

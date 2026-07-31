@@ -15,14 +15,14 @@ namespace Bobcat.Marten.Tests;
 /// </summary>
 public class MartenRecipeIntegrationTests
 {
-    private const string Schema = "bobcat_recipe";
+    private const string schema = "bobcat_recipe";
 
     [PostgresFact]
     public async Task recipe_persists_documents_and_the_spec_reads_them_back()
     {
-        var results = await BuildRunner().RunAll();
+        var results = await buildRunner().RunAll();
 
-        ShouldHaveNoFailures(results);
+        shouldHaveNoFailures(results);
         results.ExitCode.ShouldBe(0);
     }
 
@@ -32,11 +32,11 @@ public class MartenRecipeIntegrationTests
         // Run only the tagged setup scenario, so nothing resets the data afterwards, then read
         // it back through a brand-new store — proving the commit reached Postgres rather than
         // just the writing session's identity map.
-        var results = await BuildRunner().RunAll(tagFilter: "readback");
+        var results = await buildRunner().RunAll(tagFilter: "readback");
 
-        ShouldHaveNoFailures(results);
+        shouldHaveNoFailures(results);
 
-        await using var store = ReadOnlyStore();
+        await using var store = readOnlyStore();
         await using var session = store.QuerySession();
         var customers = (await session.Query<Customer>().ToListAsync())
             .OrderBy(c => c.Name)
@@ -55,7 +55,7 @@ public class MartenRecipeIntegrationTests
     [PostgresFact]
     public async Task the_recipe_session_is_the_one_a_FromScopedService_parameter_gets()
     {
-        await using var resource = HostResource();
+        await using var resource = hostResource();
         await resource.Start();
         await resource.BeginScenarioScope();
 
@@ -71,11 +71,11 @@ public class MartenRecipeIntegrationTests
         await resource.EndScenarioScope();
     }
 
-    private static BobcatRunner BuildRunner()
+    private static BobcatRunner buildRunner()
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Marten_Recipe_Feature.Define());
-        runner.Suite.AddResource(HostResource());
+        runner.Suite.AddResource(hostResource());
 
         return runner;
     }
@@ -85,12 +85,12 @@ public class MartenRecipeIntegrationTests
     /// scenario scope owns it. Documents are cleaned between scenarios — persistent state is
     /// reset before the fresh scope opens over it.
     /// </summary>
-    private static HostResource HostResource()
+    private static HostResource hostResource()
         => new(
             () =>
             {
                 var builder = Host.CreateApplicationBuilder();
-                builder.Services.AddMarten(ConfigureStore);
+                builder.Services.AddMarten(configureStore);
                 return builder.Build();
             },
             reset: async host =>
@@ -99,31 +99,31 @@ public class MartenRecipeIntegrationTests
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();
             });
 
-    private static void ConfigureStore(StoreOptions options)
+    private static void configureStore(StoreOptions options)
     {
         options.Connection(PostgresEnvironment.ConnectionString);
-        options.DatabaseSchemaName = Schema;
+        options.DatabaseSchemaName = schema;
 
         // Host.CreateApplicationBuilder defaults to the Production environment, where AddMarten
         // would otherwise refuse to build schema objects.
         options.AutoCreateSchemaObjects = AutoCreate.All;
     }
 
-    private static IDocumentStore ReadOnlyStore() => DocumentStore.For(ConfigureStore);
+    private static IDocumentStore readOnlyStore() => DocumentStore.For(configureStore);
 
-    private static void ShouldHaveNoFailures(SuiteResults results)
+    private static void shouldHaveNoFailures(SuiteResults results)
     {
         var failed = results.Features
             .SelectMany(f => f.Scenarios)
             .SelectMany(s => s.Results.Steps.Select(step => (s.Title, step)))
             .Where(x => x.step.StepStatus is ResultStatus.failed or ResultStatus.error)
-            .Select(x => $"{x.Title} / {x.step.StepText}: {Describe(x.step)}")
+            .Select(x => $"{x.Title} / {x.step.StepText}: {describe(x.step)}")
             .ToList();
 
         failed.ShouldBeEmpty();
     }
 
-    private static string Describe(StepResult step)
+    private static string describe(StepResult step)
         => step.Exception?.Message
            ?? string.Join("; ", step.Cells
                .Where(c => c.Status != ResultStatus.success && c.Status != ResultStatus.ok)

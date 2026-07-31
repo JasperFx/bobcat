@@ -67,7 +67,7 @@ public class MartenStorageBehavior : IGrammarBehavior
 
         // StoreObjects, not Store<T> — the product arrives as object, and Store<object> would
         // register it under the wrong document type.
-        RequireSession().StoreObjects(new[] { product });
+        requireSession().StoreObjects(new[] { product });
         return default;
     }
 
@@ -87,6 +87,6 @@ public class MartenStorageBehavior : IGrammarBehavior
         return default;
     }
 
-    private IDocumentSession RequireSession() => _session
+    private IDocumentSession requireSession() => _session
         ?? throw new InvalidOperationException("The Marten storage behavior has not been opened.");
 }

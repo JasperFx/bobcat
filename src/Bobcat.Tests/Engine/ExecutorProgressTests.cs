@@ -6,7 +6,7 @@ namespace Bobcat.Tests.Engine;
 
 public class ExecutorProgressTests
 {
-    private static ExecutionPlan PlanWith(IExecutionStep step)
+    private static ExecutionPlan planWith(IExecutionStep step)
     {
         var plan = new ExecutionPlan("spec-1", TimeSpan.FromSeconds(30));
         plan.Add(step);
@@ -27,7 +27,7 @@ public class ExecutorProgressTests
         var observer = new RecordingObserver();
         var executor = new Executor(Array.Empty<IContinuationRule>(), observer);
 
-        await executor.Execute(PlanWith(step), new SpecExecutionContext("spec-1"));
+        await executor.Execute(planWith(step), new SpecExecutionContext("spec-1"));
 
         observer.Progress.Select(x => x.stepId).ShouldAllBe(id => id == "step-1");
         observer.Progress.Select(x => x.update.Message)
@@ -47,7 +47,7 @@ public class ExecutorProgressTests
 
         var observer = new RecordingObserver();
         await new Executor(Array.Empty<IContinuationRule>(), observer)
-            .Execute(PlanWith(step), new SpecExecutionContext("spec-1"));
+            .Execute(planWith(step), new SpecExecutionContext("spec-1"));
 
         // Reporting after the step has ended must not leak onto the observer.
         captured.ShouldNotBeNull();

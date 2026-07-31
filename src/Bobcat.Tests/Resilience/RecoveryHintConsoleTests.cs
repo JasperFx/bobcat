@@ -21,7 +21,7 @@ public class RecoveryHintConsoleTests
 
     public class PlainFixture : Fixture;
 
-    private static async Task<string> Capture(
+    private static async Task<string> capture(
         Type fixtureType, string[] tags, Func<int, Exception?> failure)
     {
         var attempts = 0;
@@ -66,7 +66,7 @@ public class RecoveryHintConsoleTests
     [Fact]
     public async Task a_suppressed_retry_explains_itself_on_the_console()
     {
-        var output = await Capture(
+        var output = await capture(
             typeof(DeterministicFixture), ["retry(3)"], _ => new NotSupportedException("nope"));
 
         output.ShouldContain("recovery hint applied");
@@ -78,7 +78,7 @@ public class RecoveryHintConsoleTests
     [Fact]
     public async Task a_hint_driven_retry_names_the_authors_reason_as_it_retries()
     {
-        var output = await Capture(
+        var output = await capture(
             typeof(BrokerFixture), [], attempt => attempt == 1 ? new TimeoutException() : null);
 
         output.ShouldContain("retrying");
@@ -90,7 +90,7 @@ public class RecoveryHintConsoleTests
     public async Task an_ordinary_failure_says_nothing_about_hints()
     {
         // The line must be earned. Printing it for every failure would make it invisible.
-        var output = await Capture(typeof(PlainFixture), [], _ => new NotSupportedException("nope"));
+        var output = await capture(typeof(PlainFixture), [], _ => new NotSupportedException("nope"));
 
         output.ShouldNotContain("recovery hint");
     }

@@ -10,9 +10,9 @@ namespace Bobcat.Mtp.Tests;
 /// </summary>
 public class TestHostEndToEndTests
 {
-    private static readonly string HostPath = LocateSampleHost();
+    private static readonly string hostPath = locateSampleHost();
 
-    private static string LocateSampleHost()
+    private static string locateSampleHost()
     {
         // Walk up from the test assembly to the src root, then across to the sample host's
         // output for whatever configuration this build used.
@@ -31,16 +31,16 @@ public class TestHostEndToEndTests
         return executable;
     }
 
-    private static async Task<(int ExitCode, string Output)> RunHost(params string[] arguments)
+    private static async Task<(int ExitCode, string Output)> runHost(params string[] arguments)
     {
-        File.Exists(HostPath).ShouldBeTrue($"The sample host was not built at {HostPath}");
+        File.Exists(hostPath).ShouldBeTrue($"The sample host was not built at {hostPath}");
 
-        var info = new ProcessStartInfo(HostPath)
+        var info = new ProcessStartInfo(hostPath)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(HostPath)!
+            WorkingDirectory = Path.GetDirectoryName(hostPath)!
         };
 
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
@@ -58,7 +58,7 @@ public class TestHostEndToEndTests
     [Fact]
     public async Task the_platform_discovers_every_scenario_without_running_it()
     {
-        var (exitCode, output) = await RunHost("--list-tests");
+        var (exitCode, output) = await runHost("--list-tests");
 
         exitCode.ShouldBe(0);
         output.ShouldContain("Arithmetic: addition works");
@@ -74,7 +74,7 @@ public class TestHostEndToEndTests
     [Fact]
     public async Task a_full_run_reports_each_scenario_with_the_right_outcome()
     {
-        var (exitCode, output) = await RunHost();
+        var (exitCode, output) = await runHost();
 
         output.ShouldContain("total: 5");
         output.ShouldContain("succeeded: 3");
@@ -87,7 +87,7 @@ public class TestHostEndToEndTests
     [Fact]
     public async Task a_comparison_failure_reports_expected_and_actual()
     {
-        var (_, output) = await RunHost();
+        var (_, output) = await runHost();
 
         output.ShouldContain("result: expected 4, got 5");
     }
@@ -95,7 +95,7 @@ public class TestHostEndToEndTests
     [Fact]
     public async Task an_escaped_exception_is_reported_with_its_type_and_message()
     {
-        var (_, output) = await RunHost();
+        var (_, output) = await runHost();
 
         output.ShouldContain("System.InvalidOperationException");
         output.ShouldContain("attempted to divide by zero");
@@ -106,7 +106,7 @@ public class TestHostEndToEndTests
     {
         // The lever the #43 spike identified as load-bearing for the supervisor: selective
         // re-run and [Isolated] scheduling both depend on this working against a Bobcat host.
-        var (exitCode, output) = await RunHost("--filter-uid", "Arithmetic/addition works");
+        var (exitCode, output) = await runHost("--filter-uid", "Arithmetic/addition works");
 
         exitCode.ShouldBe(0);
         output.ShouldContain("total: 1");
@@ -116,7 +116,7 @@ public class TestHostEndToEndTests
     [Fact]
     public async Task a_uid_filter_selecting_a_failing_scenario_runs_only_that_one()
     {
-        var (exitCode, output) = await RunHost("--filter-uid", "Arithmetic/subtraction disagrees");
+        var (exitCode, output) = await runHost("--filter-uid", "Arithmetic/subtraction disagrees");
 
         exitCode.ShouldNotBe(0);
         output.ShouldContain("total: 1");
@@ -128,14 +128,14 @@ public class TestHostEndToEndTests
     {
         // A supervisor retries by uid in a later process. If identity drifted between runs the
         // retry would target the wrong test — or nothing at all.
-        var first = await RunHost("--list-tests");
-        var second = await RunHost("--list-tests");
+        var first = await runHost("--list-tests");
+        var second = await runHost("--list-tests");
 
-        ScenarioLines(first.Output).ShouldBe(ScenarioLines(second.Output));
-        ScenarioLines(first.Output).ShouldNotBeEmpty();
+        scenarioLines(first.Output).ShouldBe(scenarioLines(second.Output));
+        scenarioLines(first.Output).ShouldNotBeEmpty();
     }
 
-    private static List<string> ScenarioLines(string output)
+    private static List<string> scenarioLines(string output)
         => output.Split('\n')
             .Select(line => line.Trim())
             .Where(line => line.StartsWith("Arithmetic:") || line.StartsWith("Inventory:"))

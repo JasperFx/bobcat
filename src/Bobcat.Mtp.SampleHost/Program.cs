@@ -14,33 +14,33 @@ public static class Program
     public static Task<int> Main(string[] args)
         => BobcatTestApplication.Run(args, runner =>
         {
-            runner.AddFeature(Arithmetic());
-            runner.AddFeature(Inventory());
+            runner.AddFeature(arithmetic());
+            runner.AddFeature(inventory());
         });
 
     public class SampleFixture : Fixture;
 
-    private static FeatureDefinition Arithmetic() => new(
+    private static FeatureDefinition arithmetic() => new(
         "Arithmetic", typeof(SampleFixture),
         [
-            Scenario("addition works", [], _ => { }),
-            Scenario("subtraction disagrees", [],
+            scenario("addition works", [], _ => { }),
+            scenario("subtraction disagrees", [],
                 result => result.MarkCells(new CellResult("result", ResultStatus.failed)
                 {
                     Expected = "4", Actual = "5"
                 })),
-            Scenario("division explodes", [],
+            scenario("division explodes", [],
                 _ => throw new InvalidOperationException("attempted to divide by zero"))
         ]);
 
-    private static FeatureDefinition Inventory() => new(
+    private static FeatureDefinition inventory() => new(
         "Inventory", typeof(SampleFixture),
         [
-            Scenario("stock is counted", ["regression"], _ => { }),
-            Scenario("restock is flaky", ["isolated", "recycle(rabbit)"], _ => { })
+            scenario("stock is counted", ["regression"], _ => { }),
+            scenario("restock is flaky", ["isolated", "recycle(rabbit)"], _ => { })
         ]);
 
-    private static ScenarioDefinition Scenario(string title, string[] tags, Action<StepResult> body)
+    private static ScenarioDefinition scenario(string title, string[] tags, Action<StepResult> body)
         => new(title, tags, (_, plan) =>
             plan.Add(new DelegateExecutionStep("step-1", StepKind.Then, title, (_, result, _) =>
             {
