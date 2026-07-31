@@ -11,7 +11,7 @@ namespace Bobcat.Rendering;
 /// </summary>
 public static class JsonRenderer
 {
-    private static readonly JsonSerializerOptions Options = new()
+    private static readonly JsonSerializerOptions options = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -24,45 +24,45 @@ public static class JsonRenderer
         var output = new JsonSuiteOutput
         {
             ExitCode = results.ExitCode,
-            Counts = CountsToJson(results.Counts),
-            Features = results.Features.Select(RenderFeature).ToList()
+            Counts = countsToJson(results.Counts),
+            Features = results.Features.Select(renderFeature).ToList()
         };
 
-        return JsonSerializer.Serialize(output, Options);
+        return JsonSerializer.Serialize(output, options);
     }
 
     public static string RenderScenario(SpecRender spec)
     {
-        return JsonSerializer.Serialize(SpecToJson(spec), Options);
+        return JsonSerializer.Serialize(specToJson(spec), options);
     }
 
-    private static JsonFeatureOutput RenderFeature(FeatureResults feature)
+    private static JsonFeatureOutput renderFeature(FeatureResults feature)
     {
         return new JsonFeatureOutput
         {
             Title = feature.Title,
-            Counts = CountsToJson(feature.Counts),
+            Counts = countsToJson(feature.Counts),
             HasRegressionFailure = feature.HasRegressionFailure,
             WasCatastrophic = feature.WasCatastrophic,
-            Scenarios = feature.Scenarios.Select(s => SpecToJson(
+            Scenarios = feature.Scenarios.Select(s => specToJson(
                 SpecRender.FromResults(s.Title, s.Results, feature.Title))).ToList()
         };
     }
 
-    private static JsonScenarioOutput SpecToJson(SpecRender spec)
+    private static JsonScenarioOutput specToJson(SpecRender spec)
     {
         return new JsonScenarioOutput
         {
             Title = spec.Title,
             Feature = spec.FeatureTitle,
             Succeeded = spec.Succeeded,
-            Counts = CountsToJson(spec.Counts),
+            Counts = countsToJson(spec.Counts),
             DurationMs = spec.DurationMs,
-            Steps = spec.Steps.Select(StepToJson).ToList()
+            Steps = spec.Steps.Select(stepToJson).ToList()
         };
     }
 
-    private static JsonStepOutput StepToJson(StepRender step)
+    private static JsonStepOutput stepToJson(StepRender step)
     {
         return new JsonStepOutput
         {
@@ -77,13 +77,13 @@ public static class JsonRenderer
             Logs = step.Logs.Count > 0 ? step.Logs : null,
             Diagnostics = step.Diagnostics.Count > 0 ? step.Diagnostics : null,
             Cells = step.Cells.Count > 0
-                ? step.Cells.Select(c => CellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                ? step.Cells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
                 : null,
-            SetVerification = step.SetVerification != null ? SvToJson(step.SetVerification) : null
+            SetVerification = step.SetVerification != null ? svToJson(step.SetVerification) : null
         };
     }
 
-    private static JsonSetVerificationOutput SvToJson(SetVerificationRender sv)
+    private static JsonSetVerificationOutput svToJson(SetVerificationRender sv)
     {
         var rows = new List<JsonSvRowOutput>();
         var rowIndex = 0;
@@ -94,7 +94,7 @@ public static class JsonRenderer
                 Row = rowIndex,
                 Type = r.RowType.ToString(),
                 Cells = r.Cells.Count > 0
-                    ? r.Cells.Select(c => CellToJson(c.Column, rowIndex, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                    ? r.Cells.Select(c => cellToJson(c.Column, rowIndex, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
                     : null,
                 Description = r.Description
             });
@@ -112,7 +112,7 @@ public static class JsonRenderer
     /// Build the AI-optimized structured cell. Emits expected/actual/note when the cell
     /// carried a typed comparison; falls back to a plain value for input/echo cells.
     /// </summary>
-    private static JsonCellOutput CellToJson(string column, int? row, ResultStatus status,
+    private static JsonCellOutput cellToJson(string column, int? row, ResultStatus status,
         string? expected, string? actual, string? note, string displayText)
     {
         var hasStructured = expected != null || actual != null;
@@ -128,7 +128,7 @@ public static class JsonRenderer
         };
     }
 
-    private static JsonCountsOutput CountsToJson(Counts counts)
+    private static JsonCountsOutput countsToJson(Counts counts)
     {
         return new JsonCountsOutput
         {

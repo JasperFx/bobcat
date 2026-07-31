@@ -18,13 +18,13 @@ public class BobcatGenerator : IIncrementalGenerator
         // 1. Collect .feature files
         var featureFiles = context.AdditionalTextsProvider
             .Where(file => file.Path.EndsWith(".feature", StringComparison.OrdinalIgnoreCase))
-            .Select((file, ct) => ParseFeatureFile(file.Path, file.GetText(ct)?.ToString() ?? ""));
+            .Select((file, ct) => parseFeatureFile(file.Path, file.GetText(ct)?.ToString() ?? ""));
 
         // 2. Collect fixture classes (any class inheriting from Bobcat.Fixture)
         var fixtureClasses = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.BaseList != null,
-                transform: (ctx, ct) => ExtractFixtureInfo(ctx, ct))
+                transform: (ctx, ct) => extractFixtureInfo(ctx, ct))
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -32,7 +32,7 @@ public class BobcatGenerator : IIncrementalGenerator
         var tableGrammars = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.AttributeLists.Count > 0,
-                transform: (ctx, ct) => ExtractTableGrammar(ctx, ct))
+                transform: (ctx, ct) => extractTableGrammar(ctx, ct))
             .Where(g => g != null)
             .Select((g, _) => g!);
 
@@ -52,7 +52,7 @@ public class BobcatGenerator : IIncrementalGenerator
             {
                 if (feature == null) continue;
 
-                var fixture = FindFixture(feature, fixtures);
+                var fixture = findFixture(feature, fixtures);
                 if (fixture == null)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
@@ -64,9 +64,9 @@ public class BobcatGenerator : IIncrementalGenerator
 
                 try
                 {
-                    if (!ValidateHooks(fixture, spc)) continue;
+                    if (!validateHooks(fixture, spc)) continue;
 
-                    var matched = MatchScenarios(feature, fixture, grammars, spc);
+                    var matched = matchScenarios(feature, fixture, grammars, spc);
                     if (matched == null) continue;
 
                     var source = CodeEmitter.EmitFeature(feature, fixture, matched);
@@ -84,19 +84,19 @@ public class BobcatGenerator : IIncrementalGenerator
         });
     }
 
-    private static FeatureInfo? ParseFeatureFile(string path, string content)
+    private static FeatureInfo? parseFeatureFile(string path, string content)
     {
         return SimpleGherkinParser.Parse(content, path);
     }
 
-    private static FixtureInfo? ExtractFixtureInfo(GeneratorSyntaxContext ctx, CancellationToken ct)
+    private static FixtureInfo? extractFixtureInfo(GeneratorSyntaxContext ctx, CancellationToken ct)
     {
         var classDecl = (ClassDeclarationSyntax)ctx.Node;
         var symbol = ctx.SemanticModel.GetDeclaredSymbol(classDecl, ct) as INamedTypeSymbol;
         if (symbol == null) return null;
 
         // Check if it inherits from Bobcat.Fixture
-        if (!InheritsFrom(symbol, "Bobcat.Fixture")) return null;
+        if (!inheritsFrom(symbol, "Bobcat.Fixture")) return null;
 
         // Don't generate for the base Fixture class itself
         if (symbol.IsAbstract) return null;
@@ -105,7 +105,7 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             ClassName = symbol.Name,
             Namespace = symbol.ContainingNamespace.ToDisplayString(),
-            FullyQualifiedName = Qualified(symbol),
+            FullyQualifiedName = qualified(symbol),
         };
 
         // Check for [FixtureTitle]
@@ -121,20 +121,20 @@ public class BobcatGenerator : IIncrementalGenerator
             var name = symbol.Name;
             if (name.EndsWith("Fixture"))
                 name = name.Substring(0, name.Length - 7);
-            info.Title = DeriveTitle(name);
+            info.Title = deriveTitle(name);
         }
 
         // Collect step methods and lifecycle hooks
         foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
         {
-            var stepMethod = ExtractStepMethod(member);
+            var stepMethod = extractStepMethod(member);
             if (stepMethod != null)
             {
                 info.StepMethods.Add(stepMethod);
                 continue;
             }
 
-            var hook = ExtractHook(member);
+            var hook = extractHook(member);
             if (hook != null)
             {
                 info.Hooks.Add(hook);
@@ -152,7 +152,7 @@ public class BobcatGenerator : IIncrementalGenerator
                 foreach (var typeConstant in arg.Values)
                 {
                     if (typeConstant.Value is INamedTypeSymbol moduleSymbol)
-                        info.Modules.Add(ExtractModuleInfo(moduleSymbol));
+                        info.Modules.Add(extractModuleInfo(moduleSymbol));
                 }
             }
         }
@@ -160,17 +160,17 @@ public class BobcatGenerator : IIncrementalGenerator
         return info;
     }
 
-    private static ModuleInfo ExtractModuleInfo(INamedTypeSymbol moduleSymbol)
+    private static ModuleInfo extractModuleInfo(INamedTypeSymbol moduleSymbol)
     {
         var module = new ModuleInfo
         {
-            FullyQualifiedName = Qualified(moduleSymbol),
-            IsFixture = InheritsFrom(moduleSymbol, "Bobcat.Fixture"),
+            FullyQualifiedName = qualified(moduleSymbol),
+            IsFixture = inheritsFrom(moduleSymbol, "Bobcat.Fixture"),
         };
 
         foreach (var member in moduleSymbol.GetMembers().OfType<IMethodSymbol>())
         {
-            var stepMethod = ExtractStepMethod(member);
+            var stepMethod = extractStepMethod(member);
             if (stepMethod != null)
             {
                 stepMethod.DeclaringModule = module.FullyQualifiedName;
@@ -181,7 +181,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return module;
     }
 
-    private static StepMethodInfo? ExtractStepMethod(IMethodSymbol method)
+    private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
     {
         string? expression = null;
         string? kind = null;
@@ -197,7 +197,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
         if (expression == null || kind == null) return null;
 
-        var (returnType, qualifiedReturnType, isAwaitable) = UnwrapReturnType(method.ReturnType);
+        var (returnType, qualifiedReturnType, isAwaitable) = unwrapReturnType(method.ReturnType);
 
         var info = new StepMethodInfo
         {
@@ -243,11 +243,11 @@ public class BobcatGenerator : IIncrementalGenerator
                     break;
                 case "NewScopeAttribute":
                     info.NewScope = true;
-                    info.ScopeResourceName ??= NamedString(attr, "Resource");
+                    info.ScopeResourceName ??= namedString(attr, "Resource");
                     break;
                 case "ScopePerRowAttribute":
                     info.ScopePerRow = true;
-                    info.ScopeResourceName ??= NamedString(attr, "Resource");
+                    info.ScopeResourceName ??= namedString(attr, "Resource");
                     break;
             }
         }
@@ -275,7 +275,7 @@ public class BobcatGenerator : IIncrementalGenerator
     /// Discover a lifecycle hook: an attribute wins, otherwise the method name decides.
     /// Wolverine-style — convention first, attribute only as the override.
     /// </summary>
-    private static HookMethodInfo? ExtractHook(IMethodSymbol method)
+    private static HookMethodInfo? extractHook(IMethodSymbol method)
     {
         HookKind? kind = null;
 
@@ -292,7 +292,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
         if (kind == null)
         {
-            switch (StripAsync(method.Name))
+            switch (stripAsync(method.Name))
             {
                 case "BeforeEach": kind = HookKind.BeforeEach; break;
                 case "AfterEach": kind = HookKind.AfterEach; break;
@@ -302,7 +302,7 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         }
 
-        var (_, _, isAwaitable) = UnwrapReturnType(method.ReturnType);
+        var (_, _, isAwaitable) = unwrapReturnType(method.ReturnType);
 
         var hook = new HookMethodInfo
         {
@@ -320,7 +320,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return hook;
     }
 
-    private static string StripAsync(string name)
+    private static string stripAsync(string name)
         => name.EndsWith("Async", StringComparison.Ordinal) && name.Length > 5
             ? name.Substring(0, name.Length - 5)
             : name;
@@ -330,7 +330,7 @@ public class BobcatGenerator : IIncrementalGenerator
     /// there is a compile error rather than a runtime surprise. Also catches hooks that
     /// take a value the Gherkin can't supply, and BeforeAll/AfterAll declared non-static.
     /// </summary>
-    private static bool ValidateHooks(FixtureInfo fixture, SourceProductionContext spc)
+    private static bool validateHooks(FixtureInfo fixture, SourceProductionContext spc)
     {
         var ok = true;
 
@@ -391,7 +391,7 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             Name = param.Name,
             Type = param.Type.ToDisplayString(),
-            QualifiedType = Qualified(param.Type),
+            QualifiedType = qualified(param.Type),
             IsOut = param.RefKind == RefKind.Out,
             IsSimpleType = IsSimpleType(param.Type),
         };
@@ -402,18 +402,18 @@ public class BobcatGenerator : IIncrementalGenerator
             {
                 case "FromScopedServiceAttribute":
                     info.Binding = ParameterBinding.ScopedService;
-                    info.ResourceName = PositionalOrNamedString(attr, "Resource");
+                    info.ResourceName = positionalOrNamedString(attr, "Resource");
                     break;
                 case "FromRootServiceAttribute":
                     info.Binding = ParameterBinding.RootService;
-                    info.ResourceName = PositionalOrNamedString(attr, "Resource");
+                    info.ResourceName = positionalOrNamedString(attr, "Resource");
                     break;
                 case "FromKeyedServicesAttribute":
                     info.Binding = ParameterBinding.KeyedService;
                     info.ServiceKey = attr.ConstructorArguments.Length > 0
                         ? attr.ConstructorArguments[0].Value?.ToString()
                         : null;
-                    info.ResourceName = NamedString(attr, "Resource");
+                    info.ResourceName = namedString(attr, "Resource");
                     break;
             }
         }
@@ -429,7 +429,7 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Binding = ParameterBinding.StepContext;
             info.IsExplicitlyInjected = true;
         }
-        else if (ImplementsInterface(param.Type, "Bobcat.Runtime.ITestResource"))
+        else if (implementsInterface(param.Type, "Bobcat.Runtime.ITestResource"))
         {
             info.Binding = ParameterBinding.Resource;
             info.IsExplicitlyInjected = true;
@@ -443,7 +443,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return info;
     }
 
-    private static bool ImplementsInterface(ITypeSymbol type, string interfaceName)
+    private static bool implementsInterface(ITypeSymbol type, string interfaceName)
     {
         if (type.ToDisplayString() == interfaceName) return true;
 
@@ -505,20 +505,20 @@ public class BobcatGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string? PositionalOrNamedString(AttributeData attr, string namedKey)
+    private static string? positionalOrNamedString(AttributeData attr, string namedKey)
         => (attr.ConstructorArguments.Length > 0 ? attr.ConstructorArguments[0].Value?.ToString() : null)
-           ?? NamedString(attr, namedKey);
+           ?? namedString(attr, namedKey);
 
-    private static string? NamedString(AttributeData attr, string key)
+    private static string? namedString(AttributeData attr, string key)
         => attr.NamedArguments.FirstOrDefault(a => a.Key == key).Value.Value?.ToString();
 
-    private static FixtureInfo? FindFixture(FeatureInfo feature, ImmutableArray<FixtureInfo> fixtures)
+    private static FixtureInfo? findFixture(FeatureInfo feature, ImmutableArray<FixtureInfo> fixtures)
     {
         return fixtures.FirstOrDefault(f =>
             string.Equals(f.Title, feature.Title, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static List<MatchedScenario>? MatchScenarios(FeatureInfo feature, FixtureInfo fixture,
+    private static List<MatchedScenario>? matchScenarios(FeatureInfo feature, FixtureInfo fixture,
         ImmutableArray<TableGrammarInfo> grammars, SourceProductionContext spc)
     {
         var matched = new List<MatchedScenario>();
@@ -594,7 +594,7 @@ public class BobcatGenerator : IIncrementalGenerator
     /// Build the compile-time model for a <c>[TableGrammar]</c> class, discovering its
     /// <c>Before</c>/<c>Row</c>/<c>After</c> methods by convention (attributes override).
     /// </summary>
-    private static TableGrammarInfo? ExtractTableGrammar(GeneratorSyntaxContext ctx, CancellationToken ct)
+    private static TableGrammarInfo? extractTableGrammar(GeneratorSyntaxContext ctx, CancellationToken ct)
     {
         var classDecl = (ClassDeclarationSyntax)ctx.Node;
         if (ctx.SemanticModel.GetDeclaredSymbol(classDecl, ct) is not INamedTypeSymbol symbol) return null;
@@ -603,7 +603,7 @@ public class BobcatGenerator : IIncrementalGenerator
         var info = new TableGrammarInfo
         {
             ClassName = symbol.Name,
-            FullyQualifiedName = Qualified(symbol),
+            FullyQualifiedName = qualified(symbol),
         };
 
         var isTableGrammar = false;
@@ -619,7 +619,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     break;
                 case "ScopePerRowAttribute":
                     info.ScopePerRow = true;
-                    info.ScopeResourceName = NamedString(attr, "Resource");
+                    info.ScopeResourceName = namedString(attr, "Resource");
                     break;
                 case "ApproxAttribute":
                     if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is double tol)
@@ -629,10 +629,10 @@ public class BobcatGenerator : IIncrementalGenerator
 
             // A persistence recipe announces itself by deriving from GrammarBehaviorAttribute.
             // That is all the generator ever knows about it.
-            if (attr.AttributeClass != null && DerivesFrom(attr.AttributeClass, "Bobcat.Runtime.GrammarBehaviorAttribute"))
+            if (attr.AttributeClass != null && derivesFrom(attr.AttributeClass, "Bobcat.Runtime.GrammarBehaviorAttribute"))
             {
                 info.HasRecipe = true;
-                info.RecipeEntity = ExtractRecipeEntity(attr);
+                info.RecipeEntity = extractRecipeEntity(attr);
             }
         }
 
@@ -642,10 +642,10 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             if (member.MethodKind != MethodKind.Ordinary) continue;
 
-            var role = TableGrammarRole(member);
+            var role = tableGrammarRole(member);
             if (role == null) continue;
 
-            var (returnType, qualifiedReturnType, isAwaitable) = UnwrapReturnType(member.ReturnType);
+            var (returnType, qualifiedReturnType, isAwaitable) = unwrapReturnType(member.ReturnType);
             var grammarMethod = new GrammarMethodInfo
             {
                 MethodName = member.Name,
@@ -671,7 +671,7 @@ public class BobcatGenerator : IIncrementalGenerator
                         var colArg = attr.ConstructorArguments.Length > 0
                             ? attr.ConstructorArguments[0].Value?.ToString()
                             : null;
-                        info.RowExpectedColumn = colArg ?? NamedString(attr, "Column");
+                        info.RowExpectedColumn = colArg ?? namedString(attr, "Column");
                     }
                     break;
             }
@@ -693,7 +693,7 @@ public class BobcatGenerator : IIncrementalGenerator
     /// The recipe's entity type: the attribute's single type argument (<c>[MartenEntities&lt;Customer&gt;]</c>)
     /// or a <c>typeof(...)</c> constructor argument. Absent means the entity comes from Row's return.
     /// </summary>
-    private static EntityTypeInfo? ExtractRecipeEntity(AttributeData attr)
+    private static EntityTypeInfo? extractRecipeEntity(AttributeData attr)
     {
         INamedTypeSymbol? entity = null;
 
@@ -710,18 +710,18 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         }
 
-        return entity == null ? null : DescribeEntityType(entity);
+        return entity == null ? null : describeEntityType(entity);
     }
 
     /// <summary>
     /// Capture the constructors and settable properties columns can bind to. Records land here
     /// as their primary constructor, which is why ctor binding comes first.
     /// </summary>
-    private static EntityTypeInfo DescribeEntityType(INamedTypeSymbol entity)
+    private static EntityTypeInfo describeEntityType(INamedTypeSymbol entity)
     {
         var info = new EntityTypeInfo
         {
-            FullyQualifiedName = Qualified(entity),
+            FullyQualifiedName = qualified(entity),
             Name = entity.Name,
         };
 
@@ -750,7 +750,7 @@ public class BobcatGenerator : IIncrementalGenerator
             {
                 Name = member.Name,
                 Type = member.Type.ToDisplayString(),
-                QualifiedType = Qualified(member.Type),
+                QualifiedType = qualified(member.Type),
                 IsSimpleType = IsSimpleType(member.Type),
             });
         }
@@ -758,7 +758,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return info;
     }
 
-    private static bool DerivesFrom(INamedTypeSymbol symbol, string baseTypeName)
+    private static bool derivesFrom(INamedTypeSymbol symbol, string baseTypeName)
     {
         var current = symbol.BaseType;
         while (current != null)
@@ -769,7 +769,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string? TableGrammarRole(IMethodSymbol method)
+    private static string? tableGrammarRole(IMethodSymbol method)
     {
         foreach (var attr in method.GetAttributes())
         {
@@ -781,7 +781,7 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         }
 
-        switch (StripAsync(method.Name))
+        switch (stripAsync(method.Name))
         {
             case "Before": return "Before";
             case "Row": return "Row";
@@ -794,7 +794,7 @@ public class BobcatGenerator : IIncrementalGenerator
     /// Returns the effective return type (Task/ValueTask unwrapped to their argument, or
     /// "void" for void/Task/ValueTask) and whether the method is awaitable.
     /// </summary>
-    private static (string ReturnType, string QualifiedReturnType, bool IsAwaitable) UnwrapReturnType(ITypeSymbol returnType)
+    private static (string ReturnType, string QualifiedReturnType, bool IsAwaitable) unwrapReturnType(ITypeSymbol returnType)
     {
         if (returnType.SpecialType == SpecialType.System_Void)
             return ("void", "void", false);
@@ -807,23 +807,23 @@ public class BobcatGenerator : IIncrementalGenerator
                 if (named.TypeArguments.Length == 1)
                 {
                     var arg = named.TypeArguments[0];
-                    return (arg.ToDisplayString(), Qualified(arg), true);
+                    return (arg.ToDisplayString(), qualified(arg), true);
                 }
                 return ("void", "void", true); // non-generic Task/ValueTask
             }
         }
 
-        return (returnType.ToDisplayString(), Qualified(returnType), false);
+        return (returnType.ToDisplayString(), qualified(returnType), false);
     }
 
     /// <summary>
     /// The <c>global::</c>-qualified name of a type. Generated code lives in the fixture's own
     /// namespace, so an unqualified name can bind to a different type than the author meant.
     /// </summary>
-    private static string Qualified(ITypeSymbol type)
+    private static string qualified(ITypeSymbol type)
         => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-    private static bool InheritsFrom(INamedTypeSymbol symbol, string baseTypeName)
+    private static bool inheritsFrom(INamedTypeSymbol symbol, string baseTypeName)
     {
         var current = symbol.BaseType;
         while (current != null)
@@ -835,7 +835,7 @@ public class BobcatGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string DeriveTitle(string name)
+    private static string deriveTitle(string name)
     {
         var sb = new StringBuilder();
         for (var i = 0; i < name.Length; i++)

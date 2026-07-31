@@ -54,7 +54,7 @@ public static class WaitForRunner
                 if (last.Success)
                 {
                     var note = $"converged after {sw.ElapsedMilliseconds}ms ({attempts} polls)";
-                    MarkCells(result, last.Cells, note, "waitFor", ResultStatus.success);
+                    markCells(result, last.Cells, note, "waitFor", ResultStatus.success);
                     result.MarkSuccess();
                     return;
                 }
@@ -76,7 +76,7 @@ public static class WaitForRunner
                     note += $"; last error: {lastException.Message}";
 
                 if (haveLast && last.Cells.Length > 0)
-                    MarkCells(result, last.Cells, note, "waitFor", ResultStatus.failed);
+                    markCells(result, last.Cells, note, "waitFor", ResultStatus.failed);
                 else
                     result.MarkCells(new CellResult("waitFor", ResultStatus.failed) { Note = note });
 
@@ -86,7 +86,7 @@ public static class WaitForRunner
 
             // Non-converged, not yet timed out: surface the latest value live so the step's row
             // animates during a long poll instead of freezing between StepStarted and StepFinished.
-            ReportAttempt(progress, attempts, sw.ElapsedMilliseconds, last, haveLast, lastException);
+            reportAttempt(progress, attempts, sw.ElapsedMilliseconds, last, haveLast, lastException);
 
             try
             {
@@ -99,7 +99,7 @@ public static class WaitForRunner
         }
     }
 
-    private static void ReportAttempt(IStepContext? progress, int attempts, long elapsedMs,
+    private static void reportAttempt(IStepContext? progress, int attempts, long elapsedMs,
         WaitAttempt last, bool haveLast, Exception? lastException)
     {
         if (progress == null) return;
@@ -113,12 +113,12 @@ public static class WaitForRunner
         }
 
         var cells = haveLast ? last.Cells : System.Array.Empty<CellResult>();
-        var value = DescribeLast(cells);
+        var value = describeLast(cells);
         var message = value == null ? prefix : $"{prefix}; last value {value}";
         progress.ReportProgress(new StepUpdate(message) { Cells = cells });
     }
 
-    private static string? DescribeLast(CellResult[] cells)
+    private static string? describeLast(CellResult[] cells)
     {
         if (cells.Length == 0) return null;
         if (cells.Length == 1) return cells[0].Actual ?? cells[0].DisplayText;
@@ -130,7 +130,7 @@ public static class WaitForRunner
         return string.Join(", ", parts);
     }
 
-    private static void MarkCells(StepResult result, CellResult[] cells, string note,
+    private static void markCells(StepResult result, CellResult[] cells, string note,
         string synthName, ResultStatus synthStatus)
     {
         if (cells.Length == 0)

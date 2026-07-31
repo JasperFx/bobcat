@@ -9,7 +9,7 @@ namespace Bobcat.Mtp.Tests;
 
 public class SpecNodeMappingTests
 {
-    private static ScenarioResult Result(
+    private static ScenarioResult result(
         Action<ExecutionResults> build,
         string[]? tags = null,
         IReadOnlyList<AttemptRecord>? attempts = null)
@@ -23,14 +23,14 @@ public class SpecNodeMappingTests
         };
     }
 
-    private static void Passing(ExecutionResults results)
+    private static void passing(ExecutionResults results)
     {
         var step = results.StartStep("s1", 0);
         step.MarkSuccess();
         results.Counts.Rights++;
     }
 
-    private static void FailingComparison(ExecutionResults results)
+    private static void failingComparison(ExecutionResults results)
     {
         var step = results.StartStep("s1", 0);
         step.StepText = "the total should be 4";
@@ -42,7 +42,7 @@ public class SpecNodeMappingTests
         results.Counts.Wrongs++;
     }
 
-    private static void Throwing(ExecutionResults results)
+    private static void throwing(ExecutionResults results)
     {
         var step = results.StartStep("s1", 0);
         step.StepText = "the service is called";
@@ -85,7 +85,7 @@ public class SpecNodeMappingTests
     [Fact]
     public void a_passing_scenario_maps_to_the_passed_state()
     {
-        SpecNodeMapping.StateFor(Result(Passing)).ShouldBeOfType<PassedTestNodeStateProperty>();
+        SpecNodeMapping.StateFor(result(passing)).ShouldBeOfType<PassedTestNodeStateProperty>();
     }
 
     [Fact]
@@ -93,14 +93,14 @@ public class SpecNodeMappingTests
     {
         // The failed/error split is what a supervisor's Disposition policy keys off, so Bobcat
         // has to honour it rather than reporting everything as one kind of failure.
-        SpecNodeMapping.StateFor(Result(FailingComparison))
+        SpecNodeMapping.StateFor(result(failingComparison))
             .ShouldBeOfType<FailedTestNodeStateProperty>();
     }
 
     [Fact]
     public void an_escaped_exception_maps_to_error_and_keeps_the_original_exception()
     {
-        var state = SpecNodeMapping.StateFor(Result(Throwing)).ShouldBeOfType<ErrorTestNodeStateProperty>();
+        var state = SpecNodeMapping.StateFor(result(throwing)).ShouldBeOfType<ErrorTestNodeStateProperty>();
 
         state.Exception.ShouldBeOfType<InvalidOperationException>();
         state.Exception!.Message.ShouldBe("boom");
@@ -109,7 +109,7 @@ public class SpecNodeMappingTests
     [Fact]
     public void a_comparison_failure_carries_expected_and_actual_in_its_message()
     {
-        var state = SpecNodeMapping.StateFor(Result(FailingComparison)).ShouldBeOfType<FailedTestNodeStateProperty>();
+        var state = SpecNodeMapping.StateFor(result(failingComparison)).ShouldBeOfType<FailedTestNodeStateProperty>();
 
         // Cells hold the comparison result even though the step's own status is 'success' —
         // the executor marks a step successful whenever it completed without throwing.
@@ -119,7 +119,7 @@ public class SpecNodeMappingTests
     [Fact]
     public void outcome_metadata_records_a_pass_on_retry_rather_than_hiding_it_in_the_pass_state()
     {
-        var result = Result(Passing, attempts:
+        var result = SpecNodeMappingTests.result(passing, attempts:
         [
             new AttemptRecord(1, false, Disposition.RetryInProcess("flaky")),
             new AttemptRecord(2, true, Disposition.Pass)
@@ -137,7 +137,7 @@ public class SpecNodeMappingTests
     [Fact]
     public void a_clean_pass_carries_no_attempt_count()
     {
-        var metadata = SpecNodeMapping.OutcomeMetadata(Result(Passing)).ToList();
+        var metadata = SpecNodeMapping.OutcomeMetadata(result(passing)).ToList();
 
         metadata.ShouldContain(m => m.Key == "bobcat.outcome" && m.Value == nameof(RunOutcome.CleanPass));
         metadata.ShouldNotContain(m => m.Key == "bobcat.attempts");
@@ -146,7 +146,7 @@ public class SpecNodeMappingTests
     [Fact]
     public void an_unhonoured_disposition_is_surfaced_as_metadata()
     {
-        var result = Result(FailingComparison, attempts:
+        var result = SpecNodeMappingTests.result(failingComparison, attempts:
         [
             new AttemptRecord(1, false, Disposition.RetryInFreshProcess("isolated"))
             {

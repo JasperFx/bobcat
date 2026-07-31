@@ -148,7 +148,7 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
 
     public async Task Start()
     {
-        var configure = ComposeConfigure();
+        var configure = composeConfigure();
         try
         {
             _albaHost = configure != null
@@ -161,7 +161,7 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
         }
     }
 
-    private Action<IWebHostBuilder>? ComposeConfigure()
+    private Action<IWebHostBuilder>? composeConfigure()
     {
         if (_contentRoot == null) return _configure;
 

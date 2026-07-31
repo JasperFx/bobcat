@@ -69,7 +69,7 @@ public sealed class FailureSignature
     {
         for (var i = 0; i < TypeNames.Count; i++)
         {
-            if (SameType(TypeNames[i], typeName)) return i;
+            if (sameType(TypeNames[i], typeName)) return i;
         }
 
         return -1;
@@ -82,11 +82,11 @@ public sealed class FailureSignature
     /// may report only <c>TimeoutException</c> where the hint holds
     /// <c>System.TimeoutException</c> — when their simple names do.
     /// </summary>
-    private static bool SameType(string left, string right)
+    private static bool sameType(string left, string right)
         => string.Equals(left, right, StringComparison.Ordinal)
-           || string.Equals(SimpleName(left), SimpleName(right), StringComparison.Ordinal);
+           || string.Equals(simpleName(left), simpleName(right), StringComparison.Ordinal);
 
-    private static string SimpleName(string typeName)
+    private static string simpleName(string typeName)
     {
         var lastDot = typeName.LastIndexOf('.');
         return lastDot >= 0 && lastDot < typeName.Length - 1 ? typeName[(lastDot + 1)..] : typeName;

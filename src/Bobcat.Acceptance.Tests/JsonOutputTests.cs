@@ -6,7 +6,7 @@ namespace Bobcat.Acceptance.Tests;
 
 public class JsonOutputTests
 {
-    private static async Task<JsonElement> RenderJson(string feature, string scenario, Func<Runtime.FeatureDefinition> define)
+    private static async Task<JsonElement> renderJson(string feature, string scenario, Func<Runtime.FeatureDefinition> define)
     {
         var results = await Specs.Run(define(), scenario);
         var spec = SpecRender.FromResults(scenario, results, feature);
@@ -17,7 +17,7 @@ public class JsonOutputTests
     [Fact]
     public async Task scalar_return_value_failure_is_structured()
     {
-        var root = await RenderJson("Return Value", "Addition fails", Return_Value_Feature.Define);
+        var root = await renderJson("Return Value", "Addition fails", Return_Value_Feature.Define);
 
         var step = root.GetProperty("steps").EnumerateArray().Single();
         step.GetProperty("status").GetString().ShouldBe("failed");
@@ -34,7 +34,7 @@ public class JsonOutputTests
     [Fact]
     public async Task decision_table_failure_carries_row_and_column()
     {
-        var root = await RenderJson("Decision Table", "Return-value column has a discrepancy", Decision_Table_Feature.Define);
+        var root = await renderJson("Decision Table", "Return-value column has a discrepancy", Decision_Table_Feature.Define);
 
         var step = root.GetProperty("steps").EnumerateArray().Single();
         var sv = step.GetProperty("setVerification");
@@ -55,7 +55,7 @@ public class JsonOutputTests
     [Fact]
     public async Task decision_table_input_cells_keep_a_plain_value()
     {
-        var root = await RenderJson("Decision Table", "Return-value columns all pass", Decision_Table_Feature.Define);
+        var root = await renderJson("Decision Table", "Return-value columns all pass", Decision_Table_Feature.Define);
 
         var step = root.GetProperty("steps").EnumerateArray().Single();
         var firstRow = step.GetProperty("setVerification").GetProperty("rows").EnumerateArray().First();

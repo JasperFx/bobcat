@@ -9,12 +9,12 @@ namespace Bobcat.Supervisor.Tests;
 /// </summary>
 public class ParallelWorkerTests
 {
-    private static IReadOnlyList<WorkerTest> Classes(params (string Name, int Count)[] classes)
+    private static IReadOnlyList<WorkerTest> classes(params (string Name, int Count)[] classes)
         => classes
             .SelectMany(c => Enumerable.Range(1, c.Count).Select(i => FakeWorkerFactory.InClass(c.Name, $"test_{i}")))
             .ToList();
 
-    private static Supervisor Supervised(FakeWorkerFactory factory, int workers, RetryBudget? budget = null)
+    private static Supervisor supervised(FakeWorkerFactory factory, int workers, RetryBudget? budget = null)
         => new(factory)
         {
             MaxParallelWorkers = workers,
@@ -28,7 +28,7 @@ public class ParallelWorkerTests
         // exactly the run it got before.
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 4), ("B", 4)),
+            Tests = classes(("A", 4), ("B", 4)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
@@ -44,11 +44,11 @@ public class ParallelWorkerTests
     {
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 4), ("B", 4), ("C", 4), ("D", 4)),
+            Tests = classes(("A", 4), ("B", 4), ("C", 4), ("D", 4)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var results = await Supervised(factory, workers: 4).Run();
+        var results = await supervised(factory, workers: 4).Run();
 
         factory.RunningWorkers.Count.ShouldBe(4);
         results.Tests.Count.ShouldBe(16);
@@ -67,11 +67,11 @@ public class ParallelWorkerTests
         // (a counter naming a schema, a cached connection) assumes one process.
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 5), ("B", 5), ("C", 5)),
+            Tests = classes(("A", 5), ("B", 5), ("C", 5)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Supervised(factory, workers: 3).Run();
+        await supervised(factory, workers: 3).Run();
 
         foreach (var className in new[] { "A", "B", "C" })
         {
@@ -87,11 +87,11 @@ public class ParallelWorkerTests
     {
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 3), ("B", 3)),
+            Tests = classes(("A", 3), ("B", 3)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Supervised(factory, workers: 16).Run();
+        await supervised(factory, workers: 16).Run();
 
         factory.RunningWorkers.Count.ShouldBe(2);
     }
@@ -99,7 +99,7 @@ public class ParallelWorkerTests
     [Fact]
     public async Task isolated_tests_still_get_their_own_process_alongside_the_lanes()
     {
-        var tests = Classes(("A", 3), ("B", 3)).Append(FakeWorkerFactory.Test("Lonely.test", "Isolated=true")).ToList();
+        var tests = classes(("A", 3), ("B", 3)).Append(FakeWorkerFactory.Test("Lonely.test", "Isolated=true")).ToList();
 
         var factory = new FakeWorkerFactory
         {
@@ -107,7 +107,7 @@ public class ParallelWorkerTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Supervised(factory, workers: 2).Run();
+        await supervised(factory, workers: 2).Run();
 
         // Two lanes plus a dedicated process for the isolated test.
         factory.RunningWorkers.Count.ShouldBe(3);
@@ -123,7 +123,7 @@ public class ParallelWorkerTests
         // that ran it, so retrying in a different warm worker is a fresh-process retry wearing
         // the wrong label.
         // Retries stay opt-in even in a fleet, so the flaky test carries the tag.
-        var tests = Classes(("A", 3), ("B", 3))
+        var tests = classes(("A", 3), ("B", 3))
             .Append(FakeWorkerFactory.InClass("C", "test_1"))
             .Append(FakeWorkerFactory.InClass("C", "test_2", "Retry=2"))
             .Append(FakeWorkerFactory.InClass("C", "test_3"))
@@ -136,7 +136,7 @@ public class ParallelWorkerTests
                 uid == "C.test_2" && attempt == 1 ? WorkerTestState.Failed : WorkerTestState.Passed
         };
 
-        var results = await Supervised(factory, workers: 3,
+        var results = await supervised(factory, workers: 3,
             budget: new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         results.Tests.Single(t => t.Uid == "C.test_2").Outcome.ShouldBe(RunOutcome.PassOnRetry);
@@ -154,7 +154,7 @@ public class ParallelWorkerTests
     {
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 3), ("B", 3), ("C", 3)),
+            Tests = classes(("A", 3), ("B", 3), ("C", 3)),
             // Worker index 1 is the first lane (0 is the discovery throwaway).
             Fault = worker => worker.Index == 1 ? "worker died (exit code 70)" : null,
             Outcome = (uid, _, worker) => worker.Index == 1 && uid.EndsWith("_3")
@@ -162,7 +162,7 @@ public class ParallelWorkerTests
                 : WorkerTestState.Passed
         };
 
-        var results = await Supervised(factory, workers: 3).Run();
+        var results = await supervised(factory, workers: 3).Run();
 
         // The dead lane's unreported test is Indeterminate, never invented as a failure...
         results.Indeterminate.ShouldHaveSingleItem();
@@ -179,15 +179,15 @@ public class ParallelWorkerTests
         // Lanes complete in whatever order the OS decides; the report must not.
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 3), ("B", 3), ("C", 3), ("D", 3)),
+            Tests = classes(("A", 3), ("B", 3), ("C", 3), ("D", 3)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var first = await Supervised(factory, workers: 4).Run();
+        var first = await supervised(factory, workers: 4).Run();
 
-        var second = await Supervised(new FakeWorkerFactory
+        var second = await supervised(new FakeWorkerFactory
         {
-            Tests = Classes(("A", 3), ("B", 3), ("C", 3), ("D", 3)),
+            Tests = classes(("A", 3), ("B", 3), ("C", 3), ("D", 3)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         }, workers: 4).Run();
 
@@ -198,7 +198,7 @@ public class ParallelWorkerTests
     public async Task known_durations_drive_the_split_across_lanes()
     {
         // End to end: the balancing input actually reaches the plan.
-        var tests = Classes(("Slow", 1), ("Fast", 12));
+        var tests = classes(("Slow", 1), ("Fast", 12));
 
         var factory = new FakeWorkerFactory
         {
@@ -206,7 +206,7 @@ public class ParallelWorkerTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var supervisor = Supervised(factory, workers: 2);
+        var supervisor = supervised(factory, workers: 2);
         supervisor.KnownTestDurations = new Dictionary<string, TimeSpan>
         {
             ["Slow.test_1"] = TimeSpan.FromSeconds(90)
@@ -225,11 +225,11 @@ public class ParallelWorkerTests
     {
         var factory = new FakeWorkerFactory
         {
-            Tests = Classes(("A", 3), ("B", 3), ("C", 3)),
+            Tests = classes(("A", 3), ("B", 3), ("C", 3)),
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Supervised(factory, workers: 3).Run();
+        await supervised(factory, workers: 3).Run();
 
         factory.Launched.ShouldAllBe(w => w.Disposed);
     }

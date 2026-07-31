@@ -23,7 +23,7 @@ public static class SetVerificationComparer
         string[] keyColumns,
         StepResult result)
     {
-        var actualRows = ToRows(actual);
+        var actualRows = toRows(actual);
         var matchedActualIndices = new HashSet<int>();
         var cells = new List<CellResult>();
         var hasFailure = false;
@@ -35,7 +35,7 @@ public static class SetVerificationComparer
 
         foreach (var expected in expectedRows)
         {
-            var matchIndex = FindMatch(expected, actualRows, keyColumns, matchedActualIndices);
+            var matchIndex = findMatch(expected, actualRows, keyColumns, matchedActualIndices);
 
             if (matchIndex >= 0)
             {
@@ -69,7 +69,7 @@ public static class SetVerificationComparer
         {
             if (matchedActualIndices.Contains(i)) continue;
             var extra = actualRows[i];
-            var desc = string.Join(", ", extra.Select(kv => $"{kv.Key}={Format(kv.Value)}"));
+            var desc = string.Join(", ", extra.Select(kv => $"{kv.Key}={format(kv.Value)}"));
             cells.Add(new CellResult("extra-row", ResultStatus.invalid,
                 $"Extra row: {desc}")
                 { RowIndex = rowIndex++ });
@@ -85,7 +85,7 @@ public static class SetVerificationComparer
             result.MarkSuccess();
     }
 
-    private static int FindMatch(
+    private static int findMatch(
         Dictionary<string, string> expected,
         List<Dictionary<string, object?>> actuals,
         string[] keyColumns,
@@ -108,7 +108,7 @@ public static class SetVerificationComparer
         return -1;
     }
 
-    private static List<Dictionary<string, object?>> ToRows(IEnumerable actual)
+    private static List<Dictionary<string, object?>> toRows(IEnumerable actual)
     {
         var rows = new List<Dictionary<string, object?>>();
         foreach (var item in actual)
@@ -123,7 +123,7 @@ public static class SetVerificationComparer
         return rows;
     }
 
-    private static string Format(object? value) => value switch
+    private static string format(object? value) => value switch
     {
         null => "NULL",
         IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),

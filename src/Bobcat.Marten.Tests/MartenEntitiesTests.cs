@@ -38,12 +38,12 @@ public class MartenEntitiesTests
     public async Task resolves_the_session_from_the_scenario_scope_not_the_root()
     {
         var session = Substitute.For<IDocumentSession>();
-        await using var resource = HostWith(session);
+        await using var resource = hostWith(session);
         await resource.Start();
         await resource.BeginScenarioScope();
 
         var behavior = new MartenStorageBehavior();
-        await behavior.Open(StepContextFor(resource));
+        await behavior.Open(stepContextFor(resource));
 
         // The same instance a step would get from [FromScopedService] IDocumentSession.
         behavior.Session.ShouldBeSameAs(resource.CurrentServices.GetRequiredService<IDocumentSession>());
@@ -55,12 +55,12 @@ public class MartenEntitiesTests
     public async Task stores_each_row_and_saves_exactly_once_when_the_envelope_closes()
     {
         var session = Substitute.For<IDocumentSession>();
-        await using var resource = HostWith(session);
+        await using var resource = hostWith(session);
         await resource.Start();
         await resource.BeginScenarioScope();
 
         var behavior = new MartenStorageBehavior();
-        await behavior.Open(StepContextFor(resource));
+        await behavior.Open(stepContextFor(resource));
 
         var first = new Customer("Acme", "West", 3);
         var second = new Customer("Globex", "East", 1);
@@ -84,12 +84,12 @@ public class MartenEntitiesTests
     public async Task a_null_row_product_is_a_configuration_error()
     {
         var session = Substitute.For<IDocumentSession>();
-        await using var resource = HostWith(session);
+        await using var resource = hostWith(session);
         await resource.Start();
         await resource.BeginScenarioScope();
 
         var behavior = new MartenStorageBehavior();
-        await behavior.Open(StepContextFor(resource));
+        await behavior.Open(stepContextFor(resource));
 
         var ex = await Should.ThrowAsync<BobcatConfigurationException>(async () => await behavior.Row(null));
         ex.Message.ShouldContain("must return the entity to persist");
@@ -101,12 +101,12 @@ public class MartenEntitiesTests
     public async Task disposing_the_behavior_leaves_the_scenario_scoped_session_alive()
     {
         var session = Substitute.For<IDocumentSession>();
-        await using var resource = HostWith(session);
+        await using var resource = hostWith(session);
         await resource.Start();
         await resource.BeginScenarioScope();
 
         var behavior = new MartenStorageBehavior();
-        await behavior.Open(StepContextFor(resource));
+        await behavior.Open(stepContextFor(resource));
         await behavior.DisposeAsync();
 
         // The scope owns the session; the behavior must not dispose it out from under the steps.
@@ -115,7 +115,7 @@ public class MartenEntitiesTests
         await resource.EndScenarioScope();
     }
 
-    private static HostResource HostWith(IDocumentSession session)
+    private static HostResource hostWith(IDocumentSession session)
         => new(() =>
         {
             var builder = Host.CreateApplicationBuilder();
@@ -123,7 +123,7 @@ public class MartenEntitiesTests
             return builder.Build();
         });
 
-    private static IStepContext StepContextFor(ITestResource resource)
+    private static IStepContext stepContextFor(ITestResource resource)
     {
         var suite = new TestSuite();
         suite.AddResource(resource);

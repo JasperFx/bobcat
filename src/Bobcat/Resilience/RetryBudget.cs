@@ -50,7 +50,7 @@ public sealed class RetryBudget
     }
 
     /// <summary>Retries allowed for one test — one fewer than the attempts it may make.</summary>
-    private int RetriesAllowedFor(IReadOnlyDictionary<string, string> traits)
+    private int retriesAllowedFor(IReadOnlyDictionary<string, string> traits)
         => AttemptsAllowedFor(traits) - 1;
 
     /// <summary>True when <paramref name="testId"/> could still be retried after this attempt.</summary>
@@ -61,7 +61,7 @@ public sealed class RetryBudget
             if (_retriesSpent >= MaxRetriesPerRun) return false;
 
             var used = _attemptsByTest.TryGetValue(testId, out var count) ? count : 0;
-            return used < RetriesAllowedFor(traits);
+            return used < retriesAllowedFor(traits);
         }
     }
 
@@ -80,7 +80,7 @@ public sealed class RetryBudget
             }
 
             var used = _attemptsByTest.TryGetValue(testId, out var count) ? count : 0;
-            var allowed = RetriesAllowedFor(traits);
+            var allowed = retriesAllowedFor(traits);
 
             if (used >= allowed)
             {

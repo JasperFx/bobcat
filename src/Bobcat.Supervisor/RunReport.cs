@@ -28,11 +28,11 @@ public static class RunReport
 
         report.AppendLine(results.Summarize());
 
-        Section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
-            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {Placements(test)}");
+        section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
+            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {placements(test)}");
 
-        Section(report, "Failed", results.Failed,
-            test => $"{test.DisplayName} — {Reason(test)}");
+        section(report, "Failed", results.Failed,
+            test => $"{test.DisplayName} — {reason(test)}");
 
         // Which author-declared hints actually fired. A hint that suppressed a retry has to be
         // visible, or a tagged test that failed once looks like the tag stopped working.
@@ -51,10 +51,10 @@ public static class RunReport
             }
         }
 
-        Section(report, "Indeterminate (result never established)", results.Indeterminate,
+        section(report, "Indeterminate (result never established)", results.Indeterminate,
             test => $"{test.DisplayName} — {test.Final.Outcome.ErrorMessage ?? "no result reported"}");
 
-        Section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
+        section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
             test => $"{test.DisplayName} — {test.AttemptCount} attempts, final: {test.Outcome}");
 
         if (results.UnsupportedDispositions.Count > 0)
@@ -69,7 +69,7 @@ public static class RunReport
         return report.ToString().TrimEnd();
     }
 
-    private static void Section(
+    private static void section(
         StringBuilder report, string title, IReadOnlyList<TestReport> tests, Func<TestReport, string> describe)
     {
         if (tests.Count == 0) return;
@@ -78,10 +78,10 @@ public static class RunReport
         foreach (var test in tests) report.AppendLine($"  • {describe(test)}");
     }
 
-    private static string Placements(TestReport test)
+    private static string placements(TestReport test)
         => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
 
-    private static string Reason(TestReport test)
+    private static string reason(TestReport test)
         => test.Final.Outcome.ErrorMessage?.Split('\n')[0].Trim() is { Length: > 0 } message
             ? message
             : test.Final.Outcome.State.ToString();
@@ -111,13 +111,13 @@ public static class RunReport
             ["unsupportedDispositions"] =
                 new JsonArray(results.UnsupportedDispositions.Select(u => (JsonNode)u!).ToArray()),
             ["quarantine"] = new JsonArray(results.Quarantine.Select(t => (JsonNode)t.Uid!).ToArray()),
-            ["tests"] = new JsonArray(results.Tests.Select(Describe).ToArray<JsonNode>())
+            ["tests"] = new JsonArray(results.Tests.Select(describe).ToArray<JsonNode>())
         };
 
         return document.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
-    private static JsonObject Describe(TestReport test) => new()
+    private static JsonObject describe(TestReport test) => new()
     {
         ["uid"] = test.Uid,
         ["displayName"] = test.DisplayName,

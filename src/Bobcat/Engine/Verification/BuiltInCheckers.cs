@@ -22,19 +22,19 @@ internal static class CheckFormat
 /// </summary>
 internal abstract class NumericChecker<T> : IValueChecker<T>
 {
-    protected abstract bool TryParse(string text, out double value);
-    protected abstract string Format(T value);
-    protected abstract double ToDouble(T value);
+    protected abstract bool tryParse(string text, out double value);
+    protected abstract string format(T value);
+    protected abstract double toDouble(T value);
 
     public CheckResult Check(T actual, string expectedText, CheckOptions options)
     {
         var text = expectedText.Trim();
-        var actualText = Format(actual);
+        var actualText = format(actual);
 
-        if (!TryParse(text, out var expected))
+        if (!tryParse(text, out var expected))
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid {typeof(T).Name}");
 
-        var actualValue = ToDouble(actual);
+        var actualValue = toDouble(actual);
         // Echo the author's expected text (preserves scale like "9.00") rather than the
         // reduced double representation.
         var expectedDisplay = text;
@@ -56,63 +56,63 @@ internal abstract class NumericChecker<T> : IValueChecker<T>
 
 internal sealed class Int32Checker : NumericChecker<int>
 {
-    protected override bool TryParse(string text, out double value)
+    protected override bool tryParse(string text, out double value)
     {
         var ok = int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i);
         value = i;
         return ok;
     }
 
-    protected override string Format(int value) => value.ToString(CultureInfo.InvariantCulture);
-    protected override double ToDouble(int value) => value;
+    protected override string format(int value) => value.ToString(CultureInfo.InvariantCulture);
+    protected override double toDouble(int value) => value;
 }
 
 internal sealed class Int64Checker : NumericChecker<long>
 {
-    protected override bool TryParse(string text, out double value)
+    protected override bool tryParse(string text, out double value)
     {
         var ok = long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l);
         value = l;
         return ok;
     }
 
-    protected override string Format(long value) => value.ToString(CultureInfo.InvariantCulture);
-    protected override double ToDouble(long value) => value;
+    protected override string format(long value) => value.ToString(CultureInfo.InvariantCulture);
+    protected override double toDouble(long value) => value;
 }
 
 internal sealed class DoubleChecker : NumericChecker<double>
 {
-    protected override bool TryParse(string text, out double value)
+    protected override bool tryParse(string text, out double value)
         => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
-    protected override string Format(double value) => value.ToString(CultureInfo.InvariantCulture);
-    protected override double ToDouble(double value) => value;
+    protected override string format(double value) => value.ToString(CultureInfo.InvariantCulture);
+    protected override double toDouble(double value) => value;
 }
 
 internal sealed class SingleChecker : NumericChecker<float>
 {
-    protected override bool TryParse(string text, out double value)
+    protected override bool tryParse(string text, out double value)
     {
         var ok = float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var f);
         value = f;
         return ok;
     }
 
-    protected override string Format(float value) => value.ToString(CultureInfo.InvariantCulture);
-    protected override double ToDouble(float value) => value;
+    protected override string format(float value) => value.ToString(CultureInfo.InvariantCulture);
+    protected override double toDouble(float value) => value;
 }
 
 internal sealed class DecimalChecker : NumericChecker<decimal>
 {
-    protected override bool TryParse(string text, out double value)
+    protected override bool tryParse(string text, out double value)
     {
         var ok = decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var d);
         value = ok ? (double)d : 0d;
         return ok;
     }
 
-    protected override string Format(decimal value) => value.ToString(CultureInfo.InvariantCulture);
-    protected override double ToDouble(decimal value) => (double)value;
+    protected override string format(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+    protected override double toDouble(decimal value) => (double)value;
 }
 
 internal sealed class BoolChecker : IValueChecker<bool>
@@ -245,7 +245,7 @@ internal sealed class EnumChecker<T> : IValueChecker<T> where T : struct, Enum
         var actualText = actual.ToString();
         var text = expectedText.Trim();
 
-        if (!Enum.TryParse<T>(text, ignoreCase: true, out var expected) || !IsDefinedOrNumeric(text, expected))
+        if (!Enum.TryParse<T>(text, ignoreCase: true, out var expected) || !isDefinedOrNumeric(text, expected))
             return CheckResult.Invalid(expectedText, actualText, $"'{expectedText}' is not a valid {typeof(T).Name}");
 
         return EqualityComparer<T>.Default.Equals(expected, actual)
@@ -253,7 +253,7 @@ internal sealed class EnumChecker<T> : IValueChecker<T> where T : struct, Enum
             : CheckResult.Mismatch(expected.ToString(), actualText);
     }
 
-    private static bool IsDefinedOrNumeric(string text, T parsed)
+    private static bool isDefinedOrNumeric(string text, T parsed)
     {
         // Enum.TryParse accepts arbitrary numeric strings; treat a bare number as valid
         // (numeric match), but reject undefined names.
@@ -274,7 +274,7 @@ internal sealed class FallbackChecker<T> : IValueChecker<T>
         var actualText = CheckFormat.Of(actual);
         var text = options.Trim ? expectedText.Trim() : expectedText;
 
-        if (!TryConvert(text, out var expected))
+        if (!tryConvert(text, out var expected))
             return CheckResult.Invalid(expectedText, actualText, $"could not convert '{expectedText}' to {typeof(T).Name}");
 
         return EqualityComparer<T>.Default.Equals(actual, expected!)
@@ -282,7 +282,7 @@ internal sealed class FallbackChecker<T> : IValueChecker<T>
             : CheckResult.Mismatch(CheckFormat.Of(expected), actualText);
     }
 
-    private static bool TryConvert(string text, out T value)
+    private static bool tryConvert(string text, out T value)
     {
         value = default!;
         try

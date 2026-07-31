@@ -38,7 +38,7 @@ public static class WorkPlan
     /// Used for a test with no recorded duration when nothing else is known. Only the ratios
     /// between partitions matter, so the absolute value is arbitrary.
     /// </summary>
-    private static readonly TimeSpan UnknownTestEstimate = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan unknownTestEstimate = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// The default partition key: the test's declaring class.
@@ -91,18 +91,18 @@ public static class WorkPlan
         // keeps the single-worker path byte-for-byte what it was before parallelism existed.
         if (laneCount <= 1)
         {
-            return [new WorkLane(0, tests.Select(t => t.Uid).ToList(), Total(tests, knownDurations))];
+            return [new WorkLane(0, tests.Select(t => t.Uid).ToList(), total(tests, knownDurations))];
         }
 
         var key = partitionKey ?? ClassOf;
-        var fallback = MedianOf(tests, knownDurations);
+        var fallback = medianOf(tests, knownDurations);
 
         var partitions = tests
             .GroupBy(key, StringComparer.Ordinal)
             .Select(group => (
                 Key: group.Key,
                 Uids: group.Select(t => t.Uid).ToList(),
-                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + Estimate(t, knownDurations, fallback))))
+                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, knownDurations, fallback))))
             // Longest first, then by key so ties never reorder between runs.
             .OrderByDescending(p => p.Estimate)
             .ThenBy(p => p.Key, StringComparer.Ordinal)
@@ -133,24 +133,24 @@ public static class WorkPlan
             .ToList();
     }
 
-    private static TimeSpan Estimate(
+    private static TimeSpan estimate(
         WorkerTest test, IReadOnlyDictionary<string, TimeSpan>? known, TimeSpan fallback)
         => known is not null && known.TryGetValue(test.Uid, out var duration) ? duration : fallback;
 
-    private static TimeSpan Total(IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
+    private static TimeSpan total(IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
     {
-        var fallback = MedianOf(tests, known);
-        return tests.Aggregate(TimeSpan.Zero, (sum, t) => sum + Estimate(t, known, fallback));
+        var fallback = medianOf(tests, known);
+        return tests.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, known, fallback));
     }
 
     /// <summary>
     /// What to charge a test we have never timed. The median of what we do know beats a constant:
     /// a suite of 30-second integration tests should not have its one new test costed at a second.
     /// </summary>
-    private static TimeSpan MedianOf(
+    private static TimeSpan medianOf(
         IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
     {
-        if (known is null || known.Count == 0) return UnknownTestEstimate;
+        if (known is null || known.Count == 0) return unknownTestEstimate;
 
         var observed = tests
             .Where(t => known.ContainsKey(t.Uid))
@@ -158,7 +158,7 @@ public static class WorkPlan
             .OrderBy(d => d)
             .ToList();
 
-        if (observed.Count == 0) return UnknownTestEstimate;
+        if (observed.Count == 0) return unknownTestEstimate;
 
         return observed[observed.Count / 2];
     }

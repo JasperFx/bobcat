@@ -19,10 +19,10 @@ namespace Bobcat.Engine.Verification;
 public static class CellCheck
 {
     private static readonly ConcurrentDictionary<Type, object> _registered = new();
-    private static readonly Dictionary<Type, object> _builtIn = BuildBuiltIns();
+    private static readonly Dictionary<Type, object> _builtIn = buildBuiltIns();
     private static readonly ConcurrentDictionary<Type, MethodInfo> _forMethods = new();
 
-    private static readonly MethodInfo ForGeneric =
+    private static readonly MethodInfo forGeneric =
         typeof(CellCheck).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(m => m.Name == nameof(For) && m.IsGenericMethodDefinition);
 
@@ -45,7 +45,7 @@ public static class CellCheck
     public static CellResult For<T>(string name, T actual, string expectedText, CheckOptions? options = null, int rowIndex = -1)
     {
         var result = Check(actual, expectedText, options ?? CheckOptions.Default);
-        return ToCellResult(name, result, rowIndex);
+        return toCellResult(name, result, rowIndex);
     }
 
     /// <summary>
@@ -57,14 +57,14 @@ public static class CellCheck
         options ??= CheckOptions.Default;
 
         // Type-agnostic tokens, unless the expected is an explicitly quoted string literal.
-        if (!IsQuoted(expectedText))
+        if (!isQuoted(expectedText))
         {
             var token = expectedText.Trim();
-            if (token == CellTokens.Null) return CheckNull(actual);
-            if (token == CellTokens.Empty) return CheckEmpty(actual);
+            if (token == CellTokens.Null) return checkNull(actual);
+            if (token == CellTokens.Empty) return checkEmpty(actual);
         }
 
-        var checker = Resolve<T>(options);
+        var checker = resolve<T>(options);
         return checker.Check(actual, expectedText, options);
     }
 
@@ -79,21 +79,21 @@ public static class CellCheck
 
         if (actual is null)
         {
-            var token = IsQuoted(expectedText) ? null : expectedText.Trim();
+            var token = isQuoted(expectedText) ? null : expectedText.Trim();
             var result = token switch
             {
                 CellTokens.Null => CheckResult.Match(CellTokens.Null, CellTokens.Null),
                 CellTokens.Empty => CheckResult.Match(CellTokens.Empty, CellTokens.Null),
-                _ => CheckResult.Mismatch(StripQuotes(expectedText), CellTokens.Null)
+                _ => CheckResult.Mismatch(stripQuotes(expectedText), CellTokens.Null)
             };
-            return ToCellResult(name, result, rowIndex);
+            return toCellResult(name, result, rowIndex);
         }
 
-        var method = _forMethods.GetOrAdd(actual.GetType(), t => ForGeneric.MakeGenericMethod(t));
+        var method = _forMethods.GetOrAdd(actual.GetType(), t => forGeneric.MakeGenericMethod(t));
         return (CellResult)method.Invoke(null, new[] { name, actual, expectedText, options, rowIndex })!;
     }
 
-    private static IValueChecker<T> Resolve<T>(CheckOptions options)
+    private static IValueChecker<T> resolve<T>(CheckOptions options)
     {
         if (options.ComparisonType != null)
         {
@@ -121,14 +121,14 @@ public static class CellCheck
         return new FallbackChecker<T>();
     }
 
-    private static CheckResult CheckNull<T>(T actual)
+    private static CheckResult checkNull<T>(T actual)
     {
         return actual is null
             ? CheckResult.Match(CellTokens.Null, CellTokens.Null)
             : CheckResult.Mismatch(CellTokens.Null, CheckFormat.Of(actual));
     }
 
-    private static CheckResult CheckEmpty<T>(T actual)
+    private static CheckResult checkEmpty<T>(T actual)
     {
         bool isEmpty;
         if (actual is null) isEmpty = true;
@@ -141,7 +141,7 @@ public static class CellCheck
             : CheckResult.Mismatch(CellTokens.Empty, CheckFormat.Of(actual));
     }
 
-    private static CellResult ToCellResult(string name, CheckResult result, int rowIndex)
+    private static CellResult toCellResult(string name, CheckResult result, int rowIndex)
     {
         var status = result.Outcome switch
         {
@@ -159,13 +159,13 @@ public static class CellCheck
         };
     }
 
-    private static bool IsQuoted(string text)
+    private static bool isQuoted(string text)
         => text.Length >= 2 && text.StartsWith("\"") && text.EndsWith("\"");
 
-    private static string StripQuotes(string text)
-        => IsQuoted(text) ? text.Substring(1, text.Length - 2) : text;
+    private static string stripQuotes(string text)
+        => isQuoted(text) ? text.Substring(1, text.Length - 2) : text;
 
-    private static Dictionary<Type, object> BuildBuiltIns() => new()
+    private static Dictionary<Type, object> buildBuiltIns() => new()
     {
         [typeof(int)] = new Int32Checker(),
         [typeof(long)] = new Int64Checker(),

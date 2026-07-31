@@ -35,22 +35,22 @@ public static class CodeEmitter
         sb.AppendLine($"    public static FeatureDefinition Define()");
         sb.AppendLine("    {");
         sb.AppendLine($"        return new FeatureDefinition(");
-        sb.AppendLine($"            \"{EscapeString(feature.Title)}\",");
+        sb.AppendLine($"            \"{escapeString(feature.Title)}\",");
         sb.AppendLine($"            typeof({fixture.FullyQualifiedName}),");
         sb.AppendLine("            new ScenarioDefinition[]");
         sb.AppendLine("            {");
 
         foreach (var scenario in scenarios)
         {
-            EmitScenario(sb, scenario, fixture);
+            emitScenario(sb, scenario, fixture);
         }
 
         sb.AppendLine("            })");
         sb.AppendLine("        {");
-        EmitHook(sb, fixture, HookKind.BeforeEach);
-        EmitHook(sb, fixture, HookKind.AfterEach);
-        EmitHook(sb, fixture, HookKind.BeforeAll);
-        EmitHook(sb, fixture, HookKind.AfterAll);
+        emitHook(sb, fixture, HookKind.BeforeEach);
+        emitHook(sb, fixture, HookKind.AfterEach);
+        emitHook(sb, fixture, HookKind.BeforeAll);
+        emitHook(sb, fixture, HookKind.AfterAll);
         sb.AppendLine("        };");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -62,7 +62,7 @@ public static class CodeEmitter
     /// Emit the discovered lifecycle hooks of one kind as a single delegate. Parameters are
     /// resolved by type at compile time, exactly like step arguments — no reflection.
     /// </summary>
-    private static void EmitHook(StringBuilder sb, FixtureInfo fixture, HookKind kind)
+    private static void emitHook(StringBuilder sb, FixtureInfo fixture, HookKind kind)
     {
         var hooks = fixture.HooksOf(kind).ToList();
         if (hooks.Count == 0) return;
@@ -82,7 +82,7 @@ public static class CodeEmitter
         foreach (var hook in hooks)
         {
             var target = featureLevel ? fixture.FullyQualifiedName : "f";
-            var args = string.Join(", ", hook.Parameters.Select(p => InjectionExpression(p, null)));
+            var args = string.Join(", ", hook.Parameters.Select(p => injectionExpression(p, null)));
             var awaitKw = hook.IsAsync ? "await " : "";
             sb.AppendLine($"                {awaitKw}{target}.{hook.MethodName}({args});");
         }
@@ -90,15 +90,15 @@ public static class CodeEmitter
         sb.AppendLine("            },");
     }
 
-    private static void EmitScenario(StringBuilder sb, MatchedScenario scenario, FixtureInfo fixture)
+    private static void emitScenario(StringBuilder sb, MatchedScenario scenario, FixtureInfo fixture)
     {
         var tags = scenario.Scenario.Tags;
         var tagsArray = tags.Count > 0
-            ? "new[] { " + string.Join(", ", tags.Select(t => $"\"{EscapeString(t)}\"")) + " }"
+            ? "new[] { " + string.Join(", ", tags.Select(t => $"\"{escapeString(t)}\"")) + " }"
             : "Array.Empty<string>()";
 
         sb.AppendLine($"                new ScenarioDefinition(");
-        sb.AppendLine($"                    \"{EscapeString(scenario.Scenario.Title)}\",");
+        sb.AppendLine($"                    \"{escapeString(scenario.Scenario.Title)}\",");
         sb.AppendLine($"                    {tagsArray},");
         sb.AppendLine($"                    (fixture, plan) =>");
         sb.AppendLine("                {");
@@ -118,13 +118,13 @@ public static class CodeEmitter
 
         foreach (var matched in scenario.Steps)
         {
-            EmitStep(sb, matched, fixture);
+            emitStep(sb, matched, fixture);
         }
 
         sb.AppendLine("                }),");
     }
 
-    private static void EmitStep(StringBuilder sb, MatchedStep matched, FixtureInfo fixture)
+    private static void emitStep(StringBuilder sb, MatchedStep matched, FixtureInfo fixture)
     {
         var step = matched.Step;
 
@@ -138,7 +138,7 @@ public static class CodeEmitter
 
         if (matched.GrammarMatch != null)
         {
-            EmitTableGrammarStep(sb, step, matched.GrammarMatch, stepKind);
+            emitTableGrammarStep(sb, step, matched.GrammarMatch, stepKind);
             return;
         }
 
@@ -155,25 +155,25 @@ public static class CodeEmitter
 
         // Does this comparison have a return-value capture? (one capture beyond the value params)
         var compareReturn = method.HasReturnValue && method.StepKind == "Then"
-            && values.Count == ValueParamCount(method) + 1;
+            && values.Count == valueParamCount(method) + 1;
         var isComparison = !method.IsTable && !method.IsSetVerification && !method.IsDecisionTable
             && (method.OutParameters.Count > 0 || compareReturn);
 
         // [NewScope] — this step's injected services come from a child scope nested under
         // the scenario scope, disposed when the step finishes.
-        var scopeStmt = method.NewScope ? ChildScopeStatement(method, "__sc") + " " : "";
+        var scopeStmt = method.NewScope ? childScopeStatement(method, "__sc") + " " : "";
         var scopeProvider = method.NewScope ? "__sc.ServiceProvider" : null;
 
         if (method.IsDecisionTable && step.TableRows != null && step.TableHeaders != null)
         {
-            EmitDecisionTableStep(sb, step, method, stepId, target, ctxStmt, scopeStmt, scopeProvider);
+            emitDecisionTableStep(sb, step, method, stepId, target, ctxStmt, scopeStmt, scopeProvider);
         }
         else if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
         {
             // Table grammar — emit one step per row. Each row already runs in its own lambda,
             // so [ScopePerRow] and [NewScope] mean the same thing here.
             var rowScope = method.ScopePerRow || method.NewScope;
-            var rowScopeStmt = rowScope ? ChildScopeStatement(method, "__sc") + " " : "";
+            var rowScopeStmt = rowScope ? childScopeStatement(method, "__sc") + " " : "";
             var rowScopeProvider = rowScope ? "__sc.ServiceProvider" : null;
 
             for (var rowIdx = 0; rowIdx < step.TableRows.Count; rowIdx++)
@@ -181,14 +181,14 @@ public static class CodeEmitter
                 var row = step.TableRows[rowIdx];
                 var headers = step.TableHeaders;
 
-                var args = BuildTableRowArgs(method, headers, row, rowScopeProvider);
+                var args = buildTableRowArgs(method, headers, row, rowScopeProvider);
                 var rowStepId = $"{stepId}.row{rowIdx + 1}";
                 var awaitRow = method.IsAsync ? "await " : "";
 
                 sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-                sb.AppendLine($"                        \"{EscapeString(rowStepId)}\",");
+                sb.AppendLine($"                        \"{escapeString(rowStepId)}\",");
                 sb.AppendLine($"                        {stepKind},");
-                sb.AppendLine($"                        \"{EscapeString(step.Text)} (row {rowIdx + 1})\",");
+                sb.AppendLine($"                        \"{escapeString(step.Text)} (row {rowIdx + 1})\",");
                 if (method.IsAsync)
                     sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{awaitRow}{target}.{method.MethodName}({args}); }}));");
                 else
@@ -198,22 +198,22 @@ public static class CodeEmitter
         else if (method.IsSetVerification && step.TableRows != null && step.TableHeaders != null)
         {
             // Set verification — emit comparison code
-            EmitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt);
+            emitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt);
         }
         else if (method.WaitForTimeoutMs.HasValue)
         {
-            EmitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison, target, ctxStmt,
+            emitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison, target, ctxStmt,
                 scopeStmt, scopeProvider);
         }
         else if (isComparison)
         {
-            EmitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn, target, ctxStmt,
+            emitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn, target, ctxStmt,
                 scopeStmt, scopeProvider);
         }
         else
         {
             // Regular sentence step
-            var args = BuildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
             var awaitPrefix = method.IsAsync ? "await " : "";
             var returnSuffix = method.IsAsync ? "" : " return Task.CompletedTask;";
 
@@ -221,9 +221,9 @@ public static class CodeEmitter
             {
                 // Check (bool return) — assertion failure, not critical
                 sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-                sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+                sb.AppendLine($"                        \"{escapeString(stepId)}\",");
                 sb.AppendLine($"                        StepKind.Then,");
-                sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+                sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
                     sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}if (!await {target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); }}));");
@@ -236,9 +236,9 @@ public static class CodeEmitter
             else
             {
                 sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-                sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+                sb.AppendLine($"                        \"{escapeString(stepId)}\",");
                 sb.AppendLine($"                        {stepKind},");
-                sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+                sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
                     sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}{awaitPrefix}{target}.{method.MethodName}({args}); }}));");
@@ -256,7 +256,7 @@ public static class CodeEmitter
     /// then one <c>Row</c> call per table row, then <c>After</c> in a <c>finally</c> so it runs
     /// even when <c>Before</c> or a row threw.
     /// </summary>
-    private static void EmitTableGrammarStep(StringBuilder sb, StepInfo step,
+    private static void emitTableGrammarStep(StringBuilder sb, StepInfo step,
         StepMatcher.TableGrammarMatch match, string stepKind)
     {
         var grammar = match.Grammar;
@@ -291,12 +291,12 @@ public static class CodeEmitter
             ? $"new CheckOptions {{ Tolerance = {grammar.ApproxTolerance.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} }}"
             : "null";
 
-        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{EscapeString(h)}\""));
+        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{escapeString(h)}\""));
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-        sb.AppendLine($"                        \"{EscapeString(grammar.ClassName)}\",");
+        sb.AppendLine($"                        \"{escapeString(grammar.ClassName)}\",");
         sb.AppendLine($"                        {stepKind},");
-        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
         sb.AppendLine($"                        async (ctx, result, ct) =>");
         sb.AppendLine("                    {");
         // Keeps the lambda legally async when every envelope method is synchronous.
@@ -320,7 +320,7 @@ public static class CodeEmitter
 
         if (grammar.Before != null)
         {
-            var beforeArgs = BuildArgsFromCaptures(grammar.Before.Parameters, values, null, null);
+            var beforeArgs = buildArgsFromCaptures(grammar.Before.Parameters, values, null, null);
             var awaitBefore = grammar.Before.IsAsync ? "await " : "";
             sb.AppendLine($"                            {awaitBefore}g__.{grammar.Before.MethodName}({beforeArgs});");
         }
@@ -338,7 +338,7 @@ public static class CodeEmitter
             {
                 var resource = grammar.ScopeResourceName == null
                     ? "null"
-                    : $"\"{EscapeString(grammar.ScopeResourceName)}\"";
+                    : $"\"{escapeString(grammar.ScopeResourceName)}\"";
                 sb.AppendLine($"                                using var __sc{r} = Bobcat.Runtime.HostResourceExtensions.CreateChildScope(ctx, {resource});");
             }
 
@@ -348,20 +348,20 @@ public static class CodeEmitter
                 // A hand-written Row is the override for custom construction; without one,
                 // columns bind straight to the entity's constructor or settable properties.
                 var product = row != null
-                    ? $"{awaitRow}g__.{row.MethodName}({BuildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider)})"
-                    : BuildEntityFromColumns(grammar, headers, rowCells);
+                    ? $"{awaitRow}g__.{row.MethodName}({buildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider)})"
+                    : buildEntityFromColumns(grammar, headers, rowCells);
 
                 sb.AppendLine($"                                var product{r}__ = {product};");
                 sb.AppendLine($"                                await behavior__.Row(product{r}__);");
             }
             else if (expectedColumn != null)
             {
-                var rowArgs = BuildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
+                var rowArgs = buildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                var row{r}__ = {awaitRow}g__.{row.MethodName}({rowArgs});");
             }
             else
             {
-                var rowArgs = BuildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
+                var rowArgs = buildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                {awaitRow}g__.{row.MethodName}({rowArgs});");
             }
 
@@ -372,12 +372,12 @@ public static class CodeEmitter
 
                 if (expectedColumn != null && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row!.QualifiedReturnType}>(\"{EscapeString(header)}\", row{r}__, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                                cells__.Add(CellCheck.For<{row!.QualifiedReturnType}>(\"{escapeString(header)}\", row{r}__, \"{escapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
                     // Input (or otherwise unconsumed) column — rendered plain.
-                    sb.AppendLine($"                                cells__.Add(new CellResult(\"{EscapeString(header)}\", ResultStatus.ok, \"{EscapeString(value)}\") {{ RowIndex = {r} }});");
+                    sb.AppendLine($"                                cells__.Add(new CellResult(\"{escapeString(header)}\", ResultStatus.ok, \"{escapeString(value)}\") {{ RowIndex = {r} }});");
                 }
             }
 
@@ -390,7 +390,7 @@ public static class CodeEmitter
 
         if (grammar.After != null)
         {
-            var afterArgs = BuildArgsFromCaptures(grammar.After.Parameters, values, null, null);
+            var afterArgs = buildArgsFromCaptures(grammar.After.Parameters, values, null, null);
             var awaitAfter = grammar.After.IsAsync ? "await " : "";
             sb.AppendLine($"                            {awaitAfter}g__.{grammar.After.MethodName}({afterArgs});");
         }
@@ -415,7 +415,7 @@ public static class CodeEmitter
     /// type conversion the rest of the generator uses. Emitted as a direct <c>new Customer(...)</c>
     /// — no runtime binder. A hand-written <c>Row</c> is the override for anything this can't do.
     /// </summary>
-    private static string BuildEntityFromColumns(TableGrammarInfo grammar, List<string> headers, List<string> row)
+    private static string buildEntityFromColumns(TableGrammarInfo grammar, List<string> headers, List<string> row)
     {
         var entity = grammar.RecipeEntity!;
 
@@ -459,16 +459,16 @@ public static class CodeEmitter
             "no settable properties match. Write a Row method returning the entity to control construction.");
     }
 
-    private static void EmitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)
+    private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)
     {
         var keyColumns = string.IsNullOrEmpty(method.SetVerificationKeyColumns)
             ? "Array.Empty<string>()"
-            : "new[] { " + string.Join(", ", method.SetVerificationKeyColumns.Split(',').Select(k => $"\"{EscapeString(k.Trim())}\"")) + " }";
+            : "new[] { " + string.Join(", ", method.SetVerificationKeyColumns.Split(',').Select(k => $"\"{escapeString(k.Trim())}\"")) + " }";
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        \"{escapeString(stepId)}\",");
         sb.AppendLine($"                        StepKind.Then,");
-        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
 
         if (method.IsAsync)
         {
@@ -495,7 +495,7 @@ public static class CodeEmitter
                 sb.AppendLine("                            {");
                 for (var i = 0; i < step.TableHeaders.Count && i < row.Count; i++)
                 {
-                    sb.AppendLine($"                                [\"{EscapeString(step.TableHeaders[i])}\"] = \"{EscapeString(row[i])}\",");
+                    sb.AppendLine($"                                [\"{escapeString(step.TableHeaders[i])}\"] = \"{escapeString(row[i])}\",");
                 }
                 sb.AppendLine("                            },");
             }
@@ -517,14 +517,14 @@ public static class CodeEmitter
     /// out parameters. Captures map positionally to parameters; the return-value expected
     /// (when present) is the trailing capture.
     /// </summary>
-    private static void EmitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
+    private static void emitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
         string stepId, string stepKind, List<string> values, bool compareReturn, string target, string ctxStmt,
         string scopeStmt = "", string? scopeProvider = null)
     {
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        \"{escapeString(stepId)}\",");
         sb.AppendLine($"                        {stepKind},");
-        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
         sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
         sb.AppendLine("                    {");
         if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
@@ -537,7 +537,7 @@ public static class CodeEmitter
         {
             if (p.IsInjected)
             {
-                callArgs.Add(InjectionExpression(p, scopeProvider));
+                callArgs.Add(injectionExpression(p, scopeProvider));
                 continue;
             }
 
@@ -557,7 +557,7 @@ public static class CodeEmitter
             }
         }
 
-        var opts = EmitCheckOptions(method);
+        var opts = emitCheckOptions(method);
         var awaitKw = method.IsAsync ? "await " : "";
         var argList = string.Join(", ", callArgs);
 
@@ -570,14 +570,14 @@ public static class CodeEmitter
 
         foreach (var (name, local, type, expected) in outCompares)
         {
-            sb.AppendLine($"                        cells__.Add(CellCheck.For<{type}>(\"{EscapeString(name)}\", {local}, \"{EscapeString(expected)}\", {opts}));");
+            sb.AppendLine($"                        cells__.Add(CellCheck.For<{type}>(\"{escapeString(name)}\", {local}, \"{escapeString(expected)}\", {opts}));");
         }
 
         if (compareReturn)
         {
             var col = method.ReturnColumn ?? "result";
-            var retExpected = values[ValueParamCount(method)];
-            sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+            var retExpected = values[valueParamCount(method)];
+            sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(col)}\", actual__ret, \"{escapeString(retExpected)}\", {opts}));");
         }
 
         sb.AppendLine("                        result.MarkCells(cells__.ToArray());");
@@ -593,7 +593,7 @@ public static class CodeEmitter
     /// Emit a decision table: one method call per row, with input columns supplying
     /// arguments and out/return columns compared as expected outputs. Renders as a grid.
     /// </summary>
-    private static void EmitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId,
+    private static void emitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId,
         string target, string ctxStmt, string scopeStmt = "", string? stepScopeProvider = null)
     {
         var headers = step.TableHeaders!;
@@ -607,20 +607,20 @@ public static class CodeEmitter
             method.Parameters.FirstOrDefault(p =>
                 string.Equals(p.Name, header, StringComparison.OrdinalIgnoreCase));
 
-        var opts = EmitCheckOptions(method);
+        var opts = emitCheckOptions(method);
         var perRowScope = method.ScopePerRow;
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        \"{escapeString(stepId)}\",");
         sb.AppendLine($"                        StepKind.Then,");
-        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
         sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
         sb.AppendLine("                    {");
         if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
         if (scopeStmt.Length > 0) sb.AppendLine($"                        {scopeStmt.TrimEnd()}");
         sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
 
-        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{EscapeString(h)}\""));
+        var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{escapeString(h)}\""));
         var awaitKw = method.IsAsync ? "await " : "";
 
         for (var r = 0; r < rows.Count; r++)
@@ -647,7 +647,7 @@ public static class CodeEmitter
             var rowScopeProvider = perRowScope ? $"{rowScopeLocal}.ServiceProvider" : stepScopeProvider;
             if (perRowScope)
             {
-                sb.AppendLine($"                        using (var {rowScopeLocal} = {ChildScopeExpression(method)})");
+                sb.AppendLine($"                        using (var {rowScopeLocal} = {childScopeExpression(method)})");
                 sb.AppendLine("                        {");
             }
 
@@ -668,7 +668,7 @@ public static class CodeEmitter
                 // Explicit attributes beat a header match; convention injection only applies
                 // to parameters no column supplies.
                 if (p.IsExplicitlyInjected || (p.IsInjected && idx < 0))
-                    callArgs.Add(InjectionExpression(p, rowScopeProvider));
+                    callArgs.Add(injectionExpression(p, rowScopeProvider));
                 else if (idx >= 0 && idx < row.Count)
                     callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p.Type));
                 else
@@ -692,16 +692,16 @@ public static class CodeEmitter
 
                 if (param != null && param.IsOut)
                 {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.QualifiedType}>(\"{EscapeString(header)}\", dt{r}__{param.Name}, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.QualifiedType}>(\"{escapeString(header)}\", dt{r}__{param.Name}, \"{escapeString(value)}\", {opts}, {r}));");
                 }
                 else if (returnColumn != null && string.Equals(header, returnColumn, StringComparison.OrdinalIgnoreCase))
                 {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(header)}\", dt{r}__ret, \"{EscapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(header)}\", dt{r}__ret, \"{escapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
                     // input or unknown column — render plain
-                    sb.AppendLine($"                        cells__.Add(new CellResult(\"{EscapeString(header)}\", ResultStatus.ok, \"{EscapeString(value)}\") {{ RowIndex = {r} }});");
+                    sb.AppendLine($"                        cells__.Add(new CellResult(\"{escapeString(header)}\", ResultStatus.ok, \"{escapeString(value)}\") {{ RowIndex = {r} }});");
                 }
             }
         }
@@ -717,19 +717,19 @@ public static class CodeEmitter
     /// bool, or a void no-throw action) is retried via WaitForRunner until it converges or
     /// times out.
     /// </summary>
-    private static void EmitWaitForStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
+    private static void emitWaitForStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
         string stepId, string stepKind, List<string> values, bool compareReturn, bool isComparison,
         string target, string ctxStmt, string scopeStmt = "", string? scopeProvider = null)
     {
         var timeout = method.WaitForTimeoutMs!.Value;
         var poll = method.WaitForPollMs;
-        var opts = EmitCheckOptions(method);
+        var opts = emitCheckOptions(method);
         var awaitKw = method.IsAsync ? "await " : "";
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-        sb.AppendLine($"                        \"{EscapeString(stepId)}\",");
+        sb.AppendLine($"                        \"{escapeString(stepId)}\",");
         sb.AppendLine($"                        {stepKind},");
-        sb.AppendLine($"                        \"{EscapeString(step.Text)}\",");
+        sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
         sb.AppendLine($"                        async (ctx, result, ct) =>");
         sb.AppendLine("                    {");
         sb.AppendLine($"                        await WaitForRunner.Poll(result, {timeout}, {poll}, async (pollCt) =>");
@@ -748,7 +748,7 @@ public static class CodeEmitter
             {
                 if (p.IsInjected)
                 {
-                    callArgs.Add(InjectionExpression(p, scopeProvider));
+                    callArgs.Add(injectionExpression(p, scopeProvider));
                     continue;
                 }
 
@@ -776,20 +776,20 @@ public static class CodeEmitter
 
             sb.AppendLine("                            var cells__ = new System.Collections.Generic.List<CellResult>();");
             foreach (var (name, local, type, expected) in outCompares)
-                sb.AppendLine($"                            cells__.Add(CellCheck.For<{type}>(\"{EscapeString(name)}\", {local}, \"{EscapeString(expected)}\", {opts}));");
+                sb.AppendLine($"                            cells__.Add(CellCheck.For<{type}>(\"{escapeString(name)}\", {local}, \"{escapeString(expected)}\", {opts}));");
 
             if (compareReturn)
             {
                 var col = method.ReturnColumn ?? "result";
-                var retExpected = values[ValueParamCount(method)];
-                sb.AppendLine($"                            cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{EscapeString(col)}\", actual__ret, \"{EscapeString(retExpected)}\", {opts}));");
+                var retExpected = values[valueParamCount(method)];
+                sb.AppendLine($"                            cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(col)}\", actual__ret, \"{escapeString(retExpected)}\", {opts}));");
             }
 
             sb.AppendLine("                            return new WaitAttempt(cells__.TrueForAll(c => c.Status == ResultStatus.success), cells__.ToArray());");
         }
         else if (method.StepKind == "Check")
         {
-            var args = BuildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
             sb.AppendLine($"                            var ok__ = {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            var cell__ = new CellResult(\"result\", ok__ ? ResultStatus.success : ResultStatus.failed) { Expected = \"true\", Actual = ok__ ? \"true\" : \"false\" };");
             sb.AppendLine("                            return new WaitAttempt(ok__, new[] { cell__ });");
@@ -797,7 +797,7 @@ public static class CodeEmitter
         else
         {
             // void / no-throw action
-            var args = BuildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
             sb.AppendLine($"                            {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
         }
@@ -806,22 +806,22 @@ public static class CodeEmitter
         sb.AppendLine("                    }));");
     }
 
-    private static string EmitCheckOptions(StepMethodInfo method)
+    private static string emitCheckOptions(StepMethodInfo method)
     {
         if (method.ApproxTolerance.HasValue)
             return $"new CheckOptions {{ Tolerance = {method.ApproxTolerance.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} }}";
         return "null";
     }
 
-    private static string BuildSentenceArgs(StepMethodInfo method, List<string> values, string? docString = null,
+    private static string buildSentenceArgs(StepMethodInfo method, List<string> values, string? docString = null,
         string? scopeProvider = null)
-        => BuildArgsFromCaptures(method.Parameters, values, docString, scopeProvider);
+        => buildArgsFromCaptures(method.Parameters, values, docString, scopeProvider);
 
     /// <summary>
     /// Bind parameters to Cucumber captures positionally, skipping injected ones. A trailing
     /// DocString fills the first uncovered string parameter.
     /// </summary>
-    private static string BuildArgsFromCaptures(List<ParameterInfo> parameters, List<string> values,
+    private static string buildArgsFromCaptures(List<ParameterInfo> parameters, List<string> values,
         string? docString, string? scopeProvider)
     {
         if (parameters.Count == 0) return "";
@@ -832,7 +832,7 @@ public static class CodeEmitter
         {
             if (param.IsInjected)
             {
-                args.Add(InjectionExpression(param, scopeProvider));
+                args.Add(injectionExpression(param, scopeProvider));
             }
             else if (vi < values.Count)
             {
@@ -854,14 +854,14 @@ public static class CodeEmitter
         return string.Join(", ", args);
     }
 
-    private static string BuildTableRowArgs(StepMethodInfo method, List<string> headers, List<string> row,
+    private static string buildTableRowArgs(StepMethodInfo method, List<string> headers, List<string> row,
         string? scopeProvider = null)
-        => BuildArgsFromColumns(method.Parameters, headers, row, scopeProvider);
+        => buildArgsFromColumns(method.Parameters, headers, row, scopeProvider);
 
     /// <summary>
     /// Bind parameters to a table row by header name, with injection for the rest.
     /// </summary>
-    private static string BuildArgsFromColumns(List<ParameterInfo> parameters, List<string> headers,
+    private static string buildArgsFromColumns(List<ParameterInfo> parameters, List<string> headers,
         List<string> row, string? scopeProvider)
     {
         var args = new List<string>();
@@ -874,7 +874,7 @@ public static class CodeEmitter
 
             if (param.IsExplicitlyInjected || (param.IsInjected && colIndex < 0))
             {
-                args.Add(InjectionExpression(param, scopeProvider));
+                args.Add(injectionExpression(param, scopeProvider));
             }
             else if (colIndex >= 0 && colIndex < row.Count)
             {
@@ -894,9 +894,9 @@ public static class CodeEmitter
     /// <paramref name="scopeProvider"/> when a <c>[NewScope]</c>/<c>[ScopePerRow]</c> child
     /// scope is open, otherwise through the scenario scope on the host resource.
     /// </summary>
-    private static string InjectionExpression(ParameterInfo p, string? scopeProvider)
+    private static string injectionExpression(ParameterInfo p, string? scopeProvider)
     {
-        var resource = p.ResourceName == null ? "null" : $"\"{EscapeString(p.ResourceName)}\"";
+        var resource = p.ResourceName == null ? "null" : $"\"{escapeString(p.ResourceName)}\"";
 
         switch (p.Binding)
         {
@@ -910,7 +910,7 @@ public static class CodeEmitter
                 return $"Bobcat.Runtime.HostResourceExtensions.GetRootService<{p.QualifiedType}>(ctx, {resource})";
 
             case ParameterBinding.KeyedService:
-                var key = p.ServiceKey == null ? "null" : $"\"{EscapeString(p.ServiceKey)}\"";
+                var key = p.ServiceKey == null ? "null" : $"\"{escapeString(p.ServiceKey)}\"";
                 return scopeProvider != null
                     ? $"Microsoft.Extensions.DependencyInjection.ServiceProviderKeyedServiceExtensions.GetRequiredKeyedService<{p.QualifiedType}>({scopeProvider}, {key})"
                     : $"Bobcat.Runtime.HostResourceExtensions.GetKeyedHostService<{p.QualifiedType}>(ctx, {key}, {resource})";
@@ -923,7 +923,7 @@ public static class CodeEmitter
     }
 
     /// <summary>Number of parameters that consume a Cucumber capture.</summary>
-    private static int ValueParamCount(StepMethodInfo method)
+    private static int valueParamCount(StepMethodInfo method)
     {
         var count = 0;
         foreach (var p in method.Parameters) if (!p.IsInjected) count++;
@@ -931,17 +931,17 @@ public static class CodeEmitter
     }
 
     /// <summary>The expression that opens a <c>[NewScope]</c>/<c>[ScopePerRow]</c> child scope.</summary>
-    private static string ChildScopeExpression(StepMethodInfo method)
+    private static string childScopeExpression(StepMethodInfo method)
     {
         var resource = method.ScopeResourceName == null
             ? "null"
-            : $"\"{EscapeString(method.ScopeResourceName)}\"";
+            : $"\"{escapeString(method.ScopeResourceName)}\"";
         return $"Bobcat.Runtime.HostResourceExtensions.CreateChildScope(ctx, {resource})";
     }
 
     /// <summary>The <c>using var</c> declaration that opens a child scope for a whole step.</summary>
-    private static string ChildScopeStatement(StepMethodInfo method, string local)
-        => $"using var {local} = {ChildScopeExpression(method)};";
+    private static string childScopeStatement(StepMethodInfo method, string local)
+        => $"using var {local} = {childScopeExpression(method)};";
 
     public static string SanitizeIdentifier(string text)
     {
@@ -956,7 +956,7 @@ public static class CodeEmitter
         return sb.ToString();
     }
 
-    private static string EscapeString(string s)
+    private static string escapeString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
     }

@@ -59,9 +59,9 @@ public class CellResult
     /// through the legacy constructor it is returned verbatim; otherwise it is composed
     /// from <see cref="Expected"/>/<see cref="Actual"/>/<see cref="Note"/>.
     /// </summary>
-    public string DisplayText => _displayText ?? Derive();
+    public string DisplayText => _displayText ?? derive();
 
-    private string Derive()
+    private string derive()
     {
         var note = string.IsNullOrEmpty(Note) ? "" : $" ({Note})";
 

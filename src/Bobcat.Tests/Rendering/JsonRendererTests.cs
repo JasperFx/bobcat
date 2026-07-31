@@ -10,7 +10,7 @@ public class JsonRendererTests
 {
     public record Item(string Sku, int Quantity);
 
-    private static JsonElement RenderStep(StepResult step)
+    private static JsonElement renderStep(StepResult step)
     {
         var render = StepRender.FromStepResult(step);
         var spec = new SpecRender { Title = "spec", Steps = { render } };
@@ -31,7 +31,7 @@ public class JsonRendererTests
 
         SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, step);
 
-        var stepJson = RenderStep(step);
+        var stepJson = renderStep(step);
         var sv = stepJson.GetProperty("setVerification");
 
         var qty = sv.GetProperty("rows").EnumerateArray()
@@ -53,7 +53,7 @@ public class JsonRendererTests
             Expected = "10.0", Actual = "10.01", Note = "±0.1"
         });
 
-        var stepJson = RenderStep(step);
+        var stepJson = renderStep(step);
         var cell = stepJson.GetProperty("cells").EnumerateArray().Single();
         cell.GetProperty("note").GetString().ShouldBe("±0.1");
         cell.GetProperty("expected").GetString().ShouldBe("10.0");

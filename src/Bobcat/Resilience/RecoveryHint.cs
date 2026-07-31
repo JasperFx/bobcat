@@ -74,10 +74,10 @@ public sealed record RecoveryHint
         var origin = Source.Length > 0 ? $" (declared on {Source})" : "";
         var because = Because is { Length: > 0 } ? $": {Because}" : "";
 
-        return $"{SimpleName(FailureTypeName)} {what}{origin}{because}";
+        return $"{simpleName(FailureTypeName)} {what}{origin}{because}";
     }
 
-    private static string SimpleName(string typeName)
+    private static string simpleName(string typeName)
     {
         var lastDot = typeName.LastIndexOf('.');
         return lastDot >= 0 && lastDot < typeName.Length - 1 ? typeName[(lastDot + 1)..] : typeName;
@@ -97,7 +97,7 @@ public sealed class RecoveryHintSet
 
     public RecoveryHintSet Add(RecoveryHint hint)
     {
-        _hints.Add(Validate(hint));
+        _hints.Add(validate(hint));
         return this;
     }
 
@@ -198,7 +198,7 @@ public sealed class RecoveryHintSet
         return best;
     }
 
-    private static RecoveryHint Validate(RecoveryHint hint)
+    private static RecoveryHint validate(RecoveryHint hint)
     {
         if (hint.Kind == DispositionKind.RetryAfterRecycle && hint.Resources.Count == 0)
         {

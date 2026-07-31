@@ -40,7 +40,7 @@ public static class SimpleGherkinParser
         {
             if (outline != null && exampleHeaders != null && exampleRows != null)
             {
-                ExpandOutline(feature, background, outline, exampleHeaders, exampleRows);
+                expandOutline(feature, background, outline, exampleHeaders, exampleRows);
             }
             outline = null;
             exampleHeaders = null;
@@ -144,7 +144,7 @@ public static class SimpleGherkinParser
             // Table row
             if (trimmed.StartsWith("|"))
             {
-                var cells = ParseTableRow(trimmed);
+                var cells = parseTableRow(trimmed);
 
                 if (inExamples)
                 {
@@ -171,7 +171,7 @@ public static class SimpleGherkinParser
             // Step keyword
             if (currentSteps != null)
             {
-                var step = TryParseStep(trimmed, ref lastKeyword);
+                var step = tryParseStep(trimmed, ref lastKeyword);
                 if (step != null)
                 {
                     currentSteps.Add(step);
@@ -193,7 +193,7 @@ public static class SimpleGherkinParser
         public List<StepInfo> Steps = new();
     }
 
-    private static void ExpandOutline(FeatureInfo feature, List<StepInfo> background,
+    private static void expandOutline(FeatureInfo feature, List<StepInfo> background,
         OutlineState outline, List<string> headers, List<List<string>> rows)
     {
         for (var r = 0; r < rows.Count; r++)
@@ -211,33 +211,33 @@ public static class SimpleGherkinParser
 
             scenario.Steps.AddRange(background.Select(s => s.Clone()));
             foreach (var template in outline.Steps)
-                scenario.Steps.Add(Substitute(template, substitutions));
+                scenario.Steps.Add(substitute(template, substitutions));
 
             feature.Scenarios.Add(scenario);
         }
     }
 
-    private static StepInfo Substitute(StepInfo template, Dictionary<string, string> substitutions)
+    private static StepInfo substitute(StepInfo template, Dictionary<string, string> substitutions)
     {
         var step = template.Clone();
-        step.Text = Replace(step.Text, substitutions);
+        step.Text = replace(step.Text, substitutions);
         if (step.DocString != null)
-            step.DocString = Replace(step.DocString, substitutions);
+            step.DocString = replace(step.DocString, substitutions);
         if (step.TableHeaders != null)
-            step.TableHeaders = step.TableHeaders.Select(h => Replace(h, substitutions)).ToList();
+            step.TableHeaders = step.TableHeaders.Select(h => replace(h, substitutions)).ToList();
         if (step.TableRows != null)
-            step.TableRows = step.TableRows.Select(rr => rr.Select(v => Replace(v, substitutions)).ToList()).ToList();
+            step.TableRows = step.TableRows.Select(rr => rr.Select(v => replace(v, substitutions)).ToList()).ToList();
         return step;
     }
 
-    private static string Replace(string text, Dictionary<string, string> substitutions)
+    private static string replace(string text, Dictionary<string, string> substitutions)
     {
         foreach (var kv in substitutions)
             text = text.Replace(kv.Key, kv.Value);
         return text;
     }
 
-    private static StepInfo? TryParseStep(string line, ref string lastKeyword)
+    private static StepInfo? tryParseStep(string line, ref string lastKeyword)
     {
         var keywords = new[] { "Given ", "When ", "Then ", "And ", "But ", "* " };
 
@@ -261,7 +261,7 @@ public static class SimpleGherkinParser
         return null;
     }
 
-    private static List<string> ParseTableRow(string line)
+    private static List<string> parseTableRow(string line)
     {
         var cells = new List<string>();
         var trimmed = line.Trim();

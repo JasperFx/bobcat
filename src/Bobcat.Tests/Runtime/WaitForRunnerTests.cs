@@ -6,7 +6,7 @@ namespace Bobcat.Tests.Runtime;
 
 public class WaitForRunnerTests
 {
-    private static CellResult[] One(ResultStatus status, string expected, string actual)
+    private static CellResult[] one(ResultStatus status, string expected, string actual)
         => new[] { new CellResult("v", status) { Expected = expected, Actual = actual } };
 
     [Fact]
@@ -19,7 +19,7 @@ public class WaitForRunnerTests
         {
             attempts++;
             var ok = attempts >= 3;
-            return Task.FromResult(new WaitAttempt(ok, One(ok ? ResultStatus.success : ResultStatus.failed, "0", ok ? "0" : "5")));
+            return Task.FromResult(new WaitAttempt(ok, one(ok ? ResultStatus.success : ResultStatus.failed, "0", ok ? "0" : "5")));
         }, CancellationToken.None);
 
         step.StepStatus.ShouldBe(ResultStatus.success);
@@ -33,7 +33,7 @@ public class WaitForRunnerTests
         var step = new StepResult("s", 0);
 
         await WaitForRunner.Poll(step, 40, 5, _ =>
-            Task.FromResult(new WaitAttempt(false, One(ResultStatus.failed, "0", "9"))),
+            Task.FromResult(new WaitAttempt(false, one(ResultStatus.failed, "0", "9"))),
             CancellationToken.None);
 
         step.StepStatus.ShouldBe(ResultStatus.failed);
@@ -68,7 +68,7 @@ public class WaitForRunnerTests
         {
             attempts++;
             var ok = attempts >= 3;
-            return Task.FromResult(new WaitAttempt(ok, One(ok ? ResultStatus.success : ResultStatus.failed, "0", ok ? "0" : "5")));
+            return Task.FromResult(new WaitAttempt(ok, one(ok ? ResultStatus.success : ResultStatus.failed, "0", ok ? "0" : "5")));
         }, CancellationToken.None, context);
 
         step.StepStatus.ShouldBe(ResultStatus.success);
@@ -93,7 +93,7 @@ public class WaitForRunnerTests
         {
             attempts++;
             if (attempts < 3) throw new InvalidOperationException("not ready");
-            return Task.FromResult(new WaitAttempt(true, One(ResultStatus.success, "0", "0")));
+            return Task.FromResult(new WaitAttempt(true, one(ResultStatus.success, "0", "0")));
         }, CancellationToken.None, context);
 
         step.StepStatus.ShouldBe(ResultStatus.success);

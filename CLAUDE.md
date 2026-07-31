@@ -70,6 +70,39 @@ own namespace, where an unqualified name binds to the wrong type — e.g. `Marte
 resolving to `Bobcat.Marten.IDocumentSession` inside `Bobcat.Marten.Tests`. The plain `Type`
 string stays short ("int", "string") because the Gherkin literal conversion switches on it.
 
+## Naming conventions
+
+- **Pascal casing for all public or internal members** — `RunAll()`, `RetryBudget`, `Uid`.
+- **camel casing for all private or protected members** — `runPreflight()`, `_sharedWorker`,
+  `builtInTypes`.
+
+Accessibility is therefore visible at every call site: an uppercase call is reaching outward, a
+lowercase one is staying inside the type. That is the point of the rule — you can see the seam
+without chasing the declaration.
+
+Two clarifications the rule does not state, both settled by what the codebase already did:
+
+- **Private instance fields keep the `_` prefix** (`_features`, `_lanes`, `_gate`).
+  Underscore-camel *is* the camel form here; it matches the wider JasperFx codebase, where the
+  split runs 262 to 3. Statics and consts that never carried one do not gain one — `builtInTypes`,
+  `standardErrorLinesKept`.
+- **Types stay Pascal regardless of accessibility**, including private nested ones (`StubResource`,
+  `FakeWorker`). "Member" means fields, properties, methods, events and consts — not types.
+  Lower-casing a type name reads as a variable everywhere it is used.
+
+Not renamed, deliberately: `override` members (the base declares the name), entry points (`Main`),
+and anything a source generator emits. The only generated private members in the build today come
+from .NET's `[GeneratedRegex]` (see `Fixture.cs`) — Bobcat's own generator emits none, so there is
+nothing to fix in its templates.
+
+The codebase was converted in one pass using a Roslyn `Renamer`, not by hand or by regex — a
+textual rename of a name like `Record` would have hit unrelated identifiers. The same tool is the
+right way to sweep up after a long-lived branch merges.
+
+One gotcha when doing that: a member whose camel form is a C# keyword (`Class` → `class`) is
+escaped to `@class` rather than rejected, so it compiles and the sweep looks clean. Grep the diff
+for `@` identifiers afterwards and give those a real name instead — `testsInClass`, not `@class`.
+
 ## Architecture
 
 ### Source Generator Pipeline (primary authoring flow)

@@ -8,7 +8,7 @@ namespace Bobcat.EntityFrameworkCore.Tests;
 
 public class EfRecipeTests
 {
-    private static BobcatRunner BuildRunner(string databaseName)
+    private static BobcatRunner buildRunner(string databaseName)
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Ef_Recipe_Feature.Define());
@@ -25,11 +25,11 @@ public class EfRecipeTests
     [Fact]
     public async Task recipe_with_no_Row_constructs_entities_from_columns_and_persists_them()
     {
-        var results = await BuildRunner("no-row").RunAll();
+        var results = await buildRunner("no-row").RunAll();
 
         results.ExitCode.ShouldBe(0);
 
-        await using var context = NewContext("no-row");
+        await using var context = newContext("no-row");
         var customers = context.Customers
             .Where(c => c.Region != "Premium" && c.Region != "Audit")
             .OrderBy(c => c.Name)
@@ -45,11 +45,11 @@ public class EfRecipeTests
     [Fact]
     public async Task a_Row_override_customizes_construction()
     {
-        var results = await BuildRunner("row-override").RunAll();
+        var results = await buildRunner("row-override").RunAll();
 
         results.ExitCode.ShouldBe(0);
 
-        await using var context = NewContext("row-override");
+        await using var context = newContext("row-override");
         var premium = context.Customers.Single(c => c.Region == "Premium");
 
         premium.Name.ShouldBe("Initech");
@@ -111,15 +111,15 @@ public class EfRecipeTests
         await behavior.Row(new Customer("B", "East", 2));
 
         // Still pending — nothing has been written yet.
-        NewContext("batching").Customers.Count().ShouldBe(0);
+        newContext("batching").Customers.Count().ShouldBe(0);
 
         await behavior.Close();
 
-        NewContext("batching").Customers.Count().ShouldBe(2);
+        newContext("batching").Customers.Count().ShouldBe(2);
 
         await resource.EndScenarioScope();
     }
 
-    private static ShopContext NewContext(string databaseName)
+    private static ShopContext newContext(string databaseName)
         => new(new DbContextOptionsBuilder<ShopContext>().UseInMemoryDatabase(databaseName).Options);
 }

@@ -39,13 +39,13 @@ public sealed class DefaultFailurePolicy : IFailurePolicy
         {
             // A test that asked to be retried and then ran out deserves to say so. Reporting a
             // bare "assertion failure" here would hide that the budget, not the test, ended it.
-            if (!WantsRetry(attempt)) return Disposition.FailAndContinue(DescribeFailure(attempt));
+            if (!wantsRetry(attempt)) return Disposition.FailAndContinue(describeFailure(attempt));
 
             var exhausted = attempt.AttemptNumber >= attempt.AttemptsAllowed
                 ? $"this test has used all {attempt.AttemptsAllowed} allowed attempts"
                 : "the run's retry budget is exhausted";
 
-            return Disposition.FailAndContinue($"{DescribeFailure(attempt)} — {exhausted}");
+            return Disposition.FailAndContinue($"{describeFailure(attempt)} — {exhausted}");
         }
 
         var resources = ResilienceTags.ParseResources(attempt.Trait(ResilienceTags.RecycleOnRetry));
@@ -68,16 +68,16 @@ public sealed class DefaultFailurePolicy : IFailurePolicy
                 $"tagged @retry — attempt {attempt.AttemptNumber + 1} of this test");
         }
 
-        return Disposition.FailAndContinue(DescribeFailure(attempt));
+        return Disposition.FailAndContinue(describeFailure(attempt));
     }
 
     /// <summary>True when the test opted into retrying at all.</summary>
-    private static bool WantsRetry(AttemptContext attempt)
+    private static bool wantsRetry(AttemptContext attempt)
         => attempt.HasTrait(ResilienceTags.Retry)
            || attempt.HasTrait(ResilienceTags.RecycleOnRetry)
            || attempt.Trait(ResilienceTags.Isolated) == "true";
 
-    private static string DescribeFailure(AttemptContext attempt)
+    private static string describeFailure(AttemptContext attempt)
         => attempt.FailureLevel switch
         {
             FailureLevel.Critical => "critical failure — scenario aborted",

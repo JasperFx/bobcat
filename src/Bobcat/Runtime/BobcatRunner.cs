@@ -60,7 +60,7 @@ public class BobcatRunner
     /// </summary>
     public RecoveryHintSet RecoveryHints { get; } = new();
 
-    private IFailurePolicy Policy => new FailurePolicyChain(
+    private IFailurePolicy policy => new FailurePolicyChain(
         [.. _policies, new HintedFailurePolicy(RecoveryHints), new DefaultFailurePolicy()]);
     /// <summary>
     /// Skip the live Spectre.Console rendering. Set for JSON output, and by tests that assert
@@ -127,7 +127,7 @@ public class BobcatRunner
 
         // Preflight runs with resources up but before any feature: checking a database means
         // little until the resource that owns the connection has started.
-        var preflight = await RunPreflight();
+        var preflight = await runPreflight();
         if (preflight is not null)
         {
             await _suite.DisposeAsync();
@@ -153,7 +153,7 @@ public class BobcatRunner
 
                 foreach (var feature in features)
                 {
-                    var featureResults = await RunFeature(feature, tagFilter);
+                    var featureResults = await runFeature(feature, tagFilter);
                     suiteResults.Add(featureResults);
 
                     // Stop on catastrophic
@@ -174,7 +174,7 @@ public class BobcatRunner
     }
 
     /// <summary>Returns a description of the failure, or null when the environment is fine.</summary>
-    private async Task<string?> RunPreflight()
+    private async Task<string?> runPreflight()
     {
         Preflight.AddResourceChecks(_suite.Resources);
         if (Preflight.IsEmpty) return null;
@@ -188,7 +188,7 @@ public class BobcatRunner
         return description;
     }
 
-    private async Task<FeatureResults> RunFeature(FeatureDefinition feature, string? tagFilter)
+    private async Task<FeatureResults> runFeature(FeatureDefinition feature, string? tagFilter)
     {
         var featureResults = new FeatureResults(feature.Title);
         if (!SuppressConsoleOutput) _renderer.RenderFeatureHeader(feature.Title);
@@ -217,7 +217,7 @@ public class BobcatRunner
         {
             foreach (var scenario in scenarios)
             {
-                var result = await RunScenarioWithRetries(feature, scenario);
+                var result = await runScenarioWithRetries(feature, scenario);
 
                 featureResults.Add(result);
                 _observer.ScenarioCompleted(feature.Title, result);
@@ -254,11 +254,11 @@ public class BobcatRunner
     /// → <c>EndScenarioAll</c> bracket. A retry that reused dirty state from the failed attempt
     /// would be testing something other than the scenario.
     /// </remarks>
-    private async Task<ScenarioResult> RunScenarioWithRetries(FeatureDefinition feature, ScenarioDefinition scenario)
+    private async Task<ScenarioResult> runScenarioWithRetries(FeatureDefinition feature, ScenarioDefinition scenario)
     {
         var traits = ResilienceTags.ToTraits(scenario.Tags);
         var testId = $"{feature.Title}/{scenario.Title}";
-        var policy = Policy;
+        var policy = this.policy;
         var attempts = new List<AttemptRecord>();
 
         for (var attemptNumber = 1; ; attemptNumber++)
@@ -271,7 +271,7 @@ public class BobcatRunner
             ScenarioResult result;
             try
             {
-                result = await RunScenario(feature, scenario);
+                result = await runScenario(feature, scenario);
             }
             finally
             {
@@ -286,14 +286,14 @@ public class BobcatRunner
                 Title = scenario.Title,
                 AttemptNumber = attemptNumber,
                 Succeeded = succeeded,
-                FailureLevel = WorstFailureLevel(result.Results),
+                FailureLevel = worstFailureLevel(result.Results),
                 Exception = result.Results.AllExceptions().FirstOrDefault(),
                 Traits = traits,
                 RetriesAvailable = RetryBudget.CanRetry(testId, traits),
                 AttemptsAllowed = RetryBudget.AttemptsAllowedFor(traits)
             }) ?? Disposition.FailAndContinue("failed");
 
-            var (effective, unsupported, willRetry) = Resolve(decided, testId, traits);
+            var (effective, unsupported, willRetry) = resolve(decided, testId, traits);
 
             attempts.Add(new AttemptRecord(attemptNumber, succeeded, effective) { Unsupported = unsupported });
 
@@ -314,7 +314,7 @@ public class BobcatRunner
     /// because a run report that implies a retry happened when it did not is worse than no
     /// report at all.
     /// </summary>
-    private (Disposition Effective, string? Unsupported, bool WillRetry) Resolve(
+    private (Disposition Effective, string? Unsupported, bool WillRetry) resolve(
         Disposition decided, string testId, IReadOnlyDictionary<string, string> traits)
     {
         if (!decided.IsRetry) return (decided, null, false);
@@ -338,7 +338,7 @@ public class BobcatRunner
         return (Disposition.FailAndContinue($"a retry was requested ({decided.Reason}) but {denial}"), null, false);
     }
 
-    private static FailureLevel WorstFailureLevel(ExecutionResults results)
+    private static FailureLevel worstFailureLevel(ExecutionResults results)
     {
         var worst = FailureLevel.None;
         foreach (var step in results.Steps)
@@ -348,7 +348,7 @@ public class BobcatRunner
         return worst;
     }
 
-    private async Task<ScenarioResult> RunScenario(FeatureDefinition feature, ScenarioDefinition scenario)
+    private async Task<ScenarioResult> runScenario(FeatureDefinition feature, ScenarioDefinition scenario)
     {
         var fixture = (Fixture)Activator.CreateInstance(feature.FixtureType)!;
 

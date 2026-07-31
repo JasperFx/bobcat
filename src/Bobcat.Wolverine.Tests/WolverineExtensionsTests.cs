@@ -15,7 +15,7 @@ public class WolverineExtensionsTests
     [Fact]
     public async Task InvokeMessageAndWaitAsync_delegates_to_host()
     {
-        await using var resource = BuildWolverineHostResource();
+        await using var resource = buildWolverineHostResource();
         await resource.Start();
 
         var context = Substitute.For<IStepContext>();
@@ -30,7 +30,7 @@ public class WolverineExtensionsTests
     [Fact]
     public async Task SendMessageAndWaitAsync_delegates_to_host()
     {
-        await using var resource = BuildWolverineHostResource();
+        await using var resource = buildWolverineHostResource();
         await resource.Start();
 
         var context = Substitute.For<IStepContext>();
@@ -45,7 +45,7 @@ public class WolverineExtensionsTests
     [Fact]
     public async Task TrackActivity_returns_session_configuration()
     {
-        await using var resource = BuildWolverineHostResource();
+        await using var resource = buildWolverineHostResource();
         await resource.Start();
 
         var context = Substitute.For<IStepContext>();
@@ -58,7 +58,7 @@ public class WolverineExtensionsTests
     [Fact]
     public async Task can_use_named_resource()
     {
-        await using var resource = BuildWolverineHostResource(name: "WolverineApp");
+        await using var resource = buildWolverineHostResource(name: "WolverineApp");
         await resource.Start();
 
         var context = Substitute.For<IStepContext>();
@@ -70,7 +70,7 @@ public class WolverineExtensionsTests
         session.ShouldNotBeNull();
     }
 
-    private static HostResource BuildWolverineHostResource(string? name = null)
+    private static HostResource buildWolverineHostResource(string? name = null)
     {
         return new HostResource(
             hostFactory: () =>

@@ -8,7 +8,7 @@ namespace Bobcat.Acceptance.Tests;
 
 public class DiScopingTests
 {
-    private static BobcatRunner BuildRunner()
+    private static BobcatRunner buildRunner()
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Di_Scoping_Feature.Define());
@@ -28,7 +28,7 @@ public class DiScopingTests
     {
         DiScopingFixture.Reset();
 
-        var results = await BuildRunner().RunAll();
+        var results = await buildRunner().RunAll();
 
         var scenarios = results.Features.Single().Scenarios;
         foreach (var scenario in scenarios)

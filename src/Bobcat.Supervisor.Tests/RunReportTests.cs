@@ -6,7 +6,7 @@ namespace Bobcat.Supervisor.Tests;
 
 public class RunReportTests
 {
-    private static async Task<SupervisorResults> Run(
+    private static async Task<SupervisorResults> run(
         IReadOnlyList<WorkerTest> tests,
         Func<string, int, FakeWorker, WorkerTestState?> outcome,
         RetryBudget? budget = null)
@@ -15,7 +15,7 @@ public class RunReportTests
         return await new Supervisor(factory) { RetryBudget = budget ?? RetryBudget.None }.Run();
     }
 
-    private static Task<SupervisorResults> MixedRun() => Run(
+    private static Task<SupervisorResults> mixedRun() => run(
         [
             FakeWorkerFactory.Test("solid"),
             FakeWorkerFactory.Test("flaky", "Retry=2"),
@@ -32,7 +32,7 @@ public class RunReportTests
     [Fact]
     public async Task the_human_report_separates_passed_on_retry_from_clean_passes()
     {
-        var text = RunReport.ToText(await MixedRun());
+        var text = RunReport.ToText(await mixedRun());
 
         text.ShouldContain("Passed on retry (not clean passes)");
         text.ShouldContain("flaky");
@@ -46,7 +46,7 @@ public class RunReportTests
     [Fact]
     public async Task the_human_report_lists_quarantine_candidates()
     {
-        var text = RunReport.ToText(await MixedRun());
+        var text = RunReport.ToText(await mixedRun());
 
         text.ShouldContain("Quarantine candidates");
         text.ShouldContain("flaky");
@@ -57,7 +57,7 @@ public class RunReportTests
     {
         // Membership is "was retried", not "eventually failed" — a green build is exactly when
         // this would otherwise go unnoticed.
-        var results = await MixedRun();
+        var results = await mixedRun();
 
         results.Quarantine.Select(t => t.Uid).ShouldBe(["flaky"]);
         results.PassedOnRetry.ShouldHaveSingleItem().Uid.ShouldBe("flaky");
@@ -66,7 +66,7 @@ public class RunReportTests
     [Fact]
     public async Task the_json_report_is_structured_rather_than_scraped()
     {
-        var json = JsonDocument.Parse(RunReport.ToJson(await MixedRun())).RootElement;
+        var json = JsonDocument.Parse(RunReport.ToJson(await mixedRun())).RootElement;
 
         var summary = json.GetProperty("summary");
         summary.GetProperty("cleanPass").GetInt32().ShouldBe(1);
@@ -83,7 +83,7 @@ public class RunReportTests
     {
         // An agent asking "which tests are flaky and under what conditions" reads fields, not a
         // console log.
-        var json = JsonDocument.Parse(RunReport.ToJson(await MixedRun())).RootElement;
+        var json = JsonDocument.Parse(RunReport.ToJson(await mixedRun())).RootElement;
 
         var flaky = json.GetProperty("tests").EnumerateArray()
             .Single(t => t.GetProperty("uid").GetString() == "flaky");
@@ -145,7 +145,7 @@ public class RunReportTests
     [Fact]
     public async Task a_clean_run_reports_no_sections_it_does_not_need()
     {
-        var results = await Run([FakeWorkerFactory.Test("a")], (_, _, _) => WorkerTestState.Passed);
+        var results = await run([FakeWorkerFactory.Test("a")], (_, _, _) => WorkerTestState.Passed);
 
         var text = RunReport.ToText(results);
 

@@ -120,7 +120,7 @@ public sealed class Supervisor
     /// </remarks>
     public RecoveryHintSet RecoveryHints { get; } = new();
 
-    private IFailurePolicy Policy => new FailurePolicyChain(
+    private IFailurePolicy policy => new FailurePolicyChain(
         [.. _policies, new HintedFailurePolicy(RecoveryHints), new DefaultFailurePolicy()]);
 
     public async Task<SupervisorResults> Run(CancellationToken ct = default)
@@ -132,7 +132,7 @@ public sealed class Supervisor
         {
             // Before any worker exists. Nothing downstream is meaningful if the environment is
             // broken, and finding that out per-test wastes the whole CI slot.
-            var preflight = await RunPreflight(ct);
+            var preflight = await runPreflight(ct);
             if (preflight is not null)
             {
                 return new SupervisorResults
@@ -143,7 +143,7 @@ public sealed class Supervisor
                 };
             }
 
-            var tests = await Discover(ct);
+            var tests = await discover(ct);
             if (tests.Count == 0)
             {
                 return new SupervisorResults { Tests = [], WorkersLaunched = _workersLaunched };
@@ -153,21 +153,21 @@ public sealed class Supervisor
 
             // Isolation is decided from discovery metadata, before anything runs. That is the
             // point of Q4 in the #43 spike: traits arrive early enough to plan scheduling.
-            var isolated = tests.Where(t => IsIsolated(t.Traits)).Select(t => t.Uid).ToList();
-            var batched = tests.Where(t => !IsIsolated(t.Traits)).ToList();
+            var isolated = tests.Where(t => isIsolated(t.Traits)).Select(t => t.Uid).ToList();
+            var batched = tests.Where(t => !isIsolated(t.Traits)).ToList();
 
             Log?.Invoke($"{tests.Count} test(s): {batched.Count} batched, {isolated.Count} isolated");
 
-            abortReason = await FirstPass(batched, isolated, traits, attempts, ct);
+            abortReason = await firstPass(batched, isolated, traits, attempts, ct);
 
             if (abortReason is null)
             {
-                abortReason = await RetryPasses(traits, attempts, ct);
+                abortReason = await retryPasses(traits, attempts, ct);
             }
         }
         finally
         {
-            await DisposeLanes();
+            await disposeLanes();
         }
 
         return new SupervisorResults
@@ -188,7 +188,7 @@ public sealed class Supervisor
         };
     }
 
-    private async Task<string?> RunPreflight(CancellationToken ct)
+    private async Task<string?> runPreflight(CancellationToken ct)
     {
         // Recyclable infrastructure is supervisor-owned, so the supervisor is the only thing
         // that can check it before the run starts.
@@ -203,15 +203,15 @@ public sealed class Supervisor
         return description;
     }
 
-    private async Task<IReadOnlyList<WorkerTest>> Discover(CancellationToken ct)
+    private async Task<IReadOnlyList<WorkerTest>> discover(CancellationToken ct)
     {
         // Discovery gets its own short-lived worker: it must not inherit state from, or leave
         // state in, a process that will go on to run tests.
-        await using var worker = await LaunchWorker(ct);
+        await using var worker = await launchWorker(ct);
         return await worker.Discover(ct);
     }
 
-    private async Task<string?> FirstPass(
+    private async Task<string?> firstPass(
         IReadOnlyList<WorkerTest> batched,
         IReadOnlyList<string> isolated,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
@@ -238,17 +238,17 @@ public sealed class Supervisor
                 }
             }
 
-            var results = await Task.WhenAll(plan.Select(lane => RunLane(lane.Index, lane.Uids, ct)));
+            var results = await Task.WhenAll(plan.Select(lane => runLane(lane.Index, lane.Uids, ct)));
 
             // Recording is deliberately serial and in lane order: it mutates the attempt history
             // and consults the policy, and a run's report should not depend on which worker
             // happened to finish first.
             foreach (var (index, result) in results.OrderBy(r => r.Index))
             {
-                if (result.Crashed) InvalidateLane(index, result.Fault!);
-                RecordFault(result);
+                if (result.Crashed) invalidateLane(index, result.Fault!);
+                recordFault(result);
 
-                var abort = Record(result, AttemptPlacement.Batched, traits, attempts);
+                var abort = record(result, AttemptPlacement.Batched, traits, attempts);
                 if (abort is not null) return abort;
             }
         }
@@ -258,9 +258,9 @@ public sealed class Supervisor
             ct.ThrowIfCancellationRequested();
 
             Log?.Invoke($"running alone: {uid}");
-            var result = await RunAlone(uid, ct);
+            var result = await runAlone(uid, ct);
 
-            var abort = Record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
+            var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
             if (abort is not null) return abort;
         }
 
@@ -271,7 +271,7 @@ public sealed class Supervisor
     /// Keeps retrying while the policy asks for it and the budget allows. Each pass re-consults
     /// the policy with the latest outcome, so a test can change its mind about what it needs.
     /// </summary>
-    private async Task<string?> RetryPasses(
+    private async Task<string?> retryPasses(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
         Dictionary<string, List<SupervisorAttempt>> attempts,
         CancellationToken ct)
@@ -295,7 +295,7 @@ public sealed class Supervisor
                     afterRecycle.Add((uid, latest.Disposition.Resources));
                 }
                 else if (latest.Disposition.Kind == DispositionKind.RetryInFreshProcess ||
-                         IsIsolated(TraitsFor(traits, uid)))
+                         isIsolated(traitsFor(traits, uid)))
                 {
                     freshProcess.Add(uid);
                 }
@@ -319,14 +319,14 @@ public sealed class Supervisor
                     .OrderBy(g => g.Key)
                     .ToList();
 
-                var results = await Task.WhenAll(byLane.Select(g => RunLane(g.Key, g.ToList(), ct)));
+                var results = await Task.WhenAll(byLane.Select(g => runLane(g.Key, g.ToList(), ct)));
 
                 foreach (var (index, result) in results.OrderBy(r => r.Index))
                 {
-                    if (result.Crashed) InvalidateLane(index, result.Fault!);
-                    RecordFault(result);
+                    if (result.Crashed) invalidateLane(index, result.Fault!);
+                    recordFault(result);
 
-                    var abort = Record(result, AttemptPlacement.SameProcess, traits, attempts);
+                    var abort = record(result, AttemptPlacement.SameProcess, traits, attempts);
                     if (abort is not null) return abort;
                 }
             }
@@ -336,9 +336,9 @@ public sealed class Supervisor
                 ct.ThrowIfCancellationRequested();
 
                 Log?.Invoke($"retrying alone in a fresh process: {uid}");
-                var result = await RunAlone(uid, ct);
+                var result = await runAlone(uid, ct);
 
-                var abort = Record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
+                var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
                 if (abort is not null) return abort;
             }
 
@@ -348,24 +348,24 @@ public sealed class Supervisor
 
                 // Recycle FIRST, then run alone in a fresh process. Reusing the shared worker
                 // would leave it connected to the broker we just threw away.
-                var recycleFailure = await Recycle(resources, ct);
+                var recycleFailure = await recycle(resources, ct);
                 if (recycleFailure is not null) return recycleFailure;
 
                 Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
-                var result = await RunAlone(uid, ct);
+                var result = await runAlone(uid, ct);
 
-                var abort = Record(result, AttemptPlacement.RecycledProcess, traits, attempts);
+                var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts);
                 if (abort is not null) return abort;
             }
         }
     }
 
     /// <summary>A dedicated process running exactly one test, then thrown away.</summary>
-    private async Task<WorkerRunResult> RunAlone(string uid, CancellationToken ct)
+    private async Task<WorkerRunResult> runAlone(string uid, CancellationToken ct)
     {
-        await using var worker = await LaunchWorker(ct);
+        await using var worker = await launchWorker(ct);
         var result = await worker.Run([uid], ct);
-        RecordFault(result);
+        recordFault(result);
         return result;
     }
 
@@ -373,7 +373,7 @@ public sealed class Supervisor
     /// Records outcomes and asks the policy what to do next. Returns an abort reason when a
     /// policy said to stop the whole run.
     /// </summary>
-    private string? Record(
+    private string? record(
         WorkerRunResult result,
         AttemptPlacement placement,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
@@ -388,16 +388,16 @@ public sealed class Supervisor
             }
 
             var attemptNumber = history.Count + 1;
-            var testTraits = TraitsFor(traits, outcome.Uid);
+            var testTraits = traitsFor(traits, outcome.Uid);
 
-            var decided = Policy.Decide(new AttemptContext
+            var decided = policy.Decide(new AttemptContext
             {
                 TestId = outcome.Uid,
                 Title = outcome.DisplayName,
                 AttemptNumber = attemptNumber,
                 Succeeded = outcome.Succeeded,
-                FailureLevel = FailureLevelFor(outcome),
-                Exception = ExceptionFor(outcome),
+                FailureLevel = failureLevelFor(outcome),
+                Exception = exceptionFor(outcome),
                 // Set explicitly: deriving it from ExceptionFor's stand-in would report
                 // WorkerFailureException, which describes our wrapper rather than the failure.
                 Failure = FailureSignature.FromReportedType(outcome.ErrorType, outcome.ErrorMessage),
@@ -406,7 +406,7 @@ public sealed class Supervisor
                 AttemptsAllowed = RetryBudget.AttemptsAllowedFor(testTraits)
             }) ?? Disposition.FailAndContinue("failed");
 
-            var (effective, unsupported) = Resolve(decided, outcome.Uid, testTraits);
+            var (effective, unsupported) = resolve(decided, outcome.Uid, testTraits);
 
             history.Add(new SupervisorAttempt(attemptNumber, outcome, placement, effective)
             {
@@ -424,7 +424,7 @@ public sealed class Supervisor
     /// with its reason rather than silently downgraded — a report that implies a retry which
     /// never happened is worse than no report.
     /// </summary>
-    private (Disposition Effective, string? Unsupported) Resolve(
+    private (Disposition Effective, string? Unsupported) resolve(
         Disposition decided, string uid, IReadOnlyDictionary<string, string> traits)
     {
         if (!decided.IsRetry) return (decided, null);
@@ -448,23 +448,23 @@ public sealed class Supervisor
         return (Disposition.FailAndContinue($"a retry was requested ({decided.Reason}) but {denial}"), null);
     }
 
-    private static FailureLevel FailureLevelFor(WorkerOutcome outcome) => outcome.State switch
+    private static FailureLevel failureLevelFor(WorkerOutcome outcome) => outcome.State switch
     {
         WorkerTestState.Passed or WorkerTestState.Skipped => FailureLevel.None,
         WorkerTestState.Failed => FailureLevel.Assertion,
         _ => FailureLevel.Critical
     };
 
-    private static Exception? ExceptionFor(WorkerOutcome outcome)
+    private static Exception? exceptionFor(WorkerOutcome outcome)
         => outcome.Succeeded
             ? null
             : new WorkerFailureException(outcome.ErrorType, outcome.ErrorMessage ?? outcome.State.ToString());
 
-    private static bool IsIsolated(IReadOnlyDictionary<string, string> traits)
+    private static bool isIsolated(IReadOnlyDictionary<string, string> traits)
         => traits.TryGetValue(ResilienceTags.Isolated, out var value) &&
            value.Equals("true", StringComparison.OrdinalIgnoreCase);
 
-    private static IReadOnlyDictionary<string, string> TraitsFor(
+    private static IReadOnlyDictionary<string, string> traitsFor(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits, string uid)
         => traits.TryGetValue(uid, out var found)
             ? found
@@ -475,7 +475,7 @@ public sealed class Supervisor
     /// catastrophic by nature — the retry would run against infrastructure in an unknown state,
     /// so it is better to stop than to produce a result nobody can trust.
     /// </summary>
-    private async Task<string?> Recycle(IReadOnlyList<string> resources, CancellationToken ct)
+    private async Task<string?> recycle(IReadOnlyList<string> resources, CancellationToken ct)
     {
         foreach (var name in resources)
         {
@@ -502,21 +502,21 @@ public sealed class Supervisor
     }
 
     /// <summary>Keeps a worker's dying words so the report can explain an indeterminate result.</summary>
-    private void RecordFault(WorkerRunResult result)
+    private void recordFault(WorkerRunResult result)
     {
         if (result.Fault is not null) _workerFaults.Add(result.Fault);
     }
 
     /// <summary>Runs one lane's tests in that lane's own long-lived worker.</summary>
-    private async Task<(int Index, WorkerRunResult Result)> RunLane(
+    private async Task<(int Index, WorkerRunResult Result)> runLane(
         int index, IReadOnlyList<string> uids, CancellationToken ct)
     {
-        var worker = await LaneWorker(index, ct);
+        var worker = await laneWorker(index, ct);
         var result = await worker.Run(uids, ct);
         return (index, result);
     }
 
-    private async Task<IWorkerClient> LaneWorker(int index, CancellationToken ct)
+    private async Task<IWorkerClient> laneWorker(int index, CancellationToken ct)
     {
         lock (_gate)
         {
@@ -527,7 +527,7 @@ public sealed class Supervisor
         // Launched outside the lock — starting a process is slow, and every lane launches its
         // own at the same moment. Only this lane's task reaches this line for this index, so
         // there is no race to lose.
-        var worker = await LaunchWorker(ct);
+        var worker = await launchWorker(ct);
 
         lock (_gate) _lanes[index] = worker;
         return worker;
@@ -537,7 +537,7 @@ public sealed class Supervisor
     /// Drops a lane's worker after it died, so the next retry in that lane gets a live process
     /// instead of failing against a corpse.
     /// </summary>
-    private void InvalidateLane(int index, string fault)
+    private void invalidateLane(int index, string fault)
     {
         Log?.Invoke($"worker for lane {index} died ({fault}); a replacement will be launched if needed");
 
@@ -551,7 +551,7 @@ public sealed class Supervisor
         if (dead is not null) _ = dead.DisposeAsync().AsTask();
     }
 
-    private async Task DisposeLanes()
+    private async Task disposeLanes()
     {
         IWorkerClient?[] workers;
         lock (_gate)
@@ -566,7 +566,7 @@ public sealed class Supervisor
         }
     }
 
-    private async Task<IWorkerClient> LaunchWorker(CancellationToken ct)
+    private async Task<IWorkerClient> launchWorker(CancellationToken ct)
     {
         Interlocked.Increment(ref _workersLaunched);
         return await _factory.Launch(ct);

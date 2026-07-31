@@ -12,7 +12,7 @@ namespace Bobcat.Wolverine;
 /// </summary>
 public static class WolverineStepContextExtensions
 {
-    private static IHost GetWolverineHost(IStepContext context, string? resourceName)
+    private static IHost getWolverineHost(IStepContext context, string? resourceName)
         => context.GetResource<IHostResource>(resourceName).Host;
 
     /// <summary>
@@ -23,7 +23,7 @@ public static class WolverineStepContextExtensions
         object message,
         string? resourceName = null,
         int timeoutInMilliseconds = 5000)
-        => GetWolverineHost(context, resourceName)
+        => getWolverineHost(context, resourceName)
             .InvokeMessageAndWaitAsync(message, timeoutInMilliseconds);
 
     /// <summary>
@@ -34,7 +34,7 @@ public static class WolverineStepContextExtensions
         object message,
         string? resourceName = null,
         int timeoutInMilliseconds = 5000)
-        => GetWolverineHost(context, resourceName)
+        => getWolverineHost(context, resourceName)
             .InvokeMessageAndWaitAsync<T>(message, timeoutInMilliseconds);
 
     /// <summary>
@@ -45,7 +45,7 @@ public static class WolverineStepContextExtensions
         T message,
         string? resourceName = null,
         int timeoutInMilliseconds = 5000)
-        => GetWolverineHost(context, resourceName)
+        => getWolverineHost(context, resourceName)
             .SendMessageAndWaitAsync(message, null, timeoutInMilliseconds);
 
     /// <summary>
@@ -54,5 +54,5 @@ public static class WolverineStepContextExtensions
     public static TrackedSessionConfiguration TrackActivity(
         this IStepContext context,
         string? resourceName = null)
-        => GetWolverineHost(context, resourceName).TrackActivity();
+        => getWolverineHost(context, resourceName).TrackActivity();
 }

@@ -22,34 +22,34 @@ public class ClockGrammars
     [Given("the current time is {string}")]
     public void SetTime(string datetime)
     {
-        BobcatClock.Controllable().SetUtcNow(ParseUtc(datetime));
+        BobcatClock.Controllable().SetUtcNow(parseUtc(datetime));
     }
 
     [When("the clock advances by {string}")]
     public void AdvanceBy(string duration)
     {
-        BobcatClock.Controllable().Advance(ParseDuration(duration));
+        BobcatClock.Controllable().Advance(parseDuration(duration));
     }
 
     [When("{string} passes")]
     public void Passes(string duration)
     {
-        BobcatClock.Controllable().Advance(ParseDuration(duration));
+        BobcatClock.Controllable().Advance(parseDuration(duration));
     }
 
     [When("the clock advances to {string}")]
     public void AdvanceTo(string datetime)
     {
-        BobcatClock.Controllable().SetUtcNow(ParseUtc(datetime));
+        BobcatClock.Controllable().SetUtcNow(parseUtc(datetime));
     }
 
-    private static DateTimeOffset ParseUtc(string text)
+    private static DateTimeOffset parseUtc(string text)
     {
         var dt = DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         return new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc), TimeSpan.Zero);
     }
 
-    private static TimeSpan ParseDuration(string text)
+    private static TimeSpan parseDuration(string text)
     {
         if (!FriendlyTimeSpanParser.TryParse(text, out var ts))
             throw new FormatException($"'{text}' is not a valid duration");

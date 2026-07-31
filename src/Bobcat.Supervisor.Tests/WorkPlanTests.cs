@@ -4,17 +4,17 @@ namespace Bobcat.Supervisor.Tests;
 
 public class WorkPlanTests
 {
-    private static WorkerTest Test(string displayName) => new(displayName, displayName);
+    private static WorkerTest test(string displayName) => new(displayName, displayName);
 
-    private static IReadOnlyList<WorkerTest> Class(string className, int count)
-        => Enumerable.Range(1, count).Select(i => Test($"{className}.test_{i}")).ToList();
+    private static IReadOnlyList<WorkerTest> testsInClass(string className, int count)
+        => Enumerable.Range(1, count).Select(i => test($"{className}.test_{i}")).ToList();
 
     // ── partition key ───────────────────────────────────────────────────────
 
     [Fact]
     public void a_dotted_name_partitions_on_the_declaring_class()
     {
-        WorkPlan.ClassOf(Test("PersistenceTests.Postgresql.Transport.data_operations.move_to_incoming"))
+        WorkPlan.ClassOf(test("PersistenceTests.Postgresql.Transport.data_operations.move_to_incoming"))
             .ShouldBe("PersistenceTests.Postgresql.Transport.data_operations");
     }
 
@@ -23,7 +23,7 @@ public class WorkPlanTests
     {
         // Bobcat's identity is "Feature/Scenario" everywhere — the retry budget, the MTP host,
         // and now the planner.
-        WorkPlan.ClassOf(Test("Order Processing/places an order")).ShouldBe("Order Processing");
+        WorkPlan.ClassOf(test("Order Processing/places an order")).ShouldBe("Order Processing");
     }
 
     [Fact]
@@ -31,13 +31,13 @@ public class WorkPlanTests
     {
         // A dot inside an argument would otherwise be read as the method separator, scattering
         // one theory's cases across lanes.
-        WorkPlan.ClassOf(Test("Ns.SomeClass.a_theory(input: \"a.b.c\")")).ShouldBe("Ns.SomeClass");
+        WorkPlan.ClassOf(test("Ns.SomeClass.a_theory(input: \"a.b.c\")")).ShouldBe("Ns.SomeClass");
     }
 
     [Fact]
     public void a_name_with_no_separator_is_its_own_partition()
     {
-        WorkPlan.ClassOf(Test("standalone")).ShouldBe("standalone");
+        WorkPlan.ClassOf(test("standalone")).ShouldBe("standalone");
     }
 
     // ── the correctness rule ────────────────────────────────────────────────
@@ -48,13 +48,13 @@ public class WorkPlanTests
         // The rule the whole design exists for. Measured against Wolverine: splitting per test
         // failed 1-4 of 78 non-deterministically (a class keyed its schema off a static counter),
         // while splitting per class passed 78/78.
-        var tests = Class("A", 10).Concat(Class("B", 10)).Concat(Class("C", 10)).ToList();
+        var tests = testsInClass("A", 10).Concat(testsInClass("B", 10)).Concat(testsInClass("C", 10)).ToList();
 
         var lanes = WorkPlan.Build(tests, laneCount: 8);
 
         foreach (var lane in lanes)
         {
-            lane.Uids.Select(WorkPlanTests.ClassNameOf).Distinct().Count()
+            lane.Uids.Select(WorkPlanTests.classNameOf).Distinct().Count()
                 .ShouldBe(lane.Partitions.Count);
         }
 
@@ -68,7 +68,7 @@ public class WorkPlanTests
     [Fact]
     public void every_test_is_assigned_exactly_once()
     {
-        var tests = Class("A", 7).Concat(Class("B", 3)).Concat(Class("C", 5)).ToList();
+        var tests = testsInClass("A", 7).Concat(testsInClass("B", 3)).Concat(testsInClass("C", 5)).ToList();
 
         var assigned = WorkPlan.Build(tests, laneCount: 3).SelectMany(l => l.Uids).ToList();
 
@@ -81,7 +81,7 @@ public class WorkPlanTests
     public void there_are_never_more_lanes_than_partitions()
     {
         // Launching a process with nothing to do is pure cost.
-        WorkPlan.Build(Class("A", 3).Concat(Class("B", 3)).ToList(), laneCount: 10).Count.ShouldBe(2);
+        WorkPlan.Build(testsInClass("A", 3).Concat(testsInClass("B", 3)).ToList(), laneCount: 10).Count.ShouldBe(2);
     }
 
     // ── the single-lane path ────────────────────────────────────────────────
@@ -91,7 +91,7 @@ public class WorkPlanTests
     {
         // MaxParallelWorkers defaults to 1, so this path must be byte-for-byte what the supervisor
         // did before parallelism existed — no reordering, no partitioning decision at all.
-        var tests = new[] { Test("B.two"), Test("A.one"), Test("B.one"), Test("A.two") };
+        var tests = new[] { test("B.two"), test("A.one"), test("B.one"), test("A.two") };
 
         var lanes = WorkPlan.Build(tests, laneCount: 1);
 
@@ -109,7 +109,7 @@ public class WorkPlanTests
     [Fact]
     public void without_durations_the_lanes_balance_on_test_count()
     {
-        var tests = Class("Big", 10).Concat(Class("Small", 2)).Concat(Class("Medium", 6)).ToList();
+        var tests = testsInClass("Big", 10).Concat(testsInClass("Small", 2)).Concat(testsInClass("Medium", 6)).ToList();
 
         var lanes = WorkPlan.Build(tests, laneCount: 2);
 
@@ -123,8 +123,8 @@ public class WorkPlanTests
     {
         // The case count-balancing gets exactly wrong: one slow test outweighs many fast ones.
         // Measured on Wolverine, count-balanced lanes finished at 101.5s and 11.4s.
-        var slow = Class("Slow", 1);
-        var fast = Class("Fast", 20);
+        var slow = testsInClass("Slow", 1);
+        var fast = testsInClass("Fast", 20);
 
         var durations = new Dictionary<string, TimeSpan>
         {
@@ -146,7 +146,7 @@ public class WorkPlanTests
         // Wall clock is the slowest lane, so no fleet size beats the slowest single class. This
         // is why issue #56 (find the 61s test) and this feature are the same bottleneck.
         var durations = new Dictionary<string, TimeSpan> { ["Slow.test_1"] = TimeSpan.FromSeconds(60) };
-        var tests = Class("Slow", 1).Concat(Class("Fast", 8)).ToList();
+        var tests = testsInClass("Slow", 1).Concat(testsInClass("Fast", 8)).ToList();
         foreach (var test in tests.Skip(1)) durations[test.Uid] = TimeSpan.FromSeconds(1);
 
         foreach (var laneCount in new[] { 2, 4, 8, 16 })
@@ -161,7 +161,7 @@ public class WorkPlanTests
     {
         // A newly added test must not be costed at a nominal second inside a suite of 30-second
         // integration tests — that would pile every new test into one lane.
-        var tests = Class("Known", 3).Concat(Class("New", 1)).ToList();
+        var tests = testsInClass("Known", 3).Concat(testsInClass("New", 1)).ToList();
 
         var durations = new Dictionary<string, TimeSpan>
         {
@@ -180,7 +180,7 @@ public class WorkPlanTests
     {
         // Same inputs, same lanes — otherwise a rerun reshuffles which class shares a process
         // with which, and a contention bug becomes unreproducible.
-        var tests = Class("A", 4).Concat(Class("B", 4)).Concat(Class("C", 4)).Concat(Class("D", 4)).ToList();
+        var tests = testsInClass("A", 4).Concat(testsInClass("B", 4)).Concat(testsInClass("C", 4)).Concat(testsInClass("D", 4)).ToList();
 
         var first = WorkPlan.Build(tests, laneCount: 3);
         var second = WorkPlan.Build(tests, laneCount: 3);
@@ -193,12 +193,12 @@ public class WorkPlanTests
     {
         // The escape hatch for a suite whose real coupling is not the class — a shared database
         // named in a trait, say.
-        var tests = new[] { Test("A.one"), Test("B.one"), Test("C.one") };
+        var tests = new[] { test("A.one"), test("B.one"), test("C.one") };
 
         var lanes = WorkPlan.Build(tests, laneCount: 3, partitionKey: _ => "everything together");
 
         lanes.ShouldHaveSingleItem().Uids.Count.ShouldBe(3);
     }
 
-    private static string ClassNameOf(string uid) => WorkPlan.ClassOf(new WorkerTest(uid, uid));
+    private static string classNameOf(string uid) => WorkPlan.ClassOf(new WorkerTest(uid, uid));
 }

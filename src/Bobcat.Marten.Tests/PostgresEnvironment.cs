@@ -8,7 +8,7 @@ namespace Bobcat.Marten.Tests;
 /// </summary>
 public static class PostgresEnvironment
 {
-    private static readonly Lazy<bool> _available = new(Probe, isThreadSafe: true);
+    private static readonly Lazy<bool> _available = new(probe, isThreadSafe: true);
 
     /// <summary>
     /// Points at the repo's docker-compose Postgres, which publishes 5445 so it never collides
@@ -32,10 +32,10 @@ public static class PostgresEnvironment
     public static bool IsAvailable => _available.Value;
 
     public static string SkipReason =>
-        $"No Postgres reachable at {Describe()}. Run `docker compose up -d` from the repo root, " +
+        $"No Postgres reachable at {describe()}. Run `docker compose up -d` from the repo root, " +
         "or point BOBCAT_POSTGRES at your own database. (This skip never applies on CI.)";
 
-    private static bool Probe()
+    private static bool probe()
     {
         try
         {
@@ -51,7 +51,7 @@ public static class PostgresEnvironment
     }
 
     /// <summary>Host/database only — never echo the password into test output.</summary>
-    private static string Describe()
+    private static string describe()
     {
         try
         {

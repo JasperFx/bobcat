@@ -36,17 +36,17 @@ public static class RelativeTimeResolver
             if (sign != '+' && sign != '-') return false;
 
             var operand = rest.Substring(1).Trim();
-            if (!TryOffset(isToday, operand, out var offset)) return false;
+            if (!tryOffset(isToday, operand, out var offset)) return false;
 
             value = sign == '-' ? basis.Add(-offset) : basis.Add(offset);
         }
 
         resolved = value;
-        note = $"{t} → {Format(isToday, value)}";
+        note = $"{t} → {format(isToday, value)}";
         return true;
     }
 
-    private static bool TryOffset(bool isToday, string operand, out TimeSpan offset)
+    private static bool tryOffset(bool isToday, string operand, out TimeSpan offset)
     {
         // A bare integer after TODAY means days.
         if (isToday && int.TryParse(operand, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days))
@@ -58,7 +58,7 @@ public static class RelativeTimeResolver
         return FriendlyTimeSpanParser.TryParse(operand, out offset);
     }
 
-    private static string Format(bool isToday, DateTime value)
+    private static string format(bool isToday, DateTime value)
         => isToday
             ? value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
             : value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);

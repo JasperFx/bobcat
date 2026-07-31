@@ -7,7 +7,7 @@ namespace Bobcat.Supervisor.Tests;
 
 public class SupervisorTests
 {
-    private static Supervisor Build(FakeWorkerFactory factory, RetryBudget? budget = null)
+    private static Supervisor build(FakeWorkerFactory factory, RetryBudget? budget = null)
         => new(factory) { RetryBudget = budget ?? RetryBudget.None };
 
     // ---------------------------------------------------------------- scheduling
@@ -22,7 +22,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Build(factory).Run();
+        await build(factory).Run();
 
         var runs = factory.RunningWorkers;
         runs.Count.ShouldBe(2);
@@ -44,7 +44,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        await Build(factory).Run();
+        await build(factory).Run();
 
         factory.Launched[0].Runs.ShouldBeEmpty();
         factory.Launched[0].Disposed.ShouldBeTrue();
@@ -59,7 +59,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var results = await Build(factory).Run();
+        var results = await build(factory).Run();
 
         factory.RunningWorkers.Count.ShouldBe(2);
         // Isolation is not free, and the report says how much it cost.
@@ -77,7 +77,7 @@ public class SupervisorTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         var runner = factory.RunningWorkers.ShouldHaveSingleItem();
         runner.Runs.Count.ShouldBe(2); // both attempts on the same worker
@@ -96,7 +96,7 @@ public class SupervisorTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         // Two separate running workers, each asked for exactly this one test.
         var runners = factory.RunningWorkers;
@@ -117,7 +117,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
 
         var test = results.Tests.ShouldHaveSingleItem();
         test.AttemptCount.ShouldBe(3);
@@ -134,7 +134,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 5 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 5 }).Run();
 
         results.Tests.ShouldHaveSingleItem().AttemptCount.ShouldBe(1);
         results.RetriesPerformed.ShouldBe(0);
@@ -152,7 +152,7 @@ public class SupervisorTests
                 uid == "solid" || attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         results.CleanPasses.ShouldHaveSingleItem().Uid.ShouldBe("solid");
         results.PassedOnRetry.ShouldHaveSingleItem().Uid.ShouldBe("flaky");
@@ -175,7 +175,7 @@ public class SupervisorTests
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
-        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        var supervisor = build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
         supervisor.AddRecyclableResource(rabbit);
 
         var results = await supervisor.Run();
@@ -209,7 +209,7 @@ public class SupervisorTests
             }
         };
 
-        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        var supervisor = build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
         supervisor.AddRecyclableResource(rabbit);
 
         await supervisor.Run();
@@ -228,7 +228,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
 
         var test = results.Tests.ShouldHaveSingleItem();
         test.AttemptCount.ShouldBe(1);
@@ -251,7 +251,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Failed
         };
 
-        var supervisor = Build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        var supervisor = build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
         supervisor.AddRecyclableResource(rabbit);
 
         var results = await supervisor.Run();
@@ -303,7 +303,7 @@ public class SupervisorTests
             Fault = w => w.Runs.Count > 0 ? "the worker closed the connection" : null
         };
 
-        var results = await Build(factory).Run();
+        var results = await build(factory).Run();
 
         var lost = results.Tests.Single(t => t.Uid == "never_reported");
         lost.IsIndeterminate.ShouldBeTrue();
@@ -326,7 +326,7 @@ public class SupervisorTests
             Fault = w => w.Runs.Count > 0 ? "the worker exited with code 70" : null
         };
 
-        var results = await Build(factory).Run();
+        var results = await build(factory).Run();
 
         results.Tests.ShouldHaveSingleItem()
             .Final.Outcome.ErrorMessage.ShouldBe("the worker exited with code 70");
@@ -355,7 +355,7 @@ public class SupervisorTests
             Fault = w => w.Index == 1 && w.Runs.Count > 0 ? "worker died" : null
         };
 
-        var results = await Build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
 
         factory.RunningWorkers.Count.ShouldBe(2);
         results.Tests.ShouldHaveSingleItem().Outcome.ShouldBe(RunOutcome.PassOnRetry);
@@ -374,7 +374,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var supervisor = Build(factory);
+        var supervisor = build(factory);
         supervisor.Preflight.Add("docker is running", () => throw new InvalidOperationException("connection refused"));
 
         var results = await supervisor.Run();
@@ -394,7 +394,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var supervisor = Build(factory);
+        var supervisor = build(factory);
         supervisor.AddRecyclableResource(new FakeRecyclableResource("rabbit")
         {
             OnCheck = () => throw new InvalidOperationException("broker unreachable")
@@ -416,7 +416,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Passed
         };
 
-        var supervisor = Build(factory);
+        var supervisor = build(factory);
         supervisor.Preflight.Add("docker is running", () => { });
 
         var results = await supervisor.Run();
@@ -436,7 +436,7 @@ public class SupervisorTests
             Outcome = (_, _, _) => WorkerTestState.Error
         };
 
-        var supervisor = Build(factory);
+        var supervisor = build(factory);
         supervisor.AddFailurePolicy(new AbortOnAnything());
 
         var results = await supervisor.Run();

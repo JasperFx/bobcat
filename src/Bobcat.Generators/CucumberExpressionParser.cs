@@ -17,7 +17,7 @@ public static class CucumberExpressionParser
     /// <summary>
     /// Built-in parameter types and their regex patterns.
     /// </summary>
-    private static readonly Dictionary<string, (string Regex, string CSharpType)> BuiltInTypes = new()
+    private static readonly Dictionary<string, (string Regex, string CSharpType)> builtInTypes = new()
     {
         ["int"] = (@"(-?\d+)", "int"),
         ["long"] = (@"(-?\d+)", "long"),
@@ -61,20 +61,20 @@ public static class CucumberExpressionParser
     /// </summary>
     public static ParsedExpression Parse(string expression)
     {
-        if (IsRawRegex(expression))
+        if (isRawRegex(expression))
         {
-            return ParseRawRegex(expression);
+            return parseRawRegex(expression);
         }
 
-        return ParseCucumberExpression(expression);
+        return parseCucumberExpression(expression);
     }
 
-    private static bool IsRawRegex(string expression)
+    private static bool isRawRegex(string expression)
     {
         return expression.StartsWith("^") || expression.Contains("\\d") || expression.Contains("(?");
     }
 
-    private static ParsedExpression ParseCucumberExpression(string expression)
+    private static ParsedExpression parseCucumberExpression(string expression)
     {
         var parameters = new List<ParameterCapture>();
         var regex = new StringBuilder();
@@ -93,7 +93,7 @@ public static class CucumberExpressionParser
 
                 var typeName = expression.Substring(i + 1, end - i - 1).Trim();
 
-                if (!BuiltInTypes.TryGetValue(typeName, out var typeInfo))
+                if (!builtInTypes.TryGetValue(typeName, out var typeInfo))
                     throw new ArgumentException($"Unknown parameter type '{{{typeName}}}' in expression: {expression}");
 
                 regex.Append(typeInfo.Regex);
@@ -114,21 +114,21 @@ public static class CucumberExpressionParser
                     // Alternation: (word1/word2)
                     var alts = content.Split('/');
                     regex.Append("(?:");
-                    regex.Append(string.Join("|", alts.Select(EscapeForRegex)));
+                    regex.Append(string.Join("|", alts.Select(escapeForRegex)));
                     regex.Append(')');
                 }
                 else
                 {
                     // Optional text
                     regex.Append("(?:");
-                    regex.Append(EscapeForRegex(content));
+                    regex.Append(escapeForRegex(content));
                     regex.Append(")?");
                 }
                 i = end + 1;
             }
             else
             {
-                regex.Append(EscapeChar(expression[i]));
+                regex.Append(escapeChar(expression[i]));
                 i++;
             }
         }
@@ -138,7 +138,7 @@ public static class CucumberExpressionParser
         return new ParsedExpression(regex.ToString(), parameters, false);
     }
 
-    private static ParsedExpression ParseRawRegex(string expression)
+    private static ParsedExpression parseRawRegex(string expression)
     {
         // Raw regex — extract group count for parameter mapping
         var parameters = new List<ParameterCapture>();
@@ -164,7 +164,7 @@ public static class CucumberExpressionParser
         return new ParsedExpression(expression, parameters, true);
     }
 
-    private static string EscapeChar(char c)
+    private static string escapeChar(char c)
     {
         // Regex metacharacters that need escaping
         return c switch
@@ -174,12 +174,12 @@ public static class CucumberExpressionParser
         };
     }
 
-    private static string EscapeForRegex(string text)
+    private static string escapeForRegex(string text)
     {
         var sb = new StringBuilder();
         foreach (var c in text)
         {
-            sb.Append(EscapeChar(c));
+            sb.Append(escapeChar(c));
         }
         return sb.ToString();
     }
@@ -217,12 +217,12 @@ public static class CucumberExpressionParser
             "float" => $"{value}f",
             "double" => $"{value}d",
             "decimal" => $"{value}m",
-            "string" => $"\"{EscapeCSharpString(value)}\"",
-            _ => $"\"{EscapeCSharpString(value)}\""
+            "string" => $"\"{escapeCSharpString(value)}\"",
+            _ => $"\"{escapeCSharpString(value)}\""
         };
     }
 
-    private static string EscapeCSharpString(string s)
+    private static string escapeCSharpString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
     }
