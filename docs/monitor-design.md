@@ -29,9 +29,13 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
   unrelated to this tool's dev workflow.
 
-Packaging: `dotnet tool` (`ToolCommandName: bobcat-monitor`), with the Vite build embedded as
-resources for the published tool (CritterWatch's `EmbedFrontend` + `EmbeddedFileProvider`
-middleware pattern — still to lift).
+Packaging (built 2026-07-31): `dotnet tool` (`ToolCommandName: bobcat-monitor`) with the Vite
+build embedded as resources — CritterWatch's `EmbedFrontend` + `EmbeddedFileProvider` pattern
+(`Hosting/EmbeddedSpa.cs`, minus its sub-path mounting; this tool owns the root). Two rules of
+record: `IsPackable` is gated on `EmbedFrontend`, so the tool nupkg cannot exist hollow (a
+solution-level `dotnet pack` simply skips the project — publish.yml packs it explicitly); and
+the EmbeddedResource items are created INSIDE the BuildFrontend target, because a static glob
+evaluates before the Vite build runs and silently embeds nothing on a clean build.
 
 ## Transport: HTTP, fire-and-forget, never slows a run
 
@@ -124,8 +128,6 @@ happy-dom for component mounts, CI gate in `.github/workflows/monitor-frontend.y
 (path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`). End-to-end tests dogfood
 the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, deliberately.
 
-## Not built yet
-
 ## Hydration (built 2026-07-31)
 
 Both directions are archive replays — one fold, two transports, nothing to keep in sync:
@@ -149,6 +151,8 @@ repository), when supervisor work opens up.
 
 ## Not built yet
 
-- Embedded-SPA serving for the packed tool.
-- Server-side batching, CTRF `retryAttempts[]` detail, MCP endpoints, retention/aging of the
-  archive directory.
+- Server-side batching, CTRF `retryAttempts[]` detail, retention/aging of the archive
+  directory, TS codegen for the contract mirrors.
+- Supervisor-side `BOBCAT_RUN_ID` grouping + `ISupervisorObserver` (when supervisor work
+  opens up); Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool
+  becomes "Bobcat").

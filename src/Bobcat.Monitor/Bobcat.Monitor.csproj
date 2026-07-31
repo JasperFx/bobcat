@@ -14,11 +14,48 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <IsPackable>true</IsPackable>
+    <!--
+      CritterWatch's EmbedFrontend pattern: opt-in because the frontend build needs npm, which
+      a plain `dotnet build` of the solution (CI's tests job, a contributor without node) must
+      not require. Packing is gated on it below, so the tool package can never ship without
+      its UI baked in — an accidental `dotnet pack` at the solution root simply skips this
+      project rather than producing a console with no console.
+    -->
+    <EmbedFrontend Condition="'$(EmbedFrontend)' == ''">false</EmbedFrontend>
+
+    <IsPackable>$(EmbedFrontend)</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>bobcat-monitor</ToolCommandName>
     <Description>Live web console for Bobcat test runs: suite progress, Gherkin step streaming, retry/flakiness reporting.</Description>
   </PropertyGroup>
+
+  <!--
+    The EmbeddedResource items are added INSIDE the target, not in a static ItemGroup: a
+    static glob evaluates before any target runs, so on a clean build (no dist/ yet) it
+    matches nothing and the "embedded" tool ships hollow. Adding the items after the Vite
+    build makes the embed order-proof. SkipFrontendBuild reuses an existing dist/ (local
+    iteration on the .NET side only).
+  -->
+  <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Condition="'$(EmbedFrontend)' == 'true'">
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Monitor.FrontEnd" />
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Monitor.FrontEnd" />
+
+    <ItemGroup>
+      <!--
+        Two-step on purpose: inside a target, %() metadata on a GLOBBED include batches over
+        existing items (empty here) instead of flowing per matched file. Globbing into an
+        intermediate item first, then transforming, gives each file its own Link.
+      -->
+      <_FrontendDistFile Include="../Bobcat.Monitor.FrontEnd/dist/**/*" />
+      <EmbeddedResource Include="@(_FrontendDistFile)"
+                        Link="wwwroot/%(_FrontendDistFile.RecursiveDir)%(_FrontendDistFile.Filename)%(_FrontendDistFile.Extension)" />
+    </ItemGroup>
+
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Monitor.FrontEnd/dist/index.html')"
+           Text="EmbedFrontend=true but the frontend build produced no dist/index.html" />
+  </Target>
 
   <ItemGroup>
     <!--
