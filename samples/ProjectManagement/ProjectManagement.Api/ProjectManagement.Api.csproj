@@ -8,7 +8,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0"/>
-        <PackageReference Include="WolverineFx.Http.Marten" Version="5.29.0" />
+        <PackageReference Include="WolverineFx.Http.Marten" Version="6.24.2" />
     </ItemGroup>
 
 </Project>

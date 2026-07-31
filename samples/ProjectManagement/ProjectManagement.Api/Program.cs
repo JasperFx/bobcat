@@ -1,5 +1,5 @@
 using Marten;
-using Oakton;
+using JasperFx;
 using ProjectManagement.Api;
 using Wolverine;
 using Wolverine.Http;
@@ -56,7 +56,7 @@ app.MapWolverineEndpoints();
 
 // Replaced the standard command line runner with the 
 // Critter Stack's expanded options
-return await app.RunOaktonCommands(args);
+return await app.RunJasperFxCommands(args);
 
 // Just to make testing a little easier
 public partial class Program {}
