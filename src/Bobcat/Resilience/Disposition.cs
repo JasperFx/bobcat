@@ -1,42 +1,20 @@
+using JasperFx.Testing;
+
 namespace Bobcat.Resilience;
 
-/// <summary>
-/// What the supervisor should do about one attempt at one test.
-/// </summary>
-/// <remarks>
-/// This is <see cref="Bobcat.Engine.IContinuationRule"/> grown up. That interface answers a
-/// binary <c>ShouldStop</c> at the wrong altitude — inside the process that may need replacing.
-/// A disposition is decided by a policy and acted on by whoever owns the process boundary.
-/// </remarks>
-public enum DispositionKind
-{
-    /// <summary>The attempt succeeded.</summary>
-    Pass,
-
-    /// <summary>An ordinary failure: record it and keep going. Descends from <c>FailureLevel.Assertion</c>.</summary>
-    FailAndContinue,
-
-    /// <summary>Try again in the same process, after resources are reset.</summary>
-    RetryInProcess,
-
-    /// <summary>
-    /// Try again in a brand-new process, with this test running alone. For the Marten/Wolverine
-    /// tests that only pass when nothing else shares their process.
-    /// </summary>
-    RetryInFreshProcess,
-
-    /// <summary>
-    /// Throw the named resources away, stand fresh ones up, then try again. For brokers whose
-    /// in-flight state cannot be reliably drained the way a database is truncated.
-    /// </summary>
-    RetryAfterRecycle,
-
-    /// <summary>
-    /// Stop the run now — nothing downstream can pass. Descends from
-    /// <c>FailureLevel.Catastrophic</c> / <see cref="Bobcat.Engine.SpecCatastrophicException"/>.
-    /// </summary>
-    AbortRun
-}
+// DispositionKind used to be declared here. It now lives in JasperFx (JasperFx.Testing), along
+// with the recovery-hint attributes that declare against it, so a test project can annotate itself
+// without referencing Bobcat — see issue #63. Bobcat keeps everything that *acts* on a disposition:
+// the record below, IFailurePolicy, the chain, and the budget.
+//
+// One enum rather than a Bobcat copy mapped at a seam. Two enums meaning the same thing is how the
+// vocabulary drifts, and the drift would be invisible until a hint silently stopped matching.
+//
+// Kept in mind for whoever reads Disposition next: this is IContinuationRule grown up. That
+// interface answers a binary ShouldStop at the wrong altitude — inside the process that may need
+// replacing. A disposition is decided by a policy and acted on by whoever owns the process
+// boundary. FailAndContinue descends from FailureLevel.Assertion, AbortRun from
+// FailureLevel.Catastrophic / SpecCatastrophicException.
 
 /// <summary>
 /// A policy's decision about one attempt, plus the reason — which is reported to the user, so

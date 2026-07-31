@@ -5,10 +5,10 @@
     package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
     canonical, mutually-compatible alignment that consuming samples must also target:
 
-      WolverineFx 6.24.2  ↔  Marten 9.22.0  ↔  JasperFx(.Events) 2.36.3
+      WolverineFx 6.24.2  ↔  Marten 9.22.0  ↔  JasperFx(.Events) 2.37.0
 
     (WolverineFx 6.24.2 requires JasperFx 2.36.1 and WolverineFx.Marten 6.24.2 requires
-    Marten 9.20.0; Marten 9.22.0 in turn requires JasperFx 2.36.3, which satisfies both. Taking
+    Marten 9.20.0; Marten 9.22.0 in turn requires JasperFx 2.36.3, and 2.37.0 satisfies all of them. Taking
     the newest of each therefore still lands on one JasperFx, which is the property that matters.)
     See docs/versions.md for the full matrix and the samples' target set.
   -->
@@ -21,7 +21,7 @@
     <PackageVersion Include="WolverineFx" Version="6.24.2" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.24.2" />
     <PackageVersion Include="Marten" Version="9.22.0" />
-    <PackageVersion Include="JasperFx" Version="2.36.3" />
+    <PackageVersion Include="JasperFx" Version="2.37.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
