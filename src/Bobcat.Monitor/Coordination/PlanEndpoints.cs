@@ -1,3 +1,4 @@
+using Bobcat.Monitor.Coordination.GitHub;
 using Wolverine.Http;
 
 namespace Bobcat.Monitor.Coordination;
@@ -7,6 +8,19 @@ public static class PlanEndpoints
     [WolverineGet("/api/plans")]
     public static PlanSummary[] All(PlanRegistry registry)
         => registry.All().Select(PlanViews.Summarize).ToArray();
+
+    /// <summary>The live DAG: per-node derived status plus the ready set. 409 for a plan
+    /// that registered with errors — there is no DAG to report on.</summary>
+    [WolverineGet("/api/plans/{slug}/status")]
+    public static IResult Status(string slug, PlanRegistry registry, GitHubStatusCache observations)
+    {
+        var plan = registry.Find(slug);
+        if (plan is null) return Results.NotFound();
+
+        return plan.IsValid
+            ? Results.Ok(PlanStatus.For(plan, observations))
+            : Results.Conflict(new { errors = plan.Errors });
+    }
 
     [WolverineGet("/api/plans/{slug}")]
     public static IResult Find(string slug, PlanRegistry registry)

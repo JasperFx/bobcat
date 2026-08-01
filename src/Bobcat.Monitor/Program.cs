@@ -1,5 +1,6 @@
 using Bobcat.Monitor;
 using Bobcat.Monitor.Coordination;
+using Bobcat.Monitor.Coordination.GitHub;
 using Bobcat.Monitor.Hosting;
 using Bobcat.Monitor.Mcp;
 using Bobcat.Monitor.Runs;
@@ -37,6 +38,19 @@ builder.Services.AddSingleton(new MonitorRunRegistry(
 // The coordination context's plan cache (docs/agent-coordination-design.md) — parsed plan
 // documents from the plans directory plus any pushed over HTTP. Loads at construction.
 builder.Services.AddSingleton(new PlanRegistry(builder.Configuration["Monitor:PlansPath"]));
+
+// GitHub observation: one GraphQL sweep per referenced repo per interval, folding what
+// GitHub says about plan-referenced issues/PRs into the status cache. Registered only when
+// a token exists — GitHubPollingService logs the warning and idles otherwise, and node
+// statuses render as unknown rather than wrong.
+builder.Services.AddSingleton<GitHubStatusCache>();
+if (GitHubQueryClient.ResolveToken(builder.Configuration) is { } gitHubToken)
+{
+    builder.Services.AddHttpClient<IGitHubQueryClient, GitHubQueryClient>(
+        (http, _) => new GitHubQueryClient(http, gitHubToken));
+    builder.Services.AddSingleton<GitHubPoller>();
+}
+builder.Services.AddHostedService<GitHubPollingService>();
 
 // One instance wears both hats: the ingestion endpoint's queue and the hosted 100ms flush.
 builder.Services.AddSingleton<SignalRBatchAccumulator>();
