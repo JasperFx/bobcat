@@ -68,6 +68,8 @@
     <PackageReference Include="WolverineFx.Http" />
     <PackageReference Include="WolverineFx.SignalR" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!-- Plan documents (docs/agent-coordination-design.md) are hand-authored YAML. -->
+    <PackageReference Include="YamlDotNet" />
     <!--
       Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
       host dies at startup in TypeLoadMode.Dynamic.

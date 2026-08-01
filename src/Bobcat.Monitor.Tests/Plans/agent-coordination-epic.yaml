@@ -1,0 +1,69 @@
+# The first real plan document is this epic itself (docs/agent-coordination-design.md):
+# the cross-repo release train from the JasperFx SQLite event store into the monitor's
+# coordination context. Doubles as the parser's primary fixture on purpose — the schema's
+# gaps should surface here first. Issue numbers are bound as the issues get created.
+schema: 1
+plan: agent-coordination-epic
+title: AI Agent Coordination in Bobcat Monitor
+repos:
+  jasperfx: JasperFx/jasperfx
+  bobcat: JasperFx/bobcat
+
+nodes:
+  - id: sqlite-event-store
+    kind: issue
+    repo: jasperfx
+    title: SQLite-backed event store behind the JasperFx.Events seam
+
+  - id: publish-sqlite-store
+    kind: publish
+    package: JasperFx.Events.Sqlite
+    bump: minor
+    depends_on: [sqlite-event-store]
+
+  - id: consume-sqlite-store
+    kind: consume
+    repo: bobcat
+    package: JasperFx.Events.Sqlite
+    depends_on: [publish-sqlite-store]
+
+  - id: plan-schema
+    kind: issue
+    repo: bobcat
+    title: Plan document schema + parser
+
+  - id: github-observer
+    kind: issue
+    repo: bobcat
+    title: GitHub poller emitting observation events
+    depends_on: [plan-schema]
+
+  - id: dag-view
+    kind: issue
+    repo: bobcat
+    title: Read-only DAG view with run-card drill-in
+    merge: merge-on-green
+    depends_on: [plan-schema]
+
+  - id: coordination-context
+    kind: issue
+    repo: bobcat
+    title: Coordination projections on the SQLite event store
+    depends_on: [consume-sqlite-store, plan-schema]
+
+  - id: nuget-observer
+    kind: issue
+    repo: bobcat
+    title: NuGet feed observation (nuget.org, private, local folder feeds)
+    depends_on: [coordination-context]
+
+  - id: mcp-tools
+    kind: issue
+    repo: bobcat
+    title: claim/report/await MCP tools + ai-skills content
+    depends_on: [coordination-context, github-observer]
+
+  - id: monitor-suite-green
+    kind: test-run-gate
+    title: Monitor + coordination suites green
+    depends_on: [mcp-tools, dag-view, nuget-observer]
