@@ -65,6 +65,18 @@ reported 160 passed with the property set.
 > project-property one. Strip the property from test projects when migrating to v3; suites carry it
 > for assembly-version-reporting reasons that never apply to a test host.
 
+> **Hazard (found on CritterWatch): pathological test output breaks the MTP wire.** MTP server
+> mode is JSON-RPC, and `Microsoft.Testing.Platform`'s serializer throws
+> `ArgumentException: The JSON value of length N is too large` on any single string past
+> ~½GB — at which point the worker faults and every unreported test goes Indeterminate. A
+> CritterWatch test was dumping a 698MB tracked-session log into `ITestOutputHelper`; `dotnet
+> test` had been silently absorbing it into an 868MB TRX nobody read, so the supervisor was the
+> first consumer to *notice*. The fix is fixing the test (the giant output traced to a real
+> message loop), not widening the wire — but recognize the signature: worker fault carrying
+> `Json.SerializeAsync` + `ValueTooLarge`, with a pass/indeterminate split at the choke point.
+> Sister symptom for triage: those indeterminates print as uid hashes, not display names —
+> issue #82, now confirmed on two estates.
+
 ## Step 1 — the partitioning contract
 
 The supervisor splits work **by test class**, never by individual test. That is a correctness rule,
