@@ -34,6 +34,12 @@ public static partial class PlanParser
             // Unmatched/duplicate keys and malformed YAML land here. The innermost message
             // names the offending key; the outer one carries the document position.
             var detail = e.InnerException?.Message ?? e.Message;
+
+            // YamlDotNet phrases an unmatched key as "Property 'x' not found on type '<DTO>'"
+            // — reshape it so the wire never names an internal type.
+            var unknownKey = UnknownKeyRegex().Match(detail);
+            if (unknownKey.Success) detail = $"unknown key '{unknownKey.Groups[1].Value}'";
+
             return new PlanParseResult(null, [$"invalid plan document at {e.Start}: {detail}"]);
         }
 
@@ -110,21 +116,14 @@ public static partial class PlanParser
 
         if (string.IsNullOrWhiteSpace(raw.Kind))
         {
-            errors.Add($"{where}: 'kind' is required (issue, pr, publish, consume, test-run-gate)");
+            errors.Add($"{where}: 'kind' is required ({PlanWire.KindNames})");
             return null;
         }
 
-        PlanNodeKind kind;
-        switch (raw.Kind)
+        if (!PlanWire.TryKind(raw.Kind, out var kind))
         {
-            case "issue": kind = PlanNodeKind.Issue; break;
-            case "pr": kind = PlanNodeKind.PullRequest; break;
-            case "publish": kind = PlanNodeKind.Publish; break;
-            case "consume": kind = PlanNodeKind.Consume; break;
-            case "test-run-gate": kind = PlanNodeKind.TestRunGate; break;
-            default:
-                errors.Add($"{where}: unknown kind '{raw.Kind}' (issue, pr, publish, consume, test-run-gate)");
-                return null;
+            errors.Add($"{where}: unknown kind '{raw.Kind}' ({PlanWire.KindNames})");
+            return null;
         }
 
         var repo = resolveRepo(raw.Repo, repos, where, errors);
@@ -147,7 +146,7 @@ public static partial class PlanParser
 
             case PlanNodeKind.Publish:
                 if (string.IsNullOrWhiteSpace(raw.Package)) errors.Add($"{where}: publish nodes need a 'package'");
-                if (raw.Bump is null) errors.Add($"{where}: publish nodes need a 'bump' (fix, minor, major)");
+                if (raw.Bump is null) errors.Add($"{where}: publish nodes need a 'bump' ({PlanWire.BumpNames})");
                 refuse(where, errors, ("repo", raw.Repo), ("issue", raw.Issue?.ToString()), ("pr", raw.Pr?.ToString()), ("merge", raw.Merge));
                 break;
 
@@ -199,29 +198,20 @@ public static partial class PlanParser
 
     private static MergePolicy? parseMerge(string? value, string where, List<string> errors)
     {
-        switch (value)
-        {
-            case null: return null;
-            case "manual-review": return MergePolicy.ManualReview;
-            case "merge-on-green": return MergePolicy.MergeOnGreen;
-            default:
-                errors.Add($"{where}: unknown merge policy '{value}' (manual-review, merge-on-green)");
-                return null;
-        }
+        if (value is null) return null;
+        if (PlanWire.TryMerge(value, out var merge)) return merge;
+
+        errors.Add($"{where}: unknown merge policy '{value}' ({PlanWire.MergeNames})");
+        return null;
     }
 
     private static BumpKind? parseBump(string? value, string where, List<string> errors)
     {
-        switch (value)
-        {
-            case null: return null;
-            case "fix": return BumpKind.Fix;
-            case "minor": return BumpKind.Minor;
-            case "major": return BumpKind.Major;
-            default:
-                errors.Add($"{where}: unknown bump '{value}' (fix, minor, major)");
-                return null;
-        }
+        if (value is null) return null;
+        if (PlanWire.TryBump(value, out var bump)) return bump;
+
+        errors.Add($"{where}: unknown bump '{value}' ({PlanWire.BumpNames})");
+        return null;
     }
 
     private static void refuse(string where, List<string> errors, params (string Name, string? Value)[] fields)
@@ -299,6 +289,9 @@ public static partial class PlanParser
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]*$")]
     private static partial Regex SlugRegex();
+
+    [GeneratedRegex("Property '([^']+)' not found on type")]
+    private static partial Regex UnknownKeyRegex();
 
     [GeneratedRegex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
     private static partial Regex RepoRegex();

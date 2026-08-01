@@ -173,7 +173,8 @@ public class PlanSchemaTests
             """);
 
         result.Succeeded.ShouldBeFalse();
-        result.Errors.Single().ShouldContain("depend_on");
+        result.Errors.Single().ShouldContain("unknown key 'depend_on'");
+        result.Errors.Single().ShouldNotContain("PlanDto"); // internals never reach the wire
     }
 
     [Fact]

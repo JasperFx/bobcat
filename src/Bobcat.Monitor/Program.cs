@@ -1,4 +1,5 @@
 using Bobcat.Monitor;
+using Bobcat.Monitor.Coordination;
 using Bobcat.Monitor.Hosting;
 using Bobcat.Monitor.Mcp;
 using Bobcat.Monitor.Runs;
@@ -33,6 +34,10 @@ builder.Services.AddSingleton(new MonitorRunRegistry(
     builder.Configuration["Monitor:DataPath"],
     retentionDays is { } days ? TimeSpan.FromDays(days) : null));
 
+// The coordination context's plan cache (docs/agent-coordination-design.md) — parsed plan
+// documents from the plans directory plus any pushed over HTTP. Loads at construction.
+builder.Services.AddSingleton(new PlanRegistry(builder.Configuration["Monitor:PlansPath"]));
+
 // One instance wears both hats: the ingestion endpoint's queue and the hosted 100ms flush.
 builder.Services.AddSingleton<SignalRBatchAccumulator>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SignalRBatchAccumulator>());
@@ -43,7 +48,8 @@ builder.Services.AddHostedService<ArchiveRetentionService>();
 // await_run_completion for blocking on a suite instead of polling it.
 builder.Services.AddMcpServer()
     .WithHttpTransport(o => o.Stateless = true)
-    .WithTools<MonitorTools>();
+    .WithTools<MonitorTools>()
+    .WithTools<PlanTools>();
 
 var app = builder.Build();
 
