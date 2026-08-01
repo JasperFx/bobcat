@@ -16,6 +16,17 @@ const router = createRouter({
       component: () => import('@/views/RunView.vue'),
       props: true,
     },
+    {
+      path: '/plans',
+      name: 'plans',
+      component: () => import('@/views/PlansView.vue'),
+    },
+    {
+      path: '/plans/:slug',
+      name: 'plan',
+      component: () => import('@/views/PlanView.vue'),
+      props: true,
+    },
   ],
 })
 
