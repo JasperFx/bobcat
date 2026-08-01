@@ -56,6 +56,15 @@ reported 160 passed with the property set.
 > **Hazard:** same output path, different entry point. A build without the property silently yields a
 > non-supervisable executable. Put it in `Directory.Build.props`, not a per-job `-p:` override.
 
+> **Hazard (found on CritterWatch):** a test project with
+> `<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>` breaks the xUnit v3
+> VSTest adapter — the assembly reports `UnknownTargetFramework`, the adapter's process launcher
+> cannot decide how to start the (now-executable) project, and every `dotnet test` run dies with
+> `Catastrophic failure: … Could not launch test process`. The exe itself still answers
+> `--list-tests` and `-automated`, which makes the symptom look like an adapter bug rather than a
+> project-property one. Strip the property from test projects when migrating to v3; suites carry it
+> for assembly-version-reporting reasons that never apply to a test host.
+
 ## Step 1 — the partitioning contract
 
 The supervisor splits work **by test class**, never by individual test. That is a correctness rule,
