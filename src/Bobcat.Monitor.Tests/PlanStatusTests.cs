@@ -13,7 +13,7 @@ public class PlanStatusTests
 
     private static PlanStatusView statusFor(RegisteredPlan plan, GitHubStatusCache cache)
         => PlanStatus.For(plan, new ObservationStores(
-            cache, new PackagePinCache(), emptyNuGet, baselines, emptyRuns));
+            cache, new PackagePinCache(), emptyNuGet, baselines, emptyRuns, new ClaimStore()));
 
     private static readonly Bobcat.Monitor.Runs.MonitorRunRegistry emptyRuns =
         new(Path.Combine(Path.GetTempPath(), "bobcat-plan-status-tests-runs", Guid.NewGuid().ToString("N")));

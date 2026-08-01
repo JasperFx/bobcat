@@ -13,7 +13,8 @@ public record ObservationStores(
     PackagePinCache Pins,
     NuGetStatusCache NuGet,
     NuGetBaselineStore Baselines,
-    MonitorRunRegistry Runs);
+    MonitorRunRegistry Runs,
+    ClaimStore Claims);
 
 public record NodeStatusView(
     string Id,
@@ -31,6 +32,12 @@ public record NodeStatusView(
 {
     /// <summary>For test-run-gate nodes: the correlated run — the drill-in target.</summary>
     public Guid? RunId { get; init; }
+
+    /// <summary>The agent holding a live monitor claim on this node, if any.</summary>
+    public string? ClaimedBy { get; init; }
+
+    /// <summary>The claim's latest report_node note — the agent's own word, clearly asserted.</summary>
+    public string? Note { get; init; }
 }
 
 public record PlanStatusView(
@@ -90,6 +97,19 @@ public static class PlanStatus
         foreach (var node in document.InDependencyOrder)
         {
             var view = statusOf(plan.Slug, document, node, stores, published);
+
+            // A live monitor claim rides on every node kind; for an OBSERVED-open issue it
+            // also upgrades the status, matching what the agent:working label would do. It
+            // never upgrades unrealized/unknown/missing — a claim is who's working, not
+            // evidence of what exists.
+            if (stores.Claims.Find(plan.Slug, node.Id) is { } claim)
+            {
+                view = view with { ClaimedBy = claim.Agent, Note = claim.Note };
+                if (node.Kind is PlanNodeKind.Issue or PlanNodeKind.PullRequest && view.Status == "open")
+                {
+                    view = view with { Status = "claimed" };
+                }
+            }
 
             if (view.Status == "done")
             {

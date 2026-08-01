@@ -133,11 +133,14 @@ function externalLink(node: NodeStatus): string | null {
             <div class="bm-node-title" :title="nodeById.get(placed.id)!.title">
               {{ nodeById.get(placed.id)!.title }}
             </div>
+            <div v-if="nodeById.get(placed.id)!.claimedBy" class="bm-node-claim">
+              ⚑ {{ nodeById.get(placed.id)!.claimedBy }}
+            </div>
             <div
               class="bm-node-detail"
-              :title="nodeById.get(placed.id)!.detail ?? nodeById.get(placed.id)!.observedTitle ?? ''"
+              :title="nodeById.get(placed.id)!.note ?? nodeById.get(placed.id)!.detail ?? nodeById.get(placed.id)!.observedTitle ?? ''"
             >
-              {{ nodeById.get(placed.id)!.detail ?? nodeById.get(placed.id)!.observedTitle ?? '' }}
+              {{ nodeById.get(placed.id)!.note ?? nodeById.get(placed.id)!.detail ?? nodeById.get(placed.id)!.observedTitle ?? '' }}
             </div>
             <div class="bm-node-links">
               <a
@@ -252,6 +255,15 @@ function externalLink(node: NodeStatus): string | null {
 .bm-node-title {
   font-weight: 600;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bm-node-claim {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bm-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

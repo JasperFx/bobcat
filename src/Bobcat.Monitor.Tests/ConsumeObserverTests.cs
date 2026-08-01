@@ -127,7 +127,8 @@ public class ConsumeStatusTests
 
         return new ObservationStores(new GitHubStatusCache(), pins, nuGet, baselines,
             new Bobcat.Monitor.Runs.MonitorRunRegistry(
-                Path.Combine(Path.GetTempPath(), "bobcat-consume-status-tests", Guid.NewGuid().ToString("N"), "runs")));
+                Path.Combine(Path.GetTempPath(), "bobcat-consume-status-tests", Guid.NewGuid().ToString("N"), "runs")),
+            new ClaimStore());
     }
 
     [Fact]

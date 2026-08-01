@@ -205,7 +205,7 @@ public class NuGetPollerTests : IDisposable
     private PlanStatusView status((PlanRegistry Plans, NuGetPoller Poller, NuGetStatusCache Cache, NuGetBaselineStore Baselines) world)
         => PlanStatus.For(world.Plans.Find("ship-it")!,
             new ObservationStores(new GitHubStatusCache(), new PackagePinCache(), world.Cache, world.Baselines,
-                new Bobcat.Monitor.Runs.MonitorRunRegistry(Path.Combine(_root, "runs"))));
+                new Bobcat.Monitor.Runs.MonitorRunRegistry(Path.Combine(_root, "runs")), new ClaimStore()));
 
     [Fact]
     public async Task the_full_arc_waiting_then_done_when_the_version_appears()

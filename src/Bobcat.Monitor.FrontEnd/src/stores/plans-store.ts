@@ -35,6 +35,10 @@ export interface NodeStatus {
   dependsOn: string[]
   /** Set on test-run-gate nodes — the drill-in target on the runs side. */
   runId: string | null
+  /** Agent holding a live monitor claim (leased assertion — expires if the agent dies). */
+  claimedBy: string | null
+  /** The claim's latest report_node note — the agent's own word. */
+  note: string | null
 }
 
 export interface PlanStatus {

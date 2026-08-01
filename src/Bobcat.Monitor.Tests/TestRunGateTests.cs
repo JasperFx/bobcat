@@ -49,7 +49,7 @@ public class TestRunGateTests : IDisposable
 
         return PlanStatus.For(plan, new ObservationStores(
             gitHub, new PackagePinCache(), new NuGetStatusCache(),
-            new NuGetBaselineStore(Path.Combine(_root, "data")), _runs));
+            new NuGetBaselineStore(Path.Combine(_root, "data")), _runs, new ClaimStore()));
     }
 
     private Guid startRun(string? planNode, DateTimeOffset? at = null, int? total = 3)
@@ -144,7 +144,7 @@ public class TestRunGateTests : IDisposable
         var plan = new RegisteredPlan("epic", PlanSource.Pushed, result.Document, null, DateTimeOffset.UtcNow, []);
         var view = PlanStatus.For(plan, new ObservationStores(
             new GitHubStatusCache(), new PackagePinCache(), new NuGetStatusCache(),
-            new NuGetBaselineStore(Path.Combine(_root, "data2")), restarted));
+            new NuGetBaselineStore(Path.Combine(_root, "data2")), restarted, new ClaimStore()));
 
         var gate = view.Nodes.Single(x => x.Id == "suite-green");
         gate.Status.ShouldBe("failed");

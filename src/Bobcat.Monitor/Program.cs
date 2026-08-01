@@ -66,6 +66,10 @@ builder.Services.AddSingleton(new NuGetBaselineStore(builder.Configuration["Moni
 builder.Services.AddSingleton<NuGetPoller>();
 builder.Services.AddHostedService<NuGetPollingService>();
 
+// Leased agent claims — the asserted side of the coordination context. In-memory: leases
+// are minutes, and durable claims become events when the SQLite event store lands.
+builder.Services.AddSingleton<ClaimStore>();
+
 // The one read-side aggregate the status derivation consumes.
 builder.Services.AddSingleton<ObservationStores>();
 
