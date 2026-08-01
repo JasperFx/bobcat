@@ -83,12 +83,26 @@ round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
    Publishing is **opt-in** (`BobcatRunner.PublishToMonitor`) and turned on only by the real
    entry points — `BobcatRunner.Run` and the MTP host's execution path (never discovery) — so
    unit tests driving the runner never probe. `BOBCAT_RUN_ID` seeds the run identity so a
-   future supervisor can group its workers' streams without supervisor changes.
-3. **`ISupervisorObserver`** — NOT built, deliberately: the supervisor is to be left alone for
-   now (decision 2026-07-31). When it happens: fire from `record(...)`, lane start/finish,
-   recycle, worker faults; `MtpWorkerClient.handleNotification` already receives live per-test
-   `testing/testUpdates/tests` updates and discards them — that's the tap. Meanwhile a
-   supervised run still gets step-level visibility because each worker IS an MTP host running
+   supervisor can group its workers' streams without supervisor changes.
+3. **Supervised-run grouping** (built 2026-07-31, once supervisor work reopened): the
+   supervisor is the run's monitor-facing OWNER. `Supervisor.PublishToMonitor` (opt-in, same
+   policy and probe as the runner's) posts the run bracket itself via
+   `SupervisorRunPublisher` — RunStarted with mode `supervised` and the true post-filter test
+   total (which no single worker knows), heartbeats, and a RunFinished whose counts include
+   `Indeterminate` (never folded into Failed — same split as exit 2 vs 1). Every worker
+   launch — discovery included — inherits `BOBCAT_RUN_ID` + `BOBCAT_RUN_OWNER` via
+   `WorkerLaunchContext.Environment`, the LOWEST layer of the env stack (factory shared env
+   and `EnvironmentFor` both override it). `BOBCAT_RUN_OWNER` is deliberately a second
+   variable: a worker seeing it suppresses its own bracket (else the first worker to finish
+   would mark the shared run finished with partial counts), while `BOBCAT_RUN_ID` alone still
+   just pins identity for a standalone run that keeps its bracket. A cancelled/crashed
+   supervisor posts no RunFinished — heartbeats stop and orphan detection tells the truth.
+4. **`ISupervisorObserver`** — still NOT built. What remains for it: per-attempt retry
+   topology (a supervised retry currently re-streams as attempt 1 from a fresh worker, with
+   no RetryScheduled on the wire), lane start/finish, recycle, worker faults;
+   `MtpWorkerClient.handleNotification` already receives live per-test
+   `testing/testUpdates/tests` updates and discards them — that's the tap. A supervised run
+   already gets step-level visibility because each worker IS an MTP host running
    `BobcatRunner`, and its own publisher streams steps directly to the monitor.
 
 ## Ejecting results: CTRF primary, JUnit XML fallback
@@ -164,10 +178,14 @@ Both directions are archive replays — one fold, two transports, nothing to kee
   longer lists are pruned.
 
 Observed live: a supervisor test suite running in another checkout streamed dozens of
-one-scenario SampleWorker runs, each its own dashboard card — each worker mints its own
-RunId today. That is the known cost of leaving the supervisor untouched; the designed fix is
-the supervisor setting `BOBCAT_RUN_ID` for its workers (plus dashboard grouping by
-repository), when supervisor work opens up.
+one-scenario SampleWorker runs, each its own dashboard card — each worker minted its own
+RunId. Fixed 2026-07-31 by supervised-run grouping (see the Bobcat-side seams section):
+verified live, the same SampleWorker suite across 4 worker processes is now exactly one
+card — one `run_started` (`supervised`, total 7), all worker scenario/step streams, one
+`run_finished`. Note the grouping only applies when the run is driven through a
+`Supervisor` with `PublishToMonitor` on — workers launched by a supervisor that doesn't
+publish keep the old one-card-per-worker behavior on purpose (a grouped run with no bracket
+owner would render as an unnamed orphan).
 
 ## CTRF retryAttempts (built 2026-07-31)
 
@@ -183,6 +201,6 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 ## Not built yet
 
 - TS codegen for the contract mirrors.
-- Supervisor-side `BOBCAT_RUN_ID` grouping + `ISupervisorObserver` (when supervisor work
-  opens up); Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool
-  becomes "Bobcat").
+- `ISupervisorObserver` (supervised retry topology — see Bobcat-side seams item 4);
+  Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool becomes
+  "Bobcat").

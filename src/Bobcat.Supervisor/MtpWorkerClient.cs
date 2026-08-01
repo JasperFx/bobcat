@@ -440,15 +440,21 @@ public sealed class MtpWorkerFactory : IWorkerFactory
     public async Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
         => await MtpWorkerClient.Launch(_executable, environmentFor(context), ct);
 
-    private IReadOnlyDictionary<string, string>? environmentFor(WorkerLaunchContext context)
+    // Internal for the layering test — three layers, most specific wins:
+    // the context's run-scoped baseline, then the factory's shared environment, then the lane's.
+    internal IReadOnlyDictionary<string, string>? environmentFor(WorkerLaunchContext context)
     {
         var perWorker = EnvironmentFor?.Invoke(context);
-        if (perWorker is null) return _environment;
-        if (_environment is null) return perWorker;
+        if (context.Environment is null && perWorker is null) return _environment;
+        if (context.Environment is null && _environment is null) return perWorker;
 
-        // Per-worker wins: the shared environment is the baseline, the lane's is the override.
-        var merged = new Dictionary<string, string>(_environment, StringComparer.Ordinal);
-        foreach (var pair in perWorker) merged[pair.Key] = pair.Value;
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var layer in new[] { context.Environment, _environment, perWorker })
+        {
+            if (layer is null) continue;
+            foreach (var pair in layer) merged[pair.Key] = pair.Value;
+        }
+
         return merged;
     }
 }

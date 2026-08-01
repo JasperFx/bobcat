@@ -134,6 +134,15 @@ public enum WorkerPurpose
 public sealed record WorkerLaunchContext(int Lane, WorkerPurpose Purpose)
 {
     public static readonly WorkerLaunchContext Discovery = new(0, WorkerPurpose.Discovery);
+
+    /// <summary>
+    /// Run-scoped environment the supervisor wants every worker to inherit — today the
+    /// monitor grouping pair (<c>BOBCAT_RUN_ID</c> + <c>BOBCAT_RUN_OWNER</c>). The lowest
+    /// layer of the environment stack: a factory's shared environment and its per-worker
+    /// <c>EnvironmentFor</c> both override it, so the supervisor proposes and the factory
+    /// disposes.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Environment { get; init; }
 }
 
 /// <summary>Creates worker processes. One call, one fresh process.</summary>

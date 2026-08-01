@@ -1,5 +1,6 @@
 using JasperFx.Testing;
 using Bobcat.Engine;
+using Bobcat.Monitoring;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
 
@@ -38,6 +39,7 @@ public sealed class Supervisor
 
     private int _workersLaunched;
     private bool _lanesReleased;
+    private IReadOnlyDictionary<string, string>? _monitorEnvironment;
 
     public Supervisor(IWorkerFactory factory) => _factory = factory;
 
@@ -117,6 +119,27 @@ public sealed class Supervisor
     /// <summary>Progress, for a console or a log. Never required.</summary>
     public Action<string>? Log { get; set; }
 
+    /// <summary>
+    /// Publish this run to a Bobcat.Monitor console. Opt-in (same policy as
+    /// <c>BobcatRunner.PublishToMonitor</c>): a unit test driving a supervisor must never
+    /// probe a monitor that happens to be running on the box.
+    /// </summary>
+    /// <remarks>
+    /// When on and a monitor answers, the supervisor owns the run bracket — one dashboard
+    /// card for the whole run, with the true test total and the final counts including
+    /// <c>Indeterminate</c> — and every worker inherits <c>BOBCAT_RUN_ID</c> +
+    /// <c>BOBCAT_RUN_OWNER</c>, so worker scenario/step streams land on this run instead of
+    /// each worker being its own card. When the monitor is absent, the run proceeds exactly
+    /// as before; the probe costs one refused local connection.
+    /// </remarks>
+    public bool PublishToMonitor { get; set; }
+
+    /// <summary>
+    /// Where the run bracket goes when <see cref="PublishToMonitor"/> is on. Null means
+    /// connect to the real monitor over HTTP; tests (or a custom transport) substitute a sink.
+    /// </summary>
+    public IMonitorEventSink? MonitorSink { get; set; }
+
     public Supervisor AddFailurePolicy(IFailurePolicy policy)
     {
         _policies.Add(policy);
@@ -161,6 +184,33 @@ public sealed class Supervisor
 
     public async Task<SupervisorResults> Run(CancellationToken ct = default)
     {
+        // Connected before anything launches, because every worker — the discovery one
+        // included — must inherit the grouping environment from its very first launch.
+        var monitor = PublishToMonitor
+            ? await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description)
+            : null;
+        _monitorEnvironment = monitor?.WorkerEnvironment;
+
+        try
+        {
+            var results = await run(monitor, ct);
+
+            // Posted for every run that produced results — including preflight failures and
+            // empty filters — so a dashboard never shows a bracket that opened and never closed
+            // unless the supervisor itself died.
+            monitor?.RunFinished(results);
+            return results;
+        }
+        finally
+        {
+            // A cancelled or thrown-through run posts no RunFinished — its heartbeats just
+            // stop, and the monitor's orphan detection tells the truth about what happened.
+            if (monitor is not null) await monitor.DisposeAsync();
+        }
+    }
+
+    private async Task<SupervisorResults> run(SupervisorRunPublisher? monitor, CancellationToken ct)
+    {
         var attempts = new Dictionary<string, List<SupervisorAttempt>>(StringComparer.Ordinal);
         string? abortReason = null;
 
@@ -171,6 +221,9 @@ public sealed class Supervisor
             var preflight = await runPreflight(ct);
             if (preflight is not null)
             {
+                // The total is genuinely unknown — discovery never ran.
+                monitor?.RunStarted(totalTests: null);
+
                 return new SupervisorResults
                 {
                     Tests = [],
@@ -187,6 +240,10 @@ public sealed class Supervisor
                 tests = tests.Where(TestFilter).ToList();
                 Log?.Invoke($"Filter kept {tests.Count} of {discovered} discovered test(s)");
             }
+
+            // The bracket opens with the true post-filter total — something no single
+            // worker knows.
+            monitor?.RunStarted(tests.Count);
 
             if (tests.Count == 0)
             {
@@ -634,6 +691,12 @@ public sealed class Supervisor
     private async Task<IWorkerClient> launchWorker(WorkerLaunchContext context, CancellationToken ct)
     {
         Interlocked.Increment(ref _workersLaunched);
+
+        if (_monitorEnvironment is not null)
+        {
+            context = context with { Environment = _monitorEnvironment };
+        }
+
         return await _factory.Launch(context, ct);
     }
 }

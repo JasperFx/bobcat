@@ -39,6 +39,10 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     public void RunStarted(int totalScenarios)
     {
+        // A participant's bracket belongs to the run's owner (the supervisor): posting our own
+        // RunStarted would overwrite the owner's suite name and true scenario total.
+        if (_info.HasExternalOwner) return;
+
         _sink.Post(new RunStarted(
             _info.RunId, _info.Suite, _info.Repository, _info.Branch, _info.Mode,
             DateTimeOffset.UtcNow, totalScenarios));
@@ -50,6 +54,10 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     public void RunFinished(SuiteResults results)
     {
+        // The first worker finishing must not mark the shared run finished with its own
+        // partial counts — the owner posts the terminal event when the whole run settles.
+        if (_info.HasExternalOwner) return;
+
         stopHeartbeat();
 
         var scenarios = results.AllScenarios.ToArray();
