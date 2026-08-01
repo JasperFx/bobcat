@@ -4,12 +4,23 @@ namespace Bobcat.Monitoring;
 
 /// <summary>
 /// Identity and metadata for one run as the monitor sees it. RunId honours
-/// <c>BOBCAT_RUN_ID</c> when set — that is how a future supervisor groups its worker
-/// processes' step streams under one run without any supervisor-side changes here.
+/// <c>BOBCAT_RUN_ID</c> when set — that is how the supervisor groups its worker processes'
+/// step streams under one run without any changes here.
 /// </summary>
 public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string? Branch, string Mode)
 {
     public const string RunIdVariable = "BOBCAT_RUN_ID";
+    public const string RunOwnerVariable = "BOBCAT_RUN_OWNER";
+
+    /// <summary>
+    /// True when whatever set <c>BOBCAT_RUN_OWNER</c> owns the run bracket — RunStarted,
+    /// heartbeats, RunFinished. A participant process (a supervisor's worker) publishes only
+    /// its scenario and step events; without this split, the first worker to finish would
+    /// mark the whole shared run finished with its own partial counts. Deliberately a
+    /// separate variable from <see cref="RunIdVariable"/>: setting BOBCAT_RUN_ID alone just
+    /// pins a run's identity, and that run still owns its bracket.
+    /// </summary>
+    public bool HasExternalOwner { get; init; }
 
     public static MonitorRunInfo Discover(string mode)
     {
@@ -21,7 +32,11 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
 
         var (repository, branch) = GitInfo.Discover(Directory.GetCurrentDirectory());
 
-        return new MonitorRunInfo(runId, suite, repository ?? Directory.GetCurrentDirectory(), branch, mode);
+        return new MonitorRunInfo(runId, suite, repository ?? Directory.GetCurrentDirectory(), branch, mode)
+        {
+            HasExternalOwner =
+                !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RunOwnerVariable))
+        };
     }
 }
 

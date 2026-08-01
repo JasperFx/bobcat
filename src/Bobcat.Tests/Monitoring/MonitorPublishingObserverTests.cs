@@ -132,6 +132,59 @@ public class MonitorPublishingObserverTests
     }
 
     [Fact]
+    public async Task a_participant_run_suppresses_the_bracket_but_still_streams_scenarios()
+    {
+        // A supervisor's worker: shares the owner's RunId, but the bracket (RunStarted,
+        // heartbeats, RunFinished) is the owner's to publish — the first worker finishing
+        // must not mark the whole shared run finished with its own partial counts.
+        var sink = new RecordingSink();
+        var runner = new BobcatRunner
+        {
+            SuppressConsoleOutput = true,
+            RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 }
+        };
+        runner.AddFeature(feature());
+        runner.AddObserver(new MonitorPublishingObserver(
+            sink, info with { HasExternalOwner = true }, heartbeatInterval: TimeSpan.FromMilliseconds(25)));
+
+        var results = await runner.RunAll();
+        results.ExitCode.ShouldBe(0);
+
+        sink.Events.OfType<RunStarted>().ShouldBeEmpty();
+        sink.Events.OfType<RunFinished>().ShouldBeEmpty();
+        sink.Events.OfType<RunHeartbeat>().ShouldBeEmpty();
+
+        // The scenario and step stream is the whole point of a participant.
+        sink.Events.OfType<ScenarioStarted>().ShouldNotBeEmpty();
+        sink.Events.OfType<StepFinished>().ShouldNotBeEmpty();
+        sink.Events.OfType<ScenarioFinished>().ShouldNotBeEmpty();
+        sink.Events.ShouldAllBe(e => e.RunId == info.RunId);
+    }
+
+    [Fact]
+    public void discover_reads_the_grouping_pair_from_the_environment()
+    {
+        var runId = Guid.NewGuid();
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunIdVariable, runId.ToString());
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunOwnerVariable, "supervisor");
+        try
+        {
+            var discovered = MonitorRunInfo.Discover("mtp-host");
+            discovered.RunId.ShouldBe(runId);
+            discovered.HasExternalOwner.ShouldBeTrue();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(MonitorRunInfo.RunIdVariable, null);
+            Environment.SetEnvironmentVariable(MonitorRunInfo.RunOwnerVariable, null);
+        }
+
+        // BOBCAT_RUN_ID alone pins identity without ceding the bracket — a standalone run
+        // with a caller-chosen id still announces and closes itself.
+        MonitorRunInfo.Discover("in-process").HasExternalOwner.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task run_finished_fires_even_when_preflight_fails()
     {
         var sink = new RecordingSink();
