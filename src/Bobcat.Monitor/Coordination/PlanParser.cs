@@ -140,26 +140,29 @@ public static partial class PlanParser
                 if (raw.Repo is null) errors.Add($"{where}: {raw.Kind} nodes need a 'repo'");
                 if (kind == PlanNodeKind.Issue && raw.Pr is not null) errors.Add($"{where}: 'pr' does not apply to issue nodes");
                 if (kind == PlanNodeKind.PullRequest && raw.Issue is not null) errors.Add($"{where}: 'issue' does not apply to pr nodes");
-                refuse(where, errors, ("package", raw.Package), ("feed", raw.Feed), ("bump", raw.Bump));
+                refuse(where, errors, ("package", raw.Package), ("feed", raw.Feed), ("bump", raw.Bump), ("version", raw.Version));
                 merge ??= MergePolicy.ManualReview;
                 break;
 
             case PlanNodeKind.Publish:
                 if (string.IsNullOrWhiteSpace(raw.Package)) errors.Add($"{where}: publish nodes need a 'package'");
                 if (raw.Bump is null) errors.Add($"{where}: publish nodes need a 'bump' ({PlanWire.BumpNames})");
+                if (raw.Version is not null && NuGet.PackageVersion.TryParse(raw.Version) is null)
+                    errors.Add($"{where}: '{raw.Version}' is not a parseable package version");
                 refuse(where, errors, ("repo", raw.Repo), ("issue", raw.Issue?.ToString()), ("pr", raw.Pr?.ToString()), ("merge", raw.Merge));
                 break;
 
             case PlanNodeKind.Consume:
                 if (raw.Repo is null) errors.Add($"{where}: consume nodes need a 'repo'");
                 if (string.IsNullOrWhiteSpace(raw.Package)) errors.Add($"{where}: consume nodes need a 'package'");
-                refuse(where, errors, ("feed", raw.Feed), ("bump", raw.Bump), ("issue", raw.Issue?.ToString()), ("pr", raw.Pr?.ToString()), ("merge", raw.Merge));
+                refuse(where, errors, ("feed", raw.Feed), ("bump", raw.Bump), ("issue", raw.Issue?.ToString()), ("pr", raw.Pr?.ToString()), ("merge", raw.Merge), ("version", raw.Version));
                 break;
 
             case PlanNodeKind.TestRunGate:
                 refuse(where, errors,
                     ("repo", raw.Repo), ("issue", raw.Issue?.ToString()), ("pr", raw.Pr?.ToString()),
-                    ("merge", raw.Merge), ("package", raw.Package), ("feed", raw.Feed), ("bump", raw.Bump));
+                    ("merge", raw.Merge), ("package", raw.Package), ("feed", raw.Feed), ("bump", raw.Bump),
+                    ("version", raw.Version));
                 break;
         }
 
@@ -175,6 +178,7 @@ public static partial class PlanParser
             Package = raw.Package,
             Feed = kind == PlanNodeKind.Publish ? raw.Feed ?? "nuget.org" : null,
             Bump = bump,
+            Version = raw.Version,
             DependsOn = raw.DependsOn ?? []
         };
     }
@@ -321,6 +325,7 @@ public static partial class PlanParser
         public string? Package { get; set; }
         public string? Feed { get; set; }
         public string? Bump { get; set; }
+        public string? Version { get; set; }
         public List<string>? DependsOn { get; set; }
     }
 }

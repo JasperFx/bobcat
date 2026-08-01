@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Bobcat.Monitor.Coordination.GitHub;
+using Bobcat.Monitor.Coordination.NuGet;
 using ModelContextProtocol.Server;
 
 namespace Bobcat.Monitor.Coordination;
@@ -37,14 +38,16 @@ public class PlanTools
         "'materialize the issue and start'.")]
     public static string PlanStatusFor(
         PlanRegistry registry,
-        GitHubStatusCache observations,
+        GitHubStatusCache gitHub,
+        NuGetStatusCache nuGet,
+        NuGetBaselineStore baselines,
         [Description("Plan slug from list_plans.")] string slug)
     {
         var plan = registry.Find(slug);
         if (plan is null) return toJson(new { error = $"no plan '{slug}' — list_plans shows what this monitor knows" });
         if (!plan.IsValid) return toJson(new { error = $"plan '{slug}' has document errors", errors = plan.Errors });
 
-        return toJson(PlanStatus.For(plan, observations));
+        return toJson(PlanStatus.For(plan, gitHub, nuGet, baselines));
     }
 
     [McpServerTool(Name = "get_plan")]

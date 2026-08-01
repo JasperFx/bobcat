@@ -109,6 +109,13 @@ public record PlanNode
 
     public BumpKind? Bump { get; init; }
 
+    /// <summary>
+    /// Optional exact version for publish nodes — when the author knows the target, say it,
+    /// and the watcher looks for exactly that instead of deriving expectation from Bump plus
+    /// the observed baseline.
+    /// </summary>
+    public string? Version { get; init; }
+
     /// <summary>Ids of the nodes this one depends on.</summary>
     public required IReadOnlyList<string> DependsOn { get; init; }
 }

@@ -26,6 +26,7 @@ public record PlanNodeView(
     string? Package,
     string? Feed,
     string? Bump,
+    string? Version,
     IReadOnlyList<string> DependsOn);
 
 public record PlanDetail(
@@ -80,6 +81,7 @@ public static class PlanViews
             x.Package,
             x.Feed,
             x.Bump is { } bump ? PlanWire.ToWire(bump) : null,
+            x.Version,
             x.DependsOn);
 
     private static string sourceName(PlanSource source)

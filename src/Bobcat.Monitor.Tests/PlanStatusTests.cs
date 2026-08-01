@@ -1,11 +1,19 @@
 using Bobcat.Monitor.Coordination;
 using Bobcat.Monitor.Coordination.GitHub;
+using Bobcat.Monitor.Coordination.NuGet;
 using Shouldly;
 
 namespace Bobcat.Monitor.Tests;
 
 public class PlanStatusTests
 {
+    private static readonly NuGetStatusCache emptyNuGet = new();
+    private static readonly NuGetBaselineStore baselines =
+        new(Path.Combine(Path.GetTempPath(), "bobcat-plan-status-tests", Guid.NewGuid().ToString("N")));
+
+    private static PlanStatusView statusFor(RegisteredPlan plan, GitHubStatusCache cache)
+        => PlanStatus.For(plan, cache, emptyNuGet, baselines);
+
     private static RegisteredPlan plan(string yaml)
     {
         var result = PlanParser.Parse(yaml);
@@ -47,13 +55,13 @@ public class PlanStatusTests
         cache.Upsert(issue("JasperFx/bobcat#1", state: "closed"));
         cache.Upsert(issue("JasperFx/bobcat#2"));
 
-        var view = PlanStatus.For(plan(Chain), cache);
+        var view = statusFor(plan(Chain), cache);
 
         var byId = view.Nodes.ToDictionary(x => x.Id);
         byId["first"].Status.ShouldBe("done");
         byId["first"].Ready.ShouldBeFalse(); // done work is never "ready"
 
-        byId["ship"].Status.ShouldBe("unknown"); // no NuGet observer yet — honesty, not a guess
+        byId["ship"].Status.ShouldBe("unknown"); // its feed hasn't been observed in this test
         byId["ship"].Ready.ShouldBeTrue(); // its one dependency is done
 
         byId["second"].Status.ShouldBe("open");
@@ -69,7 +77,7 @@ public class PlanStatusTests
         cache.Upsert(issue("JasperFx/bobcat#1", labels: [PlanStatus.ClaimedLabel]));
         cache.Upsert(issue("JasperFx/bobcat#2", assignees: ["somebody"]));
 
-        var view = PlanStatus.For(plan(Chain), cache);
+        var view = statusFor(plan(Chain), cache);
 
         view.Nodes.Single(x => x.Id == "first").Status.ShouldBe("claimed");
         view.Nodes.Single(x => x.Id == "second").Status.ShouldBe("claimed");
@@ -84,7 +92,7 @@ public class PlanStatusTests
             labels: [PlanStatus.ClaimedLabel],
             closing: [new ClosingPr(95, "open", false)]));
 
-        var view = PlanStatus.For(plan(Chain), cache);
+        var view = statusFor(plan(Chain), cache);
 
         var first = view.Nodes.Single(x => x.Id == "first");
         first.Status.ShouldBe("pr-open");
@@ -117,7 +125,7 @@ public class PlanStatusTests
         var cache = new GitHubStatusCache();
         cache.Upsert(issue("JasperFx/bobcat#8", state: "missing"));
 
-        var view = PlanStatus.For(plan(yaml), cache);
+        var view = statusFor(plan(yaml), cache);
 
         var byId = view.Nodes.ToDictionary(x => x.Id);
         byId["unbound"].Status.ShouldBe("unrealized"); // no number yet — ready means "create it"
@@ -157,7 +165,7 @@ public class PlanStatusTests
         cache.Upsert(new GitHubObservation("JasperFx/bobcat#11", "pr", "closed", "t", [], [], [], false, DateTimeOffset.UtcNow));
         cache.Upsert(issue("JasperFx/bobcat#12"));
 
-        var view = PlanStatus.For(plan(yaml), cache);
+        var view = statusFor(plan(yaml), cache);
 
         var byId = view.Nodes.ToDictionary(x => x.Id);
         byId["merged-pr"].Status.ShouldBe("done");

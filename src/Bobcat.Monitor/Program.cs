@@ -1,6 +1,7 @@
 using Bobcat.Monitor;
 using Bobcat.Monitor.Coordination;
 using Bobcat.Monitor.Coordination.GitHub;
+using Bobcat.Monitor.Coordination.NuGet;
 using Bobcat.Monitor.Hosting;
 using Bobcat.Monitor.Mcp;
 using Bobcat.Monitor.Runs;
@@ -51,6 +52,18 @@ if (GitHubQueryClient.ResolveToken(builder.Configuration) is { } gitHubToken)
     builder.Services.AddSingleton<GitHubPoller>();
 }
 builder.Services.AddHostedService<GitHubPollingService>();
+
+// NuGet observation: publish nodes flip on versions actually appearing on their feed, never
+// on anything claiming a publish happened. Feed names resolve to URLs/paths/credentials in
+// Monitor:Feeds; nuget.org is built in. Baselines (the version watched-from, per plan+node)
+// persist beside the monitor's other data so a restart can't confuse "already published"
+// with "not yet".
+builder.Services.AddHttpClient("nuget");
+builder.Services.AddSingleton<NuGetFeeds>();
+builder.Services.AddSingleton<NuGetStatusCache>();
+builder.Services.AddSingleton(new NuGetBaselineStore(builder.Configuration["Monitor:CoordinationDataPath"]));
+builder.Services.AddSingleton<NuGetPoller>();
+builder.Services.AddHostedService<NuGetPollingService>();
 
 // One instance wears both hats: the ingestion endpoint's queue and the hosted 100ms flush.
 builder.Services.AddSingleton<SignalRBatchAccumulator>();
