@@ -12,7 +12,7 @@ public class PlanStatusTests
         new(Path.Combine(Path.GetTempPath(), "bobcat-plan-status-tests", Guid.NewGuid().ToString("N")));
 
     private static PlanStatusView statusFor(RegisteredPlan plan, GitHubStatusCache cache)
-        => PlanStatus.For(plan, cache, emptyNuGet, baselines);
+        => PlanStatus.For(plan, new ObservationStores(cache, new PackagePinCache(), emptyNuGet, baselines));
 
     private static RegisteredPlan plan(string yaml)
     {

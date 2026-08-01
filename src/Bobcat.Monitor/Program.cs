@@ -45,6 +45,7 @@ builder.Services.AddSingleton(new PlanRegistry(builder.Configuration["Monitor:Pl
 // a token exists — GitHubPollingService logs the warning and idles otherwise, and node
 // statuses render as unknown rather than wrong.
 builder.Services.AddSingleton<GitHubStatusCache>();
+builder.Services.AddSingleton<PackagePinCache>();
 if (GitHubQueryClient.ResolveToken(builder.Configuration) is { } gitHubToken)
 {
     builder.Services.AddHttpClient<IGitHubQueryClient, GitHubQueryClient>(
@@ -64,6 +65,9 @@ builder.Services.AddSingleton<NuGetStatusCache>();
 builder.Services.AddSingleton(new NuGetBaselineStore(builder.Configuration["Monitor:CoordinationDataPath"]));
 builder.Services.AddSingleton<NuGetPoller>();
 builder.Services.AddHostedService<NuGetPollingService>();
+
+// The one read-side aggregate the status derivation consumes.
+builder.Services.AddSingleton<ObservationStores>();
 
 // One instance wears both hats: the ingestion endpoint's queue and the hosted 100ms flush.
 builder.Services.AddSingleton<SignalRBatchAccumulator>();

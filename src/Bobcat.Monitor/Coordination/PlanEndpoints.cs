@@ -13,18 +13,13 @@ public static class PlanEndpoints
     /// <summary>The live DAG: per-node derived status plus the ready set. 409 for a plan
     /// that registered with errors — there is no DAG to report on.</summary>
     [WolverineGet("/api/plans/{slug}/status")]
-    public static IResult Status(
-        string slug,
-        PlanRegistry registry,
-        GitHubStatusCache gitHub,
-        NuGetStatusCache nuGet,
-        NuGetBaselineStore baselines)
+    public static IResult Status(string slug, PlanRegistry registry, ObservationStores stores)
     {
         var plan = registry.Find(slug);
         if (plan is null) return Results.NotFound();
 
         return plan.IsValid
-            ? Results.Ok(PlanStatus.For(plan, gitHub, nuGet, baselines))
+            ? Results.Ok(PlanStatus.For(plan, stores))
             : Results.Conflict(new { errors = plan.Errors });
     }
 

@@ -188,7 +188,7 @@ public class GitHubPollerTests : IDisposable
                 }
                 """
         };
-        var poller = new GitHubPoller(registry, cache, client, NullLogger<GitHubPoller>.Instance);
+        var poller = new GitHubPoller(registry, cache, new PackagePinCache(), client, NullLogger<GitHubPoller>.Instance);
 
         (await poller.SweepAsync(TestContext.Current.CancellationToken)).ShouldBe(1);
         client.Queries.Count.ShouldBe(1);
@@ -217,7 +217,7 @@ public class GitHubPollerTests : IDisposable
             "JasperFx/bobcat#90", "issue", "open", "still here", [], [], [], false, DateTimeOffset.UtcNow));
 
         var client = new FakeClient { Respond = _ => throw new HttpRequestException("rate limited") };
-        var poller = new GitHubPoller(registry, cache, client, NullLogger<GitHubPoller>.Instance);
+        var poller = new GitHubPoller(registry, cache, new PackagePinCache(), client, NullLogger<GitHubPoller>.Instance);
 
         (await poller.SweepAsync(TestContext.Current.CancellationToken)).ShouldBe(0);
 

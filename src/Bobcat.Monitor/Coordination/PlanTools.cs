@@ -38,16 +38,14 @@ public class PlanTools
         "'materialize the issue and start'.")]
     public static string PlanStatusFor(
         PlanRegistry registry,
-        GitHubStatusCache gitHub,
-        NuGetStatusCache nuGet,
-        NuGetBaselineStore baselines,
+        ObservationStores stores,
         [Description("Plan slug from list_plans.")] string slug)
     {
         var plan = registry.Find(slug);
         if (plan is null) return toJson(new { error = $"no plan '{slug}' — list_plans shows what this monitor knows" });
         if (!plan.IsValid) return toJson(new { error = $"plan '{slug}' has document errors", errors = plan.Errors });
 
-        return toJson(PlanStatus.For(plan, gitHub, nuGet, baselines));
+        return toJson(PlanStatus.For(plan, stores));
     }
 
     [McpServerTool(Name = "get_plan")]
