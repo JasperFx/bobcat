@@ -20,6 +20,14 @@ public class RunProjection
     public int? TotalScenarios { get; private set; }
     public bool Finished { get; private set; }
     public int? ExitCode { get; private set; }
+
+    /// <summary>"{plan}/{node}" — the coordination test-run-gate this run reports into.</summary>
+    public string? PlanNode { get; private set; }
+
+    public int? Passed { get; private set; }
+    public int? Failed { get; private set; }
+    public int? PassedOnRetry { get; private set; }
+    public int? Indeterminate { get; private set; }
     public DateTimeOffset LastEventAt { get; private set; }
 
     /// <summary>
@@ -50,12 +58,17 @@ public class RunProjection
                 Mode = e.Mode;
                 StartedAt = e.StartedAt;
                 TotalScenarios = e.TotalScenarios;
+                PlanNode = e.PlanNode;
                 break;
 
             case RunFinished e:
                 Finished = true;
                 ExitCode = e.ExitCode;
                 FinishedAt = e.FinishedAt;
+                Passed = e.Passed;
+                Failed = e.Failed;
+                PassedOnRetry = e.PassedOnRetry;
+                Indeterminate = e.Indeterminate;
                 break;
 
             case ScenarioStarted e:

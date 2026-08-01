@@ -44,7 +44,10 @@ public record RunStarted(
     string? Branch,
     string Mode,
     DateTimeOffset StartedAt,
-    int? TotalScenarios) : MonitorEvent(RunId);
+    int? TotalScenarios,
+    // "{plan}/{node}" from BOBCAT_PLAN_NODE — the coordination context's test-run-gate
+    // correlation. Optional and additive: old publishers simply omit it.
+    string? PlanNode = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Periodic liveness signal. A run that stops heartbeating without a RunFinished is presumed

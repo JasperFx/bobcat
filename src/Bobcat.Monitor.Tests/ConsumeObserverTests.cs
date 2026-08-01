@@ -125,7 +125,9 @@ public class ConsumeStatusTests
             Path.Combine(Path.GetTempPath(), "bobcat-consume-status-tests", Guid.NewGuid().ToString("N")));
         if (baseline is not null) baselines.Capture("test", "ship", baseline);
 
-        return new ObservationStores(new GitHubStatusCache(), pins, nuGet, baselines);
+        return new ObservationStores(new GitHubStatusCache(), pins, nuGet, baselines,
+            new Bobcat.Monitor.Runs.MonitorRunRegistry(
+                Path.Combine(Path.GetTempPath(), "bobcat-consume-status-tests", Guid.NewGuid().ToString("N"), "runs")));
     }
 
     [Fact]

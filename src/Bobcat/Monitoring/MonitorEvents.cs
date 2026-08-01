@@ -28,7 +28,10 @@ public record RunStarted(
     string? Branch,
     string Mode,
     DateTimeOffset StartedAt,
-    int? TotalScenarios) : MonitorEvent(RunId);
+    int? TotalScenarios,
+    // "{plan}/{node}" from BOBCAT_PLAN_NODE — ties this run to a coordination plan's
+    // test-run-gate node. Optional and additive: old publishers simply omit it.
+    string? PlanNode = null) : MonitorEvent(RunId);
 
 public record RunHeartbeat(Guid RunId, DateTimeOffset At) : MonitorEvent(RunId);
 

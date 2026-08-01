@@ -70,7 +70,7 @@ internal sealed class SupervisorRunPublisher : IAsyncDisposable
     {
         _sink.Post(new RunStarted(
             _info.RunId, _info.Suite, _info.Repository, _info.Branch, _info.Mode,
-            DateTimeOffset.UtcNow, totalTests));
+            DateTimeOffset.UtcNow, totalTests, _info.PlanNode));
 
         _heartbeat = new Timer(
             _ => _sink.Post(new RunHeartbeat(_info.RunId, DateTimeOffset.UtcNow)),

@@ -1,15 +1,19 @@
 using Bobcat.Monitor.Coordination.GitHub;
 using Bobcat.Monitor.Coordination.NuGet;
+using Bobcat.Monitor.Runs;
 
 namespace Bobcat.Monitor.Coordination;
 
 /// <summary>Everything the status derivation reads — one aggregate so the read side has one
-/// dependency instead of four, registered as a singleton over the individual caches.</summary>
+/// dependency instead of five, registered as a singleton over the individual caches. Runs is
+/// the SAME registry the dashboard renders from: a test-run-gate links to an existing run
+/// card, never to a copy of it.</summary>
 public record ObservationStores(
     GitHubStatusCache GitHub,
     PackagePinCache Pins,
     NuGetStatusCache NuGet,
-    NuGetBaselineStore Baselines);
+    NuGetBaselineStore Baselines,
+    MonitorRunRegistry Runs);
 
 public record NodeStatusView(
     string Id,
@@ -23,7 +27,11 @@ public record NodeStatusView(
     IReadOnlyList<string>? Assignees,
     IReadOnlyList<int>? OpenPrs,
     DateTimeOffset? ObservedAt,
-    IReadOnlyList<string> DependsOn);
+    IReadOnlyList<string> DependsOn)
+{
+    /// <summary>For test-run-gate nodes: the correlated run — the drill-in target.</summary>
+    public Guid? RunId { get; init; }
+}
 
 public record PlanStatusView(
     string Slug,
@@ -50,13 +58,16 @@ public record PlanStatusView(
 ///    which is exactly right.
 ///  - <c>mismatch</c> — the feed moved but not the way the plan declared (a fix release
 ///    against a declared minor bump). Reported, never silently reconciled.
+///  - <c>running</c> — a test-run-gate's correlated suite is executing right now.
+///  - <c>failed</c> — the gate's latest correlated run failed, came back indeterminate, or
+///    orphaned. Blocks downstream, and stays ready — re-running the suite is the action.
 ///  - <c>pr-open</c> — an open PR declares it closes this issue.
 ///  - <c>claimed</c> — the agent:working label (set via the future claim_issue tool) or a
 ///    human assignee.
 ///  - <c>open</c> / <c>waiting</c> — observed, nothing to act on yet (issues wait for
-///    someone; publish and consume nodes wait for evidence).
+///    someone; publish and consume nodes wait for evidence; gates wait for a run).
 ///
-/// Ready = not done/missing, and every dependency done.
+/// Ready = not done/missing/running, and every dependency done.
 /// </summary>
 public static class PlanStatus
 {
@@ -85,7 +96,11 @@ public static class PlanStatus
                 done.Add(node.Id);
             }
 
-            var ready = view.Status is not ("done" or "missing") && node.DependsOn.All(done.Contains);
+            // "missing" is excluded (an agent can't work a reference that points at nothing —
+            // fixing the plan is the action) and so is "running" (the suite is already in
+            // flight; dispatching another run is not the move).
+            var ready = view.Status is not ("done" or "missing" or "running")
+                        && node.DependsOn.All(done.Contains);
             nodes.Add(view with { Ready = ready });
         }
 
@@ -113,8 +128,7 @@ public static class PlanStatus
             PlanNodeKind.Issue or PlanNodeKind.PullRequest => gitHubNode(node, stores.GitHub),
             PlanNodeKind.Publish => publishNode(plan, node, stores, published),
             PlanNodeKind.Consume => consumeNode(document, node, stores.Pins, published),
-            // The test-run-gate observer arrives with the BOBCAT_PLAN_NODE linkage; until
-            // then honesty is "unknown", not a guess.
+            PlanNodeKind.TestRunGate => gateNode(plan, node, stores.Runs),
             _ => bare(node, "unknown", null, null)
         };
     }
@@ -284,6 +298,69 @@ public static class PlanStatus
         return pinned is not null && pinned.CompareTo(target) >= 0
             ? bare(node, "done", @ref, $"pinned {pinned} (published {target})", pin.ObservedAt)
             : bare(node, "waiting", @ref, $"pinned {pinnedText}, waiting for {target}", pin.ObservedAt);
+    }
+
+    /// <summary>
+    /// A gate is evidence, and its evidence is a run that announced itself with
+    /// BOBCAT_PLAN_NODE={plan}/{nodeId}. The LATEST correlated run is the verdict — gates
+    /// re-run, and the plan cares about the current state of the evidence, not the history
+    /// (which stays on the run cards). Exit code 2 / indeterminate outcomes render as failed
+    /// with the honest detail, and an orphaned run is a failed gate too: a suite whose
+    /// publisher died proved nothing.
+    /// </summary>
+    private static NodeStatusView gateNode(string plan, PlanNode node, MonitorRunRegistry runs)
+    {
+        var correlation = $"{plan}/{node.Id}";
+
+        var run = runs.ReadAll(all => all
+            .Where(x => x.PlanNode == correlation)
+            .OrderByDescending(x => x.StartedAt ?? DateTimeOffset.MinValue)
+            .Select(x => new
+            {
+                x.RunId,
+                x.Suite,
+                x.Finished,
+                x.Orphaned,
+                x.ExitCode,
+                x.StartedAt,
+                x.Passed,
+                x.Failed,
+                x.PassedOnRetry,
+                x.Indeterminate,
+                ScenariosFinished = x.Scenarios.Count(s => s.Outcome != null),
+                x.TotalScenarios
+            })
+            .FirstOrDefault());
+
+        if (run is null)
+        {
+            return bare(node, "waiting", correlation,
+                $"no run observed — launch the suite with BOBCAT_PLAN_NODE={correlation}");
+        }
+
+        var view = run switch
+        {
+            { Orphaned: true } => bare(node, "failed", correlation,
+                $"run of {run.Suite} orphaned — its publisher stopped without finishing", run.StartedAt),
+
+            { Finished: false } => bare(node, "running", correlation,
+                $"{run.Suite} running — {run.ScenariosFinished}"
+                + (run.TotalScenarios is { } total ? $" of {total}" : "") + " scenarios finished",
+                run.StartedAt),
+
+            { ExitCode: 0 } => bare(node, "done", correlation,
+                $"{run.Suite} passed ({run.Passed} clean"
+                + (run.PassedOnRetry > 0 ? $", {run.PassedOnRetry} on retry" : "") + ")",
+                run.StartedAt),
+
+            _ => bare(node, "failed", correlation,
+                $"{run.Suite} failed ({run.Failed} failed"
+                + (run.Indeterminate > 0 ? $", {run.Indeterminate} indeterminate" : "")
+                + $", exit {run.ExitCode})",
+                run.StartedAt)
+        };
+
+        return view with { RunId = run.RunId };
     }
 
     private static NodeStatusView bare(

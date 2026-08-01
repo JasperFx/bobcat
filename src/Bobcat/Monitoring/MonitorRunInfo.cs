@@ -11,6 +11,7 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
 {
     public const string RunIdVariable = "BOBCAT_RUN_ID";
     public const string RunOwnerVariable = "BOBCAT_RUN_OWNER";
+    public const string PlanNodeVariable = "BOBCAT_PLAN_NODE";
 
     /// <summary>
     /// True when whatever set <c>BOBCAT_RUN_OWNER</c> owns the run bracket — RunStarted,
@@ -21,6 +22,13 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     /// pins a run's identity, and that run still owns its bracket.
     /// </summary>
     public bool HasExternalOwner { get; init; }
+
+    /// <summary>
+    /// "{plan}/{node}" from <c>BOBCAT_PLAN_NODE</c> — the correlation that lets a coordination
+    /// plan's test-run-gate node link to this run. One more member of the BOBCAT_RUN_ID
+    /// family, injected the same way and inherited by a supervisor's workers the same way.
+    /// </summary>
+    public string? PlanNode { get; init; }
 
     public static MonitorRunInfo Discover(string mode)
     {
@@ -35,7 +43,10 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
         return new MonitorRunInfo(runId, suite, repository ?? Directory.GetCurrentDirectory(), branch, mode)
         {
             HasExternalOwner =
-                !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RunOwnerVariable))
+                !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RunOwnerVariable)),
+            PlanNode = Environment.GetEnvironmentVariable(PlanNodeVariable) is { Length: > 0 } planNode
+                ? planNode
+                : null
         };
     }
 }
