@@ -108,6 +108,75 @@ public class SupervisorTests
         factory.RunningWorkers.ShouldBeEmpty();
     }
 
+    // ---------------------------------------------------------------- releasing idle lanes
+
+    [Fact]
+    public async Task idle_lanes_are_released_before_a_fresh_process_retry_when_asked()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a"), FakeWorkerFactory.Test("flaky", "Isolated=false")],
+            Outcome = (uid, attempt, _) =>
+                uid == "flaky" && attempt == 1 ? WorkerTestState.Failed : WorkerTestState.Passed
+        };
+
+        var supervisor = build(factory, new RetryBudget { MaxAttemptsPerTest = 2 });
+        supervisor.ReleaseIdleLanes = true;
+        supervisor.AddFailurePolicy(new AlwaysFreshProcessPolicy());
+
+        var results = await supervisor.Run();
+
+        results.PassedOnRetry.Single().DisplayName.ShouldBe("flaky");
+
+        // The batch lane was disposed before the retry worker was launched — the whole point is
+        // never holding workers+1 processes at once.
+        var batchLane = factory.RunningWorkers.First(w => w.Runs.Any(r => r!.Contains("a")));
+        var retryWorker = factory.RunningWorkers.Last();
+        batchLane.Disposed.ShouldBeTrue();
+        retryWorker.ShouldNotBeSameAs(batchLane);
+    }
+
+    [Fact]
+    public async Task an_in_process_retry_decided_after_the_release_is_unsupported_not_silently_rerun()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("stubborn")],
+            Outcome = (_, _, _) => WorkerTestState.Failed
+        };
+
+        var supervisor = build(factory, new RetryBudget { MaxAttemptsPerTest = 3 });
+        supervisor.ReleaseIdleLanes = true;
+        // Fresh process first, then asks for the lane it came from — which no longer exists.
+        supervisor.AddFailurePolicy(new FreshThenInProcessPolicy());
+
+        var results = await supervisor.Run();
+
+        var test = results.Tests.Single();
+        test.AttemptCount.ShouldBe(2);
+        test.Final.Unsupported.ShouldNotBeNull();
+        test.Final.Unsupported.ShouldContain("NOT retried");
+    }
+
+    private class AlwaysFreshProcessPolicy : IFailurePolicy
+    {
+        public Disposition Decide(AttemptContext attempt)
+            => attempt.Succeeded || !attempt.RetriesAvailable
+                ? null
+                : Disposition.RetryInFreshProcess("fresh, always");
+    }
+
+    private class FreshThenInProcessPolicy : IFailurePolicy
+    {
+        public Disposition Decide(AttemptContext attempt)
+        {
+            if (attempt.Succeeded || !attempt.RetriesAvailable) return null;
+            return attempt.AttemptNumber == 1
+                ? Disposition.RetryInFreshProcess("fresh first")
+                : Disposition.RetryInProcess("then warm, too late");
+        }
+    }
+
     // ---------------------------------------------------------------- retries
 
     [Fact]

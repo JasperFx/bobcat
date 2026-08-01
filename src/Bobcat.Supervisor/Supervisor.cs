@@ -37,6 +37,7 @@ public sealed class Supervisor
     private readonly object _gate = new();
 
     private int _workersLaunched;
+    private bool _lanesReleased;
 
     public Supervisor(IWorkerFactory factory) => _factory = factory;
 
@@ -66,6 +67,27 @@ public sealed class Supervisor
     /// <see cref="WorkPlan.ClassOf"/>.
     /// </summary>
     public Func<WorkerTest, string>? PartitionKey { get; set; }
+
+    /// <summary>
+    /// Disposes the idle lane workers before any fresh-process retry runs, once no pending
+    /// retry needs them. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Lane processes sit at their peak working set after the first pass, so a fresh-process
+    /// retry otherwise means <c>workers + 1</c> full test hosts resident at once — enough to get
+    /// a memory-constrained CI runner killed outright (observed twice on 16GB GitHub runners
+    /// driving Wolverine's Marten suite, both times timestamped during a retry).
+    /// </para>
+    /// <para>
+    /// The trade is stated rather than hidden: a same-process retry needs the lane that ran the
+    /// test, so lanes are only released when nothing pending asks for one — and a policy that
+    /// asks for <c>RetryInProcess</c> <em>after</em> the release is recorded in
+    /// <see cref="SupervisorAttempt.Unsupported"/> rather than silently rerun in a process that
+    /// no longer exists. Turn this on when your policy only ever retries in fresh processes.
+    /// </para>
+    /// </remarks>
+    public bool ReleaseIdleLanes { get; set; }
 
     /// <summary>
     /// Keeps only the tests this run should own. Applied to the discovery list before anything
@@ -329,6 +351,16 @@ public sealed class Supervisor
 
             if (sameProcess.Count == 0 && freshProcess.Count == 0 && afterRecycle.Count == 0) return null;
 
+            // Nothing pending needs a warm lane, so stop paying for them: every retry from here
+            // launches its own process, and idle lanes at peak working set are what pushes a
+            // memory-constrained runner over the edge.
+            if (ReleaseIdleLanes && !_lanesReleased && sameProcess.Count == 0)
+            {
+                Log?.Invoke("releasing idle lane worker(s) before fresh-process retries");
+                await disposeLanes();
+                _lanesReleased = true;
+            }
+
             if (sameProcess.Count > 0)
             {
                 Log?.Invoke($"retrying {sameProcess.Count} test(s) in place");
@@ -452,6 +484,15 @@ public sealed class Supervisor
         Disposition decided, string uid, IReadOnlyDictionary<string, string> traits)
     {
         if (!decided.IsRetry) return (decided, null);
+
+        if (decided.Kind == DispositionKind.RetryInProcess && _lanesReleased)
+        {
+            // The process that ran the test is gone; rerunning "in process" elsewhere would be
+            // a fresh-process retry wearing a same-process label.
+            return (decided,
+                "RetryInProcess was requested after the lane workers were released " +
+                "(ReleaseIdleLanes) — this attempt was NOT retried.");
+        }
 
         if (decided.Kind == DispositionKind.RetryAfterRecycle)
         {
