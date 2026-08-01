@@ -108,9 +108,9 @@ Two things it costs, both worth knowing rather than discovering:
   orphans on one machine. Not Bobcat's bug, but Bobcat's process multiplication is what makes it
   visible.
 
-## Step 3 — the two bugs this exposes
+## Step 3 — the three bugs this exposes
 
-Both were found in real suites, both silent, and both are the reason a first parallel run goes red.
+All were found in real suites, all silent, and all are the reason a first parallel run goes red.
 
 ### Text-rewriting a connection string
 
@@ -154,6 +154,31 @@ TCP port a test binds.
 
 **Schema names do not need this.** They live inside the catalog, so per-worker databases already
 separate them. Polecat has `SchemaName = "doc_usage"` in nine files and it is fine.
+
+### Environment-dependent test identities
+
+A theory whose data is computed from the environment gives the same test a **different identity in
+every worker**:
+
+```csharp
+// WRONG — the argument (and therefore the test's uid) depends on which worker computes it
+public static IEnumerable<object[]> AgentUris =>
+    [[$"wolverinedb://postgresql/localhost/{Servers.PostgresDatabaseName}/wolverine"], ...];
+
+// RIGHT — a stable sentinel, resolved inside the test body
+[InlineData("default")]
+public async Task build_each_agent_smoke_test(string uriString)
+{
+    var uri = uriString == "default"
+        ? new Uri($"wolverinedb://.../{Servers.PostgresDatabaseName}/wolverine") : uriString.ToUri();
+```
+
+The supervisor discovers in one process and executes in another with a different per-worker
+environment, so the uid the plan asks for does not exist in the worker that receives it. Found on
+Wolverine's `MartenTests`: the symptom is *"the worker finished without reporting a result for
+this test"* — reported as indeterminate, and a retry appears to "fix" it whenever the retry
+process happens to compute the same environment discovery did, which makes it masquerade as an
+ordinary flake. Test identity must be a function of the code alone, never of the environment.
 
 ## Step 4 — containers
 
