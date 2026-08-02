@@ -27,6 +27,7 @@ public sealed class Supervisor
 {
     private readonly IWorkerFactory _factory;
     private readonly List<IFailurePolicy> _policies = new();
+    private readonly List<ISupervisorObserver> _observers = new();
 
     private readonly List<string> _workerFaults = new();
     private readonly Dictionary<string, IRecyclableResource> _recyclable = new(StringComparer.OrdinalIgnoreCase);
@@ -45,6 +46,10 @@ public sealed class Supervisor
     private int _workersLaunched;
     private long _launchTicks;
     private bool _lanesReleased;
+
+    // Fixed for the duration of one run: the registered observers plus, when publishing is on,
+    // the monitor's. Computed once so a run's notifications cannot change under it.
+    private ISupervisorObserver[] _watching = [];
     private IReadOnlyDictionary<string, string>? _monitorEnvironment;
 
     public Supervisor(IWorkerFactory factory) => _factory = factory;
@@ -153,6 +158,16 @@ public sealed class Supervisor
     }
 
     /// <summary>
+    /// Watches the run as it happens — retry topology, lane lifecycle, recycles, worker deaths.
+    /// See <see cref="ISupervisorObserver"/> for the contract.
+    /// </summary>
+    public Supervisor AddObserver(ISupervisorObserver observer)
+    {
+        _observers.Add(observer);
+        return this;
+    }
+
+    /// <summary>
     /// Registers infrastructure the supervisor owns and may throw away between attempts.
     /// A worker cannot recycle the broker it is about to be replaced alongside, so these are
     /// hoisted to supervisor scope.
@@ -201,6 +216,11 @@ public sealed class Supervisor
             ? await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description)
             : null;
         _monitorEnvironment = monitor?.WorkerEnvironment;
+
+        // The monitor publisher watches like any other observer — the run bracket and the
+        // retry topology are the same kind of fact, and there is no reason for the supervisor
+        // to know which of its watchers happens to be the monitor.
+        _watching = monitor is null ? [.. _observers] : [.. _observers, monitor];
 
         try
         {
@@ -422,6 +442,13 @@ public sealed class Supervisor
                 {
                     sameProcess.Add(uid);
                 }
+
+                // Announced here rather than from record(...): by this point the budget and the
+                // resolve step have had their say, so a retry that was requested and not honoured
+                // never reaches a watcher as though it were about to happen. The attempt number
+                // is the supervisor's — the worker that runs it counts from one, whichever
+                // process it lands in.
+                notify(observer => observer.RetryScheduled(uid, history.Count + 1, latest.Disposition));
             }
 
             if (sameProcess.Count == 0 && freshProcess.Count == 0 && afterRecycle.Count == 0) return null;
@@ -541,10 +568,13 @@ public sealed class Supervisor
 
             var (effective, unsupported) = resolve(decided, outcome.Uid, testTraits);
 
-            history.Add(new SupervisorAttempt(attemptNumber, outcome, placement, effective)
+            var recorded = new SupervisorAttempt(attemptNumber, outcome, placement, effective)
             {
                 Unsupported = unsupported
-            });
+            };
+
+            history.Add(recorded);
+            notify(observer => observer.AttemptRecorded(outcome.Uid, recorded));
 
             if (effective.Kind == DispositionKind.AbortRun) return effective.Reason;
         }
@@ -654,6 +684,7 @@ public sealed class Supervisor
             {
                 await resource.Recycle(ct);
                 _recyclings.Add(name);
+                notify(observer => observer.ResourceRecycled(name));
             }
             catch (Exception e)
             {
@@ -671,7 +702,29 @@ public sealed class Supervisor
     /// <summary>Keeps a worker's dying words so the report can explain an indeterminate result.</summary>
     private void recordFault(WorkerRunResult result)
     {
-        if (result.Fault is not null) _workerFaults.Add(result.Fault);
+        if (result.Fault is null) return;
+
+        _workerFaults.Add(result.Fault);
+        notify(observer => observer.WorkerFaulted(result.Fault));
+    }
+
+    /// <summary>
+    /// Fans one callback out to every watcher. An observer that throws is logged and stepped
+    /// over: a dashboard, a log sink or a metrics push must not be able to fail a test run.
+    /// </summary>
+    private void notify(Action<ISupervisorObserver> callback)
+    {
+        foreach (var observer in _watching)
+        {
+            try
+            {
+                callback(observer);
+            }
+            catch (Exception e)
+            {
+                Log?.Invoke($"a supervisor observer threw and was ignored: {e.Message}");
+            }
+        }
     }
 
     /// <summary>Runs one lane's tests in that lane's own long-lived worker.</summary>
@@ -679,7 +732,11 @@ public sealed class Supervisor
         int index, IReadOnlyList<string> uids, CancellationToken ct)
     {
         var worker = await laneWorker(index, ct);
+
+        notify(observer => observer.LaneStarted(index, uids));
         var result = await worker.Run(uids, ct);
+        notify(observer => observer.LaneFinished(index, result));
+
         return (index, result);
     }
 

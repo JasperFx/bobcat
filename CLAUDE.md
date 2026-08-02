@@ -441,6 +441,14 @@ ones on upgrade. Same reasoning as retries being opt-in.
   nobody registered is reported as a wiring mistake, not silently retried without recycling. A
   recycle that *fails* aborts the run with `AbortReason` rather than throwing, so results
   gathered before the infrastructure broke survive.
+- **`ISupervisorObserver` narrates the run live** (`Supervisor.AddObserver`, issue #84):
+  every attempt with the verdict that followed it, scheduled retries, lane start/finish,
+  recycles, worker faults. Default no-op members, and an observer that throws is logged and
+  stepped over — a dashboard must not be able to fail a test run. A scheduled retry carries the
+  **true attempt number**, which is the fact only the supervisor has: a worker counts from one,
+  because its tracking belongs to a `BobcatRunner` and the MTP host builds a fresh one per run
+  request. See `docs/monitor-design.md` Bobcat-side seams item 4 for what that pins in the
+  monitor's fold, and for what is deliberately not on the wire yet.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that

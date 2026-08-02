@@ -133,6 +133,53 @@ describe('runs-store', () => {
     expect(scenario.attempts).toBe(2)
   })
 
+  it('a supervised retry is numbered by the scheduled attempt, not by the fresh worker', () => {
+    // The worker running a supervised retry counts from one — its attempt tracking belongs to
+    // a BobcatRunner, and the MTP host builds a fresh one per run request. Only the supervisor
+    // knows this start is a second try, and retry_scheduled is how it says so.
+    const store = useRunsStore()
+    startRun(store)
+
+    const uid = 'Orders/Broker warms up'
+    const start = (attempt: number) =>
+      store.handleScenarioStarted({
+        runId: RUN,
+        uid,
+        feature: 'Orders',
+        scenario: 'Broker warms up',
+        attempt,
+        at: '2026-07-31T10:00:01Z',
+      })
+
+    start(1)
+    store.handleRetryScheduled({
+      runId: RUN,
+      uid,
+      nextAttempt: 2,
+      disposition: 'RetryInFreshProcess',
+      reason: 'the broker is slow to warm up',
+    })
+
+    // A brand-new process: it has never seen this test, so it says attempt 1.
+    start(1)
+    expect(store.runById(RUN)!.scenarios[uid]!.attempt).toBe(2)
+
+    // Consumed by the start it belonged to — a later start is not promoted again.
+    start(1)
+    expect(store.runById(RUN)!.scenarios[uid]!.attempt).toBe(2)
+
+    store.handleScenarioFinished({
+      runId: RUN,
+      uid,
+      outcome: 'PassOnRetry',
+      // The worker reports its own count; a total can never be fewer than what we watched start.
+      attempts: 1,
+      durationMs: 900,
+      errorMessage: null,
+    })
+    expect(store.runById(RUN)!.scenarios[uid]!.attempts).toBe(2)
+  })
+
   it('computes progress from finished scenarios over the announced total', () => {
     const store = useRunsStore()
     startRun(store, 4)

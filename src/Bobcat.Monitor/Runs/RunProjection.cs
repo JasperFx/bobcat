@@ -76,7 +76,19 @@ public class RunProjection
                 var scenario = ensureScenario(e.Uid);
                 scenario.Feature = e.Feature;
                 scenario.Scenario = e.Scenario;
-                if (e.Attempt > scenario.Attempt)
+
+                // A supervised retry runs in a process that counts its attempts from one — the
+                // MTP host builds a fresh runner per run request, so even a same-process retry
+                // restarts at one. When a retry was scheduled, that number is the true one: the
+                // supervisor is the only thing that knows this start is a second try.
+                //
+                // Taken as a floor rather than an assignment, so an attempt number never goes
+                // backwards. A re-announced start (hydration replaying the archive over live
+                // state) must not un-know an attempt we already watched happen.
+                var attempt = Math.Max(e.Attempt, Math.Max(scenario.ScheduledAttempt ?? 0, scenario.Attempt));
+                scenario.ScheduledAttempt = null;
+
+                if (attempt > scenario.Attempt)
                 {
                     // The RetryScheduled that preceded this start usually archived the
                     // attempt already (with the policy's disposition and reason); this is the
@@ -84,7 +96,7 @@ public class RunProjection
                     scenario.ArchivePriorAttempt(scenario.Attempt, disposition: null, reason: null);
                 }
 
-                scenario.Attempt = e.Attempt;
+                scenario.Attempt = attempt;
                 // Every attempt gets a fresh reset/begin/end bracket, so the live step list
                 // starts over — earlier attempts survive in PriorAttempts, which is what CTRF's
                 // retryAttempts[] is rendered from.
@@ -97,7 +109,9 @@ public class RunProjection
             {
                 var scenario = ensureScenario(e.Uid);
                 scenario.Outcome = e.Outcome;
-                scenario.Attempts = e.Attempts;
+                // Same correction: a worker reporting "1 attempt" is reporting its own count,
+                // and a total can never be fewer than the attempts we watched start.
+                scenario.Attempts = Math.Max(e.Attempts, scenario.Attempt);
                 scenario.DurationMs = e.DurationMs;
                 scenario.ErrorMessage = e.ErrorMessage;
                 break;
@@ -107,6 +121,7 @@ public class RunProjection
             {
                 var scenario = ensureScenario(e.Uid);
                 scenario.RetryReasons.Add(e.Reason);
+                scenario.ScheduledAttempt = e.NextAttempt;
                 // The attempt that just failed is history the moment a retry is scheduled —
                 // snapshot its steps now, while the policy's verdict is in hand.
                 scenario.ArchivePriorAttempt(e.NextAttempt - 1, e.Disposition, e.Reason);
@@ -159,6 +174,17 @@ public class ScenarioProjection
 
     /// <summary>1-based attempt currently (or last) running.</summary>
     public int Attempt { get; set; } = 1;
+
+    /// <summary>
+    /// The attempt number a <c>RetryScheduled</c> promised, waiting for its start event. Set by
+    /// the retry, consumed by the next <c>ScenarioStarted</c>, and null the rest of the time.
+    /// </summary>
+    /// <remarks>
+    /// Only the supervisor knows a run is a retry. Its worker is a fresh process, or at best a
+    /// fresh <c>BobcatRunner</c> in a reused one, and either way starts counting at one — so
+    /// without this the dashboard showed the third try as attempt 1.
+    /// </remarks>
+    public int? ScheduledAttempt { get; set; }
 
     /// <summary>Total attempts from the terminal ScenarioFinished, when it arrived.</summary>
     public int? Attempts { get; set; }

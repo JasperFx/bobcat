@@ -33,6 +33,13 @@ export interface ScenarioState {
   attempt: number
   /** Total attempts reported by the terminal ScenarioFinished, if any. */
   attempts: number | null
+  /**
+   * The attempt number a retry_scheduled promised, waiting for its start event. Only the
+   * supervisor knows a run is a retry — its worker is a fresh process (or at best a fresh
+   * runner in a reused one) and starts counting at one, so without this the third try
+   * showed as attempt 1.
+   */
+  scheduledAttempt: number | null
   outcome: string | null
   durationMs: number | null
   errorMessage: string | null
@@ -131,6 +138,7 @@ export const useRunsStore = defineStore('runs', () => {
         status: 'running',
         attempt: 1,
         attempts: null,
+        scheduledAttempt: null,
         outcome: null,
         durationMs: null,
         errorMessage: null,
@@ -175,7 +183,12 @@ export const useRunsStore = defineStore('runs', () => {
     scenario.feature = e.feature
     scenario.scenario = e.scenario
     scenario.status = 'running'
-    scenario.attempt = e.attempt
+    // A supervised retry's worker counts from one, so a scheduled attempt number wins over the
+    // one on the wire. Taken as a floor rather than an assignment: a re-announced start
+    // (hydration replaying the archive over live state) must not un-know an attempt we already
+    // watched happen. Same fold as the server-side RunProjection.
+    scenario.attempt = Math.max(e.attempt, scenario.scheduledAttempt ?? 0, scenario.attempt)
+    scenario.scheduledAttempt = null
     // Every attempt gets the full reset/begin/end bracket, so the step list
     // starts over — the previous attempt's steps belong to the attempt history,
     // which the report views own, not the live view.
@@ -186,7 +199,9 @@ export const useRunsStore = defineStore('runs', () => {
   function handleScenarioFinished(e: ScenarioFinished) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
-    scenario.attempts = e.attempts
+    // A worker reporting "1 attempt" is reporting its own count; a total can never be fewer
+    // than the attempts we watched start.
+    scenario.attempts = Math.max(e.attempts, scenario.attempt)
     scenario.outcome = e.outcome
     scenario.durationMs = e.durationMs
     scenario.errorMessage = e.errorMessage
@@ -205,6 +220,7 @@ export const useRunsStore = defineStore('runs', () => {
     const scenario = ensureScenario(run, e.uid)
     scenario.status = 'retry-scheduled'
     scenario.retryReason = e.reason
+    scenario.scheduledAttempt = e.nextAttempt
   }
 
   function handleStepStarted(e: StepStarted) {
