@@ -447,6 +447,47 @@ public class SupervisorTests
     }
 
     [Fact]
+    public async Task an_indeterminate_test_is_named_by_what_discovery_called_it()
+    {
+        // The client only knows the uid it asked for, and on some front-ends a uid is a hash —
+        // an environment-dependent xUnit theory identity was the real case. The supervisor ran
+        // discovery, so it still has the name a human can act on.
+        var hash = "386e2dca486bade0f9bd72d9bc19eeb05d67185ef983c37405f5d0bda2c3e703";
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [new WorkerTest(hash, "MartenTests.can_persist(mode: Lightweight)")],
+            Outcome = (_, _, _) => null,
+            Fault = w => w.Runs.Count > 0 ? "the worker exited with code 134" : null
+        };
+
+        var lost = (await build(factory).Run()).Indeterminate.ShouldHaveSingleItem();
+
+        lost.DisplayName.ShouldBe("MartenTests.can_persist(mode: Lightweight)");
+        lost.Final.Outcome.DisplayName.ShouldBe("MartenTests.can_persist(mode: Lightweight)");
+
+        // The uid is still the identity — only the name it is reported under changed.
+        lost.Uid.ShouldBe(hash);
+    }
+
+    [Fact]
+    public async Task a_name_the_worker_reported_is_never_overwritten_by_discovery()
+    {
+        // Naming is a fallback for a missing name. A worker that reports a name — a theory case
+        // it resolved at run time, say — knows more about that attempt than discovery did.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [new WorkerTest("uid-1", "what discovery called it")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            ReportedName = _ => "what the run called it"
+        };
+
+        var results = await build(factory).Run();
+
+        results.Tests.ShouldHaveSingleItem()
+            .DisplayName.ShouldBe("what the run called it");
+    }
+
+    [Fact]
     public void a_test_nobody_reported_without_a_crash_says_exactly_that()
     {
         var completed = MtpWorkerClient.Complete(["asked"], [], fault: null);
