@@ -37,6 +37,10 @@ public sealed class Supervisor
     private readonly Dictionary<string, int> _laneOfTest = new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
+    // What discovery called each test. Written once, before anything runs, and read only when a
+    // worker gives us an outcome that has no name of its own.
+    private readonly Dictionary<string, string> _discoveredNames = new(StringComparer.Ordinal);
+
     private int _workersLaunched;
     private bool _lanesReleased;
     private IReadOnlyDictionary<string, string>? _monitorEnvironment;
@@ -251,6 +255,10 @@ public sealed class Supervisor
             }
 
             var traits = tests.ToDictionary(t => t.Uid, t => t.Traits, StringComparer.Ordinal);
+
+            // Kept so a test that never reports a result can still be named in the report — the
+            // uid is a hash on some front-ends, and a hash makes triage a guessing game.
+            foreach (var test in tests) _discoveredNames[test.Uid] = test.DisplayName;
 
             // Isolation is decided from discovery metadata, before anything runs. That is the
             // point of Q4 in the #43 spike: traits arrive early enough to plan scheduling.
@@ -492,8 +500,10 @@ public sealed class Supervisor
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
         Dictionary<string, List<SupervisorAttempt>> attempts)
     {
-        foreach (var outcome in result.Outcomes)
+        foreach (var reported in result.Outcomes)
         {
+            var outcome = named(reported);
+
             if (!attempts.TryGetValue(outcome.Uid, out var history))
             {
                 history = [];
@@ -531,6 +541,31 @@ public sealed class Supervisor
 
         return null;
     }
+
+    /// <summary>
+    /// Gives an outcome the name discovery knew it by, when the worker supplied none of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A synthesized <see cref="WorkerTestState.Indeterminate"/> outcome carries the uid as its
+    /// display name, because the only thing the client knows about a test nobody reported is the
+    /// uid it asked for. On front-ends whose uid is a hash — an environment-dependent xUnit theory
+    /// identity, for instance — that report names a 64-character hash and triage becomes a
+    /// guessing game. The supervisor ran discovery, so it is the one thing in the run that still
+    /// has the human-readable name.
+    /// </para>
+    /// <para>
+    /// The condition is "this outcome has no name but its uid", not "this outcome is
+    /// indeterminate": it is a fallback for a missing name, and it never overwrites a name a
+    /// worker actually reported.
+    /// </para>
+    /// </remarks>
+    private WorkerOutcome named(WorkerOutcome outcome)
+        => outcome.DisplayName == outcome.Uid &&
+           _discoveredNames.TryGetValue(outcome.Uid, out var discovered) &&
+           discovered != outcome.Uid
+            ? outcome with { DisplayName = discovered }
+            : outcome;
 
     /// <summary>
     /// Turns a policy's wish into what will actually happen. Anything not honoured is recorded

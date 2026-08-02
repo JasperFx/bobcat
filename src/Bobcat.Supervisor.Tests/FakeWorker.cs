@@ -38,7 +38,7 @@ public sealed class FakeWorker : IWorkerClient
             if (state is null) continue; // withheld — models a worker that died before reporting
 
             var test = _factory.Tests.FirstOrDefault(t => t.Uid == uid);
-            outcomes.Add(new WorkerOutcome(uid, test?.DisplayName ?? uid, state.Value)
+            outcomes.Add(new WorkerOutcome(uid, _factory.ReportedNameFor(uid) ?? test?.DisplayName ?? uid, state.Value)
             {
                 Traits = test?.Traits ?? new Dictionary<string, string>(),
                 ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
@@ -90,6 +90,13 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// </summary>
     public Func<string, int, string?> ErrorType { get; init; } = (_, _) => null;
 
+    /// <summary>
+    /// The name a run-time result carries, when it differs from the discovered one. MTP node
+    /// updates are free to disagree with discovery — a theory case resolved at run time, say.
+    /// Null keeps the discovered name.
+    /// </summary>
+    public Func<string, string?> ReportedName { get; init; } = _ => null;
+
     public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {
         lock (_gate)
@@ -116,6 +123,8 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     internal string? FaultFor(FakeWorker worker) => Fault(worker);
 
     internal string? ErrorTypeFor(string uid, int attempt) => ErrorType(uid, attempt);
+
+    internal string? ReportedNameFor(string uid) => ReportedName(uid);
 
     /// <summary>Workers that actually ran something (the first is always discovery).</summary>
     public IReadOnlyList<FakeWorker> RunningWorkers => Launched.Where(w => w.Runs.Count > 0).ToList();
