@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -66,7 +67,83 @@ public static class RunReport
             }
         }
 
+        timing(report, results);
+
         return report.ToString().TrimEnd();
+    }
+
+    /// <summary>How many of the slowest tests to name, and to concentrate over.</summary>
+    private const int SlowestReported = 5;
+
+    /// <summary>
+    /// Where the run spent its time. Reported for every run, not only slow ones — a test that
+    /// silently grew from 2s to 40s is invisible in the run that first got slow.
+    /// </summary>
+    private static void timing(StringBuilder report, SupervisorResults results)
+    {
+        // Nothing timed the run: hand-built results, or a caller that never went through
+        // Supervisor.Run. Saying nothing beats printing zeroes as though they were measurements.
+        if (results.Duration <= TimeSpan.Zero) return;
+
+        var timing = RunTiming.For(results);
+
+        report.AppendLine().AppendLine($"Timing (wall clock {RunTiming.Humanize(timing.WallClock)}):");
+
+        if (!timing.IsMeasured)
+        {
+            // tUnit erases durations on the MTP wire the same way it erases exception types. Say
+            // so — an empty timing section reads as "the run was instant".
+            report.AppendLine("  • no test reported a duration, so there is nothing to attribute " +
+                              "the run's wall clock to");
+            return;
+        }
+
+        var efficiency = timing.ParallelEfficiency!.Value.ToString("0.00", CultureInfo.InvariantCulture);
+        report.AppendLine($"  • {RunTiming.Humanize(timing.Measured)} measured across " +
+                          $"{timing.Tests.Count} test(s) — {efficiency}x parallel efficiency");
+
+        // The percentage is what makes someone act; the raw seconds read as "integration tests
+        // are slow".
+        var slowest = timing.Slowest(SlowestReported);
+        report.AppendLine(
+            $"  • the slowest test is {RunTiming.Percent(timing.Share(slowest[0].Total)!.Value)} of wall clock" +
+            (slowest.Count > 1
+                ? $"; the slowest {slowest.Count} are {RunTiming.Percent(timing.Concentration(SlowestReported)!.Value)}"
+                : ""));
+
+        if (timing.LaunchOverhead >= TimeSpan.FromMilliseconds(1))
+        {
+            report.AppendLine($"  • {RunTiming.Humanize(timing.LaunchOverhead)} launching " +
+                              $"{results.WorkersLaunched} worker process(es)");
+        }
+
+        if (timing.RetryCost > TimeSpan.Zero)
+        {
+            report.AppendLine($"  • {RunTiming.Humanize(timing.RetryCost)} of the run was retries");
+        }
+
+        if (timing.IsolationCost > TimeSpan.Zero)
+        {
+            report.AppendLine($"  • {RunTiming.Humanize(timing.IsolationCost)} of the run was tests " +
+                              "running alone (the price of isolation)");
+        }
+
+        if (timing.Unmeasured > 0)
+        {
+            report.AppendLine($"  ! {timing.Unmeasured} test(s) reported no duration — these figures " +
+                              "are a floor, not a total");
+        }
+
+        report.AppendLine("  Slowest:");
+        foreach (var test in slowest)
+        {
+            var share = RunTiming.Percent(timing.Share(test.Total)!.Value);
+            var retried = test.Attempts > 1
+                ? $", {test.Attempts} attempts costing {RunTiming.Humanize(test.RetryCost)} extra"
+                : "";
+
+            report.AppendLine($"    • {RunTiming.Humanize(test.Total)} ({share}) {test.DisplayName}{retried}");
+        }
     }
 
     private static void section(
@@ -106,6 +183,7 @@ public static class RunReport
                 ["retriesPerformed"] = results.RetriesPerformed,
                 ["workersLaunched"] = results.WorkersLaunched
             },
+            ["timing"] = describe(RunTiming.For(results)),
             ["recyclings"] = new JsonArray(results.Recyclings.Select(r => (JsonNode)r!).ToArray()),
             ["workerFaults"] = new JsonArray(results.WorkerFaults.Select(f => (JsonNode)f!).ToArray()),
             ["unsupportedDispositions"] =
@@ -116,6 +194,38 @@ public static class RunReport
 
         return document.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
+
+    /// <summary>
+    /// The timing block. Every figure that could not be measured is <c>null</c> rather than 0 —
+    /// an agent reading this must be able to tell "no time was spent" from "nobody measured".
+    /// </summary>
+    private static JsonObject describe(RunTiming timing) => new()
+    {
+        ["wallClockMs"] = timing.WallClock > TimeSpan.Zero ? timing.WallClock.TotalMilliseconds : null,
+        ["measuredMs"] = timing.IsMeasured ? timing.Measured.TotalMilliseconds : null,
+        ["parallelEfficiency"] = timing.IsMeasured ? timing.ParallelEfficiency : null,
+        ["workerLaunchMs"] = timing.LaunchOverhead > TimeSpan.Zero ? timing.LaunchOverhead.TotalMilliseconds : null,
+        ["retryCostMs"] = timing.IsMeasured ? timing.RetryCost.TotalMilliseconds : null,
+        ["isolationCostMs"] = timing.IsMeasured ? timing.IsolationCost.TotalMilliseconds : null,
+        ["testsWithoutDuration"] = timing.Unmeasured,
+        ["concentration"] = !timing.IsMeasured
+            ? null
+            : new JsonObject
+            {
+                ["slowest"] = timing.Concentration(1),
+                [$"slowest{SlowestReported}"] = timing.Concentration(SlowestReported)
+            },
+        ["slowest"] = new JsonArray(timing.Slowest(SlowestReported).Select(test => (JsonNode)new JsonObject
+        {
+            ["uid"] = test.Uid,
+            ["displayName"] = test.DisplayName,
+            ["totalMs"] = test.Total.TotalMilliseconds,
+            ["firstAttemptMs"] = test.FirstAttempt.TotalMilliseconds,
+            ["retryCostMs"] = test.RetryCost.TotalMilliseconds,
+            ["attempts"] = test.Attempts,
+            ["shareOfRun"] = timing.Share(test.Total)
+        }).ToArray())
+    };
 
     private static JsonObject describe(TestReport test) => new()
     {

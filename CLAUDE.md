@@ -446,6 +446,23 @@ ones on upgrade. Same reasoning as retries being opt-in.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
   needed more than one attempt — membership is *"was retried"*, not *"eventually failed"*,
   because a green build is exactly when chronic flakiness would otherwise go unnoticed.
+- **Where the run spent its time** is `RunTiming` (issue #56 layer 1) — pure computation over
+  `SupervisorResults`, rendered by `RunReport` into a `Timing` section and a `timing` JSON block.
+  It answers what a profiler cannot, because these are properties of the *run* rather than of a
+  process: slowest-N with each test's **share of wall clock** (the percentage is what makes
+  someone act — "one test is 35% of the run", not "60.9s"), parallel efficiency
+  `sum(durations) / wall clock` (Wolverine's `PersistenceTests` measured **1.07x**, which is how
+  we learned its collection fixtures serialize xUnit's in-process parallelism), retry-amplified
+  cost, the price of isolation, and worker launch overhead.
+  - **Report, don't act** — the same guardrail as #44's hints. Failing a build on a duration
+    threshold turns a useful signal into a flaky one; whether a slow test is a bug or a genuinely
+    slow integration test is a judgement, and this is the evidence for it.
+  - **Unmeasured is never zero-filled.** A framework that erases durations on the wire (tUnit,
+    same as exception types) yields `Unmeasured` counts and `null` JSON figures, and the text
+    report says the numbers are a floor. Zero-filling would make every other figure quietly wrong.
+  - Layer 2 (sleep-shaped-duration heuristics) and layer 3 (trend across runs) are **not built**:
+    layer 2's false-positive question is open, and layer 3 needs the same committed ledger #44
+    layer 2 does — one store, not two.
 
 `Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
 per-process counter), so the isolation tests prove isolation happened rather than merely proving

@@ -42,7 +42,8 @@ public sealed class FakeWorker : IWorkerClient
             {
                 Traits = test?.Traits ?? new Dictionary<string, string>(),
                 ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
-                ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}"
+                ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}",
+                Duration = _factory.DurationFor(uid, attempt)
             });
         }
 
@@ -91,6 +92,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     public Func<string, int, string?> ErrorType { get; init; } = (_, _) => null;
 
     /// <summary>
+    /// How long a test took. Null models a framework that reports no duration at all — tUnit
+    /// erases it on the MTP wire the same way it erases exception types.
+    /// </summary>
+    public Func<string, int, TimeSpan?> Duration { get; init; } = (_, _) => null;
+
+    /// <summary>
     /// The name a run-time result carries, when it differs from the discovered one. MTP node
     /// updates are free to disagree with discovery — a theory case resolved at run time, say.
     /// Null keeps the discovered name.
@@ -125,6 +132,8 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     internal string? ErrorTypeFor(string uid, int attempt) => ErrorType(uid, attempt);
 
     internal string? ReportedNameFor(string uid) => ReportedName(uid);
+
+    internal TimeSpan? DurationFor(string uid, int attempt) => Duration(uid, attempt);
 
     /// <summary>Workers that actually ran something (the first is always discovery).</summary>
     public IReadOnlyList<FakeWorker> RunningWorkers => Launched.Where(w => w.Runs.Count > 0).ToList();

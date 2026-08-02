@@ -77,6 +77,23 @@ public sealed class SupervisorResults
     public int WorkersLaunched { get; init; }
 
     /// <summary>
+    /// Wall clock for the whole run, preflight and discovery included. Stamped by the supervisor
+    /// itself, so it is the one number that accounts for everything the run did rather than just
+    /// the part inside a test.
+    /// </summary>
+    public TimeSpan Duration { get; internal set; }
+
+    /// <summary>
+    /// Total time spent launching worker processes — the harness's own cost, made visible.
+    /// </summary>
+    /// <remarks>
+    /// A sum across launches, not a wall-clock span: lanes launch concurrently, so on a parallel
+    /// run this exceeds the wall clock the launches actually occupied. It is the right number for
+    /// "what does a process cost us", which is what decides whether more isolation is affordable.
+    /// </remarks>
+    public TimeSpan WorkerLaunchTime { get; internal set; }
+
+    /// <summary>
     /// Every worker death, with its exit code and last standard error. Without these,
     /// <see cref="Indeterminate"/> tells a user that something went wrong but nothing about what.
     /// </summary>
