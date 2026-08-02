@@ -1,4 +1,5 @@
 using Bobcat.Monitoring;
+using Bobcat.Resilience;
 
 namespace Bobcat.Supervisor;
 
@@ -11,7 +12,7 @@ namespace Bobcat.Supervisor;
 /// worker was its own dashboard card, and with a shared id alone the first worker to finish
 /// would have marked the whole run finished with its partial counts.
 /// </summary>
-internal sealed class SupervisorRunPublisher : IAsyncDisposable
+internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDisposable
 {
     private static readonly TimeSpan heartbeatInterval = TimeSpan.FromSeconds(10);
 
@@ -92,6 +93,29 @@ internal sealed class SupervisorRunPublisher : IAsyncDisposable
             Indeterminate: results.Indeterminate.Count,
             DateTimeOffset.UtcNow));
     }
+
+    /// <summary>
+    /// The retry topology, which only the supervisor knows — issue #84.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two things reach the dashboard that could not before. The obvious one is the policy's
+    /// verdict: a supervised retry used to appear as a scenario that simply ran again, with
+    /// neither the disposition nor the reason anywhere on the wire.
+    /// </para>
+    /// <para>
+    /// The load-bearing one is the <em>attempt number</em>. A worker counts its attempts from one
+    /// — <see cref="MonitorPublishingObserver"/>'s tracking is per <c>BobcatRunner</c>, and the
+    /// MTP host builds a fresh runner for every run request, so even a same-process retry
+    /// restarts at one. The supervisor holds the only true count, and a projection that folds
+    /// this event knows the next <c>ScenarioStarted</c> is that attempt however the worker
+    /// numbered it. Without it a supervised retry overwrote its own previous attempt and
+    /// CTRF's <c>retryAttempts[]</c> worked for in-process retries only.
+    /// </para>
+    /// </remarks>
+    public void RetryScheduled(string uid, int nextAttempt, Disposition disposition)
+        => _sink.Post(new RetryScheduled(
+            _info.RunId, uid, nextAttempt, disposition.Kind.ToString(), disposition.Reason));
 
     /// <summary>
     /// Same rationale as MonitorPublishingObserver: plain Timer.Dispose() does not wait for an

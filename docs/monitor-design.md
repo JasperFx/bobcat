@@ -97,13 +97,35 @@ round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
    would mark the shared run finished with partial counts), while `BOBCAT_RUN_ID` alone still
    just pins identity for a standalone run that keeps its bracket. A cancelled/crashed
    supervisor posts no RunFinished — heartbeats stop and orphan detection tells the truth.
-4. **`ISupervisorObserver`** — still NOT built. What remains for it: per-attempt retry
-   topology (a supervised retry currently re-streams as attempt 1 from a fresh worker, with
-   no RetryScheduled on the wire), lane start/finish, recycle, worker faults;
-   `MtpWorkerClient.handleNotification` already receives live per-test
-   `testing/testUpdates/tests` updates and discards them — that's the tap. A supervised run
-   already gets step-level visibility because each worker IS an MTP host running
-   `BobcatRunner`, and its own publisher streams steps directly to the monitor.
+4. **`ISupervisorObserver`** (built 2026-08-02, issue #84) — the supervisor's live narration:
+   `AttemptRecorded` (every attempt, passes included, with the policy verdict that followed
+   it), `RetryScheduled`, `LaneStarted`/`LaneFinished`, `ResourceRecycled`, `WorkerFaulted`.
+   Every member is a default no-op so a consumer implements only what it wants, and an
+   observer that throws is logged and stepped over — a dashboard must not be able to fail a
+   test run. `SupervisorRunPublisher` is one, registered automatically when
+   `Supervisor.PublishToMonitor` is on.
+   - **Retry topology is on the wire**: a supervised retry now posts `RetryScheduled` with the
+     disposition and reason, announced *after* the budget and the resolve step have had their
+     say — a retry that was requested and refused never reaches a watcher as though it were
+     about to happen.
+   - **The attempt number is the load-bearing part.** A worker counts from one:
+     `MonitorPublishingObserver`'s tracking belongs to a `BobcatRunner`, and the MTP host
+     builds a fresh runner per run request, so a retry in a brand-new process and a retry in a
+     reused one both announce attempt 1. The supervisor holds the only true count, so
+     `RetryScheduled.NextAttempt` **pins** the number the next `ScenarioStarted` folds as —
+     in `RunProjection` and in the Pinia store identically. Taken as a *floor*, never an
+     assignment: an attempt number never goes backwards, because hydration routinely replays
+     a start for an attempt already watched. `ScenarioFinished.Attempts` gets the same floor.
+     Before this, a supervised retry overwrote its own previous attempt and CTRF's
+     `retryAttempts[]` worked for in-process retries only.
+   - **Still not on the wire**: lane topology, recycles and worker faults live. The observer
+     exposes them, so a programmatic consumer has them today, but the dashboard needs new
+     event contracts and UI — and per issue #85 those are exactly the mirrors whose arrival
+     is the trigger to generate the TS contracts rather than hand-write them.
+   - `MtpWorkerClient.handleNotification` already receives live per-test
+     `testing/testUpdates/tests` updates and discards them — still the untapped tap. A
+     supervised run already gets step-level visibility because each worker IS an MTP host
+     running `BobcatRunner`, and its own publisher streams steps directly to the monitor.
 
 ## Ejecting results: CTRF primary, JUnit XML fallback
 
@@ -201,6 +223,8 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 ## Not built yet
 
 - TS codegen for the contract mirrors.
-- `ISupervisorObserver` (supervised retry topology — see Bobcat-side seams item 4);
-  Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool becomes
+- Lane topology, recycles and worker faults streamed live to the dashboard — the
+  `ISupervisorObserver` callbacks exist, the wire contracts and UI do not (see Bobcat-side
+  seams item 4). This is #85's stated trigger for the codegen above.
+- Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool becomes
   "Bobcat").
