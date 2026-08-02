@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Testing;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
@@ -42,6 +43,7 @@ public sealed class Supervisor
     private readonly Dictionary<string, string> _discoveredNames = new(StringComparer.Ordinal);
 
     private int _workersLaunched;
+    private long _launchTicks;
     private bool _lanesReleased;
     private IReadOnlyDictionary<string, string>? _monitorEnvironment;
 
@@ -188,6 +190,11 @@ public sealed class Supervisor
 
     public async Task<SupervisorResults> Run(CancellationToken ct = default)
     {
+        // Started before anything else so the run's wall clock accounts for the whole run —
+        // preflight, discovery and the gaps between passes included. Anything narrower would
+        // flatter the harness by measuring only the parts that are already in the report.
+        var clock = Stopwatch.StartNew();
+
         // Connected before anything launches, because every worker — the discovery one
         // included — must inherit the grouping environment from its very first launch.
         var monitor = PublishToMonitor
@@ -198,6 +205,9 @@ public sealed class Supervisor
         try
         {
             var results = await run(monitor, ct);
+
+            results.Duration = clock.Elapsed;
+            results.WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks));
 
             // Posted for every run that produced results — including preflight failures and
             // empty filters — so a dashboard never shows a bracket that opened and never closed
@@ -732,6 +742,17 @@ public sealed class Supervisor
             context = context with { Environment = _monitorEnvironment };
         }
 
-        return await _factory.Launch(context, ct);
+        // Timed because it is the harness's own cost, and the harness is what decides how many
+        // processes a run starts. Accumulated rather than measured as a span: lanes launch at the
+        // same moment, so there is no single interval to measure.
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            return await _factory.Launch(context, ct);
+        }
+        finally
+        {
+            Interlocked.Add(ref _launchTicks, Stopwatch.GetElapsedTime(started).Ticks);
+        }
     }
 }
