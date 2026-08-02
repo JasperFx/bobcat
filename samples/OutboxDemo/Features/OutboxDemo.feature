@@ -1,19 +1,24 @@
 Feature: Outbox Demo
 
-  Scenario: Submit event returns 204
-    When I submit a member joined event for member "member-001" to group "group-001"
+  The sample exposes one endpoint, POST /registration. Its happy path returns 204 while
+  cascading a Registration saga and two messages through Marten's outbox in the same
+  transaction; its compound ValidateAsync handler rejects a duplicate registration with 409.
+
+  Scenario: A new registration is accepted
+    When I submit a registration for member "member-001" at event "event-001"
     Then the response status is 204
 
-  Scenario: Duplicate event returns 409
-    Given I submit a member joined event for member "dup-member" to group "dup-group"
-    When I submit a member joined event for member "dup-member" to group "dup-group"
+  Scenario: The same member cannot register twice for one event
+    Given a registration for member "dup-member" at event "dup-event"
+    When I submit a registration for member "dup-member" at event "dup-event"
     Then the response status is 409
+    And the rejection names the duplicate member "dup-member"
 
-  Scenario: Event is persisted in Marten
-    When I submit a member joined event for member "persist-member" to group "persist-group"
-    Then the event is stored in the outbox
+  Scenario: The same member may register for a different event
+    Given a registration for member "multi-member" at event "event-a"
+    When I submit a registration for member "multi-member" at event "event-b"
+    Then the response status is 204
 
-  Scenario: Same member different event type is allowed
-    Given I submit a member joined event for member "multi-member" to group "multi-group"
-    When I submit a member left event for member "multi-member" to group "multi-group"
+  Scenario: The payment rides along with the registration
+    When I submit a registration for member "paying-member" at event "event-002" paying 250
     Then the response status is 204
