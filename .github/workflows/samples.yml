@@ -7,6 +7,10 @@ name: samples
 #
 # This job builds them. It does not run them — they want Postgres, brokers and wiring tests.yml
 # does not provide, and compiling is the check that would have caught the rot.
+#
+# Compiling is NOT enough to call a sample fixed, though: OutboxDemo compiled clean and still
+# could not start, because Wolverine 6 stopped shipping the runtime compiler. Wiring a sample
+# means running its specs against a real database at least once, by hand.
 on:
   push:
     branches:
@@ -43,11 +47,9 @@ jobs:
             "samples/BankAccountES/BankAccountES.csproj"
             "samples/BookingMonolith/BookingMonolith.csproj"
             "samples/CleanArchitectureTodos/CleanArchitectureTodos.csproj"
-            "samples/CqrsMinimalApi/Tests/Tests.csproj"
             "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"
             "samples/MeetingGroupMonolith/MeetingGroupMonolith.csproj"
             "samples/MoreSpeakers/MoreSpeakers.csproj"
-            "samples/OutboxDemo/OutboxDemo.csproj"
             "samples/PaymentsMonolith/PaymentsMonolith.csproj"
           )
 

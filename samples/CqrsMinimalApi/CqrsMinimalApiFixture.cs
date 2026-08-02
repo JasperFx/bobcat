@@ -14,7 +14,8 @@ public class CqrsMinimalApiFixture : Fixture
     private int _lastStatusCode;
     private List<Student> _students = [];
 
-    public override Task SetUp()
+    // Discovered by name — there is no virtual Fixture.SetUp() to override any more.
+    public Task BeforeEach()
     {
         _studentId = Guid.Empty;
         _lastStatusCode = 0;
