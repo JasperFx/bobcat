@@ -2,7 +2,27 @@
 
 Sample projects using the "Critter Stack" tools ([Marten](https://martendb.io) and [Wolverine](https://wolverinefx.net)) and related [JasperFx](https://github.com/jasperfx) projects.
 
-Most of these samples require PostgreSQL. Use [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a local PostgreSQL instance.
+Most of these samples require PostgreSQL:
+
+```bash
+docker compose up -d
+```
+
+That publishes Postgres on **5433** — the port every sample's default connection string already
+names — and creates one database per sample. To use a PostgreSQL you already run, point the
+sample's `appsettings.json` at it instead.
+
+## Running a sample's specs
+
+Samples wired to Bobcat carry a `Tests/` subdirectory that runs their `.feature` files:
+
+```bash
+cd PaymentsMonolith/Tests
+dotnet run -- list     # discovered features and scenarios
+dotnet run -- run      # execute them
+```
+
+See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that is not yet wired.
 
 ## Samples
 

@@ -34,8 +34,8 @@ jobs:
 
       - name: Build every sample project
         run: |
-          # The nine that do not compile today, named individually rather than skipped as a
-          # group. Two rules, and the second is the one that matters:
+          # The ones that do not compile today, named individually rather than skipped as a
+          # group. Started at nine. Two rules, and the second is the one that matters:
           #
           #   * a project outside this list that fails  -> new rot, fail the build
           #   * a project inside this list that BUILDS  -> the list is stale, fail the build
@@ -50,7 +50,6 @@ jobs:
             "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"
             "samples/MeetingGroupMonolith/MeetingGroupMonolith.csproj"
             "samples/MoreSpeakers/MoreSpeakers.csproj"
-            "samples/PaymentsMonolith/PaymentsMonolith.csproj"
           )
 
           is_quarantined() {

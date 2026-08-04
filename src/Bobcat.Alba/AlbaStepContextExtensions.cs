@@ -44,6 +44,21 @@ public static class AlbaStepContextExtensions
         return new HttpResult<TResponse>(statusCode, responseBody);
     }
 
+    public static async Task<HttpResult<TResponse>> PutJsonAsync<TRequest, TResponse>(
+        this IStepContext context, string url, TRequest body, string? resourceName = null)
+    {
+        var host = context.GetResource<IAlbaResource>(resourceName).AlbaHost;
+        IScenarioResult result = await host.Scenario(s =>
+        {
+            s.Put.Json(body).ToUrl(url);
+            s.IgnoreStatusCode();
+        });
+        var statusCode = result.Context.Response.StatusCode;
+        TResponse? responseBody = default;
+        try { responseBody = result.ReadAsJson<TResponse>(); } catch { }
+        return new HttpResult<TResponse>(statusCode, responseBody);
+    }
+
     public static async Task<HttpResult<TResponse>> GetJsonAsync<TResponse>(
         this IStepContext context, string url, string? resourceName = null)
     {

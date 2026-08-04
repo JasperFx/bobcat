@@ -4,6 +4,18 @@ How to wire a sample host to `BobcatRunner` so its `.feature` specs run end-to-e
 Alba. This is the canonical reference for issue #8; the reference implementation is
 `samples/CqrsMinimalApi/Tests/`.
 
+## Before anything: start the database
+
+```bash
+cd samples && docker compose up -d
+```
+
+Published on **5433**, which is the port every sample's default connection string already names,
+with one database per sample created by `samples/init/create-databases.sql`. This did not exist
+until `PaymentsMonolith` was wired, and its absence is not a footnote — the whole lesson of this
+playbook is that **a sample is not fixed until it has been run**, and there was nothing to run it
+against. Wiring a sample without starting this is wiring it blind.
+
 ## The playbook
 
 For each sample, replicate what `CqrsMinimalApi` has:
@@ -39,6 +51,14 @@ For each sample, replicate what `CqrsMinimalApi` has:
    that do not exist at all: `OutboxDemo`'s posted to `/api/meetings/member-joined` while the host
    exposed one `POST /registration`. Nothing had ever compiled it, so nothing reported the drift.
 6. Drop and recreate the host's Marten schema before the first run (old shape may conflict).
+7. **Wait for cascaded messages before asserting** if the host routes integration events between
+   modules. See footgun 7 — this is the difference between a suite that passes and one that
+   passes *reliably*, and it does not announce itself.
+8. **Run it twice, then break it once.** Twice, because persistent state is what a first run
+   cannot reveal. Broken once, because a spec that cannot go red has told you nothing: change an
+   expected value, confirm the failure lands on the step you expected, change it back.
+   `PaymentsMonolith` was verified this way, including removing the cascade tracking to confirm
+   three scenarios really do fail without it.
 
 ## Footguns
 
@@ -89,3 +109,29 @@ working as designed; it is only surprising because the failure names the step, n
 Alba's default `Scenario(...)` asserts a 200 status. The `Bobcat.Alba` helpers call
 `s.IgnoreStatusCode()` for you and surface the real status on `HttpResult`, but a sample that
 reaches into Alba directly will trip on non-200 paths (201/204/404).
+
+### 7. Durable local queues make the HTTP response an unreliable moment to assert
+A modular monolith that routes integration events between modules over `UseDurableInbox()` local
+queues returns from the HTTP call **before** the receiving module has handled the cascade. In
+`PaymentsMonolith`, `POST /api/users` returns 200 before the Customers module has created the
+customer stub, and completing a profile returns before the Wallets module has created the wallet.
+Asserting off the response races the handler.
+
+- **Fix:** wrap the call in Wolverine's tracking so the step waits for all message activity:
+  ```csharp
+  Func<IMessageContext, Task> act = async _ => { captured = await call(); };
+  await host.TrackActivity().Timeout(TimeSpan.FromSeconds(30)).ExecuteAndWaitAsync(act);
+  ```
+  `ExecuteAndWaitAsync` overloads on `Task` and `ValueTask`, and an async lambda converts to both
+  — hence the explicitly typed delegate rather than an inline lambda (CS0121).
+- `samples/PaymentsMonolith/PaymentsMonolithFixture.cs` (`awaitingCascades`) is the worked
+  example. Removing it fails 3 of 11 scenarios, so it is load-bearing rather than defensive.
+- This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
+  fixture reaches for `Wolverine.Tracking` directly.
+
+### 8. Expect read endpoints to be missing entirely
+Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
+nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
+only be written to, so the sample's central claim (registering a user creates a customer stub)
+was unobservable. Path A applies: add the endpoint to the host rather than dropping the
+assertion. It is usually four lines.
