@@ -17,7 +17,7 @@ public static class IngestionEndpoint
     /// </summary>
     [WolverineGet("/api/ping")]
     public static PingResponse Ping()
-        => new("bobcat-monitor",
+        => new("bobcat",
             typeof(IngestionEndpoint).Assembly.GetName().Version?.ToString(3) ?? "0.0.0");
 
     /// <summary>

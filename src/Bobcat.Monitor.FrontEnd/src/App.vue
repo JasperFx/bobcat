@@ -15,9 +15,8 @@ onMounted(() => {
   <el-container class="bm-app">
     <el-aside width="220px" class="bm-sidebar">
       <div class="bm-brand">Bobcat Monitor</div>
-      <el-menu router :default-active="$route.path.startsWith('/plans') ? '/plans' : '/'">
+      <el-menu router :default-active="'/'">
         <el-menu-item index="/">Dashboard</el-menu-item>
-        <el-menu-item index="/plans">Plans</el-menu-item>
       </el-menu>
       <div class="bm-connection" :data-status="connectionStore.status">
         {{ connectionStore.status }}

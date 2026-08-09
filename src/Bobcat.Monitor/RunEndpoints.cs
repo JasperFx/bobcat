@@ -4,6 +4,12 @@ using Wolverine.Http;
 
 namespace Bobcat.Monitor;
 
+/// <summary>
+/// One run as an external consumer sees it. This is a PUBLIC wire contract, not just the
+/// dashboard's list model: an outside tool correlating its own work to a suite (by
+/// <c>BOBCAT_RUN_TAG</c>) has no other way in, so the summary carries enough to render a
+/// verdict without a second call — outcome counts and scenario progress included.
+/// </summary>
 public record RunSummary(
     Guid RunId,
     string Suite,
@@ -15,18 +21,50 @@ public record RunSummary(
     int? ExitCode,
     int Scenarios,
     DateTimeOffset? StartedAt,
-    DateTimeOffset? FinishedAt);
+    DateTimeOffset? FinishedAt)
+{
+    /// <summary>The opaque BOBCAT_RUN_TAG this run was launched with, if any.</summary>
+    public string? Tag { get; init; }
+
+    /// <summary>Declared scenario total, when the publisher knew it up front.</summary>
+    public int? TotalScenarios { get; init; }
+
+    /// <summary>Scenarios that have reported an outcome — live progress for a running suite.</summary>
+    public int ScenariosFinished { get; init; }
+
+    // Final counts, present once RunFinished arrives. Indeterminate stays separate from Failed
+    // for the same reason exit 2 is not exit 1 — "we don't know" is not a red build.
+    public int? Passed { get; init; }
+    public int? Failed { get; init; }
+    public int? PassedOnRetry { get; init; }
+    public int? Indeterminate { get; init; }
+}
 
 public static class RunEndpoints
 {
+    /// <summary>
+    /// Every known run, newest first. <paramref name="tag"/> filters to runs launched with a
+    /// matching <c>BOBCAT_RUN_TAG</c> — the correlation hook for an external tool that wants
+    /// its own runs and not the whole box's.
+    /// </summary>
     [WolverineGet("/api/runs")]
-    public static RunSummary[] All(MonitorRunRegistry registry)
-        => registry.All()
+    public static RunSummary[] All(MonitorRunRegistry registry, string? tag = null)
+        => registry.ReadAll(all => all
+            .Where(r => tag is null || r.Tag == tag)
             .OrderByDescending(r => r.StartedAt ?? DateTimeOffset.MinValue)
             .Select(r => new RunSummary(
                 r.RunId, r.Suite, r.Repository, r.Branch, r.Mode,
-                r.Finished, r.Orphaned, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt))
-            .ToArray();
+                r.Finished, r.Orphaned, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt)
+            {
+                Tag = r.Tag,
+                TotalScenarios = r.TotalScenarios,
+                ScenariosFinished = r.Scenarios.Count(s => s.Outcome != null),
+                Passed = r.Passed,
+                Failed = r.Failed,
+                PassedOnRetry = r.PassedOnRetry,
+                Indeterminate = r.Indeterminate
+            })
+            .ToArray());
 
     /// <summary>
     /// The eject download: ctrf (primary), junit (CI compatibility floor), or ndjson (the raw

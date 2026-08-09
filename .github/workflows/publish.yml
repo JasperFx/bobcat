@@ -41,7 +41,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # For the bobcat-monitor tool's embedded frontend build (EmbedFrontend below).
+      # For the bobcat tool's embedded frontend build (EmbedFrontend below).
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -59,11 +59,11 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build -c Release -o ${{ github.workspace }}/artifacts
 
-      # The bobcat-monitor dotnet tool packs separately: IsPackable is gated on EmbedFrontend
+      # The bobcat dotnet tool packs separately: IsPackable is gated on EmbedFrontend
       # in its csproj, so the solution-level pack above skips it and this is the only way the
       # tool nupkg can exist — always with the Vite build embedded (npm ci + build run inside
       # this pack via the BuildFrontend target).
-      - name: Pack bobcat-monitor (embedded frontend)
+      - name: Pack bobcat (embedded frontend)
         run: >
           dotnet pack src/Bobcat.Monitor/Bobcat.Monitor.csproj
           -c Release -p:EmbedFrontend=true -o ${{ github.workspace }}/artifacts

@@ -21,8 +21,8 @@ public class RunProjection
     public bool Finished { get; private set; }
     public int? ExitCode { get; private set; }
 
-    /// <summary>"{plan}/{node}" — the coordination test-run-gate this run reports into.</summary>
-    public string? PlanNode { get; private set; }
+    /// <summary>The opaque BOBCAT_RUN_TAG correlation tag, if the publisher set one.</summary>
+    public string? Tag { get; private set; }
 
     public int? Passed { get; private set; }
     public int? Failed { get; private set; }
@@ -58,7 +58,7 @@ public class RunProjection
                 Mode = e.Mode;
                 StartedAt = e.StartedAt;
                 TotalScenarios = e.TotalScenarios;
-                PlanNode = e.PlanNode;
+                Tag = e.Tag;
                 break;
 
             case RunFinished e:
