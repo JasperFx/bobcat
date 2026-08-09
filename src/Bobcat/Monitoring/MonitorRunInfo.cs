@@ -11,7 +11,7 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
 {
     public const string RunIdVariable = "BOBCAT_RUN_ID";
     public const string RunOwnerVariable = "BOBCAT_RUN_OWNER";
-    public const string PlanNodeVariable = "BOBCAT_PLAN_NODE";
+    public const string RunTagVariable = "BOBCAT_RUN_TAG";
 
     /// <summary>
     /// True when whatever set <c>BOBCAT_RUN_OWNER</c> owns the run bracket — RunStarted,
@@ -24,11 +24,13 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     public bool HasExternalOwner { get; init; }
 
     /// <summary>
-    /// "{plan}/{node}" from <c>BOBCAT_PLAN_NODE</c> — the correlation that lets a coordination
-    /// plan's test-run-gate node link to this run. One more member of the BOBCAT_RUN_ID
-    /// family, injected the same way and inherited by a supervisor's workers the same way.
+    /// An opaque correlation tag from <c>BOBCAT_RUN_TAG</c> — whatever launched the run stamps
+    /// a string here (a ticket id, a build number, an external tool's node id) and finds the
+    /// run by it later. Bobcat passes it through verbatim and never interprets it: the meaning
+    /// belongs entirely to whoever set it. One more member of the BOBCAT_RUN_ID family,
+    /// injected the same way and inherited by a supervisor's workers the same way.
     /// </summary>
-    public string? PlanNode { get; init; }
+    public string? Tag { get; init; }
 
     public static MonitorRunInfo Discover(string mode)
     {
@@ -44,8 +46,8 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
         {
             HasExternalOwner =
                 !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RunOwnerVariable)),
-            PlanNode = Environment.GetEnvironmentVariable(PlanNodeVariable) is { Length: > 0 } planNode
-                ? planNode
+            Tag = Environment.GetEnvironmentVariable(RunTagVariable) is { Length: > 0 } tag
+                ? tag
                 : null
         };
     }

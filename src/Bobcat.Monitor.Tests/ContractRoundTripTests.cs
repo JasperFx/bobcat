@@ -40,15 +40,15 @@ public class ContractRoundTripTests
         wire.Mode.ShouldBe("in-process");
         wire.StartedAt.ShouldBe(at);
         wire.TotalScenarios.ShouldBe(42);
-        wire.PlanNode.ShouldBe("epic/gate");
+        wire.Tag.ShouldBe("epic/gate");
     }
 
     [Fact]
-    public void run_started_without_a_plan_node_still_round_trips()
+    public void run_started_without_a_tag_still_round_trips()
     {
-        // An old publisher's JSON has no planNode member at all — additive means additive.
+        // An old publisher's JSON has no tag member at all — additive means additive.
         roundTrip(new Client.RunStarted(runId, "Suite", "/repo", null, "in-process", DateTimeOffset.UtcNow, null))
-            .ShouldBeOfType<Wire.RunStarted>().PlanNode.ShouldBeNull();
+            .ShouldBeOfType<Wire.RunStarted>().Tag.ShouldBeNull();
     }
 
     [Fact]

@@ -45,9 +45,11 @@ public record RunStarted(
     string Mode,
     DateTimeOffset StartedAt,
     int? TotalScenarios,
-    // "{plan}/{node}" from BOBCAT_PLAN_NODE — the coordination context's test-run-gate
-    // correlation. Optional and additive: old publishers simply omit it.
-    string? PlanNode = null) : MonitorEvent(RunId);
+    // An opaque correlation tag from BOBCAT_RUN_TAG, stored and echoed back verbatim. The
+    // viewer never interprets it — an external tool stamps a ticket id, build number, or its
+    // own node id and finds the run by it over /api/runs?tag=. Optional and additive: old
+    // publishers simply omit it.
+    string? Tag = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Periodic liveness signal. A run that stops heartbeating without a RunFinished is presumed

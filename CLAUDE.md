@@ -550,14 +550,39 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
 | **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
-| **Bobcat.Monitor** | net10.0 | Scaffold | Live test-progress web console (dotnet tool); see `docs/monitor-design.md` |
+| **Bobcat.Monitor** | net10.0 | Scaffold | Live test-progress web console (`dotnet bobcat`); see `docs/monitor-design.md` |
 
 `Bobcat.Monitor` + `src/Bobcat.Monitor.FrontEnd/` (Vue 3 + Pinia + Element Plus + SignalR,
 vitest-gated by `.github/workflows/monitor-frontend.yml`) deliberately mirror CritterWatch's
-stack and palette. The monitor is a *consumer* of test runs over plain HTTP — no Bobcat.*
+stack and palette. The viewer is a *consumer* of test runs over plain HTTP — no Bobcat.*
 library may reference it. All decisions of record: `docs/monitor-design.md`. The publisher
 side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
+
+The project name is a leftover; the tool is `dotnet bobcat` and it is the test-run **viewer**.
+Renaming the project (`Bobcat.Viewer`?) is an open decision, not a settled one.
+
+## Bobcat is MIT; AI agent coordination lives in Stoat
+
+Split 2026-08-09. **Bobcat is the MIT integration testing framework** — Gherkin runner,
+supervisor, and the test-run viewer. **[Stoat](https://github.com/JasperFx/stoat) is the BSL
+AI agent coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims,
+MCP). Everything under `src/Bobcat.Monitor/Coordination/` moved there.
+
+Two rules this creates, both load-bearing:
+
+- **Nothing here may reference Stoat, and Stoat references nothing here.** Not one-way —
+  *zero*. Stoat observes this repo's viewer over HTTP (`GET /api/runs`) on the same terms it
+  observes GitHub and nuget.org. An MIT repo cannot depend on a BSL one, and keeping the
+  dependency at zero makes that impossible to get wrong by accident.
+- **No license gating in this repo.** Bobcat is free, entirely. If a feature seems to want a
+  gate, it belongs in Stoat.
+
+`GET /api/runs` is therefore a **public wire contract**, not an internal list model: it carries
+`tag`, outcome counts, and scenario progress, and takes `?tag=`. Changing its shape breaks an
+external consumer that has no assembly reference to warn it. `BOBCAT_RUN_TAG` is the
+correlation hook — an opaque string Bobcat stamps on a run and never interprets (it was
+`BOBCAT_PLAN_NODE`, renamed in the split because coordination vocabulary does not belong here).
 
 ## Key Dependencies
 

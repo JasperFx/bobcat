@@ -1,13 +1,42 @@
-# Bobcat.Monitor — design notes
+# Bobcat's test-run viewer — design notes
 
-A deployable web console that shows live progress for every Bobcat test suite running on the
-box. Primary purpose: visualizing AI-agent-driven test runs — much of Critter Stack development
-is gated on testing time, and this makes that time observable. It grows toward two futures:
-the Bobcat test *runner* tool (the working plan is that this UI tool eventually becomes
-"Bobcat" proper and the base library gets renamed), and an AI agent progress/planning
-visualization surface.
+A deployable web console (`dotnet bobcat`) that shows live progress for every Bobcat test suite
+running on the box. Primary purpose: visualizing AI-agent-driven test runs — much of Critter
+Stack development is gated on testing time, and this makes that time observable.
 
-Decisions of record (2026-07-31):
+Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09).
+
+## The split (2026-08-09)
+
+This document once described two futures for the tool. Both are now settled, and neither
+happened the way it was written:
+
+- **The AI agent coordination surface moved out** to [Stoat](https://github.com/JasperFx/stoat),
+  its own BSL repository. Bobcat stays MIT and stays about testing. Stoat observes this
+  viewer's runs over HTTP (`GET /api/runs`) exactly as it observes GitHub and nuget.org — it
+  holds no reference to any `Bobcat.*` assembly, and none of them reference it.
+- **The rename is dead.** The plan was for this tool to become "Bobcat" and the library to be
+  renamed. The split makes that unnecessary: Bobcat keeps its name and its meaning as the
+  testing framework, and the coordination half got a new name instead. Issue #87 closes
+  resolved-by-decision.
+
+What the split changed here, concretely:
+
+- `ToolCommandName` is **`bobcat`**, not `bobcat-monitor` — "monitor" turned ambiguous the
+  moment there were two consoles, and this is the only global tool Bobcat ships. Note that
+  `run` / `list` are *not* subcommands of it: those belong to `BobcatRunner` inside a
+  consumer's own test executable, because they need that project's compiled fixtures.
+- `BOBCAT_PLAN_NODE` became **`BOBCAT_RUN_TAG`**, an opaque correlation tag Bobcat stamps and
+  never interprets. Coordination vocabulary does not belong in the MIT repo, and a general tag
+  is more useful anyway (a ticket id, a build number, an external tool's node id).
+- **`GET /api/runs` is now a public wire contract**, not just the dashboard's list model. It
+  carries the tag, outcome counts, and scenario progress, and takes a `?tag=` filter — an
+  external consumer correlating its own work to a suite has no other way in. Reads go through
+  the registry's locked `ReadAll` so live ingestion can never hand a caller a torn scenario
+  collection.
+- **NDJSON stays.** The old plan demoted it to an export format once a shared event store
+  landed. That rationale was "one store, not two" for runs plus coordination; with coordination
+  gone there legitimately are two tools, and the run archive is fine as it is (issue #90).
 
 ## Stack — CritterWatch's, on purpose
 
@@ -37,7 +66,7 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
   unrelated to this tool's dev workflow.
 
-Packaging (built 2026-07-31): `dotnet tool` (`ToolCommandName: bobcat-monitor`) with the Vite
+Packaging (built 2026-07-31): `dotnet tool` (`ToolCommandName: bobcat`, launched as `dotnet bobcat`) with the Vite
 build embedded as resources — CritterWatch's `EmbedFrontend` + `EmbeddedFileProvider` pattern
 (`Hosting/EmbeddedSpa.cs`, minus its sub-path mounting; this tool owns the root). Two rules of
 record: `IsPackable` is gated on `EmbedFrontend`, so the tool nupkg cannot exist hollow (a
@@ -226,5 +255,9 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 - Lane topology, recycles and worker faults streamed live to the dashboard — the
   `ISupervisorObserver` callbacks exist, the wire contracts and UI do not (see Bobcat-side
   seams item 4). This is #85's stated trigger for the codegen above.
-- Gherkin-runner dogfood e2e against this UI; the eventual rename (the tool becomes
-  "Bobcat").
+- Gherkin-runner dogfood e2e against this UI (#86).
+- **Gherkin step-level progress within one slow scenario.** Steps stream today, but there is no
+  progress model for a scenario in flight: no remaining-step count, no elapsed-vs-expected, no
+  row-level progress for a `[TableGrammar]` (200 rows report as one step), and `StepProgress`
+  from #32/#34 has no wire event. `MtpWorkerClient.handleNotification` also still discards live
+  `testing/testUpdates/tests` — the untapped tap.

@@ -98,7 +98,7 @@ public static class CtrfExport
             {
                 tool = new
                 {
-                    name = "bobcat-monitor",
+                    name = "bobcat",
                     version = typeof(CtrfExport).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"
                 },
                 summary = new

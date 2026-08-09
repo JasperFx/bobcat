@@ -25,7 +25,16 @@
 
     <IsPackable>$(EmbedFrontend)</IsPackable>
     <PackAsTool>true</PackAsTool>
-    <ToolCommandName>bobcat-monitor</ToolCommandName>
+    <!--
+      `dotnet bobcat`, not `bobcat-monitor`. "Monitor" became ambiguous the moment agent
+      coordination moved out to Stoat (its own BSL repo) — this tool watches test runs and
+      nothing else now, and it is the only global tool Bobcat ships, so it gets the plain name.
+
+      Note what this command is NOT: `run` and `list` belong to BobcatRunner and live inside a
+      consumer's OWN test executable, because they need that project's compiled fixtures. A
+      global tool cannot host them. This is the viewer.
+    -->
+    <ToolCommandName>bobcat</ToolCommandName>
     <Description>Live web console for Bobcat test runs: suite progress, Gherkin step streaming, retry/flakiness reporting.</Description>
   </PropertyGroup>
 
@@ -68,8 +77,6 @@
     <PackageReference Include="WolverineFx.Http" />
     <PackageReference Include="WolverineFx.SignalR" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <!-- Plan documents (docs/agent-coordination-design.md) are hand-authored YAML. -->
-    <PackageReference Include="YamlDotNet" />
     <!--
       Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
       host dies at startup in TypeLoadMode.Dynamic.
