@@ -1,0 +1,45 @@
+name: gitleaks
+
+# Secret scan over the FULL history on every push to any branch.
+#
+# Bobcat is MIT and headed for public. A clean history is the precondition for that, and it is
+# a property that decays — cheap to keep, expensive to fix once a key is in a published commit.
+# Verified clean by hand on 2026-08-09 (108 commits, no findings); this keeps it that way
+# without anyone having to remember.
+#
+# Deliberately NOT gitleaks/gitleaks-action@v2: that wrapper requires a paid GITLEAKS_LICENSE
+# for organization repos and FAILS CLOSED without one, which is a red check that scans nothing.
+# The gitleaks binary itself is MIT, so we run it directly. Pinned rather than :latest so a
+# scanner release cannot turn a green branch red on its own schedule.
+#
+# Same gate runs in JasperFx/stoat, where it matters more — that repo holds the license
+# verifier. Only the PUBLIC RSA key belongs there; the private key (jasperfx-license.pkey) and
+# any issued LC-*.txt must never be committed to either repo.
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — a secret added and later removed is still leaked
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      # Exits non-zero when anything is found. --redact keeps the finding out of the log,
+      # because a public build log is a poor place to reprint a secret you just caught.
+      - name: Scan history
+        run: gitleaks git --redact --verbose
