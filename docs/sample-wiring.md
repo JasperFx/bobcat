@@ -16,6 +16,25 @@ until `PaymentsMonolith` was wired, and its absence is not a footnote — the wh
 playbook is that **a sample is not fixed until it has been run**, and there was nothing to run it
 against. Wiring a sample without starting this is wiring it blind.
 
+**5433 collides with the Wolverine repo's own Postgres**, which publishes on the same port and is
+routinely left running for days. `docker compose up -d` then fails with `Bind for 0.0.0.0:5433
+failed: port is already allocated`, and killing the other repo's container to get your own is the
+wrong trade. Bobcat's *root* `docker-compose.yml` already learned this and sits on 5445 precisely
+so it never collides. The fastest way through, since it is the same image and the same
+`postgres`/`postgres` credentials, is to create the sample databases in whichever instance holds
+the port:
+
+```bash
+for db in bank_account booking clean_architecture_todos cqrs_minimal_api ecommerce \
+          inflow meeting_groups more_speakers outbox_demo; do
+  docker exec <container> psql -U postgres -c "CREATE DATABASE $db"
+done
+```
+
+Moving `samples/docker-compose.yml` off 5433 is the durable fix, but it means editing the
+connection string in all eleven `appsettings.json` files, so it is a decision rather than a
+detail.
+
 ## The playbook
 
 For each sample, replicate what `CqrsMinimalApi` has:
@@ -129,7 +148,24 @@ Asserting off the response races the handler.
 - This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
   fixture reaches for `Wolverine.Tracking` directly.
 
-### 8. Expect read endpoints to be missing entirely
+### 8. Marten projection subclasses must be `partial`, and `CreateEvent<T>` is gone
+Two separate breakages in the same file, both from the Marten 9 / JasperFx.Events 2 move, and
+only the first one is a compile error:
+
+- **`CreateEvent<T>(e => …)` in a projection constructor no longer exists.** The supported form
+  is the `Create` method convention: `public static TDoc Create(TEvent e) => …`.
+- **A projection subclass that uses convention methods must be declared `partial`.** Marten
+  dispatches `Create`/`Apply`/`ShouldDelete` through a compile-time source generator with **no
+  runtime fallback**, and it emits into that class. Without `partial` the project compiles clean
+  and the host fails to **start** with `InvalidProjectionException: No source-generated dispatcher
+  found for …`. A self-aggregating type registered via `Snapshot<T>` does *not* need it — only a
+  projection subclass does, which is why a sample can have several aggregates working and one
+  projection that kills the host.
+
+This is footgun 4's lesson a second time: a build-only CI job cannot catch either the start
+failure or the drifted assertions behind it. `BankAccountES` compiled clean and could not start.
+
+### 9. Expect read endpoints to be missing entirely
 Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
 nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
 only be written to, so the sample's central claim (registering a user creates a customer stub)

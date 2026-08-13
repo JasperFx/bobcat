@@ -31,13 +31,15 @@ public class Transaction
 /// Single-stream projection: one AccountTransactions document per account stream.
 /// Registered as Inline so the read model is always up-to-date.
 /// </summary>
-public class AccountTransactionsProjection : SingleStreamProjection<AccountTransactions, Guid>
+// `partial` is required, not stylistic: Marten dispatches the conventional Create/Apply methods
+// through a compile-time source generator with no runtime fallback, and it emits into this
+// class. Without it the host fails to START with InvalidProjectionException.
+public partial class AccountTransactionsProjection : SingleStreamProjection<AccountTransactions, Guid>
 {
-    public AccountTransactionsProjection()
-    {
-        // Tells Marten to create the document on the first event
-        CreateEvent<AccountOpened>(e => new AccountTransactions { Id = e.AccountId });
-    }
+    // Creates the document on the first event of the stream. The fluent `CreateEvent<T>(...)`
+    // this replaced was removed in JasperFx.Events 2.x; the `Create` method convention is the
+    // supported form.
+    public static AccountTransactions Create(AccountOpened e) => new() { Id = e.AccountId };
 
     public void Apply(FundsDeposited e, AccountTransactions view)
     {

@@ -44,7 +44,6 @@ jobs:
           # noise. This one has to shrink: fix a sample, and CI tells you to delete its line.
           # Tracked by the "fix the samples" issue.
           quarantined=(
-            "samples/BankAccountES/BankAccountES.csproj"
             "samples/BookingMonolith/BookingMonolith.csproj"
             "samples/CleanArchitectureTodos/CleanArchitectureTodos.csproj"
             "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"

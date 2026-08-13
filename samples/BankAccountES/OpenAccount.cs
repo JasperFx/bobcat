@@ -1,5 +1,6 @@
 using FluentValidation;
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Wolverine.Http;
 using Wolverine.Persistence;
 
@@ -19,8 +20,10 @@ public record OpenAccount(Guid ClientId, string Currency = "USD")
 
 public static class OpenAccountEndpoint
 {
+    // The [Entity] load is the interesting half: opening an account for a client that was never
+    // enrolled is a 400 from the middleware, before this method runs at all.
     [WolverinePost("/api/accounts")]
-    public static Account Post(
+    public static Created<Account> Post(
         OpenAccount command,
         [Entity("ClientId", Required = true, OnMissing = OnMissing.ProblemDetailsWith400)] Client client,
         IDocumentSession session)
@@ -32,6 +35,6 @@ public static class OpenAccountEndpoint
 
         var account = new Account();
         account.Apply(evt);
-        return account;
+        return TypedResults.Created($"/api/accounts/{accountId}", account);
     }
 }
