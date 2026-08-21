@@ -181,7 +181,7 @@ public static class CodeEmitter
                 var row = step.TableRows[rowIdx];
                 var headers = step.TableHeaders;
 
-                var args = buildTableRowArgs(method, headers, row, rowScopeProvider);
+                var args = buildTableRowArgs(method, values, headers, row, rowScopeProvider);
                 var rowStepId = $"{stepId}.row{rowIdx + 1}";
                 var awaitRow = method.IsAsync ? "await " : "";
 
@@ -352,7 +352,7 @@ public static class CodeEmitter
                 // A hand-written Row is the override for custom construction; without one,
                 // columns bind straight to the entity's constructor or settable properties.
                 var product = row != null
-                    ? $"{awaitRow}g__.{row.MethodName}({buildArgsFromColumns(row.Parameters, headers, rowCells, rowScopeProvider)})"
+                    ? $"{awaitRow}g__.{row.MethodName}({buildArgsFromColumns(row.Parameters, values, headers, rowCells, rowScopeProvider)})"
                     : buildEntityFromColumns(grammar, headers, rowCells);
 
                 sb.AppendLine($"                                var product{r}__ = {product};");
@@ -360,12 +360,12 @@ public static class CodeEmitter
             }
             else if (expectedColumn != null)
             {
-                var rowArgs = buildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
+                var rowArgs = buildArgsFromColumns(row!.Parameters, values, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                var row{r}__ = {awaitRow}g__.{row.MethodName}({rowArgs});");
             }
             else
             {
-                var rowArgs = buildArgsFromColumns(row!.Parameters, headers, rowCells, rowScopeProvider);
+                var rowArgs = buildArgsFromColumns(row!.Parameters, values, headers, rowCells, rowScopeProvider);
                 sb.AppendLine($"                                {awaitRow}g__.{row.MethodName}({rowArgs});");
             }
 
@@ -858,17 +858,21 @@ public static class CodeEmitter
         return string.Join(", ", args);
     }
 
-    private static string buildTableRowArgs(StepMethodInfo method, List<string> headers, List<string> row,
-        string? scopeProvider = null)
-        => buildArgsFromColumns(method.Parameters, headers, row, scopeProvider);
+    private static string buildTableRowArgs(StepMethodInfo method, List<string> values, List<string> headers,
+        List<string> row, string? scopeProvider = null)
+        => buildArgsFromColumns(method.Parameters, values, headers, row, scopeProvider);
 
     /// <summary>
-    /// Bind parameters to a table row by header name, with injection for the rest.
+    /// Bind parameters to a table row by header name, the Cucumber captures from the step text
+    /// positionally to the parameters no header names, and injection for the rest. A step that
+    /// is both a <c>[Table]</c> step and has a capture in its text (<c>these steps ran in
+    /// {string}</c>) therefore receives the matched text, not <c>default</c> (issue #122).
     /// </summary>
-    private static string buildArgsFromColumns(List<ParameterInfo> parameters, List<string> headers,
-        List<string> row, string? scopeProvider)
+    private static string buildArgsFromColumns(List<ParameterInfo> parameters, List<string> values,
+        List<string> headers, List<string> row, string? scopeProvider)
     {
         var args = new List<string>();
+        var vi = 0;
         foreach (var param in parameters)
         {
             // A header match wins over convention-based injection; [FromScopedService] and
@@ -883,6 +887,13 @@ public static class CodeEmitter
             else if (colIndex >= 0 && colIndex < row.Count)
             {
                 args.Add(CucumberExpressionParser.ToCSharpLiteral(row[colIndex], param.Type));
+            }
+            else if (vi < values.Count)
+            {
+                // No column names this parameter, so it consumes the next capture from the
+                // step text — the same positional rule a non-table step binds by.
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param.Type));
+                vi++;
             }
             else
             {
