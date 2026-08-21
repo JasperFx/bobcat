@@ -365,6 +365,14 @@ be a second entry point beside the consumer's own `BobcatTestApplication.Run` (C
 not consume another project's build assets, so in-repo projects must set
 `GenerateTestingPlatformEntryPoint=false` themselves — `Bobcat.Mtp.SampleHost` does.
 
+Turning that entry point off also drops the generated `AddSelfRegisteredExtensions`, which is
+where the **MSBuild extension** (the thing `dotnet test` actually talks to, via
+`--internal-msbuild-node`) would have been registered. `BobcatTestApplication.Run` therefore
+registers it itself (`TestingPlatformBuilderHook.AddExtensions`). Until `Bobcat.Monitor.Specs`
+no Bobcat host in the repo had `IsTestProject=true`, so `dotnet test` had never actually
+collected one and the missing registration went unnoticed — running the executable directly
+never exercises that path.
+
 The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
 what `Bobcat.Mtp.Tests` exercises.
 
@@ -569,6 +577,16 @@ side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 
 The project name is a leftover; the tool is `dotnet bobcat` and it is the test-run **viewer**.
 Renaming the project (`Bobcat.Viewer`?) is an open decision, not a settled one.
+
+**`Bobcat.Monitor.Specs` is the viewer's end-to-end suite, written in Bobcat itself** (issue
+#86). A spec project *may* reference `Bobcat.Monitor` — the no-reference rule is for libraries.
+It is an MTP host (`BobcatTestApplication.Run`) with `IsTestProject=true` and the MTP properties
+set by hand (the `*.Tests` convention in `Directory.Build.props` does not catch it), so `dotnet
+test` at the root collects it. `MonitorHost` boots the real `Program` over Alba's TestServer with
+a temp `Monitor:DataPath`; `ViewerSteps` is one shared `[IncludeGrammars]` module behind four shell
+fixtures. `GET /api/runs/{id}` (per-scenario detail) was added for it and is a public wire
+contract like `/api/runs`. A spec host publishes its own progress like any other; CI sets
+`BOBCAT_MONITOR=0`. The framework gaps found writing it are on issue #62.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 

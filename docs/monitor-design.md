@@ -224,11 +224,23 @@ a busy box should pass the runId from `list_runs`.
 
 ## Testing
 
-Vitest is the whole UI test story for now: store/dispatcher logic tested by feeding recorded
+Vitest is the whole UI test story: store/dispatcher logic tested by feeding recorded
 event sequences at the Pinia stores (`src/stores/__tests__`, `src/messages/__tests__`),
 happy-dom for component mounts, CI gate in `.github/workflows/monitor-frontend.yml`
-(path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`). End-to-end tests dogfood
-the Bobcat Gherkin runner when it's ready — that replaces a Playwright layer, deliberately.
+(path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`).
+
+End-to-end is **`src/Bobcat.Monitor.Specs/`** (issue #86, built 2026-08-21): the viewer's own
+`Program` booted in-process over Alba's TestServer by a `MonitorHost` resource, and Bobcat's
+Gherkin runner driving it as an MTP host that `dotnet test` collects. Four features — Live Runs,
+Retries, Ejection, Exports — ingest events over `POST /api/ingest` exactly as a publisher does and
+assert against `GET /api/runs`, `GET /api/runs/{id}` (added for this; same wire-contract status as
+the list), and the export endpoints. That replaces a Playwright layer, deliberately: the whole
+wire is verifiable without a browser, and the SignalR leg is pinned separately by
+`relayToStore.test.ts`. Archives go to a temp `Monitor:DataPath` per run, never `~/.bobcat`;
+`MonitorHost.Restart()` is how the hydration rules are exercised. The spec host publishes its own
+progress like any other (a `dotnet bobcat` on 5525 sees the suite run while it tests a second,
+in-memory viewer — no loop is possible, the instance under test has no address); CI sets
+`BOBCAT_MONITOR=0`. What the framework was missing to write it is recorded on issue #62.
 
 ## Retention (built 2026-07-31)
 

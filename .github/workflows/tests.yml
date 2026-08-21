@@ -30,6 +30,12 @@ jobs:
 
     env:
       BOBCAT_POSTGRES: "Host=localhost;Port=5445;Database=bobcat_test;Username=postgres;Password=postgres"
+      # Bobcat.Monitor.Specs (the viewer's end-to-end suite, collected by `dotnet test` below) is
+      # itself a Bobcat spec host, and a spec host publishes its own progress to a viewer on
+      # localhost:5525 when one answers. Nothing listens there on CI, so this only spares the
+      # probe — but it makes "the suite does not publish while it tests a viewer" a stated fact
+      # rather than an accident of which ports happen to be open.
+      BOBCAT_MONITOR: "0"
 
     steps:
       - uses: actions/checkout@v4

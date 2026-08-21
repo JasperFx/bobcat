@@ -56,3 +56,8 @@ app.MapWolverineSignalRHub("/api/messages");
 app.MapMcp("/api/mcp");
 
 return await app.RunJasperFxCommands(args);
+
+// Lets a test host bootstrap this exact application in-process: Alba / WebApplicationFactory
+// resolve the entry point through this type. The Bobcat.Monitor.Specs end-to-end suite drives
+// the viewer over TestServer this way: no port, no browser, the real endpoints.
+public partial class Program;
