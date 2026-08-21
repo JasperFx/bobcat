@@ -368,3 +368,29 @@ What you will still see on the console, and can ignore — it is JasperFx-side a
 
 If a `RunJasperFxCommands` host fails to *start* under Alba, the flag is the first thing to check:
 `JasperFxEnvironment.AutoStartHost` must be `true` before `AlbaHost.For<T>` runs `Main`.
+
+### 16. Host console logging floods the test output — `AlbaResource<T>` floors it at Warning
+An ASP.NET Core host at its own default `Information` writes several lines per request
+(`Request starting`, `Executing endpoint`, `Executed endpoint`, `Request finished`). Under
+Microsoft.Testing.Platform the console belongs to the runner, and those lines bury the run
+summary; under Spectre they interleave with the live rendering.
+
+`AlbaResource<TProgram>` now puts a floor under the hosted application's **console** logging:
+`ConsoleLogLevel`, default `Warning`, fluent `WithConsoleLogLevel(level)`, `null` to leave the
+application's logging exactly as it ships. Two things about how, both deliberate:
+
+- It is a filter **rule scoped to the console logger provider**, not `SetMinimumLevel`. An
+  `appsettings.json` `"Logging:LogLevel:Default": "Information"` is itself a rule, and rules beat
+  the minimum level — `ConfigureLogging(l => l.SetMinimumLevel(Warning))` silences nothing on a
+  host that ships that line, which is every template. A provider-scoped rule also leaves every
+  other sink alone: the debug provider, `BobcatLoggerProvider`'s per-step capture, a Serilog sink.
+- It runs **before** your `configure` callback, so a console rule you add there wins (later
+  rule, same specificity), and a category-specific rule from the application's own configuration
+  wins as it always did (more specific).
+
+What it does not cover: the factory-based `AlbaResource(() => …)` (you own the builder — add the
+same `AddFilter<ConsoleLoggerProvider>(null, LogLevel.Warning)`), `HostResource<T>` (a
+follow-up), and JasperFx's own command-runner chatter under `AutoStartHost` (`Searching '…' for
+commands`, `JasperFx cannot override the environment name …`) — that is `AnsiConsole` in JasperFx,
+not `ILogger`, and is not gated by `JasperFxEnvironment.RunQuiet` in 2.37.0; quieting it is a
+JasperFx change.
