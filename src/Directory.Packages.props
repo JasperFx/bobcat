@@ -5,11 +5,22 @@
     package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
     canonical, mutually-compatible alignment that consuming samples must also target:
 
-      WolverineFx 6.24.2  ↔  Marten 9.22.0  ↔  JasperFx(.Events) 2.37.0
+      WolverineFx 6.29.1  ↔  Marten 9.28.0  ↔  JasperFx(.Events) 2.53.0  ↔  Fisher 1.0.2  ↔  Polecat 5.19.2
 
-    (WolverineFx 6.24.2 requires JasperFx 2.36.1 and WolverineFx.Marten 6.24.2 requires
-    Marten 9.20.0; Marten 9.22.0 in turn requires JasperFx 2.36.3, and 2.37.0 satisfies all of them. Taking
-    the newest of each therefore still lands on one JasperFx, which is the property that matters.)
+    Checked against the published nuspecs on 2026-08-21 (issue #125):
+      WolverineFx 6.29.1        requires JasperFx(.Events) >= 2.47.0
+      WolverineFx.Marten 6.29.1 requires Marten >= 9.23.0
+      WolverineFx.Fisher 6.29.1 requires Fisher >= 1.0.0
+      Marten 9.28.0             requires JasperFx(.Events) >= 2.52.0, Weasel >= 9.24.0
+      Fisher 1.0.2              requires JasperFx(.Events) >= 2.53.0, Weasel.Storage >= 9.25.1
+      Polecat 5.19.2            requires JasperFx(.Events) >= 2.53.0, Weasel >= 9.24.0
+    Every floor is at or below the pin, so taking the newest of each still lands on ONE
+    JasperFx (2.53.0), which is the property that matters — the event types (IEvent, etc.) only
+    unify when every package resolves the same JasperFx.Events. Fisher is what forced this bump:
+    every published Fisher (0.5.0+) requires JasperFx.Events >= 2.47.0, and nothing on the
+    previous set (WolverineFx 6.24.2 / Marten 9.22.0 / JasperFx 2.37.0) could reference it.
+    Newer releases exist (WolverineFx 6.29.2, Marten 9.29.0) and also land on 2.53.0; they were
+    not taken because the aligned set was verified end to end as a unit and a bump is a unit.
     See docs/versions.md for the full matrix and the samples' target set.
   -->
   <PropertyGroup>
@@ -18,20 +29,26 @@
 
   <ItemGroup>
     <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx" Version="6.24.2" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.24.2" />
-    <PackageVersion Include="Marten" Version="9.22.0" />
-    <PackageVersion Include="JasperFx" Version="2.37.0" />
+    <PackageVersion Include="WolverineFx" Version="6.29.1" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.29.1" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.29.1" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.29.1" />
+    <PackageVersion Include="Marten" Version="9.28.0" />
+    <PackageVersion Include="JasperFx" Version="2.53.0" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
-      IProjectionCoordinator) rather than to Marten, so one package serves Marten, Polecat and
-      Fisher. Same version as JasperFx — the two ship together.
+      IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
+      Marten, Polecat and Fisher. Same version as JasperFx — the two ship together.
 
-      Known floor for the other stores, for the next alignment bump: every published Fisher
-      (0.5.0+) requires JasperFx.Events >= 2.47.0 and Polecat 5.9.1 is the last release on 2.37.0.
-      ProjectionScenario<TOps,TQuery> (JasperFx.Events.TestSupport) first ships in 2.38.0.
+      Fisher (SQLite, the inner-loop store) and Polecat (SQL Server) are pinned here so that the
+      moment a project references them it lands on this JasperFx and no other. Fisher coverage in
+      Bobcat.CritterStack.Tests (a temp SQLite file, no docker) and the BankAccountES-on-Fisher
+      acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
+      documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
-    <PackageVersion Include="JasperFx.Events" Version="2.37.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.53.0" />
+    <PackageVersion Include="Fisher" Version="1.0.2" />
+    <PackageVersion Include="Polecat" Version="5.19.2" />
     <PackageVersion Include="Alba" Version="8.5.2" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
@@ -39,12 +56,12 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
     <!--
-      Bobcat.Console host. Same 6.24.2 as the aligned set above — the earlier monitor-only
+      Bobcat.Console host. Same 6.29.1 as the aligned set above — the earlier monitor-only
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
       collapsed when the alignment caught up.
     -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.24.2" />
-    <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.29.1" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.29.1" />
     <!-- MCP server for Bobcat.Console — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!--

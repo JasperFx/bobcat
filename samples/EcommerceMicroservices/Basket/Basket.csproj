@@ -11,10 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="WolverineFx.Http" Version="6.24.2" />
-    <PackageReference Include="WolverineFx.Marten" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.Http" Version="6.29.1" />
+    <PackageReference Include="WolverineFx.Marten" Version="6.29.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
-    <PackageReference Include="WolverineFx.RabbitMQ" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.RabbitMQ" Version="6.29.1" />
   </ItemGroup>
 
 </Project>

@@ -21,12 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="WolverineFx.Http" Version="6.24.2" />
-    <PackageReference Include="WolverineFx.Marten" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.Http" Version="6.29.1" />
+    <PackageReference Include="WolverineFx.Marten" Version="6.29.1" />
     <!-- Wolverine 6 stopped shipping the runtime compiler in core, so this host could not START
          even though it compiled (GH-2876). See docs/sample-wiring.md footgun 4. That the
          *reference* sample had this is the argument for the playbook's "run it" step. -->
-    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.29.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
   </ItemGroup>
 

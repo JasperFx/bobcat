@@ -202,6 +202,24 @@ A smaller one from the same move, and this one *is* a compile error: `SnapshotLi
 in `JasperFx.Events.Projections`, not `Marten.Events.Projections`. Every sample of this vintage
 that calls `opts.Projections.Snapshot<T>(SnapshotLifecycle.Inline)` needs the extra `using`.
 
+**Revised on the JasperFx.Events 2.53.0 bump (issue #125).** The generator's rules moved, in the
+right direction:
+
+- A `SingleStreamProjection<,>` / `MultiStreamProjection<,>` subclass with convention methods
+  **no longer needs `partial`** — its dispatcher is emitted as a standalone `file sealed class`
+  registered through `[assembly: GeneratedEvolver(...)]` (jasperfx#462), so it never needs a
+  second declaration of the user's type. `MartenWithProjectAspire`'s `TripProjection`
+  (`ShouldDelete` conventions, not partial) builds and registers under 2.53.0.
+- An `EventProjection` subclass with conventional `Create`/`Project` methods **still needs
+  `partial`**, because its `ApplyAsync` dispatcher is an override emitted into the class — and the
+  missing modifier is now **compile error `JFXEVT003`** rather than a start failure.
+  `MartenWithProjectAspire`'s `DistanceProjection` was the one that tripped it on the bump.
+- An `EventProjection` with an explicit `ApplyAsync` that is not partial gets warning `JFXEVT006`
+  (published types not registered; storage still provisioned on demand).
+
+So the build-only samples job now catches the projection half of this footgun; the "host does not
+start" half is left to the runtime misconfigurations the job still cannot see.
+
 ### 9. Expect read endpoints to be missing entirely
 Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
 nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
