@@ -5,7 +5,7 @@ Status, 2026-08-21:
 | Editor | Status | What it costs |
 |---|---|---|
 | **VS Code** | Works today, zero Bobcat code | Install the official Cucumber extension, commit three settings (`.vscode/settings.json` in this repo is the sample) |
-| **Rider** | Not yet | An upstream change to `reqnroll/Reqnroll.Rider` — proposal and diff sketch below; **not opened**, Jeremy's call |
+| **Rider** | Patch ready, not submitted | `docs/rider/0001-bobcat-attributes.patch` against `reqnroll/Reqnroll.Rider` (+186/−9, 5 files); helper compiled and tested, caches type-checked, **not built with the 2026.2 SDK or run in Rider**; submitting is Jeremy's call — `docs/rider/README.md` has the commands. Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
 
 Decision of record from the issue still stands: no Reqnroll package dependency (there is no
 attributes-only package) and no namespace-squatting of `Reqnroll.GivenAttribute`. Everything
@@ -222,19 +222,98 @@ package named `Reqnroll`) is used only by `ProjectRefresher` (reload after build
 and `UnitTestExplorers/ReqnrollUnitTestProvider.IsSupported` gates *test running* on a
 `Reqnroll`/`TechTalk.SpecFlow` assembly reference. Navigation and completion are not gated on the
 package as far as the source shows. **None of this was verified in a running Rider** — it is
-read from the code.
+read from the code (clone at `~/code/Reqnroll.Rider`, `main` = `747939a`, 2026-08-21).
 
-One experiment worth a minute before any PR: since the source path admits a `partial` class, and
-steps from such a class go into `StepsDefinitionsPerFiles` regardless of its binding status,
-declaring a fixture `public partial class CalculatorFixture : Fixture` may already light up
-completion and navigation for *source* fixtures in Rider with the plugin as shipped. That would
-not cover `[Check]` or the shipped grammars, and it is a hack, not the answer — but it is a cheap
-way to confirm the reading above.
+### The cheap experiment: does `partial` bypass the source gate? Yes — by source reading
 
-### Proposed change — option A, add the Bobcat names (recommend opening this)
+The question was whether declaring a fixture `public partial class CalculatorFixture : Fixture`
+already makes its steps visible to the shipped plugin, without any upstream change. Traced through
+the source, with the plugin as it is on `main`:
+
+1. **Admission.** `Caching/StepsDefinitions/ReqnrollStepsDefinitionsCache.cs:98-100` —
+   `var hasBindingAttribute = HasBindingAttribute(classDeclaration); if (!hasBindingAttribute && !classDeclaration.IsPartial) continue;`
+   A `partial` class is admitted with `hasBindingAttribute == false`; the only other exclusion
+   (`IsReqnrollFeatureFile`, line 101) is for `[GeneratedCode("Reqnroll", …)]` code-behind.
+2. **Method gate.** `ReadStepsFromMethodsOfClass` (lines 246-277) walks every method; an attribute
+   with **exactly one argument** goes to `AddToCacheEntryBasedOnAttributeRegex` (lines 279-298),
+   which requires the argument to be a **constant string** and matches
+   `attribute.Name.ShortName` against `Given` / `When` / `Then` / `StepDefinition` via
+   `Helpers/ReqnrollAttributeHelper.cs:49-60` (`IsAttributeForKindUsingShortName`). It never
+   resolves the attribute type — the comment at 289-290 says so. `[Given("the left operand is {int}")]`
+   from `Bobcat` therefore matches exactly as Reqnroll's would.
+3. **Where the steps go.** `AddToLocalCache` (lines 191-206) puts every step of every admitted
+   class into `_mergeData.StepsDefinitionsPerFiles` (line 204), **regardless of**
+   `HasReqnrollBindingAttribute` — that flag only decides which of `ReqnrollBindingTypes` /
+   `PotentialReqnrollBindingTypes` the class name lands in (lines 198-201), and those two maps
+   feed only `GetBindingTypes`, i.e. the create-step quick fix's target list.
+4. **Who reads them.** Completion: `CompletionProviders/GherkinStepCompletionProvider.cs:38` →
+   `GetStepAccessibleForModule` → `StepsDefinitionsPerFiles` (lines 44-53). Go-to-definition:
+   `References/ReqnrollStepDeclarationReference.cs:52` → `AllStepsPerFiles` → the same map.
+   Find-usages (`Searchers/ReqnrollSearcherFactory.cs:34,57`) and the undefined-step daemon
+   (`Daemon/UnresolvedReferenceHighlight/UnresolvedStepHighlightingDaemonStage.cs:31`) likewise.
+   None of them consult the binding flag.
+5. **`.feature` file recognition is not package-gated.** The Kotlin side's
+   `ReqnrollLanguageSubstitutor.kt` assigns the Gherkin language to any `.feature` whose ancestor
+   directory holds a `*proj` or `.cs` file. `IsReqnrollProject` (assembly/package named Reqnroll)
+   is used only by the post-build refresher and analytics; `ReqnrollUnitTestProvider.IsSupported`
+   gates *test running* only.
+
+**Verdict:** in the same solution, a `partial` fixture's `[Given]`/`[When]`/`[Then]` steps with a
+plain string-literal expression should already get completion, navigation, find-usages and
+undefined-step diagnostics in Rider with the plugin as shipped — zero Bobcat code. Exclusions that
+follow from the same reading: `[Check]` (short name not in the list), `[TableGrammar]`
+(class-level), anything in a **referenced assembly** (the assembly path gates on `[Binding]` by
+full CLR name — `AssemblyStepDefinitionCache.cs:79` — so the shipped `ClockGrammars` stay
+invisible), grammar modules reached only through `[IncludeGrammars]` (the cache follows the
+**base class** declaration, lines 271-276, not attributes), and the `Fixture` base class itself
+(no source in the solution, so `GetSingleDeclaration()` is null and the walk stops). One side
+effect to expect: `MethodNameMismatchPattern` (a HINT) runs on any file with indexed steps, but it
+keys on **full CLR name** (`…RecursiveElementProcessor.cs:51`), so it stays silent for Bobcat
+attributes today.
+
+**This is a source-reading verification, not a run.** Rider was not launched; the plugin was not
+built. It is a hack that costs one keyword per fixture and does not reach the cases the issue's
+acceptance criterion names (shipped grammars, `[Check]`), so it does not replace the patch — but
+it is the cheapest possible confirmation of the reading, and if it fails in a real Rider the
+reading above is wrong somewhere specific.
+
+### The patch — option A, written and verified as far as this machine allows
+
+`docs/rider/0001-bobcat-attributes.patch` (+186/−9 across 5 files; `docs/rider/README.md` is the
+cover note with the fork / `gh pr create` commands). It is the sketch below made real, with three
+things the sketch did not have:
+
+- **A per-assembly gate on the assembly path.** Scanning every public method of every type in
+  every referenced assembly for a binding-less step class would be paid by the BCL too. A type can
+  only carry `Bobcat.*` attributes if its assembly is or references `Bobcat`, so
+  `CanContainBobcatSteps(IMetadataAssembly)` checks `AssemblyName.Name` and
+  `ReferencedAssembliesNames` first. Reqnroll assemblies are untouched: `[Binding]` types are
+  admitted exactly as before.
+- **The method-naming inspection stays off Bobcat fixtures.** Adding `Bobcat.*` to the name
+  arrays would otherwise light `MethodNameMismatchPattern` on every Bobcat step, because it
+  expects `GivenTheLeftOperandIs` and Bobcat names steps freely. `GetAttributeStepKind` — that
+  daemon's only input — returns `null` for them.
+- **Tests.** 39 NUnit cases over the helper, in the plugin's own test project.
+
+**Build status:** the helper **compiles and its tests pass** against the metadata-reader DLLs of
+the Rider 2025.1 installed on this machine; both caches **type-check** against the same PSI and
+metadata DLLs with only the two expected errors from 2026.2's reshaped `IAssemblyCache`; the
+patch applies cleanly on `origin/main`. The plugin was **not** built with the 2026.2 SDK (Gradle +
+Java 25 + a multi-GB SDK download, not on this machine) and **not** run in a Rider sandbox.
+`docs/rider/README.md` spells out exactly what was and was not done.
+
+**`[Check]` and `[TableGrammar]` under the patch:** `[Check("...")]` becomes a Then on both paths
+(full name `Bobcat.CheckAttribute` in assemblies, short name `Check` in source), so the
+`[Then]`+`[Check]` stack from the VS Code section is not needed for Rider — though it does no harm
+and keeps VS Code happy. `[TableGrammar]` is still invisible: Rider reads method attributes only,
+and the class-level expression needs a new concept ("the step's method is `Row`"). Same status as
+VS Code; same follow-on.
+
+#### The original sketch, for the record
 
 Touches the helper and the two caches; the quick-fix and daemon keep working unchanged because
-they go through the same helper. Sketch (not a tested diff):
+they go through the same helper. What was proposed before the patch existed (the patch supersedes
+it — read the patch, not this):
 
 ```diff
 --- a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Helpers/ReqnrollAttributeHelper.cs
@@ -287,15 +366,17 @@ population rule is, and a stale persisted cache would otherwise keep the old ans
 in `ReSharperPlugin.ReqnrollRiderPlugin.Tests/Caching/StepsDefinitions/AssemblyStepDefinitions/AssemblyStepDefinitionCacheTests.cs`
 for a `[Binding]`-less type with `Bobcat.GivenAttribute`.
 
-**Size:** roughly 40 changed lines across 3 files + a test. The code is an afternoon; the cost
-is the build — Gradle + the Rider SDK download + a Rider sandbox to verify in — call it a day
-for someone who has not built a Rider plugin before. Risk is low: the plugin's own tests cover
-the assembly cache, and the change only *admits* more types.
+**Size, estimated then vs. actual now:** the sketch guessed ~40 lines across 3 files + a test; the
+patch is +186/−9 across 5 files, of which 105 lines are the test file and 3 the changelog — the
+production change is ~80 lines. The code took an afternoon as predicted; the build loop is the
+part still owed (see build status above). Risk is low: the change only *admits* more types, and
+the helper's tests pin Reqnroll/SpecFlow behaviour.
 
 Known gaps after option A: `[TableGrammar]` (class-level expression; Rider reads only method
 attributes, so it needs a new concept — "the step's method is `Row`"), and the
 create-missing-step quick fix, which would still generate `Reqnroll.*` attributes into a Bobcat
-fixture. Both are follow-ons, not blockers for completion and navigation.
+fixture and offers only `[Binding]` classes as targets. Both are follow-ons, not blockers for
+completion and navigation.
 
 ### Option B — make the names configurable
 
@@ -308,10 +389,12 @@ settings need a `SettingsKey` class on the .NET side and an options page in the 
 and `VersionInt` must fold the setting into the cache key. Estimate **150–300 lines across
 .NET and Kotlin, plus UI**; two to three days including the plugin build loop.
 
-Recommendation: **open A** (it is general enough — "admit any class that declares steps" helps
-every wrapper library, and the `Bobcat.*` names are three lines), offer B in the PR description
-if the maintainers would rather not carry a third framework's names, and fork as "Bobcat for
-Rider" only if the PR stalls — per the issue's own plan.
+Recommendation: **submit A** — it is written (`docs/rider/`), general enough ("admit any class
+that declares steps" helps every wrapper library, and the `Bobcat.*` names are four entries), and
+its PR body already offers B if the maintainers would rather not carry a third framework's names.
+Fork as "Bobcat for Rider" only if the PR stalls — per the issue's own plan. What remains before
+submitting is the 2026.2 build and a look in the sandbox; what remains after is `[TableGrammar]`
+and the quick fix, both follow-ons.
 
 ## How this was verified
 
