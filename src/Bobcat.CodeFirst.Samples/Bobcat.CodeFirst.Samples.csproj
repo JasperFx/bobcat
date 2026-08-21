@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bobcat.CodeFirst.Samples: issue #105's design-by-use project. Real, slow Marten and Wolverine
+    integration tests rewritten as code-first Bobcat specifications against the repo's Postgres
+    (docker compose up -d at the root; 5445), so the authoring API grew only where a port demanded
+    it. README.md maps every spec back to the test it came from.
+
+    A Bobcat spec project running as a Microsoft.Testing.Platform host, collected by `dotnet test`
+    at the solution root like Bobcat.Monitor.Specs. Off CI with no Postgres reachable it registers
+    no scenarios and says why; the platform's "zero tests" exit code (8) is ignored below so a fresh
+    clone without Docker still runs green. On CI (CI=true) the gate never applies and a missing
+    database fails the build — the same rule Bobcat.Marten.Tests' [PostgresFact] follows.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
+
+    <!-- A ProjectReference does not consume Bobcat.Mtp's buildTransitive props, so the synthesized
+         MTP Main has to be turned off here or it collides with SpecsRunner.Main (CS0017). -->
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Mtp\Bobcat.Mtp.csproj" />
+    <ProjectReference Include="..\Bobcat.Wolverine\Bobcat.Wolverine.csproj" />
+    <ProjectReference Include="..\Bobcat.CritterStack\Bobcat.CritterStack.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The ported tests are Marten + Wolverine tests, so the sample references what they did. -->
+    <PackageReference Include="Marten" />
+    <PackageReference Include="WolverineFx.Marten" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+  </ItemGroup>
+
+</Project>

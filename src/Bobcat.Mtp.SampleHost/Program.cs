@@ -1,21 +1,20 @@
-using Bobcat;
-using Bobcat.Engine;
+using Bobcat.CodeFirst;
 using Bobcat.Mtp;
 using Bobcat.Runtime;
 
 namespace Bobcat.Mtp.SampleHost;
 
 /// <summary>
-/// A Bobcat spec project running as an MTP test host. Features are hand-built rather than
-/// generated so the outcomes are exact and the end-to-end tests can assert on them.
+/// A Bobcat spec project running as an MTP test host. Features are written code-first rather
+/// than generated so the outcomes are exact and the end-to-end tests can assert on them.
 /// </summary>
 public static class Program
 {
     public static Task<int> Main(string[] args)
         => BobcatTestApplication.Run(args, runner =>
         {
-            runner.AddFeature(arithmetic());
-            runner.AddFeature(inventory());
+            runner.AddSpecification<Arithmetic>();
+            runner.AddSpecification<Inventory>();
 
             // Two resources, registered in this order, so the end-to-end tests can prove that
             // when the second one fails to start the first one is still torn down. Both are
@@ -23,8 +22,6 @@ public static class Program
             runner.Suite.AddResource(new LifecycleLoggingResource("database"));
             runner.Suite.AddResource(new BrokerThatWillNotStart());
         });
-
-    public class SampleFixture : Fixture;
 
     /// <summary>
     /// Appends each lifecycle call to the file named by <c>BOBCAT_LIFECYCLE_LOG</c>, so a test in
@@ -74,31 +71,27 @@ public static class Program
         }
     }
 
-    private static FeatureDefinition arithmetic() => new(
-        "Arithmetic", typeof(SampleFixture),
-        [
-            scenario("addition works", [], _ => { }),
-            scenario("subtraction disagrees", [],
-                result => result.MarkCells(new CellResult("result", ResultStatus.failed)
-                {
-                    Expected = "4", Actual = "5"
-                })),
-            scenario("division explodes", [],
-                _ => throw new InvalidOperationException("attempted to divide by zero"))
-        ]);
+    public class Arithmetic : Specification
+    {
+        [Scenario]
+        public void addition_works() => Then("2 + 2", () => 2 + 2).ShouldBe(4);
 
-    private static FeatureDefinition inventory() => new(
-        "Inventory", typeof(SampleFixture),
-        [
-            scenario("stock is counted", ["regression"], _ => { }),
-            scenario("restock is flaky", ["isolated", "recycle(rabbit)"], _ => { })
-        ]);
+        /// <summary>A comparison that disagrees: MTP state <c>failed</c>, with expected and actual.</summary>
+        [Scenario]
+        public void subtraction_disagrees() => Then("9 - 4", () => 9 - 4).ShouldBe(4);
 
-    private static ScenarioDefinition scenario(string title, string[] tags, Action<StepResult> body)
-        => new(title, tags, (_, plan) =>
-            plan.Add(new DelegateExecutionStep("step-1", StepKind.Then, title, (_, result, _) =>
-            {
-                body(result);
-                return Task.CompletedTask;
-            })));
+        /// <summary>An exception that escapes: MTP state <c>error</c>, with the type and message.</summary>
+        [Scenario]
+        public void division_explodes()
+            => When("dividing by zero", () => throw new InvalidOperationException("attempted to divide by zero"));
+    }
+
+    public class Inventory : Specification
+    {
+        [Scenario(Tags = ["regression"])]
+        public void stock_is_counted() => Then("the stock is counted", () => { });
+
+        [Scenario(Tags = ["isolated", "recycle(rabbit)"])]
+        public void restock_is_flaky() => Then("the restock completes", () => { });
+    }
 }

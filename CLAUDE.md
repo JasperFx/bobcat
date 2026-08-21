@@ -769,6 +769,28 @@ discovers through its base).
   flight on another branch. The fixture binds to `JasperFx.Events`, so the same feature runs against a
   Fisher host by swapping `AddMarten` for `AddFisher` once the pin moves.
 
+### Code-first specifications (`src/Bobcat/CodeFirst/`)
+
+Issue #105, designed by use (decision of record 2026-08-21): a `Specification : Fixture` whose
+`[Scenario]` methods *declare* `Given`/`When`/`Then` steps in C# — no `.feature`, no generator — and
+land on the same `FeatureDefinition` / `DelegateExecutionStep` model, so they render, supervise and
+report identically (`CodeFirstTwinTests` pins a Gherkin twin to the same `SpecRender` shape).
+Registered with `runner.AddSpecification<T>()` / `ScanForSpecifications(assembly)`.
+
+- **Compose, then execute.** The scenario method runs at plan-build time on a fresh instance; a
+  value-producing `Given`/`When` hands back a `Captured<T>` read as `.Value` inside a later step.
+  A step body returning a `Task` is awaited — hold a task you want to keep in a field.
+- **A `Then` body that throws is an assertion failure, and the scenario continues** — the
+  `ProjectionScenario` contract, and the one deliberate divergence from a Gherkin `[Then]` method
+  (which the generator treats as critical). `Given`/`When` that throw are critical as ever.
+- `Then(text, () => v).ShouldBe(...)`, `Then(() => v)` via `[CallerArgumentExpression]`,
+  `ThenRows(...).KeyedBy(...).ShouldMatch(anonymous rows)` (set verification), `.WithRows(records)`
+  on any step for a self-describing input table (`RowTable`), `Step(kind, text, raw)` escape hatch.
+- `src/Bobcat.CodeFirst.Samples/` is the design-by-use project — Marten/Wolverine tests ported
+  as specs against the root Postgres, collected by `dotnet test` (off-CI no-Postgres → zero tests,
+  exit code 8 ignored). Its `CritterStackSpecification` is a stopgap for #104's
+  `CritterStackFixture`. Verdict and open questions: `docs/code-first-specs.md`.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 
