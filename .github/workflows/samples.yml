@@ -45,9 +45,9 @@ jobs:
           # Tracked by the "fix the samples" issue.
           quarantined=(
             "samples/BookingMonolith/BookingMonolith.csproj"
+            "samples/CleanArchitectureTodos/CleanArchitectureTodos.csproj"
             "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"
             "samples/MeetingGroupMonolith/MeetingGroupMonolith.csproj"
-            "samples/MoreSpeakers/MoreSpeakers.csproj"
           )
 
           is_quarantined() {

@@ -1,6 +1,8 @@
 using FluentValidation;
 using BookingMonolith;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Wolverine.Http;
+using Wolverine.Persistence;
 
 namespace Identity;
 
@@ -29,8 +31,12 @@ public record RegisterUser(string Email, string FirstName, string LastName, stri
 
 public static class RegisterUserEndpoint
 {
+    // Created rather than a bare UserAccount, so the response carries the 201 and Location a
+    // newly-created resource should. By Wolverine.Http's tuple convention the first item is the
+    // HTTP response — an IResult is executed as-is — and every item after it is a cascaded
+    // message, which is how UserCreated reaches the Passenger module's durable local queue.
     [WolverinePost("/api/identity/register")]
-    public static (UserAccount, UserCreated) Post(RegisterUser command, Marten.IDocumentSession session)
+    public static (Created<UserAccount>, UserCreated) Post(RegisterUser command, Marten.IDocumentSession session)
     {
         var user = new UserAccount
         {
@@ -42,6 +48,19 @@ public static class RegisterUserEndpoint
         };
 
         session.Store(user);
-        return (user, new UserCreated(user.Id, user.Email, user.FirstName, user.LastName));
+        return (
+            TypedResults.Created($"/api/identity/{user.Id}", user),
+            new UserCreated(user.Id, user.Email, user.FirstName, user.LastName));
     }
+}
+
+/// <summary>
+/// Reading a user back was missing entirely — the module could only be written to. Without it
+/// the registration spec could assert nothing beyond "a Guid came back", and the Location header
+/// the POST now emits would point at a route that did not exist.
+/// </summary>
+public static class GetUserEndpoint
+{
+    [WolverineGet("/api/identity/{id}")]
+    public static UserAccount? Get(Guid id, [Entity] UserAccount? user) => user;
 }
