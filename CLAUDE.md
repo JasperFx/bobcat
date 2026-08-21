@@ -647,13 +647,40 @@ to reach the event store.
   Wolverine's envelope storage). Both are the same bounded, documented softening as
   `GrammarBehaviors.Resolve`; when the abstraction lands upstream, the convention path is what gets
   deleted.
-- **Fisher is the inner-loop target.** The aligned set that unlocks it landed 2026-08-21 (issue
-  #125): WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat 5.19.2, with
-  `WolverineFx.Fisher` from 6.28.0 — every published Fisher (0.5.0+) requires JasperFx.Events ≥
-  2.47.0, which is what forced a repo-wide bump (`docs/versions.md`, every sample). Fisher coverage
-  in `Bobcat.CritterStack.Tests` and the BankAccountES-on-Fisher acceptance are issue #103's
-  follow-on to that bump. Polecat needs SQL Server, so it is a documented manual run rather than a
-  CI leg.
+- **`ProjectionScenario<,>` is not what the waits delegate to, and that is a decision, not a gap
+  (2026-08-21, JasperFx.Events 2.53.0).** Checked on the bump: it is a *scripted* harness — it
+  wipes data (`DeleteExistingData` defaults to true), builds and owns its **own** daemon, appends
+  through its **own** session, and is reached only through each store's `Advanced`
+  (`EventProjectionScenario` on Marten and Polecat, `EventProjectionScenarioAsync` on Fisher), each
+  closed over that store's session pair with no non-generic interface and no `IEventStore`
+  accessor. A Bobcat spec appends through the application's own handlers and waits on the host's
+  daemon, so the right tool is what the scenario itself calls after each batch —
+  `IEventDatabase.WaitForNonStaleProjectionDataAsync` / `IProjectionDaemon.WaitForNonStaleData` —
+  which is what `EventStores` already does. A "given these events, then this document" grammar is
+  where a scenario would earn its place; that is #104's grammar modules, and it would have to be
+  store-specific or reflective. Nothing in 2.53.0 retired a convention path either: there is still
+  no aggregate-stream member on `IReadOnlyEventStore` (Fisher's view is not an `IQueryEventStore`,
+  so `AggregateStreamAsync` still opens a session through the `IEventStore<,>` closure — proved on
+  the real store) and still no reset abstraction (`Advanced.ResetAllDataAsync` is Fisher's spelling
+  — also proved). The `IProjectionCoordinator` fallback stays for a store that does not override
+  `IEventStore.AllDatabases()`; all three do.
+- **Fisher is the inner-loop target, and is covered.** The aligned set landed 2026-08-21 (issue
+  #125): WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat 5.19.2.
+  `Bobcat.CritterStack.Tests` runs the same five integration tests against Marten (Postgres 5445,
+  `[PostgresFact]`) and Fisher (`FisherIntegrationTests`, a temp SQLite file, never skipped). The
+  Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
+  Fisher builds its schema lazily and the daemon reads the progression table on start
+  (`docs/sample-wiring.md` footgun 13). Polecat needs SQL Server and is a documented manual run:
+  `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and reset
+  share Marten's spellings, so the same code path applies.
+- **Acceptance (#103): `samples/BankAccountES` runs on Marten and on Fisher — 9/9 on each — with
+  no `Bobcat.Marten` reference, switched by `EventStore=Marten|Fisher` in configuration.** The
+  host was rewritten to the store-agnostic vocabulary (`[DeciderFunction]`, `[Entity]`,
+  `Storage.StartStream`, `IEventStoreOperations`, `IDocumentReadOperations`, a self-aggregating
+  `Snapshot<T>` read model in place of a `SingleStreamProjection<,>` subclass) so that
+  `Program.cs` is the only file naming a store; the swap table is footgun 14. The Fisher leg runs
+  in CI (`samples.yml`), because a SQLite file needs nothing the runner does not have — which is
+  the whole argument for Fisher as the inner loop.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.

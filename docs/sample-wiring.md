@@ -286,3 +286,54 @@ the id the caller already holds (the group takes the proposal's id, which is wha
 project did too), and footgun 9's read endpoint then has something to read. Same shape in the
 Payments direction — a subscription's cascade is only observable because the `Member` it updates
 carries the user's id.
+
+### 13. Fisher builds its schema lazily — apply it at startup, before the daemon and before the first append
+Marten creates its event tables on the way into the first append. Fisher does not, quite: on a
+fresh SQLite file the first `StartStream` through a Wolverine-integrated session with inline
+projections reaches `AppendPlanner.ReadCurrentVersionAsync` before anything has created
+`fi_streams` / `fi_events`, and the request fails with `SQLite Error 1: 'no such table: fi_streams'`.
+`BankAccountES` on Fisher lost its first **three** scenarios that way, then passed the rest once
+something else had built the tables — and passed 9/9 on the second run against the same file,
+which is the worst kind of flake: it only shows on a clean checkout, which is where CI runs.
+
+The async daemon has the same shape one layer down: `AddAsyncDaemon(DaemonMode.Solo)` registers a
+hosted service that reads `fi_event_progression` as soon as it starts, so a host with an async
+projection fails to **start** on a fresh file.
+
+- **Fix, both cases:** `services.AddFisher(...).ApplyAllDatabaseChangesOnStartup()` — registered
+  *before* `.AddAsyncDaemon(...)`, because hosted services start in registration order. It is
+  what `Bobcat.CritterStack.Tests`' Fisher host does and what `BankAccountES` does. Marten has the
+  same method and does not need it for this; calling it anyway is harmless.
+- This is worth an upstream look (the first-append case reads like a Fisher bug — the planner
+  should ensure storage the way `SaveChanges` does), but the sample does not wait on that.
+
+### 14. A host that runs on more than one store names the store in exactly one file
+`BankAccountES` runs on Marten and on Fisher from the same handlers (`EventStore=Fisher` in
+configuration or the environment). What made that possible was not Bobcat — it was rewriting the
+host to the store-agnostic vocabulary Wolverine 6.26+ and JasperFx.Events 2.47+ ship, so that
+`Program.cs` is the only file with a `using Marten` or `using Fisher`. The swaps, for the next
+sample that wants the same property:
+
+| Marten-specific | Store-agnostic | Lives in |
+|---|---|---|
+| `[AggregateHandler]` (`Wolverine.Marten`) | `[DeciderFunction]` | `Wolverine.Persistence.EventSourcing` |
+| `[WriteAggregate]` / `[ReadAggregate]` | `[WriteModel]` / `[ReadModel]` | `Wolverine.Persistence.EventSourcing` |
+| `IDocumentSession session` + `session.Events.StartStream<T>(...)` | return `Storage.StartStream<T>(id, events)` (a side effect; tuple with the response) or inject `IEventStoreOperations` | `Wolverine.Persistence` / `JasperFx.Events` |
+| `IQuerySession.LoadAsync<T>` / `Query<T>()` | `IDocumentReadOperations.LoadAsync<T>` / `Query<T>()` + `JasperFx.Events.Documents.ToListAsync` | `JasperFx.Events.Documents` |
+| `IQuerySession.Events.AggregateStreamAsync<T>` | `IEventStoreOperations.AggregateStreamAsync<T>` | `JasperFx.Events` |
+| `class X : SingleStreamProjection<Doc, Id>` (`Marten.Events.Aggregation`) | a self-aggregating `Doc` with `Create` / `Apply` conventions, registered with `Snapshot<Doc>(SnapshotLifecycle.Inline)` | JasperFx.Events conventions; every store has `Snapshot<T>` |
+| `[Entity]` | unchanged — it was always store-agnostic | `Wolverine.Persistence` |
+
+Things that bit on the way:
+
+- A `(Created<T>, StartStream)` tuple **works** from a Wolverine.HTTP endpoint: the first member
+  is the response, the side effect runs in the same transaction. Footgun 3's `(body, IResult)`
+  trap is about cascading *messages*; an `ISideEffect` is recognized as such.
+- `Apply(IEvent<FundsDeposited> e)` on a self-aggregating document works on both stores and is the
+  right way to get the event's timestamp into a read model (the projection this replaced stamped
+  `DateTimeOffset.UtcNow`, so a rebuild would have re-dated history).
+- `using Marten;` and `using Fisher;` in the same file (only `Program.cs` needs both) is fine as
+  long as nothing names `StoreOptions`, `IDocumentStore` or `IDocumentSession` explicitly — the
+  `AddMarten(opts => ...)` / `AddFisher(opts => ...)` lambdas infer them.
+- `JasperFx.Events.Documents.ToListAsync` and Marten's own `ToListAsync` collide only if a file
+  imports both namespaces; the endpoints import only the JasperFx one.

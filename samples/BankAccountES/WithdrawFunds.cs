@@ -1,7 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Wolverine.Http;
-using Wolverine.Marten;
+using Wolverine.Persistence.EventSourcing;
 
 namespace BankAccountES;
 
@@ -33,7 +33,7 @@ public static class WithdrawFundsEndpoint
     }
 
     [WolverinePost("/api/accounts/{accountId}/withdrawals")]
-    [AggregateHandler]
+    [DeciderFunction]
     public static (IResult, FundsWithdrawn) Post(WithdrawFunds command, Account account)
     {
         var newBalance = account.Balance - command.Amount;

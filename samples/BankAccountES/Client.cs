@@ -5,7 +5,7 @@ namespace BankAccountES;
 public record ClientEnrolled(Guid ClientId, string Name, string Email);
 public record ClientUpdated(Guid ClientId, string Name, string Email);
 
-// --- Aggregate (event-sourced via Marten) ---
+// --- Aggregate (event-sourced; the store is whichever Program.cs registered) ---
 
 public class Client
 {

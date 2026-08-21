@@ -1,6 +1,6 @@
 using FluentValidation;
 using Wolverine.Http;
-using Wolverine.Marten;
+using Wolverine.Persistence.EventSourcing;
 
 namespace BankAccountES;
 
@@ -19,7 +19,7 @@ public record DepositFunds(Guid AccountId, decimal Amount)
 public static class DepositFundsEndpoint
 {
     [WolverinePost("/api/accounts/{accountId}/deposits")]
-    [AggregateHandler]
+    [DeciderFunction]
     public static (IResult, FundsDeposited) Post(DepositFunds command, Account account)
     {
         var newBalance = account.Balance + command.Amount;
