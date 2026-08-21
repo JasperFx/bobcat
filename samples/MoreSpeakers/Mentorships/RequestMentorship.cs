@@ -1,5 +1,6 @@
 using FluentValidation;
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Speakers;
 using Wolverine.Http;
@@ -42,8 +43,10 @@ public static class RequestMentorshipEndpoint
         return WolverineContinue.NoProblems;
     }
 
+    // Created rather than a bare Mentorship — see RegisterSpeakerEndpoint for why it is a
+    // TypedResults value and not a (body, IResult) tuple.
     [WolverinePost("/api/mentorships")]
-    public static Mentorship Post(
+    public static Created<Mentorship> Post(
         RequestMentorship command,
         [Entity("MentorId", Required = true)] Speaker mentor,
         [Entity("MenteeId", Required = true)] Speaker mentee,
@@ -65,6 +68,6 @@ public static class RequestMentorshipEndpoint
         };
 
         session.Store(mentorship);
-        return mentorship;
+        return TypedResults.Created($"/api/mentorships/{mentorship.Id}", mentorship);
     }
 }
