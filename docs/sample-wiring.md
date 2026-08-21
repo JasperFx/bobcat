@@ -115,6 +115,13 @@ HttpResults.Created<T>`.
   checkout returns `(Accepted, BasketCheckoutEvent)` — a 202 with a Location, plus the event the
   Ordering module handles. The original `(bool, BasketCheckoutEvent)` "worked" too, in that it
   cascaded — it just answered every checkout with `true` and a 200.
+- **When the endpoint also cascades a message**, it has to return a tuple, so `TypedResults`
+  cannot be the whole return value either. Derive a record from `Wolverine.Http.CreationResponse`
+  and put it in the first slot — `(ProposalCreation, MeetingGroupProposalAcceptedEvent)` — which
+  gives the 201 and the `Location` header and still cascades the second element.
+  `samples/MeetingGroupMonolith/Payments/CreateSubscription.cs` is the worked example. The body
+  is then `{ id, url }` rather than the entity, so the fixture reads the created record back over
+  a GET, which is the assertion the spec wanted anyway.
 - This one is upstream in Wolverine, not Bobcat.
 
 ### 4. Wolverine 6 no longer ships the runtime compiler
@@ -179,6 +186,10 @@ only the first one is a compile error:
 This is footgun 4's lesson a second time: a build-only CI job cannot catch either the start
 failure or the drifted assertions behind it. `BankAccountES` compiled clean and could not start.
 
+A smaller one from the same move, and this one *is* a compile error: `SnapshotLifecycle` now lives
+in `JasperFx.Events.Projections`, not `Marten.Events.Projections`. Every sample of this vintage
+that calls `opts.Projections.Snapshot<T>(SnapshotLifecycle.Inline)` needs the extra `using`.
+
 ### 9. Expect read endpoints to be missing entirely
 Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
 nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
@@ -214,3 +225,14 @@ when the first scenario begins.
 - **Fix:** decide which one you want and say so in `SpecsRunner.cs`. The playbook's default is the
   reset hook (step 4), so scenarios create what they assert on. Write the comment from the log,
   not from memory — the assumption is exactly the kind a comment preserves and a run disproves.
+
+### 12. A cascade that mints its own id is unobservable to the caller
+In a modular monolith the interesting write is usually the *second* one — the record another
+module creates in response to the first. If that handler does `Id = Guid.NewGuid()`, nobody
+outside the process can address what it made: `MeetingGroupMonolith`'s accepted proposal created
+a `MeetingGroup` under a fresh Guid, so "accepting the proposal creates the group" could only be
+checked by searching the whole list for a matching name. Path A applies: give the created record
+the id the caller already holds (the group takes the proposal's id, which is what the original
+project did too), and footgun 9's read endpoint then has something to read. Same shape in the
+Payments direction — a subscription's cascade is only observable because the `Member` it updates
+carries the user's id.

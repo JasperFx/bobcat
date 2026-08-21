@@ -28,10 +28,13 @@ public record CreateMeeting(
     }
 }
 
+/// <summary>201 Created with a Location header pointing at the new meeting.</summary>
+public record MeetingCreation(Guid Id) : CreationResponse($"/api/meetings/{Id}");
+
 public static class CreateMeetingEndpoint
 {
     [WolverinePost("/api/meetings")]
-    public static Meeting Post(
+    public static MeetingCreation Post(
         CreateMeeting command,
         [Entity("MeetingGroupId", Required = true)] MeetingGroup group,
         IDocumentSession session)
@@ -51,6 +54,6 @@ public static class CreateMeetingEndpoint
         };
 
         session.Store(meeting);
-        return meeting;
+        return new MeetingCreation(meeting.Id);
     }
 }
