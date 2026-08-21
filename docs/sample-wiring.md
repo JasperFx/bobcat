@@ -171,3 +171,16 @@ nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — 
 only be written to, so the sample's central claim (registering a user creates a customer stub)
 was unobservable. Path A applies: add the endpoint to the host rather than dropping the
 assertion. It is usually four lines.
+
+### 10. `HttpResult.Body` is non-null on a 400, and it is not the thing you asked for
+The `Bobcat.Alba` helpers deserialize whatever came back into `TResponse` and swallow the
+failure. System.Text.Json ignores unknown properties, so a `ProblemDetails` body reads into a
+`TodoList` or `TodoItem` without complaint — every property at its default. If the response type
+initialises an id (`public Guid Id { get; set; } = Guid.NewGuid();`), the fixture now holds a
+perfectly plausible id for a resource that was never created, and the next step 404s somewhere
+far from the cause. `CleanArchitectureTodos` hit this when a duplicate-title 400 handed the
+fixture a phantom list.
+
+- **Fix:** gate on the status before taking anything from the body —
+  `if (result.StatusCode is >= 200 and < 300 && result.Body is not null)`. A `Given` that does
+  not assert its own status is exactly where this hides, because nothing reports the 400.
