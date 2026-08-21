@@ -19,6 +19,30 @@ public class FeatureDefinition
     }
 
     /// <summary>
+    /// Tags written on the <c>Feature:</c> line itself. Every scenario in the feature inherits
+    /// them (its own <see cref="ScenarioDefinition.Tags"/> already include them), so this is for
+    /// tooling that wants the feature-level declaration on its own — <c>@slice:</c> / <c>@domain:</c>
+    /// via <see cref="SliceTags"/>.
+    /// </summary>
+    public string[] Tags { get; init; } = [];
+
+    /// <summary>
+    /// The free-text description between the <c>Feature:</c> line and the first Background or
+    /// Scenario, lines joined with <c>\n</c>, or null. <see cref="SliceTags.TriggeredBy"/> reads
+    /// the <c>Triggered by …</c> line out of it.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>The slice this feature declares (<c>@slice:&lt;name&gt;</c>), or null.</summary>
+    public string? Slice => SliceTags.Slice(Tags);
+
+    /// <summary>The domain this feature declares (<c>@domain:&lt;name&gt;</c>), or null.</summary>
+    public string? Domain => SliceTags.Domain(Tags);
+
+    /// <summary>The trigger named by a <c>Triggered by …</c> description line, or null.</summary>
+    public string? TriggeredBy => SliceTags.TriggeredBy(Description);
+
+    /// <summary>
     /// Discovered <c>BeforeEach</c> hooks, emitted by the generator with their parameters
     /// resolved. Runs inside the scenario's DI scope, before the first step.
     /// </summary>

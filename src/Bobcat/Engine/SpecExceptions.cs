@@ -29,3 +29,18 @@ public class BobcatConfigurationException : Exception
     public BobcatConfigurationException(string message) : base(message) { }
     public BobcatConfigurationException(string message, Exception inner) : base(message, inner) { }
 }
+
+/// <summary>
+/// Throw from a step to signal an <b>assertion</b> failure from plain code — the step is marked
+/// <see cref="ResultStatus.failed"/> at <see cref="FailureLevel.Assertion"/> and the scenario
+/// continues, exactly as a <c>[Check]</c> returning false or a failed cell comparison would.
+/// Any other exception escaping a step is <see cref="FailureLevel.Critical"/> and aborts the
+/// scenario. This is what lets a typed assertion helper (<c>ThenEvents(...)</c>,
+/// <c>ThenDocument&lt;T&gt;(...)</c>) keep "assertion failures accumulate, action failures stop"
+/// semantics without the step having to return a bool.
+/// </summary>
+public class SpecAssertionException : Exception
+{
+    public SpecAssertionException(string message) : base(message) { }
+    public SpecAssertionException(string message, Exception inner) : base(message, inner) { }
+}

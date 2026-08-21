@@ -36,17 +36,30 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(g => g != null)
             .Select((g, _) => g!);
 
-        // 4. Combine features + fixtures + table grammars
+        // 4. Combine features + fixtures + table grammars + the compilation (type-name captures
+        //    such as {aggregate} are resolved against it — see resolveTypeCaptures).
         var combined = featureFiles.Collect()
             .Combine(fixtureClasses.Collect())
-            .Combine(tableGrammars.Collect());
+            .Combine(tableGrammars.Collect())
+            .Combine(context.CompilationProvider);
 
         // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left.Left;
-            var fixtures = pair.Left.Right;
-            var grammars = pair.Right;
+            var features = pair.Left.Left.Left;
+            var fixtures = pair.Left.Left.Right;
+            var grammars = pair.Left.Right;
+            var resolver = new TypeNameResolver(pair.Right);
+
+            foreach (var fixture in fixtures)
+            {
+                foreach (var hidden in fixture.HiddenSteps)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.StepHidesBaseStep, Microsoft.CodeAnalysis.Location.None,
+                        hidden.Expression, hidden.DeclaringType, hidden.HiddenType));
+                }
+            }
 
             foreach (var feature in features)
             {
@@ -66,7 +79,7 @@ public class BobcatGenerator : IIncrementalGenerator
                 {
                     if (!validateHooks(fixture, spc)) continue;
 
-                    var matched = matchScenarios(feature, fixture, grammars, spc);
+                    var matched = matchScenarios(feature, fixture, grammars, resolver, spc);
                     if (matched == null) continue;
 
                     var source = CodeEmitter.EmitFeature(feature, fixture, matched);
@@ -124,22 +137,9 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Title = deriveTitle(name);
         }
 
-        // Collect step methods and lifecycle hooks
-        foreach (var member in symbol.GetMembers().OfType<IMethodSymbol>())
-        {
-            var stepMethod = extractStepMethod(member);
-            if (stepMethod != null)
-            {
-                info.StepMethods.Add(stepMethod);
-                continue;
-            }
-
-            var hook = extractHook(member);
-            if (hook != null)
-            {
-                info.Hooks.Add(hook);
-            }
-        }
+        // Collect step methods and lifecycle hooks — the fixture's own and its base classes' up
+        // to Bobcat.Fixture, most-derived first.
+        collectStepsAndHooks(symbol, info.StepMethods, info.Hooks, info.HiddenSteps);
 
         // Collect [IncludeGrammars] modules
         foreach (var attr in symbol.GetAttributes())
@@ -168,18 +168,87 @@ public class BobcatGenerator : IIncrementalGenerator
             IsFixture = inheritsFrom(moduleSymbol, "Bobcat.Fixture"),
         };
 
-        foreach (var member in moduleSymbol.GetMembers().OfType<IMethodSymbol>())
-        {
-            var stepMethod = extractStepMethod(member);
-            if (stepMethod != null)
-            {
-                stepMethod.DeclaringModule = module.FullyQualifiedName;
-                module.StepMethods.Add(stepMethod);
-            }
-        }
+        // A module's steps are inherited the same way a fixture's are, so a shipped grammar base
+        // class composes in through [IncludeGrammars] via an empty subclass.
+        collectStepsAndHooks(moduleSymbol, module.StepMethods, hooks: null, hidden: null);
+        foreach (var stepMethod in module.StepMethods)
+            stepMethod.DeclaringModule = module.FullyQualifiedName;
 
         return module;
     }
+
+    /// <summary>
+    /// Walk a fixture (or grammar module) and its base classes, stopping at <c>Bobcat.Fixture</c> /
+    /// <c>object</c>, collecting step methods and lifecycle hooks. <b>Most-derived wins</b>: a
+    /// method overridden or hidden by a more-derived declaration is skipped by signature, and a
+    /// step whose keyword and expression already came from a more-derived class is skipped (and
+    /// recorded in <paramref name="hidden"/> so the generator can say so). Before-hooks are
+    /// ordered base-first and After-hooks derived-first, the way constructors and disposers nest.
+    /// </summary>
+    private static void collectStepsAndHooks(INamedTypeSymbol symbol, List<StepMethodInfo> steps,
+        List<HookMethodInfo>? hooks, List<HiddenStepInfo>? hidden)
+    {
+        var seenSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var seenSteps = new Dictionary<string, string>(StringComparer.Ordinal); // step key → declaring type
+        var levels = new List<List<HookMethodInfo>>();
+
+        for (var type = symbol; type != null && !isDiscoveryRoot(type); type = type.BaseType)
+        {
+            var levelHooks = new List<HookMethodInfo>();
+
+            foreach (var member in type.GetMembers().OfType<IMethodSymbol>())
+            {
+                if (member.MethodKind != MethodKind.Ordinary) continue;
+                if (!seenSignatures.Add(signatureOf(member))) continue; // overridden/hidden further down
+
+                var stepMethod = extractStepMethod(member);
+                if (stepMethod != null)
+                {
+                    var key = stepKey(stepMethod);
+                    if (seenSteps.TryGetValue(key, out var winner))
+                    {
+                        hidden?.Add(new HiddenStepInfo
+                        {
+                            Expression = stepMethod.Expression,
+                            DeclaringType = winner,
+                            HiddenType = type.ToDisplayString(),
+                        });
+                        continue;
+                    }
+
+                    seenSteps[key] = type.ToDisplayString();
+                    steps.Add(stepMethod);
+                    continue;
+                }
+
+                if (hooks == null) continue;
+
+                var hook = extractHook(member);
+                if (hook != null) levelHooks.Add(hook);
+            }
+
+            levels.Add(levelHooks);
+        }
+
+        if (hooks == null) return;
+
+        // levels[0] is the most-derived class. Before* run base-first, After* derived-first.
+        for (var i = levels.Count - 1; i >= 0; i--)
+            hooks.AddRange(levels[i].Where(h => h.Kind == HookKind.BeforeEach || h.Kind == HookKind.BeforeAll));
+        for (var i = 0; i < levels.Count; i++)
+            hooks.AddRange(levels[i].Where(h => h.Kind == HookKind.AfterEach || h.Kind == HookKind.AfterAll));
+    }
+
+    private static bool isDiscoveryRoot(INamedTypeSymbol type)
+        => type.SpecialType == SpecialType.System_Object || type.ToDisplayString() == "Bobcat.Fixture";
+
+    /// <summary>Name + parameter types, so an override or a <c>new</c> hiding is recognised across levels.</summary>
+    private static string signatureOf(IMethodSymbol method)
+        => method.Name + "(" + string.Join(",", method.Parameters.Select(p => p.Type.ToDisplayString())) + ")";
+
+    /// <summary>Keyword (Check counts as Then) + expression — what "the same step" means.</summary>
+    private static string stepKey(StepMethodInfo step)
+        => (step.StepKind == "Check" ? "Then" : step.StepKind) + "|" + step.Expression;
 
     private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
     {
@@ -430,7 +499,15 @@ public class BobcatGenerator : IIncrementalGenerator
             return info;
         }
 
-        if (param.Type.ToDisplayString() == "Bobcat.Engine.IStepContext")
+        if (param.Type.ToDisplayString().TrimEnd('?') == "Bobcat.StepTable")
+        {
+            // The whole trailing data table as one argument. Explicit so it never claims a
+            // same-named column and never falls through to DI.
+            info.Binding = ParameterBinding.Table;
+            info.IsExplicitlyInjected = true;
+            info.IsSimpleType = false;
+        }
+        else if (param.Type.ToDisplayString() == "Bobcat.Engine.IStepContext")
         {
             info.Binding = ParameterBinding.StepContext;
             info.IsExplicitlyInjected = true;
@@ -506,6 +583,12 @@ public class BobcatGenerator : IIncrementalGenerator
             case "System.DateTimeOffset":
             case "System.Uri":
                 return true;
+
+            // A type name in the step text ({type}/{aggregate}/{command}/{event}/{readmodel}/
+            // {message}), resolved against the compilation and emitted as typeof(global::...).
+            // Captures only — a data-table cell cannot supply one.
+            case CucumberExpressionParser.TypeCSharpType:
+                return true;
         }
 
         return false;
@@ -525,7 +608,7 @@ public class BobcatGenerator : IIncrementalGenerator
     }
 
     private static List<MatchedScenario>? matchScenarios(FeatureInfo feature, FixtureInfo fixture,
-        ImmutableArray<TableGrammarInfo> grammars, SourceProductionContext spc)
+        ImmutableArray<TableGrammarInfo> grammars, TypeNameResolver resolver, SourceProductionContext spc)
     {
         var matched = new List<MatchedScenario>();
         var hasErrors = false;
@@ -536,9 +619,34 @@ public class BobcatGenerator : IIncrementalGenerator
 
             foreach (var step in scenario.Steps)
             {
-                var match = StepMatcher.Match(step, fixture);
+                StepMatcher.MatchResult? match;
+                try
+                {
+                    match = StepMatcher.Match(step, fixture);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.AmbiguousStep, Microsoft.CodeAnalysis.Location.None,
+                        step.Text, fixture.ClassName, ex.Message));
+                    hasErrors = true;
+                    continue;
+                }
+
                 if (match != null)
                 {
+                    if (!resolveTypeCaptures(step, match, resolver, spc)) hasErrors = true;
+
+                    if (match.Method.IsSetVerification && (step.TableRows == null || step.TableHeaders == null))
+                    {
+                        // Without this the step would call the method, discard the collection and
+                        // pass — a verification that verifies nothing.
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.SetVerificationNeedsTable, Microsoft.CodeAnalysis.Location.None,
+                            step.Text, match.Method.MethodName));
+                        hasErrors = true;
+                    }
+
                     matchedScenario.Steps.Add(new MatchedStep { Step = step, Match = match });
                     continue;
                 }
@@ -594,6 +702,51 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return hasErrors ? null : matched;
+    }
+
+    /// <summary>
+    /// Replace every type-name capture (<c>{aggregate}</c>, <c>{command}</c>, … — anything whose
+    /// C# type is <c>System.Type</c>) in a match with the <c>global::</c>-qualified name of the type
+    /// it names in the consuming compilation, so the emitter can write <c>typeof(...)</c>. The rule:
+    /// a dotted name must match a type's full name; a simple name must match exactly one type, by
+    /// simple name, across the compilation and every non-framework assembly it references. No match
+    /// is BOBCAT011; more than one is BOBCAT012 (qualify the name in the step text).
+    /// </summary>
+    private static bool resolveTypeCaptures(StepInfo step, StepMatcher.MatchResult match,
+        TypeNameResolver resolver, SourceProductionContext spc)
+    {
+        var parsed = match.Method.ParsedExpression;
+        if (parsed == null) return true;
+
+        var ok = true;
+        for (var i = 0; i < parsed.Parameters.Count && i < match.ExtractedValues.Count; i++)
+        {
+            if (parsed.Parameters[i].CSharpType != CucumberExpressionParser.TypeCSharpType) continue;
+
+            var name = match.ExtractedValues[i];
+            var resolution = resolver.Resolve(name);
+
+            if (resolution.Qualified != null)
+            {
+                match.ExtractedValues[i] = resolution.Qualified;
+            }
+            else if (resolution.Candidates.Count > 1)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.AmbiguousTypeName, Microsoft.CodeAnalysis.Location.None,
+                    name, step.Text, string.Join(", ", resolution.Candidates)));
+                ok = false;
+            }
+            else
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.UnresolvedTypeName, Microsoft.CodeAnalysis.Location.None,
+                    name, step.Text));
+                ok = false;
+            }
+        }
+
+        return ok;
     }
 
     /// <summary>
@@ -940,6 +1093,49 @@ internal static class Diagnostics
         "entity to persist. Give Row a return type, or drop the recipe attribute.",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor UnresolvedTypeName = new(
+        "BOBCAT011",
+        "Type name in step cannot be resolved",
+        "'{0}' in step '{1}' names no type in this compilation or its references. A {{type}}/{{aggregate}}/" +
+        "{{command}}/{{event}}/{{readmodel}}/{{message}} capture must be a type's simple name (Account) or " +
+        "its namespace-qualified name (Banking.Account). Is the project that declares it referenced?",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor AmbiguousTypeName = new(
+        "BOBCAT012",
+        "Type name in step is ambiguous",
+        "'{0}' in step '{1}' matches more than one type: {2}. Qualify it with its namespace in the step text.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor AmbiguousStep = new(
+        "BOBCAT013",
+        "Ambiguous step",
+        "Step '{0}' matches more than one method on fixture '{1}' (or its base classes / grammar modules): {2}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor SetVerificationNeedsTable = new(
+        "BOBCAT014",
+        "Set verification step has no data table",
+        "Step '{0}' matches the [SetVerification] method '{1}' but has no trailing data table, so there is " +
+        "nothing to compare the returned collection against. Add the expected rows, or match a different step.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor StepHidesBaseStep = new(
+        "BOBCAT015",
+        "Step hides the same step on a base class",
+        "Step '{0}' on '{1}' hides the same step declared on base class '{2}'; the most-derived declaration is bound.",
+        "Bobcat",
+        DiagnosticSeverity.Info,
         true);
 
     public static readonly DiagnosticDescriptor HookMustBeInstance = new(

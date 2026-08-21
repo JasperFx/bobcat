@@ -27,4 +27,34 @@
     <InternalsVisibleTo Include="Bobcat.CritterStack.Tests" />
   </ItemGroup>
 
+  <!--
+    Ship the shipped grammar AS SOURCE, not only compiled into the assembly (issue #104, item 4).
+    VS Code's Cucumber extension (tree-sitter) and Rider's step cache parse C# SOURCE in the
+    workspace; a step declared only in a referenced assembly is "undefined" to them. The Bobcat
+    generator does NOT need the source — it reads the base fixture's steps from assembly metadata,
+    so the base-class and [IncludeGrammars] routes both bind from the NuGet reference alone — but the
+    editors do, so the grammar source travels in the package.
+
+    contentFiles/cs defaults .cs to buildAction=Compile, which would double-compile these into the
+    consumer (a duplicate-type error against the assembly). buildAction="None" ships them as
+    read-only source the editors can parse and the compiler ignores. See docs/editor-integration.md.
+  -->
+  <ItemGroup>
+    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs">
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/cs/any/Bobcat.CritterStack/</PackagePath>
+      <BuildAction>None</BuildAction>
+      <PackageCopyToOutput>false</PackageCopyToOutput>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <!-- Also under content/ so a consumer can copy the grammar into their workspace for the editor. -->
+    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs">
+      <Pack>true</Pack>
+      <PackagePath>content/grammars/</PackagePath>
+      <BuildAction>None</BuildAction>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
 </Project>

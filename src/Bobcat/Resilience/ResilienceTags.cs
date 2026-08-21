@@ -45,6 +45,13 @@ public static class ResilienceTags
             {
                 traits[Isolated] = "true";
             }
+            else if (tryParseKeyValue(tag, out var key, out var value))
+            {
+                // @slice:WithdrawFunds → Slice = WithdrawFunds; @domain:BankAccount → Domain = ...
+                // The generic form so a supervisor or the viewer can read any key:value tag an
+                // author writes without Bobcat having to know the key.
+                traits[key] = value;
+            }
             else
             {
                 traits[tag] = "true";
@@ -65,6 +72,20 @@ public static class ResilienceTags
 
         argument = tag.Substring(name.Length + 1, tag.Length - name.Length - 2).Trim();
         return argument.Length > 0;
+    }
+
+    /// <summary>Parses <c>key:value</c>, e.g. <c>slice:WithdrawFunds</c>. Both halves must be non-empty.</summary>
+    private static bool tryParseKeyValue(string tag, out string key, out string value)
+    {
+        key = "";
+        value = "";
+
+        var colon = tag.IndexOf(':');
+        if (colon <= 0 || colon == tag.Length - 1) return false;
+
+        key = tag.Substring(0, colon).Trim();
+        value = tag.Substring(colon + 1).Trim();
+        return key.Length > 0 && value.Length > 0;
     }
 
     /// <summary>Resource names from a <c>RecycleOnRetry</c> trait value.</summary>

@@ -27,7 +27,28 @@ public static class CucumberExpressionParser
         ["string"] = (@"""([^""]*)""", "string"),
         ["word"] = (@"(\S+)", "string"),
         [""] = (@"(.*)", "string"), // anonymous parameter
+
+        // A type name, resolved against the consuming compilation at generation time and bound to
+        // a System.Type parameter as typeof(global::...). {type} is the general form; the rest are
+        // the Event Modeling vocabulary the shipped Critter Stack grammars read as — same regex,
+        // same binding, different words in the step text. See BobcatGenerator.resolveTypeCaptures.
+        ["type"] = (TypeNameRegex, TypeCSharpType),
+        ["aggregate"] = (TypeNameRegex, TypeCSharpType),
+        ["command"] = (TypeNameRegex, TypeCSharpType),
+        ["event"] = (TypeNameRegex, TypeCSharpType),
+        ["readmodel"] = (TypeNameRegex, TypeCSharpType),
+        ["message"] = (TypeNameRegex, TypeCSharpType),
     };
+
+    /// <summary>A simple or dotted type name: <c>Account</c>, <c>Banking.Account</c>, <c>Outer+Nested</c>.</summary>
+    public const string TypeNameRegex = @"([A-Za-z_][\w.+]*)";
+
+    /// <summary>The C# type a type-name capture binds to; its literal is a <c>typeof(...)</c>.</summary>
+    public const string TypeCSharpType = "System.Type";
+
+    /// <summary>The parameter-type names that capture a type name (<c>{type}</c>, <c>{aggregate}</c>, …).</summary>
+    public static IEnumerable<string> TypeParameterNames
+        => builtInTypes.Where(kv => kv.Value.CSharpType == TypeCSharpType).Select(kv => kv.Key);
 
     public class ParsedExpression
     {
@@ -218,6 +239,8 @@ public static class CucumberExpressionParser
             "double" => $"{value}d",
             "decimal" => $"{value}m",
             "string" => $"\"{escapeCSharpString(value)}\"",
+            // The value has already been resolved to a global::-qualified name by the generator.
+            TypeCSharpType => $"typeof({value})",
             _ => $"\"{escapeCSharpString(value)}\""
         };
     }
