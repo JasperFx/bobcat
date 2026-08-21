@@ -1,0 +1,167 @@
+/* Bobcat — "Ember on Ink"
+   Amber accents on deep navy, with a paper-warm light mode. */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  --vp-font-family-base: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Bobcat palette */
+  --bc-ink: #0B1421;
+  --bc-ink-surface: #101B2D;
+  --bc-ink-line: #1E3350;
+  --bc-ember: #F0A23B;
+  --bc-rust: #C75B25;
+  --bc-rust-deep: #9A4416;
+  --bc-sky: #7EC8E3;
+  --bc-sky-deep: #1E5F86;
+  --bc-paper: #FBF9F4;
+  --bc-sand: #F2EDE1;
+  --bc-sand-line: #DDD5C4;
+  --bc-pass: #2C7F55;
+  --bc-fail: #B8322A;
+
+  /* ---- light mode ---- */
+  --vp-c-bg: var(--bc-paper);
+  --vp-c-bg-alt: var(--bc-sand);
+  --vp-c-bg-soft: #F6F2E9;
+  --vp-c-bg-elv: #FFFFFF;
+
+  --vp-c-divider: var(--bc-sand-line);
+  --vp-c-border: var(--bc-sand-line);
+  --vp-c-gutter: var(--bc-sand-line);
+
+  --vp-c-text-1: #101B2D;
+  --vp-c-text-2: #4A5568;
+  --vp-c-text-3: #7A8496;
+
+  --vp-c-brand-1: var(--bc-rust);
+  --vp-c-brand-2: var(--bc-rust-deep);
+  --vp-c-brand-3: var(--bc-rust);
+  --vp-c-brand-soft: rgba(199, 91, 37, 0.14);
+
+  --vp-button-brand-bg: var(--bc-rust);
+  --vp-button-brand-hover-bg: var(--bc-rust-deep);
+  --vp-button-brand-active-bg: var(--bc-rust-deep);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #FFF8EF;
+  --vp-button-brand-hover-text: #FFF8EF;
+
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-border: var(--bc-sand-line);
+  --vp-button-alt-text: #101B2D;
+  --vp-button-alt-hover-border: var(--bc-rust);
+  --vp-button-alt-hover-text: var(--bc-rust);
+  --vp-button-alt-hover-bg: transparent;
+
+  --vp-c-tip-1: var(--bc-sky-deep);
+  --vp-c-tip-soft: rgba(30, 95, 134, 0.12);
+  --vp-c-warning-1: var(--bc-rust-deep);
+  --vp-c-warning-soft: rgba(240, 162, 59, 0.18);
+  --vp-c-danger-1: var(--bc-fail);
+  --vp-c-danger-soft: rgba(184, 50, 42, 0.12);
+
+  --vp-code-block-bg: var(--bc-sand);
+  --vp-code-copy-code-bg: #E9E2D2;
+  --vp-code-copy-code-hover-bg: #DFD6C2;
+  --vp-custom-block-code-bg: #EFE9DC;
+
+  --vp-home-hero-name-color: #101B2D;
+}
+
+.dark {
+  --vp-c-bg: var(--bc-ink);
+  --vp-c-bg-alt: #08111C;
+  --vp-c-bg-soft: var(--bc-ink-surface);
+  --vp-c-bg-elv: var(--bc-ink-surface);
+
+  --vp-c-divider: var(--bc-ink-line);
+  --vp-c-border: var(--bc-ink-line);
+  --vp-c-gutter: #08111C;
+
+  --vp-c-text-1: #F5F1E8;
+  --vp-c-text-2: #9FB2CC;
+  --vp-c-text-3: #6E829E;
+
+  --vp-c-brand-1: var(--bc-ember);
+  --vp-c-brand-2: #FFB65A;
+  --vp-c-brand-3: var(--bc-ember);
+  --vp-c-brand-soft: rgba(240, 162, 59, 0.16);
+
+  --vp-button-brand-bg: var(--bc-ember);
+  --vp-button-brand-hover-bg: #FFB65A;
+  --vp-button-brand-active-bg: #E08F23;
+  --vp-button-brand-text: var(--bc-ink);
+  --vp-button-brand-hover-text: var(--bc-ink);
+
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-border: var(--bc-ink-line);
+  --vp-button-alt-text: #F5F1E8;
+  --vp-button-alt-hover-border: var(--bc-ember);
+  --vp-button-alt-hover-text: var(--bc-ember);
+  --vp-button-alt-hover-bg: transparent;
+
+  --vp-c-tip-1: var(--bc-sky);
+  --vp-c-tip-soft: rgba(126, 200, 227, 0.14);
+  --vp-c-warning-1: var(--bc-ember);
+  --vp-c-warning-soft: rgba(240, 162, 59, 0.14);
+  --vp-c-danger-1: #E2564A;
+  --vp-c-danger-soft: rgba(226, 86, 74, 0.14);
+
+  --vp-code-block-bg: var(--bc-ink-surface);
+  --vp-code-copy-code-bg: #17253c;
+  --vp-code-copy-code-hover-bg: #1E3350;
+  --vp-custom-block-code-bg: #0E1929;
+
+  --vp-home-hero-name-color: #F5F1E8;
+}
+
+/* Hero: banner art carries the identity, so the text hero is suppressed on home */
+.VPHero .name,
+.VPHero .text,
+.VPHero .tagline { letter-spacing: -0.02em; }
+
+.bc-banner {
+  display: block;
+  width: 100%;
+  max-width: 1152px;
+  margin: 0 auto 8px;
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+}
+.bc-banner--dark { display: none; }
+.dark .bc-banner--light { display: none; }
+.dark .bc-banner--dark { display: block; }
+
+/* Code blocks get an ember spine, matching the brand specimens */
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--vp-c-divider);
+  border-left: 3px solid var(--vp-c-brand-1);
+}
+
+/* Feature cards read as cut paper / plated metal rather than floating pills */
+.VPFeature {
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-divider);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-2px);
+}
+.VPFeature .title { font-weight: 700; letter-spacing: -0.01em; }
+
+/* Nav: thin ember rule under the header instead of a shadow */
+.VPNav { border-bottom: 1px solid var(--vp-c-divider); }
+.VPNavBar.has-sidebar .content-body { background: transparent; }
+
+.vp-doc h1, .vp-doc h2, .vp-doc h3 { letter-spacing: -0.02em; }
+.vp-doc h2 { border-top: 1px solid var(--vp-c-divider); }
+.vp-doc a { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+/* Pass/fail language shows up constantly in a testing tool's docs */
+.bc-pass { color: var(--bc-pass); font-family: var(--vp-font-family-mono); }
+.bc-fail { color: var(--bc-fail); font-family: var(--vp-font-family-mono); }
+.dark .bc-pass { color: #5FBF8B; }
+.dark .bc-fail { color: #E2564A; }
