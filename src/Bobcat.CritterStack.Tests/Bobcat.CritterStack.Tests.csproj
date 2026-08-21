@@ -14,8 +14,8 @@
     <!--
       The TESTS reference Marten, to prove the store-agnostic binding against a real store on the
       repo's Postgres (5445). Bobcat.CritterStack itself does not — that is the point of the tests.
-      Fisher would be the second leg; every published Fisher needs JasperFx.Events >= 2.47.0, above
-      the repo's pin, so it waits for the next version-alignment bump (see Directory.Packages.props).
+      Fisher is the second leg (a temp SQLite file, no docker) — unlocked by the 2.53.0 alignment
+      bump (issue #125) and added under issue #103.
     -->
     <PackageReference Include="Marten" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" />

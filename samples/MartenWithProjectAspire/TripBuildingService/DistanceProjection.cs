@@ -2,7 +2,7 @@ using JasperFx.Events;
 using Marten.Events.Projections;
 using TripDomain;
 
-public class DistanceProjection: EventProjection
+public partial class DistanceProjection: EventProjection
 {
     public DistanceProjection()
     {

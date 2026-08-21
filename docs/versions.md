@@ -10,9 +10,11 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Http`, `WolverineFx.*` | `6.24.2` |
-| Document/event store | `Marten` | `9.22.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.37.0` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.29.1` |
+| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.28.0` |
+| Event store (SQLite, inner loop) | `Fisher` | `1.0.2` |
+| Event store (SQL Server) | `Polecat` | `5.19.2` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.53.0` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
@@ -21,19 +23,38 @@ target the **same** set when wired up (issue #8).
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.24.2  →  Marten 9.20.0+  →  JasperFx(.Events) 2.36.1+
+WolverineFx.Marten 6.29.1  →  Marten 9.23.0+   →  JasperFx(.Events) 2.52.0+  (Marten 9.28.0's floor)
+WolverineFx.Fisher 6.29.1  →  Fisher 1.0.0+    →  JasperFx(.Events) 2.53.0   (Fisher 1.0.2's floor)
+WolverineFx 6.29.1         →  JasperFx(.Events) 2.47.0+
+Polecat 5.19.2             →  JasperFx(.Events) 2.53.0
 ```
 
-So the entire `WolverineFx.*` family must be **6.24.2** and Marten at least **9.20.0** for a
-single, conflict-free `JasperFx` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x
-with Marten 9.x) splits `JasperFx`/`JasperFx.Events` across major lines and the event types
-(`IEvent`, etc.) no longer unify.
+So the entire `WolverineFx.*` family must be **6.29.1**, Marten at least **9.23.0** and
+`JasperFx` at least **2.53.0** (the floor Fisher and Polecat both declare) for a single,
+conflict-free `JasperFx` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x with Marten 9.x)
+splits `JasperFx`/`JasperFx.Events` across major lines and the event types (`IEvent`, etc.) no
+longer unify.
 
 The pins above take the newest release of each rather than the exact floor Wolverine declares —
-Marten **9.22.0** over the required 9.20.0, and `JasperFx` **2.37.0** over the 2.36.x floors. That is safe
-here precisely because every declared floor is below it: the chain still terminates
-in one JasperFx version, which is the invariant this matrix exists to protect. Check that
-property again on the next bump rather than assuming newest-of-each always preserves it.
+Marten **9.28.0** over the required 9.23.0, and `JasperFx` **2.53.0** over Wolverine's 2.47.0 and
+Marten's 2.52.0 floors. That is safe here precisely because every declared floor is at or below
+it: the chain still terminates in one JasperFx version, which is the invariant this matrix exists
+to protect. Check that property again on the next bump rather than assuming newest-of-each always
+preserves it (the nuspec `dependencies` groups on `api.nuget.org/v3-flatcontainer/<id>/<version>/<id>.nuspec`
+are the source of truth; the check that produced this table is recorded in
+`src/Directory.Packages.props`).
+
+One wrinkle worth knowing: Fisher 1.0.2 floors `Weasel.Storage` at 9.25.1 while Marten 9.28.0
+floors Weasel at 9.24.0, so a host referencing both resolves `Weasel.Storage` 9.25.1 beside
+`Weasel.Postgresql` 9.24.0. Weasel minor versions are binary-compatible; if a future Weasel
+breaks that, Marten 9.29.0 floors Weasel at 9.25.1 and is the aligned answer.
+
+### History
+
+| Date | Set | Why |
+|------|-----|-----|
+| 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. |
+| 2026-08 | WolverineFx 6.24.2 / Marten 9.22.0 / JasperFx 2.37.0 | Recovery hints (`JasperFx.Testing`, issue #63) needed JasperFx 2.37.0. |
 
 ## What changed during reconciliation (issue #8, prerequisite)
 

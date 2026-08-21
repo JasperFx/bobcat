@@ -13,14 +13,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="WolverineFx.FluentValidation" Version="6.24.2" />
-    <PackageReference Include="WolverineFx.Http" Version="6.24.2" />
-    <PackageReference Include="WolverineFx.Http.FluentValidation" Version="6.24.2" />
-    <PackageReference Include="WolverineFx.Marten" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.FluentValidation" Version="6.29.1" />
+    <PackageReference Include="WolverineFx.Http" Version="6.29.1" />
+    <PackageReference Include="WolverineFx.Http.FluentValidation" Version="6.29.1" />
+    <PackageReference Include="WolverineFx.Marten" Version="6.29.1" />
     <!-- Wolverine 6 stopped shipping the runtime compiler in core, so a host left in the default
          TypeLoadMode.Dynamic fails to START with "no IAssemblyGenerator (Roslyn) is registered"
          (GH-2876). See docs/sample-wiring.md footgun 4. -->
-    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.24.2" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.29.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
   </ItemGroup>
 

@@ -16,7 +16,7 @@ namespace Bobcat.CritterStack;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Two operations have no JasperFx.Events abstraction in the version Bobcat pins (2.37.0), and are
+/// Two operations have no JasperFx.Events abstraction in the version Bobcat pins (2.53.0), and are
 /// reached through the convention the three stores share rather than through an interface:
 /// </para>
 /// <list type="bullet">

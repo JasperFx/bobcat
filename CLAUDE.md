@@ -589,26 +589,25 @@ to reach the event store.
   not from the progress table: a daemon writes a shard's row only after its first batch, so right
   after the first append an empty table is indistinguishable from "no async projections" and a wait
   keyed on it passes vacuously. A name matching no configured shard throws and lists them.
-- **Two gaps in JasperFx.Events 2.37.0 are bridged by convention, and say so.** There is no
+- **Two gaps in JasperFx.Events 2.53.0 are bridged by convention, and say so.** There is no
   abstraction for *aggregating* a stream or for *wiping* a store. `EventStores.AggregateStreamAsync`
   uses the read-only view when it is an `IQueryEventStore` (Marten, Polecat) and otherwise opens a
   session through the `IEventStore<TOps,TQuery>` closure and finds its `Events` member (Fisher).
   `EventStores.ResetAllDataAsync` follows `Advanced.ResetAllData(ct)` / `ResetAllDataAsync(ct)` /
   `Advanced.Clean.DeleteAll*` — the shape all three stores share — and a store matching none gets
   an exception naming what was looked for. JasperFx's own `IStatefulResource.ClearState` is *not*
-  enough: Marten 9.22's database does not implement `IDatabaseWithRewindableState`, so
+  enough: Marten's database does not implement `IDatabaseWithRewindableState`, so
   `jasperfx resources clear` is a no-op for it (`ClearStatefulResourcesAsync` is still offered, for
   Wolverine's envelope storage). Both are the same bounded, documented softening as
   `GrammarBehaviors.Resolve`; when the abstraction lands upstream, the convention path is what gets
-  deleted. `ProjectionScenario<,>` itself first ships in **JasperFx.Events 2.38.0** — above the pin —
-  which is why the waits delegate to the database/daemon members it is built on rather than to it.
-- **Fisher is the inner-loop target and is not yet covered in this repo, for a version reason, not a
-  design one.** Every published Fisher (0.5.0+) requires JasperFx.Events ≥ 2.47.0; the aligned set
-  that unlocks it is WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat
-  5.19.1 (`WolverineFx.Fisher` exists from 6.28.0). That is a repo-wide alignment bump
-  (`docs/versions.md`, every sample), so it is a separate PR; the fallback paths above are what a
-  Fisher host exercises, and they are unit-tested against a Fisher-shaped fake. Polecat 5.9.1 is the
-  last release on 2.37.0 and needs SQL Server, so it is a documented manual run rather than a CI leg.
+  deleted.
+- **Fisher is the inner-loop target.** The aligned set that unlocks it landed 2026-08-21 (issue
+  #125): WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat 5.19.2, with
+  `WolverineFx.Fisher` from 6.28.0 — every published Fisher (0.5.0+) requires JasperFx.Events ≥
+  2.47.0, which is what forced a repo-wide bump (`docs/versions.md`, every sample). Fisher coverage
+  in `Bobcat.CritterStack.Tests` and the BankAccountES-on-Fisher acceptance are issue #103's
+  follow-on to that bump. Polecat needs SQL Server, so it is a documented manual run rather than a
+  CI leg.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
