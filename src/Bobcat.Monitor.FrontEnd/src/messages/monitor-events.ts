@@ -1,49 +1,59 @@
 /**
- * TypeScript mirrors of src/Bobcat.Monitor/Contracts/MonitorEvents.cs.
+ * GENERATED FILE — do not edit by hand.
  *
- * Hand-written for now; the plan of record is to lift CritterWatch's NJsonSchema
- * codegen (records → .ts + relayToStore case insertion) once the contract count
- * justifies it. The envelope `type` strings are Wolverine's snake_case message
- * type names, which the C# side pins as JSON type discriminators too — one
- * spelling everywhere.
+ * TypeScript mirrors of src/Bobcat.Monitor/Contracts/MonitorEvents.cs, emitted by
+ * TypeScriptContracts.cs (NJsonSchema over the C# records, through the serializer settings
+ * the wire uses). Regenerate with:
+ *
+ *   dotnet run --project src/Bobcat.Monitor -- generate
+ *
+ * TypeScriptContractTests fails the build when this file drifts from the C# source, so a
+ * new or changed record shows up here by regenerating, never by hand-editing. The envelope
+ * `type` strings are Wolverine's snake_case message type names, which the C# side pins as
+ * the JSON type discriminators too — one spelling everywhere.
  */
 
+/** The {type, data} frame relayToStore switches on — the transport's shape, not a contract record. */
 export interface MonitorEnvelope {
   type: string
   data: unknown
 }
 
-/**
- * Server-side batching (SignalRBatchAccumulator): every event ingested within one flush tick
- * arrives as a single `batched_web_socket_payload` frame whose items are ordinary
- * {type, data} envelopes — relayToStore unwraps and re-dispatches each one.
- */
-export interface BatchedWebSocketItem {
-  type: string
-  data: unknown
-}
+/** Every envelope `type` the monitor relays — the [JsonDerivedType] discriminators on MonitorEvent. */
+export type MonitorEventType =
+  | 'run_started'
+  | 'run_heartbeat'
+  | 'run_finished'
+  | 'scenario_started'
+  | 'scenario_finished'
+  | 'retry_scheduled'
+  | 'step_started'
+  | 'step_finished'
 
-export interface BatchedWebSocketPayload {
-  items: BatchedWebSocketItem[]
-}
-
-export interface RunStarted {
+export interface MonitorEvent {
   runId: string
+  /** The STJ discriminator — already dispatched on by relayToStore, so handlers never need it. */
+  type?: MonitorEventType
+}
+
+/** Envelope type: 'run_started' */
+export interface RunStarted extends MonitorEvent {
   suite: string
   repository: string
   branch: string | null
   mode: string
   startedAt: string
   totalScenarios: number | null
+  tag?: string | null
 }
 
-export interface RunHeartbeat {
-  runId: string
+/** Envelope type: 'run_heartbeat' */
+export interface RunHeartbeat extends MonitorEvent {
   at: string
 }
 
-export interface RunFinished {
-  runId: string
+/** Envelope type: 'run_finished' */
+export interface RunFinished extends MonitorEvent {
   exitCode: number
   passed: number
   failed: number
@@ -52,8 +62,8 @@ export interface RunFinished {
   finishedAt: string
 }
 
-export interface ScenarioStarted {
-  runId: string
+/** Envelope type: 'scenario_started' */
+export interface ScenarioStarted extends MonitorEvent {
   uid: string
   feature: string
   scenario: string
@@ -63,27 +73,25 @@ export interface ScenarioStarted {
   totalSteps?: number | null
 }
 
-export type ScenarioOutcome = 'CleanPass' | 'PassOnRetry' | 'Failed' | 'Aborted'
-
-export interface ScenarioFinished {
-  runId: string
+/** Envelope type: 'scenario_finished' */
+export interface ScenarioFinished extends MonitorEvent {
   uid: string
-  outcome: ScenarioOutcome
+  outcome: string
   attempts: number
   durationMs: number
   errorMessage: string | null
 }
 
-export interface RetryScheduled {
-  runId: string
+/** Envelope type: 'retry_scheduled' */
+export interface RetryScheduled extends MonitorEvent {
   uid: string
   nextAttempt: number
   disposition: string
   reason: string
 }
 
-export interface StepStarted {
-  runId: string
+/** Envelope type: 'step_started' */
+export interface StepStarted extends MonitorEvent {
   uid: string
   stepId: string
   kind: string
@@ -95,8 +103,8 @@ export interface StepStarted {
   scenarioElapsedMs?: number | null
 }
 
-export interface StepFinished {
-  runId: string
+/** Envelope type: 'step_finished' */
+export interface StepFinished extends MonitorEvent {
   uid: string
   stepId: string
   status: string
@@ -119,4 +127,13 @@ export interface StepProgress {
   row: number | null
   totalRows: number | null
   elapsedMs: number
+}
+
+export interface BatchedWebSocketPayload {
+  items: BatchedWebSocketItem[]
+}
+
+export interface BatchedWebSocketItem {
+  type: string
+  data: MonitorEvent
 }

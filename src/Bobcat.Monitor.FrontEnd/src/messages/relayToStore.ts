@@ -61,6 +61,7 @@ export function relayToStore(message: unknown): void {
     case 'step_progress':
       runs.handleStepProgress(envelope.data as StepProgress)
       break
+    // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
     default:
       // Unknown message types are forward-compatibility, not errors.
       break

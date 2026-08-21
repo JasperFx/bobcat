@@ -78,6 +78,15 @@
     <PackageReference Include="WolverineFx.SignalR" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <!--
+      The `generate` command (run this project with the argument `generate`) regenerates the
+      SPA's TypeScript contract mirrors from Contracts/MonitorEvents.cs; see
+      Contracts/TypeScriptContracts.cs.
+      A host-time dependency only in the sense that the command lives in the host; nothing on
+      the request path touches it.
+    -->
+    <PackageReference Include="NJsonSchema" />
+    <PackageReference Include="NJsonSchema.CodeGeneration.TypeScript" />
+    <!--
       Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
       host dies at startup in TypeLoadMode.Dynamic.
     -->

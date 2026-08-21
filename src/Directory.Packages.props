@@ -47,6 +47,13 @@
     <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
     <!-- MCP server for Bobcat.Monitor — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <!--
+      TypeScript contract codegen for the monitor's Vue SPA (CritterWatch's GenerateCommand
+      pattern): NJsonSchema reflects the MonitorEvents.cs records through the same STJ settings
+      the wire uses, so the .ts mirrors can only ever say what the serializer does.
+    -->
+    <PackageVersion Include="NJsonSchema" Version="11.5.2" />
+    <PackageVersion Include="NJsonSchema.CodeGeneration.TypeScript" Version="11.5.2" />
     <PackageVersion Include="YamlDotNet" Version="16.3.0" />
 
     <!--
