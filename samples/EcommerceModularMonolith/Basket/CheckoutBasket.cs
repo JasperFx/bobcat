@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Shared;
 using Wolverine.Http;
@@ -42,11 +43,16 @@ public static class CheckoutBasketEndpoint
         return WolverineContinue.NoProblems;
     }
 
-    // Cascade: first element is HTTP response (bool), second is the integration event
-    // published via Wolverine outbox to be consumed by the Ordering service.
-    // After publishing, delete the basket.
+    // Cascade: the first tuple element is the HTTP response, the second is the integration
+    // event published through the Wolverine outbox for the Ordering module to consume. After
+    // publishing, delete the basket.
+    //
+    // 202 Accepted, not 201 Created: the order does not exist when this returns. It is created
+    // by the Ordering module when it handles BasketCheckoutEvent off the durable local queue,
+    // which is the whole point of the modular split — so the honest answer is "accepted, look
+    // for the result here", with the customer's orders as the Location.
     [WolverinePost("/basket/checkout")]
-    public static async Task<(bool, BasketCheckoutEvent)> Post(
+    public static async Task<(Accepted, BasketCheckoutEvent)> Post(
         CheckoutBasket command,
         IDocumentSession session,
         CancellationToken ct)
@@ -73,6 +79,6 @@ public static class CheckoutBasketEndpoint
 
         session.Delete(cart);
 
-        return (true, checkoutEvent);
+        return (TypedResults.Accepted($"/orders/customer/{command.CustomerId}"), checkoutEvent);
     }
 }
