@@ -145,8 +145,11 @@ Asserting off the response races the handler.
   — hence the explicitly typed delegate rather than an inline lambda (CS0121).
 - `samples/PaymentsMonolith/PaymentsMonolithFixture.cs` (`awaitingCascades`) is the worked
   example. Removing it fails 3 of 11 scenarios, so it is load-bearing rather than defensive.
-- This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
-  fixture reaches for `Wolverine.Tracking` directly.
+- This is the seam `Bobcat.CritterStack` owns (`InvokeMessageAndWaitAsync`,
+  `ExecuteAggregateCommandAsync<T>`, `WaitForNonStaleProjectionsAsync`); `PaymentsMonolith`
+  predates it and still reaches for `Wolverine.Tracking` directly. `BankAccountES/Tests` is the
+  sample that uses the package — its reset hook is `host.ResetEventStoresAsync()`, through
+  `JasperFx.Events.IEventStore`, with no `using Marten` in the spec project.
 
 ### 8. Marten projection subclasses must be `partial`, and `CreateEvent<T>` is gone
 Two separate breakages in the same file, both from the Marten 9 / JasperFx.Events 2 move, and

@@ -1,7 +1,6 @@
 using Bobcat.Alba;
+using Bobcat.CritterStack;
 using Bobcat.Runtime;
-using Marten;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace BankAccountES.Tests;
 
@@ -29,15 +28,14 @@ public static class SpecsRunner
             // grows without bound across runs, and a spec suite that quietly accumulates rows
             // gets slower for reasons no scenario explains.
             //
-            // Both halves are needed to actually empty it. The snapshots are documents, but the
-            // deposits and withdrawals that produced them are events, and DeleteAllDocuments
-            // does not touch the streams.
-            runner.Suite.AddResource(new AlbaResource<Program>(reset: async host =>
-            {
-                var store = host.Services.GetRequiredService<IDocumentStore>();
-                await store.Advanced.Clean.DeleteAllDocumentsAsync();
-                await store.Advanced.Clean.DeleteAllEventDataAsync();
-            }));
+            // ResetEventStoresAsync empties every store the host registers — documents AND event
+            // streams, which is what it takes here: the snapshots are documents, but the deposits
+            // and withdrawals that produced them are events, and deleting one half leaves the other.
+            //
+            // It reaches the store through JasperFx.Events.IEventStore, which Marten, Polecat and
+            // Fisher all register, so this file has no `using Marten` and would read the same
+            // against either of the others. Bobcat.CritterStack, issue #103.
+            runner.Suite.AddResource(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
             runner.ScanForFeatures(typeof(BankAccountESFixture).Assembly);
         });
 }

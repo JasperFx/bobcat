@@ -66,9 +66,10 @@ Bobcat.Marten (TODO)
 ├── MartenStepContextExtensions
 ├── CleanAllMartenDataAsync, QueryByIdAsync, FetchStreamAsync, etc.
 │
-Bobcat.CritterStack (TODO — assumes Wolverine + Marten together)
+Bobcat.CritterStack (built 2026-08-20, #103 — store-agnostic over JasperFx.Events; no Marten reference)
 ├── Combined patterns: tracked sessions + event store assertions
-├── Aggregate handler testing, projection wait helpers
+├── Aggregate handler testing, projection wait helpers, between-scenario reset
+├── Resolves IEventStore from the host's container — Marten / Polecat / Fisher alike
 ```
 
 ## Sample Projects Status
