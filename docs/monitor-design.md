@@ -60,8 +60,20 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   no loop risk because no publish rule feeds the accumulator). `relayToStore` unwraps the
   `{type, data}` items recursively; wire names are pinned to the STJ discriminators by
   `SignalRBatchingTests`.
-- TS mirrors of the contracts are hand-written for now; lift CritterWatch's NJsonSchema
-  codegen (records → `.ts` + `relayToStore` case insertion) when the contract count justifies.
+- TS mirrors of the contracts are **generated** (issue #85, built 2026-08-21): CritterWatch's
+  NJsonSchema `GenerateCommand` pattern, cut down. `TypeScriptContracts` in `Bobcat.Monitor`
+  reflects `MonitorEvents.cs` through the same STJ settings the wire uses and emits
+  `src/messages/monitor-events.ts` wholesale (interfaces `extends MonitorEvent`, a
+  `MonitorEventType` union, the batching envelope); `relayToStore.ts` is *patched*, not owned —
+  a missing `case` is inserted above the `*CASE ABOVE*` marker in the store's
+  `handle<Type>` convention and the import block is merged, while hand-written cases stay
+  verbatim. Regenerate with `dotnet run --project src/Bobcat.Monitor -- generate` (`--check`
+  verifies only). `TypeScriptContractTests` fails `dotnet test` when either committed file
+  differs from what the records generate, so drift is a red build. Two deliberate rules: a
+  record constructor parameter with a default (`RunStarted.Tag`) mirrors as an *optional*
+  member, because "additive" means an old publisher's JSON has no such member at all; and the
+  Bobcat-side publisher mirrors (`src/Bobcat/Monitoring/MonitorEvents.cs`) are NOT generated
+  or unified — that duplication is a decision of record kept honest by `ContractRoundTripTests`.
 - No Aspire. The Vite dev server proxies `/api` (ws included) to the host's fixed dev port
   5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
   unrelated to this tool's dev workflow.
@@ -147,10 +159,25 @@ round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
      a start for an attempt already watched. `ScenarioFinished.Attempts` gets the same floor.
      Before this, a supervised retry overwrote its own previous attempt and CTRF's
      `retryAttempts[]` worked for in-process retries only.
-   - **Still not on the wire**: lane topology, recycles and worker faults live. The observer
-     exposes them, so a programmatic consumer has them today, but the dashboard needs new
-     event contracts and UI — and per issue #85 those are exactly the mirrors whose arrival
-     is the trigger to generate the TS contracts rather than hand-write them.
+   - **Lane topology, recycles and worker faults are on the wire** (built 2026-08-21, the
+     rest of #84): `LaneStarted` (lane + the uids it was handed), `LaneFinished` (outcomes
+     reported, `Crashed`), `ResourceRecycled`, and `WorkerFaulted` (lane or null for a
+     one-test process, the report's sentence, **exit code and last standard error as separate
+     fields**), each stamped with the supervisor's clock. `SupervisorRunPublisher` posts them
+     from the observer callbacks; `ISupervisorObserver` gained a structured
+     `WorkerFaulted(WorkerFault)` whose default forwards to the original `WorkerFaulted(string)`,
+     so an observer written against either keeps working. A lane starts again for a
+     same-process retry (back to the lane the test ran in, carrying only the retried uids) —
+     the store counts that as a second *pass* of the same lane; isolated and recycled retries
+     are one-test processes and never announce a lane, so a foreign-framework worker's lane
+     events are the only live signal it has. Folded in the Pinia runs-store as `lanes` (lane
+     order, with "running now" = the lane's uids joined to live scenario state), `recycles`
+     and `faults` on the run; rendered by `LaneStrip` on the card and `SupervisorTopology` on
+     the detail. Replay-safe by the supervisor's timestamps: a lane start no newer than the
+     pass we are on, a finish older than that pass, or a recycle/fault already seen is the
+     archive being re-announced over live state, not a new fact. Not folded server-side in
+     `RunProjection` (yet): nothing reads it there, and the archive replays it to the browser
+     unchanged.
    - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
      updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host
@@ -292,10 +319,9 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 
 ## Not built yet
 
-- TS codegen for the contract mirrors.
-- Lane topology, recycles and worker faults streamed live to the dashboard — the
-  `ISupervisorObserver` callbacks exist, the wire contracts and UI do not (see Bobcat-side
-  seams item 4). This is #85's stated trigger for the codegen above.
+- Server-side folding of the lane/recycle/fault events into `RunProjection` (CTRF `extra`,
+  MCP `run_status`). The dashboard has them via the archive replay; an agent asking over MCP
+  does not yet.
 - Gherkin-runner dogfood e2e against this UI (#86).
 - **Elapsed-vs-expected per step.** Step progress (#99, Bobcat-side seams item 5) carries
   elapsed; "expected" needs a duration history across runs, which is the same committed

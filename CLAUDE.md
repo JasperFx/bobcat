@@ -463,8 +463,11 @@ ones on upgrade. Same reasoning as retries being opt-in.
   stepped over — a dashboard must not be able to fail a test run. A scheduled retry carries the
   **true attempt number**, which is the fact only the supervisor has: a worker counts from one,
   because its tracking belongs to a `BobcatRunner` and the MTP host builds a fresh one per run
-  request. See `docs/monitor-design.md` Bobcat-side seams item 4 for what that pins in the
-  monitor's fold, and for what is deliberately not on the wire yet.
+  request. `WorkerFaulted` has a structured form (`WorkerFault`: description, exit code, stderr
+  tail, lane or null for a one-test process) whose default forwards to the string one, so
+  either signature works for an observer. All of it reaches the monitor as wire events
+  (`LaneStarted`/`LaneFinished`/`ResourceRecycled`/`WorkerFaulted`) via `SupervisorRunPublisher`;
+  see `docs/monitor-design.md` Bobcat-side seams item 4 for what the dashboard folds from them.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
@@ -620,6 +623,15 @@ stack and palette. The viewer is a *consumer* of test runs over plain HTTP — n
 library may reference it. All decisions of record: `docs/monitor-design.md`. The publisher
 side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
+
+The SPA's TypeScript mirrors of the event contracts are **generated, never hand-edited**:
+`dotnet run --project src/Bobcat.Monitor -- generate` (NJsonSchema over
+`Contracts/MonitorEvents.cs`, see `TypeScriptContracts`) rewrites `src/messages/monitor-events.ts`
+and inserts any missing `relayToStore` case above its `*CASE ABOVE*` marker; hand-written cases
+and the store handlers are left alone. `TypeScriptContractTests` fails the build when the
+committed files drift. After adding a record to `MonitorEvents.cs` (both copies — the
+`Bobcat.Monitoring` mirror stays deliberately separate, pinned by `ContractRoundTripTests`),
+regenerate, then write the store handler the inserted case names.
 
 The project name is a leftover; the tool is `dotnet bobcat` and it is the test-run **viewer**.
 Renaming the project (`Bobcat.Viewer`?) is an open decision, not a settled one.

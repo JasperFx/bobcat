@@ -117,6 +117,31 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         => _sink.Post(new RetryScheduled(
             _info.RunId, uid, nextAttempt, disposition.Kind.ToString(), disposition.Reason));
 
+    // The rest of the topology — lanes, recycles, worker deaths (issue #84). SupervisorResults
+    // reports all of it at the end; these put it on the wire as it happens, which is when a
+    // person watching a long run wants it. The timestamps are the supervisor's clock, so a
+    // dashboard can order them against each other without trusting arrival order.
+
+    public void LaneStarted(int lane, IReadOnlyList<string> uids)
+        => _sink.Post(new LaneStarted(_info.RunId, lane, uids.ToArray(), DateTimeOffset.UtcNow));
+
+    public void LaneFinished(int lane, WorkerRunResult result)
+        => _sink.Post(new LaneFinished(
+            _info.RunId,
+            lane,
+            // What the worker actually reported. A crashed worker's result is padded with
+            // Indeterminate for every test it never answered for, and those are not outcomes.
+            Outcomes: result.Outcomes.Count(o => o.State != WorkerTestState.Indeterminate),
+            result.Crashed,
+            DateTimeOffset.UtcNow));
+
+    public void ResourceRecycled(string name)
+        => _sink.Post(new ResourceRecycled(_info.RunId, name, DateTimeOffset.UtcNow));
+
+    public void WorkerFaulted(WorkerFault fault)
+        => _sink.Post(new WorkerFaulted(
+            _info.RunId, fault.Lane, fault.Description, fault.ExitCode, fault.StandardError, DateTimeOffset.UtcNow));
+
     /// <summary>
     /// Same rationale as MonitorPublishingObserver: plain Timer.Dispose() does not wait for an
     /// in-flight callback, so a heartbeat could post after RunFinished on a busy box.

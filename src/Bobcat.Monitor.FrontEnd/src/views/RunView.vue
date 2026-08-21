@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import { useRunsStore } from '@/stores/runs-store'
+import SupervisorTopology from '@/components/SupervisorTopology.vue'
 
 const props = defineProps<{ runId: string }>()
 
@@ -19,6 +20,8 @@ const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios)
     <div class="bm-run-meta">
       {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span>
     </div>
+
+    <SupervisorTopology :run="run" />
 
     <div
       v-for="scenario in scenarios"

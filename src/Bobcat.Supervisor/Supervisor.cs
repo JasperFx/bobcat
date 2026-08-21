@@ -385,7 +385,7 @@ public sealed class Supervisor
             foreach (var (index, result) in results.OrderBy(r => r.Index))
             {
                 if (result.Crashed) invalidateLane(index, result.Fault!);
-                recordFault(result);
+                recordFault(result, index);
 
                 var abort = record(result, AttemptPlacement.Batched, traits, attempts);
                 if (abort is not null) return abort;
@@ -480,7 +480,7 @@ public sealed class Supervisor
                 foreach (var (index, result) in results.OrderBy(r => r.Index))
                 {
                     if (result.Crashed) invalidateLane(index, result.Fault!);
-                    recordFault(result);
+                    recordFault(result, index);
 
                     var abort = record(result, AttemptPlacement.SameProcess, traits, attempts);
                     if (abort is not null) return abort;
@@ -523,7 +523,8 @@ public sealed class Supervisor
         // per-worker resources cannot collide with anything.
         await using var worker = await launchWorker(new WorkerLaunchContext(0, purpose), ct);
         var result = await worker.Run([uid], ct);
-        recordFault(result);
+        // Not a lane: this process ran one test alone and is about to be thrown away.
+        recordFault(result, lane: null);
         return result;
     }
 
@@ -700,12 +701,14 @@ public sealed class Supervisor
     }
 
     /// <summary>Keeps a worker's dying words so the report can explain an indeterminate result.</summary>
-    private void recordFault(WorkerRunResult result)
+    /// <param name="lane">The lane whose worker died, or null for a one-test process.</param>
+    private void recordFault(WorkerRunResult result, int? lane)
     {
         if (result.Fault is null) return;
 
         _workerFaults.Add(result.Fault);
-        notify(observer => observer.WorkerFaulted(result.Fault));
+        var fault = new WorkerFault(result.Fault, result.ExitCode, result.StandardError, lane);
+        notify(observer => observer.WorkerFaulted(fault));
     }
 
     /// <summary>
