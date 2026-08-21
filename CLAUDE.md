@@ -211,6 +211,29 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 
+**`BobcatRunner.RunAll` never throws for a harness failure** (issue #123). A resource whose
+`Start` throws, a global action whose `SetUp` throws, a `SpecCatastrophicException` from a
+feature hook, or anything else that escapes the orchestration comes back as
+`SuiteResults.CatastrophicFailure` (+ `CatastrophicException`), exit code 2, with every planned
+scenario that has no result listed in `SuiteResults.NotRun` — by name, with the reason, and
+deliberately *not* as a synthesized `ScenarioResult` (a scenario that never ran has no steps or
+counts to report). `PreflightFailure` populates `NotRun` the same way. Before this, the
+`SpecCatastrophicException` from `TestSuite.StartAll` escaped `RunAll`, the MTP host process
+died with an unhandled exception (exit 134, nothing on the wire), and a supervisor could only
+call that a crash. Two finer rules that fell out of it:
+
+- **A `BeforeAll`/`AfterAll` that throws is a feature-level failure, not a suite one.**
+  `FeatureResults.LifecycleFailure` is set, a `BeforeAll` failure puts the feature's scenarios
+  in `NotRun`, the run exits 2 and **moves on to the next feature** — the feature-level analogue
+  of a critical step aborting its scenario. `AfterAll` still runs when `BeforeAll` threw (the
+  half-finished `BeforeAll` is the one that leaves something to clean up), so write it to
+  tolerate that. A `SpecCatastrophicException` from either hook still stops the suite.
+- **`TestSuite.DisposeAsync` disposes what `StartAll` started or tried to start**, in reverse
+  order, every resource getting its turn before failures surface as one `AggregateException`.
+  The resource that threw from `Start` is disposed too (a Docker resource may have its
+  containers up and its health check failed); the ones after it were never asked to start and
+  are not touched — their `DisposeAsync` was written assuming `Start` ran.
+
 ### Per-Scenario DI Scope
 Each scenario runs as `ResetAll()` → `BeginScenarioAll()` → scenario → `EndScenarioAll()`. Persistent
 state (DB rows, queues) is cleaned first, then a fresh DI scope is opened over it. Scope disposal
@@ -366,6 +389,18 @@ public static class SpecsRunner
 - MTP has no "passed on retry" state, so `RunOutcome` travels as `bobcat.outcome` /
   `bobcat.attempts` metadata rather than being collapsed into a clean pass.
 - Discovery **never starts resources** — IDEs discover on every build.
+- **A scenario the run planned and could not execute is reported as a node in `error`**, with
+  the harness exception (a `ScenarioNotRunException` wrapping the real cause) and
+  `bobcat.outcome = NotRun` (issue #123). `PublishingObserver.RunFinished` publishes one per
+  `SuiteResults.NotRun` entry, and `BobcatTestFramework.run` has a last-resort catch that does
+  the same for anything still unreported should `RunAll` ever throw — so the host process never
+  dies of a harness failure. `error` rather than `skipped`, because a supervisor counts skipped
+  as succeeded and a suite whose broker never came up must not read as green; and rather than
+  publishing nothing, because a run with no verdicts is exactly what a crashed worker looks
+  like. The distinction from a real crash is structural — every planned node gets a verdict
+  and the process exits normally — which is why `Bobcat.Supervisor.Tests` asserts a
+  start-failure run has **no `Indeterminate` and no `WorkerFaults`**, just `Error` outcomes
+  naming the resource.
 
 **`dotnet test` works** — it needs `Microsoft.Testing.Platform.MSBuild`, which `Bobcat.Mtp`
 depends on, so a consumer gets it transitively. That package also supplies the `ProjectCapability`
@@ -457,7 +492,10 @@ ones on upgrade. Same reasoning as retries being opt-in.
   everything. A retry that did that would fold unrelated failures into the attempt, so a
   mismatch is treated as a protocol fault rather than trusted.
 - **A crashed worker yields `Indeterminate`, never "failed".** The spike measured 0-of-9 outcomes
-  surviving a crash on some hosts, so silence is absence of evidence. Indeterminate maps to exit
+  surviving a crash on some hosts, so silence is absence of evidence. The converse holds too: a
+  worker whose *harness* failed — a resource that would not start — reports every planned test
+  as `error` with the reason and exits normally (see the MTP host note on issue #123), so it is an
+  ordinary red run with a message, not a crash. Indeterminate maps to exit
   code **2**, not 1 — "we don't know what happened" is not an ordinary red build. Every
   indeterminate outcome carries the worker's **exit code and last standard error** (bounded to
   the final 20 lines) in its `ErrorMessage`, and the run collects them in

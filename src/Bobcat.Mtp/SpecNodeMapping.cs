@@ -73,6 +73,42 @@ public static class SpecNodeMapping
         return new FailedTestNodeStateProperty(exception ?? new SpecFailedException(Describe(results)));
     }
 
+    /// <summary>
+    /// The node state for a scenario the run planned and never executed — a resource that would
+    /// not start, a failed preflight, a <c>BeforeAll</c> that threw.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reported as <c>error</c>, and the alternatives were weighed. <c>skipped</c> is what the
+    /// word suggests, but a supervisor counts a skipped test as succeeded (it is the framework's
+    /// own "not applicable"), so a suite whose database never came up would read as green.
+    /// Publishing nothing is what issue #123 started from: a run with no verdicts is exactly what
+    /// a crashed worker looks like, and the supervisor rightly calls that <c>Indeterminate</c>.
+    /// An <c>error</c> carrying the harness exception is the honest state: the scenario has no
+    /// result because an exception stood in its way, the message says which one, and a
+    /// supervisor sees a reported failure it can act on rather than silence it cannot.
+    /// </para>
+    /// <para>
+    /// The distinction from a real crash is therefore structural — every planned node gets a
+    /// verdict and the process exits normally — not a matter of which state was chosen.
+    /// </para>
+    /// </remarks>
+    public static IProperty StateFor(NotRunScenario scenario)
+        => new ErrorTestNodeStateProperty(
+            new ScenarioNotRunException($"{scenario.Title} did not run: {scenario.Reason}", scenario.Cause),
+            $"did not run: {scenario.Reason}");
+
+    /// <summary>
+    /// Metadata for a node that never ran. <c>bobcat.outcome</c> is the same key a finished
+    /// scenario carries, with a value outside <see cref="RunOutcome"/> — there is no attempt to
+    /// describe, and pretending otherwise would be the made-up result this whole path avoids.
+    /// </summary>
+    public static IEnumerable<TestMetadataProperty> OutcomeMetadata(NotRunScenario scenario)
+    {
+        yield return new TestMetadataProperty("bobcat.outcome", "NotRun");
+        yield return new TestMetadataProperty("bobcat.notRunReason", scenario.Reason);
+    }
+
     /// <summary>Wall time for the scenario's final attempt.</summary>
     public static TimingProperty TimingFor(ScenarioResult result)
     {
@@ -151,3 +187,10 @@ public static class SpecNodeMapping
 /// report. MTP's failed/error states both want one.
 /// </summary>
 public sealed class SpecFailedException(string message) : Exception(message);
+
+/// <summary>
+/// The exception an MTP node in error carries when its scenario never ran. The inner exception
+/// is the harness failure itself — the resource's own exception, say — so a reader gets the
+/// real stack, not one synthesized here.
+/// </summary>
+public sealed class ScenarioNotRunException(string message, Exception? cause) : Exception(message, cause);

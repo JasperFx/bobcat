@@ -150,6 +150,15 @@ public class BobcatRunner
     /// <summary>
     /// Run all features matching the optional filters.
     /// </summary>
+    /// <remarks>
+    /// Never throws for a harness failure. A resource that will not start, a global action
+    /// whose <c>SetUp</c> throws, a <c>SpecCatastrophicException</c> from anywhere — all of it
+    /// comes back as <see cref="SuiteResults.CatastrophicFailure"/> with the scenarios that did
+    /// not run listed in <see cref="SuiteResults.NotRun"/>, exit code 2. An exception escaping
+    /// here would take an MTP host process down with it, and a supervisor or <c>dotnet test</c>
+    /// can only read a dead process as a crash — not as the reported catastrophic failure it
+    /// is (issue #123). Whatever did start is still torn down.
+    /// </remarks>
     public async Task<SuiteResults> RunAll(
         string? featureFilter = null,
         string? tagFilter = null)
@@ -163,55 +172,157 @@ public class BobcatRunner
         {
             _observer.RunStarted(features.Sum(f => filteredScenarios(f, tagFilter).Count()));
 
-            await _suite.StartAll();
-
-            // Preflight runs with resources up but before any feature: checking a database means
-            // little until the resource that owns the connection has started.
-            var preflight = await runPreflight();
-            if (preflight is not null)
-            {
-                await _suite.DisposeAsync();
-                suiteResults.PreflightFailure = preflight;
-                return suiteResults;
-            }
-
             try
             {
-                // Global actions run with resources up but before any feature, and tear down
-                // after the last feature but before resources are disposed.
-                await _suite.RunGlobalSetUp();
-
-                try
-                {
-                    foreach (var feature in features)
-                    {
-                        var featureResults = await runFeature(feature, tagFilter);
-                        suiteResults.Add(featureResults);
-
-                        // Stop on catastrophic
-                        if (featureResults.WasCatastrophic) break;
-                    }
-                }
-                finally
-                {
-                    await _suite.RunGlobalTearDown();
-                }
+                await runSuite(features, tagFilter, suiteResults);
             }
-            finally
+            catch (Exception e)
             {
-                await _suite.DisposeAsync();
+                // The last line of defence: anything the structured handling inside runSuite
+                // did not already account for — a BeforeEach that threw, a resource whose
+                // ResetBetweenScenarios failed, a teardown that blew up. The results gathered
+                // before it stand, and every scenario still owed a result gets one that says
+                // why it never ran.
+                markCatastrophic(suiteResults, features, tagFilter, describe(e), e);
             }
 
             return suiteResults;
         }
         finally
         {
-            // Fires on the preflight-failure path too — a run that never got going is still a
-            // run the monitor saw start.
+            // Fires on the preflight-failure and catastrophic paths too — a run that never got
+            // going is still a run the monitor saw start.
             _observer.RunFinished(suiteResults);
             if (monitor != null) await monitor.DisposeAsync();
         }
     }
+
+    private async Task runSuite(FeatureDefinition[] features, string? tagFilter, SuiteResults suiteResults)
+    {
+        try
+        {
+            await _suite.StartAll();
+        }
+        catch (SpecCatastrophicException e)
+        {
+            // The resources before the one that threw are up; it may be half up itself.
+            // TestSuite.DisposeAsync knows which ones to tear down. A failure on the way down is
+            // appended to the report rather than allowed to bury the failure that started it.
+            var teardown = await tryDisposeSuite();
+            markCatastrophic(suiteResults, features, tagFilter, e.Message + teardown, e);
+            return;
+        }
+
+        try
+        {
+            // Preflight runs with resources up but before any feature: checking a database means
+            // little until the resource that owns the connection has started.
+            var preflight = await runPreflight();
+            if (preflight is not null)
+            {
+                suiteResults.PreflightFailure = preflight;
+                markNotRun(suiteResults, features, tagFilter, preflight, cause: null);
+                return;
+            }
+
+            // Global actions run with resources up but before any feature, and tear down
+            // after the last feature but before resources are disposed.
+            try
+            {
+                await _suite.RunGlobalSetUp();
+            }
+            catch (SpecCatastrophicException e)
+            {
+                markCatastrophic(suiteResults, features, tagFilter, e.Message, e);
+                return;
+            }
+
+            try
+            {
+                foreach (var feature in features)
+                {
+                    // Registered before it runs, so the scenarios it completes survive a
+                    // harness failure part-way through the feature.
+                    var featureResults = new FeatureResults(feature.Title);
+                    suiteResults.Add(featureResults);
+
+                    await runFeature(feature, tagFilter, featureResults);
+
+                    // Stop on catastrophic
+                    if (featureResults.WasCatastrophic) break;
+                }
+            }
+            finally
+            {
+                await _suite.RunGlobalTearDown();
+            }
+        }
+        finally
+        {
+            await _suite.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Disposes the suite on the way out of a failed start, returning a note for the report
+    /// when the teardown itself failed — never throwing, because the start failure is the fact
+    /// that matters.
+    /// </summary>
+    private async Task<string> tryDisposeSuite()
+    {
+        try
+        {
+            await _suite.DisposeAsync();
+            return string.Empty;
+        }
+        catch (Exception teardown)
+        {
+            return $"{Environment.NewLine}Tearing down the resources that had started also failed: {describe(teardown)}";
+        }
+    }
+
+    /// <summary>
+    /// Records a harness failure on the results and accounts for every planned scenario that
+    /// has no result yet.
+    /// </summary>
+    private void markCatastrophic(
+        SuiteResults suiteResults, FeatureDefinition[] features, string? tagFilter,
+        string description, Exception cause)
+    {
+        suiteResults.CatastrophicFailure = description;
+        suiteResults.CatastrophicException = cause;
+        markNotRun(suiteResults, features, tagFilter, description, cause);
+
+        if (!SuppressConsoleOutput) _renderer.RenderCatastrophicFailure(description);
+    }
+
+    /// <summary>
+    /// Every scenario the run planned that has neither a result nor an earlier not-run entry
+    /// is recorded as not run with the given reason — so nothing the caller asked for goes
+    /// unaccounted for, and nothing is counted twice.
+    /// </summary>
+    private void markNotRun(
+        SuiteResults suiteResults, FeatureDefinition[] features, string? tagFilter,
+        string reason, Exception? cause)
+    {
+        var accounted = suiteResults.Features
+            .SelectMany(f => f.Scenarios.Select(s => (f.Title, s.Title)))
+            .Concat(suiteResults.NotRun.Select(n => (n.FeatureTitle, n.Title)))
+            .ToHashSet();
+
+        foreach (var feature in features)
+        {
+            foreach (var scenario in filteredScenarios(feature, tagFilter))
+            {
+                if (accounted.Contains((feature.Title, scenario.Title))) continue;
+
+                suiteResults.AddNotRun(new NotRunScenario(feature.Title, scenario.Title, scenario.Tags, reason, cause));
+            }
+        }
+    }
+
+    private static string describe(Exception e)
+        => e is SpecCatastrophicException ? e.Message : $"{e.GetType().Name}: {e.Message}";
 
     /// <summary>
     /// When <see cref="PublishToMonitor"/> is on and a monitor answers the ping, attaches a
@@ -273,9 +384,8 @@ public class BobcatRunner
         return description;
     }
 
-    private async Task<FeatureResults> runFeature(FeatureDefinition feature, string? tagFilter)
+    private async Task runFeature(FeatureDefinition feature, string? tagFilter, FeatureResults featureResults)
     {
-        var featureResults = new FeatureResults(feature.Title);
         if (!SuppressConsoleOutput) _renderer.RenderFeatureHeader(feature.Title);
         _observer.FeatureStarted(feature.Title);
 
@@ -285,10 +395,36 @@ public class BobcatRunner
         // feature-level context so they can reach resources and root services — asking it
         // for a scoped service throws, which is the intended rejection.
         var featureContext = new SpecExecutionContext(feature.Title, suite: _suite);
-        if (feature.BeforeAll != null) await feature.BeforeAll(featureContext);
 
         try
         {
+            if (feature.BeforeAll != null)
+            {
+                try
+                {
+                    await feature.BeforeAll(featureContext);
+                }
+                catch (Exception e) when (e is not SpecCatastrophicException)
+                {
+                    // The feature could not be set up, so none of its scenarios run — each is
+                    // accounted for by name rather than silently missing from the report. The
+                    // run moves on to the next feature: this is the feature-level analogue of a
+                    // critical step failure aborting its scenario, not a reason to stop the
+                    // suite. A SpecCatastrophicException is, and is left to escape.
+                    var description = $"Feature '{feature.Title}' BeforeAll threw {e.GetType().Name}: {e.Message}";
+                    featureResults.LifecycleFailure = description;
+                    featureResults.LifecycleException = e;
+
+                    foreach (var scenario in scenarios)
+                    {
+                        featureResults.AddNotRun(new NotRunScenario(feature.Title, scenario.Title, scenario.Tags, description, e));
+                    }
+
+                    if (!SuppressConsoleOutput) _renderer.RenderCatastrophicFailure(description);
+                    return;
+                }
+            }
+
             foreach (var scenario in scenarios)
             {
                 var result = await runScenarioWithRetries(feature, scenario);
@@ -312,11 +448,31 @@ public class BobcatRunner
         }
         finally
         {
-            if (feature.AfterAll != null) await feature.AfterAll(featureContext);
-        }
+            // Runs even when BeforeAll threw: a BeforeAll that got half-way is exactly the one
+            // that leaves something behind to clean up, so AfterAll should be written to
+            // tolerate it — the same contract as a resource whose Start failed still being
+            // disposed. An AfterAll failure is recorded, never allowed to mask the scenario
+            // results it follows.
+            if (feature.AfterAll != null)
+            {
+                try
+                {
+                    await feature.AfterAll(featureContext);
+                }
+                catch (Exception e) when (e is not SpecCatastrophicException)
+                {
+                    var description = $"Feature '{feature.Title}' AfterAll threw {e.GetType().Name}: {e.Message}";
+                    featureResults.LifecycleFailure = featureResults.LifecycleFailure is null
+                        ? description
+                        : $"{featureResults.LifecycleFailure}{Environment.NewLine}{description}";
+                    featureResults.LifecycleException ??= e;
 
-        _observer.FeatureFinished(feature.Title);
-        return featureResults;
+                    if (!SuppressConsoleOutput) _renderer.RenderCatastrophicFailure(description);
+                }
+            }
+
+            _observer.FeatureFinished(feature.Title);
+        }
     }
 
     /// <summary>
@@ -491,6 +647,10 @@ public class BobcatRunner
         var total = results.Features.SelectMany(f => f.Scenarios).Count();
         var passed = results.Features.SelectMany(f => f.Scenarios).Count(s => s.Results.Counts.Succeeded);
         Console.WriteLine($"  {passed}/{total} scenarios passed");
+
+        // A broken harness is reported above the counts it emptied, so "0/0 scenarios passed"
+        // is never the last word.
+        _renderer.RenderHarnessSummary(results);
 
         // Clean-pass and pass-on-retry are reported as different facts, never merged.
         _renderer.RenderResilienceSummary(results);

@@ -22,9 +22,35 @@ public static class Program
             // Registered last so that, when batched, it runs after the others — which is what
             // makes "did anything else run in my process?" a reliable signal.
             runner.AddFeature(fussy());
+
+            // Inert unless armed. When it is, no scenario in this process can run, and the
+            // supervisor must hear that as a reported failure rather than a crash (issue #123).
+            runner.Suite.AddResource(new BrokerThatWillNotStart());
         });
 
     public class SampleFixture : Fixture;
+
+    /// <summary>
+    /// Throws from <see cref="Start"/> when <c>BOBCAT_START_FAILS</c> is set — the broker that
+    /// is down this morning.
+    /// </summary>
+    private sealed class BrokerThatWillNotStart : ITestResource
+    {
+        public string Name => "broker";
+
+        public Task Start()
+        {
+            if (Environment.GetEnvironmentVariable("BOBCAT_START_FAILS") == "true")
+            {
+                throw new InvalidOperationException("the broker refused the connection");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task ResetBetweenScenarios() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     private static FeatureDefinition basics() => new(
         "Basics", typeof(SampleFixture),

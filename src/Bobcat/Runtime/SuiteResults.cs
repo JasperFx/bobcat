@@ -10,17 +10,32 @@ namespace Bobcat.Runtime;
 public class SuiteResults
 {
     private readonly List<FeatureResults> _features = new();
+    private readonly List<NotRunScenario> _notRun = new();
 
     public IReadOnlyList<FeatureResults> Features => _features;
-    public Counts Counts { get; } = new();
 
-    public void Add(FeatureResults feature)
+    /// <summary>
+    /// Aggregated on every read rather than at <see cref="Add"/> time, because a feature is
+    /// registered here before its scenarios run — so that what it did get through survives a
+    /// harness failure part-way through it.
+    /// </summary>
+    public Counts Counts
     {
-        _features.Add(feature);
-        Counts.Rights += feature.Counts.Rights;
-        Counts.Wrongs += feature.Counts.Wrongs;
-        Counts.Errors += feature.Counts.Errors;
+        get
+        {
+            var counts = new Counts();
+            foreach (var feature in _features)
+            {
+                counts.Rights += feature.Counts.Rights;
+                counts.Wrongs += feature.Counts.Wrongs;
+                counts.Errors += feature.Counts.Errors;
+            }
+
+            return counts;
+        }
     }
+
+    public void Add(FeatureResults feature) => _features.Add(feature);
 
     /// <summary>
     /// Exit code per the design doc: 0 = regression pass, 1 = regression fail, 2 = catastrophic.
@@ -35,7 +50,9 @@ public class SuiteResults
         get
         {
             if (PreflightFailure is not null) return 2;
+            if (CatastrophicFailure is not null) return 2;
             if (_features.Any(f => f.WasCatastrophic)) return 2;
+            if (_features.Any(f => f.LifecycleFailure is not null)) return 2;
             if (_features.Any(f => f.WasAborted)) return 2;
             // Only regression failures break the build
             if (_features.Any(f => f.HasRegressionFailure)) return 1;
@@ -48,6 +65,31 @@ public class SuiteResults
     /// a broken harness is not the same fact as failing tests.
     /// </summary>
     public string? PreflightFailure { get; set; }
+
+    /// <summary>
+    /// Set when the harness itself failed: a resource that would not start, a global action's
+    /// <c>SetUp</c> that threw, a <c>SpecCatastrophicException</c> from a feature hook, or any
+    /// exception that escaped the run's orchestration. Whatever was still to run did not, and
+    /// is listed in <see cref="NotRun"/> with this as the reason. Exits 2 — it is reported
+    /// through the same path as any other run, never thrown out of <c>RunAll</c>, because a
+    /// host that dies with an unhandled exception can only be read as a crash by whatever is
+    /// driving it (issue #123).
+    /// </summary>
+    public string? CatastrophicFailure { get; set; }
+
+    /// <summary>The exception behind <see cref="CatastrophicFailure"/>, when there was one.</summary>
+    public Exception? CatastrophicException { get; set; }
+
+    /// <summary>
+    /// Scenarios the run planned to execute and did not, each with the reason — suite-level
+    /// (nothing ran) and per feature (a <c>BeforeAll</c> that threw). An MTP host reports
+    /// every one of these as a test node in error, so a supervisor or <c>dotnet test</c> sees a
+    /// verdict with a message rather than silence.
+    /// </summary>
+    public IReadOnlyList<NotRunScenario> NotRun
+        => _notRun.Concat(_features.SelectMany(f => f.NotRun)).ToList();
+
+    public void AddNotRun(NotRunScenario scenario) => _notRun.Add(scenario);
 
     public IEnumerable<ScenarioResult> AllScenarios => _features.SelectMany(f => f.Scenarios);
 
@@ -71,6 +113,7 @@ public class FeatureResults
 {
     public string Title { get; }
     private readonly List<ScenarioResult> _scenarios = new();
+    private readonly List<NotRunScenario> _notRun = new();
 
     public FeatureResults(string title)
     {
@@ -79,6 +122,25 @@ public class FeatureResults
 
     public IReadOnlyList<ScenarioResult> Scenarios => _scenarios;
     public Counts Counts { get; } = new();
+
+    /// <summary>
+    /// Set when the feature's own <c>BeforeAll</c> or <c>AfterAll</c> threw. A <c>BeforeAll</c>
+    /// failure means none of the feature's scenarios ran (they are in <see cref="NotRun"/>);
+    /// an <c>AfterAll</c> failure leaves the scenario results standing but the feature cannot
+    /// be called clean. Either way the run exits 2 — this is a broken harness, not a failing
+    /// test — and the run continues with the next feature, the way a critical step failure
+    /// aborts its scenario and not the suite. A <c>SpecCatastrophicException</c> from either
+    /// hook is still catastrophic for the whole run.
+    /// </summary>
+    public string? LifecycleFailure { get; set; }
+
+    /// <summary>The exception behind <see cref="LifecycleFailure"/>.</summary>
+    public Exception? LifecycleException { get; set; }
+
+    /// <summary>Scenarios of this feature that did not run, and why.</summary>
+    public IReadOnlyList<NotRunScenario> NotRun => _notRun;
+
+    public void AddNotRun(NotRunScenario scenario) => _notRun.Add(scenario);
 
     public void Add(ScenarioResult scenario)
     {
@@ -145,3 +207,16 @@ public class ScenarioResult
     public IEnumerable<string> UnsupportedDispositions
         => Attempts.Where(a => a.Unsupported is not null).Select(a => a.Unsupported!);
 }
+
+/// <summary>
+/// A scenario the run meant to execute and did not — because the harness failed before it
+/// could, not because anything in the scenario was wrong. Kept distinct from a
+/// <see cref="ScenarioResult"/> on purpose: a scenario that never ran has no steps, no
+/// counts and no attempts, and synthesizing those would put made-up facts in the report.
+/// </summary>
+public sealed record NotRunScenario(
+    string FeatureTitle,
+    string Title,
+    string[] Tags,
+    string Reason,
+    Exception? Cause = null);

@@ -94,7 +94,8 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         runner.ScenarioFilter = (feature, scenario) =>
             matches(request.Filter, SpecNodeMapping.Uid(feature, scenario));
 
-        runner.WithObserver(new PublishingObserver(this, context, request.Session.SessionUid));
+        var publisher = new PublishingObserver(this, context, request.Session.SessionUid);
+        runner.WithObserver(publisher);
 
         // Execution (never discovery — IDEs discover on every build) also streams to a locally
         // running Bobcat.Console when there is one; the probe costs one refused connection
@@ -103,7 +104,28 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         runner.PublishToMonitor = true;
         runner.MonitorMode = "mtp-host";
 
-        await runner.RunAll();
+        try
+        {
+            await runner.RunAll();
+        }
+        catch (Exception e)
+        {
+            // RunAll reports harness failures through SuiteResults and is not meant to throw.
+            // Should it anyway, letting the exception out of here is what issue #123 was: the
+            // platform has no handler above this, the process dies, and a supervisor can only
+            // read that as a crash with no verdicts. So every scenario this request asked for
+            // that has no verdict yet gets one in error naming the exception — which is worse
+            // than a structured report, and far better than silence.
+            var planned = scenarios(runner)
+                .Where(pair => matches(request.Filter, SpecNodeMapping.Uid(pair.Feature, pair.Scenario)));
+
+            foreach (var (feature, scenario) in planned)
+            {
+                publisher.ReportNotRun(new NotRunScenario(
+                    feature.Title, scenario.Title, scenario.Tags,
+                    $"the run ended with an unhandled {e.GetType().Name}: {e.Message}", e));
+            }
+        }
     }
 
     private BobcatRunner buildRunner()
@@ -141,6 +163,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         private readonly BobcatTestFramework _framework;
         private readonly ExecuteRequestContext _context;
         private readonly SessionUid _sessionUid;
+        private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
 
         public PublishingObserver(BobcatTestFramework framework, ExecuteRequestContext context, SessionUid sessionUid)
         {
@@ -168,10 +191,49 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             foreach (var trait in SpecNodeMapping.Traits(result.Tags)) properties.Add(trait);
             foreach (var metadata in SpecNodeMapping.OutcomeMetadata(result)) properties.Add(metadata);
 
+            var uid = SpecNodeMapping.Uid(featureTitle, result.Title);
+            lock (_reported) _reported.Add(uid);
+
             publish(new TestNode
             {
-                Uid = SpecNodeMapping.Uid(featureTitle, result.Title),
+                Uid = uid,
                 DisplayName = SpecNodeMapping.DisplayName(featureTitle, result.Title),
+                Properties = properties
+            });
+        }
+
+        /// <summary>
+        /// The run is over. Any scenario the runner planned and could not execute — the
+        /// harness failed first — is published now as a node in error with the reason, so the
+        /// platform sees a verdict for everything it was asked to run. See
+        /// <see cref="SpecNodeMapping.StateFor(NotRunScenario)"/> for why error and not skipped.
+        /// </summary>
+        public void RunFinished(SuiteResults results)
+        {
+            foreach (var scenario in results.NotRun) ReportNotRun(scenario);
+        }
+
+        /// <summary>
+        /// Publishes one not-run verdict, unless the scenario already has one — a node must
+        /// never be reported twice, and the safety net in <c>run</c> cannot know what the
+        /// runner got through.
+        /// </summary>
+        public void ReportNotRun(NotRunScenario scenario)
+        {
+            var uid = SpecNodeMapping.Uid(scenario.FeatureTitle, scenario.Title);
+            lock (_reported)
+            {
+                if (!_reported.Add(uid)) return;
+            }
+
+            var properties = new PropertyBag(SpecNodeMapping.StateFor(scenario));
+            foreach (var trait in SpecNodeMapping.Traits(scenario.Tags)) properties.Add(trait);
+            foreach (var metadata in SpecNodeMapping.OutcomeMetadata(scenario)) properties.Add(metadata);
+
+            publish(new TestNode
+            {
+                Uid = uid,
+                DisplayName = SpecNodeMapping.DisplayName(scenario.FeatureTitle, scenario.Title),
                 Properties = properties
             });
         }

@@ -25,6 +25,14 @@ public static class JsonRenderer
         {
             ExitCode = results.ExitCode,
             Counts = countsToJson(results.Counts),
+            PreflightFailure = results.PreflightFailure,
+            CatastrophicFailure = results.CatastrophicFailure,
+            NotRun = results.NotRun.Count > 0
+                ? results.NotRun.Select(n => new JsonNotRunOutput
+                {
+                    Feature = n.FeatureTitle, Title = n.Title, Reason = n.Reason
+                }).ToList()
+                : null,
             Features = results.Features.Select(renderFeature).ToList()
         };
 
@@ -44,6 +52,7 @@ public static class JsonRenderer
             Counts = countsToJson(feature.Counts),
             HasRegressionFailure = feature.HasRegressionFailure,
             WasCatastrophic = feature.WasCatastrophic,
+            LifecycleFailure = feature.LifecycleFailure,
             Scenarios = feature.Scenarios.Select(s => specToJson(
                 SpecRender.FromResults(s.Title, s.Results, feature.Title))).ToList()
         };
@@ -145,7 +154,22 @@ internal class JsonSuiteOutput
 {
     public int ExitCode { get; set; }
     public JsonCountsOutput Counts { get; set; } = null!;
+
+    /// <summary>Why the harness stopped the run, when it did. Null on a run that got going.</summary>
+    public string? PreflightFailure { get; set; }
+    public string? CatastrophicFailure { get; set; }
+
+    /// <summary>Scenarios the run planned and never executed, each with the reason.</summary>
+    public List<JsonNotRunOutput>? NotRun { get; set; }
+
     public List<JsonFeatureOutput> Features { get; set; } = new();
+}
+
+internal class JsonNotRunOutput
+{
+    public string Feature { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Reason { get; set; } = "";
 }
 
 internal class JsonFeatureOutput
@@ -154,6 +178,7 @@ internal class JsonFeatureOutput
     public JsonCountsOutput Counts { get; set; } = null!;
     public bool HasRegressionFailure { get; set; }
     public bool WasCatastrophic { get; set; }
+    public string? LifecycleFailure { get; set; }
     public List<JsonScenarioOutput> Scenarios { get; set; } = new();
 }
 

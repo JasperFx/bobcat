@@ -189,6 +189,56 @@ public class CommandLineRenderer
         Render(SpecRender.FromResults(specTitle, results));
     }
 
+    /// <summary>
+    /// A harness failure as it happens — a resource that would not start, a feature hook that
+    /// threw. Rendered where a feature header would have been, so the console shows the reason
+    /// at the point the run stopped rather than only in the summary.
+    /// </summary>
+    public void RenderCatastrophicFailure(string description)
+    {
+        AnsiConsole.MarkupLine($"  [red bold]✗ {Markup.Escape(description)}[/]");
+    }
+
+    /// <summary>
+    /// The harness section of the summary: what broke, and every scenario that did not run
+    /// because of it. Silent when the harness held up.
+    /// </summary>
+    public void RenderHarnessSummary(SuiteResults results)
+    {
+        if (results.PreflightFailure is null && results.CatastrophicFailure is null &&
+            results.NotRun.Count == 0 && results.Features.All(f => f.LifecycleFailure is null))
+        {
+            return;
+        }
+
+        AnsiConsole.WriteLine();
+
+        if (results.PreflightFailure is not null)
+        {
+            AnsiConsole.MarkupLine($"  [red bold]{Markup.Escape(results.PreflightFailure)}[/]");
+        }
+
+        if (results.CatastrophicFailure is not null)
+        {
+            AnsiConsole.MarkupLine($"  [red bold]Catastrophic: {Markup.Escape(results.CatastrophicFailure)}[/]");
+        }
+
+        foreach (var feature in results.Features.Where(f => f.LifecycleFailure is not null))
+        {
+            AnsiConsole.MarkupLine($"  [red]{Markup.Escape(feature.LifecycleFailure!)}[/]");
+        }
+
+        if (results.NotRun.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"  [red]{results.NotRun.Count} scenario(s) did not run[/]");
+            foreach (var scenario in results.NotRun)
+            {
+                AnsiConsole.MarkupLine(
+                    $"    [red]•[/] {Markup.Escape(scenario.FeatureTitle)}: {Markup.Escape(scenario.Title)}");
+            }
+        }
+    }
+
     public void RenderCounts(Counts counts)
     {
         var color = counts.Succeeded ? "green" : "red";
