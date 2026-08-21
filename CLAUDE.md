@@ -602,4 +602,9 @@ correlation hook — an opaque string Bobcat stamps on a run and never interpret
 
 - `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
 - `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
+- `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
+  code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
+  and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which
+  attribute shapes each editor sees — `[Check]` and `[TableGrammar]` are invisible — and why a
+  `[Then]` stacked on a `[Check]` is now guaranteed to stay a check.
 - Alba source at ~/code/alba, JasperFx source at ~/code/jasperfx

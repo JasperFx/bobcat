@@ -186,12 +186,18 @@ public class BobcatGenerator : IIncrementalGenerator
         string? expression = null;
         string? kind = null;
 
+        // [Check] wins over [Then] when both sit on one method, in either order. Editor tooling
+        // (the VS Code Cucumber extension, Rider's Reqnroll plugin) only recognises the
+        // Given/When/Then short names, so stacking a [Then] with the same expression beside a
+        // [Check] is the documented way to make a check navigable — see docs/editor-integration.md.
+        // Without this rule the outcome would depend on attribute order, and a [Check]
+        // silently downgraded to a [Then] discards the bool instead of asserting on it.
         foreach (var attr in method.GetAttributes())
         {
             var attrName = attr.AttributeClass?.Name;
             if (attrName == "GivenAttribute") { kind = "Given"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
             else if (attrName == "WhenAttribute") { kind = "When"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "ThenAttribute") { kind = "Then"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
+            else if (attrName == "ThenAttribute" && kind != "Check") { kind = "Then"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
             else if (attrName == "CheckAttribute") { kind = "Check"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
         }
 

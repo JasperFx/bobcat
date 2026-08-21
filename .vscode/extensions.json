@@ -1,0 +1,5 @@
+{
+  // The official Cucumber extension — the one whose language service reads Bobcat's
+  // [Given]/[When]/[Then] attributes without any Bobcat-specific plugin. docs/editor-integration.md
+  "recommendations": ["CucumberOpen.cucumber-official"]
+}

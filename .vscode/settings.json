@@ -1,0 +1,26 @@
+{
+  // Cucumber (CucumberOpen.cucumber-official) — step completion and go-to-definition for
+  // Bobcat fixtures. See docs/editor-integration.md for what this does and does not cover.
+  //
+  // Where the .feature files live.
+  "cucumber.features": [
+    "src/*/Features/**/*.feature",
+    "samples/*/Features/**/*.feature"
+  ],
+  // Where the step definitions live. The extension parses C# SOURCE with a tree-sitter query on
+  // the attribute short names Given/When/Then, so this must cover every fixture and grammar
+  // module — including src/Bobcat/ClockGrammars.cs, the grammar shipped in the core assembly.
+  // One directory level deep on purpose: every fixture in this repo sits at the root of its
+  // project, and "src/**/*.cs" would also sweep bin/ and obj/ (each glob is expanded on its own
+  // with fast-glob, so a "!**/obj/**" entry excludes nothing).
+  "cucumber.glue": [
+    "src/*/*.cs",
+    "samples/*/*.cs"
+  ],
+  // Bobcat's {decimal} is not one of the Cucumber Expressions built-in parameter types
+  // (int/float/double/long/word/string are). Without this every step using {decimal} is
+  // reported as an invalid expression and never offered for completion.
+  "cucumber.parameterTypes": [
+    { "name": "decimal", "regexp": "-?[\\d.]+" }
+  ]
+}
