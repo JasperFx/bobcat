@@ -22,6 +22,17 @@ public interface IExecutionObserver
     void FeatureStarted(string featureTitle);
     void FeatureFinished(string featureTitle);
     void ScenarioStarted(string featureTitle, string scenarioTitle);
+
+    /// <summary>
+    /// <see cref="ScenarioStarted(string,string)"/> plus the number of steps the plan will run
+    /// — known before the first step starts, because the plan is built before the scenario is
+    /// announced. This is what turns "step 3 is running" into "step 3 of 9". The default
+    /// forwards to the two-argument form, so an observer that does not care about the count
+    /// is unaffected; the runner always calls this one.
+    /// </summary>
+    void ScenarioStarted(string featureTitle, string scenarioTitle, int totalSteps)
+        => ScenarioStarted(featureTitle, scenarioTitle);
+
     void StepStarted(string stepId, StepKind kind, string stepText);
 
     /// <summary>

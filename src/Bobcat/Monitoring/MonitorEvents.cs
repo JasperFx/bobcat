@@ -19,6 +19,7 @@ namespace Bobcat.Monitoring;
 [JsonDerivedType(typeof(RetryScheduled), "retry_scheduled")]
 [JsonDerivedType(typeof(StepStarted), "step_started")]
 [JsonDerivedType(typeof(StepFinished), "step_finished")]
+[JsonDerivedType(typeof(StepProgress), "step_progress")]
 public abstract record MonitorEvent(Guid RunId);
 
 public record RunStarted(
@@ -51,7 +52,10 @@ public record ScenarioStarted(
     string Feature,
     string Scenario,
     int Attempt,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    // How many steps this attempt will run — known up front because the plan is built before
+    // the scenario is announced. Null from a publisher that predates it. Optional and additive.
+    int? TotalSteps = null) : MonitorEvent(RunId);
 
 public record ScenarioFinished(
     Guid RunId,
@@ -73,7 +77,14 @@ public record StepStarted(
     string Uid,
     string StepId,
     string Kind,
-    string Text) : MonitorEvent(RunId);
+    string Text,
+    // 1-based position of this step within the attempt, and the attempt's step count, so a
+    // watcher renders "step 3 of 9" without counting events it may have missed. Null from an
+    // older publisher. Optional and additive.
+    int? StepNumber = null,
+    int? TotalSteps = null,
+    // Milliseconds into the scenario's wall clock when this step started.
+    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
 
 public record StepFinished(
     Guid RunId,
@@ -81,4 +92,23 @@ public record StepFinished(
     string StepId,
     string Status,
     long DurationMs,
-    string? ErrorMessage) : MonitorEvent(RunId);
+    string? ErrorMessage,
+    // Milliseconds into the scenario's wall clock when this step finished. Optional and additive.
+    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// Interim progress from a step still running — the wire form of
+/// <c>IExecutionObserver.StepProgress</c>. Two shapes share it: a <c>[TableGrammar]</c> ticking
+/// through its rows (<see cref="Row"/>/<see cref="TotalRows"/>, no message), and a
+/// <c>[WaitFor]</c> poll loop reporting what it last saw (<see cref="Message"/>, no rows).
+/// <see cref="ElapsedMs"/> is time since the step started. Coalesced by the publisher, so a
+/// 200-row grammar does not cost 200 HTTP payloads; the last row always posts.
+/// </summary>
+public record StepProgress(
+    Guid RunId,
+    string Uid,
+    string StepId,
+    string? Message,
+    int? Row,
+    int? TotalRows,
+    long ElapsedMs) : MonitorEvent(RunId);

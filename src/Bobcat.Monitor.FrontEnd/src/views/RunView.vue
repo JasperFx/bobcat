@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import { useRunsStore } from '@/stores/runs-store'
 
 const props = defineProps<{ runId: string }>()
@@ -34,6 +35,7 @@ const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios)
           retrying — {{ scenario.retryReason }}
         </el-tag>
       </div>
+      <ScenarioProgress :scenario="scenario" />
       <ul class="bm-steps">
         <li v-for="step in scenario.steps" :key="step.stepId" :data-status="step.status">
           <strong>{{ step.kind }}</strong> {{ step.text }}

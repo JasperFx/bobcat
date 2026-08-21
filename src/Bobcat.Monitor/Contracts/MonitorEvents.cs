@@ -30,6 +30,7 @@ namespace Bobcat.Monitor.Contracts;
 [JsonDerivedType(typeof(RetryScheduled), "retry_scheduled")]
 [JsonDerivedType(typeof(StepStarted), "step_started")]
 [JsonDerivedType(typeof(StepFinished), "step_finished")]
+[JsonDerivedType(typeof(StepProgress), "step_progress")]
 public abstract record MonitorEvent(Guid RunId) : WebSocketMessage;
 
 /// <summary>
@@ -66,14 +67,19 @@ public record RunFinished(
     int Indeterminate,
     DateTimeOffset FinishedAt) : MonitorEvent(RunId);
 
-/// <summary>Attempt is 1-based; a value above 1 marks a retry attempt.</summary>
+/// <summary>
+/// Attempt is 1-based; a value above 1 marks a retry attempt. TotalSteps is how many steps
+/// this attempt will run — the plan is built before the scenario is announced, so it is a fact
+/// rather than an estimate; null from a publisher that predates it.
+/// </summary>
 public record ScenarioStarted(
     Guid RunId,
     string Uid,
     string Feature,
     string Scenario,
     int Attempt,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    int? TotalSteps = null) : MonitorEvent(RunId);
 
 /// <summary>Outcome mirrors RunOutcome: CleanPass / PassOnRetry / Failed / Aborted.</summary>
 public record ScenarioFinished(
@@ -92,19 +98,47 @@ public record RetryScheduled(
     string Disposition,
     string Reason) : MonitorEvent(RunId);
 
-/// <summary>Kind mirrors StepKind (Given/When/Then/...).</summary>
+/// <summary>
+/// Kind mirrors StepKind (Given/When/Then/...). StepNumber is the step's 1-based position in
+/// the attempt and TotalSteps the attempt's count, so "step 3 of 9" needs no counting of
+/// events a watcher may have missed; ScenarioElapsedMs is how far into the scenario's wall
+/// clock the step started. All three are null from an older publisher.
+/// </summary>
 public record StepStarted(
     Guid RunId,
     string Uid,
     string StepId,
     string Kind,
-    string Text) : MonitorEvent(RunId);
+    string Text,
+    int? StepNumber = null,
+    int? TotalSteps = null,
+    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
 
-/// <summary>Status mirrors ResultStatus (ok/success/failed/error/missing/invalid).</summary>
+/// <summary>
+/// Status mirrors ResultStatus (ok/success/failed/error/missing/invalid). ScenarioElapsedMs is
+/// how far into the scenario's wall clock the step finished; null from an older publisher.
+/// </summary>
 public record StepFinished(
     Guid RunId,
     string Uid,
     string StepId,
     string Status,
     long DurationMs,
-    string? ErrorMessage) : MonitorEvent(RunId);
+    string? ErrorMessage,
+    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// Interim progress from a step that is still running — the wire form of Bobcat's
+/// <c>IExecutionObserver.StepProgress</c>. Two shapes share one event: a <c>[TableGrammar]</c>
+/// ticking through its rows (Row/TotalRows set, no Message) and a <c>[WaitFor]</c> poll loop
+/// reporting what it last saw (Message set, no rows). ElapsedMs is time since the step
+/// started. Upserted per step by every consumer — only the latest matters.
+/// </summary>
+public record StepProgress(
+    Guid RunId,
+    string Uid,
+    string StepId,
+    string? Message,
+    int? Row,
+    int? TotalRows,
+    long ElapsedMs) : MonitorEvent(RunId);

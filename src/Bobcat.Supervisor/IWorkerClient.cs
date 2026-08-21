@@ -52,6 +52,29 @@ public sealed record WorkerOutcome(string Uid, string DisplayName, WorkerTestSta
     public bool IsAssertionFailure => State == WorkerTestState.Failed;
 }
 
+/// <summary>
+/// One live per-test state change from a worker mid-run — the tap on MTP's
+/// <c>testing/testUpdates/tests</c> stream that <see cref="MtpWorkerClient"/> used to discard
+/// (issue #99). A worker reports each test at least twice: in progress when it starts, then its
+/// verdict. The terminal update is the same fact <see cref="WorkerRunResult.Outcomes"/> carries
+/// at the end; the in-progress one is what only this stream has.
+/// </summary>
+public sealed record WorkerTestUpdate(string Uid, string DisplayName, string ExecutionState)
+{
+    /// <summary>True while the worker is running this test, before it has a verdict.</summary>
+    public bool InProgress => ExecutionState == "in-progress";
+
+    /// <summary>
+    /// The verdict when this update is terminal; null while in progress (or for a state this
+    /// supervisor does not classify, which <see cref="WorkerOutcome"/> would call indeterminate).
+    /// </summary>
+    public WorkerTestState? State { get; init; }
+
+    /// <summary>Framework metadata on the node — same channel as <see cref="WorkerOutcome.Traits"/>.</summary>
+    public IReadOnlyDictionary<string, string> Traits { get; init; }
+        = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+}
+
 /// <summary>The result of asking a worker to run a set of tests.</summary>
 public sealed record WorkerRunResult(IReadOnlyList<WorkerOutcome> Outcomes)
 {
@@ -95,6 +118,16 @@ public interface IWorkerClient : IAsyncDisposable
     /// silently re-runs everything would launder unrelated failures into the attempt.
     /// </remarks>
     Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscribe to live per-test state changes while <see cref="Run"/> is in flight. Default is
+    /// a no-op — a client that cannot observe its worker mid-run simply never calls back, and
+    /// the supervisor learns the outcomes from <see cref="Run"/>'s result as before. Handlers
+    /// may be invoked from the client's I/O thread and must not throw.
+    /// </summary>
+    void OnTestUpdate(Action<WorkerTestUpdate> handler)
+    {
+    }
 }
 
 /// <summary>What the supervisor is about to launch a worker for.</summary>

@@ -21,6 +21,7 @@ public sealed class MtpWorkerClient : IWorkerClient
     private readonly Dictionary<string, WorkerOutcome> _outcomes = new();
     private readonly Queue<string> _standardError;
     private readonly object _lock = new();
+    private readonly List<Action<WorkerTestUpdate>> _testUpdateHandlers = new();
 
     private MtpWorkerClient(Process process, JsonRpcConnection rpc, ServerModeListener listener, Queue<string> standardError)
     {
@@ -274,6 +275,17 @@ public sealed class MtpWorkerClient : IWorkerClient
         }
     }
 
+    /// <summary>
+    /// The live tap. Every node change the worker streams is relayed to the handlers as it
+    /// arrives — in-progress updates included, which is the part the outcome table below
+    /// deliberately ignores. Handlers run on the RPC reader thread, so one that throws is
+    /// swallowed here rather than allowed to take the connection down with it.
+    /// </summary>
+    public void OnTestUpdate(Action<WorkerTestUpdate> handler)
+    {
+        lock (_lock) _testUpdateHandlers.Add(handler);
+    }
+
     private void handleNotification(string method, JsonNode? parameters)
     {
         if (method != "testing/testUpdates/tests" || parameters?["changes"] is not JsonArray changes) return;
@@ -284,6 +296,7 @@ public sealed class MtpWorkerClient : IWorkerClient
             if (node["uid"]?.ToString() is not { } uid) continue;
 
             var outcome = readNode(uid, node);
+            var executionState = node["execution-state"]?.ToString() ?? "";
 
             lock (_lock)
             {
@@ -296,6 +309,30 @@ public sealed class MtpWorkerClient : IWorkerClient
                 }
 
                 _outcomes[uid] = outcome;
+            }
+
+            relayTestUpdate(new WorkerTestUpdate(uid, outcome.DisplayName, executionState)
+            {
+                State = executionState == "in-progress" ? null : outcome.State,
+                Traits = outcome.Traits
+            });
+        }
+    }
+
+    private void relayTestUpdate(WorkerTestUpdate update)
+    {
+        Action<WorkerTestUpdate>[] handlers;
+        lock (_lock) handlers = _testUpdateHandlers.ToArray();
+
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                handler(update);
+            }
+            catch
+            {
+                // A watcher must never be able to break the wire it is watching.
             }
         }
     }

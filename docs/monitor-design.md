@@ -151,10 +151,39 @@ round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
      exposes them, so a programmatic consumer has them today, but the dashboard needs new
      event contracts and UI — and per issue #85 those are exactly the mirrors whose arrival
      is the trigger to generate the TS contracts rather than hand-write them.
-   - `MtpWorkerClient.handleNotification` already receives live per-test
-     `testing/testUpdates/tests` updates and discards them — still the untapped tap. A
+   - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
+     updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host
      running `BobcatRunner`, and its own publisher streams steps directly to the monitor.
+5. **Step-level progress for a scenario in flight** (built 2026-08-21, issue #99). Four
+   additive pieces, engine to viewer:
+   - **Step n of N with elapsed.** `IExecutionObserver.ScenarioStarted(feature, scenario,
+     totalSteps)` is a new default member the runner calls (the plan is built before the
+     scenario is announced, so the count is a fact); the two-argument form is what it forwards
+     to, so existing observers are untouched. On the wire `ScenarioStarted.TotalSteps`,
+     `StepStarted.StepNumber/TotalSteps/ScenarioElapsedMs`, `StepFinished.ScenarioElapsedMs` —
+     all optional trailing members, null from an older publisher. "Expected" per step is
+     deliberately not here: it needs the cross-run duration ledger (#44 layer 2 / #56 layer 3).
+   - **Row progress for `[TableGrammar]`.** The generated envelope calls
+     `ctx.ReportProgress(StepUpdate.ForRow(k, M))` before each row; `StepUpdate` gained
+     `Row`/`TotalRows`. Row ticks carry no message on purpose, so the Spectre console (which
+     prints every message) stays quiet while renderers with a live counter move.
+   - **One wire event, `step_progress`**, for both row ticks and the `[WaitFor]` poll loop's
+     interim message (#32/#34's `StepProgress` finally has a wire form): `StepId`, `Message`,
+     `Row`, `TotalRows`, `ElapsedMs` since the step started. **Coalesced by the publisher** —
+     `MonitorPublishingObserver` posts at most one per 100 ms per step, always the first update
+     and always the last row — because 200 rows in a few milliseconds would otherwise be 200
+     events into a channel that drops on backpressure, crowding out the `StepFinished` that
+     matters more. Consumers upsert per step; only the latest matters, and a finished step
+     ignores late (hydration-replayed) progress.
+   - **The tap.** `IWorkerClient.OnTestUpdate(handler)` (default no-op) and
+     `ISupervisorObserver.TestUpdated(WorkerLaunchContext, WorkerTestUpdate)` — every node
+     change a worker streams, in-progress included, stamped with the lane and purpose it came
+     from. Discovery is not tapped ("discovered" is not progress). Supervisor-side only for
+     now; see Not built yet for why it has no wire event.
+   - Viewer: `ScenarioProgress.vue` on the run detail — step n/N bar, current step text, row
+     k/M bar, waiting-for message with elapsed. Store fields `ScenarioState.totalSteps`,
+     `StepState.stepNumber/scenarioElapsedMs/progress`.
 
 ## Ejecting results: CTRF primary, JUnit XML fallback
 
@@ -256,8 +285,11 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
   `ISupervisorObserver` callbacks exist, the wire contracts and UI do not (see Bobcat-side
   seams item 4). This is #85's stated trigger for the codegen above.
 - Gherkin-runner dogfood e2e against this UI (#86).
-- **Gherkin step-level progress within one slow scenario.** Steps stream today, but there is no
-  progress model for a scenario in flight: no remaining-step count, no elapsed-vs-expected, no
-  row-level progress for a `[TableGrammar]` (200 rows report as one step), and `StepProgress`
-  from #32/#34 has no wire event. `MtpWorkerClient.handleNotification` also still discards live
-  `testing/testUpdates/tests` — the untapped tap.
+- **Elapsed-vs-expected per step.** Step progress (#99, Bobcat-side seams item 5) carries
+  elapsed; "expected" needs a duration history across runs, which is the same committed
+  ledger #44 layer 2 and #56 layer 3 want — one store, not three.
+- **Supervisor-side test updates on the wire.** `ISupervisorObserver.TestUpdated` exposes a
+  lane's live per-test state programmatically, but no monitor event carries it — a supervised
+  run's step stream comes from each worker's own publisher, so the dashboard already sees
+  more than the tap does. It earns a wire event when a non-Bobcat worker (xUnit, tUnit) is
+  driven under the viewer; those publish nothing themselves.

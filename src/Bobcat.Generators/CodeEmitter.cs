@@ -332,6 +332,10 @@ public static class CodeEmitter
             var rowCells = rows[r];
             sb.AppendLine($"                            // row {r + 1}");
             sb.AppendLine("                            {");
+            // Row-level progress: to the executor the whole table is one step, so without this
+            // a 200-row grammar is the least observable thing in a suite. Message-less on
+            // purpose — see StepUpdate.ForRow.
+            sb.AppendLine($"                                ctx.ReportProgress(global::Bobcat.Engine.StepUpdate.ForRow({r + 1}, {rows.Count}));");
 
             var rowScopeProvider = grammar.ScopePerRow ? $"__sc{r}.ServiceProvider" : null;
             if (grammar.ScopePerRow)
