@@ -1,0 +1,48 @@
+name: event model frontend
+
+# Typecheck + Vitest gate for @jasperfx/event-model-vue, the shared Event Modeling renderer
+# (issue #108). A SEPARATE workflow from console-frontend.yml rather than another job in it:
+# this package is consumed by CritterWatch as well as by the Bobcat console, so its gate must
+# stay green on its own terms and must not be skipped by a path filter scoped to the SPA.
+#
+# The layout is pure and asserted on exact coordinates, because the acceptance criterion for the
+# package is that one descriptor renders identically in both viewers — and "identically" is only
+# checkable if position is a function of the descriptor alone.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'src/Bobcat.EventModel.FrontEnd/**'
+      - '.github/workflows/event-model-frontend.yml'
+  pull_request:
+    paths:
+      - 'src/Bobcat.EventModel.FrontEnd/**'
+      - '.github/workflows/event-model-frontend.yml'
+
+env:
+  CI: true
+
+jobs:
+  event-model-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Bobcat.EventModel.FrontEnd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (vue-tsc)
+        run: npx vue-tsc -b
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run
+
+      - name: Library build
+        run: npx vite build

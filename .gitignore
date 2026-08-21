@@ -369,3 +369,4 @@ samples/**/*.db-shm
 # Front-end build output (both the pre-#100 Bobcat.Monitor name and the current one)
 src/Bobcat.Monitor.FrontEnd/dist/
 src/Bobcat.Console.FrontEnd/dist/
+src/Bobcat.EventModel.FrontEnd/dist/
