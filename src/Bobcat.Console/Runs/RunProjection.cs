@@ -37,6 +37,9 @@ public class RunProjection
     public bool Orphaned { get; internal set; }
 
     private readonly Dictionary<string, ScenarioProjection> _scenarios = new();
+    private readonly List<LaneProjection> _lanes = new();
+    private readonly List<RecycleProjection> _recycles = new();
+    private readonly List<WorkerFaultProjection> _workerFaults = new();
 
     public RunProjection(Guid runId)
     {
@@ -44,6 +47,35 @@ public class RunProjection
     }
 
     public IReadOnlyCollection<ScenarioProjection> Scenarios => _scenarios.Values;
+
+    // The supervisor's topology (issue #84), folded with exactly the rules the Pinia
+    // runs-store applies — SupervisorTopologyProjectionTests ports that store's cases so the two
+    // folds cannot drift. An in-process run never receives these events and the three lists
+    // stay empty; nothing is inferred for it.
+
+    /// <summary>Supervisor lanes in lane order; empty for an in-process run.</summary>
+    public IReadOnlyList<LaneProjection> Lanes => _lanes;
+
+    /// <summary>Resources the supervisor threw away and stood up again, in the order it did so.</summary>
+    public IReadOnlyList<RecycleProjection> Recycles => _recycles;
+
+    /// <summary>Worker processes that died, each with the lane, exit code and last standard error.</summary>
+    public IReadOnlyList<WorkerFaultProjection> WorkerFaults => _workerFaults;
+
+    /// <summary>Whether the run has any supervisor topology worth reporting.</summary>
+    public bool HasTopology => _lanes.Count > 0 || _recycles.Count > 0 || _workerFaults.Count > 0;
+
+    /// <summary>
+    /// The scenarios a lane's worker is running right now — the uids of its latest pass joined
+    /// to live scenario state. A foreign-framework worker (xUnit, tUnit) streams no scenarios,
+    /// so for it this is always empty and the lane itself is the whole signal.
+    /// </summary>
+    public IReadOnlyList<ScenarioProjection> RunningIn(LaneProjection lane)
+        => lane.Uids
+            .Select(uid => _scenarios.GetValueOrDefault(uid))
+            .Where(s => s is { Outcome: null })
+            .Select(s => s!)
+            .ToList();
 
     public void Apply(MonitorEvent @event)
     {
@@ -94,6 +126,11 @@ public class RunProjection
                     // attempt already (with the policy's disposition and reason); this is the
                     // fallback for a retry we only learn about from its start event.
                     scenario.ArchivePriorAttempt(scenario.Attempt, disposition: null, reason: null);
+                    // A supervised retry's first attempt reported its own terminal outcome
+                    // (its worker finished the test — Failed); the scenario is running again
+                    // now, and that is what a lane's "running now" and run_status read. Only a
+                    // genuinely new attempt clears it, so a replayed start never un-finishes one.
+                    scenario.Outcome = null;
                 }
 
                 scenario.Attempt = attempt;
@@ -145,8 +182,69 @@ public class RunProjection
                 break;
             }
 
+            case LaneStarted e:
+            {
+                var lane = ensureLane(e.Lane, e.At);
+                // The supervisor's own clock orders a lane's passes. A start no newer than the
+                // one we are already on is a replay — hydration re-announces the archive over
+                // live state — and must not count as another pass or reset the lane. Equal
+                // means the very same start.
+                if (lane.Passes > 0 && e.At <= lane.StartedAt)
+                {
+                    if (e.At == lane.StartedAt) lane.Uids = e.Uids.ToList();
+                    break;
+                }
+
+                // A new pass: the first, or a same-process retry handed back to the lane the
+                // test ran in.
+                lane.Status = LaneProjection.Running;
+                lane.Uids = e.Uids.ToList();
+                lane.Passes += 1;
+                lane.StartedAt = e.At;
+                lane.FinishedAt = null;
+                lane.Outcomes = null;
+                break;
+            }
+
+            case LaneFinished e:
+            {
+                var lane = ensureLane(e.Lane, e.At);
+                if (lane.Passes == 0) lane.Passes = 1; // a finish whose start was dropped or never seen
+                // A finish older than the pass we are on belongs to an earlier pass — replayed
+                // history.
+                if (e.At < lane.StartedAt) break;
+                lane.Status = e.Crashed ? LaneProjection.Crashed : LaneProjection.Finished;
+                lane.FinishedAt = e.At;
+                lane.Outcomes = e.Outcomes;
+                break;
+            }
+
+            case ResourceRecycled e:
+                // Replay guard: the same recycle never lands twice.
+                if (_recycles.Any(r => r.Resource == e.Resource && r.At == e.At)) break;
+                _recycles.Add(new RecycleProjection(e.Resource, e.At));
+                break;
+
+            case WorkerFaulted e:
+                if (_workerFaults.Any(f => f.At == e.At && f.Lane == e.Lane && f.Fault == e.Fault)) break;
+                _workerFaults.Add(new WorkerFaultProjection(e.Lane, e.Fault, e.ExitCode, e.StandardError, e.At));
+                break;
+
             // RunHeartbeat only refreshes LastEventAt, already done above.
         }
+    }
+
+    private LaneProjection ensureLane(int index, DateTimeOffset at)
+    {
+        var lane = _lanes.FirstOrDefault(l => l.Lane == index);
+        if (lane == null)
+        {
+            lane = new LaneProjection(index, at);
+            _lanes.Add(lane);
+            _lanes.Sort((a, b) => a.Lane.CompareTo(b.Lane));
+        }
+
+        return lane;
     }
 
     private ScenarioProjection ensureScenario(string uid)
@@ -277,3 +375,56 @@ public class StepProjection
         Text = text;
     }
 }
+
+/// <summary>
+/// One supervisor lane (issue #84). A lane can be handed work more than once — a same-process
+/// retry goes back to the lane the test ran in, carrying only the tests being retried — so
+/// <see cref="Uids"/> is "what the lane is working through now", not everything it ever ran,
+/// and <see cref="Passes"/> counts how many times it was handed work.
+/// </summary>
+public class LaneProjection
+{
+    public const string Running = "running";
+    public const string Finished = "finished";
+    public const string Crashed = "crashed";
+
+    public int Lane { get; }
+
+    /// <summary>running / finished / crashed — the same three words the dashboard's LaneState uses.</summary>
+    public string Status { get; set; } = Running;
+
+    /// <summary>The uids handed to the lane's worker on its latest start.</summary>
+    public IReadOnlyList<string> Uids { get; set; } = [];
+
+    /// <summary>How many times the lane has been handed work: 1 is the first pass, more are retry passes.</summary>
+    public int Passes { get; set; }
+
+    /// <summary>The supervisor's clock at the latest start — what orders the passes on replay.</summary>
+    public DateTimeOffset StartedAt { get; set; }
+
+    public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>Outcomes the worker reported on its latest finish; null while it is still running.</summary>
+    public int? Outcomes { get; set; }
+
+    public LaneProjection(int lane, DateTimeOffset startedAt)
+    {
+        Lane = lane;
+        StartedAt = startedAt;
+    }
+}
+
+/// <summary>A supervisor-owned resource thrown away and stood up again before a retry.</summary>
+public record RecycleProjection(string Resource, DateTimeOffset At);
+
+/// <summary>
+/// A worker process that died: the lane it was running (null for a one-test isolated or recycled
+/// process), the report's sentence, and the exit code and last standard error as the separate
+/// facts a person wants at 2am.
+/// </summary>
+public record WorkerFaultProjection(
+    int? Lane,
+    string Fault,
+    int? ExitCode,
+    string? StandardError,
+    DateTimeOffset At);
