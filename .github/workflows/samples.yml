@@ -48,7 +48,6 @@ jobs:
             "samples/CleanArchitectureTodos/CleanArchitectureTodos.csproj"
             "samples/EcommerceModularMonolith/EcommerceModularMonolith.csproj"
             "samples/MeetingGroupMonolith/MeetingGroupMonolith.csproj"
-            "samples/MoreSpeakers/MoreSpeakers.csproj"
           )
 
           is_quarantined() {

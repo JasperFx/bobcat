@@ -48,11 +48,14 @@ Requires PostgreSQL.
 dotnet run
 ```
 
-Tests (requires PostgreSQL):
+Specs (requires PostgreSQL — `cd .. && docker compose up -d` starts the samples' instance on
+5433 with a `more_speakers` database):
 
 ```bash
-cd ../MoreSpeakers.Tests
-dotnet test
+dotnet run --project Tests/ -- run
 ```
+
+`Tests/` is a Bobcat spec runner over `Features/MoreSpeakers.feature`, driving the host through
+Alba. See `docs/sample-wiring.md` for how it is wired.
 
 Swagger UI at `/swagger`.
