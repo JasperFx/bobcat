@@ -110,6 +110,11 @@ HttpResults.Created<T>`.
   `(Created<UserAccount>, UserCreated)`. The first tuple item is the HTTP response under
   Wolverine.HTTP's rules (an `IResult` is executed as-is), and everything after it is a cascaded
   message. `BookingMonolith` does this on all four of its creates.
+- The rule is positional, and the other direction works: the **first** element is the response
+  and may itself be an `IResult`, everything after it is cascaded. `EcommerceModularMonolith`'s
+  checkout returns `(Accepted, BasketCheckoutEvent)` — a 202 with a Location, plus the event the
+  Ordering module handles. The original `(bool, BasketCheckoutEvent)` "worked" too, in that it
+  cascaded — it just answered every checkout with `true` and a 200.
 - This one is upstream in Wolverine, not Bobcat.
 
 ### 4. Wolverine 6 no longer ships the runtime compiler
@@ -193,3 +198,19 @@ fixture a phantom list.
 - **Fix:** gate on the status before taking anything from the body —
   `if (result.StatusCode is >= 200 and < 300 && result.Body is not null)`. A `Given` that does
   not assert its own status is exactly where this hides, because nothing reports the 400.
+
+### 11. Program.cs seed data runs under Alba, and the reset hook is what removes it
+Several samples seed a few documents from `Program.cs` after `builder.Build()` and before
+`app.RunAsync()`. It is tempting to assume that code never executes under Alba, on the theory that
+`WebApplicationFactory` intercepts `Build()` and stops the entry point there. It does not:
+`EcommerceModularMonolith`'s Marten log shows the `catalog` and `discount` tables being created
+**before** `Application started`, which is its `SeedData` querying them. The seed is in the database
+when the first scenario begins.
+
+- Consequence: with no reset hook, an assertion like *at least 1 catalog product is returned* is
+  satisfied by the seed, not by anything the scenario did. The spec goes green without testing
+  the endpoint it names. With the reset hook, every scenario begins from empty *including* the
+  seed — so a spec must never count on seeded rows either.
+- **Fix:** decide which one you want and say so in `SpecsRunner.cs`. The playbook's default is the
+  reset hook (step 4), so scenarios create what they assert on. Write the comment from the log,
+  not from memory — the assumption is exactly the kind a comment preserves and a run disproves.

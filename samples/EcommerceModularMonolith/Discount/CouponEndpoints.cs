@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Wolverine.Http;
 using Wolverine.Persistence;
 
@@ -16,8 +17,10 @@ public static class GetCouponEndpoint
 
 public static class CreateCouponEndpoint
 {
+    // Created rather than a bare Coupon — see docs/sample-wiring.md footgun 3 for why it is
+    // returned directly and not as a (Coupon, IResult) tuple.
     [WolverinePost("/discounts")]
-    public static Coupon Post(CreateCoupon command, IDocumentSession session)
+    public static Created<Coupon> Post(CreateCoupon command, IDocumentSession session)
     {
         var coupon = new Coupon
         {
@@ -27,7 +30,7 @@ public static class CreateCouponEndpoint
             Amount = command.Amount,
         };
         session.Store(coupon);
-        return coupon;
+        return TypedResults.Created($"/discounts/{coupon.ProductName}", coupon);
     }
 }
 
