@@ -262,6 +262,13 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   It is a process-wide static that Bobcat never sets back, deliberately; see
   docs/sample-wiring.md footgun 15 for the trade-off and the JasperFx console chatter that is
   harmless (`Searching '…' for commands`, `cannot override the environment name`).
+- **`AlbaResource<TProgram>.ConsoleLogLevel`** — default `Warning`: a filter rule scoped to the
+  console logger provider that floors the hosted app's console output, because under MTP the
+  console is the runner's and an ASP.NET host at `Information` writes several lines per request.
+  A provider-scoped *rule*, not `SetMinimumLevel`, because an appsettings `"Default":
+  "Information"` is itself a rule and rules beat the minimum level. Added before the user's
+  `configure` so a user rule wins; other providers (debug, `BobcatLoggerProvider`) untouched;
+  `WithConsoleLogLevel(null)` leaves the app alone. See docs/sample-wiring.md footgun 16.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 

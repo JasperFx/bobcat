@@ -58,11 +58,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console.Tests", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console.Specs", "src\Bobcat.Console.Specs\Bobcat.Console.Specs.csproj", "{7E8F5F5E-3F1D-4D54-9D78-16ACE514E89C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Alba.SampleWeb", "src\Bobcat.Alba.SampleWeb\Bobcat.Alba.SampleWeb.csproj", "{8BF9BB9C-5390-4E60-B817-14F12D0A4B65}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Alba.SampleWeb", "src\Bobcat.Alba.SampleWeb\Bobcat.Alba.SampleWeb.csproj", "{8BF9BB9C-5390-4E60-B817-14F12D0A4B65}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Alba.SampleJasperFxWeb", "src\Bobcat.Alba.SampleJasperFxWeb\Bobcat.Alba.SampleJasperFxWeb.csproj", "{4CED1FDA-A4F0-4F85-B9F1-0875533CC404}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Alba.SampleWeb", "src\Bobcat.Alba.SampleWeb\Bobcat.Alba.SampleWeb.csproj", "{8BF9BB9C-5390-4E60-B817-14F12D0A4B65}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

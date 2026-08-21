@@ -4,6 +4,8 @@ using Bobcat.Engine;
 using JasperFx.CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 
 namespace Bobcat.Runtime;
 
@@ -224,6 +226,31 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
         ? new AlbaContentRoot.Resolution(_contentRoot, "WithContentRoot")
         : AlbaContentRoot.Resolve(typeof(TProgram).Assembly);
 
+    /// The floor Bobcat puts under the hosted application's <em>console</em> logging. Default
+    /// <see cref="LogLevel.Warning"/>: a test process's console belongs to the test runner, and an
+    /// ASP.NET Core host at its own default <c>Information</c> writes several lines per request —
+    /// under Microsoft.Testing.Platform that buries the run summary in request traces. Set to
+    /// <c>null</c> to leave the application's logging configuration exactly as it ships.
+    /// </summary>
+    /// <remarks>
+    /// Applied as a filter <em>rule</em> scoped to the console logger provider, not as
+    /// <c>SetMinimumLevel</c>: an <c>appsettings.json</c> <c>"Logging:LogLevel:Default"</c> becomes
+    /// a rule too, and rules beat the minimum level, so <c>SetMinimumLevel(Warning)</c> silences
+    /// nothing on a host that ships with <c>"Default": "Information"</c>. The rule is added before
+    /// the user's <c>configure</c> callback runs, so a rule the user adds there for the console
+    /// wins (later rule, same specificity), and a category-specific rule from the application's
+    /// own configuration wins as it always did (more specific). Other providers — the debug
+    /// provider, <c>BobcatLoggerProvider</c>'s per-step capture, a user's Serilog — are untouched.
+    /// </remarks>
+    public LogLevel? ConsoleLogLevel { get; set; } = LogLevel.Warning;
+
+    /// <summary>Fluent form of <see cref="ConsoleLogLevel"/>.</summary>
+    public AlbaResource<TProgram> WithConsoleLogLevel(LogLevel? level)
+    {
+        ConsoleLogLevel = level;
+        return this;
+    }
+
     public async Task Start()
     {
         _albaHost = await boot();
@@ -272,15 +299,22 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
 
     private Action<IWebHostBuilder>? composeConfigure(string? contentRoot)
     {
-        if (contentRoot == null) return _configure;
+        if (contentRoot == null && ConsoleLogLevel == null) return _configure;
 
+        var consoleLogLevel = ConsoleLogLevel;
         var userConfigure = _configure;
         return builder =>
         {
             // WebApplicationFactory sets its own guess first and our callback runs after it, so
             // this is the value the host builds with. The user's configure runs last and may
             // still override it.
-            builder.UseContentRoot(contentRoot);
+            if (contentRoot != null) builder.UseContentRoot(contentRoot);
+            if (consoleLogLevel != null)
+            {
+                builder.ConfigureLogging(logging =>
+                    logging.AddFilter<ConsoleLoggerProvider>((string?)null, consoleLogLevel.Value));
+            }
+
             userConfigure?.Invoke(builder);
         };
     }
