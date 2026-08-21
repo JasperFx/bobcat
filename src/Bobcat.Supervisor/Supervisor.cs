@@ -805,7 +805,18 @@ public sealed class Supervisor
         var started = Stopwatch.GetTimestamp();
         try
         {
-            return await _factory.Launch(context, ct);
+            var worker = await _factory.Launch(context, ct);
+
+            // The live tap (issue #99): a running worker's per-test state changes reach the
+            // observers as they happen, stamped with the launch they came from. Discovery is
+            // left out — it enumerates, it does not run, and "discovered" is not progress.
+            if (context.Purpose != WorkerPurpose.Discovery)
+            {
+                var launch = context;
+                worker.OnTestUpdate(update => notify(observer => observer.TestUpdated(launch, update)));
+            }
+
+            return worker;
         }
         finally
         {

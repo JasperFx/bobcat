@@ -8,10 +8,23 @@ import type {
   ScenarioFinished,
   ScenarioStarted,
   StepFinished,
+  StepProgress,
   StepStarted,
 } from '@/messages/monitor-events'
 
 export type StepStatus = 'running' | 'passed' | 'failed'
+
+/**
+ * The latest interim progress a running step reported — a [TableGrammar] row tick
+ * (row/totalRows) or a [WaitFor] poll message. Latest wins; cleared when the step finishes.
+ */
+export interface StepProgressState {
+  message: string | null
+  row: number | null
+  totalRows: number | null
+  /** Milliseconds since the step started, as of this update. */
+  elapsedMs: number
+}
 
 export interface StepState {
   stepId: string
@@ -20,6 +33,11 @@ export interface StepState {
   status: StepStatus
   durationMs: number | null
   errorMessage: string | null
+  /** 1-based position within the attempt; null from a publisher that predates it. */
+  stepNumber: number | null
+  /** Milliseconds into the scenario's wall clock when the step started; null if unknown. */
+  scenarioElapsedMs: number | null
+  progress: StepProgressState | null
 }
 
 export type ScenarioStatus = 'running' | 'passed' | 'passed-on-retry' | 'failed' | 'retry-scheduled' | 'aborted'
@@ -46,6 +64,11 @@ export interface ScenarioState {
   retryReason: string | null
   /** Steps of the CURRENT attempt only — a retry starts a fresh bracket. */
   steps: StepState[]
+  /**
+   * How many steps the current attempt will run, from scenario_started (falling back to the
+   * first step_started that names it). Null until a publisher says — older publishers never do.
+   */
+  totalSteps: number | null
 }
 
 export interface RunCounts {
@@ -144,6 +167,7 @@ export const useRunsStore = defineStore('runs', () => {
         errorMessage: null,
         retryReason: null,
         steps: [],
+        totalSteps: null,
       }
       run.scenarios[uid] = scenario
     }
@@ -194,6 +218,7 @@ export const useRunsStore = defineStore('runs', () => {
     // which the report views own, not the live view.
     scenario.steps = []
     scenario.errorMessage = null
+    scenario.totalSteps = e.totalSteps ?? null
   }
 
   function handleScenarioFinished(e: ScenarioFinished) {
@@ -233,7 +258,13 @@ export const useRunsStore = defineStore('runs', () => {
       status: 'running',
       durationMs: null,
       errorMessage: null,
+      stepNumber: e.stepNumber ?? null,
+      scenarioElapsedMs: e.scenarioElapsedMs ?? null,
+      progress: null,
     }
+    // A publisher that announced the count on the step rather than the scenario (or whose
+    // scenario_started was dropped on backpressure) still tells us how many there are.
+    if (e.totalSteps != null && scenario.totalSteps == null) scenario.totalSteps = e.totalSteps
     // Upsert by stepId rather than blind push: hydration replays the archived stream over
     // whatever live events already arrived, and a duplicated step_started must not render
     // the step twice.
@@ -250,6 +281,43 @@ export const useRunsStore = defineStore('runs', () => {
     step.status = e.status === 'ok' || e.status === 'success' ? 'passed' : 'failed'
     step.durationMs = e.durationMs
     step.errorMessage = e.errorMessage
+    // Interim progress describes a step in flight; once it has a verdict the "row 140 of
+    // 200" or "waiting… attempt 7" would be stale.
+    step.progress = null
+  }
+
+  /**
+   * Interim progress for a running step — latest wins. A step_progress that outruns its
+   * step_started (or whose step_started was dropped) is not an error: the step is
+   * synthesized as running so the progress still lands somewhere visible.
+   */
+  function handleStepProgress(e: StepProgress) {
+    const run = ensureRun(e.runId)
+    const scenario = ensureScenario(run, e.uid)
+    let step = scenario.steps.find((s) => s.stepId === e.stepId)
+    if (!step) {
+      step = {
+        stepId: e.stepId,
+        kind: '',
+        text: '',
+        status: 'running',
+        durationMs: null,
+        errorMessage: null,
+        stepNumber: null,
+        scenarioElapsedMs: null,
+        progress: null,
+      }
+      scenario.steps.push(step)
+    }
+    // A finished step ignores late progress — hydration can replay a step_progress after the
+    // step_finished that already superseded it.
+    if (step.status !== 'running') return
+    step.progress = {
+      message: e.message,
+      row: e.row,
+      totalRows: e.totalRows,
+      elapsedMs: e.elapsedMs,
+    }
   }
 
   /** "Eject": drop a finished run from the dashboard. */
@@ -289,6 +357,7 @@ export const useRunsStore = defineStore('runs', () => {
     handleRetryScheduled,
     handleStepStarted,
     handleStepFinished,
+    handleStepProgress,
     removeRun,
     markOrphaned,
     pruneTo,

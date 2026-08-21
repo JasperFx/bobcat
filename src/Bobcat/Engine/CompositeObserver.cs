@@ -38,6 +38,9 @@ public class CompositeObserver : IExecutionObserver
     public void FeatureStarted(string featureTitle) => each(o => o.FeatureStarted(featureTitle));
     public void FeatureFinished(string featureTitle) => each(o => o.FeatureFinished(featureTitle));
     public void ScenarioStarted(string featureTitle, string scenarioTitle) => each(o => o.ScenarioStarted(featureTitle, scenarioTitle));
+    // Fanned out in the three-argument form so an inner observer that wants the step count gets
+    // it; one that does not falls through to its own two-argument default.
+    public void ScenarioStarted(string featureTitle, string scenarioTitle, int totalSteps) => each(o => o.ScenarioStarted(featureTitle, scenarioTitle, totalSteps));
     public void StepStarted(string stepId, StepKind kind, string stepText) => each(o => o.StepStarted(stepId, kind, stepText));
     public void StepProgress(string stepId, StepUpdate update) => each(o => o.StepProgress(stepId, update));
     public void StepFinished(StepResult result) => each(o => o.StepFinished(result));

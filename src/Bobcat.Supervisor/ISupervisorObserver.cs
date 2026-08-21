@@ -70,4 +70,21 @@ public interface ISupervisorObserver
     void WorkerFaulted(string fault)
     {
     }
+
+    /// <summary>
+    /// A worker reported a test's live state mid-run — "in progress" when it starts, then its
+    /// verdict — with which launch (lane and purpose) the worker was. Issue #99's tap on MTP's
+    /// <c>testing/testUpdates/tests</c>: before this, the supervisor learned what a lane was
+    /// doing only when the whole lane finished.
+    /// </summary>
+    /// <remarks>
+    /// Fired from the worker client's I/O thread, so it can interleave with the other callbacks.
+    /// The terminal update precedes <see cref="AttemptRecorded"/> for the same test and carries
+    /// no policy verdict — that is what <see cref="AttemptRecorded"/> is for. A client that
+    /// cannot observe its worker mid-run (see <see cref="IWorkerClient.OnTestUpdate"/>) never
+    /// fires this at all, so a consumer must not rely on it for correctness.
+    /// </remarks>
+    void TestUpdated(WorkerLaunchContext worker, WorkerTestUpdate update)
+    {
+    }
 }

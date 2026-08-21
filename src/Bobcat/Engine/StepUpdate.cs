@@ -23,6 +23,17 @@ public class StepUpdate
     /// </summary>
     public IReadOnlyList<CellResult> Cells { get; init; } = Array.Empty<CellResult>();
 
+    /// <summary>
+    /// 1-based index of the table row the step is working on, when the step is a
+    /// <c>[TableGrammar]</c> (or anything else row-shaped). Null for an update that is not about
+    /// rows. A 200-row grammar is one step to the executor; this is what lets a watcher see
+    /// which of the 200 it is on instead of a frozen step line.
+    /// </summary>
+    public int? Row { get; init; }
+
+    /// <summary>Total rows the step will work through; set together with <see cref="Row"/>.</summary>
+    public int? TotalRows { get; init; }
+
     public StepUpdate()
     {
     }
@@ -31,4 +42,12 @@ public class StepUpdate
     {
         Message = message;
     }
+
+    /// <summary>
+    /// Row-only progress: "now on row <paramref name="row"/> of <paramref name="totalRows"/>".
+    /// Carries no message on purpose — a console renderer that prints every message would
+    /// emit one line per row, so message-less row ticks stay silent there and drive only the
+    /// renderers that show a live counter.
+    /// </summary>
+    public static StepUpdate ForRow(int row, int totalRows) => new() { Row = row, TotalRows = totalRows };
 }

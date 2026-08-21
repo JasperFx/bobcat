@@ -183,6 +183,14 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
 - **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
 - **`StepKind`** / **`FailureLevel`** — drives automatic failure classification
 - Auto-marks success when steps complete without error
+- **In-flight progress (issue #99):** `IExecutionObserver.ScenarioStarted(feature, scenario,
+  totalSteps)` is a default member the runner calls (plan is built first, so the count is a
+  fact) that forwards to the two-argument form; `StepUpdate.Row`/`TotalRows` (via
+  `StepUpdate.ForRow`) is what the generated `[TableGrammar]` envelope reports before each row,
+  message-less so the console stays quiet. `MonitorPublishingObserver` maps these onto
+  `step_progress` (coalesced to one per 100 ms per step, first and last row always) plus
+  `TotalSteps`/`StepNumber`/`ScenarioElapsedMs` on the existing events. Details in
+  `docs/monitor-design.md`, Bobcat-side seams item 5.
 
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.

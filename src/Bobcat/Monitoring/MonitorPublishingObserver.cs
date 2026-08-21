@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Testing;
 using Bobcat.Engine;
 using Bobcat.Resilience;
@@ -21,21 +22,38 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     private readonly MonitorRunInfo _info;
     private readonly IAsyncDisposable? _ownedPublisher;
     private readonly TimeSpan _heartbeatInterval;
+    private readonly TimeSpan _progressInterval;
     private readonly Dictionary<string, int> _attemptsByUid = new();
+    private readonly Stopwatch _scenarioClock = new();
+    private readonly Stopwatch _stepClock = new();
     private Timer? _heartbeat;
     private string _currentUid = "";
+    private int? _totalSteps;
+    private int _stepNumber;
+    private long _lastProgressPostedAtMs = long.MinValue;
 
     public MonitorPublishingObserver(
         IMonitorEventSink sink,
         MonitorRunInfo info,
         IAsyncDisposable? ownedPublisher = null,
-        TimeSpan? heartbeatInterval = null)
+        TimeSpan? heartbeatInterval = null,
+        TimeSpan? progressInterval = null)
     {
         _sink = sink;
         _info = info;
         _ownedPublisher = ownedPublisher;
         _heartbeatInterval = heartbeatInterval ?? TimeSpan.FromSeconds(10);
+        _progressInterval = progressInterval ?? DefaultProgressInterval;
     }
+
+    /// <summary>
+    /// Minimum spacing between two <see cref="StepProgress"/> posts for one step. A 200-row
+    /// grammar whose rows take a millisecond each would otherwise post 200 events into a channel
+    /// that drops on backpressure — and the events it would crowd out (<see cref="StepFinished"/>,
+    /// <see cref="ScenarioFinished"/>) matter more than any single row tick. The first update of
+    /// a step and the last row always post, so a watcher never misses the start or the end.
+    /// </summary>
+    public static readonly TimeSpan DefaultProgressInterval = TimeSpan.FromMilliseconds(100);
 
     public void RunStarted(int totalScenarios)
     {
@@ -73,7 +91,15 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             DateTimeOffset.UtcNow));
     }
 
+    // An observer upstream that only knows the two-argument form (a hand-rolled harness calling
+    // this directly) still gets a ScenarioStarted on the wire — just without the step count.
     public void ScenarioStarted(string featureTitle, string scenarioTitle)
+        => scenarioStarted(featureTitle, scenarioTitle, totalSteps: null);
+
+    public void ScenarioStarted(string featureTitle, string scenarioTitle, int totalSteps)
+        => scenarioStarted(featureTitle, scenarioTitle, totalSteps);
+
+    private void scenarioStarted(string featureTitle, string scenarioTitle, int? totalSteps)
     {
         // Same identity formula as SpecNodeMapping.Uid and the retry budget's test id.
         _currentUid = $"{featureTitle}/{scenarioTitle}";
@@ -81,19 +107,54 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
         var attempt = _attemptsByUid.TryGetValue(_currentUid, out var previous) ? previous + 1 : 1;
         _attemptsByUid[_currentUid] = attempt;
 
+        _totalSteps = totalSteps;
+        _stepNumber = 0;
+        _scenarioClock.Restart();
+
         _sink.Post(new ScenarioStarted(
-            _info.RunId, _currentUid, featureTitle, scenarioTitle, attempt, DateTimeOffset.UtcNow));
+            _info.RunId, _currentUid, featureTitle, scenarioTitle, attempt, DateTimeOffset.UtcNow, totalSteps));
     }
 
     public void StepStarted(string stepId, StepKind kind, string stepText)
-        => _sink.Post(new StepStarted(_info.RunId, _currentUid, stepId, kind.ToString(), stepText));
+    {
+        _stepNumber++;
+        _stepClock.Restart();
+        _lastProgressPostedAtMs = long.MinValue;
+
+        _sink.Post(new StepStarted(
+            _info.RunId, _currentUid, stepId, kind.ToString(), stepText,
+            StepNumber: _stepNumber,
+            TotalSteps: _totalSteps,
+            ScenarioElapsedMs: _scenarioClock.ElapsedMilliseconds));
+    }
+
+    /// <summary>
+    /// Interim progress onto the wire — a <c>[TableGrammar]</c> row tick or a <c>[WaitFor]</c>
+    /// poll message — coalesced per <see cref="DefaultProgressInterval"/> so a fast grammar
+    /// cannot flood the channel. The first update of a step and the final row always post.
+    /// </summary>
+    public void StepProgress(string stepId, StepUpdate update)
+    {
+        var elapsed = _stepClock.ElapsedMilliseconds;
+        var isLastRow = update.Row.HasValue && update.Row == update.TotalRows;
+        var dueAtMs = _lastProgressPostedAtMs == long.MinValue
+            ? long.MinValue
+            : _lastProgressPostedAtMs + (long)_progressInterval.TotalMilliseconds;
+
+        if (!isLastRow && elapsed < dueAtMs) return;
+
+        _lastProgressPostedAtMs = elapsed;
+        _sink.Post(new Monitoring.StepProgress(
+            _info.RunId, _currentUid, stepId, update.Message, update.Row, update.TotalRows, elapsed));
+    }
 
     public void StepFinished(StepResult result)
         => _sink.Post(new StepFinished(
             _info.RunId, _currentUid, result.StepId,
             result.StepStatus.ToString(),
             Math.Max(0, result.End - result.Start),
-            result.Exception?.Message));
+            result.Exception?.Message,
+            ScenarioElapsedMs: _scenarioClock.ElapsedMilliseconds));
 
     public void ScenarioRetrying(string scenarioTitle, int nextAttempt, string reason)
         // The in-process runner only ever performs in-process retries — fresh-process and
@@ -115,7 +176,6 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     public void FeatureStarted(string featureTitle) { }
     public void FeatureFinished(string featureTitle) { }
-    public void StepProgress(string stepId, StepUpdate update) { }
     public void ScenarioFinished(Engine.ExecutionResults results) { }
 
     /// <summary>

@@ -9,6 +9,7 @@ import type {
   ScenarioFinished,
   ScenarioStarted,
   StepFinished,
+  StepProgress,
   StepStarted,
 } from './monitor-events'
 
@@ -56,6 +57,9 @@ export function relayToStore(message: unknown): void {
       break
     case 'step_finished':
       runs.handleStepFinished(envelope.data as StepFinished)
+      break
+    case 'step_progress':
+      runs.handleStepProgress(envelope.data as StepProgress)
       break
     default:
       // Unknown message types are forward-compatibility, not errors.

@@ -436,7 +436,9 @@ public class BobcatRunner
         // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
         Engine.BobcatClock.ResetToControllable();
 
-        _observer.ScenarioStarted(feature.Title, scenario.Title);
+        // The plan is already built, so the step count is a fact rather than an estimate — a
+        // watcher can render "step 3 of 9" from the first step on.
+        _observer.ScenarioStarted(feature.Title, scenario.Title, plan.Steps.Count);
 
         // BeforeEach/AfterEach run inside the scenario's DI scope (opened by the caller), so
         // they inject the same scoped services the steps see.

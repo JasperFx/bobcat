@@ -20,6 +20,18 @@ public sealed class FakeWorker : IWorkerClient
     /// <summary>Every Run call this worker received, as the uid list asked for.</summary>
     public List<IReadOnlyList<string>?> Runs { get; } = [];
 
+    private readonly List<Action<WorkerTestUpdate>> _testUpdateHandlers = [];
+
+    /// <summary>
+    /// Models the live MTP stream: a real host reports each test in progress, then its verdict.
+    /// </summary>
+    public void OnTestUpdate(Action<WorkerTestUpdate> handler) => _testUpdateHandlers.Add(handler);
+
+    private void relay(WorkerTestUpdate update)
+    {
+        foreach (var handler in _testUpdateHandlers) handler(update);
+    }
+
     public Task<IReadOnlyList<WorkerTest>> Discover(CancellationToken ct = default)
         => Task.FromResult(_factory.Tests);
 
@@ -32,18 +44,29 @@ public sealed class FakeWorker : IWorkerClient
 
         foreach (var uid in requested)
         {
+            var test = _factory.Tests.FirstOrDefault(t => t.Uid == uid);
+            var displayName = _factory.ReportedNameFor(uid) ?? test?.DisplayName ?? uid;
+            var traits = test?.Traits ?? new Dictionary<string, string>();
+
+            relay(new WorkerTestUpdate(uid, displayName, "in-progress") { Traits = traits });
+
             var attempt = _factory.RecordAttempt(uid);
             var state = _factory.StateFor(uid, attempt, this);
 
             if (state is null) continue; // withheld — models a worker that died before reporting
 
-            var test = _factory.Tests.FirstOrDefault(t => t.Uid == uid);
-            outcomes.Add(new WorkerOutcome(uid, _factory.ReportedNameFor(uid) ?? test?.DisplayName ?? uid, state.Value)
+            outcomes.Add(new WorkerOutcome(uid, displayName, state.Value)
             {
-                Traits = test?.Traits ?? new Dictionary<string, string>(),
+                Traits = traits,
                 ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
                 ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}",
                 Duration = _factory.DurationFor(uid, attempt)
+            });
+
+            relay(new WorkerTestUpdate(uid, displayName, state.Value.ToString().ToLowerInvariant())
+            {
+                State = state,
+                Traits = traits
             });
         }
 
