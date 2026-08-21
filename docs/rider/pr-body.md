@@ -1,0 +1,12 @@
+[Bobcat](https://github.com/JasperFx/bobcat) is a Gherkin-driven integration testing framework for .NET (a Storyteller successor, from the Critter Stack / JasperFx team). It declares steps with the same attribute names as Reqnroll in its own namespace — `Bobcat.GivenAttribute`, `WhenAttribute`, `ThenAttribute` — plus `Bobcat.CheckAttribute`, a Then whose method returns a bool. Its fixtures carry no `[Binding]`: a class that declares steps is a step class. Steps are matched at compile time by a source generator, so there is no Reqnroll runtime in the project and no package that could supply the Reqnroll attribute types.
+
+This plugin is the best Gherkin editing experience in Rider, and everything in it except the discovery gate already works for such a project (the `.feature` language substitutor keys on a sibling `.cs`/`*proj`, not on a Reqnroll reference). This PR widens the gate:
+
+- `ReqnrollAttributeHelper`: the `Bobcat.*` names added to the Given/When/Then arrays (`Check` maps to Then), `Check` accepted as a Then short name on the source path, and `IsStepAttribute` / `IsStepAttributeShortName` / `CanContainBobcatSteps` helpers. `GetAttributeClrName` still answers `Reqnroll.*`, so the create-step quick fix is unchanged. `GetAttributeStepKind` returns `null` for Bobcat attributes so the "method name does not match pattern" inspection — which enforces Reqnroll's `GivenXxx` convention — does not fire on fixtures that never had it.
+- `AssemblyStepDefinitionCache`: a type without `[Binding]` is admitted when a public method carries a step attribute, but only in an assembly that is or references `Bobcat`, so no other referenced assembly pays for a per-method scan.
+- `ReqnrollStepsDefinitionsCache`: a class without `[Binding]` (and not `partial`) is admitted when it declares steps, by the same short-name rule the method walk already uses. `VersionInt` bumped.
+- Helper tests; changelog line.
+
+Reqnroll and SpecFlow behaviour is unchanged: same names, same `[Binding]` gate, same generated attributes. Two deliberate widenings worth calling out: a class that declares steps without `[Binding]` is now indexed (the plugin already admits any `partial` class on the same terms), and a `[Check("...")]` attribute on a method is read as a Then by short name in source, as `[Given]`/`[When]`/`[Then]` already are.
+
+If you would rather not carry a third framework's names in the helper, I am happy to rework this as a settings-backed list of binding/step attribute CLR names instead — this version is the smallest change that works.

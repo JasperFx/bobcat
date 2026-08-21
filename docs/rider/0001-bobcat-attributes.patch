@@ -1,0 +1,351 @@
+From 6e008e965c6db8af57925b24ebb5079b13bb201a Mon Sep 17 00:00:00 2001
+From: "Jeremy D. Miller" <jeremy@jasperfx.net>
+Date: Fri, 21 Aug 2026 08:32:58 -0500
+Subject: [PATCH] Discover Bobcat step definitions alongside Reqnroll and
+ SpecFlow
+
+Bobcat (https://github.com/JasperFx/bobcat) declares steps with the same
+attribute names as Reqnroll in its own namespace - Bobcat.GivenAttribute,
+WhenAttribute, ThenAttribute - plus Bobcat.CheckAttribute, a Then whose method
+returns a bool. It has no [Binding]: a class that declares steps is a step
+class. Until now the plugin saw none of it, because both step caches gate on
+Reqnroll/SpecFlow CLR names and on [Binding].
+
+- ReqnrollAttributeHelper: add the Bobcat.* names to the Given/When/Then
+  arrays (Check maps to Then), a Check short name for the source path, and
+  IsStepAttribute / IsStepAttributeShortName / CanContainBobcatSteps.
+  GetAttributeClrName still generates Reqnroll.* for the create-step quick fix.
+  GetAttributeStepKind returns null for Bobcat attributes so the "method name
+  does not match pattern" inspection, which enforces Reqnroll's GivenXxx naming
+  convention, does not fire on fixtures that never had it.
+- AssemblyStepDefinitionCache: a type with no [Binding] is admitted when it
+  declares steps, but only in an assembly that is or references Bobcat, so no
+  other referenced assembly pays for a per-method scan. The class entry records
+  whether a [Binding] was present instead of hard-coding true.
+- ReqnrollStepsDefinitionsCache: a class with no [Binding] is admitted when it
+  declares steps, by the same short-name rule the method walk already uses
+  (attribute types cannot be resolved while the cache is being built). Cache
+  version bumped to 16 since the population rule changed.
+- Tests for the helper; changelog entry.
+
+Reqnroll and SpecFlow behaviour is unchanged: same names, same [Binding] gate,
+same generated attributes. The two deliberate widenings are that a class that
+declares steps without [Binding] is now indexed (the plugin already admitted
+any partial class on the same terms), and that a [Check("...")] attribute on a
+method is read as a Then by short name in source, as [Given]/[When]/[Then]
+already are.
+---
+ CHANGELOG.md                                  |   3 +
+ .../Helpers/ReqnrollAttributeHelperTests.cs   | 105 ++++++++++++++++++
+ .../AssemblyStepDefinitionCache.cs            |  12 +-
+ .../ReqnrollStepsDefinitionsCache.cs          |  18 ++-
+ .../Helpers/ReqnrollAttributeHelper.cs        |  57 +++++++++-
+ 5 files changed, 186 insertions(+), 9 deletions(-)
+ create mode 100644 src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin.Tests/Helpers/ReqnrollAttributeHelperTests.cs
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 29f0230..c2fdd20 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
+ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
+ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+ 
++## Unreleased
++- Discover step definitions written with [Bobcat](https://github.com/JasperFx/bobcat)'s attributes (`Bobcat.Given`/`When`/`Then`, and `Bobcat.Check` as a Then), in source and in referenced assemblies. A class that declares steps no longer needs a `[Binding]` to be indexed. Reqnroll and SpecFlow behaviour is unchanged.
++
+ ## 2026.2.0
+ - Support for Rider 2026.2. Fixes [#87](https://github.com/reqnroll/Reqnroll.Rider/issues/87)
+ - Fix step-definition caching and navigation for referenced assemblies with Rider 2026.2
+diff --git a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin.Tests/Helpers/ReqnrollAttributeHelperTests.cs b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin.Tests/Helpers/ReqnrollAttributeHelperTests.cs
+new file mode 100644
+index 0000000..ea9186c
+--- /dev/null
++++ b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin.Tests/Helpers/ReqnrollAttributeHelperTests.cs
+@@ -0,0 +1,105 @@
++using JetBrains.Metadata.Reader.Impl;
++using NUnit.Framework;
++using ReSharperPlugin.ReqnrollRiderPlugin.Helpers;
++using ReSharperPlugin.ReqnrollRiderPlugin.Psi;
++
++namespace ReSharperPlugin.ReqnrollRiderPlugin.Tests.Helpers;
++
++public class ReqnrollAttributeHelperTests
++{
++    [TestCase("Reqnroll.GivenAttribute", GherkinStepKind.Given)]
++    [TestCase("TechTalk.SpecFlow.GivenAttribute", GherkinStepKind.Given)]
++    [TestCase("Bobcat.GivenAttribute", GherkinStepKind.Given)]
++    [TestCase("Reqnroll.WhenAttribute", GherkinStepKind.When)]
++    [TestCase("Bobcat.WhenAttribute", GherkinStepKind.When)]
++    [TestCase("Reqnroll.ThenAttribute", GherkinStepKind.Then)]
++    [TestCase("Bobcat.ThenAttribute", GherkinStepKind.Then)]
++    [TestCase("Bobcat.CheckAttribute", GherkinStepKind.Then)]
++    [TestCase("Reqnroll.StepDefinitionAttribute", GherkinStepKind.Given)]
++    [TestCase("Reqnroll.StepDefinitionAttribute", GherkinStepKind.When)]
++    [TestCase("Reqnroll.StepDefinitionAttribute", GherkinStepKind.Then)]
++    public void TestIsAttributeForKindRecognisesStepAttributesByFullName(string fullName, GherkinStepKind stepKind)
++    {
++        Assert.That(ReqnrollAttributeHelper.IsAttributeForKind(stepKind, fullName), Is.True);
++        Assert.That(ReqnrollAttributeHelper.IsStepAttribute(fullName), Is.True);
++    }
++
++    [TestCase("Bobcat.GivenAttribute", GherkinStepKind.Then)]
++    [TestCase("Bobcat.CheckAttribute", GherkinStepKind.Given)]
++    [TestCase("Bobcat.CheckAttribute", GherkinStepKind.When)]
++    [TestCase("Reqnroll.GivenAttribute", GherkinStepKind.When)]
++    public void TestIsAttributeForKindIsPerKind(string fullName, GherkinStepKind stepKind)
++    {
++        Assert.That(ReqnrollAttributeHelper.IsAttributeForKind(stepKind, fullName), Is.False);
++    }
++
++    [TestCase("Bobcat.BindingAttribute")]
++    [TestCase("Bobcat.TableGrammarAttribute")]
++    [TestCase("Reqnroll.BindingAttribute")]
++    [TestCase("System.ObsoleteAttribute")]
++    public void TestIsStepAttributeRejectsOtherAttributes(string fullName)
++    {
++        Assert.That(ReqnrollAttributeHelper.IsStepAttribute(fullName), Is.False);
++    }
++
++    [TestCase("Given", GherkinStepKind.Given)]
++    [TestCase("When", GherkinStepKind.When)]
++    [TestCase("Then", GherkinStepKind.Then)]
++    [TestCase("Check", GherkinStepKind.Then)]
++    [TestCase("StepDefinition", GherkinStepKind.Then)]
++    public void TestIsAttributeForKindUsingShortNameRecognisesStepAttributes(string shortName, GherkinStepKind stepKind)
++    {
++        Assert.That(ReqnrollAttributeHelper.IsAttributeForKindUsingShortName(stepKind, shortName), Is.True);
++        Assert.That(ReqnrollAttributeHelper.IsStepAttributeShortName(shortName), Is.True);
++    }
++
++    [TestCase("Check", GherkinStepKind.Given)]
++    [TestCase("Check", GherkinStepKind.When)]
++    [TestCase("Binding", GherkinStepKind.Given)]
++    [TestCase("TableGrammar", GherkinStepKind.Given)]
++    public void TestIsAttributeForKindUsingShortNameRejectsOtherAttributes(string shortName, GherkinStepKind stepKind)
++    {
++        Assert.That(ReqnrollAttributeHelper.IsAttributeForKindUsingShortName(stepKind, shortName), Is.False);
++    }
++
++    [Test]
++    public void TestIsStepAttributeShortNameRejectsNonStepAttributes()
++    {
++        Assert.That(ReqnrollAttributeHelper.IsStepAttributeShortName("Binding"), Is.False);
++        Assert.That(ReqnrollAttributeHelper.IsStepAttributeShortName("TableGrammar"), Is.False);
++    }
++
++    [Test]
++    public void TestGeneratedAttributeNamesStayReqnroll()
++    {
++        Assert.That(ReqnrollAttributeHelper.GetAttributeClrName(GherkinStepKind.Given), Is.EqualTo("Reqnroll.GivenAttribute"));
++        Assert.That(ReqnrollAttributeHelper.GetAttributeClrName(GherkinStepKind.When), Is.EqualTo("Reqnroll.WhenAttribute"));
++        Assert.That(ReqnrollAttributeHelper.GetAttributeClrName(GherkinStepKind.Then), Is.EqualTo("Reqnroll.ThenAttribute"));
++    }
++
++    [TestCase("Reqnroll.GivenAttribute", GherkinStepKind.Given)]
++    [TestCase("TechTalk.SpecFlow.WhenAttribute", GherkinStepKind.When)]
++    [TestCase("Reqnroll.ThenAttribute", GherkinStepKind.Then)]
++    public void TestMethodNamingConventionAppliesToReqnrollAndSpecFlow(string fullName, GherkinStepKind stepKind)
++    {
++        Assert.That(ReqnrollAttributeHelper.GetAttributeStepKind(new ClrTypeName(fullName)), Is.EqualTo(stepKind));
++    }
++
++    [TestCase("Bobcat.GivenAttribute")]
++    [TestCase("Bobcat.WhenAttribute")]
++    [TestCase("Bobcat.ThenAttribute")]
++    [TestCase("Bobcat.CheckAttribute")]
++    [TestCase("System.ObsoleteAttribute")]
++    public void TestMethodNamingConventionDoesNotApplyToBobcat(string fullName)
++    {
++        Assert.That(ReqnrollAttributeHelper.GetAttributeStepKind(new ClrTypeName(fullName)), Is.Null);
++    }
++
++    [Test]
++    public void TestBindingAttributeIsUnchanged()
++    {
++        Assert.That(ReqnrollAttributeHelper.IsBindingAttribute("Reqnroll.BindingAttribute"), Is.True);
++        Assert.That(ReqnrollAttributeHelper.IsBindingAttribute("TechTalk.SpecFlow.BindingAttribute"), Is.True);
++        Assert.That(ReqnrollAttributeHelper.IsBindingAttribute("Bobcat.GivenAttribute"), Is.False);
++    }
++}
+diff --git a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/AssemblyStepDefinitions/AssemblyStepDefinitionCache.cs b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/AssemblyStepDefinitions/AssemblyStepDefinitionCache.cs
+index 641e83d..bc8e619 100644
+--- a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/AssemblyStepDefinitions/AssemblyStepDefinitionCache.cs
++++ b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/AssemblyStepDefinitions/AssemblyStepDefinitionCache.cs
+@@ -74,13 +74,16 @@ public class AssemblyStepDefinitionCache(
+             return null;
+ 
+         var stepDefinitions = new ReqnrollStepsDefinitionsCacheEntries();
++        var canContainBobcatSteps = ReqnrollAttributeHelper.CanContainBobcatSteps(metadataAssembly);
+         foreach (var type in metadataAssembly.GetTypes())
+         {
+-            if (type.CustomAttributesTypeNames.All(a => !ReqnrollAttributeHelper.IsBindingAttribute(a.FullName.GetText())))
++            var hasBindingAttribute = type.CustomAttributesTypeNames.Any(a => ReqnrollAttributeHelper.IsBindingAttribute(a.FullName.GetText()));
++            // Bobcat fixtures and grammar modules carry no [Binding]: a type that declares steps is a step class.
++            if (!hasBindingAttribute && !(canContainBobcatSteps && DeclaresSteps(type)))
+                 continue;
+ 
+             var classScopes = scopeAttributeUtil.GetScopesFromAttributes(type.CustomAttributes);
+-            var classCacheEntry = new ReqnrollStepDefinitionCacheClassEntry(type.FullyQualifiedName, true, classScopes);
++            var classCacheEntry = new ReqnrollStepDefinitionCacheClassEntry(type.FullyQualifiedName, hasBindingAttribute, classScopes);
+ 
+             foreach (var method in type.GetMethods().Where(x => x.IsPublic))
+             {
+@@ -119,6 +122,11 @@ public class AssemblyStepDefinitionCache(
+         return stepDefinitions;
+     }
+ 
++    private static bool DeclaresSteps(IMetadataTypeInfo type)
++    {
++        return type.GetMethods().Any(method => method.IsPublic && method.CustomAttributesTypeNames.Any(a => ReqnrollAttributeHelper.IsStepAttribute(a.FullName.GetText())));
++    }
++
+     public void Merge(IPsiAssembly assembly, object builtPart, Func<bool> checkForTermination)
+     {
+         RemoveFromLocalCache(assembly);
+diff --git a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/ReqnrollStepsDefinitionsCache.cs b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/ReqnrollStepsDefinitionsCache.cs
+index 4bd3f21..5959959 100644
+--- a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/ReqnrollStepsDefinitionsCache.cs
++++ b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Caching/StepsDefinitions/ReqnrollStepsDefinitionsCache.cs
+@@ -34,7 +34,7 @@ public class ReqnrollStepsDefinitionsCache(
+     ScopeAttributeUtil scopeAttributeUtil)
+     : SimpleICache<ReqnrollStepsDefinitionsCacheEntries>(lifetime, locks, persistentIndexManager, new ReqnrollStepDefinitionsEntriesMarshaller(), VersionInt)
+ {
+-    private const int VersionInt = 15;
++    private const int VersionInt = 16;
+     public override string Version => VersionInt.ToString();
+ 
+     // FIXME: per step kind
+@@ -96,7 +96,8 @@ public class ReqnrollStepsDefinitionsCache(
+             if (!(type is IClassDeclaration classDeclaration))
+                 continue;
+             var hasBindingAttribute = HasBindingAttribute(classDeclaration);
+-            if (!hasBindingAttribute && !classDeclaration.IsPartial)
++            // Bobcat fixtures and grammar modules carry no [Binding]: a class that declares steps is a step class.
++            if (!hasBindingAttribute && !classDeclaration.IsPartial && !DeclaresSteps(classDeclaration))
+                 continue;
+             if (IsReqnrollFeatureFile(classDeclaration))
+                 continue;
+@@ -169,6 +170,19 @@ public class ReqnrollStepsDefinitionsCache(
+         return bindingAttributeFound;
+     }
+ 
++    // Syntactic on purpose: this runs while the cache is being built, where resolving the attribute types is not an
++    // option (see GetBindingTypes), so it applies the same short-name rule as AddToCacheEntryBasedOnAttributeRegex.
++    private static bool DeclaresSteps(IClassDeclaration classDeclaration)
++    {
++        foreach (var methodDeclaration in classDeclaration.MethodDeclarations)
++        foreach (var attribute in methodDeclaration.Attributes)
++        {
++            if (attribute.Arguments.Count == 1 && ReqnrollAttributeHelper.IsStepAttributeShortName(attribute.Name.ShortName))
++                return true;
++        }
++        return false;
++    }
++
+     public override void MergeLoaded(object data)
+     {
+         base.MergeLoaded(data);
+diff --git a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Helpers/ReqnrollAttributeHelper.cs b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Helpers/ReqnrollAttributeHelper.cs
+index 522a135..ba5d212 100644
+--- a/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Helpers/ReqnrollAttributeHelper.cs
++++ b/src/dotnet/ReSharperPlugin.ReqnrollRiderPlugin/Helpers/ReqnrollAttributeHelper.cs
+@@ -12,13 +12,26 @@ public class ReqnrollAttributeHelper
+     public static readonly ClrTypeName[] ScopeAttribute = [new ClrTypeName("Reqnroll.ScopeAttribute"), new ClrTypeName("TechTalk.SpecFlow.ScopeAttribute")];
+     public static readonly string[] ScopeAttributeShortName = ["Reqnroll.ScopeAttribute", "TechTalk.SpecFlow.ScopeAttribute", "ScopeAttribute"];
+     public static readonly ClrTypeName[] StepDefinitionAttribute = [new ClrTypeName("Reqnroll.StepDefinitionAttribute"), new ClrTypeName("TechTalk.SpecFlow.StepDefinitionAttribute")];
+-    public static readonly ClrTypeName[] GivenAttribute = [new ClrTypeName("Reqnroll.GivenAttribute"), new ClrTypeName("TechTalk.SpecFlow.GivenAttribute")];
+-    public static readonly ClrTypeName[] WhenAttribute = [new ClrTypeName("Reqnroll.WhenAttribute"), new ClrTypeName("TechTalk.SpecFlow.WhenAttribute")];
+-    public static readonly ClrTypeName[] ThenAttribute = [new ClrTypeName("Reqnroll.ThenAttribute"), new ClrTypeName("TechTalk.SpecFlow.ThenAttribute")];
++    public static readonly ClrTypeName[] GivenAttribute = [new ClrTypeName("Reqnroll.GivenAttribute"), new ClrTypeName("TechTalk.SpecFlow.GivenAttribute"), new ClrTypeName("Bobcat.GivenAttribute")];
++    public static readonly ClrTypeName[] WhenAttribute = [new ClrTypeName("Reqnroll.WhenAttribute"), new ClrTypeName("TechTalk.SpecFlow.WhenAttribute"), new ClrTypeName("Bobcat.WhenAttribute")];
++    public static readonly ClrTypeName[] ThenAttribute = [new ClrTypeName("Reqnroll.ThenAttribute"), new ClrTypeName("TechTalk.SpecFlow.ThenAttribute"), new ClrTypeName("Bobcat.ThenAttribute"), new ClrTypeName("Bobcat.CheckAttribute")];
+     public const string StepDefinitionAttributeShortName = "StepDefinition";
+     public const string GivenAttributeShortName = "Given";
+     public const string WhenAttributeShortName = "When";
+     public const string ThenAttributeShortName = "Then";
++    public const string CheckAttributeShortName = "Check";
++
++    /// <summary>
++    /// Bobcat (https://github.com/JasperFx/bobcat) declares steps with the same attribute names as Reqnroll in its own
++    /// namespace, adds <c>[Check]</c> (a Then whose method returns a bool), and has no <c>[Binding]</c>: any class that
++    /// declares steps is a step class. Its attributes live in the <c>Bobcat</c> assembly, so only an assembly that
++    /// references it can carry them, which is what <see cref="CanContainBobcatSteps"/> keys off.
++    /// </summary>
++    public const string BobcatAssemblyName = "Bobcat";
++
++    // Step attributes that mark a step but belong to a framework without Reqnroll's GivenXxx method-naming
++    // convention. The "method name does not match pattern" inspection leaves these alone.
++    private static readonly ClrTypeName[] StepAttributesWithoutNamingConvention = [new ClrTypeName("Bobcat.GivenAttribute"), new ClrTypeName("Bobcat.WhenAttribute"), new ClrTypeName("Bobcat.ThenAttribute"), new ClrTypeName("Bobcat.CheckAttribute")];
+ 
+     public static string GetAttributeClrName(GherkinStepKind stepKind)
+     {
+@@ -35,8 +48,14 @@ public class ReqnrollAttributeHelper
+         }
+     }
+ 
++    /// <summary>
++    /// The step kind of a step attribute whose framework follows Reqnroll's GivenXxx method-naming convention, or null.
++    /// Used by the "method name does not match pattern" inspection; third-party step attributes return null.
++    /// </summary>
+     public static GherkinStepKind? GetAttributeStepKind(IClrTypeName typeName)
+     {
++        if (StepAttributesWithoutNamingConvention.Contains(typeName))
++            return null;
+         if (GivenAttribute.Contains(typeName))
+             return GherkinStepKind.Given;
+         if (WhenAttribute.Contains(typeName))
+@@ -54,7 +73,7 @@ public class ReqnrollAttributeHelper
+             return true;
+         if (stepKind == GherkinStepKind.When && typeShortName.Equals(WhenAttributeShortName))
+             return true;
+-        if (stepKind == GherkinStepKind.Then && typeShortName.Equals(ThenAttributeShortName))
++        if (stepKind == GherkinStepKind.Then && (typeShortName.Equals(ThenAttributeShortName) || typeShortName.Equals(CheckAttributeShortName)))
+             return true;
+         return false;
+     }
+@@ -72,6 +91,34 @@ public class ReqnrollAttributeHelper
+         return false;
+     }
+ 
++    /// <summary>True when the full CLR name is any recognised step attribute, whatever its kind.</summary>
++    public static bool IsStepAttribute(string fullName)
++    {
++        return IsAttributeForKind(GherkinStepKind.Given, fullName)
++               || IsAttributeForKind(GherkinStepKind.When, fullName)
++               || IsAttributeForKind(GherkinStepKind.Then, fullName);
++    }
++
++    /// <summary>True when the short name is any recognised step attribute, whatever its kind.</summary>
++    public static bool IsStepAttributeShortName(string typeShortName)
++    {
++        return IsAttributeForKindUsingShortName(GherkinStepKind.Given, typeShortName)
++               || IsAttributeForKindUsingShortName(GherkinStepKind.When, typeShortName)
++               || IsAttributeForKindUsingShortName(GherkinStepKind.Then, typeShortName);
++    }
++
++    /// <summary>
++    /// True when the assembly is Bobcat itself or references it, i.e. when any of its types can carry a
++    /// <c>Bobcat.*</c> step attribute at all. Lets the assembly cache skip scanning the methods of every type in
++    /// every other referenced assembly for the binding-less case.
++    /// </summary>
++    public static bool CanContainBobcatSteps(IMetadataAssembly assembly)
++    {
++        if (assembly.AssemblyName?.Name == BobcatAssemblyName)
++            return true;
++        return assembly.ReferencedAssembliesNames.Any(x => x.Name == BobcatAssemblyName);
++    }
++
+     public static bool IsBindingAttribute(string fullAttributeName)
+     {
+         return BindingAttribute.Any(x => x.FullName == fullAttributeName);
+@@ -86,4 +133,4 @@ public class ReqnrollAttributeHelper
+     {
+         return ScopeAttributeShortName.Any(x => x == fullAttributeName);
+     }
+-}
+\ No newline at end of file
++}
+-- 
+2.39.3 (Apple Git-145)
+
