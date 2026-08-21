@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <!-- Match the InternalsVisibleTo declared in MeetingGroupMonolith.csproj. -->
+    <AssemblyName>MeetingGroupMonolith.Tests</AssemblyName>
+    <RootNamespace>MeetingGroupMonolith.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MeetingGroupMonolith.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Alba\Bobcat.Alba.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\Features\**\*.feature" />
+  </ItemGroup>
+
+  <!-- Include the fixture from the parent project directory, which excludes it from its own
+       compilation. The host has no reference to Bobcat, so a fixture compiled there is 116
+       undefined symbols. -->
+  <ItemGroup>
+    <Compile Include="..\MeetingGroupMonolithFixture.cs" />
+  </ItemGroup>
+
+</Project>
