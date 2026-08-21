@@ -31,18 +31,38 @@ public class MonitorPublisherTests : IDisposable
     /// </summary>
     private sealed class FakeMonitorHost : IDisposable
     {
-        private readonly HttpListener _listener = new();
+        private HttpListener _listener = new();
         private readonly List<string> _batches = new();
 
         public string Url { get; }
 
         public FakeMonitorHost()
         {
-            var port = freePort();
-            Url = $"http://127.0.0.1:{port}";
-            _listener.Prefixes.Add($"{Url}/");
-            _listener.Start();
-            _ = Task.Run(loop);
+            // freePort() finds a port by binding and releasing a TcpListener, and HttpListener
+            // binds it again a moment later — on a busy CI box another process can take it in
+            // between ("Address already in use", seen on PR #131). Retry with a fresh port; the
+            // race is narrow, so a handful of attempts is plenty, and the last failure propagates.
+            HttpListenerException? last = null;
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                var port = freePort();
+                Url = $"http://127.0.0.1:{port}";
+                _listener = new HttpListener();
+                _listener.Prefixes.Add($"{Url}/");
+                try
+                {
+                    _listener.Start();
+                    _ = Task.Run(loop);
+                    return;
+                }
+                catch (HttpListenerException e)
+                {
+                    last = e;
+                    ((IDisposable)_listener).Dispose();
+                }
+            }
+
+            throw new InvalidOperationException("Could not bind a loopback port for the fake monitor host after 5 attempts.", last);
         }
 
         public IReadOnlyList<string> Batches
