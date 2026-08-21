@@ -91,13 +91,33 @@ natively in `WebApplication.CreateBuilder` with **`PAL_SEHException` and no mana
 - **Diagnostic:** `BobcatRunner.Run` now detects two global-namespace `Program` types and throws a
   clear `BobcatConfigurationException` pointing here, before Alba can crash natively.
 
-### 2. `WebApplicationFactoryContentRoot` requirement when Tests is nested in the host
-`samples/.../Tests/` is a **nested** subdirectory of the host. Without
-`[WebApplicationFactoryContentRoot]`, ASP.NET Core's `WebApplicationFactory` walks up from the
-test bin dir, hits the host `csproj`, and tries to resolve a doubled `<Host>/<Host>/` path —
-`DirectoryNotFoundException`. Sibling layouts work without it; nested ones don't.
+### 2. Content root: nested `Tests/`, and anything under `src/` or `samples/`
+ASP.NET Core's `WebApplicationFactory` finds the host's content root in this order: a
+`TEST_CONTENTROOT_<ASSEMBLY>` setting; `MvcTestingAppManifest.json` — but only if
+`File.Exists("MvcTestingAppManifest.json")` **relative to the current working directory**, which
+is the test output only when the runner makes it so (xUnit does; a Bobcat MTP host run from the
+repo root does not); then `[WebApplicationFactoryContentRoot]`; then an *unchecked*
+`<solution dir>/<assembly name>`. That last guess is wrong for the nested `samples/<X>/Tests/`
+layout (it doubles the path) **and for every web project under `src/` or `samples/`** (it looks
+for `<repo>/<X>`), and surfaces when the host builds as a bare `DirectoryNotFoundException`.
 
-- **Fix:** add the `[assembly: WebApplicationFactoryContentRoot(...)]` attribute shown above.
+`AlbaResource<TProgram>` no longer leaves this to the factory. `AlbaContentRoot.Resolve` mirrors
+the order and fixes the two habits: the manifest is read from the test **output** directory
+wherever the process was started from; the solution-relative guess is checked, falls back to
+searching for `<assembly name>.csproj` below the solution (depth 5, skipping `bin`/`obj`/
+`node_modules`/dot-directories), and lands on the test output directory itself — which always
+exists and into which the build has already copied the host's `appsettings*.json` — rather than
+on a path that is not there. Sibling, `src/`, `samples/` and nested-Tests layouts all start
+with no attribute. `resource.ContentRoot` tells you what was decided and why.
+
+- **Still yours to set** when the host wants a directory none of those are:
+  `AlbaResource<TProgram>.WithContentRoot(path)`, or the
+  `[assembly: WebApplicationFactoryContentRoot(...)]` attribute shown above (honoured with its
+  marker file, as the factory would). The samples keep the attribute — it is harmless and
+  explicit.
+- **Diagnostic:** a content-root failure that still gets through (no solution file above the
+  test output, or a resolved directory the host rejects) is wrapped in a
+  `BobcatConfigurationException` that names the directory Bobcat resolved and how.
 
 ### 3. `(body, IResult)` tuple returns silently misrouted by Wolverine.HTTP
 Wolverine.HTTP treats tuple returns as `(http-body, ...cascaded-messages)`. Returning
