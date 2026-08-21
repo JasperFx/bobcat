@@ -145,6 +145,13 @@ Alba's default `Scenario(...)` asserts a 200 status. The `Bobcat.Alba` helpers c
 `s.IgnoreStatusCode()` for you and surface the real status on `HttpResult`, but a sample that
 reaches into Alba directly will trip on non-200 paths (201/204/404).
 
+You rarely need to reach into Alba directly. When a step is about the representation rather
+than a deserialized body — an export's JUnit XML or NDJSON, a download, a problem-details
+payload — `context.GetRawAsync(url)` returns a `RawResponse` (status, `ContentType`,
+`MediaType`, headers, `Body`/`Bytes`, `ReadAsJson<T>()`), `PostRawAsync(url, body, contentType)`
+sends a raw body, and `SendRawAsync(s => …)` runs any Alba scenario with the status surfaced
+rather than asserted.
+
 ### 7. Durable local queues make the HTTP response an unreliable moment to assert
 A modular monolith that routes integration events between modules over `UseDurableInbox()` local
 queues returns from the HTTP call **before** the receiving module has handled the cascade. In
