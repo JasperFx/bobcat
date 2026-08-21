@@ -559,6 +559,15 @@ library may reference it. All decisions of record: `docs/monitor-design.md`. The
 side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
 
+The SPA's TypeScript mirrors of the event contracts are **generated, never hand-edited**:
+`dotnet run --project src/Bobcat.Monitor -- generate` (NJsonSchema over
+`Contracts/MonitorEvents.cs`, see `TypeScriptContracts`) rewrites `src/messages/monitor-events.ts`
+and inserts any missing `relayToStore` case above its `*CASE ABOVE*` marker; hand-written cases
+and the store handlers are left alone. `TypeScriptContractTests` fails the build when the
+committed files drift. After adding a record to `MonitorEvents.cs` (both copies — the
+`Bobcat.Monitoring` mirror stays deliberately separate, pinned by `ContractRoundTripTests`),
+regenerate, then write the store handler the inserted case names.
+
 The project name is a leftover; the tool is `dotnet bobcat` and it is the test-run **viewer**.
 Renaming the project (`Bobcat.Viewer`?) is an open decision, not a settled one.
 

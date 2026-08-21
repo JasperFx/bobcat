@@ -57,6 +57,7 @@ export function relayToStore(message: unknown): void {
     case 'step_finished':
       runs.handleStepFinished(envelope.data as StepFinished)
       break
+    // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
     default:
       // Unknown message types are forward-compatibility, not errors.
       break

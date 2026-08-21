@@ -60,8 +60,20 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   no loop risk because no publish rule feeds the accumulator). `relayToStore` unwraps the
   `{type, data}` items recursively; wire names are pinned to the STJ discriminators by
   `SignalRBatchingTests`.
-- TS mirrors of the contracts are hand-written for now; lift CritterWatch's NJsonSchema
-  codegen (records → `.ts` + `relayToStore` case insertion) when the contract count justifies.
+- TS mirrors of the contracts are **generated** (issue #85, built 2026-08-21): CritterWatch's
+  NJsonSchema `GenerateCommand` pattern, cut down. `TypeScriptContracts` in `Bobcat.Monitor`
+  reflects `MonitorEvents.cs` through the same STJ settings the wire uses and emits
+  `src/messages/monitor-events.ts` wholesale (interfaces `extends MonitorEvent`, a
+  `MonitorEventType` union, the batching envelope); `relayToStore.ts` is *patched*, not owned —
+  a missing `case` is inserted above the `*CASE ABOVE*` marker in the store's
+  `handle<Type>` convention and the import block is merged, while hand-written cases stay
+  verbatim. Regenerate with `dotnet run --project src/Bobcat.Monitor -- generate` (`--check`
+  verifies only). `TypeScriptContractTests` fails `dotnet test` when either committed file
+  differs from what the records generate, so drift is a red build. Two deliberate rules: a
+  record constructor parameter with a default (`RunStarted.Tag`) mirrors as an *optional*
+  member, because "additive" means an old publisher's JSON has no such member at all; and the
+  Bobcat-side publisher mirrors (`src/Bobcat/Monitoring/MonitorEvents.cs`) are NOT generated
+  or unified — that duplication is a decision of record kept honest by `ContractRoundTripTests`.
 - No Aspire. The Vite dev server proxies `/api` (ws included) to the host's fixed dev port
   5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
   unrelated to this tool's dev workflow.
@@ -251,7 +263,6 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 
 ## Not built yet
 
-- TS codegen for the contract mirrors.
 - Lane topology, recycles and worker faults streamed live to the dashboard — the
   `ISupervisorObserver` callbacks exist, the wire contracts and UI do not (see Bobcat-side
   seams item 4). This is #85's stated trigger for the codegen above.
