@@ -211,7 +211,10 @@ resets service *instances*; `ResetBetweenScenarios` resets *persistent* state �
 
 Step/grammar parameter binding: `IStepContext` and any type a Gherkin cell can't produce are
 resolved from the scenario scope; a name matching a data-table header wins over convention
-injection. Overrides: `[FromScopedService]`, `[FromRootService]`, `[FromKeyedServices]` (all take
+injection. On a `[Table]` step (and a grammar's `Row`) whose text also carries Cucumber captures
+(`these steps ran in {string}`), the captures bind positionally to the parameters no header
+names — the same rule a non-table step uses — so a capture is never silently `default` (#122).
+Overrides: `[FromScopedService]`, `[FromRootService]`, `[FromKeyedServices]` (all take
 an optional `Resource` for multi-host suites), plus `[NewScope]` (child scope for one step) and
 `[ScopePerRow]` (child scope per table row).
 
