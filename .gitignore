@@ -358,3 +358,14 @@ MigrationBackup/
 samples/**/*.db
 samples/**/*.db-wal
 samples/**/*.db-shm
+
+# macOS finder metadata
+.DS_Store
+
+# Agent worktrees — these are working directories, not submodules. Staging them
+# records a gitlink to a throwaway commit that nobody can resolve on clone.
+.claude/worktrees/
+
+# Front-end build output (both the pre-#100 Bobcat.Monitor name and the current one)
+src/Bobcat.Monitor.FrontEnd/dist/
+src/Bobcat.Console.FrontEnd/dist/
