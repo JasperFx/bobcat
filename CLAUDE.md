@@ -254,6 +254,14 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   `<name>.csproj` found below the solution → the test output directory. `resource.ContentRoot`
   says what was decided and why; `WithContentRoot` still overrides everything. See
   docs/sample-wiring.md footgun 2.
+- **`AlbaResource` sets `JasperFxEnvironment.AutoStartHost = true` on `Start()`** (both forms;
+  `AlbaResource.PrepareJasperFxHosting()` for a bare `AlbaHost.For<T>`). Required for any host
+  whose `Main` ends in `RunJasperFxCommands` — every Critter Stack app — because under
+  WebApplicationFactory the command runner otherwise parses the factory's synthesized
+  `--environment/--contentRoot/--applicationName` flags and races the factory to start the host.
+  It is a process-wide static that Bobcat never sets back, deliberately; see
+  docs/sample-wiring.md footgun 15 for the trade-off and the JasperFx console chatter that is
+  harmless (`Searching '…' for commands`, `cannot override the environment name`).
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 

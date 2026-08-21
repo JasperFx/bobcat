@@ -1,6 +1,7 @@
 using Alba;
 using Bobcat.Alba;
 using Bobcat.Engine;
+using JasperFx.CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 
@@ -82,8 +83,42 @@ public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource
     {
     }
 
+    /// <summary>
+    /// Prepare the process for bootstrapping a <c>Program.Main</c> that ends in JasperFx's
+    /// <c>RunJasperFxCommands</c> — every Wolverine and Marten application's does. Idempotent;
+    /// called by both resources' <c>Start</c>, public so a bare <c>AlbaHost.For&lt;T&gt;</c>
+    /// outside any resource can ask for the same preparation.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>JasperFxEnvironment.AutoStartHost = true</c> is what JasperFx itself documents for
+    /// WebApplicationFactory testing. Under the factory, the entry point runs on a background
+    /// thread with the factory's synthesized arguments (<c>--environment=Development
+    /// --contentRoot=… --applicationName=…</c>), reaches <c>RunJasperFxCommands</c>, and the
+    /// command runner parses a command line that was never meant for it. With the flag on,
+    /// JasperFx starts the already-built host before parsing anything (its run command then
+    /// skips the redundant start) and tolerates the flags it does not own; without it, the host
+    /// is left to a race between the factory's start and the run command's, and the usage graph
+    /// treats the factory's flags as a usage error on hosts with commands of their own.
+    /// </para>
+    /// <para>
+    /// <strong>It is a process-wide static</strong>, and this sets it unconditionally and never
+    /// sets it back — deliberately. The flag only changes behaviour for a command line run against
+    /// an <em>already built</em> <c>IHost</c>, which in a test process is always one that
+    /// WebApplicationFactory is driving; and the flag is read on the entry point's thread at a
+    /// moment Bobcat cannot see, so "set it for the duration of Start" would be a race wearing a
+    /// scope's clothing. A test process that genuinely needs it off can clear it after the hosts
+    /// have started.
+    /// </para>
+    /// </remarks>
+    public static void PrepareJasperFxHosting()
+    {
+        if (!JasperFxEnvironment.AutoStartHost) JasperFxEnvironment.AutoStartHost = true;
+    }
+
     public async Task Start()
     {
+        PrepareJasperFxHosting();
         _albaHost = await _factory();
     }
 
@@ -219,6 +254,8 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
 
     private async Task<IAlbaHost> boot()
     {
+        AlbaResource.PrepareJasperFxHosting();
+
         var contentRoot = ContentRoot;
         var configure = composeConfigure(contentRoot.Path);
         try
