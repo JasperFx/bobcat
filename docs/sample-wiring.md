@@ -161,6 +161,11 @@ Asserting off the response races the handler.
   — hence the explicitly typed delegate rather than an inline lambda (CS0121).
 - `samples/PaymentsMonolith/PaymentsMonolithFixture.cs` (`awaitingCascades`) is the worked
   example. Removing it fails 3 of 11 scenarios, so it is load-bearing rather than defensive.
+- This is the seam `Bobcat.CritterStack` owns (`InvokeMessageAndWaitAsync`,
+  `ExecuteAggregateCommandAsync<T>`, `WaitForNonStaleProjectionsAsync`); `PaymentsMonolith`
+  predates it and still reaches for `Wolverine.Tracking` directly. `BankAccountES/Tests` is the
+  sample that uses the package — its reset hook is `host.ResetEventStoresAsync()`, through
+  `JasperFx.Events.IEventStore`, with no `using Marten` in the spec project.
 - **Do not read a green run as proof the race is absent.** `BookingMonolith` has the same
   shape (registering a user makes the Passenger module store a stub off a durable local queue)
   and passed **10 of 10** runs with the tracking removed, because a one-document handler

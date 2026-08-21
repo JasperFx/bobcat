@@ -551,6 +551,52 @@ shipped a whole abstraction where a parameter was wanted.
 
 Container or remote workers remain speculative. Same rule applies: build it when something needs it.
 
+### Bobcat.CritterStack is store-agnostic (`src/Bobcat.CritterStack/`)
+
+Decision of record 2026-08-20 (issue #103): Bobcat's event-sourcing helpers bind to the
+**`JasperFx.Events` abstractions**, never to Marten — the same discipline `Wolverine.CritterWatch`
+lives by — so one package serves Marten, Polecat and Fisher. `Bobcat.CritterStack` references
+`Bobcat`, `Bobcat.Wolverine` and the `JasperFx.Events` package; **it does not reference
+`Bobcat.Marten`, Marten, Polecat or Fisher**, and a spec project using it needs none of those
+either (`samples/BankAccountES/Tests` has no `using Marten`). `Bobcat.Marten` stays as the
+*document-store* flavour — `MartenResource`, `[MartenEntities]`, `QueryByIdAsync` — not as the way
+to reach the event store.
+
+- **The store comes from the host's container, not from a Bobcat resource type.** Marten
+  (`AddMarten`), Polecat (`AddPolecat`) and Fisher (`AddFisher`) all register their store as
+  `JasperFx.Events.IEventStore`; `context.EventStore()` / `services.EventStore()` resolve it from
+  the `IHostResource`'s `RootServices`. `storeName` (matched on `IEventStore.Identity.Name`)
+  disambiguates a host with several stores.
+- **Everything the abstractions cover goes through them.** Streams are read via
+  `IEventStore.OpenReadOnlyEventStore()`; projection waits via
+  `IEventDatabase.WaitForNonStaleProjectionDataAsync` (the same wait JasperFx's
+  `ProjectionScenario` performs) and `AllProjectionProgress`, so it does not matter who runs the
+  daemon — Marten's `IProjectionCoordinator`, Fisher's hosted service, or Wolverine. A projection
+  wait decides *what* to wait on from the store's configured shards (`IEventStore<,>.AllShards()`),
+  not from the progress table: a daemon writes a shard's row only after its first batch, so right
+  after the first append an empty table is indistinguishable from "no async projections" and a wait
+  keyed on it passes vacuously. A name matching no configured shard throws and lists them.
+- **Two gaps in JasperFx.Events 2.37.0 are bridged by convention, and say so.** There is no
+  abstraction for *aggregating* a stream or for *wiping* a store. `EventStores.AggregateStreamAsync`
+  uses the read-only view when it is an `IQueryEventStore` (Marten, Polecat) and otherwise opens a
+  session through the `IEventStore<TOps,TQuery>` closure and finds its `Events` member (Fisher).
+  `EventStores.ResetAllDataAsync` follows `Advanced.ResetAllData(ct)` / `ResetAllDataAsync(ct)` /
+  `Advanced.Clean.DeleteAll*` — the shape all three stores share — and a store matching none gets
+  an exception naming what was looked for. JasperFx's own `IStatefulResource.ClearState` is *not*
+  enough: Marten 9.22's database does not implement `IDatabaseWithRewindableState`, so
+  `jasperfx resources clear` is a no-op for it (`ClearStatefulResourcesAsync` is still offered, for
+  Wolverine's envelope storage). Both are the same bounded, documented softening as
+  `GrammarBehaviors.Resolve`; when the abstraction lands upstream, the convention path is what gets
+  deleted. `ProjectionScenario<,>` itself first ships in **JasperFx.Events 2.38.0** — above the pin —
+  which is why the waits delegate to the database/daemon members it is built on rather than to it.
+- **Fisher is the inner-loop target and is not yet covered in this repo, for a version reason, not a
+  design one.** Every published Fisher (0.5.0+) requires JasperFx.Events ≥ 2.47.0; the aligned set
+  that unlocks it is WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat
+  5.19.1 (`WolverineFx.Fisher` exists from 6.28.0). That is a repo-wide alignment bump
+  (`docs/versions.md`, every sample), so it is a separate PR; the fallback paths above are what a
+  Fisher host exercises, and they are unit-tested against a Fisher-shaped fake. Polecat 5.9.1 is the
+  last release on 2.37.0 and needs SQL Server, so it is a documented manual run rather than a CI leg.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 
@@ -564,7 +610,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
-| **Bobcat.CritterStack** | net10.0 | Planned | Wolverine/Marten/Polecat steps, TrackedSession |
+| **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 | **Bobcat.Monitor** | net10.0 | Scaffold | Live test-progress web console (`dotnet bobcat`); see `docs/monitor-design.md` |
 

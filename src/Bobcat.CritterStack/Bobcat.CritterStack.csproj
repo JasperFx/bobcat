@@ -5,13 +5,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <Description>Bobcat + Critter Stack integration — combined Wolverine + Marten spec helpers (aggregate command execution, projection waits) for the canonical Critter Stack pattern.</Description>
+    <Description>Bobcat + Critter Stack integration — Wolverine tracked-session dispatch plus event-store assertions (aggregate command execution, projection waits, between-scenario reset) bound to the JasperFx.Events abstractions, so the same helpers serve Marten, Polecat and Fisher.</Description>
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Deliberately NO reference to Bobcat.Marten, Marten, Polecat or Fisher. Everything here reaches
+      the store through JasperFx.Events (IEventStore, IEventDatabase, IProjectionCoordinator,
+      IQueryEventStore) resolved from the IHostResource's container. See CLAUDE.md,
+      "Bobcat.CritterStack is store-agnostic".
+    -->
+    <PackageReference Include="JasperFx.Events" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
-    <ProjectReference Include="..\Bobcat.Marten\Bobcat.Marten.csproj" />
     <ProjectReference Include="..\Bobcat.Wolverine\Bobcat.Wolverine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bobcat.CritterStack.Tests" />
   </ItemGroup>
 
 </Project>

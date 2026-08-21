@@ -22,6 +22,16 @@
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.24.2" />
     <PackageVersion Include="Marten" Version="9.22.0" />
     <PackageVersion Include="JasperFx" Version="2.37.0" />
+    <!--
+      Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
+      IProjectionCoordinator) rather than to Marten, so one package serves Marten, Polecat and
+      Fisher. Same version as JasperFx — the two ship together.
+
+      Known floor for the other stores, for the next alignment bump: every published Fisher
+      (0.5.0+) requires JasperFx.Events >= 2.47.0 and Polecat 5.9.1 is the last release on 2.37.0.
+      ProjectionScenario<TOps,TQuery> (JasperFx.Events.TestSupport) first ships in 2.38.0.
+    -->
+    <PackageVersion Include="JasperFx.Events" Version="2.37.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
