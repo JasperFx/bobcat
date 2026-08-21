@@ -11,6 +11,15 @@ public class FeatureInfo
     public string Title { get; set; } = "";
     public string FilePath { get; set; } = "";
     public List<ScenarioInfo> Scenarios { get; set; } = new();
+
+    /// <summary>Tags on the <c>Feature:</c> line. Every scenario inherits them as well.</summary>
+    public List<string> Tags { get; set; } = new();
+
+    /// <summary>
+    /// Free-text lines between <c>Feature:</c> and the first Background/Scenario, joined with
+    /// "\n"; null when there are none. Carries the <c>Triggered by …</c> declaration.
+    /// </summary>
+    public string? Description { get; set; }
 }
 
 public class ScenarioInfo

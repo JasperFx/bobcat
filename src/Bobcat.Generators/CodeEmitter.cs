@@ -47,6 +47,10 @@ public static class CodeEmitter
 
         sb.AppendLine("            })");
         sb.AppendLine("        {");
+        if (feature.Tags.Count > 0)
+            sb.AppendLine($"            Tags = new[] {{ {string.Join(", ", feature.Tags.Select(t => $"\"{escapeString(t)}\""))} }},");
+        if (feature.Description != null)
+            sb.AppendLine($"            Description = \"{escapeString(feature.Description)}\",");
         emitHook(sb, fixture, HookKind.BeforeEach);
         emitHook(sb, fixture, HookKind.AfterEach);
         emitHook(sb, fixture, HookKind.BeforeAll);
@@ -198,7 +202,7 @@ public static class CodeEmitter
         else if (method.IsSetVerification && step.TableRows != null && step.TableHeaders != null)
         {
             // Set verification — emit comparison code
-            emitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt);
+            emitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt, values);
         }
         else if (method.WaitForTimeoutMs.HasValue)
         {
@@ -213,7 +217,7 @@ public static class CodeEmitter
         else
         {
             // Regular sentence step
-            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider, tableLiteral(step));
             var awaitPrefix = method.IsAsync ? "await " : "";
             var returnSuffix = method.IsAsync ? "" : " return Task.CompletedTask;";
 
@@ -463,7 +467,7 @@ public static class CodeEmitter
             "no settable properties match. Write a Row method returning the entity to control construction.");
     }
 
-    private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt)
+    private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt, List<string> values)
     {
         var keyColumns = string.IsNullOrEmpty(method.SetVerificationKeyColumns)
             ? "Array.Empty<string>()"
@@ -486,8 +490,11 @@ public static class CodeEmitter
         sb.AppendLine("                    {");
         if (ctxStmt.Length > 0) sb.AppendLine($"                        {ctxStmt.TrimEnd()}");
 
+        // Captures bind positionally as on any sentence step, so "{event} is emitted with:" can
+        // hand the method the type it is asked about; a StepTable parameter sees the expected rows.
+        var svArgs = buildArgsFromCaptures(method.Parameters, values, step.DocString, null, tableLiteral(step));
         var awaitPrefix = method.IsAsync ? "await " : "";
-        sb.AppendLine($"                        var actual = {awaitPrefix}{target}.{method.MethodName}();");
+        sb.AppendLine($"                        var actual = {awaitPrefix}{target}.{method.MethodName}({svArgs});");
         sb.AppendLine($"                        var expected = new List<Dictionary<string, string>>");
         sb.AppendLine("                        {");
 
@@ -793,7 +800,7 @@ public static class CodeEmitter
         }
         else if (method.StepKind == "Check")
         {
-            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider, tableLiteral(step));
             sb.AppendLine($"                            var ok__ = {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            var cell__ = new CellResult(\"result\", ok__ ? ResultStatus.success : ResultStatus.failed) { Expected = \"true\", Actual = ok__ ? \"true\" : \"false\" };");
             sb.AppendLine("                            return new WaitAttempt(ok__, new[] { cell__ });");
@@ -801,7 +808,7 @@ public static class CodeEmitter
         else
         {
             // void / no-throw action
-            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider);
+            var args = buildSentenceArgs(method, values, step.DocString, scopeProvider, tableLiteral(step));
             sb.AppendLine($"                            {awaitKw}{target}.{method.MethodName}({args});");
             sb.AppendLine("                            return new WaitAttempt(true, System.Array.Empty<CellResult>());");
         }
@@ -818,15 +825,31 @@ public static class CodeEmitter
     }
 
     private static string buildSentenceArgs(StepMethodInfo method, List<string> values, string? docString = null,
-        string? scopeProvider = null)
-        => buildArgsFromCaptures(method.Parameters, values, docString, scopeProvider);
+        string? scopeProvider = null, string? tableLiteral = null)
+        => buildArgsFromCaptures(method.Parameters, values, docString, scopeProvider, tableLiteral);
+
+    /// <summary>
+    /// The C# expression building the step's trailing data table as a <c>Bobcat.StepTable</c>,
+    /// or <c>null</c> when the step has none. Bound to a <c>StepTable</c> parameter.
+    /// </summary>
+    private static string? tableLiteral(StepInfo step)
+    {
+        if (step.TableHeaders == null || step.TableRows == null) return null;
+
+        var headers = string.Join(", ", step.TableHeaders.Select(h => $"\"{escapeString(h)}\""));
+        var rows = string.Join(", ", step.TableRows.Select(r =>
+            "new string[] { " + string.Join(", ", r.Select(c => $"\"{escapeString(c)}\"")) + " }"));
+
+        return $"new global::Bobcat.StepTable(new string[] {{ {headers} }}, new string[][] {{ {rows} }})";
+    }
 
     /// <summary>
     /// Bind parameters to Cucumber captures positionally, skipping injected ones. A trailing
-    /// DocString fills the first uncovered string parameter.
+    /// DocString fills the first uncovered string parameter; a <c>StepTable</c> parameter takes
+    /// <paramref name="tableLiteral"/> (or null when the step carries no table).
     /// </summary>
     private static string buildArgsFromCaptures(List<ParameterInfo> parameters, List<string> values,
-        string? docString, string? scopeProvider)
+        string? docString, string? scopeProvider, string? tableLiteral = null)
     {
         if (parameters.Count == 0) return "";
 
@@ -834,7 +857,11 @@ public static class CodeEmitter
         var vi = 0;
         foreach (var param in parameters)
         {
-            if (param.IsInjected)
+            if (param.Binding == ParameterBinding.Table)
+            {
+                args.Add(tableLiteral ?? "null");
+            }
+            else if (param.IsInjected)
             {
                 args.Add(injectionExpression(param, scopeProvider));
             }
@@ -917,6 +944,12 @@ public static class CodeEmitter
         {
             case ParameterBinding.StepContext:
                 return "ctx";
+
+            case ParameterBinding.Table:
+                // Only sentence, Check, WaitFor and set-verification steps carry the table through
+                // buildArgsFromCaptures; anywhere else (per-row [Table] calls, decision tables,
+                // hooks) there is no whole table to hand over.
+                return "null";
 
             case ParameterBinding.Resource:
                 return $"ctx.GetResource<{p.QualifiedType}>({resource})";

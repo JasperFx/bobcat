@@ -66,7 +66,7 @@ public class CommandLineRenderer
 
         AnsiConsole.MarkupLine($"    {icon} {kindLabel}{Markup.Escape(step.StepText)}{duration}");
 
-        if (step.Status == ResultStatus.error && step.ErrorMessage != null)
+        if (step.Status is (ResultStatus.error or ResultStatus.failed) && step.ErrorMessage != null)
         {
             var exType = step.ExceptionType != null ? $"{Markup.Escape(step.ExceptionType)}: " : "";
             AnsiConsole.MarkupLine($"      [yellow]{exType}{Markup.Escape(step.ErrorMessage)}[/]");

@@ -23,6 +23,21 @@ public static class SimpleGherkinParser
         var background = new List<StepInfo>();
         var pendingTags = new List<string>();
 
+        // Feature-level tags are inherited by every scenario (Gherkin semantics); description
+        // lines under Feature: are collected until the first Background/Scenario.
+        var featureTags = new List<string>();
+        var description = new List<string>();
+        var inDescription = false;
+
+        // A scenario's effective tag list: the feature's, then its own, without duplicates.
+        List<string> ScenarioTags()
+        {
+            var tags = new List<string>(featureTags);
+            foreach (var tag in pendingTags)
+                if (!tags.Contains(tag)) tags.Add(tag);
+            return tags;
+        }
+
         // The step list the parser is currently appending to (background, a concrete
         // scenario, or a scenario-outline template).
         List<StepInfo>? currentSteps = null;
@@ -68,7 +83,9 @@ public static class SimpleGherkinParser
             if (trimmed.StartsWith("Feature:"))
             {
                 feature.Title = trimmed.Substring("Feature:".Length).Trim();
+                featureTags.AddRange(pendingTags);
                 pendingTags.Clear();
+                inDescription = true;
                 continue;
             }
 
@@ -76,6 +93,7 @@ public static class SimpleGherkinParser
             if (trimmed.StartsWith("Background:"))
             {
                 FlushOutline();
+                inDescription = false;
                 currentSteps = background;
                 currentStep = null;
                 lastKeyword = "Given";
@@ -87,8 +105,9 @@ public static class SimpleGherkinParser
             if (trimmed.StartsWith("Scenario Outline:") || trimmed.StartsWith("Scenario Template:"))
             {
                 FlushOutline();
+                inDescription = false;
                 var title = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
-                outline = new OutlineState { Title = title, Tags = new List<string>(pendingTags) };
+                outline = new OutlineState { Title = title, Tags = ScenarioTags() };
                 currentSteps = outline.Steps;
                 currentStep = null;
                 lastKeyword = "Given";
@@ -100,10 +119,11 @@ public static class SimpleGherkinParser
             if (trimmed.StartsWith("Scenario:"))
             {
                 FlushOutline();
+                inDescription = false;
                 var scenario = new ScenarioInfo
                 {
                     Title = trimmed.Substring("Scenario:".Length).Trim(),
-                    Tags = new List<string>(pendingTags)
+                    Tags = ScenarioTags()
                 };
                 // Background steps run first.
                 scenario.Steps.AddRange(background.Select(s => s.Clone()));
@@ -179,9 +199,16 @@ public static class SimpleGherkinParser
                     continue;
                 }
             }
+
+            // Anything else directly under Feature: is description — "Triggered by …" lives here.
+            if (inDescription)
+                description.Add(trimmed);
         }
 
         FlushOutline();
+
+        feature.Tags = featureTags;
+        feature.Description = description.Count > 0 ? string.Join("\n", description) : null;
 
         return feature.Title.Length > 0 ? feature : null;
     }

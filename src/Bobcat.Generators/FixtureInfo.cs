@@ -17,8 +17,11 @@ public class FixtureInfo
     /// <summary>Grammar modules composed in via [IncludeGrammars].</summary>
     public List<ModuleInfo> Modules { get; set; } = new();
 
-    /// <summary>Discovered lifecycle hooks, in declaration order.</summary>
+    /// <summary>Discovered lifecycle hooks, in execution order (Before* base-first, After* derived-first).</summary>
     public List<HookMethodInfo> Hooks { get; set; } = new();
+
+    /// <summary>Base-class steps hidden by a more-derived declaration of the same step — reported as BOBCAT015.</summary>
+    public List<HiddenStepInfo> HiddenSteps { get; set; } = new();
 
     public IEnumerable<HookMethodInfo> HooksOf(HookKind kind)
     {
@@ -49,6 +52,14 @@ public class FixtureInfo
             if (m.FullyQualifiedName == fullyQualifiedName) return m;
         return null;
     }
+}
+
+/// <summary>A step on a base class that a more-derived class re-declares; the derived one is bound.</summary>
+public class HiddenStepInfo
+{
+    public string Expression { get; set; } = "";
+    public string DeclaringType { get; set; } = "";
+    public string HiddenType { get; set; } = "";
 }
 
 public enum HookKind
@@ -248,5 +259,11 @@ public enum ParameterBinding
     RootService,
 
     /// <summary>Resolved as a keyed service from the per-scenario DI scope.</summary>
-    KeyedService
+    KeyedService,
+
+    /// <summary>
+    /// The step's whole trailing data table as a <c>Bobcat.StepTable</c> (null when the step has
+    /// none and the parameter is nullable). Never claims a column, never resolved from DI.
+    /// </summary>
+    Table
 }

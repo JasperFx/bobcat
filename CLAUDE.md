@@ -118,6 +118,44 @@ for `@` identifiers afterwards and give those a real name instead — `testsInCl
 ### Fixture → Feature Mapping
 One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
 
+### Step discovery walks base classes — base class *or* `[IncludeGrammars]`, both ship (issue #104)
+The generator discovers `[Given]/[When]/[Then]/[Check]` methods declared on a fixture **and on its
+base classes**, stopping at `Bobcat.Fixture`/`object` (`BobcatGenerator.collectStepsAndHooks`). This
+works across an assembly boundary — a base fixture in a referenced package is read from metadata —
+so a shipped grammar base class binds from the NuGet reference alone, no source needed by the
+*generator* (the editor is another matter; see "ship as source" below).
+
+- **Most-derived wins** on duplicate step text (keyword + expression): a derived `[Then("the label
+  is {string}")]` hides the base one, and the hidden base step is reported as **BOBCAT015** (info,
+  not an error). Method overrides/`new`-hiding are de-duplicated by signature so an `override` is not
+  double-counted.
+- **Lifecycle hooks nest**: discovered `BeforeEach`/`BeforeAll` run base-first, `AfterEach`/`AfterAll`
+  derived-first — constructor/disposer order.
+- **Two composition mechanisms, and which is canonical:** a **base class** (`class WithdrawFunds :
+  CritterStackFixture`) is canonical for "this fixture *is* a … fixture" — the whole vocabulary with
+  no attribute. `[IncludeGrammars(typeof(Module))]` is for **mix-ins** — a shared module dropped into
+  a fixture that already has another base, or several grammars combined. Modules inherit their own
+  base's steps too, so an empty `sealed class XGrammars : XFixture` exposes a base fixture as a module.
+- **Type-name captures** — `{type}`, and the Event Modeling aliases `{aggregate}`/`{command}`/
+  `{event}`/`{readmodel}`/`{message}` — capture a type *name* in the step text and bind to a
+  `System.Type` parameter as `typeof(global::…)`. `TypeNameResolver` resolves the name against the
+  consuming compilation and its non-framework references: a dotted name matches a full name; a simple
+  name must match exactly one type by simple name. Unresolved is **BOBCAT011**, ambiguous is
+  **BOBCAT012** (qualify it in the step text). Ambiguous *step* matches are **BOBCAT013**; a
+  `[SetVerification]` step with no table is **BOBCAT014**.
+- **`Bobcat.StepTable`** — declare a `StepTable` (nullable when optional) parameter to receive the
+  step's whole trailing data table as one argument (headers + rows as written), instead of the
+  per-row `[Table]` calls. Never binds a column, never resolved from DI. Built for grammars whose row
+  shape is not fixed at compile time (event records of several types, a command bound by column name).
+
+### Feature-level slice tags (`SliceTags`, issue #104/#106)
+A feature can declare the non-derivable bits of an Event Modeling slice: `@slice:<name>` and
+`@domain:<name>` tags on the `Feature:` line, and a `Triggered by …` description line. The parser
+carries feature tags (inherited by every scenario, standard Gherkin) and the description onto
+`FeatureDefinition.Tags`/`Description`, surfaced as `Slice`/`Domain`/`TriggeredBy`. `ResilienceTags`
+now projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a supervisor/viewer
+as a trait with no Bobcat reference. Nothing in the runtime *acts* on them — they feed #106.
+
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
 
@@ -654,6 +692,47 @@ to reach the event store.
   in `Bobcat.CritterStack.Tests` and the BankAccountES-on-Fisher acceptance are issue #103's
   follow-on to that bump. Polecat needs SQL Server, so it is a documented manual run rather than a
   CI leg.
+
+#### `CritterStackFixture` + shipped grammar modules (issue #104)
+
+`Bobcat.CritterStack` ships the slice-declaring Gherkin vocabulary as a base fixture. Derive from
+`CritterStackFixture` and every event-sourcing step is bound with no further code — that is the
+canonical route, riding the base-class discovery above; `[IncludeGrammars(typeof(CritterStackGrammars))]`
+is the mix-in route (`CritterStackGrammars` is an empty `sealed` subclass whose steps the module path
+discovers through its base).
+
+- **Typed steps** (shared with the code-first API, #105) sit on the fixture: `GivenEvents<T>(id,
+  events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (Wolverine invoke + `TrackedSession`,
+  returns the `AggregateExecution`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
+  `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
+- **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
+  {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `When
+  {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
+  table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the
+  {readmodel} read model contains` + table · `Then {message} is sent`.
+- **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
+  through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
+  **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
+  `Then` can assert on it (that is what makes `Then validation fails with …` work). Assertions throw
+  the new **`SpecAssertionException`** (in core: `ResultStatus.failed` at `FailureLevel.Assertion`, so
+  they accumulate rather than abort).
+- **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
+  resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
+  **appending** arrange-events and **loading** a read-model document — go through the shared
+  convention (`EventStoreAuthoring`: a session's `Events`/`SaveChangesAsync`/`LoadAsync<T>`), the same
+  bounded softening as `EventStores`' aggregate/reset helpers. `RecordBuilding`/`EventTypeResolver`
+  build command/event objects from table rows at runtime (the one runtime type-name lookup — the
+  compile-time `{command}`/`{event}` captures never come there).
+- **Ship as source.** The grammar `.cs` travels in the package under `contentFiles/cs/` (buildAction
+  `None`, so a consumer never double-compiles it against the assembly) and `content/grammars/`, so
+  VS Code's tree-sitter and Rider can parse the step source in a consumer's workspace. The *generator*
+  needs no source — it reads the base fixture's steps from assembly metadata.
+- **Proven** end to end by `Bobcat.CritterStack.Tests/GrammarSpecTests`: `Wallet.feature`, written
+  only in shipped-grammar steps, compiles through the generator, runs on Marten (Postgres 5445) across
+  four scenarios, and renders. **Fisher coverage is not possible yet** — every published Fisher needs
+  JasperFx.Events ≥ 2.47.0, above the repo's 2.37.0 pin; that alignment bump is issue **#125**, in
+  flight on another branch. The fixture binds to `JasperFx.Events`, so the same feature runs against a
+  Fisher host by swapping `AddMarten` for `AddFisher` once the pin moves.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.

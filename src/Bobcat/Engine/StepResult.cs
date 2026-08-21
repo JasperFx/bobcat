@@ -36,14 +36,24 @@ public class StepResult
     public StepResult MarkErrored(Exception ex, long end)
     {
         Exception = ex;
-        StepStatus = ResultStatus.error;
         End = end;
 
+        // A SpecAssertionException is a failed assertion expressed as code: same status and
+        // failure level as a [Check] returning false, so the scenario keeps going. Everything
+        // else escaping a step is an error that aborts the scenario (or the suite).
+        if (ex is SpecAssertionException)
+        {
+            StepStatus = ResultStatus.failed;
+            FailureLevel = FailureLevel.Assertion;
+            return this;
+        }
+
+        StepStatus = ResultStatus.error;
         FailureLevel = ex switch
         {
             SpecCatastrophicException => FailureLevel.Catastrophic,
             SpecCriticalException => FailureLevel.Critical,
-            _ => StepKind == StepKind.Then ? FailureLevel.Critical : FailureLevel.Critical
+            _ => FailureLevel.Critical
         };
 
         return this;
