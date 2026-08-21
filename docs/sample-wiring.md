@@ -106,6 +106,10 @@ endpoint returns the wrong status and logs `No routes can be determined for Enve
 HttpResults.Created<T>`.
 
 - **Fix:** return `TypedResults.Created<T>(...)` directly instead of a `(body, IResult)` tuple.
+- When the endpoint *also* cascades a message, the `IResult` goes **first**:
+  `(Created<UserAccount>, UserCreated)`. The first tuple item is the HTTP response under
+  Wolverine.HTTP's rules (an `IResult` is executed as-is), and everything after it is a cascaded
+  message. `BookingMonolith` does this on all four of its creates.
 - This one is upstream in Wolverine, not Bobcat.
 
 ### 4. Wolverine 6 no longer ships the runtime compiler
@@ -145,6 +149,11 @@ Asserting off the response races the handler.
   — hence the explicitly typed delegate rather than an inline lambda (CS0121).
 - `samples/PaymentsMonolith/PaymentsMonolithFixture.cs` (`awaitingCascades`) is the worked
   example. Removing it fails 3 of 11 scenarios, so it is load-bearing rather than defensive.
+- **Do not read a green run as proof the race is absent.** `BookingMonolith` has the same
+  shape (registering a user makes the Passenger module store a stub off a durable local queue)
+  and passed **10 of 10** runs with the tracking removed, because a one-document handler
+  usually beats the follow-up GET. Usually. Keep the tracking wherever the cascade exists, and
+  record the measurement either way so the next reader knows which kind of suite they have.
 - This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
   fixture reaches for `Wolverine.Tracking` directly.
 

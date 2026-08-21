@@ -2,6 +2,7 @@ using FluentValidation;
 using Marten;
 using BookingMonolith;
 using Flight;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Passenger;
 using Wolverine.Http;
 using Wolverine.Persistence;
@@ -31,7 +32,10 @@ public static class CreateBookingEndpoint
     // instead of two sequential LoadAsync calls. This is a significant performance win.
     // OnMissing = ProblemDetailsWith400 treats missing referenced entities as bad input
     // (the IDs come from the client), eliminating the need for a separate ValidateAsync.
-    public static (BookingRecord, BookingCreated) Post(
+    //
+    // First tuple item is the HTTP response (an IResult, executed as-is); the rest are cascaded
+    // messages. See RegisterUserEndpoint.
+    public static (Created<BookingRecord>, BookingCreated) Post(
         CreateBooking command,
         [Entity(Required = true, OnMissing = OnMissing.ProblemDetailsWith400)] Passenger.Passenger passenger,
         [Entity(Required = true, OnMissing = OnMissing.ProblemDetailsWith400)] Flight.Flight flight,
@@ -58,7 +62,9 @@ public static class CreateBookingEndpoint
         var booking = new BookingRecord();
         booking.Apply(domainEvent);
 
-        return (booking, new BookingCreated(bookingId, passenger.Id, flight.Id));
+        return (
+            TypedResults.Created($"/api/bookings/{bookingId}", booking),
+            new BookingCreated(bookingId, passenger.Id, flight.Id));
     }
 }
 
