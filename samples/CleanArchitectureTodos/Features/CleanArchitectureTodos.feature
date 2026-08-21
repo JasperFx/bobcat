@@ -3,11 +3,11 @@ Feature: Clean Architecture Todos
   Scenario: Create a todo list
     When I create a todo list with title "My List"
     Then the response status is 201
-    And the list id is returned
+    And the stored list is titled "My List"
 
   Scenario: New todo list has default colour
     When I create a todo list with title "Colour List"
-    Then the list has the default colour
+    Then the stored list has the colour "#808080"
 
   Scenario: Create duplicate title returns 400
     Given I create a todo list with title "Duplicate"
@@ -18,37 +18,43 @@ Feature: Clean Architecture Todos
     Given I create a todo list with title "Old Title"
     When I update the list title to "New Title"
     Then the response status is 200
+    And the stored list is titled "New Title"
 
   Scenario: Update to duplicate title returns 400
     Given I create a todo list with title "First"
     And I create a todo list with title "Second"
     When I update the list "Second" title to "First"
     Then the response status is 400
+    And the stored list "Second" is still titled "Second"
 
   Scenario: Delete a todo list
     Given I create a todo list with title "To Delete"
     When I delete the todo list
     Then the response status is 204
+    And the list no longer exists
 
   Scenario: Get all todo lists
     Given I create a todo list with title "List A"
     And I create a todo list with title "List B"
     When I get all todo lists
-    Then at least 2 lists are returned
+    Then 2 lists are returned
 
   Scenario: Create a todo item
     Given I create a todo list with title "Item List"
     When I create a todo item with title "Do something"
     Then the response status is 201
+    And the stored list has an item titled "Do something"
 
   Scenario: Update a todo item
     Given I create a todo list with title "Update Item List"
     And I create a todo item with title "Original"
     When I update the todo item title to "Updated"
-    Then the response status is 200
+    Then the response status is 204
+    And the stored list has an item titled "Updated"
 
   Scenario: Delete a todo item
     Given I create a todo list with title "Delete Item List"
     And I create a todo item with title "To Delete"
     When I delete the todo item
     Then the response status is 204
+    And the stored list has 0 items

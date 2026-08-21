@@ -1,5 +1,6 @@
 using FluentValidation;
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Wolverine.Http;
 
@@ -39,8 +40,14 @@ public static class CreateTodoListEndpoint
     // The main handler is synchronous and focused purely on the happy path.
     // FluentValidation middleware handles structural validation (empty/length).
     // ValidateAsync above handles business rule validation (uniqueness).
+    //
+    // Created rather than a bare TodoList, so the response carries the 201 and Location a
+    // newly-created resource should. Returned as a TypedResults value directly — a
+    // (TodoList, IResult) tuple would be read by Wolverine.HTTP as (body, cascaded-message)
+    // and the IResult dispatched as a message with no handler. See docs/sample-wiring.md
+    // footgun 3. Marten assigns the HiLo id on Store, so it is available for the Location.
     [WolverinePost("/api/todolists")]
-    public static TodoList Post(CreateTodoListRequest request, IDocumentSession session)
+    public static Created<TodoList> Post(CreateTodoListRequest request, IDocumentSession session)
     {
         var list = new TodoList
         {
@@ -51,6 +58,6 @@ public static class CreateTodoListEndpoint
 
         session.Store(list);
 
-        return list;
+        return TypedResults.Created($"/api/todolists/{list.Id}", list);
     }
 }
