@@ -1,10 +1,35 @@
-# Bobcat's test-run viewer — design notes
+# Bobcat.Console, the test-run viewer — design notes
 
 A deployable web console (`dotnet bobcat`) that shows live progress for every Bobcat test suite
 running on the box. Primary purpose: visualizing AI-agent-driven test runs — much of Critter
 Stack development is gated on testing time, and this makes that time observable.
 
-Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09).
+Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09) and by the
+rename to `Bobcat.Console` (2026-08-21, issue #100).
+
+## The name (2026-08-21)
+
+The project is **`Bobcat.Console`** (`src/Bobcat.Console`, `Bobcat.Console.Tests`,
+`Bobcat.Console.Specs`, `Bobcat.Console.FrontEnd`; namespaces `Bobcat.Console.*`; NuGet package
+id `Bobcat.Console`, tool command still `bobcat`). It was `Bobcat.Monitor` from 2026-07-31.
+`Bobcat.Viewer` was the other candidate and lost because nobody calls it a viewer out loud —
+"console" is the word already in the tool's description, in this document, and in every
+handoff.
+
+Two things stay as they were, on purpose, and this file's name is the first of them:
+
+- **`docs/monitor-design.md` keeps its filename.** It documents the monitor *protocol* — what a
+  run publishes, over which routes, with which env vars — at least as much as the viewer that
+  receives it, and issues, handoffs, and the CLAUDE.md seams all link to it by this name.
+- **The publisher side in core keeps the monitor vocabulary:** `Bobcat.Monitoring`,
+  `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, `BOBCAT_MONITOR*`, `BOBCAT_RUN_ID`,
+  `BOBCAT_RUN_TAG`, the `Monitor:*` config keys, the `/api/*` routes, the wire shapes and the
+  duplicated `MonitorEvents.cs` records. There "monitor" means *the thing a run publishes to*,
+  and every one of those is a user-facing or wire contract. Renaming them would be a breaking
+  change that #100 explicitly scoped out.
+
+Mentions of `Bobcat.Monitor` in dated history below were rewritten to the new name wholesale;
+read them as the same project.
 
 ## The split (2026-08-09)
 
@@ -61,13 +86,13 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   `{type, data}` items recursively; wire names are pinned to the STJ discriminators by
   `SignalRBatchingTests`.
 - TS mirrors of the contracts are **generated** (issue #85, built 2026-08-21): CritterWatch's
-  NJsonSchema `GenerateCommand` pattern, cut down. `TypeScriptContracts` in `Bobcat.Monitor`
+  NJsonSchema `GenerateCommand` pattern, cut down. `TypeScriptContracts` in `Bobcat.Console`
   reflects `MonitorEvents.cs` through the same STJ settings the wire uses and emits
   `src/messages/monitor-events.ts` wholesale (interfaces `extends MonitorEvent`, a
   `MonitorEventType` union, the batching envelope); `relayToStore.ts` is *patched*, not owned —
   a missing `case` is inserted above the `*CASE ABOVE*` marker in the store's
   `handle<Type>` convention and the import block is merged, while hand-written cases stay
-  verbatim. Regenerate with `dotnet run --project src/Bobcat.Monitor -- generate` (`--check`
+  verbatim. Regenerate with `dotnet run --project src/Bobcat.Console -- generate` (`--check`
   verifies only). `TypeScriptContractTests` fails `dotnet test` when either committed file
   differs from what the records generate, so drift is a red build. Two deliberate rules: a
   record constructor parameter with a default (`RunStarted.Tag`) mirrors as an *optional*
@@ -98,7 +123,7 @@ no-op for the run if nothing answers; bounded channel, drop on backpressure; dis
 
 ## Event model
 
-`src/Bobcat.Monitor/Contracts/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
+`src/Bobcat.Console/Contracts/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
 type discriminator and the Wolverine message type name are pinned to the same snake_case
 string, so ingestion JSON and the SignalR envelope agree by construction. Identity: `RunId`
 (minted per run) + scenario uid `"{Feature}/{Scenario}"` — the string BobcatRunner,
@@ -109,7 +134,7 @@ repository path + branch, the dashboard's grouping key for parallel suites on on
 The publisher client lives in Bobcat as `Bobcat.Monitoring` (issue #65): mirror records of
 these contracts, DECIDED to stay deliberately unshared — Bobcat must not depend on the
 monitor's Wolverine stack, and the wire shape (not an assembly) is the contract. The
-round-trip tests in `Bobcat.Monitor.Tests` are what keep the two sides honest.
+round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
 
 ## Bobcat-side seams (issue #65 — built)
 
@@ -235,7 +260,7 @@ Researched 2026-07-31 (GitHubActionsTestLogger, MTP-native reports, CTRF, JUnit)
 
 ## MCP (built 2026-07-31)
 
-`src/Bobcat.Monitor/Mcp/MonitorTools.cs`, mounted at `/api/mcp` — streamable HTTP, stateless,
+`src/Bobcat.Console/Mcp/MonitorTools.cs`, mounted at `/api/mcp` — streamable HTTP, stateless,
 via `ModelContextProtocol.AspNetCore` in the CritterWatch *.Mcp shape (static
 `[McpServerTool]` methods returning camelCase JSON). Six tools: `list_runs`, `run_status`
 (live steps for the executing scenario only), `failing_tests`, `flaky_ledger` (spans all
@@ -253,10 +278,10 @@ a busy box should pass the runId from `list_runs`.
 
 Vitest is the whole UI test story: store/dispatcher logic tested by feeding recorded
 event sequences at the Pinia stores (`src/stores/__tests__`, `src/messages/__tests__`),
-happy-dom for component mounts, CI gate in `.github/workflows/monitor-frontend.yml`
+happy-dom for component mounts, CI gate in `.github/workflows/console-frontend.yml`
 (path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`).
 
-End-to-end is **`src/Bobcat.Monitor.Specs/`** (issue #86, built 2026-08-21): the viewer's own
+End-to-end is **`src/Bobcat.Console.Specs/`** (issue #86, built 2026-08-21): the viewer's own
 `Program` booted in-process over Alba's TestServer by a `MonitorHost` resource, and Bobcat's
 Gherkin runner driving it as an MTP host that `dotnet test` collects. Four features — Live Runs,
 Retries, Ejection, Exports — ingest events over `POST /api/ingest` exactly as a publisher does and

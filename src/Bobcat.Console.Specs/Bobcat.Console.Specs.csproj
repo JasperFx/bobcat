@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bobcat.Console.Specs: the test-run viewer's end-to-end suite, written in Bobcat's own Gherkin
+    runner (issue #86). The viewer is the framework's first real browser-facing consumer, and this
+    is the layer that would otherwise have been Playwright — deliberately not: the whole wire is
+    verifiable without a browser. POST /api/ingest in, GET /api/runs, /api/runs/{id} and the
+    export endpoints out, all driven in-process over Alba's TestServer.
+
+    A spec project referencing Bobcat.Console is fine; the rule is that no Bobcat.* LIBRARY may.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!--
+      This is a Bobcat spec project running as a Microsoft.Testing.Platform host, and unlike
+      Bobcat.Mtp.SampleHost its scenarios are meant to pass — so `dotnet test` at the solution
+      root collects it and CI runs it on every push. src/Directory.Build.props only applies the
+      MTP properties to projects named *.Tests, hence setting them here by hand.
+    -->
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+    <!-- A ProjectReference does not consume Bobcat.Mtp's buildTransitive props, so the synthesized
+         MTP Main has to be turned off here or it collides with SpecsRunner.Main (CS0017). -->
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Alba\Bobcat.Alba.csproj" />
+    <ProjectReference Include="..\Bobcat.Mtp\Bobcat.Mtp.csproj" />
+    <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Features\**\*.feature" />
+  </ItemGroup>
+
+</Project>

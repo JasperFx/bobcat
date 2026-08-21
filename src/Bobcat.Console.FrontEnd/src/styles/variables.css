@@ -1,0 +1,60 @@
+/* Bobcat Console design tokens — the CritterWatch palette (JasperFx orange over
+   Element Plus) with a --bm- prefix. Keep in sync deliberately, not automatically:
+   the two consoles should look like siblings. */
+:root {
+  --bm-primary: #da6109;
+  --bm-menu-bg: #f5f7fa;
+  --bm-menu-hover: #e8e9eb;
+  --bm-menu-text: #4a4a4a;
+  --bm-menu-active-text: #da6109;
+
+  --el-color-primary: var(--bm-primary);
+  --el-color-primary-light-3: #e8933e;
+  --el-color-primary-light-5: #edb06a;
+  --el-color-primary-light-7: #f3cd97;
+  --el-color-primary-light-8: #f6dbae;
+  --el-color-primary-light-9: #f9e9c5;
+  --el-color-primary-dark-2: #b55007;
+
+  /* Test-state color grammar, adapted from CritterWatch's Event Modeling grammar:
+     running = command blue, passed = read-model green, failed = failure red,
+     retrying/flaky = event orange. Dark-safe variants chosen up front. */
+  --bm-state-running: #2f6fed;
+  --bm-state-running-bg: #e8f0fe;
+  --bm-state-passed: #2e9e5b;
+  --bm-state-passed-bg: #e7f6ed;
+  --bm-state-failed: #d64541;
+  --bm-state-failed-bg: #fdeaea;
+  --bm-state-retrying: #e8930c;
+  --bm-state-retrying-bg: #fdf3e3;
+}
+
+body {
+  margin: 0;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Arial, sans-serif;
+}
+
+.bm-sidebar {
+  background-color: var(--bm-menu-bg);
+  border-right: 1px solid #e4e7ed;
+}
+
+.bm-sidebar .el-menu {
+  border-right: none;
+  background-color: var(--bm-menu-bg);
+}
+
+.bm-sidebar .el-menu-item {
+  color: var(--bm-menu-text);
+}
+
+.bm-sidebar .el-menu-item:hover {
+  background-color: var(--bm-menu-hover);
+  color: var(--bm-primary);
+}
+
+.bm-sidebar .el-menu-item.is-active {
+  color: var(--bm-menu-active-text);
+  background-color: #fdf0e6;
+}

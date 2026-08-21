@@ -65,7 +65,7 @@ jobs:
       # this pack via the BuildFrontend target).
       - name: Pack bobcat (embedded frontend)
         run: >
-          dotnet pack src/Bobcat.Monitor/Bobcat.Monitor.csproj
+          dotnet pack src/Bobcat.Console/Bobcat.Console.csproj
           -c Release -p:EmbedFrontend=true -o ${{ github.workspace }}/artifacts
 
       - name: Push to NuGet

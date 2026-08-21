@@ -1,0 +1,96 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Bobcat.Console — a deployable dotnet tool that hosts the live test-progress console:
+    ASP.NET + Wolverine + Wolverine.SignalR backend, with the Vue SPA
+    (src/Bobcat.Console.FrontEnd) served embedded in a published build.
+
+    Deliberately NOT referenced by any Bobcat.* library. Publishers (BobcatRunner, the
+    supervisor, worker processes) talk to this host over plain HTTP with zero extra
+    dependencies, so the monitor's Wolverine stack never leaks into the test framework.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!--
+      CritterWatch's EmbedFrontend pattern: opt-in because the frontend build needs npm, which
+      a plain `dotnet build` of the solution (CI's tests job, a contributor without node) must
+      not require. Packing is gated on it below, so the tool package can never ship without
+      its UI baked in — an accidental `dotnet pack` at the solution root simply skips this
+      project rather than producing a console with no console.
+    -->
+    <EmbedFrontend Condition="'$(EmbedFrontend)' == ''">false</EmbedFrontend>
+
+    <IsPackable>$(EmbedFrontend)</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <!--
+      `dotnet bobcat`, not `bobcat-monitor`. "Monitor" became ambiguous the moment agent
+      coordination moved out to Stoat (its own BSL repo) — this tool watches test runs and
+      nothing else now, and it is the only global tool Bobcat ships, so it gets the plain name.
+
+      Note what this command is NOT: `run` and `list` belong to BobcatRunner and live inside a
+      consumer's OWN test executable, because they need that project's compiled fixtures. A
+      global tool cannot host them. This is the viewer.
+    -->
+    <ToolCommandName>bobcat</ToolCommandName>
+    <Description>Live web console for Bobcat test runs: suite progress, Gherkin step streaming, retry/flakiness reporting.</Description>
+  </PropertyGroup>
+
+  <!--
+    The EmbeddedResource items are added INSIDE the target, not in a static ItemGroup: a
+    static glob evaluates before any target runs, so on a clean build (no dist/ yet) it
+    matches nothing and the "embedded" tool ships hollow. Adding the items after the Vite
+    build makes the embed order-proof. SkipFrontendBuild reuses an existing dist/ (local
+    iteration on the .NET side only).
+  -->
+  <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Condition="'$(EmbedFrontend)' == 'true'">
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Console.FrontEnd" />
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Console.FrontEnd" />
+
+    <ItemGroup>
+      <!--
+        Two-step on purpose: inside a target, %() metadata on a GLOBBED include batches over
+        existing items (empty here) instead of flowing per matched file. Globbing into an
+        intermediate item first, then transforming, gives each file its own Link.
+      -->
+      <_FrontendDistFile Include="../Bobcat.Console.FrontEnd/dist/**/*" />
+      <EmbeddedResource Include="@(_FrontendDistFile)"
+                        Link="wwwroot/%(_FrontendDistFile.RecursiveDir)%(_FrontendDistFile.Filename)%(_FrontendDistFile.Extension)" />
+    </ItemGroup>
+
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Console.FrontEnd/dist/index.html')"
+           Text="EmbedFrontend=true but the frontend build produced no dist/index.html" />
+  </Target>
+
+  <ItemGroup>
+    <!--
+      Explicit because MonitorEvents uses JasperFx.Testing.DispositionKind. Without a direct
+      reference the version came in transitively from WolverineFx.Http, which asks for 2.36.1 —
+      below the centrally pinned version, and Central Package Management only pins what a project
+      actually references. The result was a project compiling against a JasperFx nobody chose.
+    -->
+    <PackageReference Include="JasperFx" />
+    <PackageReference Include="WolverineFx.Http" />
+    <PackageReference Include="WolverineFx.SignalR" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!--
+      The `generate` command (run this project with the argument `generate`) regenerates the
+      SPA's TypeScript contract mirrors from Contracts/MonitorEvents.cs; see
+      Contracts/TypeScriptContracts.cs.
+      A host-time dependency only in the sense that the command lives in the host; nothing on
+      the request path touches it.
+    -->
+    <PackageReference Include="NJsonSchema" />
+    <PackageReference Include="NJsonSchema.CodeGeneration.TypeScript" />
+    <!--
+      Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
+      host dies at startup in TypeLoadMode.Dynamic.
+    -->
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+  </ItemGroup>
+
+</Project>

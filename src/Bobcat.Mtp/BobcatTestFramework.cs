@@ -97,7 +97,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         runner.WithObserver(new PublishingObserver(this, context, request.Session.SessionUid));
 
         // Execution (never discovery — IDEs discover on every build) also streams to a locally
-        // running Bobcat.Monitor when there is one; the probe costs one refused connection
+        // running Bobcat.Console when there is one; the probe costs one refused connection
         // otherwise. Attached via AddObserver inside RunAll, so it rides beside the node
         // publisher above.
         runner.PublishToMonitor = true;

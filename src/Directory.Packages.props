@@ -39,13 +39,13 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
     <!--
-      Bobcat.Monitor host. Same 6.24.2 as the aligned set above — the earlier monitor-only
+      Bobcat.Console host. Same 6.24.2 as the aligned set above — the earlier monitor-only
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
       collapsed when the alignment caught up.
     -->
     <PackageVersion Include="WolverineFx.Http" Version="6.24.2" />
     <PackageVersion Include="WolverineFx.SignalR" Version="6.24.2" />
-    <!-- MCP server for Bobcat.Monitor — same package + version CritterWatch's *.Mcp family uses. -->
+    <!-- MCP server for Bobcat.Console — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!--
       TypeScript contract codegen for the monitor's Vue SPA (CritterWatch's GenerateCommand

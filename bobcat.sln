@@ -52,11 +52,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Supervisor.SampleWor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Supervisor.Tests", "src\Bobcat.Supervisor.Tests\Bobcat.Supervisor.Tests.csproj", "{499E95FB-EE74-4B03-A059-C8ECC9786BAC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Monitor", "src\Bobcat.Monitor\Bobcat.Monitor.csproj", "{0F9132D4-F259-458E-BD06-2CFDD7A02BDD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console", "src\Bobcat.Console\Bobcat.Console.csproj", "{0F9132D4-F259-458E-BD06-2CFDD7A02BDD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Monitor.Tests", "src\Bobcat.Monitor.Tests\Bobcat.Monitor.Tests.csproj", "{C6B1D2A2-D825-4201-8B68-4B1AF8550DFB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console.Tests", "src\Bobcat.Console.Tests\Bobcat.Console.Tests.csproj", "{C6B1D2A2-D825-4201-8B68-4B1AF8550DFB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Monitor.Specs", "src\Bobcat.Monitor.Specs\Bobcat.Monitor.Specs.csproj", "{7E8F5F5E-3F1D-4D54-9D78-16ACE514E89C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console.Specs", "src\Bobcat.Console.Specs\Bobcat.Console.Specs.csproj", "{7E8F5F5E-3F1D-4D54-9D78-16ACE514E89C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

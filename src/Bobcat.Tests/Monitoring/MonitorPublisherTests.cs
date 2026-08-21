@@ -26,7 +26,7 @@ public class MonitorPublisherTests : IDisposable
         => Environment.SetEnvironmentVariable(MonitorPublisher.KillSwitchVariable, _previousKillSwitch);
 
     /// <summary>
-    /// A minimal stand-in for the Bobcat.Monitor host: answers /api/ping and captures
+    /// A minimal stand-in for the Bobcat.Console host: answers /api/ping and captures
     /// /api/ingest bodies, so the publisher is tested against real HTTP.
     /// </summary>
     private sealed class FakeMonitorHost : IDisposable
