@@ -53,3 +53,15 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal
+
+      # The MSBuild integration of Microsoft.Testing.Platform prints only "Failed: N" to the
+      # console and writes the failing tests' names and assertions to each project's
+      # TestResults/*.log. Keep those when the job is red, or the name of the failing test is
+      # something a reader has to reproduce locally to learn.
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.log'
+          if-no-files-found: ignore
