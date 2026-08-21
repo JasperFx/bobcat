@@ -11,6 +11,10 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Alba" />
+    <!-- Referenced directly, not only through Bobcat: this project sets
+         JasperFxEnvironment.AutoStartHost, and Central Package Management only pins what a
+         project actually references (see CLAUDE.md on DispositionKind / Bobcat.Monitor). -->
+    <PackageReference Include="JasperFx" />
   </ItemGroup>
 
   <ItemGroup>

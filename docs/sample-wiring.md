@@ -337,3 +337,34 @@ Things that bit on the way:
   `AddMarten(opts => ...)` / `AddFisher(opts => ...)` lambdas infer them.
 - `JasperFx.Events.Documents.ToListAsync` and Marten's own `ToListAsync` collide only if a file
   imports both namespaces; the endpoints import only the JasperFx one.
+
+### 15. `RunJasperFxCommands` hosts need `JasperFxEnvironment.AutoStartHost` — Bobcat sets it
+Every Critter Stack `Program.Main` ends in `return await app.RunJasperFxCommands(args);`. Under
+`WebApplicationFactory` (which is what `AlbaHost.For<TProgram>` is) that `Main` runs on a
+background thread with the factory's synthesized arguments — `--environment=Development
+--contentRoot=… --applicationName=…` — and JasperFx's command runner parses a command line that
+was never meant for it. `JasperFxEnvironment.AutoStartHost = true` is JasperFx's own switch for
+exactly this ("very useful for WebApplicationFactory testing"; Alba's tests call it "required"):
+JasperFx then starts the already-built host *before* parsing anything, its `run` command skips
+the redundant start, and its usage graph tolerates flags it does not own. Without it the host is
+left to a race between the factory's start and the run command's, and a host with commands of
+its own can report the factory's flags as a usage error.
+
+**`AlbaResource<TProgram>` and `AlbaResource` set it on `Start()`** (`AlbaResource.PrepareJasperFxHosting()`
+does it for a bare `AlbaHost.For<T>`). It is a process-wide static and Bobcat never sets it back
+— deliberately: the flag only changes behaviour for a command line run against an *already
+built* `IHost`, which in a test process is always one the factory is driving, and it is read on
+the entry point's thread at a moment Bobcat cannot see, so scoping it to `Start` would be a race.
+
+What you will still see on the console, and can ignore — it is JasperFx-side and harmless:
+
+- `Searching 'JasperFx, Version=…' for commands` — the command runner's assembly scan.
+- `JasperFx cannot override the environment name when running against a pre-build IHost. Try
+  setting dotnet run --environment Name …` — the factory passed `--environment=Development`;
+  JasperFx is telling you it ignored it. The host *is* in Development (the factory set it).
+- After the suite disposes the host: `ERROR: System.ObjectDisposedException: Cannot access a
+  disposed object. Object name: 'IServiceProvider'` from `JasperFx.CommandLine.NetCoreInput.BuildHost`
+  — the command runner's `run` command waking up on a host the test already threw away.
+
+If a `RunJasperFxCommands` host fails to *start* under Alba, the flag is the first thing to check:
+`JasperFxEnvironment.AutoStartHost` must be `true` before `AlbaHost.For<T>` runs `Main`.

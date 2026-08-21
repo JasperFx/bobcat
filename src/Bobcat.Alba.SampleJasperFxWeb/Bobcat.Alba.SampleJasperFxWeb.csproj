@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The smallest host whose Main ends in RunJasperFxCommands — the shape of every Critter Stack
+    application. Bobcat.Alba.Tests boots it through AlbaResource<TProgram> to prove the JasperFx
+    command runner and WebApplicationFactory get along (JasperFxEnvironment.AutoStartHost, issue
+    #62 gap 10). Not packable, never shipped.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JasperFx" />
+  </ItemGroup>
+
+</Project>
