@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "monitor-frontend",
+      "name": "console-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "src/Bobcat.Monitor.FrontEnd",
+      "cwd": "src/Bobcat.Console.FrontEnd",
       "port": 5173
     }
   ]

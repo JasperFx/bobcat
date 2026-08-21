@@ -97,7 +97,7 @@ public class BobcatRunner
     }
 
     /// <summary>
-    /// Opt-in publishing of live progress to a locally running Bobcat.Monitor console. Off by
+    /// Opt-in publishing of live progress to a locally running Bobcat.Console host. Off by
     /// default so unit tests driving BobcatRunner directly never probe or publish; the real
     /// entry points (<see cref="Run"/>, the MTP host) turn it on. Even when on, an absent
     /// monitor costs exactly one refused local connection — see <see cref="MonitorPublisher"/>.

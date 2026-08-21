@@ -15,7 +15,7 @@ public interface IMonitorEventSink
 }
 
 /// <summary>
-/// Fire-and-forget HTTP publisher for the Bobcat.Monitor console. The invariant that outranks
+/// Fire-and-forget HTTP publisher for the Bobcat.Console host. The invariant that outranks
 /// everything else here: <b>a test run is never slowed or failed by the monitor.</b> Concretely:
 /// <list type="bullet">
 /// <item><see cref="TryConnect"/> probes <c>/api/ping</c> once with a tight timeout and returns

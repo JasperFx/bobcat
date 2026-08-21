@@ -39,7 +39,7 @@ public static class BobcatTestApplication
         // off to keep its own Main, so it has to be registered here. Without it the host answers
         // "Unknown option '--internal-msbuild-node'" and `dotnet test` reports the project failed
         // before a single scenario ran; running the executable directly never showed it, which is
-        // how Bobcat.Monitor.Specs became the first Bobcat host `dotnet test` ever collected.
+        // how Bobcat.Console.Specs became the first Bobcat host `dotnet test` ever collected.
         Microsoft.Testing.Platform.MSBuild.TestingPlatformBuilderHook.AddExtensions(builder, args);
 
         builder.RegisterTestFramework(

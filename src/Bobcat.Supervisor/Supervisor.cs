@@ -131,7 +131,7 @@ public sealed class Supervisor
     public Action<string>? Log { get; set; }
 
     /// <summary>
-    /// Publish this run to a Bobcat.Monitor console. Opt-in (same policy as
+    /// Publish this run to a Bobcat.Console host. Opt-in (same policy as
     /// <c>BobcatRunner.PublishToMonitor</c>): a unit test driving a supervisor must never
     /// probe a monitor that happens to be running on the box.
     /// </summary>

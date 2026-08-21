@@ -3,11 +3,11 @@ using System.Text.Json.Serialization;
 namespace Bobcat.Monitoring;
 
 /// <summary>
-/// Client-side mirrors of the Bobcat.Monitor ingestion contracts
-/// (src/Bobcat.Monitor/Contracts/MonitorEvents.cs). The wire shape — snake_case type
+/// Client-side mirrors of the Bobcat.Console ingestion contracts
+/// (src/Bobcat.Console/Contracts/MonitorEvents.cs). The wire shape — snake_case type
 /// discriminator plus camelCase fields — is the contract, deliberately not a shared assembly:
 /// Bobcat must stay free of the monitor's Wolverine stack, and the monitor must never be a
-/// dependency of the thing it watches. A round-trip test in Bobcat.Monitor.Tests keeps the two
+/// dependency of the thing it watches. A round-trip test in Bobcat.Console.Tests keeps the two
 /// sides honest.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]

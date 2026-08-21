@@ -284,7 +284,7 @@ public class OrderFixture : Fixture;
   Everything that *acts* on a hint stays here — `RecoveryHint`, `RecoveryHintSet.Best`,
   `HintedFailurePolicy`, the scope rule.
   - Consequence worth knowing: **a project using `DispositionKind` must reference `JasperFx`
-    directly.** `Bobcat.Monitor` did not, and picked up 2.36.1 transitively from `WolverineFx.Http`
+    directly.** `Bobcat.Console` did not, and picked up 2.36.1 transitively from `WolverineFx.Http`
     — Central Package Management only pins what a project actually references, so the central
     2.37.0 did not apply and it compiled against a JasperFx nobody chose.
   - `ClearsOnRecycle` parses its resource list independently of `ResilienceTags.ParseResources`,
@@ -368,7 +368,7 @@ not consume another project's build assets, so in-repo projects must set
 Turning that entry point off also drops the generated `AddSelfRegisteredExtensions`, which is
 where the **MSBuild extension** (the thing `dotnet test` actually talks to, via
 `--internal-msbuild-node`) would have been registered. `BobcatTestApplication.Run` therefore
-registers it itself (`TestingPlatformBuilderHook.AddExtensions`). Until `Bobcat.Monitor.Specs`
+registers it itself (`TestingPlatformBuilderHook.AddExtensions`). Until `Bobcat.Console.Specs`
 no Bobcat host in the repo had `IsTestProject=true`, so `dotnet test` had never actually
 collected one and the missing registration went unnoticed — running the executable directly
 never exercises that path.
@@ -615,17 +615,17 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
 | **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
-| **Bobcat.Monitor** | net10.0 | Scaffold | Live test-progress web console (`dotnet bobcat`); see `docs/monitor-design.md` |
+| **Bobcat.Console** | net10.0 | Scaffold | Live test-progress web console (`dotnet bobcat`); see `docs/monitor-design.md` |
 
-`Bobcat.Monitor` + `src/Bobcat.Monitor.FrontEnd/` (Vue 3 + Pinia + Element Plus + SignalR,
-vitest-gated by `.github/workflows/monitor-frontend.yml`) deliberately mirror CritterWatch's
+`Bobcat.Console` + `src/Bobcat.Console.FrontEnd/` (Vue 3 + Pinia + Element Plus + SignalR,
+vitest-gated by `.github/workflows/console-frontend.yml`) deliberately mirror CritterWatch's
 stack and palette. The viewer is a *consumer* of test runs over plain HTTP — no Bobcat.*
 library may reference it. All decisions of record: `docs/monitor-design.md`. The publisher
 side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
 
 The SPA's TypeScript mirrors of the event contracts are **generated, never hand-edited**:
-`dotnet run --project src/Bobcat.Monitor -- generate` (NJsonSchema over
+`dotnet run --project src/Bobcat.Console -- generate` (NJsonSchema over
 `Contracts/MonitorEvents.cs`, see `TypeScriptContracts`) rewrites `src/messages/monitor-events.ts`
 and inserts any missing `relayToStore` case above its `*CASE ABOVE*` marker; hand-written cases
 and the store handlers are left alone. `TypeScriptContractTests` fails the build when the
@@ -633,11 +633,30 @@ committed files drift. After adding a record to `MonitorEvents.cs` (both copies 
 `Bobcat.Monitoring` mirror stays deliberately separate, pinned by `ContractRoundTripTests`),
 regenerate, then write the store handler the inserted case names.
 
-The project name is a leftover; the tool is `dotnet bobcat` and it is the test-run **viewer**.
-Renaming the project (`Bobcat.Viewer`?) is an open decision, not a settled one.
+**The project is `Bobcat.Console` — decided 2026-08-21, issue #100.** It was `Bobcat.Monitor`
+from 2026-07-31 until then; "monitor" became ambiguous the moment agent coordination moved out
+to Stoat, and `Bobcat.Viewer` lost to `Bobcat.Console` because "console" is what the tool is
+called everywhere a user meets it (`dotnet bobcat`, "the live test-progress console"). The
+rename covers the project, directory, assembly, NuGet package id, namespaces
+(`Bobcat.Console.*`), the test/spec/frontend projects beside it, and the CI workflow
+(`console-frontend.yml`). One C# consequence worth knowing: inside any `Bobcat.Console.*`
+namespace — the viewer, its tests, its specs — an unqualified `Console.WriteLine` binds to the
+*namespace* `Bobcat.Console`, so write `System.Console` there (`GenerateCommand.cs` does).
 
-**`Bobcat.Monitor.Specs` is the viewer's end-to-end suite, written in Bobcat itself** (issue
-#86). A spec project *may* reference `Bobcat.Monitor` — the no-reference rule is for libraries.
+**What the rename deliberately did NOT touch, and must not be "finished" later:** the
+publisher-side contract in core keeps the monitor vocabulary, because "monitor" there means
+*the thing a run publishes to* and is user-facing or on the wire. That is the `Bobcat.Monitoring`
+namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
+`Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, the env vars
+`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_MONITOR_DATA`, `BOBCAT_MONITOR_RETENTION_DAYS`,
+`BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
+SignalR/ingest wire shapes, the CTRF reporter name, the duplicated `MonitorEvents.cs` records on
+both sides, and `docs/monitor-design.md` (kept under its name because it documents that wire as
+much as the viewer). Changing any of those is a breaking change that issue #100 scoped out;
+it needs its own decision, not a sweep.
+
+**`Bobcat.Console.Specs` is the viewer's end-to-end suite, written in Bobcat itself** (issue
+#86). A spec project *may* reference `Bobcat.Console` — the no-reference rule is for libraries.
 It is an MTP host (`BobcatTestApplication.Run`) with `IsTestProject=true` and the MTP properties
 set by hand (the `*.Tests` convention in `Directory.Build.props` does not catch it), so `dotnet
 test` at the root collects it. `MonitorHost` boots the real `Program` over Alba's TestServer with
@@ -651,7 +670,8 @@ contract like `/api/runs`. A spec host publishes its own progress like any other
 Split 2026-08-09. **Bobcat is the MIT integration testing framework** — Gherkin runner,
 supervisor, and the test-run viewer. **[Stoat](https://github.com/JasperFx/stoat) is the BSL
 AI agent coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims,
-MCP). Everything under `src/Bobcat.Monitor/Coordination/` moved there.
+MCP). Everything under the viewer's `Coordination/` folder (then `src/Bobcat.Monitor/Coordination/`,
+now `src/Bobcat.Console/`) moved there.
 
 Two rules this creates, both load-bearing:
 
