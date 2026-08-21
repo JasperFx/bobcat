@@ -200,9 +200,25 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
      and `faults` on the run; rendered by `LaneStrip` on the card and `SupervisorTopology` on
      the detail. Replay-safe by the supervisor's timestamps: a lane start no newer than the
      pass we are on, a finish older than that pass, or a recycle/fault already seen is the
-     archive being re-announced over live state, not a new fact. Not folded server-side in
-     `RunProjection` (yet): nothing reads it there, and the archive replays it to the browser
-     unchanged.
+     archive being re-announced over live state, not a new fact.
+   - **Folded server-side too** (built 2026-08-21, the last piece of #84): `RunProjection`
+     carries `Lanes` / `Recycles` / `WorkerFaults` (+ `RunningIn(lane)`, the lane's uids
+     joined to live scenario state) under exactly the store's rules —
+     `SupervisorTopologyProjectionTests` is a case-for-case port of
+     `runs-store-topology.test.ts`, so the two folds cannot drift silently, and it includes the
+     same replay-over-live-state no-op. Read by MCP `run_status` (`lanes`, `recycles`,
+     `workerFaults`, always present — empty arrays for an in-process run, so an agent never
+     has to guess whether the field is missing), by `GET /api/runs/{id}` (`RunDetail.Lanes` /
+     `Recycles` / `WorkerFaults`, additive init properties), and by the CTRF export in the
+     results-level `extra` (`lanes`, `recycles`, `workerFaults`, omitted for an in-process run
+     so that export is byte-identical to before; CTRF has no vocabulary for worker processes
+     and the schema would reject an invented top-level field). One consequence for the
+     scenario fold: a supervised retry's first attempt reported its own terminal outcome, so a
+     genuinely new attempt's `ScenarioStarted` now clears `Outcome` — the retried scenario reads
+     as running again, which is what a lane's "running now" and `run_status` need. Only a new
+     attempt clears it (attempt numbers are a floor), so a replayed start never un-finishes one.
+     A crashed lane's scenario that never reported an outcome keeps reading as running — the
+     fold infers nothing for it; the supervisor's `RunFinished` is what counts it Indeterminate.
    - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
      updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host
@@ -344,9 +360,6 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 
 ## Not built yet
 
-- Server-side folding of the lane/recycle/fault events into `RunProjection` (CTRF `extra`,
-  MCP `run_status`). The dashboard has them via the archive replay; an agent asking over MCP
-  does not yet.
 - Gherkin-runner dogfood e2e against this UI (#86).
 - **Elapsed-vs-expected per step.** Step progress (#99, Bobcat-side seams item 5) carries
   elapsed; "expected" needs a duration history across runs, which is the same committed

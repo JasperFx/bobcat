@@ -46,7 +46,46 @@ public record RunSummary(
 /// viewer's own end-to-end suite, <c>Bobcat.Console.Specs</c>) verifies an outcome without
 /// replaying the NDJSON archive.
 /// </summary>
-public record RunDetail(RunSummary Run, ScenarioResult[] Scenarios);
+public record RunDetail(RunSummary Run, ScenarioResult[] Scenarios)
+{
+    // The supervisor's topology (issue #84). All three are empty for an in-process run —
+    // nothing is inferred for a run that never announced a lane. Additive, so a consumer
+    // written against the two-member shape keeps deserializing.
+
+    /// <summary>Supervisor lanes in lane order, each with what it was handed and what it is running now.</summary>
+    public LaneResult[] Lanes { get; init; } = [];
+
+    /// <summary>Resources the supervisor recycled before a retry, in order.</summary>
+    public RecycleResult[] Recycles { get; init; } = [];
+
+    /// <summary>Worker processes that died, with lane, exit code and last standard error.</summary>
+    public WorkerFaultResult[] WorkerFaults { get; init; } = [];
+}
+
+/// <summary>
+/// One supervisor lane. <c>Status</c> is running / finished / crashed. <c>Uids</c> is what the
+/// lane was handed on its latest pass (a same-process retry hands the lane only the retried
+/// tests, so this is "working through now", not everything it ever ran); <c>Running</c> is the
+/// subset of those uids whose scenario has no outcome yet; <c>Passes</c> counts how many times the
+/// lane was handed work. <c>Outcomes</c> is how many results the worker reported when it finished.
+/// </summary>
+public record LaneResult(
+    int Lane,
+    string Status,
+    int Passes,
+    string[] Uids,
+    string[] Running,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? FinishedAt,
+    int? Outcomes);
+
+public record RecycleResult(string Resource, DateTimeOffset At);
+
+/// <summary>
+/// A dead worker. <c>Lane</c> is null for a one-test isolated or recycled process; <c>Fault</c> is
+/// the sentence the supervisor's own report collects, so report and viewer agree.
+/// </summary>
+public record WorkerFaultResult(int? Lane, string Fault, int? ExitCode, string? StandardError, DateTimeOffset At);
 
 /// <summary>
 /// One scenario as the registry currently sees it. <c>Attempt</c> is the attempt running or
@@ -102,7 +141,19 @@ public static class RunEndpoints
                         .Select(step => new StepResult(
                             step.StepId, step.Kind, step.Text, step.Status, step.DurationMs, step.ErrorMessage))
                         .ToArray()))
-                .ToArray()));
+                .ToArray())
+        {
+            Lanes = run.Lanes
+                .Select(l => new LaneResult(
+                    l.Lane, l.Status, l.Passes, l.Uids.ToArray(),
+                    run.RunningIn(l).Select(s => s.Uid).ToArray(),
+                    l.StartedAt, l.FinishedAt, l.Outcomes))
+                .ToArray(),
+            Recycles = run.Recycles.Select(r => new RecycleResult(r.Resource, r.At)).ToArray(),
+            WorkerFaults = run.WorkerFaults
+                .Select(f => new WorkerFaultResult(f.Lane, f.Fault, f.ExitCode, f.StandardError, f.At))
+                .ToArray()
+        });
 
         return detail == null ? Results.NotFound() : Results.Ok(detail);
     }

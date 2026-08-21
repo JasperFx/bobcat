@@ -41,7 +41,11 @@ public class MonitorTools
     [McpServerTool(Name = "run_status")]
     [Description(
         "Progress detail for one run: per-scenario outcomes, the currently executing " +
-        "scenario's live steps, and retry activity. Omit runId for the most recent run.")]
+        "scenario's live steps, and retry activity. For a supervised run also the worker " +
+        "lanes (what each was handed, what it is running now, whether it finished or " +
+        "crashed), resources recycled before a retry, and every worker process that died " +
+        "with its lane, exit code and last standard error — all empty for an in-process run. " +
+        "Omit runId for the most recent run.")]
     public static string RunStatus(
         MonitorRunRegistry registry,
         [Description("Run id from list_runs; omit for the most recent run.")] string? runId = null)
@@ -74,7 +78,33 @@ public class MonitorTools
                         }).ToArray()
                         : null
                 })
-                .ToArray()
+                .ToArray(),
+            // The supervisor's topology (issue #84), folded server-side from the same events
+            // the dashboard renders. Always present so an agent never has to guess whether the
+            // field is missing or the run simply had no lanes: empty arrays for an in-process run.
+            lanes = run.Lanes.Select(l => new
+            {
+                lane = l.Lane,
+                status = l.Status,
+                passes = l.Passes,
+                uids = l.Uids,
+                // What the lane's worker is on right now — the uids it was handed joined to
+                // live scenario state. Empty for a foreign-framework worker that streams no
+                // scenarios, and for a lane that has finished.
+                running = run.RunningIn(l).Select(s => s.Uid).ToArray(),
+                startedAt = l.StartedAt,
+                finishedAt = l.FinishedAt,
+                outcomes = l.Outcomes
+            }).ToArray(),
+            recycles = run.Recycles.Select(r => new { resource = r.Resource, at = r.At }).ToArray(),
+            workerFaults = run.WorkerFaults.Select(f => new
+            {
+                lane = f.Lane,
+                fault = f.Fault,
+                exitCode = f.ExitCode,
+                standardError = f.StandardError,
+                at = f.At
+            }).ToArray()
         })) ?? error($"run {resolved} disappeared while reading");
     }
 

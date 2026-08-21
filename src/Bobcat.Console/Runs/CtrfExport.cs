@@ -144,11 +144,43 @@ public static class CtrfExport
                     mode = run.Mode,
                     exitCode = run.ExitCode,
                     totalScenarios = run.TotalScenarios,
-                    finished = run.Finished
+                    finished = run.Finished,
+                    // The supervisor's topology (issue #84). CTRF has no vocabulary for worker
+                    // processes, lanes or infrastructure recycles, and inventing a top-level
+                    // field would fail the schema — so they ride the results-level extra, the
+                    // spec's sanctioned place for tool-specific detail. Null (omitted) for an
+                    // in-process run, which keeps its export byte-identical to before.
+                    lanes = run.Lanes.Count == 0 ? null : renderLanes(run),
+                    recycles = run.Recycles.Count == 0
+                        ? null
+                        : run.Recycles.Select(r => (object)new { resource = r.Resource, at = r.At }).ToArray(),
+                    workerFaults = run.WorkerFaults.Count == 0 ? null : renderWorkerFaults(run)
                 }
             }
         };
 
         return JsonSerializer.Serialize(report, serializerOptions);
     }
+
+    private static object[] renderLanes(RunProjection run)
+        => run.Lanes.Select(l => (object)new
+        {
+            lane = l.Lane,
+            status = l.Status,
+            passes = l.Passes,
+            uids = l.Uids,
+            startedAt = l.StartedAt,
+            finishedAt = l.FinishedAt,
+            outcomes = l.Outcomes
+        }).ToArray();
+
+    private static object[] renderWorkerFaults(RunProjection run)
+        => run.WorkerFaults.Select(f => (object)new
+        {
+            lane = f.Lane,
+            fault = f.Fault,
+            exitCode = f.ExitCode,
+            standardError = f.StandardError,
+            at = f.At
+        }).ToArray();
 }
