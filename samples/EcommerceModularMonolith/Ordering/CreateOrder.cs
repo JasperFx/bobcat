@@ -1,5 +1,6 @@
 using FluentValidation;
 using Marten;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Wolverine.Http;
 
 namespace Ordering;
@@ -35,8 +36,10 @@ public record CreateOrder(
 
 public static class CreateOrderEndpoint
 {
+    // Created rather than a bare Order, matching the other modules' create endpoints. See
+    // docs/sample-wiring.md footgun 3 for why it is not a (Order, IResult) tuple.
     [WolverinePost("/orders")]
-    public static Order Post(CreateOrder command, IDocumentSession session)
+    public static Created<Order> Post(CreateOrder command, IDocumentSession session)
     {
         var order = new Order
         {
@@ -61,6 +64,6 @@ public static class CreateOrderEndpoint
         };
 
         session.Store(order);
-        return order;
+        return TypedResults.Created($"/orders/{order.Id}", order);
     }
 }

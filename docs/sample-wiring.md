@@ -106,6 +106,22 @@ endpoint returns the wrong status and logs `No routes can be determined for Enve
 HttpResults.Created<T>`.
 
 - **Fix:** return `TypedResults.Created<T>(...)` directly instead of a `(body, IResult)` tuple.
+- When the endpoint *also* cascades a message, the `IResult` goes **first**:
+  `(Created<UserAccount>, UserCreated)`. The first tuple item is the HTTP response under
+  Wolverine.HTTP's rules (an `IResult` is executed as-is), and everything after it is a cascaded
+  message. `BookingMonolith` does this on all four of its creates.
+- The rule is positional, and the other direction works: the **first** element is the response
+  and may itself be an `IResult`, everything after it is cascaded. `EcommerceModularMonolith`'s
+  checkout returns `(Accepted, BasketCheckoutEvent)` — a 202 with a Location, plus the event the
+  Ordering module handles. The original `(bool, BasketCheckoutEvent)` "worked" too, in that it
+  cascaded — it just answered every checkout with `true` and a 200.
+- **When the endpoint also cascades a message**, it has to return a tuple, so `TypedResults`
+  cannot be the whole return value either. Derive a record from `Wolverine.Http.CreationResponse`
+  and put it in the first slot — `(ProposalCreation, MeetingGroupProposalAcceptedEvent)` — which
+  gives the 201 and the `Location` header and still cascades the second element.
+  `samples/MeetingGroupMonolith/Payments/CreateSubscription.cs` is the worked example. The body
+  is then `{ id, url }` rather than the entity, so the fixture reads the created record back over
+  a GET, which is the assertion the spec wanted anyway.
 - This one is upstream in Wolverine, not Bobcat.
 
 ### 4. Wolverine 6 no longer ships the runtime compiler
@@ -150,6 +166,13 @@ Asserting off the response races the handler.
   predates it and still reaches for `Wolverine.Tracking` directly. `BankAccountES/Tests` is the
   sample that uses the package — its reset hook is `host.ResetEventStoresAsync()`, through
   `JasperFx.Events.IEventStore`, with no `using Marten` in the spec project.
+- **Do not read a green run as proof the race is absent.** `BookingMonolith` has the same
+  shape (registering a user makes the Passenger module store a stub off a durable local queue)
+  and passed **10 of 10** runs with the tracking removed, because a one-document handler
+  usually beats the follow-up GET. Usually. Keep the tracking wherever the cascade exists, and
+  record the measurement either way so the next reader knows which kind of suite they have.
+- This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
+  fixture reaches for `Wolverine.Tracking` directly.
 
 ### 8. Marten projection subclasses must be `partial`, and `CreateEvent<T>` is gone
 Two separate breakages in the same file, both from the Marten 9 / JasperFx.Events 2 move, and
@@ -168,9 +191,53 @@ only the first one is a compile error:
 This is footgun 4's lesson a second time: a build-only CI job cannot catch either the start
 failure or the drifted assertions behind it. `BankAccountES` compiled clean and could not start.
 
+A smaller one from the same move, and this one *is* a compile error: `SnapshotLifecycle` now lives
+in `JasperFx.Events.Projections`, not `Marten.Events.Projections`. Every sample of this vintage
+that calls `opts.Projections.Snapshot<T>(SnapshotLifecycle.Inline)` needs the extra `using`.
+
 ### 9. Expect read endpoints to be missing entirely
 Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
 nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
 only be written to, so the sample's central claim (registering a user creates a customer stub)
 was unobservable. Path A applies: add the endpoint to the host rather than dropping the
 assertion. It is usually four lines.
+
+### 10. `HttpResult.Body` is non-null on a 400, and it is not the thing you asked for
+The `Bobcat.Alba` helpers deserialize whatever came back into `TResponse` and swallow the
+failure. System.Text.Json ignores unknown properties, so a `ProblemDetails` body reads into a
+`TodoList` or `TodoItem` without complaint — every property at its default. If the response type
+initialises an id (`public Guid Id { get; set; } = Guid.NewGuid();`), the fixture now holds a
+perfectly plausible id for a resource that was never created, and the next step 404s somewhere
+far from the cause. `CleanArchitectureTodos` hit this when a duplicate-title 400 handed the
+fixture a phantom list.
+
+- **Fix:** gate on the status before taking anything from the body —
+  `if (result.StatusCode is >= 200 and < 300 && result.Body is not null)`. A `Given` that does
+  not assert its own status is exactly where this hides, because nothing reports the 400.
+
+### 11. Program.cs seed data runs under Alba, and the reset hook is what removes it
+Several samples seed a few documents from `Program.cs` after `builder.Build()` and before
+`app.RunAsync()`. It is tempting to assume that code never executes under Alba, on the theory that
+`WebApplicationFactory` intercepts `Build()` and stops the entry point there. It does not:
+`EcommerceModularMonolith`'s Marten log shows the `catalog` and `discount` tables being created
+**before** `Application started`, which is its `SeedData` querying them. The seed is in the database
+when the first scenario begins.
+
+- Consequence: with no reset hook, an assertion like *at least 1 catalog product is returned* is
+  satisfied by the seed, not by anything the scenario did. The spec goes green without testing
+  the endpoint it names. With the reset hook, every scenario begins from empty *including* the
+  seed — so a spec must never count on seeded rows either.
+- **Fix:** decide which one you want and say so in `SpecsRunner.cs`. The playbook's default is the
+  reset hook (step 4), so scenarios create what they assert on. Write the comment from the log,
+  not from memory — the assumption is exactly the kind a comment preserves and a run disproves.
+
+### 12. A cascade that mints its own id is unobservable to the caller
+In a modular monolith the interesting write is usually the *second* one — the record another
+module creates in response to the first. If that handler does `Id = Guid.NewGuid()`, nobody
+outside the process can address what it made: `MeetingGroupMonolith`'s accepted proposal created
+a `MeetingGroup` under a fresh Guid, so "accepting the proposal creates the group" could only be
+checked by searching the whole list for a matching name. Path A applies: give the created record
+the id the caller already holds (the group takes the proposal's id, which is what the original
+project did too), and footgun 9's read endpoint then has something to read. Same shape in the
+Payments direction — a subscription's cascade is only observable because the `Member` it updates
+carries the user's id.

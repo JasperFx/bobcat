@@ -5,11 +5,13 @@ Feature: Ecommerce Modular Monolith
     When I create a catalog product named "Widget" with price 9.99
     Then the response status is 201
     And the catalog product id is returned
+    And the stored catalog product is named "Widget" with price 9.99
 
   Scenario: Get catalog products
     Given I create a catalog product named "Gadget" with price 19.99
     When I get all catalog products
-    Then at least 1 catalog product is returned
+    Then the response status is 200
+    And at least 1 catalog product is returned
 
   Scenario: Get catalog product by id
     Given I create a catalog product named "Gizmo" with price 5.99
@@ -24,11 +26,13 @@ Feature: Ecommerce Modular Monolith
     Given I create a catalog product named "OldWidget" with price 1.00
     When I update the catalog product name to "NewWidget"
     Then the response status is 200
+    And the stored catalog product is named "NewWidget" with price 1.00
 
   Scenario: Delete catalog product
     Given I create a catalog product named "DeleteMe" with price 1.00
     When I delete the catalog product
     Then the response status is 204
+    And the catalog product is gone
 
   # Basket
   Scenario: Store basket
@@ -41,18 +45,25 @@ Feature: Ecommerce Modular Monolith
     And I store a basket for customer "getBasketCustomer" with the product
     When I get the basket for customer "getBasketCustomer"
     Then the response status is 200
+    And the basket total is 10.00
 
   Scenario: Delete basket
     Given I create a catalog product named "DelBasketItem" with price 10.00
     And I store a basket for customer "delBasketCustomer" with the product
     When I delete the basket for customer "delBasketCustomer"
     Then the response status is 204
+    And the basket for customer "delBasketCustomer" is gone
 
   Scenario: Checkout basket
     Given I create a catalog product named "CheckoutItem" with price 25.00
     And I store a basket for customer "checkoutCustomer" with the product
     When I checkout the basket for customer "checkoutCustomer"
-    Then the response status is 201
+    Then the response status is 202
+    And the basket for customer "checkoutCustomer" is gone
+
+  Scenario: Checkout a basket that does not exist
+    When I checkout the basket for customer "nobody"
+    Then the response status is 404
 
   # Ordering
   Scenario: Create an order
@@ -61,6 +72,7 @@ Feature: Ecommerce Modular Monolith
     And I checkout the basket for customer "orderCustomer"
     When I get all orders
     Then at least 1 order is returned
+    And an order exists for the checked-out customer
 
   Scenario: Get all orders
     When I get all orders
@@ -70,32 +82,34 @@ Feature: Ecommerce Modular Monolith
     Given I create a catalog product named "OrderByIdItem" with price 15.00
     And I store a basket for customer "orderByIdCustomer" with the product
     And I checkout the basket for customer "orderByIdCustomer"
-    When I get the first order
+    When I get the order created by the checkout
     Then the response status is 200
 
   Scenario: Delete an order
     Given I create a catalog product named "DeleteOrderItem" with price 15.00
     And I store a basket for customer "deleteOrderCustomer" with the product
     And I checkout the basket for customer "deleteOrderCustomer"
-    When I delete the first order
+    When I delete the order created by the checkout
     Then the response status is 204
 
   # Discount
   Scenario: Create a discount
-    When I create a discount for product "DiscountedProduct" with percentage 10
+    When I create a discount for product "DiscountedProduct" with amount 10
     Then the response status is 201
 
   Scenario: Get discount by product name
-    Given I create a discount for product "SearchedProduct" with percentage 15
+    Given I create a discount for product "SearchedProduct" with amount 15
     When I get the discount for product "SearchedProduct"
     Then the response status is 200
+    And the discount amount is 15
 
   Scenario: Update a discount
-    Given I create a discount for product "UpdatableProduct" with percentage 5
-    When I update the discount to percentage 20
+    Given I create a discount for product "UpdatableProduct" with amount 5
+    When I update the discount to amount 20
     Then the response status is 200
+    And the stored discount for product "UpdatableProduct" has amount 20
 
   Scenario: Delete a discount
-    Given I create a discount for product "DeletableDiscount" with percentage 10
+    Given I create a discount for product "DeletableDiscount" with amount 10
     When I delete the discount
     Then the response status is 204

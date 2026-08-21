@@ -1,201 +1,361 @@
+using Basket;
 using Bobcat;
 using Bobcat.Alba;
+using Catalog;
+using Discount;
+using Ordering;
+using Wolverine;
+using Wolverine.Tracking;
 
 namespace EcommerceModularMonolith.Tests;
 
+/// <summary>
+/// Specs for the modular-monolith eShop conversion. Reuses the host's own command and document
+/// types via the project reference rather than re-declaring request/response records locally —
+/// the file this replaced posted <c>CreateProductRequest(Name, Price)</c> to
+/// <c>/catalog/products</c> when the host takes a five-field <c>CreateProduct</c> at
+/// <c>/products</c>, stored baskets with a <c>(CustomerId, Items)</c> shape the host has never
+/// had, checked out with a one-field request against a fourteen-field command, and created
+/// "discounts with a percentage" for a Coupon that only has an Amount. Nothing had ever compiled
+/// it, so nothing reported any of that.
+/// </summary>
 [FixtureTitle("Ecommerce Modular Monolith")]
-public class EcommerceModularMonolithFixture
+public class EcommerceModularMonolithFixture : Fixture
 {
-    private Guid _catalogProductId;
-    private Guid _discountId;
+    private Guid _productId;
+    private string _productName = string.Empty;
+    private decimal _productPrice;
+    private Guid _customerId;
+    private Guid _couponId;
+    private string _couponProductName = string.Empty;
     private Guid _orderId;
     private int _lastStatusCode;
+    private ShoppingCart? _basket;
+    private Coupon? _coupon;
+    private List<Product> _products = [];
     private List<OrderDto> _orders = [];
 
-    // Catalog
-
-    [When("I create a catalog product named {string} with price {float}")]
-    [Given("I create a catalog product named {string} with price {float}")]
-    public async Task CreateCatalogProduct(IStepContext context, string name, float price)
+    public Task BeforeEach()
     {
-        var result = await context.PostJsonAsync<CreateProductRequest, CreateProductResponse>(
-            "/catalog/products",
-            new CreateProductRequest(name, (decimal)price));
+        _productId = Guid.Empty;
+        _productName = string.Empty;
+        _productPrice = 0;
+        // The checkout command wants a customer Guid, which the feature never names — the
+        // basket is keyed by user name. One customer per scenario, minted here, is what ties
+        // "the order created by the checkout" back to the checkout that created it.
+        _customerId = Guid.NewGuid();
+        _couponId = Guid.Empty;
+        _couponProductName = string.Empty;
+        _orderId = Guid.Empty;
+        _lastStatusCode = 0;
+        _basket = null;
+        _coupon = null;
+        _products = [];
+        _orders = [];
+        return Task.CompletedTask;
+    }
+
+    // ---- catalog ----------------------------------------------------------------------------
+
+    [Given("I create a catalog product named {string} with price {decimal}")]
+    public Task GivenCreateProduct(string name, decimal price) => createProductCore(name, price);
+
+    [When("I create a catalog product named {string} with price {decimal}")]
+    public Task WhenCreateProduct(string name, decimal price) => createProductCore(name, price);
+
+    private async Task createProductCore(string name, decimal price)
+    {
+        // Category is required by the command's validator; the feature does not care which.
+        var result = await Context!.PostJsonAsync<CreateProduct, Product>(
+            "/products",
+            new CreateProduct(name, ["Specs"], $"{name} description", $"{name}.png", price));
+
         _lastStatusCode = result.StatusCode;
         if (result.Body is not null)
-            _catalogProductId = result.Body.Id;
+        {
+            _productId = result.Body.Id;
+            _productName = result.Body.Name;
+            _productPrice = result.Body.Price;
+        }
     }
 
     [When("I get all catalog products")]
-    public async Task GetAllCatalogProducts(IStepContext context)
+    public async Task GetAllProducts()
     {
-        var result = await context.GetJsonAsync<GetProductsResponse>("/catalog/products");
+        var result = await Context!.GetJsonAsync<List<Product>>("/products");
         _lastStatusCode = result.StatusCode;
+        _products = result.Body ?? [];
     }
 
     [When("I get the catalog product by id")]
-    public async Task GetCatalogProductById(IStepContext context)
-    {
-        var result = await context.GetJsonAsync<object>($"/catalog/products/{_catalogProductId}");
-        _lastStatusCode = result.StatusCode;
-    }
+    public Task GetProductById() => getProductCore(_productId.ToString());
 
     [When("I get catalog product by id {string}")]
-    public async Task GetCatalogProductByStringId(IStepContext context, string id)
+    public Task GetProductByStringId(string id) => getProductCore(id);
+
+    private async Task getProductCore(string id)
     {
-        var result = await context.GetJsonAsync<object>($"/catalog/products/{id}");
+        var result = await Context!.GetJsonAsync<Product>($"/products/{id}");
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I update the catalog product name to {string}")]
-    public async Task UpdateCatalogProduct(IStepContext context, string newName)
+    public async Task UpdateProductName(string newName)
     {
-        var result = await context.PostJsonAsync<UpdateProductRequest, object>(
-            $"/catalog/products/{_catalogProductId}",
-            new UpdateProductRequest(_catalogProductId, newName));
+        // PUT /products with the id in the body, not POST /products/{id} — that is the route the
+        // host has, and [Entity] loads the Product from the command's Id. The other fields are
+        // replayed from the create, because the command replaces the whole document.
+        var result = await Context!.PutJsonAsync<UpdateProduct, Product>(
+            "/products",
+            new UpdateProduct(_productId, newName, ["Specs"], $"{newName} description", $"{newName}.png", _productPrice));
+
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I delete the catalog product")]
-    public async Task DeleteCatalogProduct(IStepContext context)
+    public async Task DeleteProduct()
     {
-        var result = await context.DeleteAsync($"/catalog/products/{_catalogProductId}");
+        var result = await Context!.DeleteAsync($"/products/{_productId}");
         _lastStatusCode = result.StatusCode;
     }
 
-    [Then("at least {int} catalog product is returned")]
-    [Check]
-    public bool AtLeastNCatalogProducts(int min) => true; // validated via status code 200
+    [Check("the catalog product id is returned")]
+    public bool ProductIdReturned() => _productId != Guid.Empty;
 
-    [Then("the catalog product id is returned")]
-    [Check]
-    public bool CatalogProductIdReturned() => _catalogProductId != Guid.Empty;
+    /// <summary>
+    /// Reads the product back rather than trusting the write's response body, so an update
+    /// that returned 200 without persisting would still fail here.
+    /// </summary>
+    [Check("the stored catalog product is named {string} with price {decimal}")]
+    public async Task<bool> StoredProductIs(string name, decimal price)
+    {
+        var result = await Context!.GetJsonAsync<Product>($"/products/{_productId}");
+        return result.Body is not null && result.Body.Name == name && result.Body.Price == price;
+    }
 
-    // Basket
+    [Check("at least {int} catalog product is returned")]
+    public bool AtLeastNProducts(int min) => _products.Count >= min;
+
+    [Check("the catalog product is gone")]
+    public async Task<bool> ProductIsGone()
+    {
+        var result = await Context!.GetJsonAsync<Product>($"/products/{_productId}");
+        return result.StatusCode == 404;
+    }
+
+    // ---- basket -----------------------------------------------------------------------------
+
+    [Given("I store a basket for customer {string} with the product")]
+    public Task GivenStoreBasket(string userName) => storeBasketCore(userName);
 
     [When("I store a basket for customer {string} with the product")]
-    [Given("I store a basket for customer {string} with the product")]
-    public async Task StoreBasket(IStepContext context, string customerId)
+    public Task WhenStoreBasket(string userName) => storeBasketCore(userName);
+
+    private async Task storeBasketCore(string userName)
     {
-        var result = await context.PostJsonAsync<StoreBasketRequest, object>(
-            "/basket/baskets",
-            new StoreBasketRequest(customerId, [new BasketItemDto(_catalogProductId, 1, 10.00m, "Product")]));
+        // The basket is the host's own ShoppingCart document, keyed by user name, holding the
+        // product the scenario just created at the price it was created with.
+        var cart = new ShoppingCart
+        {
+            Id = userName,
+            Items =
+            [
+                new ShoppingCartItem
+                {
+                    ProductId = _productId,
+                    ProductName = _productName,
+                    Quantity = 1,
+                    Price = _productPrice,
+                    Color = "Black",
+                },
+            ],
+        };
+
+        var result = await Context!.PostJsonAsync<StoreBasket, ShoppingCart>("/basket", new StoreBasket(cart));
         _lastStatusCode = result.StatusCode;
+        _basket = result.Body;
     }
 
     [When("I get the basket for customer {string}")]
-    public async Task GetBasket(IStepContext context, string customerId)
+    public async Task GetBasket(string userName)
     {
-        var result = await context.GetJsonAsync<object>($"/basket/baskets/{customerId}");
+        var result = await Context!.GetJsonAsync<ShoppingCart>($"/basket/{userName}");
         _lastStatusCode = result.StatusCode;
+        _basket = result.Body;
     }
 
     [When("I delete the basket for customer {string}")]
-    public async Task DeleteBasket(IStepContext context, string customerId)
+    public async Task DeleteBasket(string userName)
     {
-        var result = await context.DeleteAsync($"/basket/baskets/{customerId}");
+        var result = await Context!.DeleteAsync($"/basket/{userName}");
         _lastStatusCode = result.StatusCode;
     }
+
+    [Given("I checkout the basket for customer {string}")]
+    public Task GivenCheckout(string userName) => checkoutCore(userName);
 
     [When("I checkout the basket for customer {string}")]
-    [Given("I checkout the basket for customer {string}")]
-    public async Task CheckoutBasket(IStepContext context, string customerId)
+    public Task WhenCheckout(string userName) => checkoutCore(userName);
+
+    private async Task checkoutCore(string userName)
     {
-        var result = await context.PostJsonAsync<CheckoutBasketRequest, object>(
-            "/basket/baskets/checkout",
-            new CheckoutBasketRequest(customerId));
+        var command = new CheckoutBasket(
+            userName,
+            _customerId,
+            "Jane", "Doe", "jane@example.com", "1 Main St", "US", "TX", "75001",
+            "Jane Doe", "4111111111111111", "12/30", "123", PaymentMethod: 1);
+
+        // Checkout returns 202 before the Ordering module has handled BasketCheckoutEvent, so
+        // the call is tracked until the cascade is fully handled — see awaitingCascades.
+        var result = await awaitingCascades(() =>
+            Context!.PostJsonAsync<CheckoutBasket, object>("/basket/checkout", command));
+
         _lastStatusCode = result.StatusCode;
     }
 
-    // Ordering
+    [Check("the basket total is {decimal}")]
+    public bool BasketTotalIs(decimal expected) => _basket?.TotalPrice == expected;
+
+    [Check("the basket for customer {string} is gone")]
+    public async Task<bool> BasketIsGone(string userName)
+    {
+        var result = await Context!.GetJsonAsync<ShoppingCart>($"/basket/{userName}");
+        return result.StatusCode == 404;
+    }
+
+    // ---- ordering ---------------------------------------------------------------------------
 
     [When("I get all orders")]
-    public async Task GetAllOrders(IStepContext context)
+    public async Task GetAllOrders()
     {
-        var result = await context.GetJsonAsync<GetOrdersResponse>("/ordering/orders");
+        var result = await Context!.GetJsonAsync<List<OrderDto>>("/orders");
         _lastStatusCode = result.StatusCode;
-        _orders = result.Body?.Orders ?? [];
-        if (_orders.Count > 0)
-            _orderId = _orders[0].Id;
+        _orders = result.Body ?? [];
     }
 
-    [When("I get the first order")]
-    public async Task GetFirstOrder(IStepContext context)
+    [When("I get the order created by the checkout")]
+    public async Task GetCheckoutOrder()
     {
-        await GetAllOrders(context);
-        if (_orderId != Guid.Empty)
-        {
-            var result = await context.GetJsonAsync<object>($"/ordering/orders/{_orderId}");
-            _lastStatusCode = result.StatusCode;
-        }
+        await locateCheckoutOrder();
+        var result = await Context!.GetJsonAsync<OrderDto>($"/orders/{_orderId}");
+        _lastStatusCode = result.StatusCode;
     }
 
-    [When("I delete the first order")]
-    public async Task DeleteFirstOrder(IStepContext context)
+    [When("I delete the order created by the checkout")]
+    public async Task DeleteCheckoutOrder()
     {
-        await GetAllOrders(context);
-        if (_orderId != Guid.Empty)
-        {
-            var result = await context.DeleteAsync($"/ordering/orders/{_orderId}");
-            _lastStatusCode = result.StatusCode;
-        }
+        await locateCheckoutOrder();
+        var result = await Context!.DeleteAsync($"/orders/{_orderId}");
+        _lastStatusCode = result.StatusCode;
     }
 
-    [Then("at least {int} order is returned")]
-    [Check]
+    /// <summary>
+    /// Finds the order the Ordering module created for this scenario's customer. Looked up by
+    /// customer rather than "the first order in the list" so the step cannot pick up an order
+    /// another scenario, or another run, left behind.
+    /// </summary>
+    private async Task locateCheckoutOrder()
+    {
+        var result = await Context!.GetJsonAsync<List<OrderDto>>($"/orders/customer/{_customerId}");
+        _orderId = result.Body?.FirstOrDefault()?.Id ?? Guid.Empty;
+    }
+
+    [Check("at least {int} order is returned")]
     public bool AtLeastNOrders(int min) => _orders.Count >= min;
 
-    // Discount
+    /// <summary>
+    /// The sample's central claim: a checkout in the Basket module becomes an order in the
+    /// Ordering module, carried over a durable local queue. The customer id is the thread that
+    /// ties the two together.
+    /// </summary>
+    [Check("an order exists for the checked-out customer")]
+    public bool OrderExistsForCustomer() => _orders.Any(o => o.CustomerId == _customerId);
 
-    [When("I create a discount for product {string} with percentage {int}")]
-    [Given("I create a discount for product {string} with percentage {int}")]
-    public async Task CreateDiscount(IStepContext context, string productName, int percentage)
+    // ---- discount ---------------------------------------------------------------------------
+
+    [Given("I create a discount for product {string} with amount {decimal}")]
+    public Task GivenCreateDiscount(string productName, decimal amount) => createDiscountCore(productName, amount);
+
+    [When("I create a discount for product {string} with amount {decimal}")]
+    public Task WhenCreateDiscount(string productName, decimal amount) => createDiscountCore(productName, amount);
+
+    private async Task createDiscountCore(string productName, decimal amount)
     {
-        var result = await context.PostJsonAsync<CreateDiscountRequest, CreateDiscountResponse>(
-            "/discount/discounts",
-            new CreateDiscountRequest(productName, percentage));
+        var result = await Context!.PostJsonAsync<CreateCoupon, Coupon>(
+            "/discounts",
+            new CreateCoupon(productName, $"{productName} discount", amount));
+
         _lastStatusCode = result.StatusCode;
         if (result.Body is not null)
-            _discountId = result.Body.Id;
+        {
+            _couponId = result.Body.Id;
+            _couponProductName = result.Body.ProductName;
+        }
     }
 
     [When("I get the discount for product {string}")]
-    public async Task GetDiscountByProduct(IStepContext context, string productName)
+    public async Task GetDiscount(string productName)
     {
-        var result = await context.GetJsonAsync<object>($"/discount/discounts/{productName}");
+        var result = await Context!.GetJsonAsync<Coupon>($"/discounts/{productName}");
         _lastStatusCode = result.StatusCode;
+        _coupon = result.Body;
     }
 
-    [When("I update the discount to percentage {int}")]
-    public async Task UpdateDiscount(IStepContext context, int percentage)
+    [When("I update the discount to amount {decimal}")]
+    public async Task UpdateDiscount(decimal amount)
     {
-        var result = await context.PostJsonAsync<UpdateDiscountRequest, object>(
-            $"/discount/discounts/{_discountId}",
-            new UpdateDiscountRequest(_discountId, percentage));
+        // PUT /discounts with the id in the body — [Entity] loads the Coupon from UpdateCoupon.Id.
+        var result = await Context!.PutJsonAsync<UpdateCoupon, Coupon>(
+            "/discounts",
+            new UpdateCoupon(_couponId, _couponProductName, $"{_couponProductName} discount", amount));
+
         _lastStatusCode = result.StatusCode;
     }
 
     [When("I delete the discount")]
-    public async Task DeleteDiscount(IStepContext context)
+    public async Task DeleteDiscount()
     {
-        var result = await context.DeleteAsync($"/discount/discounts/{_discountId}");
+        var result = await Context!.DeleteAsync($"/discounts/{_couponId}");
         _lastStatusCode = result.StatusCode;
     }
 
-    [Then("the response status is {int}")]
-    [Check]
-    public bool StatusIs(int expected) => _lastStatusCode == expected;
-}
+    [Check("the discount amount is {decimal}")]
+    public bool DiscountAmountIs(decimal expected) => _coupon?.Amount == expected;
 
-record CreateProductRequest(string Name, decimal Price);
-record CreateProductResponse(Guid Id);
-record UpdateProductRequest(Guid Id, string Name);
-record GetProductsResponse(List<object> Products);
-record StoreBasketRequest(string CustomerId, List<BasketItemDto> Items);
-record BasketItemDto(Guid ProductId, int Quantity, decimal Price, string ProductName);
-record CheckoutBasketRequest(string CustomerId);
-record GetOrdersResponse(List<OrderDto> Orders);
-record OrderDto(Guid Id, string CustomerId);
-record CreateDiscountRequest(string ProductName, int Percentage);
-record CreateDiscountResponse(Guid Id);
-record UpdateDiscountRequest(Guid Id, int Percentage);
+    [Check("the stored discount for product {string} has amount {decimal}")]
+    public async Task<bool> StoredDiscountIs(string productName, decimal amount)
+    {
+        var result = await Context!.GetJsonAsync<Coupon>($"/discounts/{productName}");
+        return result.Body is not null && result.Body.Amount == amount;
+    }
+
+    // ---- shared -----------------------------------------------------------------------------
+
+    [Check("the response status is {int}")]
+    public bool StatusIs(int expected) => _lastStatusCode == expected;
+
+    /// <summary>
+    /// Run an HTTP call and wait for every message it cascades to be fully handled.
+    ///
+    /// Checkout publishes BasketCheckoutEvent to a <c>UseDurableInbox()</c> local queue, and the
+    /// Ordering module creates the Order when it handles it — after the HTTP response has gone
+    /// out. Asserting "an order exists" straight off the 202 would race the handler and fail
+    /// intermittently. See docs/sample-wiring.md footgun 7; PaymentsMonolith is the worked
+    /// example.
+    /// </summary>
+    private async Task<HttpResult<T>> awaitingCascades<T>(Func<Task<HttpResult<T>>> call)
+    {
+        var host = Context!.GetResource<IAlbaResource>().AlbaHost;
+        HttpResult<T>? captured = null;
+
+        // Explicitly typed: ExecuteAndWaitAsync overloads on Task and ValueTask, and an async
+        // lambda is convertible to both.
+        Func<IMessageContext, Task> act = async _ => { captured = await call(); };
+
+        await host.TrackActivity()
+            .Timeout(TimeSpan.FromSeconds(30))
+            .ExecuteAndWaitAsync(act);
+
+        return captured!;
+    }
+}

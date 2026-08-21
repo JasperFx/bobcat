@@ -5,6 +5,7 @@ Feature: More Speakers
     When I register a speaker with email "speaker@conf.com" and name "Alice Speaker"
     Then the response status is 201
     And the speaker id is returned
+    And the stored speaker is named "Alice Speaker" with email "speaker@conf.com"
 
   Scenario: Register duplicate email returns 409
     Given I register a speaker with email "dup.speaker@conf.com" and name "Dup Speaker"
@@ -15,6 +16,7 @@ Feature: More Speakers
     Given I register a speaker with email "list.speaker@conf.com" and name "Listed Speaker"
     When I get all speakers
     Then at least 1 speaker is returned
+    And the speaker list contains "list.speaker@conf.com"
 
   Scenario: Get speaker by id returns 404 for missing
     When I get speaker by id "00000000-0000-0000-0000-000000000000"
@@ -24,6 +26,7 @@ Feature: More Speakers
     Given I register a speaker with email "update.speaker@conf.com" and name "Update Speaker"
     When I update the speaker bio to "Expert in distributed systems"
     Then the response status is 200
+    And the stored speaker bio is "Expert in distributed systems"
 
   # Mentorship
   Scenario: Request mentorship
@@ -32,10 +35,17 @@ Feature: More Speakers
     When I request mentorship from the mentor
     Then the response status is 201
     And the mentorship id is returned
+    And the stored mentorship status is "Pending"
 
   Scenario: Self mentorship returns 400
     Given I register a speaker with email "self.mentor@conf.com" and name "Self Mentor"
     When I request mentorship from myself
+    Then the response status is 400
+
+  Scenario: Request mentorship from a speaker who is not mentoring returns 400
+    Given I register a speaker with email "unavailable.mentee@conf.com" and name "Unavailable Mentee"
+    And I register a speaker who is not mentoring with email "unavailable.mentor@conf.com" and name "Unavailable Mentor"
+    When I request mentorship from the mentor
     Then the response status is 400
 
   Scenario: Accept mentorship
@@ -44,6 +54,7 @@ Feature: More Speakers
     And I request mentorship from the mentor
     When the mentor accepts the mentorship
     Then the response status is 200
+    And the stored mentorship status is "Active"
 
   Scenario: Accept non-pending mentorship returns 400
     Given I register a speaker with email "nonpending.mentee@conf.com" and name "NonPending Mentee"
@@ -60,3 +71,4 @@ Feature: More Speakers
     And the mentor accepts the mentorship
     When the mentor completes the mentorship
     Then the response status is 200
+    And the stored mentorship status is "Completed"

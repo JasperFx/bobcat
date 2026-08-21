@@ -26,6 +26,11 @@ public static class NewUserRegisteredHandler
 /// <summary>
 /// Handles MeetingGroupProposalAcceptedEvent from the Administration module.
 /// Creates the actual MeetingGroup.
+///
+/// The group takes the proposal's id, as the original's <c>MeetingGroup.CreateBasedOnProposal</c>
+/// did. It is what makes the cascade observable: a caller that accepted proposal X can then
+/// <c>GET /api/meeting-groups/X</c> and see whether the Meetings module has caught up, instead of
+/// searching the whole list for a group with a matching name.
 /// </summary>
 public static class MeetingGroupProposalAcceptedHandler
 {
@@ -33,7 +38,7 @@ public static class MeetingGroupProposalAcceptedHandler
     {
         session.Store(new MeetingGroup
         {
-            Id = Guid.NewGuid(),
+            Id = message.ProposalId,
             Name = message.Name,
             Description = message.Description,
             LocationCity = message.LocationCity,

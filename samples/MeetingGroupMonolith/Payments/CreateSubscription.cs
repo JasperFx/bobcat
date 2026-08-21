@@ -2,6 +2,7 @@ using FluentValidation;
 using Marten;
 using MeetingGroupMonolith;
 using Wolverine.Http;
+using Wolverine.Persistence;
 
 namespace Payments;
 
@@ -17,12 +18,15 @@ public record CreateSubscription(Guid PayerId, string Period)
     }
 }
 
+/// <summary>201 Created with a Location header pointing at the new subscription.</summary>
+public record SubscriptionCreation(Guid Id) : CreationResponse($"/api/payments/subscriptions/{Id}");
+
 public static class CreateSubscriptionEndpoint
 {
     // Event-sourced: starts a new event stream in Marten's event store.
     // Cascading message notifies the Meetings module of the subscription change.
     [WolverinePost("/api/payments/subscriptions")]
-    public static (Guid, SubscriptionExpirationChangedEvent) Post(
+    public static (SubscriptionCreation, SubscriptionExpirationChangedEvent) Post(
         CreateSubscription command,
         IDocumentSession session)
     {
@@ -41,6 +45,16 @@ public static class CreateSubscriptionEndpoint
             subscriptionId,
             new SubscriptionCreated(subscriptionId, command.PayerId, command.Period, expirationDate));
 
-        return (subscriptionId, new SubscriptionExpirationChangedEvent(command.PayerId, expirationDate));
+        return (new SubscriptionCreation(subscriptionId), new SubscriptionExpirationChangedEvent(command.PayerId, expirationDate));
     }
+}
+
+/// <summary>
+/// Reads the inline snapshot of the subscription aggregate — the document Marten rebuilt from
+/// the stream's events, which is the claim an event-sourced module exists to make.
+/// </summary>
+public static class GetSubscriptionEndpoint
+{
+    [WolverineGet("/api/payments/subscriptions/{id}")]
+    public static Subscription? Get(Guid id, [Entity] Subscription? subscription) => subscription;
 }
