@@ -7,7 +7,7 @@ namespace Bobcat.Runtime;
 /// The factory receives no arguments — the user controls the entire host construction.
 /// The host should NOT be pre-started; HostResource.Start() calls StartAsync().
 /// </summary>
-public class HostResource : IHostResource
+public class HostResource : IHostResource, IRestartableResource
 {
     private readonly Func<Task<IHost>> _hostFactory;
     private readonly Func<IHost, Task>? _reset;
@@ -44,6 +44,26 @@ public class HostResource : IHostResource
         await Host.StartAsync();
     }
 
+    /// <inheritdoc cref="IRestartableResource.Restart"/>
+    public async Task Restart(CancellationToken token = default)
+    {
+        var old = Host ?? throw new InvalidOperationException($"HostResource '{Name}' has not been started.");
+
+        // The scenario scope belongs to the old container; it has to go before the container does,
+        // and come back on the new one so CurrentServices keeps working for the rest of the scenario.
+        var scopeWasOpen = _scope.IsOpen;
+        await _scope.End();
+
+        await old.StopAsync(token);
+        old.Dispose();
+        Host = null!;
+
+        Host = await _hostFactory();
+        await Host.StartAsync(token);
+
+        if (scopeWasOpen) await _scope.Begin();
+    }
+
     public async Task ResetBetweenScenarios()
     {
         if (_reset != null)
@@ -71,7 +91,7 @@ public class HostResource : IHostResource
 /// user-provided configuration callback. The TProgram type parameter is used as a
 /// marker for resource lookup — e.g., GetResource&lt;HostResource&lt;MyApp&gt;&gt;().
 /// </summary>
-public class HostResource<TProgram> : IHostResource where TProgram : class
+public class HostResource<TProgram> : IHostResource, IRestartableResource where TProgram : class
 {
     private readonly Action<HostApplicationBuilder>? _configure;
     private readonly Func<IHost, Task>? _reset;
@@ -93,10 +113,33 @@ public class HostResource<TProgram> : IHostResource where TProgram : class
 
     public async Task Start()
     {
+        Host = build();
+        await Host.StartAsync();
+    }
+
+    /// <inheritdoc cref="IRestartableResource.Restart"/>
+    public async Task Restart(CancellationToken token = default)
+    {
+        var old = Host ?? throw new InvalidOperationException($"HostResource '{Name}' has not been started.");
+
+        var scopeWasOpen = _scope.IsOpen;
+        await _scope.End();
+
+        await old.StopAsync(token);
+        old.Dispose();
+        Host = null!;
+
+        Host = build();
+        await Host.StartAsync(token);
+
+        if (scopeWasOpen) await _scope.Begin();
+    }
+
+    private IHost build()
+    {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
         _configure?.Invoke(builder);
-        Host = builder.Build();
-        await Host.StartAsync();
+        return builder.Build();
     }
 
     public async Task ResetBetweenScenarios()

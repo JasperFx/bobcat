@@ -33,7 +33,7 @@ public static class AlbaResourceDiagnostics
 /// Use this when you want full control over IHostBuilder construction rather than
 /// bootstrapping from a TProgram entry point.
 /// </summary>
-public class AlbaResource : IHostResource, IAlbaResource
+public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource
 {
     private readonly Func<Task<IAlbaHost>> _factory;
     private readonly Func<IAlbaHost, Task>? _reset;
@@ -74,6 +74,24 @@ public class AlbaResource : IHostResource, IAlbaResource
         _albaHost = await _factory();
     }
 
+    /// <inheritdoc cref="IRestartableResource.Restart"/>
+    public async Task Restart(CancellationToken token = default)
+    {
+        var old = _albaHost ?? throw new InvalidOperationException($"AlbaResource '{Name}' has not been started.");
+
+        // The scenario scope belongs to the old container; it has to go before the container does,
+        // and come back on the new one so CurrentServices keeps working for the rest of the scenario.
+        var scopeWasOpen = _scope.IsOpen;
+        await _scope.End();
+
+        _albaHost = null;
+        await old.DisposeAsync();
+
+        _albaHost = await _factory();
+
+        if (scopeWasOpen) await _scope.Begin();
+    }
+
     public async Task ResetBetweenScenarios()
     {
         if (_reset != null)
@@ -101,7 +119,7 @@ public class AlbaResource : IHostResource, IAlbaResource
 /// Implements IHostResource so that Wolverine, Marten, and other extensions can locate
 /// the host without knowing the specific resource type.
 /// </summary>
-public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgram : class
+public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartableResource where TProgram : class
 {
     private readonly Action<IWebHostBuilder>? _configure;
     private readonly IAlbaExtension[] _extensions;
@@ -148,10 +166,38 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource where TProgra
 
     public async Task Start()
     {
+        _albaHost = await boot();
+    }
+
+    /// <inheritdoc cref="IRestartableResource.Restart"/>
+    /// <remarks>
+    /// Boots the new host exactly as <see cref="Start"/> did — same <c>configure</c> callback,
+    /// same extensions, same content root — so a restarted application is the same application
+    /// with a fresh container, not a differently configured one.
+    /// </remarks>
+    public async Task Restart(CancellationToken token = default)
+    {
+        var old = _albaHost ?? throw new InvalidOperationException($"AlbaResource '{Name}' has not been started.");
+
+        // The scenario scope belongs to the old container; it has to go before the container does,
+        // and come back on the new one so CurrentServices keeps working for the rest of the scenario.
+        var scopeWasOpen = _scope.IsOpen;
+        await _scope.End();
+
+        _albaHost = null;
+        await old.DisposeAsync();
+
+        _albaHost = await boot();
+
+        if (scopeWasOpen) await _scope.Begin();
+    }
+
+    private async Task<IAlbaHost> boot()
+    {
         var configure = composeConfigure();
         try
         {
-            _albaHost = configure != null
+            return configure != null
                 ? await global::Alba.AlbaHost.For<TProgram>(configure, _extensions)
                 : await global::Alba.AlbaHost.For<TProgram>(_extensions);
         }

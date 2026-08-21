@@ -201,6 +201,13 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   root container) and `CurrentServices` (the per-scenario scope), and owns the scope itself via
   `BeginScenarioScope()`/`EndScenarioScope()`. `CurrentServices` **throws** outside a scenario —
   there is no silent root fallback.
+- **`IRestartableResource`** — `Restart()` on a host resource (`HostResource`, `AlbaResource`,
+  both generic forms) for specs whose subject is survival across a bounce: stop the application,
+  start a fresh one over the *same* persistent state, keep the registration, and re-enter the
+  scenario scope on the new container if one was open. Steps call it as `context.RestartHost(name)`.
+  It is deliberately **not** `IRecyclableResource.Recycle` — recycle assumes the resource is
+  broken and belongs to the supervisor between attempts; restart assumes it is healthy and is a
+  step, mid-scenario, because the spec says so. A restart never runs `ResetBetweenScenarios`.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 
