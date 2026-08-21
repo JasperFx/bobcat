@@ -12,20 +12,33 @@ namespace Bobcat.Runtime;
 public static class AlbaResourceDiagnostics
 {
     /// <summary>
-    /// Turn the nested-Tests content-root failure (a bare <see cref="DirectoryNotFoundException"/>
-    /// from WebApplicationFactory) into a clear, actionable configuration error. Other
-    /// exceptions pass through unchanged.
+    /// Turn a content-root failure out of WebApplicationFactory — a bare
+    /// <see cref="DirectoryNotFoundException"/> when the root it guessed is not there, or the
+    /// <see cref="InvalidOperationException"/> it throws when no solution file is above the test
+    /// output — into a clear, actionable configuration error. Other exceptions pass through
+    /// unchanged.
     /// </summary>
-    public static Exception WrapStartException(Exception ex, string program)
-        => ex is DirectoryNotFoundException
-            ? new BobcatConfigurationException(ContentRootHelp(program), ex)
+    public static Exception WrapStartException(Exception ex, string program, string? contentRoot = null)
+        => IsContentRootFailure(ex)
+            ? new BobcatConfigurationException(ContentRootHelp(program, contentRoot), ex)
             : ex;
 
-    public static string ContentRootHelp(string program)
-        => $"Alba could not resolve the content root while starting host '{program}'. When the Tests project is " +
-           "nested inside the host project, WebApplicationFactory resolves a doubled directory path. Fix: add " +
-           "[assembly: WebApplicationFactoryContentRoot(\"<HostAssemblyName>\", \"../../../..\", \"appsettings.json\", \"1\")] " +
-           "to the test assembly, or call AlbaResource<TProgram>.WithContentRoot(path). See docs/sample-wiring.md.";
+    public static bool IsContentRootFailure(Exception ex)
+        => ex is DirectoryNotFoundException
+           || (ex is InvalidOperationException && ex.Message.StartsWith("Solution root could not be located", StringComparison.Ordinal));
+
+    public static string ContentRootHelp(string program, string? contentRoot = null)
+    {
+        var used = contentRoot == null ? "" : $" Bobcat resolved it to: {contentRoot}.";
+        return $"Alba could not resolve the content root while starting host '{program}'.{used} " +
+               "Bobcat resolves it from MvcTestingAppManifest.json in the test output, then " +
+               "[assembly: WebApplicationFactoryContentRoot(...)], then the project directory below the solution, " +
+               "then the test output directory itself — so reaching this usually means no solution file is above the " +
+               "test output, or the directory it found is not the one the host wants. Fix: call " +
+               "AlbaResource<TProgram>.WithContentRoot(path), or add " +
+               "[assembly: WebApplicationFactoryContentRoot(\"<HostAssemblyName>\", \"<relative path from the test output>\", \"appsettings.json\", \"1\")] " +
+               "to the test assembly. See docs/sample-wiring.md footgun 2.";
+    }
 }
 
 /// <summary>
@@ -155,14 +168,26 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
     }
 
     /// <summary>
-    /// Set the host content root explicitly, bypassing WebApplicationFactory's discovery dance.
-    /// Use this when the Tests project is nested inside the host project (see docs/sample-wiring.md).
+    /// Set the host content root explicitly, bypassing discovery altogether. Rarely needed now:
+    /// without it the root is resolved by <see cref="AlbaContentRoot"/> (manifest in the test
+    /// output, <c>[WebApplicationFactoryContentRoot]</c>, the project directory below the
+    /// solution, then the test output directory), which covers sibling, <c>src/</c>, <c>samples/</c>
+    /// and nested-Tests layouts alike. Use this when the host wants a directory none of those are.
     /// </summary>
     public AlbaResource<TProgram> WithContentRoot(string contentRoot)
     {
         _contentRoot = contentRoot;
         return this;
     }
+
+    /// <summary>
+    /// How the content root was (or will be) decided for this resource — explicit
+    /// <see cref="WithContentRoot"/>, or the outcome of <see cref="AlbaContentRoot.Resolve(System.Reflection.Assembly)"/>.
+    /// Evaluated on each start, so it reflects the files present at that moment.
+    /// </summary>
+    public AlbaContentRoot.Resolution ContentRoot => _contentRoot != null
+        ? new AlbaContentRoot.Resolution(_contentRoot, "WithContentRoot")
+        : AlbaContentRoot.Resolve(typeof(TProgram).Assembly);
 
     public async Task Start()
     {
@@ -194,7 +219,8 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
 
     private async Task<IAlbaHost> boot()
     {
-        var configure = composeConfigure();
+        var contentRoot = ContentRoot;
+        var configure = composeConfigure(contentRoot.Path);
         try
         {
             return configure != null
@@ -203,18 +229,20 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
         }
         catch (Exception ex)
         {
-            throw AlbaResourceDiagnostics.WrapStartException(ex, typeof(TProgram).Name);
+            throw AlbaResourceDiagnostics.WrapStartException(ex, typeof(TProgram).Name, contentRoot.ToString());
         }
     }
 
-    private Action<IWebHostBuilder>? composeConfigure()
+    private Action<IWebHostBuilder>? composeConfigure(string? contentRoot)
     {
-        if (_contentRoot == null) return _configure;
+        if (contentRoot == null) return _configure;
 
-        var contentRoot = _contentRoot;
         var userConfigure = _configure;
         return builder =>
         {
+            // WebApplicationFactory sets its own guess first and our callback runs after it, so
+            // this is the value the host builds with. The user's configure runs last and may
+            // still override it.
             builder.UseContentRoot(contentRoot);
             userConfigure?.Invoke(builder);
         };

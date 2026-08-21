@@ -208,6 +208,14 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   It is deliberately **not** `IRecyclableResource.Recycle` — recycle assumes the resource is
   broken and belongs to the supervisor between attempts; restart assumes it is healthy and is a
   step, mid-scenario, because the spec says so. A restart never runs `ResetBetweenScenarios`.
+- **`AlbaContentRoot`** (`Bobcat.Alba`) — `AlbaResource<TProgram>` resolves the host's content
+  root itself instead of trusting `WebApplicationFactory`, whose manifest lookup is relative to
+  the *working directory* and whose `<solution>/<assembly>` fallback is wrong for anything under
+  `src/` or `samples/`. Order: `TEST_CONTENTROOT_*` setting (left to the factory) → manifest in
+  the test output → `[WebApplicationFactoryContentRoot]` → `<solution>/<name>` if it exists →
+  `<name>.csproj` found below the solution → the test output directory. `resource.ContentRoot`
+  says what was decided and why; `WithContentRoot` still overrides everything. See
+  docs/sample-wiring.md footgun 2.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 
