@@ -45,9 +45,10 @@ are the source of truth; the check that produced this table is recorded in
 `src/Directory.Packages.props`).
 
 One wrinkle worth knowing: Fisher 1.0.2 floors `Weasel.Storage` at 9.25.1 while Marten 9.28.0
-floors Weasel at 9.24.0, so a host referencing both resolves `Weasel.Storage` 9.25.1 beside
-`Weasel.Postgresql` 9.24.0. Weasel minor versions are binary-compatible; if a future Weasel
-breaks that, Marten 9.29.0 floors Weasel at 9.25.1 and is the aligned answer.
+floors Weasel at 9.24.0, so a host referencing both (`samples/BankAccountES`, which switches store
+by configuration) resolves `Weasel.Storage` 9.25.1 beside `Weasel.Postgresql` 9.24.0. Weasel minor
+versions are binary-compatible and that sample runs 9/9 on both stores with that resolution; if a
+future Weasel breaks it, Marten 9.29.0 floors Weasel at 9.25.1 and is the aligned answer.
 
 ### History
 

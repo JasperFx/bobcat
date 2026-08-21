@@ -36,7 +36,20 @@ namespace Bobcat.CritterStack;
 /// <para>
 /// Both are the bounded, documented softening of "bind to the abstractions" — the same bargain as
 /// <c>GrammarBehaviors.Resolve</c> in core. When JasperFx.Events grows the abstraction, the
-/// convention path is the one line to delete.
+/// convention path is the one line to delete. Re-checked against 2.53.0 (issue #103): neither has
+/// landed, and both branches are now proved on the real stores — Marten takes the
+/// <see cref="IQueryEventStore"/> / <c>ResetAllData</c> branch, Fisher the session-closure /
+/// <c>ResetAllDataAsync</c> one.
+/// </para>
+/// <para>
+/// <b>Why the projection waits do not delegate to <c>ProjectionScenario&lt;,&gt;</c></b>
+/// (<c>JasperFx.Events.TestSupport</c>, in the pinned version): it is a scripted harness that wipes
+/// the store, builds its <i>own</i> daemon and appends through its <i>own</i> session, reached only
+/// through each store's <c>Advanced</c> member and closed over that store's session pair — there is
+/// no non-generic interface and no <see cref="IEventStore"/> accessor. A spec appends through the
+/// application under test and waits on the host's daemon, so the right tool is the wait the
+/// scenario itself performs after each batch, which is what <see cref="WaitForNonStaleProjectionsAsync"/>
+/// calls directly.
 /// </para>
 /// </remarks>
 public static class EventStores

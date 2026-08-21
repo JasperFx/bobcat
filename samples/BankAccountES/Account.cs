@@ -6,12 +6,12 @@ public record AccountOpened(Guid AccountId, Guid ClientId, string Currency);
 public record FundsDeposited(Guid AccountId, decimal Amount, decimal NewBalance);
 public record FundsWithdrawn(Guid AccountId, decimal Amount, decimal NewBalance);
 
-// --- Aggregate (event-sourced via Marten) ---
+// --- Aggregate (event-sourced; the store is whichever Program.cs registered) ---
 
 /// <summary>
-/// Bank account aggregate. Marten rebuilds state by calling Apply methods
-/// when loading from the event stream. Business rules are enforced in
-/// Wolverine handler methods that return events.
+/// Bank account aggregate. The event store rebuilds state by calling the Apply methods
+/// when loading from the event stream — Marten and Fisher share that convention through
+/// JasperFx.Events. Business rules are enforced in Wolverine handler methods that return events.
 /// </summary>
 public class Account
 {

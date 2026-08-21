@@ -353,3 +353,8 @@ MigrationBackup/
 
 # Claire/Cowork worktree directories (mirror of .claude/worktrees)
 .claire/
+
+# Fisher (SQLite) database files the samples create when run with EventStore=Fisher
+samples/**/*.db
+samples/**/*.db-wal
+samples/**/*.db-shm

@@ -36,7 +36,7 @@ See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that i
 | [MeetingGroupMonolith](MeetingGroupMonolith/) | [kgrzybek/modular-monolith-with-ddd](https://github.com/kgrzybek/modular-monolith-with-ddd) | Meeting group scheduling — 5 modules with event sourcing | Marten event store (Payments), durable local queues, inter-module events |
 | [PaymentsMonolith](PaymentsMonolith/) | [devmentors/Inflow](https://github.com/devmentors/Inflow) | Virtual payments — 4 modules (Users, Customers, Wallets, Payments) | Schema-per-module, cascading events across modules, `ValidateAsync` |
 | [BookingMonolith](BookingMonolith/) | [meysamhadeli/booking-modular-monolith](https://github.com/meysamhadeli/booking-modular-monolith) | Travel booking — replaces EventStoreDB + MongoDB with Marten | Marten event store, inline snapshots, multiple `[Entity]` batch loading |
-| [BankAccountES](BankAccountES/) | Inspired by [andreschaffer/event-sourcing-cqrs-examples](https://github.com/andreschaffer/event-sourcing-cqrs-examples) | Bank accounts — pure Marten event sourcing from scratch | `[AggregateHandler]`, `[WriteAggregate]`, inline projections, `Validate` against aggregate state |
+| [BankAccountES](BankAccountES/) | Inspired by [andreschaffer/event-sourcing-cqrs-examples](https://github.com/andreschaffer/event-sourcing-cqrs-examples) | Bank accounts — store-agnostic event sourcing; runs on Marten (Postgres) or Fisher (SQLite) from one set of handlers | `[DeciderFunction]`, `[Entity]`, `Storage.StartStream`, `IEventStoreOperations` / `IDocumentReadOperations`, inline `Snapshot<T>` read model, `Validate` against aggregate state |
 | [MoreSpeakers](MoreSpeakers/) | [cwoodruff/morespeakers-com](https://github.com/cwoodruff/morespeakers-com) | Speaker mentorship platform — Marten as document DB | Nested collections, multiple `[Entity]` batch queries, mentorship lifecycle |
 
 ## Common Patterns Across Samples
@@ -52,9 +52,11 @@ See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that i
 
 ## Running
 
-Each sample has its own `.sln` file and `Tests/` subfolder. Requires PostgreSQL:
+Each sample has its own `.sln` file and `Tests/` subfolder. Requires PostgreSQL (see
+`docker-compose.yml` in this folder), except `BankAccountES` on Fisher, which needs nothing:
 
 ```bash
 cd BankAccountES
-dotnet test
+dotnet run --project Tests -- run                      # Marten, Postgres on 5433
+EventStore=Fisher dotnet run --project Tests -- run    # Fisher, a SQLite file, no docker
 ```

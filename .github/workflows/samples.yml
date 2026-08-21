@@ -11,6 +11,11 @@ name: samples
 # Compiling is NOT enough to call a sample fixed, though: OutboxDemo compiled clean and still
 # could not start, because Wolverine 6 stopped shipping the runtime compiler. Wiring a sample
 # means running its specs against a real database at least once, by hand.
+#
+# One exception runs end to end: BankAccountES on Fisher (issue #103). A SQLite file needs nothing
+# this runner does not already have, which is the whole argument for Fisher as the inner-loop
+# store — and a sample whose point is "the same handlers run on two stores" is only proved by
+# running it. The Marten leg still needs Postgres and stays a by-hand run.
 on:
   push:
     branches:
@@ -95,3 +100,11 @@ jobs:
 
           [ $status -eq 0 ] && echo "no regressions"
           exit $status
+
+      - name: Run the BankAccountES specs on Fisher (SQLite, no services)
+        env:
+          EventStore: Fisher
+          ConnectionStrings__Fisher: "Data Source=${{ runner.temp }}/bank_account.db"
+          # The spec host would otherwise try to publish progress to a local viewer that is not running.
+          BOBCAT_MONITOR: "0"
+        run: dotnet run --project samples/BankAccountES/Tests -c Release -- run
