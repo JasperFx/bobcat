@@ -1,6 +1,7 @@
 using FluentValidation;
 using Marten;
 using BookingMonolith;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Wolverine.Http;
 
 namespace Flight;
@@ -30,8 +31,10 @@ public record CreateFlight(
 
 public static class CreateFlightEndpoint
 {
+    // First tuple item is the HTTP response (an IResult, executed as-is); the rest are cascaded
+    // messages. See RegisterUserEndpoint.
     [WolverinePost("/api/flights")]
-    public static (Flight, FlightCreated) Post(CreateFlight command, IDocumentSession session)
+    public static (Created<Flight>, FlightCreated) Post(CreateFlight command, IDocumentSession session)
     {
         var flight = new Flight
         {
@@ -50,7 +53,9 @@ public static class CreateFlightEndpoint
 
         session.Store(flight);
 
-        return (flight, new FlightCreated(flight.Id, flight.FlightNumber, flight.Price, flight.FlightDate));
+        return (
+            TypedResults.Created($"/api/flights/{flight.Id}", flight),
+            new FlightCreated(flight.Id, flight.FlightNumber, flight.Price, flight.FlightDate));
     }
 }
 
