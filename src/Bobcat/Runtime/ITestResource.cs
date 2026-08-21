@@ -59,3 +59,38 @@ public interface IRecyclableResource : ITestResource
     /// <summary>Throw the underlying container/process away and stand a fresh one up.</summary>
     Task Recycle(CancellationToken token = default);
 }
+
+/// <summary>
+/// A resource that can stop and start again <em>inside</em> a scenario, on purpose, as part of
+/// what the scenario is testing — "the application restarts and forgets nothing", "a queued
+/// message survives a bounce". Hosts, mostly: <c>HostResource</c> and <c>AlbaResource</c>
+/// implement it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Deliberately a fourth verb, not a reuse of <see cref="IRecyclableResource.Recycle"/>. Recycle
+/// assumes the resource is broken and is decided by the supervisor between attempts, outside any
+/// scenario; <c>Restart</c> assumes the resource is healthy and is called by a step, mid-scenario,
+/// because the spec says so. Conflating them would let the supervisor "recycle" an in-process
+/// host it cannot see, and would make a spec's restart step read as a recovery action.
+/// </para>
+/// <para>
+/// The resource stays registered under the same name across a restart, and the scenario's DI
+/// scope follows the new container: if a scenario scope was open on the old host, the resource
+/// closes it, restarts, and opens a fresh scope on the new host, so a step after the restart
+/// resolving <c>IHostResource.CurrentServices</c> gets the new application's services. Anything
+/// a step captured from the old scope is dead after a restart — re-resolve, don't hoard.
+/// </para>
+/// <para>
+/// A restart is not a reset: <see cref="ITestResource.ResetBetweenScenarios"/> does not run,
+/// because the whole point is usually to prove that persistent state <em>survives</em>.
+/// </para>
+/// </remarks>
+public interface IRestartableResource : ITestResource
+{
+    /// <summary>
+    /// Stop the underlying host and start a fresh one, re-entering the scenario scope if one was
+    /// open. Throws if the resource has not been started.
+    /// </summary>
+    Task Restart(CancellationToken token = default);
+}

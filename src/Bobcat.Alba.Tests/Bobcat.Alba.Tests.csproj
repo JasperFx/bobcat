@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.Alba\Bobcat.Alba.csproj" />
+    <ProjectReference Include="..\Bobcat.Alba.SampleWeb\Bobcat.Alba.SampleWeb.csproj" />
   </ItemGroup>
 
 </Project>

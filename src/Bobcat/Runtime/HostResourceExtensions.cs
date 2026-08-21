@@ -50,6 +50,25 @@ public static class HostResourceExtensions
         => context.GetResource<IHostResource>(name).RootServices;
 
     /// <summary>
+    /// Restart the registered host mid-scenario — stop the application, start a fresh one over the
+    /// same persistent state, and re-enter the scenario scope on the new container. For specs
+    /// whose subject is survival across a bounce ("a restart forgets nothing"). The resource must
+    /// implement <see cref="IRestartableResource"/>; <c>HostResource</c> and <c>AlbaResource</c> do.
+    /// </summary>
+    public static Task RestartHost(this IStepContext context, string? name = null)
+    {
+        var resource = context.GetResource<IHostResource>(name);
+        if (resource is not IRestartableResource restartable)
+        {
+            throw new InvalidOperationException(
+                $"Host resource '{resource.Name}' ({resource.GetType().Name}) does not implement " +
+                $"{nameof(IRestartableResource)}, so it cannot be restarted from a step.");
+        }
+
+        return restartable.Restart(context.Cancellation);
+    }
+
+    /// <summary>
     /// Create a child DI scope nested UNDER the current scenario scope. Backs the
     /// <c>[NewScope]</c> / <c>[ScopePerRow]</c> escape hatches — the host resource still owns
     /// the scenario scope; this just nests inside it. Dispose the returned scope when done.
