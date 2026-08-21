@@ -168,4 +168,50 @@ public class SpecNodeMappingTests
 
         SpecNodeMapping.TimingFor(result).GlobalTiming.Duration.ShouldBeGreaterThanOrEqualTo(TimeSpan.Zero);
     }
+
+    // --- Scenarios the run planned and never executed (issue #123)
+
+    [Fact]
+    public void a_scenario_that_did_not_run_is_an_error_carrying_the_harness_failure()
+    {
+        var cause = new SpecCatastrophicException("Resource 'broker' failed to start: connection refused",
+            new InvalidOperationException("connection refused"));
+        var scenario = new NotRunScenario("Arithmetic", "addition works", [],
+            "Resource 'broker' failed to start: connection refused", cause);
+
+        var state = SpecNodeMapping.StateFor(scenario).ShouldBeOfType<ErrorTestNodeStateProperty>();
+
+        // error, not skipped: a supervisor counts skipped as succeeded, and a suite whose broker
+        // never came up must not read as green. Not silence either — silence is what a crash
+        // looks like.
+        state.Exception.ShouldBeOfType<ScenarioNotRunException>();
+        state.Exception!.Message.ShouldContain("did not run");
+        state.Exception.Message.ShouldContain("connection refused");
+        state.Exception.InnerException.ShouldBeSameAs(cause);
+        state.Explanation.ShouldContain("did not run");
+    }
+
+    [Fact]
+    public void a_scenario_that_did_not_run_without_an_exception_still_gets_one_to_report()
+    {
+        // A failed preflight has a description but no exception. MTP's error state wants one.
+        var scenario = new NotRunScenario("Arithmetic", "addition works", [], "Environment preflight failed");
+
+        var state = SpecNodeMapping.StateFor(scenario).ShouldBeOfType<ErrorTestNodeStateProperty>();
+
+        state.Exception.ShouldNotBeNull();
+        state.Exception.Message.ShouldContain("Environment preflight failed");
+        state.Exception.InnerException.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_scenario_that_did_not_run_says_so_in_its_outcome_metadata()
+    {
+        var scenario = new NotRunScenario("Arithmetic", "addition works", [], "the broker is down");
+
+        var metadata = SpecNodeMapping.OutcomeMetadata(scenario).ToList();
+
+        metadata.ShouldContain(m => m.Key == "bobcat.outcome" && m.Value == "NotRun");
+        metadata.ShouldContain(m => m.Key == "bobcat.notRunReason" && m.Value == "the broker is down");
+    }
 }

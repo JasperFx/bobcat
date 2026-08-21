@@ -65,6 +65,41 @@ public class TestSuiteTests
     }
 
     [Fact]
+    public async Task a_start_failure_leaves_the_resources_before_it_up_and_the_ones_after_it_untouched()
+    {
+        var order = new List<string>();
+        var suite = new TestSuite();
+        suite.AddResource(new TrackingResource("first", order));
+        suite.AddResource(new TrackingResource("second", order, failOnStart: true));
+        suite.AddResource(new TrackingResource("third", order));
+
+        await Should.ThrowAsync<SpecCatastrophicException>(suite.StartAll());
+        await suite.DisposeAsync();
+
+        // "third" was never asked to start, so it is never asked to dispose either — its
+        // DisposeAsync was written assuming Start ran. "second" may be half up, so it is.
+        order.ShouldBe(["first:start", "second:start", "second:dispose", "first:dispose"]);
+    }
+
+    [Fact]
+    public async Task every_resource_is_disposed_even_when_one_throws_and_the_failure_surfaces_after()
+    {
+        var order = new List<string>();
+        var suite = new TestSuite();
+        suite.AddResource(new TrackingResource("first", order));
+        suite.AddResource(new TrackingResource("second", order, failOnDispose: true));
+        suite.AddResource(new TrackingResource("third", order));
+
+        await suite.StartAll();
+        order.Clear();
+
+        var ex = await Should.ThrowAsync<AggregateException>(async () => await suite.DisposeAsync());
+
+        ex.InnerExceptions.ShouldHaveSingleItem().Message.ShouldContain("second");
+        order.ShouldBe(["third:dispose", "second:dispose", "first:dispose"]);
+    }
+
+    [Fact]
     public void get_resource_by_type()
     {
         var suite = new TestSuite();
@@ -150,11 +185,15 @@ public class TestSuiteTests
 internal class TrackingResource : ITestResource
 {
     private readonly List<string> _log;
+    private readonly bool _failOnStart;
+    private readonly bool _failOnDispose;
 
-    public TrackingResource(string name, List<string> log)
+    public TrackingResource(string name, List<string> log, bool failOnStart = false, bool failOnDispose = false)
     {
         Name = name;
         _log = log;
+        _failOnStart = failOnStart;
+        _failOnDispose = failOnDispose;
     }
 
     public string Name { get; }
@@ -162,6 +201,7 @@ internal class TrackingResource : ITestResource
     public Task Start()
     {
         _log.Add($"{Name}:start");
+        if (_failOnStart) throw new InvalidOperationException($"{Name} would not start");
         return Task.CompletedTask;
     }
 
@@ -174,6 +214,7 @@ internal class TrackingResource : ITestResource
     public ValueTask DisposeAsync()
     {
         _log.Add($"{Name}:dispose");
+        if (_failOnDispose) throw new InvalidOperationException($"{Name} would not dispose");
         return ValueTask.CompletedTask;
     }
 }

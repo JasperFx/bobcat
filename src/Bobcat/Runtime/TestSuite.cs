@@ -11,6 +11,7 @@ public class TestSuite : IAsyncDisposable
     private readonly List<ITestResource> _resources = new();
     private readonly Dictionary<string, ITestResource> _byName = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<IGlobalAction> _globalActions = new();
+    private readonly List<ITestResource> _attempted = new();
 
     /// <summary>
     /// Register cross-cutting setup/teardown that runs once for the whole test run.
@@ -39,12 +40,19 @@ public class TestSuite : IAsyncDisposable
     }
 
     /// <summary>
-    /// Start all resources in registration order. Any failure is catastrophic.
+    /// Start all resources in registration order. Any failure is catastrophic: the exception
+    /// wraps in a <see cref="SpecCatastrophicException"/> naming the resource, and the
+    /// resources after it are never asked to start. The ones before it are up, and the one
+    /// that threw may be half up — <see cref="DisposeAsync"/> tears both down.
     /// </summary>
     public async Task StartAll()
     {
         foreach (var resource in _resources)
         {
+            // Recorded before Start so a resource that throws part-way through — containers
+            // up, health check failed — still gets its DisposeAsync.
+            _attempted.Add(resource);
+
             try
             {
                 await resource.Start();
@@ -169,13 +177,32 @@ public class TestSuite : IAsyncDisposable
     public IReadOnlyList<ITestResource> Resources => _resources;
 
     /// <summary>
-    /// Dispose all resources in reverse registration order.
+    /// Dispose every resource that <see cref="StartAll"/> started or tried to start, in reverse
+    /// registration order. A resource that was never asked to start is not touched: its
+    /// <c>DisposeAsync</c> was written assuming <c>Start</c> ran, and a second exception from
+    /// tearing down something that never came up would only bury the one that matters.
+    /// Every resource gets its turn even if an earlier one threw; the failures surface
+    /// together once they have all run.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        for (var i = _resources.Count - 1; i >= 0; i--)
+        List<Exception>? failures = null;
+
+        for (var i = _attempted.Count - 1; i >= 0; i--)
         {
-            await _resources[i].DisposeAsync();
+            try
+            {
+                await _attempted[i].DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= new List<Exception>()).Add(ex);
+            }
         }
+
+        _attempted.Clear();
+
+        if (failures != null)
+            throw new AggregateException("One or more resources failed to dispose.", failures);
     }
 }

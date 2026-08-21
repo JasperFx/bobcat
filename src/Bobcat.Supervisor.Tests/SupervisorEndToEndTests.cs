@@ -192,6 +192,34 @@ public class SupervisorEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task a_resource_that_fails_to_start_is_a_reported_failure_not_a_crash()
+    {
+        // Issue #123. The worker's broker resource refuses to start, so nothing in it can run.
+        // Before the fix the SpecCatastrophicException escaped the MTP host, the process died,
+        // and the supervisor could only call every test Indeterminate with a worker fault —
+        // which is the right answer for a crash, and the wrong one for a failure the worker knew
+        // all about.
+        var supervisor = new Supervisor(factory(new Dictionary<string, string>
+        {
+            ["BOBCAT_START_FAILS"] = "true"
+        }));
+
+        var results = await supervisor.Run();
+
+        results.WorkerFaults.ShouldBeEmpty();
+        results.Indeterminate.ShouldBeEmpty();
+
+        // Every test has a verdict, and the verdict names the resource.
+        results.Tests.Count.ShouldBe(7);
+        results.Failed.Count.ShouldBe(7);
+        results.Failed.ShouldAllBe(t => t.Final.Outcome.State == WorkerTestState.Error);
+        results.Failed.ShouldAllBe(t => t.Final.Outcome.ErrorMessage!.Contains("the broker refused the connection"));
+
+        // An ordinary red build, not "we do not know what happened".
+        results.ExitCode.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task the_run_reports_how_many_worker_processes_isolation_cost()
     {
         var supervisor = new Supervisor(factory());
