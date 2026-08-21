@@ -50,7 +50,12 @@ public sealed class FakeWorker : IWorkerClient
         var fault = _factory.FaultFor(this);
 
         return Task.FromResult(new WorkerRunResult(
-            MtpWorkerClient.Complete(uids, outcomes, fault)) { Fault = fault });
+            MtpWorkerClient.Complete(uids, outcomes, fault))
+        {
+            Fault = fault,
+            ExitCode = fault is null ? null : _factory.FaultExitCode,
+            StandardError = fault is null ? null : _factory.FaultStandardError
+        });
     }
 
     public ValueTask DisposeAsync()
@@ -84,6 +89,11 @@ public sealed class FakeWorkerFactory : IWorkerFactory
 
     /// <summary>Optional per-worker fault, modelling a crashed process.</summary>
     public Func<FakeWorker, string?> Fault { get; init; } = _ => null;
+
+    /// <summary>The exit code and standard error tail a faulting worker reports alongside <see cref="Fault"/>.</summary>
+    public int? FaultExitCode { get; init; }
+
+    public string? FaultStandardError { get; init; }
 
     /// <summary>
     /// The exception type name a failing test reports. Null models a framework that erases it —

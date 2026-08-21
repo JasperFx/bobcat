@@ -1,7 +1,10 @@
 import { useRunsStore } from '@/stores/runs-store'
 import type {
   BatchedWebSocketPayload,
+  LaneFinished,
+  LaneStarted,
   MonitorEnvelope,
+  ResourceRecycled,
   RetryScheduled,
   RunFinished,
   RunHeartbeat,
@@ -10,6 +13,7 @@ import type {
   ScenarioStarted,
   StepFinished,
   StepStarted,
+  WorkerFaulted,
 } from './monitor-events'
 
 /**
@@ -56,6 +60,18 @@ export function relayToStore(message: unknown): void {
       break
     case 'step_finished':
       runs.handleStepFinished(envelope.data as StepFinished)
+      break
+    case 'lane_started':
+      runs.handleLaneStarted(envelope.data as LaneStarted)
+      break
+    case 'lane_finished':
+      runs.handleLaneFinished(envelope.data as LaneFinished)
+      break
+    case 'resource_recycled':
+      runs.handleResourceRecycled(envelope.data as ResourceRecycled)
+      break
+    case 'worker_faulted':
+      runs.handleWorkerFaulted(envelope.data as WorkerFaulted)
       break
     // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
     default:

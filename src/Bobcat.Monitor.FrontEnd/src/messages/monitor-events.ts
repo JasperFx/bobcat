@@ -29,6 +29,10 @@ export type MonitorEventType =
   | 'retry_scheduled'
   | 'step_started'
   | 'step_finished'
+  | 'lane_started'
+  | 'lane_finished'
+  | 'resource_recycled'
+  | 'worker_faulted'
 
 export interface MonitorEvent {
   runId: string
@@ -103,6 +107,36 @@ export interface StepFinished extends MonitorEvent {
   status: string
   durationMs: number
   errorMessage: string | null
+}
+
+/** Envelope type: 'lane_started' */
+export interface LaneStarted extends MonitorEvent {
+  lane: number
+  uids: string[]
+  at: string
+}
+
+/** Envelope type: 'lane_finished' */
+export interface LaneFinished extends MonitorEvent {
+  lane: number
+  outcomes: number
+  crashed: boolean
+  at: string
+}
+
+/** Envelope type: 'resource_recycled' */
+export interface ResourceRecycled extends MonitorEvent {
+  resource: string
+  at: string
+}
+
+/** Envelope type: 'worker_faulted' */
+export interface WorkerFaulted extends MonitorEvent {
+  lane: number | null
+  fault: string
+  exitCode: number | null
+  standardError: string | null
+  at: string
 }
 
 export interface BatchedWebSocketPayload {

@@ -133,6 +133,69 @@ public class ContractRoundTripTests
     }
 
     [Fact]
+    public void lane_started_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.LaneStarted(runId, 2, ["F/a", "F/b"], at))
+            .ShouldBeOfType<Wire.LaneStarted>();
+
+        wire.Lane.ShouldBe(2);
+        wire.Uids.ShouldBe(["F/a", "F/b"]);
+        wire.At.ShouldBe(at);
+    }
+
+    [Fact]
+    public void lane_finished_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.LaneFinished(runId, 1, 7, true, at))
+            .ShouldBeOfType<Wire.LaneFinished>();
+
+        wire.Lane.ShouldBe(1);
+        wire.Outcomes.ShouldBe(7);
+        wire.Crashed.ShouldBeTrue();
+        wire.At.ShouldBe(at);
+    }
+
+    [Fact]
+    public void resource_recycled_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.ResourceRecycled(runId, "rabbit", at))
+            .ShouldBeOfType<Wire.ResourceRecycled>();
+
+        wire.Resource.ShouldBe("rabbit");
+        wire.At.ShouldBe(at);
+    }
+
+    [Fact]
+    public void worker_faulted_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.WorkerFaulted(runId, 3, "the worker exited with code 139", 139, "Segmentation fault", at))
+            .ShouldBeOfType<Wire.WorkerFaulted>();
+
+        wire.Lane.ShouldBe(3);
+        wire.Fault.ShouldBe("the worker exited with code 139");
+        wire.ExitCode.ShouldBe(139);
+        wire.StandardError.ShouldBe("Segmentation fault");
+        wire.At.ShouldBe(at);
+    }
+
+    [Fact]
+    public void a_worker_fault_outside_any_lane_round_trips_with_null_lane_and_no_exit_code()
+    {
+        // A one-test isolated process has no lane, and a worker that stopped responding without
+        // dying has no exit code yet — both are facts, not gaps.
+        var wire = roundTrip(new Client.WorkerFaulted(runId, null, "the worker stopped responding but is still running", null, null, DateTimeOffset.UtcNow))
+            .ShouldBeOfType<Wire.WorkerFaulted>();
+
+        wire.Lane.ShouldBeNull();
+        wire.ExitCode.ShouldBeNull();
+        wire.StandardError.ShouldBeNull();
+    }
+
+    [Fact]
     public void an_ingest_batch_of_mixed_events_deserializes_into_the_server_batch_shape()
     {
         var json = JsonSerializer.Serialize(new

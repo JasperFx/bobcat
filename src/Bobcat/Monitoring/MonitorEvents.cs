@@ -19,6 +19,10 @@ namespace Bobcat.Monitoring;
 [JsonDerivedType(typeof(RetryScheduled), "retry_scheduled")]
 [JsonDerivedType(typeof(StepStarted), "step_started")]
 [JsonDerivedType(typeof(StepFinished), "step_finished")]
+[JsonDerivedType(typeof(LaneStarted), "lane_started")]
+[JsonDerivedType(typeof(LaneFinished), "lane_finished")]
+[JsonDerivedType(typeof(ResourceRecycled), "resource_recycled")]
+[JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
 public abstract record MonitorEvent(Guid RunId);
 
 public record RunStarted(
@@ -82,3 +86,32 @@ public record StepFinished(
     string Status,
     long DurationMs,
     string? ErrorMessage) : MonitorEvent(RunId);
+
+// The supervisor's lane topology, recycles and worker faults (issue #84) — posted by
+// SupervisorRunPublisher, which is the only publisher that knows them.
+
+public record LaneStarted(
+    Guid RunId,
+    int Lane,
+    IReadOnlyList<string> Uids,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+public record LaneFinished(
+    Guid RunId,
+    int Lane,
+    int Outcomes,
+    bool Crashed,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+public record ResourceRecycled(
+    Guid RunId,
+    string Resource,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+public record WorkerFaulted(
+    Guid RunId,
+    int? Lane,
+    string Fault,
+    int? ExitCode,
+    string? StandardError,
+    DateTimeOffset At) : MonitorEvent(RunId);

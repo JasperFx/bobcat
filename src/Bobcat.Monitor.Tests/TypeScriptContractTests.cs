@@ -114,8 +114,12 @@ public class TypeScriptContractTests
         }
 
         // And the import block now lists everything it routes, sorted, plus the envelope shapes.
-        patched.ShouldContain("import type {\n  BatchedWebSocketPayload,\n  MonitorEnvelope,\n  RetryScheduled,\n");
-        patched.ShouldContain("  StepStarted,\n} from './monitor-events'");
+        var expectedImports = TypeScriptContracts.EventTypes.Select(e => e.Type.Name)
+            .Append("MonitorEnvelope")
+            .Append("BatchedWebSocketPayload")
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .Select(n => $"  {n},");
+        patched.ShouldContain("import type {\n" + string.Join('\n', expectedImports) + "\n} from './monitor-events'");
 
         // Idempotent: a second pass changes nothing.
         TypeScriptContracts.PatchRelayToStore(patched).ShouldBe(patched);

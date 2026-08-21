@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type {
+  LaneFinished,
+  LaneStarted,
+  ResourceRecycled,
   RetryScheduled,
   RunFinished,
   RunHeartbeat,
@@ -9,6 +12,7 @@ import type {
   ScenarioStarted,
   StepFinished,
   StepStarted,
+  WorkerFaulted,
 } from '@/messages/monitor-events'
 
 export type StepStatus = 'running' | 'passed' | 'failed'
@@ -48,6 +52,44 @@ export interface ScenarioState {
   steps: StepState[]
 }
 
+// The supervisor's topology (issue #84): which worker process is doing what, what
+// infrastructure was thrown away, and which workers died. Only a supervised run has any of
+// it; an in-process run's arrays stay empty and the views show nothing.
+
+export type LaneStatus = 'running' | 'finished' | 'crashed'
+
+export interface LaneState {
+  lane: number
+  status: LaneStatus
+  /**
+   * The uids handed to the lane's worker on its latest start. A same-process retry goes back
+   * to the lane the test ran in, carrying only the tests being retried — so this is "what the
+   * lane is working through now", not everything it ever ran.
+   */
+  uids: string[]
+  /** How many times the lane has been handed work: 1 is the first pass, more are retry passes. */
+  passes: number
+  startedAt: string
+  finishedAt: string | null
+  /** Outcomes the worker reported on its latest finish; null while it is still running. */
+  outcomes: number | null
+}
+
+export interface RecycleState {
+  resource: string
+  at: string
+}
+
+export interface WorkerFaultState {
+  /** The lane whose worker died; null for a one-test isolated or recycled process. */
+  lane: number | null
+  /** The sentence the supervisor's report collects — dashboard and report agree. */
+  fault: string
+  exitCode: number | null
+  standardError: string | null
+  at: string
+}
+
 export interface RunCounts {
   passed: number
   failed: number
@@ -72,6 +114,12 @@ export interface RunState {
   /** Wall-clock of the latest event/heartbeat — the orphaned-run detector's input. */
   lastEventAt: string
   scenarios: Record<string, ScenarioState>
+  /** Supervisor lanes in lane order; empty for an in-process run. */
+  lanes: LaneState[]
+  /** Resources the supervisor threw away and stood up again, in order. */
+  recycles: RecycleState[]
+  /** Worker processes that died, in order, with the account of each. */
+  faults: WorkerFaultState[]
 }
 
 /**
@@ -120,6 +168,9 @@ export const useRunsStore = defineStore('runs', () => {
         finishedAt: null,
         lastEventAt: at ?? new Date().toISOString(),
         scenarios: {},
+        lanes: [],
+        recycles: [],
+        faults: [],
       }
       runs.value[runId] = run
     }
@@ -252,6 +303,89 @@ export const useRunsStore = defineStore('runs', () => {
     step.errorMessage = e.errorMessage
   }
 
+  /**
+   * The scenarios a lane's worker is running right now — the uids of its latest pass joined
+   * to their live scenario state. A foreign-framework worker (xUnit, tUnit) streams no
+   * scenarios, so for it this is always empty and the lane itself is the whole signal.
+   */
+  function runningIn(run: RunState, lane: LaneState): ScenarioState[] {
+    return lane.uids
+      .map((uid) => run.scenarios[uid])
+      .filter((s): s is ScenarioState => s !== undefined && s.status === 'running')
+  }
+
+  /** Whether the run has any supervisor topology worth rendering. */
+  function hasTopology(run: RunState): boolean {
+    return run.lanes.length > 0 || run.recycles.length > 0 || run.faults.length > 0
+  }
+
+  function ensureLane(run: RunState, index: number, at: string): LaneState {
+    let lane = run.lanes.find((l) => l.lane === index)
+    if (!lane) {
+      lane = {
+        lane: index,
+        status: 'running',
+        uids: [],
+        passes: 0,
+        startedAt: at,
+        finishedAt: null,
+        outcomes: null,
+      }
+      run.lanes.push(lane)
+      run.lanes.sort((a, b) => a.lane - b.lane)
+    }
+    return lane
+  }
+
+  function handleLaneStarted(e: LaneStarted) {
+    const run = ensureRun(e.runId, e.at)
+    const lane = ensureLane(run, e.lane, e.at)
+    // The supervisor's own clock orders a lane's passes. A start no newer than the one we are
+    // already on is a replay — hydration re-announces the archive over live state — and must
+    // not count as another pass or reset the lane. Equal means the very same start.
+    if (lane.passes > 0 && Date.parse(e.at) <= Date.parse(lane.startedAt)) {
+      if (e.at === lane.startedAt) lane.uids = [...e.uids]
+      return
+    }
+    // A new pass: the first, or a same-process retry handed back to the lane the test ran in.
+    lane.status = 'running'
+    lane.uids = [...e.uids]
+    lane.passes += 1
+    lane.startedAt = e.at
+    lane.finishedAt = null
+    lane.outcomes = null
+  }
+
+  function handleLaneFinished(e: LaneFinished) {
+    const run = ensureRun(e.runId, e.at)
+    const lane = ensureLane(run, e.lane, e.at)
+    if (lane.passes === 0) lane.passes = 1 // a finish whose start was dropped or never seen
+    // A finish older than the pass we are on belongs to an earlier pass — replayed history.
+    if (Date.parse(e.at) < Date.parse(lane.startedAt)) return
+    lane.status = e.crashed ? 'crashed' : 'finished'
+    lane.finishedAt = e.at
+    lane.outcomes = e.outcomes
+  }
+
+  function handleResourceRecycled(e: ResourceRecycled) {
+    const run = ensureRun(e.runId, e.at)
+    // Replay guard: the same recycle never lands twice.
+    if (run.recycles.some((r) => r.resource === e.resource && r.at === e.at)) return
+    run.recycles.push({ resource: e.resource, at: e.at })
+  }
+
+  function handleWorkerFaulted(e: WorkerFaulted) {
+    const run = ensureRun(e.runId, e.at)
+    if (run.faults.some((f) => f.at === e.at && f.lane === e.lane && f.fault === e.fault)) return
+    run.faults.push({
+      lane: e.lane,
+      fault: e.fault,
+      exitCode: e.exitCode,
+      standardError: e.standardError,
+      at: e.at,
+    })
+  }
+
   /** "Eject": drop a finished run from the dashboard. */
   function removeRun(runId: string) {
     delete runs.value[runId]
@@ -289,6 +423,12 @@ export const useRunsStore = defineStore('runs', () => {
     handleRetryScheduled,
     handleStepStarted,
     handleStepFinished,
+    handleLaneStarted,
+    handleLaneFinished,
+    handleResourceRecycled,
+    handleWorkerFaulted,
+    runningIn,
+    hasTopology,
     removeRun,
     markOrphaned,
     pruneTo,
