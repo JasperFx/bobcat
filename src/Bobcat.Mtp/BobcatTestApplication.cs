@@ -32,6 +32,16 @@ public static class BobcatTestApplication
     {
         var builder = await TestApplication.CreateBuilderAsync(args);
 
+        // The MSBuild extension is what `dotnet test` talks to: it launches the host with
+        // `--internal-msbuild-node <pipe>` and streams results back over it. The platform's
+        // generated entry point would register this through a generated
+        // AddSelfRegisteredExtensions — but that entry point is exactly what a Bobcat host turns
+        // off to keep its own Main, so it has to be registered here. Without it the host answers
+        // "Unknown option '--internal-msbuild-node'" and `dotnet test` reports the project failed
+        // before a single scenario ran; running the executable directly never showed it, which is
+        // how Bobcat.Monitor.Specs became the first Bobcat host `dotnet test` ever collected.
+        Microsoft.Testing.Platform.MSBuild.TestingPlatformBuilderHook.AddExtensions(builder, args);
+
         builder.RegisterTestFramework(
             _ => new TestFrameworkCapabilities(),
             (capabilities, _) => new BobcatTestFramework(configure, capabilities));

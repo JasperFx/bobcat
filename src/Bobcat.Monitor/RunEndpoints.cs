@@ -40,6 +40,34 @@ public record RunSummary(
     public int? Indeterminate { get; init; }
 }
 
+/// <summary>
+/// One run in full: the summary plus every scenario's current state. Same wire-contract status
+/// as <see cref="RunSummary"/> — the per-scenario view is how an outside consumer (or the
+/// viewer's own end-to-end suite, <c>Bobcat.Monitor.Specs</c>) verifies an outcome without
+/// replaying the NDJSON archive.
+/// </summary>
+public record RunDetail(RunSummary Run, ScenarioResult[] Scenarios);
+
+/// <summary>
+/// One scenario as the registry currently sees it. <c>Attempt</c> is the attempt running or
+/// last run (1-based); <c>Attempts</c> is the total from the terminal event, corrected upward
+/// by what the monitor watched start. <c>Outcome</c> mirrors RunOutcome and is null while
+/// running — a <c>PassOnRetry</c> is never collapsed into a clean pass here either.
+/// </summary>
+public record ScenarioResult(
+    string Uid,
+    string Feature,
+    string Scenario,
+    string? Outcome,
+    int Attempt,
+    int? Attempts,
+    long? DurationMs,
+    string? ErrorMessage,
+    string[] RetryReasons,
+    StepResult[] Steps);
+
+public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage);
+
 public static class RunEndpoints
 {
     /// <summary>
@@ -52,19 +80,46 @@ public static class RunEndpoints
         => registry.ReadAll(all => all
             .Where(r => tag is null || r.Tag == tag)
             .OrderByDescending(r => r.StartedAt ?? DateTimeOffset.MinValue)
-            .Select(r => new RunSummary(
-                r.RunId, r.Suite, r.Repository, r.Branch, r.Mode,
-                r.Finished, r.Orphaned, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt)
-            {
-                Tag = r.Tag,
-                TotalScenarios = r.TotalScenarios,
-                ScenariosFinished = r.Scenarios.Count(s => s.Outcome != null),
-                Passed = r.Passed,
-                Failed = r.Failed,
-                PassedOnRetry = r.PassedOnRetry,
-                Indeterminate = r.Indeterminate
-            })
+            .Select(summarize)
             .ToArray());
+
+    /// <summary>
+    /// One run with its per-scenario results, or 404 once it has been ejected. Read under the
+    /// registry's gate like the exports are — a run mutates under live ingestion.
+    /// </summary>
+    [WolverineGet("/api/runs/{runId}")]
+    public static IResult Find(Guid runId, MonitorRunRegistry registry)
+    {
+        var detail = registry.Read(runId, run => new RunDetail(
+            summarize(run),
+            run.Scenarios
+                .OrderBy(s => s.Feature).ThenBy(s => s.Scenario)
+                .Select(s => new ScenarioResult(
+                    s.Uid, s.Feature, s.Scenario, s.Outcome, s.Attempt, s.Attempts, s.DurationMs,
+                    s.ErrorMessage,
+                    s.RetryReasons.ToArray(),
+                    s.Steps
+                        .Select(step => new StepResult(
+                            step.StepId, step.Kind, step.Text, step.Status, step.DurationMs, step.ErrorMessage))
+                        .ToArray()))
+                .ToArray()));
+
+        return detail == null ? Results.NotFound() : Results.Ok(detail);
+    }
+
+    private static RunSummary summarize(RunProjection r)
+        => new(
+            r.RunId, r.Suite, r.Repository, r.Branch, r.Mode,
+            r.Finished, r.Orphaned, r.ExitCode, r.Scenarios.Count, r.StartedAt, r.FinishedAt)
+        {
+            Tag = r.Tag,
+            TotalScenarios = r.TotalScenarios,
+            ScenariosFinished = r.Scenarios.Count(s => s.Outcome != null),
+            Passed = r.Passed,
+            Failed = r.Failed,
+            PassedOnRetry = r.PassedOnRetry,
+            Indeterminate = r.Indeterminate
+        };
 
     /// <summary>
     /// The eject download: ctrf (primary), junit (CI compatibility floor), or ndjson (the raw
