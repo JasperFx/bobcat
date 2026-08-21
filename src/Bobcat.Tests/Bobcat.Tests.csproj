@@ -18,4 +18,16 @@
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!--
+      Issue #106. Bobcat.Generators is netstandard2.0 and references nothing, so it carries its own
+      copy of the slice-tag parsing that Bobcat.Runtime.SliceTags owns. Linking the source (rather
+      than referencing the analyzer assembly, which would drag Roslyn in here) lets
+      SliceTagParsingAgreementTests compare the two implementations directly. Same reason
+      ResourceParsingAgreementTests exists for the recovery-hint resource lists.
+    -->
+    <Compile Include="..\Bobcat.Generators\GeneratorSliceTags.cs" Link="Runtime\GeneratorSliceTags.cs" />
+  </ItemGroup>
+
 </Project>
