@@ -29,6 +29,7 @@ export type MonitorEventType =
   | 'retry_scheduled'
   | 'step_started'
   | 'step_finished'
+  | 'step_progress'
   | 'lane_started'
   | 'lane_finished'
   | 'resource_recycled'
@@ -73,7 +74,6 @@ export interface ScenarioStarted extends MonitorEvent {
   scenario: string
   attempt: number
   at: string
-  /** Steps this attempt will run; absent/null from a publisher that predates it. */
   totalSteps?: number | null
 }
 
@@ -100,10 +100,8 @@ export interface StepStarted extends MonitorEvent {
   stepId: string
   kind: string
   text: string
-  /** 1-based position within the attempt; absent/null from an older publisher. */
   stepNumber?: number | null
   totalSteps?: number | null
-  /** Milliseconds into the scenario's wall clock when the step started. */
   scenarioElapsedMs?: number | null
 }
 
@@ -114,17 +112,11 @@ export interface StepFinished extends MonitorEvent {
   status: string
   durationMs: number
   errorMessage: string | null
-  /** Milliseconds into the scenario's wall clock when the step finished. */
   scenarioElapsedMs?: number | null
 }
 
-/**
- * Interim progress from a step still running. Two shapes share it: a [TableGrammar] ticking
- * through rows (row/totalRows, no message) and a [WaitFor] poll loop reporting what it last
- * saw (message, no rows). elapsedMs is time since the step started. Latest wins per step.
- */
-export interface StepProgress {
-  runId: string
+/** Envelope type: 'step_progress' */
+export interface StepProgress extends MonitorEvent {
   uid: string
   stepId: string
   message: string | null
