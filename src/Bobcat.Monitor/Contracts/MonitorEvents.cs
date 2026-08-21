@@ -31,6 +31,10 @@ namespace Bobcat.Monitor.Contracts;
 [JsonDerivedType(typeof(StepStarted), "step_started")]
 [JsonDerivedType(typeof(StepFinished), "step_finished")]
 [JsonDerivedType(typeof(StepProgress), "step_progress")]
+[JsonDerivedType(typeof(LaneStarted), "lane_started")]
+[JsonDerivedType(typeof(LaneFinished), "lane_finished")]
+[JsonDerivedType(typeof(ResourceRecycled), "resource_recycled")]
+[JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
 public abstract record MonitorEvent(Guid RunId) : WebSocketMessage;
 
 /// <summary>
@@ -142,3 +146,48 @@ public record StepProgress(
     int? Row,
     int? TotalRows,
     long ElapsedMs) : MonitorEvent(RunId);
+
+/// <summary>
+/// A supervisor lane's worker was handed a set of tests (issue #84). Fired for the first pass
+/// and again for a same-process retry, which goes back to the lane the test ran in — so a lane
+/// can start more than once, each time with the uids it was handed. Isolated and recycled runs
+/// are not lanes: they are one-test processes and never announce one.
+/// </summary>
+public record LaneStarted(
+    Guid RunId,
+    int Lane,
+    IReadOnlyList<string> Uids,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// The lane's worker finished the set it was given. Crashed mirrors WorkerRunResult.Crashed — the
+/// account of the crash (exit code, last standard error) travels on <see cref="WorkerFaulted"/>.
+/// Outcomes is how many results the worker reported, which matters for a foreign-framework
+/// worker (xUnit, tUnit) that streams no scenario events of its own.
+/// </summary>
+public record LaneFinished(
+    Guid RunId,
+    int Lane,
+    int Outcomes,
+    bool Crashed,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>A supervisor-owned resource was thrown away and stood up again before a retry.</summary>
+public record ResourceRecycled(
+    Guid RunId,
+    string Resource,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// A worker process died, with the account of it a person needs at 2am: the lane it was running
+/// (null for a one-test isolated or recycled process), the exit code when it had exited by the
+/// time the supervisor looked, and the tail of its standard error. Fault is the human-readable
+/// sentence SupervisorResults.WorkerFaults collects, so the dashboard and the report agree.
+/// </summary>
+public record WorkerFaulted(
+    Guid RunId,
+    int? Lane,
+    string Fault,
+    int? ExitCode,
+    string? StandardError,
+    DateTimeOffset At) : MonitorEvent(RunId);

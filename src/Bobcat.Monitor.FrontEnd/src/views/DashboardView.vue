@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRunsStore, type RunState } from '@/stores/runs-store'
+import LaneStrip from '@/components/LaneStrip.vue'
 
 const runs = useRunsStore()
 
@@ -37,6 +38,7 @@ async function eject(run: RunState): Promise<void> {
       <div class="bm-run-meta">
         {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span> · {{ run.mode }}
       </div>
+      <LaneStrip :run="run" />
       <el-tag v-if="run.orphaned" type="warning" size="small">
         orphaned — publisher gone, run never finished
       </el-tag>

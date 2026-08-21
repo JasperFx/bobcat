@@ -87,4 +87,20 @@ public interface ISupervisorObserver
     void TestUpdated(WorkerLaunchContext worker, WorkerTestUpdate update)
     {
     }
+
+    /// <summary>
+    /// The same death, structured: which lane (null for a one-test isolated or recycled
+    /// process), the exit code and the standard error tail as separate facts, alongside the
+    /// sentence. The supervisor calls this one; by default it forwards to
+    /// <see cref="WorkerFaulted(string)"/>, so an observer keeps working whichever it implements.
+    /// </summary>
+    void WorkerFaulted(WorkerFault fault) => WorkerFaulted(fault.Description);
 }
+
+/// <summary>
+/// A worker's death as the supervisor saw it. <see cref="Description"/> is the sentence
+/// <see cref="SupervisorResults.WorkerFaults"/> collects; the other members are the facts it was
+/// written from, kept separate so a dashboard can render them as more than prose.
+/// </summary>
+/// <param name="Lane">The lane whose worker died; null when the process ran one test alone.</param>
+public sealed record WorkerFault(string Description, int? ExitCode, string? StandardError, int? Lane);
