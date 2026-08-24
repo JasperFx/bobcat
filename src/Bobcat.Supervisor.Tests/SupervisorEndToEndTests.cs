@@ -86,6 +86,20 @@ public class SupervisorEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task the_client_samples_the_real_workers_resident_set()
+    {
+        // Issue #149. Process.WorkingSet64 on the handle already held — and null once the
+        // process is gone, because unmeasured must never read as zero.
+        var worker = await MtpWorkerClient.Launch(workerPath);
+
+        var bytes = worker.SampleWorkingSet().ShouldNotBeNull();
+        bytes.ShouldBeGreaterThan(0);
+
+        await worker.DisposeAsync();
+        worker.SampleWorkingSet().ShouldBeNull();
+    }
+
+    [Fact]
     public async Task a_filtered_run_executes_only_what_was_asked_for()
     {
         await using var worker = await MtpWorkerClient.Launch(workerPath);

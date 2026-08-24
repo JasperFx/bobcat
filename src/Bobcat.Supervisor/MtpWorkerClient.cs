@@ -52,6 +52,26 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// </summary>
     public int? ProcessId { get; }
 
+    /// <summary>
+    /// The worker's current resident set (issue #149). <c>Process.WorkingSet64</c> on the
+    /// handle already held — every platform, no new dependency. Null once the process is gone:
+    /// unmeasured is never reported as zero.
+    /// </summary>
+    public long? SampleWorkingSet()
+    {
+        try
+        {
+            if (_process.HasExited) return null;
+            _process.Refresh();
+            return _process.WorkingSet64;
+        }
+        catch
+        {
+            // Disposed or inaccessible — unmeasured.
+            return null;
+        }
+    }
+
     /// <summary>How long to wait for a launched host to dial back.</summary>
     public static TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(60);
 

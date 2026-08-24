@@ -81,6 +81,7 @@ public static class RunReport
         }
 
         timing(report, results);
+        memory(report, results);
 
         return report.ToString().TrimEnd();
     }
@@ -159,6 +160,53 @@ public static class RunReport
         }
     }
 
+    /// <summary>How many of the biggest memory retainers to name.</summary>
+    private const int RetainersReported = 10;
+
+    /// <summary>
+    /// Where the run spent its memory (issue #149). Says nothing at all when nothing was
+    /// sampled — an empty section full of zeroes would read as "the run used no memory".
+    /// </summary>
+    private static void memory(StringBuilder report, SupervisorResults results)
+    {
+        var resources = RunResources.For(results);
+        if (!resources.IsMeasured) return;
+
+        report.AppendLine().AppendLine(
+            $"Memory (peak worker RSS {RunResources.Humanize(resources.PeakBytes!.Value)}):");
+
+        foreach (var worker in resources.Workers)
+        {
+            report.AppendLine(
+                $"  • {describeWorker(worker.Worker)}: {RunResources.Humanize(worker.FirstBytes)} → " +
+                $"{RunResources.Humanize(worker.PeakBytes)} peak ({RunResources.Delta(worker.GrowthBytes)})");
+        }
+
+        if (resources.Attributed.Count > 0)
+        {
+            report.AppendLine("  Top retainers:");
+            foreach (var test in resources.TopRetainers(RetainersReported))
+            {
+                report.AppendLine($"    • {RunResources.Delta(test.RetainedBytes!.Value)} {test.DisplayName}");
+            }
+        }
+
+        if (resources.Unattributed > 0)
+        {
+            report.AppendLine($"  ! {resources.Unattributed} attempt(s) shared their process with " +
+                              "other tests — those deltas are not attributed to anyone");
+        }
+    }
+
+    private static string describeWorker(WorkerLaunchContext worker)
+    {
+        var name = worker.Purpose == WorkerPurpose.Lane
+            ? $"lane {worker.Lane} worker"
+            : $"{worker.Purpose.ToString().ToLowerInvariant()} worker";
+
+        return worker.ProcessId is { } pid ? $"{name} (pid {pid})" : name;
+    }
+
     private static void section(
         StringBuilder report, string title, IReadOnlyList<TestReport> tests, Func<TestReport, string> describe)
     {
@@ -197,6 +245,7 @@ public static class RunReport
                 ["workersLaunched"] = results.WorkersLaunched
             },
             ["timing"] = describe(RunTiming.For(results)),
+            ["memory"] = describe(RunResources.For(results)),
             ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject
             {
                 ["uid"] = s.Uid,
@@ -245,6 +294,33 @@ public static class RunReport
             ["attempts"] = test.Attempts,
             ["shareOfRun"] = timing.Share(test.Total)
         }).ToArray())
+    };
+
+    /// <summary>
+    /// The memory block. Same honesty rule as timing: unmeasured is <c>null</c>, never 0 — an
+    /// agent reading this must be able to tell "no memory grew" from "nobody sampled".
+    /// </summary>
+    private static JsonObject describe(RunResources resources) => new()
+    {
+        ["peakBytes"] = resources.PeakBytes,
+        ["unattributed"] = resources.Unattributed,
+        ["workers"] = new JsonArray(resources.Workers.Select(worker => (JsonNode)new JsonObject
+        {
+            ["lane"] = worker.Worker.Purpose == WorkerPurpose.Lane ? worker.Worker.Lane : null,
+            ["purpose"] = worker.Worker.Purpose.ToString(),
+            ["pid"] = worker.Worker.ProcessId,
+            ["firstBytes"] = worker.FirstBytes,
+            ["peakBytes"] = worker.PeakBytes,
+            ["lastBytes"] = worker.LastBytes,
+            ["growthBytes"] = worker.GrowthBytes
+        }).ToArray()),
+        ["topRetainers"] = new JsonArray(resources.TopRetainers(RetainersReported)
+            .Select(test => (JsonNode)new JsonObject
+            {
+                ["uid"] = test.Uid,
+                ["displayName"] = test.DisplayName,
+                ["retainedBytes"] = test.RetainedBytes
+            }).ToArray())
     };
 
     private static JsonObject describe(TestReport test) => new()

@@ -611,6 +611,18 @@ ones on upgrade. Same reasoning as retries being opt-in.
   `Task.Run` so even a synchronously-blocking hook cannot hold the kill past the deadline —
   this is the one callback a run genuinely waits on, which is why the ceiling is explicit.
   The sample worker's `Basics/hangs when armed` (`BOBCAT_HANG`) is the reusable wedge.
+- **`ResourceSampleInterval` is RunTiming for RSS** (issue #149): `IWorkerClient.SampleWorkingSet()`
+  (default null; `MtpWorkerClient` reads `Process.WorkingSet64` — no new dependency, null once
+  the process is gone), `MemorySampler` brackets every attempt with boundary samples off the
+  test-update stream and adds interval peaks via the run ticker (which serves stalls, heartbeat
+  and sampling from one timer at the min cadence). Per-attempt "retained" deltas are attributed
+  **only when the attempt had its process to itself for its whole window** — a second test
+  entering poisons everyone, including itself, and those attempts report a null delta
+  (unattributed, counted) rather than a guess. Unmeasured produces no record at all, never
+  zeroes; JSON figures are null. `RunResources.For(results)` is the reporting view (peak per
+  worker, top-10 retainers) rendered by `RunReport`; raw figures live on
+  `SupervisorResults.WorkerMemory`/`TestMemory`. Off by default, report-don't-act — same
+  guardrail as `RunTiming`.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
