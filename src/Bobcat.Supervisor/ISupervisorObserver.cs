@@ -48,6 +48,21 @@ public interface ISupervisorObserver
     {
     }
 
+    /// <summary>
+    /// A worker was launched, with the launch it was for — lane, purpose, and, when the client
+    /// drives a separate process, its process id (issue #146). Fired for every launch,
+    /// discovery included: a discovery worker never reports test progress, but it is still a
+    /// process someone may need to diagnose.
+    /// </summary>
+    /// <remarks>
+    /// This is where lane-to-pid correlation starts. <see cref="TestUpdated"/> carries the same
+    /// context, but only once a test reports — and only from clients that can observe their
+    /// worker mid-run.
+    /// </remarks>
+    void WorkerStarted(WorkerLaunchContext worker)
+    {
+    }
+
     /// <summary>A lane's worker was handed a set of tests.</summary>
     void LaneStarted(int lane, IReadOnlyList<string> uids)
     {
@@ -103,4 +118,9 @@ public interface ISupervisorObserver
 /// written from, kept separate so a dashboard can render them as more than prose.
 /// </summary>
 /// <param name="Lane">The lane whose worker died; null when the process ran one test alone.</param>
-public sealed record WorkerFault(string Description, int? ExitCode, string? StandardError, int? Lane);
+/// <param name="ProcessId">
+/// The dead worker's OS process id, when the client drove one — so a post-mortem can name the
+/// process rather than describe it (issue #146).
+/// </param>
+public sealed record WorkerFault(
+    string Description, int? ExitCode, string? StandardError, int? Lane, int? ProcessId = null);

@@ -91,6 +91,13 @@ public sealed record WorkerRunResult(IReadOnlyList<WorkerOutcome> Outcomes)
     /// <summary>The tail of the worker's standard error — where an unhandled exception lands.</summary>
     public string? StandardError { get; init; }
 
+    /// <summary>
+    /// The OS process id of the worker that produced this result, when the client drives one —
+    /// see <see cref="IWorkerClient.ProcessId"/>. This is how a fault names the process that
+    /// died (issue #146).
+    /// </summary>
+    public int? ProcessId { get; init; }
+
     public bool Crashed => Fault is not null;
 }
 
@@ -118,6 +125,15 @@ public interface IWorkerClient : IAsyncDisposable
     /// silently re-runs everything would launder unrelated failures into the attempt.
     /// </remarks>
     Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// The worker's OS process id, when the client drives a separate process. Null for an
+    /// in-process client. This is the fact every external diagnosis of a misbehaving worker —
+    /// a dump, a stack capture, an RSS sample — has to be pointed at; without it a consumer is
+    /// left guessing, and the first guess observed in the wild latched onto a database
+    /// container instead of the test host (issue #146).
+    /// </summary>
+    int? ProcessId => null;
 
     /// <summary>
     /// Subscribe to live per-test state changes while <see cref="Run"/> is in flight. Default is
@@ -167,6 +183,14 @@ public enum WorkerPurpose
 public sealed record WorkerLaunchContext(int Lane, WorkerPurpose Purpose)
 {
     public static readonly WorkerLaunchContext Discovery = new(0, WorkerPurpose.Discovery);
+
+    /// <summary>
+    /// The launched worker's OS process id, stamped by the supervisor once the factory has
+    /// returned the client — null while the launch is being shaped, and afterwards when the
+    /// client is in-process (issue #146). An observer correlates a lane to a pid through this,
+    /// which is what lets external diagnostics target the right process instead of guessing.
+    /// </summary>
+    public int? ProcessId { get; init; }
 
     /// <summary>
     /// Run-scoped environment the supervisor wants every worker to inherit — today the

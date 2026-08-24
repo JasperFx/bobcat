@@ -573,10 +573,19 @@ ones on upgrade. Same reasoning as retries being opt-in.
   **true attempt number**, which is the fact only the supervisor has: a worker counts from one,
   because its tracking belongs to a `BobcatRunner` and the MTP host builds a fresh one per run
   request. `WorkerFaulted` has a structured form (`WorkerFault`: description, exit code, stderr
-  tail, lane or null for a one-test process) whose default forwards to the string one, so
+  tail, lane or null for a one-test process, pid) whose default forwards to the string one, so
   either signature works for an observer. All of it reaches the monitor as wire events
   (`LaneStarted`/`LaneFinished`/`ResourceRecycled`/`WorkerFaulted`) via `SupervisorRunPublisher`;
   see `docs/monitor-design.md` Bobcat-side seams item 4 for what the dashboard folds from them.
+- **The worker's pid is surfaced, never guessed at** (issue #146): `IWorkerClient.ProcessId`
+  (default interface member, null for an in-process client), stamped onto
+  `WorkerLaunchContext.ProcessId` by `launchWorker` so `TestUpdated` carries it, announced by
+  the `WorkerStarted` observer callback (fired for **every** launch, discovery included — a
+  discovery worker never reports progress but is still a process someone may need to diagnose),
+  and riding on `WorkerRunResult.ProcessId` into `WorkerFault`. The enabler for pointing
+  external diagnostics — a dump, a stack capture, an RSS sample — at the right process: the
+  Wolverine watchdog that had to infer the pid from `/proc` latched onto `sqlservr` instead of
+  the test host, which is the class of bug this removes (issues #147/#149 build on it).
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that

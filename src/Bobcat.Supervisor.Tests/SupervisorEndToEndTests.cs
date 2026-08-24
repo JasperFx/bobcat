@@ -68,6 +68,24 @@ public class SupervisorEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task the_client_reports_the_real_pid_of_the_worker_it_drives()
+    {
+        // Issue #146. The pid is what every external diagnostic — a dump, an RSS sample — has
+        // to be pointed at, so it must be the actual OS process, not a synthesized handle.
+        await using var worker = await MtpWorkerClient.Launch(workerPath);
+
+        var pid = worker.ProcessId.ShouldNotBeNull();
+        pid.ShouldNotBe(Environment.ProcessId);
+
+        using var process = System.Diagnostics.Process.GetProcessById(pid);
+        process.HasExited.ShouldBeFalse();
+
+        // The pid also rides on the run's result, which is what lets a fault name its process.
+        var result = await worker.Run(["Basics/passes"]);
+        result.ProcessId.ShouldBe(pid);
+    }
+
+    [Fact]
     public async Task a_filtered_run_executes_only_what_was_asked_for()
     {
         await using var worker = await MtpWorkerClient.Launch(workerPath);

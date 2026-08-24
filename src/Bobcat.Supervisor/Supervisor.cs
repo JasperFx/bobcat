@@ -707,7 +707,7 @@ public sealed class Supervisor
         if (result.Fault is null) return;
 
         _workerFaults.Add(result.Fault);
-        var fault = new WorkerFault(result.Fault, result.ExitCode, result.StandardError, lane);
+        var fault = new WorkerFault(result.Fault, result.ExitCode, result.StandardError, lane, result.ProcessId);
         notify(observer => observer.WorkerFaulted(fault));
     }
 
@@ -810,12 +810,20 @@ public sealed class Supervisor
         {
             var worker = await _factory.Launch(context, ct);
 
+            // Stamped after the launch because only the client knows its own pid (issue #146).
+            // Every callback that carries this context — WorkerStarted and TestUpdated alike —
+            // then names the process, so a consumer never has to guess which one to diagnose.
+            if (worker.ProcessId is { } pid) context = context with { ProcessId = pid };
+            var launch = context;
+
+            // Discovery included: it never reports test progress, but it is still a process.
+            notify(observer => observer.WorkerStarted(launch));
+
             // The live tap (issue #99): a running worker's per-test state changes reach the
             // observers as they happen, stamped with the launch they came from. Discovery is
             // left out — it enumerates, it does not run, and "discovered" is not progress.
             if (context.Purpose != WorkerPurpose.Discovery)
             {
-                var launch = context;
                 worker.OnTestUpdate(update => notify(observer => observer.TestUpdated(launch, update)));
             }
 

@@ -14,6 +14,9 @@ public sealed class FakeWorker : IWorkerClient
     public int Index { get; init; }
     public bool Disposed { get; private set; }
 
+    /// <summary>Scripted pid — null by default, modelling an in-process client (issue #146).</summary>
+    public int? ProcessId { get; init; }
+
     /// <summary>What the supervisor said it was launching this worker for.</summary>
     public WorkerLaunchContext Launch { get; init; } = WorkerLaunchContext.Discovery;
 
@@ -77,7 +80,8 @@ public sealed class FakeWorker : IWorkerClient
         {
             Fault = fault,
             ExitCode = fault is null ? null : _factory.FaultExitCode,
-            StandardError = fault is null ? null : _factory.FaultStandardError
+            StandardError = fault is null ? null : _factory.FaultStandardError,
+            ProcessId = ProcessId
         });
     }
 
@@ -137,11 +141,22 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// </summary>
     public Func<string, string?> ReportedName { get; init; } = _ => null;
 
+    /// <summary>
+    /// The pid each launched worker reports, keyed by launch index. Defaults to null — an
+    /// in-process client, which is exactly what a fake is.
+    /// </summary>
+    public Func<int, int?> ProcessIdFor { get; init; } = _ => null;
+
     public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {
         lock (_gate)
         {
-            var worker = new FakeWorker(this) { Index = _launched.Count, Launch = context };
+            var worker = new FakeWorker(this)
+            {
+                Index = _launched.Count,
+                Launch = context,
+                ProcessId = ProcessIdFor(_launched.Count)
+            };
             _launched.Add(worker);
             return Task.FromResult<IWorkerClient>(worker);
         }
