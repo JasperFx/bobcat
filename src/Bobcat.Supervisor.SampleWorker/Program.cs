@@ -73,6 +73,20 @@ public static class Program
         [Scenario] public void passes() => Probe("it passes", () => { });
         [Scenario] public void also_passes() => Probe("it also passes", () => { });
         [Scenario] public void always_fails() => Probe("it never works", () => throw new InvalidOperationException("this one never works"));
+
+        /// <summary>
+        /// Wedges the process the way a real hung test does (issues #145/#147): a synchronous
+        /// wait that never completes, so an exit request cannot finish the run and the process
+        /// only dies when something outside kills it. Instant and green when unarmed.
+        /// </summary>
+        [Scenario]
+        public void hangs_when_armed() => Probe("the worker hangs if BOBCAT_HANG is set", () =>
+        {
+            if (Environment.GetEnvironmentVariable("BOBCAT_HANG") == "true")
+            {
+                Thread.Sleep(Timeout.Infinite);
+            }
+        });
     }
 
     public class Fussy : ProbeSpecification

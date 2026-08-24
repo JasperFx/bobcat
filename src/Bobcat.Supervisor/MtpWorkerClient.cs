@@ -15,6 +15,9 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// <summary>Stderr lines kept for diagnostics. Bounded — a chatty worker must not grow this forever.</summary>
     private const int standardErrorLinesKept = 20;
 
+    /// <summary>How long a consumer's before-kill hook may run before the kill proceeds anyway.</summary>
+    internal static readonly TimeSpan DefaultBeforeKillTimeout = TimeSpan.FromSeconds(30);
+
     private readonly Process _process;
     private readonly JsonRpcConnection _rpc;
     private readonly ServerModeListener _listener;
@@ -22,10 +25,18 @@ public sealed class MtpWorkerClient : IWorkerClient
     private readonly Queue<string> _standardError;
     private readonly object _lock = new();
     private readonly List<Action<WorkerTestUpdate>> _testUpdateHandlers = new();
+    private readonly WorkerLaunchContext? _launch;
+    private readonly Func<WorkerKillContext, Task>? _onBeforeKill;
+    private readonly TimeSpan _beforeKillTimeout;
 
-    private MtpWorkerClient(Process process, JsonRpcConnection rpc, ServerModeListener listener, Queue<string> standardError)
+    private MtpWorkerClient(
+        Process process, JsonRpcConnection rpc, ServerModeListener listener, Queue<string> standardError,
+        WorkerLaunchContext? launch, Func<WorkerKillContext, Task>? onBeforeKill, TimeSpan beforeKillTimeout)
     {
         _process = process;
+        _launch = launch;
+        _onBeforeKill = onBeforeKill;
+        _beforeKillTimeout = beforeKillTimeout;
         // Read once, up front: Process.Id throws after Dispose, and the pid is wanted precisely
         // when the process is in trouble.
         ProcessId = process.Id;
@@ -51,10 +62,26 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// </summary>
     public static TimeSpan ExitCodeGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <param name="launch">
+    /// What this worker is being launched for, when a supervisor is doing the launching — it
+    /// rides onto <see cref="WorkerKillContext"/> so a before-kill hook knows which lane it is
+    /// looking at.
+    /// </param>
+    /// <param name="onBeforeKill">
+    /// Invoked with a live worker immediately before it is forcibly killed — see
+    /// <see cref="MtpWorkerFactory.OnBeforeKill"/> for the contract (issue #147).
+    /// </param>
+    /// <param name="beforeKillTimeout">
+    /// How long <paramref name="onBeforeKill"/> may run before the kill proceeds anyway.
+    /// Defaults to 30 seconds.
+    /// </param>
     public static async Task<MtpWorkerClient> Launch(
         string executable,
         IReadOnlyDictionary<string, string>? environment = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        WorkerLaunchContext? launch = null,
+        Func<WorkerKillContext, Task>? onBeforeKill = null,
+        TimeSpan? beforeKillTimeout = null)
     {
         var listener = new ServerModeListener();
 
@@ -113,7 +140,9 @@ public sealed class MtpWorkerClient : IWorkerClient
             var rpc = new JsonRpcConnection(stream);
             rpc.Start();
 
-            var client = new MtpWorkerClient(process, rpc, listener, standardError);
+            var client = new MtpWorkerClient(
+                process, rpc, listener, standardError,
+                launch, onBeforeKill, beforeKillTimeout ?? DefaultBeforeKillTimeout);
 
             await rpc.Request("initialize", new
             {
@@ -127,6 +156,14 @@ public sealed class MtpWorkerClient : IWorkerClient
         catch
         {
             listener.Dispose();
+
+            // A process that started but never became usable — it did not dial back, or refused
+            // to initialize — may well be alive, and about to be killed. That is a kill worth
+            // capturing too: "the worker never connected" is a wedge with a different timestamp.
+            await invokeBeforeKillIfAlive(
+                process, onBeforeKill, beforeKillTimeout ?? DefaultBeforeKillTimeout, launch,
+                "the worker was launched but never became usable, and is being killed");
+
             tryKill(process);
             process.Dispose();
             throw;
@@ -439,10 +476,79 @@ public sealed class MtpWorkerClient : IWorkerClient
         }
         catch { /* the worker may already be gone — a valid observation, not an error */ }
 
+        // A process still running here was asked to exit and did not — the wedged worker issue
+        // #147 exists for. Everything inside it is about to stop existing, so this is the one
+        // moment a consumer can point dotnet-dump (or anything else) at it. A healthy worker
+        // exits within the grace period above and never reaches the hook.
+        await invokeBeforeKillIfAlive(
+            _process, _onBeforeKill, _beforeKillTimeout, _launch,
+            "the worker did not exit when asked, and is being killed");
+
         await _rpc.DisposeAsync();
         _listener.Dispose();
         tryKill(_process);
         _process.Dispose();
+    }
+
+    /// <summary>
+    /// Offers a live process to the consumer's diagnostic hook before it is killed. Never
+    /// invoked for a process that already exited — a dead worker has an exit code and stderr,
+    /// which <see cref="WorkerRunResult"/> already reports; this exists for the wedged one.
+    /// </summary>
+    private static async Task invokeBeforeKillIfAlive(
+        Process process,
+        Func<WorkerKillContext, Task>? hook,
+        TimeSpan timeout,
+        WorkerLaunchContext? launch,
+        string reason)
+    {
+        if (hook is null || !isAlive(process)) return;
+
+        var context = new WorkerKillContext(
+            process.Id,
+            launch?.Purpose == WorkerPurpose.Lane ? launch.Lane : null,
+            launch?.Purpose,
+            reason);
+
+        await InvokeBounded(hook, context, timeout);
+    }
+
+    /// <summary>
+    /// Runs the hook, bounded. The kill proceeds whatever happens in here: an exception, an
+    /// overrun, even a hook that blocks synchronously — this is the one callback the run
+    /// genuinely waits on, which is exactly why the wait has a hard ceiling.
+    /// </summary>
+    internal static async Task InvokeBounded(
+        Func<WorkerKillContext, Task> hook, WorkerKillContext context, TimeSpan timeout)
+    {
+        try
+        {
+            // Task.Run so a hook that blocks before returning its task still cannot hold the
+            // kill past the deadline.
+            var capture = Task.Run(() => hook(context));
+            await Task.WhenAny(capture, Task.Delay(timeout));
+
+            // Observe a completed hook's exception rather than leaving it unobserved; an
+            // abandoned overrun stays abandoned.
+            if (capture.IsCompleted) await capture;
+        }
+        catch
+        {
+            // The hook is diagnostics; the kill is correctness. Diagnostics never win.
+        }
+    }
+
+    private static bool isAlive(Process process)
+    {
+        try
+        {
+            return !process.HasExited;
+        }
+        catch
+        {
+            // Disposed or inaccessible — nothing left to capture.
+            return false;
+        }
     }
 }
 
@@ -482,10 +588,37 @@ public sealed class MtpWorkerFactory : IWorkerFactory
     /// </remarks>
     public Func<WorkerLaunchContext, IReadOnlyDictionary<string, string>>? EnvironmentFor { get; init; }
 
+    /// <summary>
+    /// Invoked with a live worker immediately before it is forcibly killed (issue #147). A
+    /// seam, not a feature: Bobcat ships no dump logic and takes no dotnet-dump dependency —
+    /// the consumer knows what to capture and how long it can afford, the supervisor only
+    /// offers the moment, the pid, and a deadline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Fires only for a process that is still alive when the kill is imminent: a worker that
+    /// was asked to exit and did not (disposal of a wedged process), or one that launched but
+    /// never became usable. A worker that crashed already has an exit code and a stderr tail,
+    /// which <see cref="WorkerFault"/> reports — this hook exists for the wedged one, which has
+    /// neither, and whose state stops existing the moment the kill lands. A healthy worker
+    /// exits when asked and never reaches the hook.
+    /// </para>
+    /// <para>
+    /// Bounded by <see cref="BeforeKillTimeout"/>: an exception, an overrun, or even a hook
+    /// that blocks synchronously never changes what the run does. This is the one callback the
+    /// run genuinely waits on — the reason the deadline is explicit, and should stay small.
+    /// </para>
+    /// </remarks>
+    public Func<WorkerKillContext, Task>? OnBeforeKill { get; init; }
+
+    /// <summary>How long <see cref="OnBeforeKill"/> may run before the kill proceeds anyway.</summary>
+    public TimeSpan BeforeKillTimeout { get; init; } = MtpWorkerClient.DefaultBeforeKillTimeout;
+
     public string Description => Path.GetFileName(_executable);
 
     public async Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
-        => await MtpWorkerClient.Launch(_executable, environmentFor(context), ct);
+        => await MtpWorkerClient.Launch(
+            _executable, environmentFor(context), ct, context, OnBeforeKill, BeforeKillTimeout);
 
     // Internal for the layering test — three layers, most specific wins:
     // the context's run-scoped baseline, then the factory's shared environment, then the lane's.

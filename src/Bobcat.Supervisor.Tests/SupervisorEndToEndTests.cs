@@ -228,8 +228,8 @@ public class SupervisorEndToEndTests : IDisposable
         results.Indeterminate.ShouldBeEmpty();
 
         // Every test has a verdict, and the verdict names the resource.
-        results.Tests.Count.ShouldBe(7);
-        results.Failed.Count.ShouldBe(7);
+        results.Tests.Count.ShouldBe(8);
+        results.Failed.Count.ShouldBe(8);
         results.Failed.ShouldAllBe(t => t.Final.Outcome.State == WorkerTestState.Error);
         results.Failed.ShouldAllBe(t => t.Final.Outcome.ErrorMessage!.Contains("the broker refused the connection"));
 
@@ -277,8 +277,8 @@ public class SupervisorEndToEndTests : IDisposable
 
         var results = await sweep.Run();
 
-        results.Discovered.ShouldBe(7);
-        results.Partitions.ShouldBe(7);
+        results.Discovered.ShouldBe(8);
+        results.Partitions.ShouldBe(8);
 
         results.InterferenceVictims.Select(f => f.Uid).ShouldBe(["Fussy/only works alone"]);
 
