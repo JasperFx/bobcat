@@ -43,9 +43,11 @@ public class MonitorTools
         "Progress detail for one run: per-scenario outcomes, the currently executing " +
         "scenario's live steps, and retry activity. For a supervised run also the worker " +
         "lanes (what each was handed, what it is running now, whether it finished or " +
-        "crashed), resources recycled before a retry, and every worker process that died " +
-        "with its lane, exit code and last standard error — all empty for an in-process run. " +
-        "Omit runId for the most recent run.")]
+        "crashed, its worker's pid), resources recycled before a retry, every worker process " +
+        "that died with its lane, exit code and last standard error, tests reported as " +
+        "stalled (in flight past their threshold), and the supervisor's latest progress " +
+        "heartbeat with the longest-running test and peak worker RSS — all empty or null for " +
+        "an in-process run. Omit runId for the most recent run.")]
     public static string RunStatus(
         MonitorRunRegistry registry,
         [Description("Run id from list_runs; omit for the most recent run.")] string? runId = null)
@@ -94,7 +96,9 @@ public class MonitorTools
                 running = run.RunningIn(l).Select(s => s.Uid).ToArray(),
                 startedAt = l.StartedAt,
                 finishedAt = l.FinishedAt,
-                outcomes = l.Outcomes
+                outcomes = l.Outcomes,
+                // The worker's OS pid (issue #146) — what an external diagnostic must target.
+                processId = l.ProcessId
             }).ToArray(),
             recycles = run.Recycles.Select(r => new { resource = r.Resource, at = r.At }).ToArray(),
             workerFaults = run.WorkerFaults.Select(f => new
@@ -104,7 +108,33 @@ public class MonitorTools
                 exitCode = f.ExitCode,
                 standardError = f.StandardError,
                 at = f.At
-            }).ToArray()
+            }).ToArray(),
+            // Tests in flight past their stall threshold (issue #145) — the name of the hung
+            // test, which is exactly what an agent staring at a wedged run needs first.
+            stalls = run.Stalls.Select(s => new
+            {
+                uid = s.Uid,
+                displayName = s.DisplayName,
+                inFlightMs = s.InFlightMs,
+                lane = s.Lane,
+                at = s.At
+            }).ToArray(),
+            // The supervisor's latest progress heartbeat (issue #148); null until one arrives.
+            // For a foreign-framework worker this is the run's only live progress.
+            progress = run.Progress is { } p
+                ? new
+                {
+                    elapsedMs = p.ElapsedMs,
+                    completed = p.Completed,
+                    total = p.Total,
+                    inFlight = p.InFlight,
+                    longestRunningUid = p.LongestRunningUid,
+                    longestRunningDisplayName = p.LongestRunningDisplayName,
+                    longestRunningMs = p.LongestRunningMs,
+                    peakWorkerRssBytes = p.PeakWorkerRssBytes,
+                    at = p.At
+                }
+                : null
         })) ?? error($"run {resolved} disappeared while reading");
     }
 

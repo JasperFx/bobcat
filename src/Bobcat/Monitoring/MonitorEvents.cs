@@ -24,6 +24,9 @@ namespace Bobcat.Monitoring;
 [JsonDerivedType(typeof(LaneFinished), "lane_finished")]
 [JsonDerivedType(typeof(ResourceRecycled), "resource_recycled")]
 [JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
+[JsonDerivedType(typeof(WorkerStarted), "worker_started")]
+[JsonDerivedType(typeof(TestStalled), "test_stalled")]
+[JsonDerivedType(typeof(RunProgress), "run_progress")]
 public abstract record MonitorEvent(Guid RunId);
 
 public record RunStarted(
@@ -144,4 +147,48 @@ public record WorkerFaulted(
     string Fault,
     int? ExitCode,
     string? StandardError,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+// The supervisor-observability cluster's live surfaces (issues #145/#146/#148/#149) — posted
+// by SupervisorRunPublisher from the same observer callbacks a code consumer gets.
+
+public record WorkerStarted(
+    Guid RunId,
+    // Null for a one-test isolated/recycled process — same rule as WorkerFaulted's lane.
+    int? Lane,
+    // Mirrors WorkerPurpose: Lane / Isolated / Recycled. Discovery is never announced on the
+    // wire — it launches before the run bracket opens, and run_started stays first.
+    string Purpose,
+    // The worker's OS pid, when the client drives a separate process (issue #146) — what an
+    // external diagnostic must be pointed at.
+    int? ProcessId,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+public record TestStalled(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    // How long the test had been in flight when it crossed its threshold. Fired once per
+    // attempt (issue #145); the run_progress stream is the continuous view.
+    long InFlightMs,
+    int? Lane,
+    int? ProcessId,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+// The supervisor's opt-in progress heartbeat (issue #148) — distinct from run_heartbeat, which
+// is a bare liveness ping. Only posted when the supervisor's HeartbeatInterval is configured.
+public record RunProgress(
+    Guid RunId,
+    long ElapsedMs,
+    int Completed,
+    int Total,
+    int InFlight,
+    // The longest-running in-flight test — the clause a reader watches: a stuck run shows as
+    // this figure climbing. All three null when nothing is in flight.
+    string? LongestRunningUid,
+    string? LongestRunningDisplayName,
+    long? LongestRunningMs,
+    // Highest worker RSS seen so far, when memory sampling (issue #149) is on; null otherwise —
+    // unmeasured is never zero.
+    long? PeakWorkerRssBytes,
     DateTimeOffset At) : MonitorEvent(RunId);

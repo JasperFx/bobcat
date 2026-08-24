@@ -40,6 +40,7 @@ public class RunProjection
     private readonly List<LaneProjection> _lanes = new();
     private readonly List<RecycleProjection> _recycles = new();
     private readonly List<WorkerFaultProjection> _workerFaults = new();
+    private readonly List<StallProjection> _stalls = new();
 
     public RunProjection(Guid runId)
     {
@@ -62,8 +63,22 @@ public class RunProjection
     /// <summary>Worker processes that died, each with the lane, exit code and last standard error.</summary>
     public IReadOnlyList<WorkerFaultProjection> WorkerFaults => _workerFaults;
 
+    /// <summary>
+    /// Tests the supervisor reported as stalled (issue #145), in detection order — the name of
+    /// the hung test, which is exactly what a capped CI job's log cannot produce.
+    /// </summary>
+    public IReadOnlyList<StallProjection> Stalls => _stalls;
+
+    /// <summary>
+    /// The latest supervisor progress heartbeat (issue #148) — the only live progress a
+    /// foreign-framework worker (xUnit, tUnit) gives a run, since it streams no scenario
+    /// events. Null until the first run_progress arrives; latest wins.
+    /// </summary>
+    public RunProgressProjection? Progress { get; private set; }
+
     /// <summary>Whether the run has any supervisor topology worth reporting.</summary>
-    public bool HasTopology => _lanes.Count > 0 || _recycles.Count > 0 || _workerFaults.Count > 0;
+    public bool HasTopology =>
+        _lanes.Count > 0 || _recycles.Count > 0 || _workerFaults.Count > 0 || _stalls.Count > 0;
 
     /// <summary>
     /// The scenarios a lane's worker is running right now — the uids of its latest pass joined
@@ -228,6 +243,35 @@ public class RunProjection
             case WorkerFaulted e:
                 if (_workerFaults.Any(f => f.At == e.At && f.Lane == e.Lane && f.Fault == e.Fault)) break;
                 _workerFaults.Add(new WorkerFaultProjection(e.Lane, e.Fault, e.ExitCode, e.StandardError, e.At));
+                break;
+
+            case WorkerStarted e:
+            {
+                // The pid folds onto the lane it belongs to — lane-to-pid correlation (issue
+                // #146). A one-test process has no lane slot here; its pid still travels on
+                // any TestStalled/WorkerFaulted it produces.
+                if (e.Lane is { } index && e.ProcessId is not null)
+                {
+                    ensureLane(index, e.At).ProcessId = e.ProcessId;
+                }
+
+                break;
+            }
+
+            case TestStalled e:
+                // Replay guard: hydration re-announces the archive over live state.
+                if (_stalls.Any(s => s.Uid == e.Uid && s.At == e.At)) break;
+                _stalls.Add(new StallProjection(e.Uid, e.DisplayName, e.InFlightMs, e.Lane, e.At));
+                break;
+
+            case RunProgress e:
+                // Latest wins, and a replayed older heartbeat never rolls progress backwards —
+                // the supervisor's elapsed clock orders them without trusting arrival order.
+                if (Progress is { } current && e.ElapsedMs < current.ElapsedMs) break;
+                Progress = new RunProgressProjection(
+                    e.ElapsedMs, e.Completed, e.Total, e.InFlight,
+                    e.LongestRunningUid, e.LongestRunningDisplayName, e.LongestRunningMs,
+                    e.PeakWorkerRssBytes, e.At);
                 break;
 
             // RunHeartbeat only refreshes LastEventAt, already done above.
@@ -407,6 +451,13 @@ public class LaneProjection
     /// <summary>Outcomes the worker reported on its latest finish; null while it is still running.</summary>
     public int? Outcomes { get; set; }
 
+    /// <summary>
+    /// The OS pid of the lane's worker process (issue #146), from worker_started — the handle
+    /// an external diagnostic must be pointed at. A lane whose worker is replaced (crash, then
+    /// relaunch) is updated by the replacement's own worker_started.
+    /// </summary>
+    public int? ProcessId { get; set; }
+
     public LaneProjection(int lane, DateTimeOffset startedAt)
     {
         Lane = lane;
@@ -427,4 +478,31 @@ public record WorkerFaultProjection(
     string Fault,
     int? ExitCode,
     string? StandardError,
+    DateTimeOffset At);
+
+/// <summary>
+/// A test the supervisor reported stalled (issue #145): the name a hung run's log otherwise
+/// cannot produce, how long it had been in flight at detection, and where it was running.
+/// </summary>
+public record StallProjection(
+    string Uid,
+    string DisplayName,
+    long InFlightMs,
+    int? Lane,
+    DateTimeOffset At);
+
+/// <summary>
+/// The supervisor's latest progress heartbeat (issue #148). The longest-running trio is null
+/// when nothing was in flight; PeakWorkerRssBytes is null unless memory sampling (issue #149)
+/// was on — unmeasured is never zero.
+/// </summary>
+public record RunProgressProjection(
+    long ElapsedMs,
+    int Completed,
+    int Total,
+    int InFlight,
+    string? LongestRunningUid,
+    string? LongestRunningDisplayName,
+    long? LongestRunningMs,
+    long? PeakWorkerRssBytes,
     DateTimeOffset At);

@@ -214,4 +214,60 @@ public class ContractRoundTripTests
         batch.Events[0].ShouldBeOfType<Wire.RunStarted>();
         batch.Events[1].ShouldBeOfType<Wire.RunHeartbeat>();
     }
+
+    [Fact]
+    public void worker_started_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.WorkerStarted(runId, 2, "Lane", 4321, at))
+            .ShouldBeOfType<Wire.WorkerStarted>();
+
+        wire.Lane.ShouldBe(2);
+        wire.Purpose.ShouldBe("Lane");
+        wire.ProcessId.ShouldBe(4321);
+        wire.At.ShouldBe(at);
+
+        // The in-process client's shape: no lane slot, no pid.
+        var isolated = roundTrip(new Client.WorkerStarted(runId, null, "Isolated", null, at))
+            .ShouldBeOfType<Wire.WorkerStarted>();
+        isolated.Lane.ShouldBeNull();
+        isolated.ProcessId.ShouldBeNull();
+    }
+
+    [Fact]
+    public void test_stalled_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.TestStalled(runId, "Orders/a", "Orders / a", 31_000, 0, 4321, at))
+            .ShouldBeOfType<Wire.TestStalled>();
+
+        wire.Uid.ShouldBe("Orders/a");
+        wire.DisplayName.ShouldBe("Orders / a");
+        wire.InFlightMs.ShouldBe(31_000);
+        wire.Lane.ShouldBe(0);
+        wire.ProcessId.ShouldBe(4321);
+        wire.At.ShouldBe(at);
+    }
+
+    [Fact]
+    public void run_progress_round_trips_with_null_memory_staying_null()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.RunProgress(
+                runId, 252_000, 143, 275, 1, "Orders/a", "Orders / a", 94_000, 500L * 1024 * 1024, at))
+            .ShouldBeOfType<Wire.RunProgress>();
+
+        wire.ElapsedMs.ShouldBe(252_000);
+        wire.Completed.ShouldBe(143);
+        wire.Total.ShouldBe(275);
+        wire.InFlight.ShouldBe(1);
+        wire.LongestRunningUid.ShouldBe("Orders/a");
+        wire.LongestRunningMs.ShouldBe(94_000);
+        wire.PeakWorkerRssBytes.ShouldBe(500L * 1024 * 1024);
+        wire.At.ShouldBe(at);
+
+        // Sampling off: unmeasured travels as null, never zero.
+        roundTrip(new Client.RunProgress(runId, 1000, 0, 1, 1, null, null, null, null, at))
+            .ShouldBeOfType<Wire.RunProgress>().PeakWorkerRssBytes.ShouldBeNull();
+    }
 }

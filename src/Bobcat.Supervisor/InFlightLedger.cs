@@ -24,6 +24,13 @@ public sealed record SupervisorHeartbeat(
     public InFlightTest? LongestRunning
         => InFlight.Count == 0 ? null : InFlight.MaxBy(t => t.InFlight);
 
+    /// <summary>
+    /// The highest worker RSS seen so far, stamped when memory sampling (issue #149) is on —
+    /// null otherwise, because unmeasured is never zero. Rides the heartbeat so a watcher sees
+    /// the 375 MB → 9 GB story while it happens rather than in the post-mortem.
+    /// </summary>
+    public long? PeakWorkerRssBytes { get; init; }
+
     /// <summary>The single log line. One line however many lanes are running.</summary>
     public string Describe()
     {

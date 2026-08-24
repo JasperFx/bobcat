@@ -985,7 +985,7 @@ public sealed class Supervisor
 
             if (HeartbeatInterval is { } interval && ledger.HeartbeatDue(interval))
             {
-                var heartbeat = ledger.Snapshot();
+                var heartbeat = ledger.Snapshot() with { PeakWorkerRssBytes = _sampler?.PeakBytes };
                 Log?.Invoke(heartbeat.Describe());
                 notify(observer => observer.Heartbeat(heartbeat));
             }

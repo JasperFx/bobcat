@@ -249,4 +249,128 @@ public class SupervisorTopologyPublishingTests
     {
         public void WorkerFaulted(string fault) => faults.Add(fault);
     }
+
+    // The observability cluster on the wire (issues #145/#146/#148/#149).
+
+    [Fact]
+    public async Task every_worker_launch_is_announced_with_its_purpose_and_pid()
+    {
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            ProcessIdFor = index => 4200 + index
+        };
+
+        var supervisor = new Supervisor(factory) { PublishToMonitor = true, MonitorSink = sink };
+        await supervisor.Run();
+
+        // Discovery is NOT announced on the wire: it launches before the run bracket opens,
+        // and run_started stays the stream's first event. Code observers still hear it.
+        var started = sink.Events.OfType<Monitoring.WorkerStarted>().ShouldHaveSingleItem();
+        started.Purpose.ShouldBe("Lane");
+        started.Lane.ShouldBe(0);
+        started.ProcessId.ShouldBe(4201);
+
+        sink.Events.First().ShouldBeOfType<RunStarted>();
+    }
+
+    [Fact]
+    public async Task a_stall_and_the_progress_heartbeat_reach_the_wire_with_the_memory_figure()
+    {
+        const long mb = 1024 * 1024;
+        var time = new FakeTimeProvider();
+        var sink = new RecordingSink();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Slow/hangs")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            HoldAfterStart = (_, _) =>
+            {
+                started.TrySetResult();
+                return release.Task;
+            },
+            ProcessIdFor = index => 4200 + index,
+            WorkingSet = _ => 500 * mb
+        };
+
+        var supervisor = new Supervisor(factory)
+        {
+            Time = time,
+            StallThreshold = TimeSpan.FromSeconds(30),
+            HeartbeatInterval = TimeSpan.FromSeconds(10),
+            ResourceSampleInterval = TimeSpan.FromSeconds(15),
+            PublishToMonitor = true,
+            MonitorSink = sink
+        };
+
+        var run = supervisor.Run();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        time.Advance(TimeSpan.FromSeconds(31));
+
+        var stalled = sink.Events.OfType<Monitoring.TestStalled>().ShouldHaveSingleItem();
+        stalled.Uid.ShouldBe("Slow/hangs");
+        stalled.DisplayName.ShouldBe("Slow/hangs");
+        stalled.InFlightMs.ShouldBeGreaterThanOrEqualTo(30_000);
+        stalled.Lane.ShouldBe(0);
+        stalled.ProcessId.ShouldBe(4201);
+
+        var progress = sink.Events.OfType<Monitoring.RunProgress>().ToList();
+        progress.ShouldNotBeEmpty();
+        var first = progress[0];
+        first.Completed.ShouldBe(0);
+        first.Total.ShouldBe(1);
+        first.InFlight.ShouldBe(1);
+        first.LongestRunningUid.ShouldBe("Slow/hangs");
+        first.LongestRunningMs.ShouldNotBeNull();
+        // The 375 MB → 9 GB story, live: memory sampling was on, so the peak rides along.
+        first.PeakWorkerRssBytes.ShouldBe(500 * mb);
+
+        release.TrySetResult();
+        (await run.WaitAsync(TimeSpan.FromSeconds(10))).ExitCode.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task the_progress_heartbeat_reports_null_memory_when_sampling_is_off()
+    {
+        // Unmeasured is never zero — the wire rule too.
+        var time = new FakeTimeProvider();
+        var sink = new RecordingSink();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Slow/hangs")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            HoldAfterStart = (_, _) =>
+            {
+                started.TrySetResult();
+                return release.Task;
+            }
+        };
+
+        var supervisor = new Supervisor(factory)
+        {
+            Time = time,
+            HeartbeatInterval = TimeSpan.FromSeconds(10),
+            PublishToMonitor = true,
+            MonitorSink = sink
+        };
+
+        var run = supervisor.Run();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        sink.Events.OfType<Monitoring.RunProgress>().ShouldHaveSingleItem().PeakWorkerRssBytes.ShouldBeNull();
+
+        release.TrySetResult();
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
+    }
 }

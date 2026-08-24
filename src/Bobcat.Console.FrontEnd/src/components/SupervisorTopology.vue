@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { useRunsStore, type LaneState, type RunState } from '@/stores/runs-store'
+import { useRunsStore, type LaneState, type RunProgressState, type RunState } from '@/stores/runs-store'
 
 /**
  * The run detail's view of a supervised run's topology (issue #84): every lane with what it
  * was handed and what it is on now, the recycle timeline, and each worker death with the exit
- * code and last standard error the supervisor captured. Renders nothing for an in-process run.
+ * code and last standard error the supervisor captured — plus the observability cluster
+ * (issues #145/#146/#148/#149): the live progress heartbeat, per-lane worker pids, and the
+ * stalled-test list. Renders nothing for an in-process run.
  */
 const props = defineProps<{ run: RunState }>()
 
@@ -21,17 +23,45 @@ function clock(at: string): string {
   const date = new Date(at)
   return Number.isNaN(date.getTime()) ? at : date.toLocaleTimeString()
 }
+
+function elapsed(ms: number): string {
+  const seconds = Math.floor(ms / 1000)
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}m`
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`
+  return `${seconds}s`
+}
+
+function megabytes(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MB`
+}
+
+/** The supervisor's own heartbeat line, one line however many lanes are running. */
+function progressLine(progress: RunProgressState): string {
+  let line = `${elapsed(progress.elapsedMs)} — ${progress.completed}/${progress.total} done, ${progress.inFlight} in flight`
+  if (progress.longestRunningDisplayName && progress.longestRunningMs !== null) {
+    line += `, longest running: ${progress.longestRunningDisplayName} (${Math.floor(progress.longestRunningMs / 1000)}s)`
+  }
+  if (progress.peakWorkerRssBytes !== null) {
+    line += `, peak worker RSS ${megabytes(progress.peakWorkerRssBytes)}`
+  }
+  return line
+}
 </script>
 
 <template>
   <section v-if="runs.hasTopology(run)" class="bm-topology" data-testid="supervisor-topology">
     <h3>Workers</h3>
 
+    <div v-if="run.progress" class="bm-progress" data-testid="run-progress">
+      {{ progressLine(run.progress) }}
+    </div>
+
     <table v-if="run.lanes.length > 0" class="bm-lanes">
       <thead>
         <tr>
           <th>Lane</th>
           <th>Status</th>
+          <th>Pid</th>
           <th>Pass</th>
           <th>Handed</th>
           <th>Running now</th>
@@ -42,6 +72,7 @@ function clock(at: string): string {
         <tr v-for="lane in run.lanes" :key="lane.lane" :data-status="lane.status" :data-lane="lane.lane">
           <td>lane {{ lane.lane }}</td>
           <td class="bm-lane-status">{{ lane.status }}</td>
+          <td class="bm-lane-pid">{{ lane.processId ?? '—' }}</td>
           <td>{{ lane.passes }}</td>
           <td :title="lane.uids.join('\n')">{{ lane.uids.length }}</td>
           <td class="bm-lane-running">{{ runningNames(lane) || '—' }}</td>
@@ -49,6 +80,17 @@ function clock(at: string): string {
         </tr>
       </tbody>
     </table>
+
+    <div v-if="run.stalls.length > 0" class="bm-stalls" data-testid="stalls">
+      <h4>Stalled</h4>
+      <div v-for="(stall, i) in run.stalls" :key="i" class="bm-stall">
+        <span class="bm-clock">{{ clock(stall.at) }}</span>
+        <span class="bm-stall-name">{{ stall.displayName }}</span>
+        <span class="bm-stall-detail">
+          {{ Math.floor(stall.inFlightMs / 1000) }}s in flight{{ stall.lane !== null ? ` on lane ${stall.lane}` : '' }}
+        </span>
+      </div>
+    </div>
 
     <div v-if="run.recycles.length > 0" class="bm-recycles" data-testid="recycles">
       <h4>Recycled</h4>
@@ -123,6 +165,32 @@ function clock(at: string): string {
 
 .bm-lane-running {
   font-style: italic;
+}
+
+.bm-lane-pid {
+  font-variant-numeric: tabular-nums;
+  color: var(--bm-menu-text);
+}
+
+.bm-progress {
+  margin: 0 0 8px;
+  color: var(--bm-menu-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.bm-stall {
+  border-left: 3px solid var(--bm-state-running);
+  padding: 4px 10px;
+  margin-bottom: 6px;
+}
+
+.bm-stall-name {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.bm-stall-detail {
+  color: var(--bm-menu-text);
 }
 
 .bm-recycles ul {

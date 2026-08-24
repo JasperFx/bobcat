@@ -51,6 +51,49 @@ describe('SupervisorTopology', () => {
     setActivePinia(createPinia())
   })
 
+  it('renders the progress heartbeat, per-lane pids, and stalled tests', () => {
+    // The observability cluster (issues #145/#146/#148/#149) reaching the eyeball.
+    const store = useRunsStore()
+    const run = seed()
+
+    store.handleWorkerStarted({ runId: RUN, lane: 0, purpose: 'Lane', processId: 4321, at: '2026-08-21T10:00:01Z' })
+    store.handleTestStalled({
+      runId: RUN,
+      uid: 'Orders/places an order',
+      displayName: 'Orders: places an order',
+      inFlightMs: 94_000,
+      lane: 0,
+      processId: 4321,
+      at: '2026-08-21T10:01:36Z',
+    })
+    store.handleRunProgress({
+      runId: RUN,
+      elapsedMs: 252_000,
+      completed: 143,
+      total: 275,
+      inFlight: 1,
+      longestRunningUid: 'Orders/places an order',
+      longestRunningDisplayName: 'Orders: places an order',
+      longestRunningMs: 94_000,
+      peakWorkerRssBytes: 9334 * 1024 * 1024,
+      at: '2026-08-21T10:04:12Z',
+    })
+
+    const wrapper = mount(SupervisorTopology, { props: { run } })
+
+    const progress = wrapper.find('[data-testid="run-progress"]')
+    expect(progress.text()).toBe(
+      '4m12s — 143/275 done, 1 in flight, longest running: Orders: places an order (94s), peak worker RSS 9334 MB',
+    )
+
+    expect(wrapper.find('tr[data-lane="0"] .bm-lane-pid').text()).toBe('4321')
+    expect(wrapper.find('tr[data-lane="1"] .bm-lane-pid').text()).toBe('—')
+
+    const stalls = wrapper.find('[data-testid="stalls"]')
+    expect(stalls.text()).toContain('Orders: places an order')
+    expect(stalls.text()).toContain('94s in flight on lane 0')
+  })
+
   it('renders nothing for a run with no topology', () => {
     const store = useRunsStore()
     store.handleRunStarted({

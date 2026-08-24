@@ -142,6 +142,43 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         => _sink.Post(new WorkerFaulted(
             _info.RunId, fault.Lane, fault.Description, fault.ExitCode, fault.StandardError, DateTimeOffset.UtcNow));
 
+    // The observability cluster's live surfaces (issues #145/#146/#148/#149) put on the wire.
+    // Same lane rule as WorkerFaulted throughout: a one-test isolated/recycled process (and
+    // discovery) reports a null lane, so a dashboard never invents a slot for it.
+
+    public void WorkerStarted(WorkerLaunchContext worker)
+    {
+        // Discovery launches BEFORE the run bracket opens — RunStarted carries the post-filter
+        // total, which discovery exists to produce — so announcing it would put an event on
+        // the wire ahead of run_started, the one ordering every consumer may assume. Code
+        // observers still hear it; the wire does not.
+        if (worker.Purpose == WorkerPurpose.Discovery) return;
+
+        _sink.Post(new WorkerStarted(
+            _info.RunId, laneOf(worker), worker.Purpose.ToString(), worker.ProcessId, DateTimeOffset.UtcNow));
+    }
+
+    public void TestStalled(WorkerLaunchContext worker, string uid, string displayName, TimeSpan inFlight)
+        => _sink.Post(new TestStalled(
+            _info.RunId, uid, displayName, (long)inFlight.TotalMilliseconds,
+            laneOf(worker), worker.ProcessId, DateTimeOffset.UtcNow));
+
+    public void Heartbeat(SupervisorHeartbeat heartbeat)
+        => _sink.Post(new RunProgress(
+            _info.RunId,
+            (long)heartbeat.Elapsed.TotalMilliseconds,
+            heartbeat.Completed,
+            heartbeat.Total,
+            heartbeat.InFlight.Count,
+            heartbeat.LongestRunning?.Uid,
+            heartbeat.LongestRunning?.DisplayName,
+            heartbeat.LongestRunning is { } longest ? (long)longest.InFlight.TotalMilliseconds : null,
+            heartbeat.PeakWorkerRssBytes,
+            DateTimeOffset.UtcNow));
+
+    private static int? laneOf(WorkerLaunchContext worker)
+        => worker.Purpose == WorkerPurpose.Lane ? worker.Lane : null;
+
     /// <summary>
     /// Same rationale as MonitorPublishingObserver: plain Timer.Dispose() does not wait for an
     /// in-flight callback, so a heartbeat could post after RunFinished on a busy box.
