@@ -586,6 +586,20 @@ ones on upgrade. Same reasoning as retries being opt-in.
   external diagnostics — a dump, a stack capture, an RSS sample — at the right process: the
   Wolverine watchdog that had to infer the pid from `/proc` latched onto `sqlservr` instead of
   the test host, which is the class of bug this removes (issues #147/#149 build on it).
+- **Stall detection and the heartbeat are reporting, never action** (issues #145/#148, one PR
+  because they are the same bookkeeping): `InFlightLedger` is the supervisor's live in-flight
+  table — fed from the `TestUpdated` stream before observers are notified, read by one run
+  ticker (`StallCheckPeriod` = 1s when stalls are configured). `StallThreshold` /
+  `StallThresholdFor` (per-test, wins for discovered tests) fire the `TestStalled` observer
+  callback and a `STALLED:` log line **once per attempt** — a retry resets the clock — and
+  collect on `SupervisorResults.StalledTests`, which survives into `RunReport` even for a green
+  run (same reasoning as `Quarantine`). `HeartbeatInterval` emits one `Log` line however many
+  lanes are running plus `Heartbeat(SupervisorHeartbeat)`; the "longest running" clause is the
+  point — a stuck run shows as that figure climbing before any threshold fires. All off by
+  default; the supervisor never kills a worker over a stall (that is a second, separable
+  decision, deliberately not built). Time is injectable (`Supervisor.Time`, a `TimeProvider`)
+  so `StallAndHeartbeatTests` drives a fake clock and holds "hung" workers on a
+  `TaskCompletionSource` instead of sleeping.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that

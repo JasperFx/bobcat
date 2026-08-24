@@ -106,6 +106,15 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<string> Recyclings { get; init; } = [];
 
+    /// <summary>
+    /// Tests reported as stalled during the run (issue #145) — in flight past their threshold,
+    /// in detection order, once per attempt. Always empty unless
+    /// <c>Supervisor.StallThreshold</c> or <c>StallThresholdFor</c> was configured. A stalled
+    /// test that eventually finished still appears here: it exceeded the budget its author or
+    /// operator set, and a green run is exactly where that fact would otherwise go unnoticed.
+    /// </summary>
+    public IReadOnlyList<StalledTest> StalledTests { get; init; } = [];
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 

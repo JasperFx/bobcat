@@ -67,6 +67,19 @@ public static class RunReport
             }
         }
 
+        // A stalled test that eventually passed still exceeded its budget, and a green run is
+        // exactly where that would otherwise go unnoticed — same reasoning as Quarantine.
+        if (results.StalledTests.Count > 0)
+        {
+            report.AppendLine().AppendLine("Stalled (in flight past the stall threshold):");
+            foreach (var stalled in results.StalledTests)
+            {
+                report.AppendLine(
+                    $"  • {stalled.DisplayName} — {(int)stalled.InFlight.TotalSeconds}s in flight " +
+                    $"on lane {stalled.Worker.Lane}");
+            }
+        }
+
         timing(report, results);
 
         return report.ToString().TrimEnd();
@@ -184,6 +197,13 @@ public static class RunReport
                 ["workersLaunched"] = results.WorkersLaunched
             },
             ["timing"] = describe(RunTiming.For(results)),
+            ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject
+            {
+                ["uid"] = s.Uid,
+                ["displayName"] = s.DisplayName,
+                ["inFlightMs"] = s.InFlight.TotalMilliseconds,
+                ["lane"] = s.Worker.Lane
+            }).ToArray()),
             ["recyclings"] = new JsonArray(results.Recyclings.Select(r => (JsonNode)r!).ToArray()),
             ["workerFaults"] = new JsonArray(results.WorkerFaults.Select(f => (JsonNode)f!).ToArray()),
             ["unsupportedDispositions"] =

@@ -38,7 +38,7 @@ public sealed class FakeWorker : IWorkerClient
     public Task<IReadOnlyList<WorkerTest>> Discover(CancellationToken ct = default)
         => Task.FromResult(_factory.Tests);
 
-    public Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default)
+    public async Task<WorkerRunResult> Run(IReadOnlyList<string>? uids = null, CancellationToken ct = default)
     {
         Runs.Add(uids);
 
@@ -52,6 +52,10 @@ public sealed class FakeWorker : IWorkerClient
             var traits = test?.Traits ?? new Dictionary<string, string>();
 
             relay(new WorkerTestUpdate(uid, displayName, "in-progress") { Traits = traits });
+
+            // After the in-progress report, before any verdict — a hung test, as the
+            // supervisor experiences one.
+            if (_factory.HoldAfterStart is { } hold) await hold(uid, this);
 
             var attempt = _factory.RecordAttempt(uid);
             var state = _factory.StateFor(uid, attempt, this);
@@ -75,14 +79,14 @@ public sealed class FakeWorker : IWorkerClient
 
         var fault = _factory.FaultFor(this);
 
-        return Task.FromResult(new WorkerRunResult(
+        return new WorkerRunResult(
             MtpWorkerClient.Complete(uids, outcomes, fault))
         {
             Fault = fault,
             ExitCode = fault is null ? null : _factory.FaultExitCode,
             StandardError = fault is null ? null : _factory.FaultStandardError,
             ProcessId = ProcessId
-        });
+        };
     }
 
     public ValueTask DisposeAsync()
@@ -146,6 +150,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// in-process client, which is exactly what a fake is.
     /// </summary>
     public Func<int, int?> ProcessIdFor { get; init; } = _ => null;
+
+    /// <summary>
+    /// Awaited between a test's in-progress report and its verdict — a hung test, held until
+    /// the test case decides to let it finish. Null holds nothing.
+    /// </summary>
+    public Func<string, FakeWorker, Task>? HoldAfterStart { get; init; }
 
     public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {

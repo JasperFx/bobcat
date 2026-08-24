@@ -43,6 +43,15 @@ public sealed class Supervisor
     // worker gives us an outcome that has no name of its own.
     private readonly Dictionary<string, string> _discoveredNames = new(StringComparer.Ordinal);
 
+    // The discovered tests themselves, for the per-test stall budget: StallThresholdFor takes
+    // the WorkerTest so it can key off traits, and the timer only ever has a uid in hand.
+    private readonly Dictionary<string, WorkerTest> _discoveredTests = new(StringComparer.Ordinal);
+
+    // The run's live in-flight table (issues #145/#148). Created per run; every worker's test
+    // updates fold into it, the run ticker reads it.
+    private InFlightLedger? _ledger;
+    private int _ticking;
+
     private int _workersLaunched;
     private long _launchTicks;
     private bool _lanesReleased;
@@ -129,6 +138,48 @@ public sealed class Supervisor
 
     /// <summary>Progress, for a console or a log. Never required.</summary>
     public Action<string>? Log { get; set; }
+
+    /// <summary>
+    /// The clock the stall and heartbeat machinery reads. Injectable so time-based behaviour is
+    /// testable against a fake clock instead of by sleeping.
+    /// </summary>
+    public TimeProvider Time { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// Emit a one-line progress report this often while the run is in flight — through
+    /// <see cref="Log"/> and <see cref="ISupervisorObserver.Heartbeat"/>. Off by default:
+    /// on a fast unit-test suite this is noise. (issue #148)
+    /// </summary>
+    /// <remarks>
+    /// A supervised run otherwise logs only at events — the batch plan, retries, the summary —
+    /// and for a single-worker run over a large batch the silence between the plan and the
+    /// summary is the entire run: a real CI log went 18m33s from "275 batched" straight to the
+    /// job cap cancelling it. The line stays a single line however many lanes are running, and
+    /// its "longest running" clause is the part a reader watches: a stuck run shows up as that
+    /// figure climbing, well before any stall threshold fires.
+    /// </remarks>
+    public TimeSpan? HeartbeatInterval { get; set; }
+
+    /// <summary>
+    /// A test in flight longer than this is reported as stalled — named in the log, announced
+    /// via <see cref="ISupervisorObserver.TestStalled"/>, and collected on
+    /// <see cref="SupervisorResults.StalledTests"/>. Off by default. (issue #145)
+    /// </summary>
+    /// <remarks>
+    /// Reporting only, and that is a decision, not a gap: the name of the hung test is the
+    /// thing a capped CI job cannot produce today, and a threshold turned into an automatic
+    /// kill is a knob that will eventually fire on a legitimately slow integration test —
+    /// <c>RunTiming</c>'s "report, don't act" note is the right instinct. Whether the
+    /// supervisor should then kill the worker is a second, separable, opt-in decision.
+    /// </remarks>
+    public TimeSpan? StallThreshold { get; set; }
+
+    /// <summary>
+    /// A per-test stall budget, so an integration suite can budget differently by trait. Wins
+    /// over <see cref="StallThreshold"/> for every discovered test when set; a test discovery
+    /// never saw falls back to <see cref="StallThreshold"/>.
+    /// </summary>
+    public Func<WorkerTest, TimeSpan>? StallThresholdFor { get; set; }
 
     /// <summary>
     /// Publish this run to a Bobcat.Console host. Opt-in (same policy as
@@ -248,6 +299,9 @@ public sealed class Supervisor
         var attempts = new Dictionary<string, List<SupervisorAttempt>>(StringComparer.Ordinal);
         string? abortReason = null;
 
+        _ledger = new InFlightLedger(Time);
+        ITimer? ticker = null;
+
         try
         {
             // Before any worker exists. Nothing downstream is meaningful if the environment is
@@ -288,7 +342,13 @@ public sealed class Supervisor
 
             // Kept so a test that never reports a result can still be named in the report — the
             // uid is a hash on some front-ends, and a hash makes triage a guessing game.
-            foreach (var test in tests) _discoveredNames[test.Uid] = test.DisplayName;
+            foreach (var test in tests)
+            {
+                _discoveredNames[test.Uid] = test.DisplayName;
+                _discoveredTests[test.Uid] = test;
+            }
+
+            _ledger.TotalTests = tests.Count;
 
             // Isolation is decided from discovery metadata, before anything runs. That is the
             // point of Q4 in the #43 spike: traits arrive early enough to plan scheduling.
@@ -296,6 +356,8 @@ public sealed class Supervisor
             var batched = tests.Where(t => !isIsolated(t.Traits)).ToList();
 
             Log?.Invoke($"{tests.Count} test(s): {batched.Count} batched, {isolated.Count} isolated");
+
+            ticker = startTicker();
 
             abortReason = await firstPass(batched, isolated, traits, attempts, ct);
 
@@ -306,6 +368,7 @@ public sealed class Supervisor
         }
         finally
         {
+            ticker?.Dispose();
             await disposeLanes();
         }
 
@@ -323,7 +386,8 @@ public sealed class Supervisor
             AbortReason = abortReason,
             WorkersLaunched = _workersLaunched,
             WorkerFaults = _workerFaults,
-            Recyclings = _recyclings
+            Recyclings = _recyclings,
+            StalledTests = _ledger.Stalled
         };
     }
 
@@ -711,6 +775,76 @@ public sealed class Supervisor
         notify(observer => observer.WorkerFaulted(fault));
     }
 
+    /// <summary>How often the run ticker wakes to check for stalls between heartbeats.</summary>
+    /// <remarks>
+    /// Deliberately not derived from the thresholds: <see cref="StallThresholdFor"/> is a
+    /// function, so there is no minimum to derive, and a once-a-second scan of a small
+    /// dictionary costs nothing against a run measured in minutes.
+    /// </remarks>
+    internal static readonly TimeSpan StallCheckPeriod = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// One timer serves both surfaces (issues #145/#148): stalls are checked every wake, the
+    /// heartbeat fires only when its own interval has elapsed. Null when neither is configured
+    /// — an unconfigured run schedules nothing at all.
+    /// </summary>
+    private ITimer? startTicker()
+    {
+        var stallsConfigured = StallThreshold is not null || StallThresholdFor is not null;
+        if (HeartbeatInterval is null && !stallsConfigured) return null;
+
+        var period = stallsConfigured
+            ? HeartbeatInterval is { } beat && beat < StallCheckPeriod ? beat : StallCheckPeriod
+            : HeartbeatInterval!.Value;
+
+        return Time.CreateTimer(_ => tick(), null, period, period);
+    }
+
+    private void tick()
+    {
+        // Skipped, not queued: ticks must not stack up behind a slow observer, and a missed
+        // beat costs nothing when the next one is a second away.
+        if (Interlocked.CompareExchange(ref _ticking, 1, 0) != 0) return;
+
+        try
+        {
+            if (_ledger is not { } ledger) return;
+
+            foreach (var stalled in ledger.DetectStalls(stallThresholdFor))
+            {
+                Log?.Invoke(
+                    $"STALLED: {stalled.DisplayName} has been in flight " +
+                    $"{(int)stalled.InFlight.TotalSeconds}s on lane {stalled.Worker.Lane}" +
+                    (stalled.Worker.ProcessId is { } pid ? $" (pid {pid})" : ""));
+
+                var report = stalled;
+                notify(observer =>
+                    observer.TestStalled(report.Worker, report.Uid, report.DisplayName, report.InFlight));
+            }
+
+            if (HeartbeatInterval is { } interval && ledger.HeartbeatDue(interval))
+            {
+                var heartbeat = ledger.Snapshot();
+                Log?.Invoke(heartbeat.Describe());
+                notify(observer => observer.Heartbeat(heartbeat));
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _ticking, 0);
+        }
+    }
+
+    private TimeSpan? stallThresholdFor(string uid)
+    {
+        if (StallThresholdFor is not null && _discoveredTests.TryGetValue(uid, out var test))
+        {
+            return StallThresholdFor(test);
+        }
+
+        return StallThreshold;
+    }
+
     /// <summary>
     /// Fans one callback out to every watcher. An observer that throws is logged and stepped
     /// over: a dashboard, a log sink or a metrics push must not be able to fail a test run.
@@ -824,7 +958,13 @@ public sealed class Supervisor
             // left out — it enumerates, it does not run, and "discovered" is not progress.
             if (context.Purpose != WorkerPurpose.Discovery)
             {
-                worker.OnTestUpdate(update => notify(observer => observer.TestUpdated(launch, update)));
+                worker.OnTestUpdate(update =>
+                {
+                    // The in-flight table folds every update in before anyone is notified, so
+                    // an observer reacting to an update always sees a ledger that includes it.
+                    _ledger?.Apply(launch, update);
+                    notify(observer => observer.TestUpdated(launch, update));
+                });
             }
 
             return worker;
