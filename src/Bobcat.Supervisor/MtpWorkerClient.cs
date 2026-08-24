@@ -26,11 +26,20 @@ public sealed class MtpWorkerClient : IWorkerClient
     private MtpWorkerClient(Process process, JsonRpcConnection rpc, ServerModeListener listener, Queue<string> standardError)
     {
         _process = process;
+        // Read once, up front: Process.Id throws after Dispose, and the pid is wanted precisely
+        // when the process is in trouble.
+        ProcessId = process.Id;
         _rpc = rpc;
         _listener = listener;
         _standardError = standardError;
         _rpc.OnNotification(handleNotification);
     }
+
+    /// <summary>
+    /// The worker's OS process id (issue #146) — the handle every external diagnostic of this
+    /// process has to be pointed at.
+    /// </summary>
+    public int? ProcessId { get; }
 
     /// <summary>How long to wait for a launched host to dial back.</summary>
     public static TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(60);
@@ -164,7 +173,8 @@ public sealed class MtpWorkerClient : IWorkerClient
             {
                 Fault = fault,
                 ExitCode = exitCode,
-                StandardError = standardError
+                StandardError = standardError,
+                ProcessId = ProcessId
             };
         }
 
@@ -172,7 +182,7 @@ public sealed class MtpWorkerClient : IWorkerClient
 
         if (uids is not null) GuardAgainstAnUnfilteredRun(uids, outcomes);
 
-        return new WorkerRunResult(Complete(uids, outcomes, fault: null));
+        return new WorkerRunResult(Complete(uids, outcomes, fault: null)) { ProcessId = ProcessId };
     }
 
     /// <summary>
