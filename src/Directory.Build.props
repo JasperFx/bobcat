@@ -8,7 +8,7 @@
     that ships as a NuGet opts in with <IsPackable>true</IsPackable>.
   -->
   <PropertyGroup>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
 
     <Authors>Jeremy D. Miller</Authors>
     <Company>JasperFx Software</Company>
