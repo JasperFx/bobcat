@@ -17,6 +17,9 @@ public sealed class FakeWorker : IWorkerClient
     /// <summary>Scripted pid — null by default, modelling an in-process client (issue #146).</summary>
     public int? ProcessId { get; init; }
 
+    /// <summary>Scripted resident set — null by default, modelling a client that cannot measure (issue #149).</summary>
+    public long? SampleWorkingSet() => _factory.SampleWorkingSet(this);
+
     /// <summary>What the supervisor said it was launching this worker for.</summary>
     public WorkerLaunchContext Launch { get; init; } = WorkerLaunchContext.Discovery;
 
@@ -156,6 +159,24 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// the test case decides to let it finish. Null holds nothing.
     /// </summary>
     public Func<string, FakeWorker, Task>? HoldAfterStart { get; init; }
+
+    /// <summary>
+    /// The resident set a worker reports when sampled. Defaults to null — a client that cannot
+    /// measure, which is what unmeasured-never-zero exists for. Every call is counted in
+    /// <see cref="SamplesTaken"/> so a test can assert "off means not one sample".
+    /// </summary>
+    public Func<FakeWorker, long?> WorkingSet { get; init; } = _ => null;
+
+    private int _samplesTaken;
+
+    /// <summary>How many times any worker's working set was sampled.</summary>
+    public int SamplesTaken => Volatile.Read(ref _samplesTaken);
+
+    internal long? SampleWorkingSet(FakeWorker worker)
+    {
+        Interlocked.Increment(ref _samplesTaken);
+        return WorkingSet(worker);
+    }
 
     public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {

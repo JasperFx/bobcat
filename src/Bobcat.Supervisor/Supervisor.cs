@@ -50,6 +50,10 @@ public sealed class Supervisor
     // The run's live in-flight table (issues #145/#148). Created per run; every worker's test
     // updates fold into it, the run ticker reads it.
     private InFlightLedger? _ledger;
+
+    // RSS sampling and attribution (issue #149). Null unless ResourceSampleInterval is set —
+    // "off" means not a single sample is ever taken.
+    private MemorySampler? _sampler;
     private int _ticking;
 
     private int _workersLaunched;
@@ -182,6 +186,21 @@ public sealed class Supervisor
     public Func<WorkerTest, TimeSpan>? StallThresholdFor { get; set; }
 
     /// <summary>
+    /// Sample each live worker's resident set this often while the run is in flight — RunTiming
+    /// for RSS (issue #149). Off by default. Turning it on also brackets every attempt with
+    /// boundary samples, which is what produces the per-test "memory retained" attribution in
+    /// <see cref="RunResources"/>; the interval adds the peaks in between.
+    /// </summary>
+    /// <remarks>
+    /// Reporting only, same note as <c>RunTiming</c>'s: a memory threshold turned into a build
+    /// failure converts a useful signal into a flaky one. The prompting case was a green
+    /// 16 GB runner finishing with 172 MB free — evidence nothing could produce, because the
+    /// external sampler could neither attribute growth to a test nor be sure which process was
+    /// the test host.
+    /// </remarks>
+    public TimeSpan? ResourceSampleInterval { get; set; }
+
+    /// <summary>
     /// Publish this run to a Bobcat.Console host. Opt-in (same policy as
     /// <c>BobcatRunner.PublishToMonitor</c>): a unit test driving a supervisor must never
     /// probe a monitor that happens to be running on the box.
@@ -300,6 +319,7 @@ public sealed class Supervisor
         string? abortReason = null;
 
         _ledger = new InFlightLedger(Time);
+        _sampler = ResourceSampleInterval is null ? null : new MemorySampler(Time);
         ITimer? ticker = null;
 
         try
@@ -387,7 +407,9 @@ public sealed class Supervisor
             WorkersLaunched = _workersLaunched,
             WorkerFaults = _workerFaults,
             Recyclings = _recyclings,
-            StalledTests = _ledger.Stalled
+            StalledTests = _ledger.Stalled,
+            WorkerMemory = _sampler?.Workers ?? [],
+            TestMemory = _sampler?.Tests ?? []
         };
     }
 
@@ -784,19 +806,21 @@ public sealed class Supervisor
     internal static readonly TimeSpan StallCheckPeriod = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// One timer serves both surfaces (issues #145/#148): stalls are checked every wake, the
-    /// heartbeat fires only when its own interval has elapsed. Null when neither is configured
-    /// — an unconfigured run schedules nothing at all.
+    /// One timer serves every periodic surface (issues #145/#148/#149): stalls are checked
+    /// every wake, while the heartbeat and the memory sampler each fire only when their own
+    /// interval has elapsed (each consumes its own beat). Null when nothing is configured —
+    /// an unconfigured run schedules nothing at all.
     /// </summary>
     private ITimer? startTicker()
     {
-        var stallsConfigured = StallThreshold is not null || StallThresholdFor is not null;
-        if (HeartbeatInterval is null && !stallsConfigured) return null;
+        var cadences = new List<TimeSpan>();
+        if (StallThreshold is not null || StallThresholdFor is not null) cadences.Add(StallCheckPeriod);
+        if (HeartbeatInterval is { } beat) cadences.Add(beat);
+        if (ResourceSampleInterval is { } sample) cadences.Add(sample);
 
-        var period = stallsConfigured
-            ? HeartbeatInterval is { } beat && beat < StallCheckPeriod ? beat : StallCheckPeriod
-            : HeartbeatInterval!.Value;
+        if (cadences.Count == 0) return null;
 
+        var period = cadences.Min();
         return Time.CreateTimer(_ => tick(), null, period, period);
     }
 
@@ -827,6 +851,12 @@ public sealed class Supervisor
                 var heartbeat = ledger.Snapshot();
                 Log?.Invoke(heartbeat.Describe());
                 notify(observer => observer.Heartbeat(heartbeat));
+            }
+
+            if (ResourceSampleInterval is { } sampleInterval &&
+                _sampler is { } sampler && sampler.SampleDue(sampleInterval))
+            {
+                sampler.SamplePeaks();
             }
         }
         finally
@@ -958,11 +988,19 @@ public sealed class Supervisor
             // left out — it enumerates, it does not run, and "discovered" is not progress.
             if (context.Purpose != WorkerPurpose.Discovery)
             {
+                // Discovery workers are excluded from sampling too: they enumerate and die,
+                // and their working set is not the story #149 is telling.
+                _sampler?.Track(worker, launch);
+
                 worker.OnTestUpdate(update =>
                 {
                     // The in-flight table folds every update in before anyone is notified, so
                     // an observer reacting to an update always sees a ledger that includes it.
                     _ledger?.Apply(launch, update);
+
+                    // Boundary samples: the attempt's start and verdict bracket its RSS delta.
+                    _sampler?.Apply(worker, update);
+
                     notify(observer => observer.TestUpdated(launch, update));
                 });
             }

@@ -115,6 +115,19 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<StalledTest> StalledTests { get; init; } = [];
 
+    /// <summary>
+    /// Each sampled worker's memory story (issue #149) — first, peak and last resident set.
+    /// Empty unless <c>Supervisor.ResourceSampleInterval</c> was configured; a worker that
+    /// could not be measured contributes nothing rather than zeroes.
+    /// </summary>
+    public IReadOnlyList<WorkerMemory> WorkerMemory { get; init; } = [];
+
+    /// <summary>
+    /// The RSS delta across each measured attempt (issue #149), null where overlapping tests
+    /// made the delta unattributable. <see cref="RunResources.For"/> is the reporting view.
+    /// </summary>
+    public IReadOnlyList<TestMemory> TestMemory { get; init; } = [];
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 

@@ -136,6 +136,13 @@ public interface IWorkerClient : IAsyncDisposable
     int? ProcessId => null;
 
     /// <summary>
+    /// The worker's current resident set in bytes, when the client can measure one — null for
+    /// an in-process client, or once the process is gone. Null means unmeasured, never zero:
+    /// a report must be able to tell "no memory" from "nobody looked" (issue #149).
+    /// </summary>
+    long? SampleWorkingSet() => null;
+
+    /// <summary>
     /// Subscribe to live per-test state changes while <see cref="Run"/> is in flight. Default is
     /// a no-op — a client that cannot observe its worker mid-run simply never calls back, and
     /// the supervisor learns the outcomes from <see cref="Run"/>'s result as before. Handlers
