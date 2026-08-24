@@ -1,5 +1,16 @@
 # Supervisor Observability Plan
 
+> **Status: SHIPPED, 2026-08-24 — all five PRs merged the same day the issues were filed.**
+> #151 (pid, #146) · #152 (stall + heartbeat, #145/#148) · #153 (before-kill hook, #147) ·
+> #154 (memory sampling, #149) · #155 (Snapshot, #150). All six issues closed. Supervisor
+> suite grew 143 → 169 tests, still ~6s. Two things the build taught that the plan below did
+> not know: the hook's live-wedge integration test proved an MTP host genuinely cannot exit
+> while a test hangs (validating #147's premise), and #150 needed the ledger to keep
+> **provisional verdicts** off the live stream — results are recorded per lane, so a mid-lane
+> snapshot would otherwise have called nearly a whole single-lane batch indeterminate.
+> The deferred list at the bottom still stands: stall→kill, `Run` returning partial results,
+> and monitor wire events remain undone by decision.
+
 **Issues #145–#150, filed 2026-08-24.** All six come from the same week of Wolverine CI
 incidents (wolverine#4083, #4089, #4090, #4098, #4100) and share one diagnosis: the supervisor
 knows facts about hung, heavy, and cancelled runs that consumers are currently reconstructing
