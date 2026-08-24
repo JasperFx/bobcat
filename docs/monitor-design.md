@@ -219,6 +219,26 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
      attempt clears it (attempt numbers are a floor), so a replayed start never un-finishes one.
      A crashed lane's scenario that never reported an outcome keeps reading as running — the
      fold infers nothing for it; the supervisor's `RunFinished` is what counts it Indeterminate.
+   - **The observability cluster is on the wire too** (built 2026-08-24, issues
+     #145/#146/#148/#149): three additive events posted by `SupervisorRunPublisher` from the
+     cluster's observer callbacks. `worker_started` (purpose, lane or null, **pid**) — a
+     discovery worker is deliberately never announced, because it launches before the run
+     bracket opens and `run_started` stays the stream's first event; its pid folds onto the
+     lane, so lane→pid correlation needs no `/proc` guessing. `test_stalled` (uid, display
+     name, in-flight ms, lane, pid) — once per attempt, the name a capped CI job's log cannot
+     produce. `run_progress` (elapsed, done/total, in-flight count, the longest-running test,
+     and peak worker RSS when memory sampling is on — null otherwise, unmeasured is never
+     zero) — posted only when the supervisor's opt-in `HeartbeatInterval` is set, distinct
+     from `run_heartbeat` which stays a bare liveness ping; for a foreign-framework worker
+     this is the run's only live progress. Folded on both sides under the same rules (`stalls`
+     replay-guarded by uid+timestamp; `progress` latest-wins, ordered by the supervisor's
+     elapsed clock so a replayed older heartbeat never rolls it back; a replacement worker's
+     own start moves the lane's pid) — mirrored case-for-case between
+     `SupervisorTopologyProjectionTests` and `runs-store-topology.test.ts` like the rest of
+     the topology. Read back by `GET /api/runs/{id}` (`RunDetail.Stalls`/`Progress`,
+     `LaneResult.ProcessId`, all additive) and MCP `run_status` (`stalls` always present,
+     `progress` nullable, `processId` per lane); rendered by `SupervisorTopology` (progress
+     line, pid column, stalled list).
    - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
      updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host

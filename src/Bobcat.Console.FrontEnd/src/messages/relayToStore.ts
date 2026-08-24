@@ -8,13 +8,16 @@ import type {
   RetryScheduled,
   RunFinished,
   RunHeartbeat,
+  RunProgress,
   RunStarted,
   ScenarioFinished,
   ScenarioStarted,
   StepFinished,
   StepProgress,
   StepStarted,
+  TestStalled,
   WorkerFaulted,
+  WorkerStarted,
 } from './monitor-events'
 
 /**
@@ -76,6 +79,15 @@ export function relayToStore(message: unknown): void {
       break
     case 'worker_faulted':
       runs.handleWorkerFaulted(envelope.data as WorkerFaulted)
+      break
+    case 'worker_started':
+      runs.handleWorkerStarted(envelope.data as WorkerStarted)
+      break
+    case 'test_stalled':
+      runs.handleTestStalled(envelope.data as TestStalled)
+      break
+    case 'run_progress':
+      runs.handleRunProgress(envelope.data as RunProgress)
       break
     // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
     default:

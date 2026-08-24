@@ -237,3 +237,87 @@ describe('runs-store supervisor topology', () => {
     expect(store.allRuns).toHaveLength(0)
   })
 })
+
+/**
+ * The observability cluster's events (issues #145/#146/#148/#149) — cases mirrored in
+ * SupervisorTopologyProjectionTests, same names, so the two folds cannot drift.
+ */
+describe('runs-store supervisor observability', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('a worker start folds its pid onto the lane and a one-test process folds nowhere', () => {
+    const store = useRunsStore()
+    startSupervisedRun(store)
+    store.handleLaneStarted({ runId: RUN, lane: 0, uids: ['Orders/a'], at: '2026-08-21T10:00:01Z' })
+    store.handleWorkerStarted({ runId: RUN, lane: 0, purpose: 'Lane', processId: 4321, at: '2026-08-21T10:00:01Z' })
+    // A one-test isolated process has no lane slot; its pid travels on its own
+    // test_stalled/worker_faulted instead.
+    store.handleWorkerStarted({ runId: RUN, lane: null, purpose: 'Isolated', processId: 9999, at: '2026-08-21T10:00:02Z' })
+
+    const run = store.runById(RUN)!
+    expect(run.lanes).toHaveLength(1)
+    expect(run.lanes[0].processId).toBe(4321)
+  })
+
+  it("a replacement worker's own start updates the lane's pid", () => {
+    const store = useRunsStore()
+    startSupervisedRun(store)
+    store.handleLaneStarted({ runId: RUN, lane: 0, uids: ['Orders/a'], at: '2026-08-21T10:00:01Z' })
+    store.handleWorkerStarted({ runId: RUN, lane: 0, purpose: 'Lane', processId: 4321, at: '2026-08-21T10:00:01Z' })
+    // The lane's worker died and was relaunched: the lane is the slot, the pid moves.
+    store.handleWorkerStarted({ runId: RUN, lane: 0, purpose: 'Lane', processId: 4322, at: '2026-08-21T10:00:09Z' })
+
+    expect(store.runById(RUN)!.lanes[0].processId).toBe(4322)
+  })
+
+  it('a stalled test is recorded once however often the archive replays it', () => {
+    const store = useRunsStore()
+    startSupervisedRun(store)
+    const stall = {
+      runId: RUN,
+      uid: 'Orders/a',
+      displayName: 'Orders/a',
+      inFlightMs: 31_000,
+      lane: 0,
+      processId: 4321,
+      at: '2026-08-21T10:00:31Z',
+    }
+    store.handleTestStalled(stall)
+    store.handleTestStalled(stall)
+
+    const run = store.runById(RUN)!
+    expect(run.stalls).toHaveLength(1)
+    expect(run.stalls[0]).toMatchObject({ uid: 'Orders/a', inFlightMs: 31_000, lane: 0 })
+    expect(store.hasTopology(run)).toBe(true)
+  })
+
+  it('the latest progress heartbeat wins and a replayed older one never rolls it back', () => {
+    const store = useRunsStore()
+    startSupervisedRun(store)
+    const progressAt = (elapsedMs: number, completed: number) => ({
+      runId: RUN,
+      elapsedMs,
+      completed,
+      total: 275,
+      inFlight: 1,
+      longestRunningUid: 'Orders/a',
+      longestRunningDisplayName: 'Orders/a',
+      longestRunningMs: elapsedMs,
+      peakWorkerRssBytes: 500 * 1024 * 1024,
+      at: '2026-08-21T10:00:30Z',
+    })
+
+    store.handleRunProgress(progressAt(10_000, 100))
+    store.handleRunProgress(progressAt(20_000, 143))
+
+    const run = store.runById(RUN)!
+    expect(run.progress).toMatchObject({ elapsedMs: 20_000, completed: 143, peakWorkerRssBytes: 500 * 1024 * 1024 })
+
+    // Hydration replays the archive over live state — the supervisor's elapsed clock is what
+    // orders heartbeats, not arrival order.
+    store.handleRunProgress(progressAt(10_000, 100))
+    expect(run.progress!.completed).toBe(143)
+  })
+})

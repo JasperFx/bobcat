@@ -35,6 +35,9 @@ namespace Bobcat.Console.Contracts;
 [JsonDerivedType(typeof(LaneFinished), "lane_finished")]
 [JsonDerivedType(typeof(ResourceRecycled), "resource_recycled")]
 [JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
+[JsonDerivedType(typeof(WorkerStarted), "worker_started")]
+[JsonDerivedType(typeof(TestStalled), "test_stalled")]
+[JsonDerivedType(typeof(RunProgress), "run_progress")]
 public abstract record MonitorEvent(Guid RunId) : WebSocketMessage;
 
 /// <summary>
@@ -190,4 +193,55 @@ public record WorkerFaulted(
     string Fault,
     int? ExitCode,
     string? StandardError,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// A worker process was launched (issue #146): its purpose (Lane / Isolated / Recycled — a
+/// discovery worker is never announced, because it launches before the run bracket opens and
+/// run_started stays the stream's first event), the lane when it is one (null otherwise, same
+/// rule as WorkerFaulted), and its OS pid when the client drives a separate process. This is
+/// where lane-to-pid correlation starts — the fact an external diagnostic (a dump, an RSS
+/// sampler) must be pointed at, which consumers previously had to guess from /proc.
+/// </summary>
+public record WorkerStarted(
+    Guid RunId,
+    int? Lane,
+    string Purpose,
+    int? ProcessId,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// A test crossed its stall threshold (issue #145) — in flight longer than its budget allows.
+/// Fired once per attempt; the run_progress stream's longest-running clause is the continuous
+/// view. The name is the value: a hung batch's log cannot say which test wedged, and the CI
+/// cap that eventually fires takes the answer with it. InFlightMs is how long the test had
+/// been running at detection.
+/// </summary>
+public record TestStalled(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    long InFlightMs,
+    int? Lane,
+    int? ProcessId,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// The supervisor's opt-in progress heartbeat (issue #148) — distinct from run_heartbeat,
+/// which is a bare liveness ping. Only posted when the supervisor's HeartbeatInterval is
+/// configured. For a foreign-framework worker (xUnit, tUnit) that streams no scenario events,
+/// this is the only live progress a run has. The longest-running trio is null when nothing is
+/// in flight; PeakWorkerRssBytes is the highest worker RSS seen so far when memory sampling
+/// (issue #149) is on, and null otherwise — unmeasured is never zero.
+/// </summary>
+public record RunProgress(
+    Guid RunId,
+    long ElapsedMs,
+    int Completed,
+    int Total,
+    int InFlight,
+    string? LongestRunningUid,
+    string? LongestRunningDisplayName,
+    long? LongestRunningMs,
+    long? PeakWorkerRssBytes,
     DateTimeOffset At) : MonitorEvent(RunId);

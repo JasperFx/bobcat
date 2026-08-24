@@ -637,6 +637,13 @@ ones on upgrade. Same reasoning as retries being opt-in.
   reached is `Indeterminate` saying that. Recording state sits behind `_recordGate` so a
   snapshot from another thread reads a consistent view; note the long-standing classification
   that Indeterminate tests also count in `Failed` still holds for snapshots.
+- **The cluster's live surfaces are on the monitor wire** (2026-08-24): `worker_started`
+  (never for discovery — it launches before the run bracket opens, and `run_started` stays the
+  stream's first event), `test_stalled`, and `run_progress` (the #148 heartbeat, carrying peak
+  worker RSS when sampling is on — distinct from `run_heartbeat`, the bare liveness ping).
+  Posted by `SupervisorRunPublisher`, folded into `RunProjection` and the Pinia runs-store
+  under mirrored rules, read back via `GET /api/runs/{id}` and MCP `run_status`, rendered by
+  `SupervisorTopology`. Details in `docs/monitor-design.md` Bobcat-side seams item 4.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that

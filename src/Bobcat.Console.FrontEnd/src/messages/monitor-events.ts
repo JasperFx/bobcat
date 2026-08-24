@@ -34,6 +34,9 @@ export type MonitorEventType =
   | 'lane_finished'
   | 'resource_recycled'
   | 'worker_faulted'
+  | 'worker_started'
+  | 'test_stalled'
+  | 'run_progress'
 
 export interface MonitorEvent {
   runId: string
@@ -152,6 +155,37 @@ export interface WorkerFaulted extends MonitorEvent {
   fault: string
   exitCode: number | null
   standardError: string | null
+  at: string
+}
+
+/** Envelope type: 'worker_started' */
+export interface WorkerStarted extends MonitorEvent {
+  lane: number | null
+  purpose: string
+  processId: number | null
+  at: string
+}
+
+/** Envelope type: 'test_stalled' */
+export interface TestStalled extends MonitorEvent {
+  uid: string
+  displayName: string
+  inFlightMs: number
+  lane: number | null
+  processId: number | null
+  at: string
+}
+
+/** Envelope type: 'run_progress' */
+export interface RunProgress extends MonitorEvent {
+  elapsedMs: number
+  completed: number
+  total: number
+  inFlight: number
+  longestRunningUid: string | null
+  longestRunningDisplayName: string | null
+  longestRunningMs: number | null
+  peakWorkerRssBytes: number | null
   at: string
 }
 

@@ -370,4 +370,66 @@ public class SupervisorTopologyProjectionTests : IDisposable
         extra.TryGetProperty("recycles", out _).ShouldBeFalse();
         extra.TryGetProperty("workerFaults", out _).ShouldBeFalse();
     }
+
+    // The observability cluster's events (issues #145/#146/#148/#149) — cases mirrored in
+    // runs-store-topology.test.ts, same names, so the two folds cannot drift.
+
+    [Fact]
+    public void a_worker_start_folds_its_pid_onto_the_lane_and_a_one_test_process_folds_nowhere()
+    {
+        var projection = fold(
+            supervisedRunStarted(),
+            new LaneStarted(run, 0, ["Orders/a"], at("2026-08-21T10:00:01Z")),
+            new WorkerStarted(run, 0, "Lane", 4321, at("2026-08-21T10:00:01Z")),
+            // A one-test isolated process has no lane slot; its pid travels on its own
+            // test_stalled/worker_faulted instead.
+            new WorkerStarted(run, null, "Isolated", 9999, at("2026-08-21T10:00:02Z")));
+
+        projection.Lanes.ShouldHaveSingleItem().ProcessId.ShouldBe(4321);
+    }
+
+    [Fact]
+    public void a_replacement_workers_own_start_updates_the_lanes_pid()
+    {
+        var projection = fold(
+            supervisedRunStarted(),
+            new LaneStarted(run, 0, ["Orders/a"], at("2026-08-21T10:00:01Z")),
+            new WorkerStarted(run, 0, "Lane", 4321, at("2026-08-21T10:00:01Z")),
+            // The lane's worker died and was relaunched: the lane is the slot, the pid moves.
+            new WorkerStarted(run, 0, "Lane", 4322, at("2026-08-21T10:00:09Z")));
+
+        projection.Lanes.ShouldHaveSingleItem().ProcessId.ShouldBe(4322);
+    }
+
+    [Fact]
+    public void a_stalled_test_is_recorded_once_however_often_the_archive_replays_it()
+    {
+        var stall = new TestStalled(run, "Orders/a", "Orders/a", 31_000, 0, 4321, at("2026-08-21T10:00:31Z"));
+
+        var projection = fold(supervisedRunStarted(), stall, stall);
+
+        var recorded = projection.Stalls.ShouldHaveSingleItem();
+        recorded.Uid.ShouldBe("Orders/a");
+        recorded.InFlightMs.ShouldBe(31_000);
+        recorded.Lane.ShouldBe(0);
+        projection.HasTopology.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void the_latest_progress_heartbeat_wins_and_a_replayed_older_one_never_rolls_it_back()
+    {
+        RunProgress progressAt(long elapsedMs, int completed) => new(
+            run, elapsedMs, completed, 275, 1,
+            "Orders/a", "Orders/a", elapsedMs, 500 * 1024 * 1024L, at("2026-08-21T10:00:30Z"));
+
+        var projection = fold(supervisedRunStarted(), progressAt(10_000, 100), progressAt(20_000, 143));
+        projection.Progress!.Completed.ShouldBe(143);
+        projection.Progress.ElapsedMs.ShouldBe(20_000);
+        projection.Progress.PeakWorkerRssBytes.ShouldBe(500 * 1024 * 1024L);
+
+        // Hydration replays the archive over live state — the supervisor's elapsed clock is
+        // what orders heartbeats, not arrival order.
+        projection.Apply(progressAt(10_000, 100));
+        projection.Progress.Completed.ShouldBe(143);
+    }
 }

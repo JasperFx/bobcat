@@ -7,13 +7,16 @@ import type {
   RetryScheduled,
   RunFinished,
   RunHeartbeat,
+  RunProgress,
   RunStarted,
   ScenarioFinished,
   ScenarioStarted,
   StepFinished,
   StepProgress,
   StepStarted,
+  TestStalled,
   WorkerFaulted,
+  WorkerStarted,
 } from '@/messages/monitor-events'
 
 export type StepStatus = 'running' | 'passed' | 'failed'
@@ -96,10 +99,46 @@ export interface LaneState {
   finishedAt: string | null
   /** Outcomes the worker reported on its latest finish; null while it is still running. */
   outcomes: number | null
+  /**
+   * The OS pid of the lane's worker process (issue #146), from worker_started — the handle an
+   * external diagnostic must be pointed at. Null until the pid is announced.
+   */
+  processId: number | null
 }
 
 export interface RecycleState {
   resource: string
+  at: string
+}
+
+/**
+ * A test the supervisor reported stalled (issue #145): the name a hung run's log otherwise
+ * cannot produce, how long it had been in flight at detection, and where it was running.
+ */
+export interface StallState {
+  uid: string
+  displayName: string
+  inFlightMs: number
+  /** The lane it was running in; null for a one-test isolated or recycled process. */
+  lane: number | null
+  at: string
+}
+
+/**
+ * The supervisor's latest progress heartbeat (issue #148) — the only live progress a
+ * foreign-framework worker (xUnit, tUnit) gives, since it streams no scenario events. The
+ * longest-running trio is null when nothing is in flight; peakWorkerRssBytes is null unless
+ * memory sampling (issue #149) is on — unmeasured is never zero.
+ */
+export interface RunProgressState {
+  elapsedMs: number
+  completed: number
+  total: number
+  inFlight: number
+  longestRunningUid: string | null
+  longestRunningDisplayName: string | null
+  longestRunningMs: number | null
+  peakWorkerRssBytes: number | null
   at: string
 }
 
@@ -143,6 +182,10 @@ export interface RunState {
   recycles: RecycleState[]
   /** Worker processes that died, in order, with the account of each. */
   faults: WorkerFaultState[]
+  /** Tests the supervisor reported as stalled (issue #145), in detection order. */
+  stalls: StallState[]
+  /** The supervisor's latest progress heartbeat (issue #148); null until one arrives. */
+  progress: RunProgressState | null
 }
 
 /**
@@ -194,6 +237,8 @@ export const useRunsStore = defineStore('runs', () => {
         lanes: [],
         recycles: [],
         faults: [],
+        stalls: [],
+        progress: null,
       }
       runs.value[runId] = run
     }
@@ -384,7 +429,9 @@ export const useRunsStore = defineStore('runs', () => {
 
   /** Whether the run has any supervisor topology worth rendering. */
   function hasTopology(run: RunState): boolean {
-    return run.lanes.length > 0 || run.recycles.length > 0 || run.faults.length > 0
+    return (
+      run.lanes.length > 0 || run.recycles.length > 0 || run.faults.length > 0 || run.stalls.length > 0
+    )
   }
 
   function ensureLane(run: RunState, index: number, at: string): LaneState {
@@ -398,6 +445,7 @@ export const useRunsStore = defineStore('runs', () => {
         startedAt: at,
         finishedAt: null,
         outcomes: null,
+        processId: null,
       }
       run.lanes.push(lane)
       run.lanes.sort((a, b) => a.lane - b.lane)
@@ -454,6 +502,47 @@ export const useRunsStore = defineStore('runs', () => {
     })
   }
 
+  function handleWorkerStarted(e: WorkerStarted) {
+    const run = ensureRun(e.runId, e.at)
+    // The pid folds onto the lane it belongs to — lane-to-pid correlation (issue #146). A
+    // one-test process has no lane slot here; its pid still travels on any test_stalled or
+    // worker_faulted it produces. A replacement worker's own start updates the pid.
+    if (e.lane !== null && e.processId !== null) {
+      ensureLane(run, e.lane, e.at).processId = e.processId
+    }
+  }
+
+  function handleTestStalled(e: TestStalled) {
+    const run = ensureRun(e.runId, e.at)
+    // Replay guard: hydration re-announces the archive over live state.
+    if (run.stalls.some((s) => s.uid === e.uid && s.at === e.at)) return
+    run.stalls.push({
+      uid: e.uid,
+      displayName: e.displayName,
+      inFlightMs: e.inFlightMs,
+      lane: e.lane,
+      at: e.at,
+    })
+  }
+
+  function handleRunProgress(e: RunProgress) {
+    const run = ensureRun(e.runId, e.at)
+    // Latest wins, and a replayed older heartbeat never rolls progress backwards — the
+    // supervisor's elapsed clock orders them without trusting arrival order.
+    if (run.progress && e.elapsedMs < run.progress.elapsedMs) return
+    run.progress = {
+      elapsedMs: e.elapsedMs,
+      completed: e.completed,
+      total: e.total,
+      inFlight: e.inFlight,
+      longestRunningUid: e.longestRunningUid,
+      longestRunningDisplayName: e.longestRunningDisplayName,
+      longestRunningMs: e.longestRunningMs,
+      peakWorkerRssBytes: e.peakWorkerRssBytes,
+      at: e.at,
+    }
+  }
+
   /** "Eject": drop a finished run from the dashboard. */
   function removeRun(runId: string) {
     delete runs.value[runId]
@@ -496,6 +585,9 @@ export const useRunsStore = defineStore('runs', () => {
     handleLaneFinished,
     handleResourceRecycled,
     handleWorkerFaulted,
+    handleWorkerStarted,
+    handleTestStalled,
+    handleRunProgress,
     runningIn,
     hasTopology,
     removeRun,

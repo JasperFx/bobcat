@@ -60,6 +60,15 @@ public record RunDetail(RunSummary Run, ScenarioResult[] Scenarios)
 
     /// <summary>Worker processes that died, with lane, exit code and last standard error.</summary>
     public WorkerFaultResult[] WorkerFaults { get; init; } = [];
+
+    /// <summary>Tests the supervisor reported as stalled (issue #145), in detection order. Additive.</summary>
+    public StallResult[] Stalls { get; init; } = [];
+
+    /// <summary>
+    /// The supervisor's latest progress heartbeat (issue #148), when the run publishes one —
+    /// the only live progress a foreign-framework worker gives. Null otherwise. Additive.
+    /// </summary>
+    public RunProgressResult? Progress { get; init; }
 }
 
 /// <summary>
@@ -77,9 +86,28 @@ public record LaneResult(
     string[] Running,
     DateTimeOffset StartedAt,
     DateTimeOffset? FinishedAt,
-    int? Outcomes);
+    int? Outcomes)
+{
+    /// <summary>The OS pid of the lane's worker process (issue #146), when known. Additive.</summary>
+    public int? ProcessId { get; init; }
+}
 
 public record RecycleResult(string Resource, DateTimeOffset At);
+
+/// <summary>A stalled test (issue #145): in flight past its threshold, named.</summary>
+public record StallResult(string Uid, string DisplayName, long InFlightMs, int? Lane, DateTimeOffset At);
+
+/// <summary>The supervisor's latest progress heartbeat (issue #148); see RunProgressProjection.</summary>
+public record RunProgressResult(
+    long ElapsedMs,
+    int Completed,
+    int Total,
+    int InFlight,
+    string? LongestRunningUid,
+    string? LongestRunningDisplayName,
+    long? LongestRunningMs,
+    long? PeakWorkerRssBytes,
+    DateTimeOffset At);
 
 /// <summary>
 /// A dead worker. <c>Lane</c> is null for a one-test isolated or recycled process; <c>Fault</c> is
@@ -147,12 +175,21 @@ public static class RunEndpoints
                 .Select(l => new LaneResult(
                     l.Lane, l.Status, l.Passes, l.Uids.ToArray(),
                     run.RunningIn(l).Select(s => s.Uid).ToArray(),
-                    l.StartedAt, l.FinishedAt, l.Outcomes))
+                    l.StartedAt, l.FinishedAt, l.Outcomes) { ProcessId = l.ProcessId })
                 .ToArray(),
             Recycles = run.Recycles.Select(r => new RecycleResult(r.Resource, r.At)).ToArray(),
             WorkerFaults = run.WorkerFaults
                 .Select(f => new WorkerFaultResult(f.Lane, f.Fault, f.ExitCode, f.StandardError, f.At))
-                .ToArray()
+                .ToArray(),
+            Stalls = run.Stalls
+                .Select(s => new StallResult(s.Uid, s.DisplayName, s.InFlightMs, s.Lane, s.At))
+                .ToArray(),
+            Progress = run.Progress is { } progress
+                ? new RunProgressResult(
+                    progress.ElapsedMs, progress.Completed, progress.Total, progress.InFlight,
+                    progress.LongestRunningUid, progress.LongestRunningDisplayName,
+                    progress.LongestRunningMs, progress.PeakWorkerRssBytes, progress.At)
+                : null
         });
 
         return detail == null ? Results.NotFound() : Results.Ok(detail);

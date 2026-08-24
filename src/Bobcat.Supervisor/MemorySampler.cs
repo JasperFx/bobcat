@@ -153,6 +153,27 @@ internal sealed class MemorySampler
         if (state.Peak is not { } peak || sampled > peak) state.Peak = sampled;
     }
 
+    /// <summary>The highest resident set any worker has shown so far; null while nothing measured.</summary>
+    public long? PeakBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                long? peak = null;
+                foreach (var state in _workers.Values)
+                {
+                    if (state.Peak is { } bytes && (peak is not { } current || bytes > current))
+                    {
+                        peak = bytes;
+                    }
+                }
+
+                return peak;
+            }
+        }
+    }
+
     /// <summary>Every worker that produced at least one sample.</summary>
     public IReadOnlyList<WorkerMemory> Workers
     {
