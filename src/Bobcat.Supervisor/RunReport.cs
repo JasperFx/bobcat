@@ -235,6 +235,7 @@ public static class RunReport
         {
             ["exitCode"] = results.ExitCode,
             ["abortReason"] = results.AbortReason,
+            ["partial"] = results.IsPartial,
             ["summary"] = new JsonObject
             {
                 ["cleanPass"] = results.CleanPasses.Count,

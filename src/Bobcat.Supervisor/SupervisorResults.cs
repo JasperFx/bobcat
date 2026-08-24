@@ -73,6 +73,14 @@ public sealed class SupervisorResults
     /// <summary>Set when a policy aborted the run, or the environment made it impossible.</summary>
     public string? AbortReason { get; init; }
 
+    /// <summary>
+    /// True when this view came from <see cref="Supervisor.Snapshot"/> — "the run so far",
+    /// not the run's verdict (issue #150). A ledger writer consuming a cancelled run's
+    /// snapshot labels it with this rather than passing it off as a finished run; tests the
+    /// run never got a verdict for appear as <see cref="WorkerTestState.Indeterminate"/>.
+    /// </summary>
+    public bool IsPartial { get; init; }
+
     /// <summary>Worker processes launched. Surfaced because isolation is not free.</summary>
     public int WorkersLaunched { get; init; }
 
@@ -178,6 +186,10 @@ public sealed class SupervisorResults
     /// <summary>A short, honest summary line.</summary>
     public string Summarize()
     {
+        var partial = IsPartial
+            ? $"PARTIAL — the run was still in flight when this view was taken{Environment.NewLine}"
+            : "";
+
         var parts = new List<string> { $"{CleanPasses.Count} passed" };
 
         if (PassedOnRetry.Count > 0) parts.Add($"{PassedOnRetry.Count} passed on retry");
@@ -185,7 +197,7 @@ public sealed class SupervisorResults
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
 
         var summary = string.Join(", ", parts);
-        summary = $"{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
+        summary = $"{partial}{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
 
         // An indeterminate count with no explanation is not a report. Lead with the reason.
         if (Recyclings.Count > 0)
