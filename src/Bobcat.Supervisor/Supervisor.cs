@@ -56,6 +56,12 @@ public sealed class Supervisor
     private MemorySampler? _sampler;
     private int _ticking;
 
+    // The run's attempt history, shared with Snapshot() (issue #150). Recording is serial on
+    // the run's own flow; the gate exists so a snapshot from another thread — a CI job's
+    // termination handler, a dashboard — reads a consistent view rather than a torn one.
+    private Dictionary<string, List<SupervisorAttempt>>? _attempts;
+    private readonly object _recordGate = new();
+
     private int _workersLaunched;
     private long _launchTicks;
     private bool _lanesReleased;
@@ -313,11 +319,134 @@ public sealed class Supervisor
         }
     }
 
+    /// <summary>
+    /// A consistent view of the run so far, safe to call from any thread while <see cref="Run"/>
+    /// is in flight — issue #150. Every verdict already recorded comes back as-is; every planned
+    /// test without one comes back as <see cref="WorkerTestState.Indeterminate"/>, the state
+    /// that already means "the supervisor asked and never heard", with the message saying
+    /// whether the test was in flight when the snapshot was taken or never reached. The result
+    /// is stamped <see cref="SupervisorResults.IsPartial"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This exists because a cancelled <see cref="Run"/> throws and returns nothing, and a
+    /// capped CI job is exactly that case — the run whose retry counts matter most is the one
+    /// that reports nothing, and GitHub discards a cancelled job's logs, so nothing survives at
+    /// all. The consumer pattern: wire the CI termination signal to <c>Snapshot()</c> and write
+    /// the flakiness ledger from it — GitHub Actions sends SIGTERM and allows a real grace
+    /// period before the force-kill. A SIGKILL still leaves nothing; nothing can help there.
+    /// </para>
+    /// <para>
+    /// <see cref="Run"/>'s own cancellation contract is unchanged: it still throws. Catching
+    /// its own cancellation and returning partial results would change an established contract;
+    /// this is the safer surface, and independently useful for dashboards.
+    /// </para>
+    /// </remarks>
+    public SupervisorResults Snapshot()
+    {
+        // Before any run: nothing planned, nothing learned — but still honestly partial.
+        if (_ledger is not { } ledger || _attempts is not { } attempts)
+        {
+            return new SupervisorResults { Tests = [], IsPartial = true };
+        }
+
+        var live = ledger.Snapshot();
+        var inFlight = live.InFlight.ToDictionary(t => t.Uid, StringComparer.Ordinal);
+        var heard = ledger.ProvisionalVerdicts.ToDictionary(v => v.Uid, StringComparer.Ordinal);
+
+        var tests = new List<TestReport>();
+        IReadOnlyList<string> faults;
+        IReadOnlyList<string> recyclings;
+        List<(string Uid, WorkerTest Test)> unreported = [];
+
+        lock (_recordGate)
+        {
+            foreach (var (uid, history) in attempts)
+            {
+                tests.Add(new TestReport
+                {
+                    Uid = uid,
+                    DisplayName = history[^1].Outcome.DisplayName,
+                    Attempts = history.ToList()
+                });
+            }
+
+            foreach (var (uid, test) in _discoveredTests)
+            {
+                if (!attempts.ContainsKey(uid)) unreported.Add((uid, test));
+            }
+
+            faults = _workerFaults.ToList();
+            recyclings = _recyclings.ToList();
+        }
+
+        foreach (var (uid, test) in unreported)
+        {
+            // Results are recorded when a lane FINISHES, so a snapshot mid-lane would call a
+            // test the worker already decided "indeterminate" — for a single-lane run that
+            // would be nearly the whole batch, gutting the point of the snapshot. The live
+            // stream's verdict fills that gap; what it cannot supply (error detail, duration,
+            // the policy's disposition) stays absent rather than invented.
+            var state = WorkerTestState.Indeterminate;
+            string reason;
+            if (heard.TryGetValue(uid, out var verdict) && verdict.State is { } heardState)
+            {
+                state = heardState;
+                reason = "heard live from the worker; the run ended before the lane's results were recorded";
+            }
+            else if (inFlight.TryGetValue(uid, out var running))
+            {
+                reason = "the run was still executing this test when the snapshot was taken — " +
+                         $"in flight {(int)running.InFlight.TotalSeconds}s on lane {running.Worker.Lane}";
+            }
+            else
+            {
+                // Indeterminate, never "failed" — the same rule a crashed worker's silence
+                // gets: absence of evidence is not evidence of failure.
+                reason = "the run had not reached this test when the snapshot was taken";
+            }
+
+            var outcome = new WorkerOutcome(uid, test.DisplayName, state)
+            {
+                ErrorMessage = state is WorkerTestState.Passed or WorkerTestState.Skipped ? null : reason,
+                Traits = test.Traits
+            };
+
+            var placement = isIsolated(test.Traits)
+                ? AttemptPlacement.IsolatedProcess
+                : AttemptPlacement.Batched;
+
+            var disposition = outcome.Succeeded ? Disposition.Pass : Disposition.FailAndContinue(reason);
+
+            tests.Add(new TestReport
+            {
+                Uid = uid,
+                DisplayName = test.DisplayName,
+                Attempts = [new SupervisorAttempt(1, outcome, placement, disposition)]
+            });
+        }
+
+        return new SupervisorResults
+        {
+            Tests = tests.OrderBy(t => t.DisplayName, StringComparer.Ordinal).ToList(),
+            IsPartial = true,
+            WorkersLaunched = _workersLaunched,
+            WorkerFaults = faults,
+            Recyclings = recyclings,
+            StalledTests = ledger.Stalled,
+            WorkerMemory = _sampler?.Workers ?? [],
+            TestMemory = _sampler?.Tests ?? [],
+            Duration = live.Elapsed,
+            WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks))
+        };
+    }
+
     private async Task<SupervisorResults> run(SupervisorRunPublisher? monitor, CancellationToken ct)
     {
         var attempts = new Dictionary<string, List<SupervisorAttempt>>(StringComparer.Ordinal);
         string? abortReason = null;
 
+        _attempts = attempts;
         _ledger = new InFlightLedger(Time);
         _sampler = ResourceSampleInterval is null ? null : new MemorySampler(Time);
         ITimer? ticker = null;
@@ -361,11 +490,15 @@ public sealed class Supervisor
             var traits = tests.ToDictionary(t => t.Uid, t => t.Traits, StringComparer.Ordinal);
 
             // Kept so a test that never reports a result can still be named in the report — the
-            // uid is a hash on some front-ends, and a hash makes triage a guessing game.
-            foreach (var test in tests)
+            // uid is a hash on some front-ends, and a hash makes triage a guessing game. Under
+            // the gate because this is also Snapshot()'s planned-test set.
+            lock (_recordGate)
             {
-                _discoveredNames[test.Uid] = test.DisplayName;
-                _discoveredTests[test.Uid] = test;
+                foreach (var test in tests)
+                {
+                    _discoveredNames[test.Uid] = test.DisplayName;
+                    _discoveredTests[test.Uid] = test;
+                }
             }
 
             _ledger.TotalTests = tests.Count;
@@ -628,10 +761,14 @@ public sealed class Supervisor
         {
             var outcome = named(reported);
 
-            if (!attempts.TryGetValue(outcome.Uid, out var history))
+            List<SupervisorAttempt>? history;
+            lock (_recordGate)
             {
-                history = [];
-                attempts[outcome.Uid] = history;
+                if (!attempts.TryGetValue(outcome.Uid, out history))
+                {
+                    history = [];
+                    attempts[outcome.Uid] = history;
+                }
             }
 
             var attemptNumber = history.Count + 1;
@@ -660,7 +797,7 @@ public sealed class Supervisor
                 Unsupported = unsupported
             };
 
-            history.Add(recorded);
+            lock (_recordGate) history.Add(recorded);
             notify(observer => observer.AttemptRecorded(outcome.Uid, recorded));
 
             if (effective.Kind == DispositionKind.AbortRun) return effective.Reason;
@@ -770,7 +907,7 @@ public sealed class Supervisor
             try
             {
                 await resource.Recycle(ct);
-                _recyclings.Add(name);
+                lock (_recordGate) _recyclings.Add(name);
                 notify(observer => observer.ResourceRecycled(name));
             }
             catch (Exception e)
@@ -792,7 +929,7 @@ public sealed class Supervisor
     {
         if (result.Fault is null) return;
 
-        _workerFaults.Add(result.Fault);
+        lock (_recordGate) _workerFaults.Add(result.Fault);
         var fault = new WorkerFault(result.Fault, result.ExitCode, result.StandardError, lane, result.ProcessId);
         notify(observer => observer.WorkerFaulted(fault));
     }

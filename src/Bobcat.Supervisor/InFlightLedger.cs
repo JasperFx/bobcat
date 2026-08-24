@@ -51,6 +51,15 @@ public sealed record SupervisorHeartbeat(
 }
 
 /// <summary>
+/// A verdict heard on the live update stream before the lane's results were recorded — what a
+/// snapshot has for a test whose lane never returned (issue #150). The state is what the
+/// worker reported; the richer facts a recorded attempt carries (error message, duration,
+/// policy disposition) do not travel on the live stream.
+/// </summary>
+public sealed record ProvisionalVerdict(
+    string Uid, string DisplayName, WorkerTestState? State, WorkerLaunchContext Worker);
+
+/// <summary>
 /// The supervisor's live view of which tests are in flight right now — bookkeeping over the
 /// <c>testing/testUpdates/tests</c> stream it already consumes (issues #145/#148, and the
 /// attribution #149 and the snapshot #150 will read). Written from worker I/O threads, read
@@ -61,7 +70,7 @@ internal sealed class InFlightLedger
     private readonly TimeProvider _time;
     private readonly long _started;
     private readonly Dictionary<string, Entry> _inFlight = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _completed = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ProvisionalVerdict> _completed = new(StringComparer.Ordinal);
     private readonly List<StalledTest> _stalled = [];
     private readonly object _gate = new();
     private long _lastHeartbeat;
@@ -102,9 +111,11 @@ internal sealed class InFlightLedger
             else
             {
                 _inFlight.Remove(update.Uid);
-                // A set, not a counter: a retried test is still one test done, and the
-                // heartbeat's "done" figure must never exceed its total.
-                _completed.Add(update.Uid);
+                // Keyed, not counted: a retried test is still one test done (the heartbeat's
+                // "done" figure must never exceed its total), and the latest verdict heard is
+                // what a snapshot falls back on when the lane never returns (issue #150).
+                _completed[update.Uid] = new ProvisionalVerdict(
+                    update.Uid, update.DisplayName, update.State, worker);
             }
         }
     }
@@ -188,5 +199,11 @@ internal sealed class InFlightLedger
     public IReadOnlyList<StalledTest> Stalled
     {
         get { lock (_gate) return _stalled.ToList(); }
+    }
+
+    /// <summary>The latest verdict heard on the live stream for every completed test.</summary>
+    public IReadOnlyList<ProvisionalVerdict> ProvisionalVerdicts
+    {
+        get { lock (_gate) return _completed.Values.ToList(); }
     }
 }

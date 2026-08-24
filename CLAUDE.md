@@ -623,6 +623,20 @@ ones on upgrade. Same reasoning as retries being opt-in.
   worker, top-10 retainers) rendered by `RunReport`; raw figures live on
   `SupervisorResults.WorkerMemory`/`TestMemory`. Off by default, report-don't-act — same
   guardrail as `RunTiming`.
+- **`Supervisor.Snapshot()` is what a cancelled run leaves behind** (issue #150). `Run(ct)`
+  still throws on cancellation — that contract deliberately did not change — and a capped CI
+  job is exactly that case, with GitHub discarding the cancelled job's logs on top. The
+  consumer wires the CI termination signal (GitHub Actions sends SIGTERM with a real grace
+  period) to `Snapshot()` and writes its flakiness ledger from the result, which is stamped
+  `SupervisorResults.IsPartial` (`Summarize()` leads with `PARTIAL`, JSON carries `partial`).
+  Three tiers of honesty for a test without a recorded verdict: a verdict **heard on the live
+  update stream** whose lane never returned is kept (results are recorded per-lane, so a
+  single-lane snapshot would otherwise call nearly the whole batch indeterminate —
+  `InFlightLedger.ProvisionalVerdicts` fills the gap, minus the detail only a recorded attempt
+  has); a test in flight is `Indeterminate` saying so with its duration and lane; a test never
+  reached is `Indeterminate` saying that. Recording state sits behind `_recordGate` so a
+  snapshot from another thread reads a consistent view; note the long-standing classification
+  that Indeterminate tests also count in `Failed` still holds for snapshots.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
