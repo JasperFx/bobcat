@@ -104,6 +104,28 @@ public interface ISupervisorObserver
     }
 
     /// <summary>
+    /// A test has been in flight longer than its stall threshold allows (issue #145). The name
+    /// is the value: a hung batch's log currently cannot say which test wedged, and the CI cap
+    /// that eventually fires takes the answer with it.
+    /// </summary>
+    /// <remarks>
+    /// Fired once per attempt, from the supervisor's own timer thread, when the threshold is
+    /// crossed — the heartbeat's climbing longest-running figure is the continuous view.
+    /// Reporting is the whole feature: the supervisor never kills a worker over a stall.
+    /// </remarks>
+    void TestStalled(WorkerLaunchContext worker, string uid, string displayName, TimeSpan inFlight)
+    {
+    }
+
+    /// <summary>
+    /// The periodic progress view while a run is in flight (issue #148), on the interval
+    /// <c>Supervisor.HeartbeatInterval</c> asked for. Fired from the supervisor's timer thread.
+    /// </summary>
+    void Heartbeat(SupervisorHeartbeat heartbeat)
+    {
+    }
+
+    /// <summary>
     /// The same death, structured: which lane (null for a one-test isolated or recycled
     /// process), the exit code and the standard error tail as separate facts, alongside the
     /// sentence. The supervisor calls this one; by default it forwards to
