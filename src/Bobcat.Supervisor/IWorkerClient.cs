@@ -202,6 +202,17 @@ public sealed record WorkerLaunchContext(int Lane, WorkerPurpose Purpose)
     public IReadOnlyDictionary<string, string>? Environment { get; init; }
 }
 
+/// <summary>
+/// A live worker that is about to be forcibly killed (issue #147): the pid an external
+/// diagnostic must target, which launch the worker was, and why it is being killed.
+/// </summary>
+/// <param name="Lane">The lane whose worker is being killed; null when the process ran alone.</param>
+/// <param name="Purpose">
+/// What the worker was launched for; null when it was launched directly rather than through a
+/// supervisor's <see cref="WorkerLaunchContext"/>.
+/// </param>
+public sealed record WorkerKillContext(int? ProcessId, int? Lane, WorkerPurpose? Purpose, string Reason);
+
 /// <summary>Creates worker processes. One call, one fresh process.</summary>
 public interface IWorkerFactory
 {

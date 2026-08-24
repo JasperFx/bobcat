@@ -600,6 +600,17 @@ ones on upgrade. Same reasoning as retries being opt-in.
   decision, deliberately not built). Time is injectable (`Supervisor.Time`, a `TimeProvider`)
   so `StallAndHeartbeatTests` drives a fake clock and holds "hung" workers on a
   `TaskCompletionSource` instead of sleeping.
+- **`MtpWorkerFactory.OnBeforeKill` offers a live worker to the consumer before killing it**
+  (issue #147) — a seam, not a feature: Bobcat ships no dump logic and takes no dotnet-dump
+  dependency; the consumer captures what it wants (`dotnet-dump collect` + `dumpasync` is what
+  diagnosed wolverine#4100) against the `WorkerKillContext` pid, under `BeforeKillTimeout`
+  (default 30s). Fires **only for a live process about to be forcibly killed** — one that was
+  asked to exit and did not (a wedged worker, after `DisposeAsync`'s 5s grace) or one that
+  launched but never became usable; a healthy worker exits when asked and never reaches it, a
+  crashed one already has `WorkerFault`. `MtpWorkerClient.InvokeBounded` wraps the hook in
+  `Task.Run` so even a synchronously-blocking hook cannot hold the kill past the deadline —
+  this is the one callback a run genuinely waits on, which is why the ceiling is explicit.
+  The sample worker's `Basics/hangs when armed` (`BOBCAT_HANG`) is the reusable wedge.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
