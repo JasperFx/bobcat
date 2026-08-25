@@ -82,7 +82,12 @@ jobs:
 
       - name: Publish (trusted publishing — OIDC, no token)
         if: ${{ !inputs.bootstrap }}
-        run: npm publish --access public --provenance
+        # The docs want the registry configured for the OIDC exchange, but setup-node's .npmrc
+        # carries the placeholder _authToken — so write a minimal userconfig with ONLY the
+        # registry line and point npm at it.
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > "$RUNNER_TEMP/.npmrc-oidc-no-token"
+          npm publish --access public --provenance
         env:
           # setup-node's registry-url writes an .npmrc whose _authToken reads NODE_AUTH_TOKEN and
           # exports a PLACEHOLDER value (XXXXX-…) into every later step. npm then presents that
