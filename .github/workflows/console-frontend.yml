@@ -9,6 +9,9 @@ on:
       - '**'
     paths:
       - 'src/Bobcat.Console.FrontEnd/**'
+      # The SPA consumes @jasperfx/event-model-vue as a file: dependency (issue #108), so a
+      # package change must re-gate the SPA too.
+      - 'src/Bobcat.EventModel.FrontEnd/**'
       - '.github/workflows/console-frontend.yml'
 
 env:
@@ -25,6 +28,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # The @jasperfx/event-model-vue file: dependency resolves to its dist/, which is
+      # gitignored — so the package must be built before the SPA can typecheck or test.
+      - name: Build @jasperfx/event-model-vue
+        working-directory: src/Bobcat.EventModel.FrontEnd
+        run: |
+          npm ci
+          npm run build
 
       - name: Install dependencies
         run: npm ci

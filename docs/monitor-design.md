@@ -293,6 +293,53 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
    into the Pinia store (`ScenarioState.touchedTypes`/`finishedAt`); CTRF/JUnit exports are
    untouched — they project explicit shapes and CTRF's schema has no vocabulary for this.
 
+## Event Model page + /api/event-model (issue #108, built 2026-08-24)
+
+The design-time Event Modeling viewer with spec drill-down — free, MIT, in this repo by the
+2026-08-20 decision of record; CritterWatch is the production, paid surface. Both render the
+same JasperFx `EventModelDescriptor` through one shared component, which is what makes "the
+same descriptor renders identically in both viewers" true by construction rather than by
+convention:
+
+- **`@jasperfx/event-model-vue`** (`src/Bobcat.EventModel.FrontEnd/`, landed with #143) renders
+  a descriptor with a pure synchronous layout — position is a function of the descriptor alone,
+  pinned on exact coordinates by its own Vitest gate (`event-model-frontend.yml`). #108's page
+  work added the `slice-click` emit (the slice header is the drill-down handle; the slice
+  overlay itself stays pointer-inert so cards keep their clicks) and dropped the vestigial
+  `@vue-flow/core` peer dependency — nothing in the package ever imported it, and npm 7+ would
+  have installed it into every consumer.
+- **The SPA consumes the package as a `file:` dependency**, and the package's `dist/` is
+  gitignored — so both `console-frontend.yml` and the csproj `BuildFrontend` (EmbedFrontend)
+  target build the package before the SPA, and the workflow's path filter includes the package
+  so a package change re-gates the SPA.
+- **`PUT /api/event-model` / `GET /api/event-model`** is a public wire contract like
+  `GET /api/runs`: one descriptor document, latest push wins, persisted as `event-model.json`
+  beside the run archives (`EventModelStore`). The producer is whoever has the descriptor —
+  Wolverine's `event-model` export file curl'd up, or a CI step posting what a spec assembly's
+  generated `IEventModelDefinitionSource` (#106) reported. The store round-trips the document
+  through the typed descriptor, so a bad push 400s at the push (not as a blank canvas later),
+  the stored copy is normalized to the shape the renderer's TS mirror types (camelCase members,
+  PascalCase enum values — enum reads are case-insensitive so camelCase producers normalize),
+  and the computed `elements`/`edges` are always present however sparse the pushed roles were.
+  - **Consequence pinned in the csproj:** `Bobcat.Console` references `JasperFx.Events`
+    directly, because at 2.54.0 the descriptor lives there (it moves to JasperFx only in
+    2.55.0, jasperfx#693) and CPM pins only direct references — without it the transitive
+    JasperFx.Events resolves to the pre-#687 sketch, which compiles and then silently drops
+    `pattern`/`specifications`/`elements` on the round trip. The `DispositionKind` trap again.
+- **The page** (`/event-model`, `EventModelPage.vue`): renders the descriptor, colours slices
+  from run evidence — `outcomesFor` folds a selected run's scenarios onto the descriptor's spec
+  identities (verdict → passed/failed; declared-but-unreached is stated as `notRun`, never
+  omitted, because that is the drift colour), newest run by default with a picker. Clicking a
+  slice header (or any card — ownership is an element-id lookup) opens the drawer: each bound
+  spec with its verdict tag, the scenario's step results, and its touched types (#107), with
+  `undeclaredTouches` flagging evidence the model does not declare — the "spec touching
+  undeclared types" yellow.
+- Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
+  (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
+  the normalization; the page and store folds are Vitest-covered; and the flow was verified in
+  the running app — descriptor PUT, run ingested with touched types, canvas coloured, drawer
+  drilled.
+
 ## Ejecting results: CTRF primary, JUnit XML fallback
 
 Researched 2026-07-31 (GitHubActionsTestLogger, MTP-native reports, CTRF, JUnit):

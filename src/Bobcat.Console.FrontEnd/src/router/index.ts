@@ -16,6 +16,12 @@ const router = createRouter({
       component: () => import('@/views/RunView.vue'),
       props: true,
     },
+    {
+      path: '/event-model',
+      name: 'event-model',
+      // Lazy-loaded: pulls in the shared @jasperfx/event-model-vue renderer.
+      component: () => import('@/views/EventModelPage.vue'),
+    },
   ],
 })
 

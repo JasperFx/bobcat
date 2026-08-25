@@ -40,6 +40,14 @@ describe('EventModelView', () => {
     })
   })
 
+  it('emits the clicked slice so a host can open its bound scenarios (#108)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const name = wrapper.findAll('.em-slice-name').find((s) => s.text() === 'WithdrawFunds')!
+    name.trigger('click')
+    const emitted = wrapper.emitted('slice-click')![0][0]
+    expect(emitted).toMatchObject({ name: 'WithdrawFunds' })
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([

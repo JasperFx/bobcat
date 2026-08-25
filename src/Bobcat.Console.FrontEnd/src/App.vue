@@ -17,6 +17,7 @@ onMounted(() => {
       <div class="bm-brand">Bobcat Console</div>
       <el-menu router :default-active="'/'">
         <el-menu-item index="/">Dashboard</el-menu-item>
+        <el-menu-item index="/event-model">Event Model</el-menu-item>
       </el-menu>
       <div class="bm-connection" :data-status="connectionStore.status">
         {{ connectionStore.status }}

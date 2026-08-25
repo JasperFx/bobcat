@@ -157,6 +157,65 @@ public class ViewerSteps : Fixture
             Indeterminate: 0,
             DateTimeOffset.UtcNow));
 
+    // ---------------------------------------------------------------- event model (issue #108)
+
+    /// <summary>
+    /// Push a minimal descriptor over the public wire, the way a CI step pushes Wolverine's
+    /// <c>event-model</c> export or what a spec assembly's generated source reported.
+    /// </summary>
+    [When("the event model {string} is published with slice {string} bound to spec {string}")]
+    public async Task EventModelPublished(string name, string slice, string spec)
+    {
+        var json = $$"""
+            {
+              "name": "{{name}}",
+              "slices": [
+                {
+                  "name": "{{slice}}",
+                  "pattern": "Command",
+                  "commandType": { "name": "{{slice}}", "fullName": "Specs.{{slice}}", "assemblyName": "Specs" },
+                  "emittedEvents": [],
+                  "projectionTypes": [],
+                  "readModelTypes": [],
+                  "specifications": [{ "identity": "{{spec}}", "resolvedTypes": [] }]
+                }
+              ]
+            }
+            """;
+
+        var result = await host.AlbaHost.Scenario(s =>
+        {
+            s.Put.Text(json).ToUrl("/api/event-model");
+            s.IgnoreStatusCode();
+        });
+
+        _lastStatus = result.Context.Response.StatusCode;
+    }
+
+    [Then("asking for the event model responds with status {int}")]
+    public async Task<int> AskingForTheEventModel()
+    {
+        await fetchRaw("/api/event-model");
+        return _lastStatus;
+    }
+
+    [Then("the published event model is named {string}")]
+    public async Task<string> PublishedEventModelName()
+    {
+        await fetchRaw("/api/event-model");
+        return JsonDocument.Parse(_lastBody).RootElement.GetProperty("name").GetString() ?? "";
+    }
+
+    [Check("the slice {string} of the event model carries the spec identity {string}")]
+    public async Task<bool> SliceCarriesSpec(string slice, string spec)
+    {
+        await fetchRaw("/api/event-model");
+        return JsonDocument.Parse(_lastBody).RootElement.GetProperty("slices").EnumerateArray()
+            .Any(s => s.GetProperty("name").GetString() == slice
+                      && s.GetProperty("specifications").EnumerateArray()
+                          .Any(x => x.GetProperty("identity").GetString() == spec));
+    }
+
     // ---------------------------------------------------------------- actions (When)
 
     [When("the run is ejected")]
