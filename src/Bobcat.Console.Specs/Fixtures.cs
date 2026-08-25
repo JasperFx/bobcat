@@ -20,3 +20,7 @@ public class EjectionFixture : Fixture;
 [FixtureTitle("Exports")]
 [IncludeGrammars(typeof(ViewerSteps))]
 public class ExportsFixture : Fixture;
+
+[FixtureTitle("Event Model")]
+[IncludeGrammars(typeof(ViewerSteps))]
+public class EventModelFixture : Fixture;

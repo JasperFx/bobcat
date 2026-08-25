@@ -14,7 +14,12 @@
 import { computed } from 'vue'
 import { layoutEventModel, type LayoutOptions } from './layout'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
-import { LANE_LABEL, type EventModelDescriptor, type EventModelElement } from './types'
+import {
+  LANE_LABEL,
+  type EventModelDescriptor,
+  type EventModelElement,
+  type EventModelSliceDescriptor
+} from './types'
 
 const props = withDefaults(
   defineProps<{
@@ -28,7 +33,11 @@ const props = withDefaults(
   { descriptor: null, collapsedSlices: undefined, sliceOutcomes: undefined, layout: undefined }
 )
 
-const emit = defineEmits<{ 'element-click': [element: EventModelElement] }>()
+const emit = defineEmits<{
+  'element-click': [element: EventModelElement]
+  /** The slice header was clicked — the drill-down hook (issue #108). */
+  'slice-click': [slice: EventModelSliceDescriptor]
+}>()
 
 const graph = computed(() =>
   layoutEventModel(props.descriptor, {
@@ -96,7 +105,13 @@ function outcomeFor(sliceName: string): string | null {
           :data-outcome="outcomeFor(slice.name) ?? undefined"
           :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
         >
-          <span class="em-slice-name">{{ slice.name }}</span>
+          <button
+            class="em-slice-name"
+            type="button"
+            @click="emit('slice-click', slice.descriptor)"
+          >
+            {{ slice.name }}
+          </button>
         </div>
 
         <button
@@ -171,12 +186,21 @@ function outcomeFor(sliceName: string): string | null {
   border-left-color: #46a758;
   opacity: 1;
 }
+/* The overlay itself stays pointer-inert so cards keep their clicks; the name is the one
+   interactive part — the slice's drill-down handle. */
 .em-slice-name {
   position: absolute;
   top: -2px;
   left: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 11px;
   white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
 }
 .em-card {
   position: absolute;

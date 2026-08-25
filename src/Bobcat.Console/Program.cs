@@ -1,4 +1,5 @@
 using Bobcat.Console;
+using Bobcat.Console.EventModel;
 using Bobcat.Console.Hosting;
 using Bobcat.Console.Mcp;
 using Bobcat.Console.Runs;
@@ -32,6 +33,10 @@ var retentionDays = builder.Configuration.GetValue<double?>("Monitor:RetentionDa
 builder.Services.AddSingleton(new MonitorRunRegistry(
     builder.Configuration["Monitor:DataPath"],
     retentionDays is { } days ? TimeSpan.FromDays(days) : null));
+
+// The current Event Model descriptor (issue #108) — one document beside the run archives,
+// pushed over PUT /api/event-model, rendered by the SPA's Event Model page.
+builder.Services.AddSingleton(sp => new EventModelStore(sp.GetRequiredService<MonitorRunRegistry>().DataPath));
 
 // One instance wears both hats: the ingestion endpoint's queue and the hosted 100ms flush.
 builder.Services.AddSingleton<SignalRBatchAccumulator>();

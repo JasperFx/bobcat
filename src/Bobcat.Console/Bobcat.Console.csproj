@@ -46,6 +46,12 @@
     iteration on the .NET side only).
   -->
   <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Condition="'$(EmbedFrontend)' == 'true'">
+    <!-- The SPA's @jasperfx/event-model-vue file: dependency resolves to that package's
+         gitignored dist/, so the package builds first or the SPA build gets an empty module. -->
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.EventModel.FrontEnd" />
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.EventModel.FrontEnd" />
     <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
           WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Console.FrontEnd" />
     <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
@@ -74,6 +80,14 @@
       actually references. The result was a project compiling against a JasperFx nobody chose.
     -->
     <PackageReference Include="JasperFx" />
+    <!-- Direct on purpose (issue #108): EventModelStore round-trips the typed
+         EventModelDescriptor, which lives in JasperFx.Events at 2.54.0 (it moves to JasperFx
+         only in 2.55.0, jasperfx#693). CPM pins only direct references, so without this the
+         transitive JasperFx.Events from WolverineFx resolves to an older release whose
+         EventModeling namespace is the pre-#687 sketch — it compiles, then silently drops
+         pattern/specifications/elements on the round trip. The same trap CLAUDE.md records
+         for DispositionKind. -->
+    <PackageReference Include="JasperFx.Events" />
     <PackageReference Include="WolverineFx.Http" />
     <PackageReference Include="WolverineFx.SignalR" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />

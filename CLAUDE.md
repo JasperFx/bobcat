@@ -943,6 +943,21 @@ library may reference it. All decisions of record: `docs/monitor-design.md`. The
 side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
 
+The viewer's **Event Model page** (issue #108) renders a JasperFx `EventModelDescriptor`
+through `@jasperfx/event-model-vue` (`src/Bobcat.EventModel.FrontEnd/`, own gate
+`event-model-frontend.yml`, consumed by CritterWatch too — the shared component is what makes
+"renders identically in both viewers" true by construction). `PUT/GET /api/event-model` is a
+**public wire contract** like `GET /api/runs`: one document, latest wins, persisted beside the
+run archives, normalized through the typed descriptor on push (`EventModelStore`). Slices are
+coloured from #107's run evidence by spec identity; the drill-down drawer shows each bound
+spec's step results and flags touched types the model does not declare. Wiring gotchas: the SPA
+consumes the package as a `file:` dependency whose gitignored `dist/` must be built first —
+`console-frontend.yml` and the csproj `BuildFrontend` target both do, and the workflow's path
+filter includes the package; and `Bobcat.Console` references `JasperFx.Events` **directly**
+because at 2.54.0 the descriptor lives there and CPM pins only direct references (the
+`DispositionKind` trap — transitively you get the pre-#687 sketch, which compiles and silently
+drops `pattern`/`specifications`/`elements`).
+
 The SPA's TypeScript mirrors of the event contracts are **generated, never hand-edited**:
 `dotnet run --project src/Bobcat.Console -- generate` (NJsonSchema over
 `Contracts/MonitorEvents.cs`, see `TypeScriptContracts`) rewrites `src/messages/monitor-events.ts`
