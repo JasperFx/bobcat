@@ -38,7 +38,7 @@ import '@jasperfx/event-model-vue/style.css'
 `notRun`, which is the run evidence issue #107 puts on the wire. A slice no evidence names stays
 unmarked rather than defaulting to green.
 
-`vue` and `@vue-flow/core` are peer dependencies — a consumer supplies its own, because bundling a
+`vue` is the one peer dependency — a consumer supplies its own, because bundling a
 second copy of Vue gives you two reactivity systems that cannot see each other.
 
 ## Layout is pure, and that is the point
