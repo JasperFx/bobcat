@@ -148,13 +148,57 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   per-row `[Table]` calls. Never binds a column, never resolved from DI. Built for grammars whose row
   shape is not fixed at compile time (event records of several types, a command bound by column name).
 
-### Feature-level slice tags (`SliceTags`, issue #104/#106)
-A feature can declare the non-derivable bits of an Event Modeling slice: `@slice:<name>` and
-`@domain:<name>` tags on the `Feature:` line, and a `Triggered by …` description line. The parser
-carries feature tags (inherited by every scenario, standard Gherkin) and the description onto
-`FeatureDefinition.Tags`/`Description`, surfaced as `Slice`/`Domain`/`TriggeredBy`. `ResilienceTags`
-now projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a supervisor/viewer
-as a trait with no Bobcat reference. Nothing in the runtime *acts* on them — they feed #106.
+### Event Modeling slice tags and descriptors (`SliceTags`, issues #104/#106)
+
+A feature declares the non-derivable bits of an Event Modeling slice: `@slice:<name>` and
+`@domain:<name>` tags, and a `Triggered by …` description line. The parser carries feature tags
+(inherited by every scenario, standard Gherkin) and the description onto
+`FeatureDefinition.Tags`/`Description`, surfaced as `Slice`/`Domain`/`TriggeredBy`.
+`ResilienceTags` projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a
+supervisor/viewer with no Bobcat reference.
+
+**The generator turns these into a JasperFx `EventModelSliceDescriptor` (issue #106)** —
+Bobcat is the first real implementation of `IEventModelDefinitionSource` anywhere. One
+`BobcatEventModelSource.g.cs` per assembly, registered with `services.AddBobcatEventModel()`.
+
+- **A slice is a scenario-level grouping, not a feature-level one.** A feature is a document; a
+  slice is a vertical behaviour, and several specs usually describe the same one —
+  `Wallet.feature` tags `@slice:CreditWallet` three times. Because `SimpleGherkinParser` already
+  merges feature tags into every scenario's tag list, reading the tag off the *scenario* handles
+  both placements with one rule, and a slice may legitimately span several feature files. Slices
+  accumulate across the whole compilation, so two features feeding one slice yield one descriptor.
+- **Only roles are stamped, never a graph.** `EventModelSliceDescriptor.Elements`/`.Edges` are
+  *computed upstream* from the typed roles on every read. Building the element graph in the
+  generator would be a second opinion about the same slice, which is what "computed on read"
+  exists to prevent.
+- **The command is the act — the last `{command}` on a `When`, not the first one named.** Specs
+  routinely arrange by issuing earlier commands (`When OpenWallet is received` before the
+  `When CreditWallet is received` the scenario is about), so first-wins mislabelled the slice.
+  Arrange commands are not lost: they stay in the specification's `ResolvedTypes`, which is where
+  "this spec touched that type" belongs and what #107's run evidence joins on.
+- **Gated on the reference, by type probe.** Nothing is emitted unless the consuming compilation
+  has `JasperFx.Events.EventModeling.EventModelSliceDescriptor` — most Bobcat suites do no event
+  sourcing. A type probe rather than an assembly-name check because JasperFx.Events **2.53.0
+  shipped an early, incompatible sketch** of that namespace; "the assembly is referenced" and
+  "the shape emitted against exists" are different questions. Requires **2.54.0+**.
+- **Spec identity is `{Feature}/{Scenario}`** — the same string `SpecNodeMapping.Uid` produces and
+  `scenario_finished` carries, so design-time and run evidence join with no mapping table.
+- **A scenario with no steps is a pending-specification hotspot** (jasperfx#689). A scenario whose
+  steps do not *match* is not this case — that is already a compile error and the whole feature is
+  skipped first.
+- **`Pattern` is derived only where Gherkin can tell**: a slice receiving a command is `Command`,
+  one that only asserts a read model is `View`. `Automation` and `Translation` need a trigger
+  Gherkin does not express, so they stay null — a wrong pattern miscolours the canvas, a null one
+  does not.
+- **`ParameterCapture.ParameterName` exists for this.** The six type-name words all share one
+  `CSharpType` (`System.Type`), so without the word a resolved capture says "this is a type" but
+  not *which role* — and a `{command}` and an `{event}` land in different slots and different
+  lanes. Every step binding stayed correct while that distinction was being discarded.
+- **`GeneratorSliceTags` duplicates `Bobcat.Runtime.SliceTags`** because the netstandard2.0
+  generator references nothing. `SliceTagParsingAgreementTests` pins them together (the source is
+  `<Compile Link>`-ed into `Bobcat.Tests` rather than referencing the analyzer assembly). Without
+  it the runtime and the descriptor could report different slice names and nothing would say so —
+  same guard as `ResourceParsingAgreementTests`.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.

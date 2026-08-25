@@ -69,10 +69,25 @@ public static class CucumberExpressionParser
         public string CSharpType { get; }
         public int GroupIndex { get; }
 
-        public ParameterCapture(string csharpType, int groupIndex)
+        /// <summary>
+        /// The parameter-type word as written in the expression — <c>int</c>, <c>string</c>,
+        /// <c>command</c>, <c>event</c>. Null for a raw-regex group, which has no word.
+        /// </summary>
+        /// <remarks>
+        /// Kept because the six type-name words all share one <see cref="CSharpType"/>
+        /// (<c>System.Type</c>), so without the word a resolved capture says "this is a type" but
+        /// not <em>which role</em> the type plays. Issue #106's descriptor is entirely about the
+        /// roles: a <c>{command}</c> and an <c>{event}</c> land in different slots and different
+        /// swim lanes, and every step binding stayed correct while that distinction was thrown
+        /// away here.
+        /// </remarks>
+        public string? ParameterName { get; }
+
+        public ParameterCapture(string csharpType, int groupIndex, string? parameterName = null)
         {
             CSharpType = csharpType;
             GroupIndex = groupIndex;
+            ParameterName = parameterName;
         }
     }
 
@@ -118,7 +133,7 @@ public static class CucumberExpressionParser
                     throw new ArgumentException($"Unknown parameter type '{{{typeName}}}' in expression: {expression}");
 
                 regex.Append(typeInfo.Regex);
-                parameters.Add(new ParameterCapture(typeInfo.CSharpType, groupIndex));
+                parameters.Add(new ParameterCapture(typeInfo.CSharpType, groupIndex, typeName));
                 groupIndex++;
                 i = end + 1;
             }

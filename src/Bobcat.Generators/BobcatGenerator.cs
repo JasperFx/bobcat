@@ -51,6 +51,13 @@ public class BobcatGenerator : IIncrementalGenerator
             var grammars = pair.Left.Right;
             var resolver = new TypeNameResolver(pair.Right);
 
+            // Issue #106. Only emit Event Modeling descriptors where the consuming compilation can
+            // actually host them. A type probe rather than an assembly-name check: JasperFx.Events
+            // 2.53.0 shipped an early, incompatible sketch of this namespace, so "the assembly is
+            // referenced" and "the shape emitted against exists" are different questions.
+            var canEmitEventModel = pair.Right.GetTypeByMetadataName(EventModelEmitter.GateTypeName) != null;
+            var slices = new Dictionary<string, EventModelEmitter.SliceModel>();
+
             foreach (var fixture in fixtures)
             {
                 foreach (var hidden in fixture.HiddenSteps)
@@ -85,6 +92,8 @@ public class BobcatGenerator : IIncrementalGenerator
                     var source = CodeEmitter.EmitFeature(feature, fixture, matched);
                     var fileName = CodeEmitter.SanitizeIdentifier(feature.Title) + "_Feature.g.cs";
                     spc.AddSource(fileName, source);
+
+                    if (canEmitEventModel) EventModelEmitter.Collect(feature, matched, slices);
                 }
                 catch (Exception ex)
                 {
@@ -93,6 +102,17 @@ public class BobcatGenerator : IIncrementalGenerator
                         Microsoft.CodeAnalysis.Location.None,
                         feature.Title, ex.Message));
                 }
+            }
+
+            // One IEventModelDefinitionSource per assembly, after every feature has contributed.
+            // Emitted only when there is at least one slice: an empty source would register a
+            // model with no slices and show up in a host's discovery as a blank canvas.
+            if (canEmitEventModel && slices.Count > 0)
+            {
+                spc.AddSource(
+                    "BobcatEventModelSource.g.cs",
+                    EventModelEmitter.EmitSource(
+                        pair.Right.AssemblyName ?? "Bobcat", slices.Values.ToList()));
             }
         });
     }
