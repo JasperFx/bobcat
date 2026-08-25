@@ -90,13 +90,34 @@ public class ContractRoundTripTests
     [Fact]
     public void scenario_finished_round_trips()
     {
-        var wire = roundTrip(new Client.ScenarioFinished(runId, "F/s", "PassOnRetry", 2, 950, "boom"))
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.ScenarioFinished(
+                runId, "F/s", "PassOnRetry", 2, 950, "boom",
+                TouchedTypes: [new Client.TouchedType("OpenWallet", "Wallets.OpenWallet", "Wallets")],
+                At: at))
             .ShouldBeOfType<Wire.ScenarioFinished>();
 
         wire.Outcome.ShouldBe("PassOnRetry");
         wire.Attempts.ShouldBe(2);
         wire.DurationMs.ShouldBe(950);
         wire.ErrorMessage.ShouldBe("boom");
+        wire.At.ShouldBe(at);
+        var touched = wire.TouchedTypes.ShouldNotBeNull().ShouldHaveSingleItem();
+        touched.Name.ShouldBe("OpenWallet");
+        touched.FullName.ShouldBe("Wallets.OpenWallet");
+        touched.AssemblyName.ShouldBe("Wallets");
+    }
+
+    [Fact]
+    public void scenario_finished_without_evidence_still_round_trips()
+    {
+        // An old publisher's JSON has neither member — additive means additive. And null stays
+        // null: nothing recorded is absence of evidence, never an empty list pretending to be one.
+        var wire = roundTrip(new Client.ScenarioFinished(runId, "F/s", "CleanPass", 1, 10, null))
+            .ShouldBeOfType<Wire.ScenarioFinished>();
+
+        wire.TouchedTypes.ShouldBeNull();
+        wire.At.ShouldBeNull();
     }
 
     [Fact]

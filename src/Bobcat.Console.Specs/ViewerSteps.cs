@@ -120,6 +120,23 @@ public class ViewerSteps : Fixture
         return ingest(new ScenarioFinished(current, uid, outcome, attempts, 900, error));
     }
 
+    /// <summary>
+    /// A scenario_finished carrying the touched-type run evidence (issue #107), the way an
+    /// evidence-aware fixture's publisher reports it. The comma-separated names travel as
+    /// TouchedType records with a synthesized full name and assembly.
+    /// </summary>
+    [Given("the scenario {string} finished touching {string}")]
+    public Task ScenarioFinishedTouching(string uid, string typeNames)
+    {
+        _outcomes[uid] = "CleanPass";
+        var touched = typeNames.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(name => new TouchedType(name, $"Wallets.{name}", "Wallets"))
+            .ToArray();
+        return ingest(new ScenarioFinished(
+            current, uid, "CleanPass", 1, 900, null,
+            TouchedTypes: touched, At: DateTimeOffset.UtcNow));
+    }
+
     [Given("the run has finished with exit code {int}")]
     public Task RunHasFinished(int exitCode) => finishRun(exitCode);
 
@@ -232,6 +249,13 @@ public class ViewerSteps : Fixture
 
     [Then("the final attempt of {string} ran {int} steps")]
     public async Task<int> FinalAttemptSteps(string uid) => (await scenario(uid)).Steps.Length;
+
+    [Then("the touched types of {string} are {string}")]
+    public async Task<string> TouchedTypesOf(string uid)
+        => string.Join(", ", (await scenario(uid)).TouchedTypes.Select(t => t.Name));
+
+    [Check("the evidence for {string} is stamped with a finish time")]
+    public async Task<bool> EvidenceIsStamped(string uid) => (await scenario(uid)).FinishedAt != null;
 
     [Then("asking for the run responds with status {int}")]
     public async Task<int> AskingForTheRun()

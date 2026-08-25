@@ -273,6 +273,16 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   `step_progress` (coalesced to one per 100 ms per step, first and last row always) plus
   `TotalSteps`/`StepNumber`/`ScenarioElapsedMs` on the existing events. Details in
   `docs/monitor-design.md`, Bobcat-side seams item 5.
+- **Run evidence (issue #107):** `IStepContext.RecordTouchedType(Type)` (default no-op)
+  accumulates onto `ExecutionResults.TouchedTypes` — first-touch order, deduplicated — and
+  travels on `scenario_finished` as `TouchedTypes` (JasperFx `TypeDescriptor`'s three fields,
+  mirrored into both contract copies, `FullName` joining a design-time
+  `SpecificationDescriptor.ResolvedTypes` on the #106 descriptor) plus the `At` finish stamp.
+  Observed, never asserted: `Bobcat.CritterStack`'s typed steps record the aggregate arranged,
+  the command dispatched, the events the stream gained, the messages the tracked session sent,
+  the read model loaded — never what a `Then` merely names. Nothing recorded is null, not an
+  empty list. Exposed per scenario by `GET /api/runs/{id}`; CTRF/JUnit untouched. Details in
+  `docs/monitor-design.md`, Bobcat-side seams item 6.
 
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.

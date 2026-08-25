@@ -166,6 +166,12 @@ public class RunProjection
                 scenario.Attempts = Math.Max(e.Attempts, scenario.Attempt);
                 scenario.DurationMs = e.DurationMs;
                 scenario.ErrorMessage = e.ErrorMessage;
+                // Assign, never append: Apply runs on live ingest AND archive replay, and an
+                // append would double the evidence on rehydration. Null (an older publisher, or
+                // nothing recorded) leaves whatever stands — absence of evidence is not
+                // evidence to erase with.
+                if (e.TouchedTypes != null) scenario.TouchedTypes = e.TouchedTypes;
+                scenario.FinishedAt = e.At;
                 break;
             }
 
@@ -337,6 +343,17 @@ public class ScenarioProjection
     public long? DurationMs { get; set; }
     public string? ErrorMessage { get; set; }
     public List<string> RetryReasons { get; } = new();
+
+    /// <summary>
+    /// Run evidence from the terminal ScenarioFinished (issue #107): the CLR types the scenario
+    /// observably touched, in first-touch order. Empty when the publisher recorded nothing —
+    /// which is most suites; only evidence-aware fixtures (Bobcat.CritterStack's typed steps)
+    /// record anything today.
+    /// </summary>
+    public IReadOnlyList<TouchedType> TouchedTypes { get; set; } = [];
+
+    /// <summary>When the scenario finished — the stamp a consumer ages the evidence by.</summary>
+    public DateTimeOffset? FinishedAt { get; set; }
 
     /// <summary>Steps of the current (or final) attempt.</summary>
     public List<StepProjection> Steps { get; } = new();

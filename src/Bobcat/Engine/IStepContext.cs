@@ -37,5 +37,18 @@ public interface IStepContext
     /// </summary>
     void ReportProgress(StepUpdate update);
 
+    /// <summary>
+    /// Record that this scenario observably touched a CLR type — a command it dispatched, an
+    /// event it appended or saw emitted, an aggregate it arranged, a message its tracked session
+    /// sent, a read-model document it loaded (issue #107). Evidence is observed, never asserted:
+    /// call it at the point the type actually crossed the scenario's path, not where a step
+    /// merely names it. Accumulates in step order, deduplicated, onto
+    /// <see cref="ExecutionResults.TouchedTypes"/> and travels on <c>scenario_finished</c>.
+    /// Default no-op so narrow test fakes need not care.
+    /// </summary>
+    void RecordTouchedType(Type type)
+    {
+    }
+
     CancellationToken Cancellation { get; }
 }

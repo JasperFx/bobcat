@@ -62,6 +62,25 @@ public class GrammarSpecTests
             {
                 step.StepStatus.ShouldBeOneOf(ResultStatus.success, ResultStatus.ok);
             }
+
+            // The run evidence (issue #107): the typed steps record what the scenario observably
+            // touched — the aggregate arranged, the commands actually dispatched, the events the
+            // stream actually gained, the message the tracked session actually sent, the read
+            // model actually loaded — in first-touch order, deduplicated.
+            if (scenario.Title == "Crediting a wallet emits the credited event and sends a notification")
+            {
+                results.TouchedTypes.Select(t => t.Name).ShouldBe(
+                    ["Wallet", "OpenWallet", "WalletOpened", "CreditWallet", "WalletCredited",
+                     "WalletCreditedNotification", "WalletSummary"]);
+            }
+
+            // The sad path proves evidence is observed, never asserted: the rejected command is
+            // recorded (the spec touched it), but no event type is — none was emitted.
+            if (scenario.Title == "Crediting a non-positive amount fails and emits nothing")
+            {
+                results.TouchedTypes.Select(t => t.Name).ShouldBe(
+                    ["Wallet", "OpenWallet", "WalletOpened", "CreditWallet"]);
+            }
         }
     }
 

@@ -87,6 +87,14 @@ export interface ScenarioFinished extends MonitorEvent {
   attempts: number
   durationMs: number
   errorMessage: string | null
+  touchedTypes?: TouchedType[] | null
+  at?: string | null
+}
+
+export interface TouchedType {
+  name: string
+  fullName: string
+  assemblyName: string
 }
 
 /** Envelope type: 'retry_scheduled' */

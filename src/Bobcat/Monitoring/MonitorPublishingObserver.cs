@@ -165,13 +165,25 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     public void ScenarioCompleted(string featureTitle, ScenarioResult result)
     {
         var uid = $"{featureTitle}/{result.Title}";
+
+        // The final attempt's observations — the attempt whose outcome is being reported.
+        // An empty ledger travels as null: nothing recorded is absence of evidence, not
+        // evidence of nothing.
+        var touched = result.Results.TouchedTypes.Count == 0
+            ? null
+            : result.Results.TouchedTypes
+                .Select(t => new TouchedType(t.Name, t.FullName ?? t.Name, t.Assembly.GetName().Name ?? string.Empty))
+                .ToArray();
+
         _sink.Post(new ScenarioFinished(
             _info.RunId,
             uid,
             result.Outcome.ToString(),
             result.AttemptCount,
             (long)(result.Results.EndTime - result.Results.StartTime).TotalMilliseconds,
-            result.Results.AllExceptions().FirstOrDefault()?.Message));
+            result.Results.AllExceptions().FirstOrDefault()?.Message,
+            TouchedTypes: touched,
+            At: DateTimeOffset.UtcNow));
     }
 
     public void FeatureStarted(string featureTitle) { }

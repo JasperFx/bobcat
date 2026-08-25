@@ -72,6 +72,11 @@ public class TypeScriptContractTests
         // RunStarted.Tag was added after the first publishers shipped; their JSON has no member
         // at all, and the mirror says so rather than promising a null.
         TypeScriptContracts.GenerateMonitorEvents().ShouldContain("  tag?: string | null");
+
+        // Same rule for the run evidence (issue #107) — and the nested TouchedType record is
+        // mirrored as its own interface, reached through ScenarioFinished.
+        TypeScriptContracts.GenerateMonitorEvents().ShouldContain("  touchedTypes?: TouchedType[] | null");
+        TypeScriptContracts.GenerateMonitorEvents().ShouldContain("export interface TouchedType {");
     }
 
     [Fact]

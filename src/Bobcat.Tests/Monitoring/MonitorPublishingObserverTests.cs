@@ -162,6 +162,51 @@ public class MonitorPublishingObserverTests
     }
 
     [Fact]
+    public async Task scenario_finished_carries_the_touched_type_evidence()
+    {
+        // A step records what it observably touched through IStepContext (issue #107); the
+        // terminal event carries it in first-touch order, deduplicated, with the finish stamp.
+        var evidence = new ScenarioDefinition("with evidence", [], (_, plan) =>
+        {
+            plan.Add(new DelegateExecutionStep("step-1", StepKind.When, "touches types",
+                (context, _, _) =>
+                {
+                    context.RecordTouchedType(typeof(RetryBudget));
+                    context.RecordTouchedType(typeof(SuiteResults));
+                    context.RecordTouchedType(typeof(RetryBudget)); // duplicate — ignored
+                    return Task.CompletedTask;
+                }));
+        });
+
+        var silent = new ScenarioDefinition("without evidence", [], (_, plan) =>
+        {
+            plan.Add(new DelegateExecutionStep("step-1", StepKind.Given, "records nothing",
+                (_, _, _) => Task.CompletedTask));
+        });
+
+        var sink = new RecordingSink();
+        var runner = new BobcatRunner { SuppressConsoleOutput = true };
+        runner.AddFeature(new FeatureDefinition("Evidence", typeof(MonitoredFixture), [evidence, silent]));
+        runner.AddObserver(new MonitorPublishingObserver(sink, info));
+
+        (await runner.RunAll()).ExitCode.ShouldBe(0);
+
+        var touched = sink.Events.OfType<ScenarioFinished>()
+            .Single(e => e.Uid == "Evidence/with evidence");
+        touched.At.ShouldNotBeNull();
+        touched.TouchedTypes.ShouldNotBeNull().Select(t => t.Name)
+            .ShouldBe([nameof(RetryBudget), nameof(SuiteResults)]);
+        var first = touched.TouchedTypes![0];
+        first.FullName.ShouldBe(typeof(RetryBudget).FullName);
+        first.AssemblyName.ShouldBe(typeof(RetryBudget).Assembly.GetName().Name);
+
+        // Nothing recorded travels as null — absence of evidence, not evidence of nothing.
+        sink.Events.OfType<ScenarioFinished>()
+            .Single(e => e.Uid == "Evidence/without evidence")
+            .TouchedTypes.ShouldBeNull();
+    }
+
+    [Fact]
     public void discover_reads_the_grouping_pair_from_the_environment()
     {
         var runId = Guid.NewGuid();
