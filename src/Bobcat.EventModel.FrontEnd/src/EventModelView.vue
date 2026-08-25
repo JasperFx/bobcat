@@ -25,6 +25,7 @@ const props = withDefaults(
   defineProps<{
     descriptor: EventModelDescriptor | null
     /** Slice names to collapse to a placeholder column. */
+    /** Keyed by slice NAME (`EventModelSliceDescriptor.name`), not by any synthetic id. */
     collapsedSlices?: ReadonlySet<string>
     /** Outcome per spec identity, from run evidence (issue #107). Colours the slice header. */
     sliceOutcomes?: Record<string, 'passed' | 'failed' | 'notRun'>
@@ -184,6 +185,12 @@ function outcomeFor(sliceName: string): string | null {
 }
 .em-slice[data-outcome='passed'] {
   border-left-color: #46a758;
+  opacity: 1;
+}
+/* notRun IS the drift colour — a bound spec that has not run is a claim without evidence, and it
+   should read that way on the canvas itself in every viewer, not only in a host's own chrome. */
+.em-slice[data-outcome='notRun'] {
+  border-left-color: #e8930c;
   opacity: 1;
 }
 /* The overlay itself stays pointer-inert so cards keep their clicks; the name is the one

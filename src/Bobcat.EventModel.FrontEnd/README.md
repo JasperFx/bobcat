@@ -21,6 +21,14 @@ type** rather than on a copied file, which is what actually guarantees identical
 
 ## Usage
 
+```bash
+npm install @jasperfx/event-model-vue
+```
+
+Published with provenance from `.github/workflows/publish-event-model-vue.yml` (npm Trusted
+Publishing). Inside this repo the console consumes it as a `file:` link instead — same code, no
+registry round-trip.
+
 ```ts
 import { EventModelView } from '@jasperfx/event-model-vue'
 import '@jasperfx/event-model-vue/style.css'

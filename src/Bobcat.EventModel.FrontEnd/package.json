@@ -1,6 +1,6 @@
 {
   "name": "@jasperfx/event-model-vue",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Vue renderer for a JasperFx.Events EventModelDescriptor. Shared by the Bobcat console and CritterWatch so one descriptor draws the same way in both.",
   "license": "MIT",
   "type": "module",

@@ -49,6 +49,7 @@ export type ExternalSystemDirection = 'Inbound' | 'Outbound'
 /** A CLR type identity. Only the members this package renders or keys on. */
 export interface TypeDescriptor {
   name: string
+  /** Optional on the wire — synthesize from `name` rather than assuming it. */
   fullName?: string
   assemblyName?: string
 }
@@ -64,6 +65,7 @@ export interface EventModelElement {
 
 /** A directed relationship between two elements of a slice, by element id. */
 export interface EventModelEdge {
+  // Edge endpoints are fromId/toId (element ids) — deliberately NOT source/target.
   fromId: string
   toId: string
 }
