@@ -83,3 +83,11 @@ jobs:
       - name: Publish (trusted publishing — OIDC, no token)
         if: ${{ !inputs.bootstrap }}
         run: npm publish --access public --provenance
+        env:
+          # setup-node's registry-url writes an .npmrc whose _authToken reads NODE_AUTH_TOKEN and
+          # exports a PLACEHOLDER value (XXXXX-…) into every later step. npm then presents that
+          # placeholder as a real token and never attempts the OIDC exchange — the registry answers
+          # E404 (proven on run 2026-08-25). Pointing the userconfig at a file that does not exist
+          # removes the _authToken line entirely, which is what lets npm >= 11.5.1 fall through to
+          # trusted publishing.
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/.npmrc-oidc-no-token
