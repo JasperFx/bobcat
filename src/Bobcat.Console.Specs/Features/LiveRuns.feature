@@ -27,6 +27,13 @@ Feature: Live Runs
     And the run's summary reports 1 passed, 1 failed and 0 passed on retry
     And the run's exit code is 1
 
+  Scenario: A scenario's run evidence is readable per scenario
+    Given a run "Wallets" has started with 1 scenarios
+    And the scenario "Credit Wallet/happy path" has started
+    And the scenario "Credit Wallet/happy path" finished touching "CreditWallet, WalletCredited, WalletSummary"
+    Then the touched types of "Credit Wallet/happy path" are "CreditWallet, WalletCredited, WalletSummary"
+    And the evidence for "Credit Wallet/happy path" is stamped with a finish time
+
   Scenario: Runs are found by their correlation tag
     Given a run "Orders" tagged "build-42" has started
     And a run "Payments" tagged "build-43" has started

@@ -272,6 +272,26 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
    - Viewer: `ScenarioProgress.vue` on the run detail — step n/N bar, current step text, row
      k/M bar, waiting-for message with elapsed. Store fields `ScenarioState.totalSteps`,
      `StepState.stepNumber/scenarioElapsedMs/progress`.
+6. **Run evidence: touched types on `scenario_finished`** (built 2026-08-24, issue #107).
+   Slice↔spec binding is by identity plus run evidence, never hand-typed — the runtime half of
+   the #106 descriptor pairing. `ScenarioFinished` gained two optional trailing members:
+   `TouchedTypes` (a list of `TouchedType(Name, FullName, AssemblyName)` — deliberately
+   JasperFx `TypeDescriptor`'s three fields, mirrored not referenced, because the contract
+   files stay dependency-free copies; `FullName` is the join key against a design-time
+   `SpecificationDescriptor.ResolvedTypes`, `Uid` the identity both sides key on) and `At`
+   (the finish stamp a consumer ages evidence by). Evidence is **observed, never asserted**:
+   `IStepContext.RecordTouchedType(Type)` (default no-op) accumulates onto
+   `ExecutionResults.TouchedTypes` in first-touch order, deduplicated, and
+   `Bobcat.CritterStack`'s typed steps record at the point a type actually crossed the
+   scenario — the aggregate arranged, the command dispatched (a validation rejection still
+   received it), the events the stream actually gained, the messages the tracked session
+   actually sent, the read model actually loaded — never what a `Then` merely names, so a sad
+   path records its rejected command and no event type. Nothing recorded travels as **null,
+   not an empty list** (absence of evidence, not evidence of nothing), and the folds assign
+   rather than append so hydration replay cannot double the ledger. Read back per scenario by
+   `GET /api/runs/{id}` (`ScenarioResult.TouchedTypes`/`FinishedAt`, additive) and folded
+   into the Pinia store (`ScenarioState.touchedTypes`/`finishedAt`); CTRF/JUnit exports are
+   untouched — they project explicit shapes and CTRF's schema has no vocabulary for this.
 
 ## Ejecting results: CTRF primary, JUnit XML fallback
 

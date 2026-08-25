@@ -131,7 +131,20 @@ public record ScenarioResult(
     long? DurationMs,
     string? ErrorMessage,
     string[] RetryReasons,
-    StepResult[] Steps);
+    StepResult[] Steps)
+{
+    /// <summary>
+    /// The run evidence (issue #107): CLR types the scenario observably touched — commands
+    /// dispatched, events emitted, aggregates arranged, messages sent, read models loaded — in
+    /// first-touch order. <c>FullName</c> joins against a design-time
+    /// <c>SpecificationDescriptor.ResolvedTypes</c>; <c>Uid</c> is the identity both sides key
+    /// on. Empty when the publisher recorded nothing. Additive.
+    /// </summary>
+    public Contracts.TouchedType[] TouchedTypes { get; init; } = [];
+
+    /// <summary>When the scenario finished — evidence is observed, and this is its stamp. Additive.</summary>
+    public DateTimeOffset? FinishedAt { get; init; }
+}
 
 public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage);
 
@@ -168,7 +181,11 @@ public static class RunEndpoints
                     s.Steps
                         .Select(step => new StepResult(
                             step.StepId, step.Kind, step.Text, step.Status, step.DurationMs, step.ErrorMessage))
-                        .ToArray()))
+                        .ToArray())
+                {
+                    TouchedTypes = s.TouchedTypes.ToArray(),
+                    FinishedAt = s.FinishedAt
+                })
                 .ToArray())
         {
             Lanes = run.Lanes

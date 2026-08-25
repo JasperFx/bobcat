@@ -9,8 +9,23 @@ public class ExecutionResults
         
         
     private readonly List<StepResult> _stepResults = new List<StepResult>();
+    private readonly List<Type> _touchedTypes = new();
 
     public Counts Counts { get; } = new Counts();
+
+    /// <summary>
+    /// CLR types this execution observably touched — commands dispatched, events appended or
+    /// emitted, aggregates arranged, messages sent, read models loaded — in first-touch order,
+    /// deduplicated (issue #107). Recorded through <see cref="IStepContext.RecordTouchedType"/>
+    /// by the code that saw the type cross the scenario's path; empty when nothing recorded.
+    /// </summary>
+    public IReadOnlyList<Type> TouchedTypes => _touchedTypes;
+
+    /// <summary>Record an observed type; keeps first-touch order and ignores duplicates.</summary>
+    public void Touch(Type type)
+    {
+        if (!_touchedTypes.Contains(type)) _touchedTypes.Add(type);
+    }
 
     public IEnumerable<Exception> AllExceptions()
     {

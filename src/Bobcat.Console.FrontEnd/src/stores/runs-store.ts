@@ -15,6 +15,7 @@ import type {
   StepProgress,
   StepStarted,
   TestStalled,
+  TouchedType,
   WorkerFaulted,
   WorkerStarted,
 } from '@/messages/monitor-events'
@@ -76,6 +77,15 @@ export interface ScenarioState {
    * first step_started that names it). Null until a publisher says — older publishers never do.
    */
   totalSteps: number | null
+  /**
+   * Run evidence (issue #107): CLR types the scenario observably touched, from the terminal
+   * scenario_finished — first-touch order, deduplicated by the publisher. Empty when the
+   * publisher recorded nothing; fullName joins against a design-time
+   * SpecificationDescriptor's resolved types.
+   */
+  touchedTypes: TouchedType[]
+  /** When the scenario finished — the stamp evidence is aged by. Null while running. */
+  finishedAt: string | null
 }
 
 // The supervisor's topology (issue #84): which worker process is doing what, what
@@ -264,6 +274,8 @@ export const useRunsStore = defineStore('runs', () => {
         retryReason: null,
         steps: [],
         totalSteps: null,
+        touchedTypes: [],
+        finishedAt: null,
       }
       run.scenarios[uid] = scenario
     }
@@ -326,6 +338,10 @@ export const useRunsStore = defineStore('runs', () => {
     scenario.outcome = e.outcome
     scenario.durationMs = e.durationMs
     scenario.errorMessage = e.errorMessage
+    // Assign, never append — mirrors the C# fold: hydration replays the same event, and a
+    // null (older publisher, nothing recorded) leaves whatever stands.
+    if (e.touchedTypes) scenario.touchedTypes = e.touchedTypes
+    scenario.finishedAt = e.at ?? null
     scenario.status =
       e.outcome === 'CleanPass'
         ? 'passed'

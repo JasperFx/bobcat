@@ -88,14 +88,32 @@ public record ScenarioStarted(
     DateTimeOffset At,
     int? TotalSteps = null) : MonitorEvent(RunId);
 
-/// <summary>Outcome mirrors RunOutcome: CleanPass / PassOnRetry / Failed / Aborted.</summary>
+/// <summary>
+/// Outcome mirrors RunOutcome: CleanPass / PassOnRetry / Failed / Aborted. Uid is the spec
+/// identity {Feature}/{Scenario} — the Identity a design-time SpecificationDescriptor carries
+/// (issue #106), so run evidence joins the Event Model without a mapping table. TouchedTypes is
+/// the run evidence itself (issue #107): CLR types the scenario observably touched, in
+/// first-touch order, deduplicated — observed, never asserted; null from an older publisher or
+/// a scenario that recorded nothing. At stamps when the scenario finished, so a consumer can
+/// age the evidence; both are optional and additive.
+/// </summary>
 public record ScenarioFinished(
     Guid RunId,
     string Uid,
     string Outcome,
     int Attempts,
     long DurationMs,
-    string? ErrorMessage) : MonitorEvent(RunId);
+    string? ErrorMessage,
+    IReadOnlyList<TouchedType>? TouchedTypes = null,
+    DateTimeOffset? At = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// A CLR type a scenario touched, on the wire (issue #107). Deliberately the same three fields
+/// as JasperFx's <c>TypeDescriptor</c> — <c>FullName</c> is the join key against the resolved
+/// types a design-time <c>SpecificationDescriptor</c> carries — but mirrored here rather than
+/// referenced, because this file is a dependency-free copy of the wire contract.
+/// </summary>
+public record TouchedType(string Name, string FullName, string AssemblyName);
 
 /// <summary>Disposition mirrors DispositionKind; Reason is the human-readable policy reason.</summary>
 public record RetryScheduled(

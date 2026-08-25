@@ -60,6 +60,11 @@ public class SpecExecutionContext : IExecutionContext
         ProgressSink?.Invoke(update);
     }
 
+    public void RecordTouchedType(Type type)
+    {
+        Results.Touch(type);
+    }
+
     public void MarkCancelled(string reason)
     {
     }

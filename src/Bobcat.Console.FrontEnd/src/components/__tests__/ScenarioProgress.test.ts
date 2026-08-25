@@ -36,6 +36,8 @@ function scenario(overrides: Partial<ScenarioState> = {}): ScenarioState {
     retryReason: null,
     steps: [],
     totalSteps: null,
+    touchedTypes: [],
+    finishedAt: null,
     ...overrides,
   }
 }

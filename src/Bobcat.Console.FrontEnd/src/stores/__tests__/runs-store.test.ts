@@ -70,6 +70,42 @@ describe('runs-store', () => {
     expect(scenario.steps).toHaveLength(1)
     expect(scenario.steps[0]!.status).toBe('passed')
     expect(scenario.steps[0]!.durationMs).toBe(12)
+    // An evidence-blind publisher (no touchedTypes, no at) leaves the defaults standing.
+    expect(scenario.touchedTypes).toEqual([])
+    expect(scenario.finishedAt).toBeNull()
+  })
+
+  it('scenario_finished folds the touched-type evidence and its stamp', () => {
+    const store = useRunsStore()
+    const uid = 'Credit Wallet/happy path'
+    store.handleScenarioStarted({
+      runId: RUN,
+      uid,
+      feature: 'Credit Wallet',
+      scenario: 'happy path',
+      attempt: 1,
+      at: '2026-08-24T10:00:01Z',
+    })
+    store.handleScenarioFinished({
+      runId: RUN,
+      uid,
+      outcome: 'CleanPass',
+      attempts: 1,
+      durationMs: 120,
+      errorMessage: null,
+      touchedTypes: [
+        { name: 'CreditWallet', fullName: 'Wallets.CreditWallet', assemblyName: 'Wallets' },
+        { name: 'WalletCredited', fullName: 'Wallets.WalletCredited', assemblyName: 'Wallets' },
+      ],
+      at: '2026-08-24T10:00:03Z',
+    })
+
+    const scenario = store.runById(RUN)!.scenarios[uid]!
+    expect(scenario.touchedTypes.map((t) => t.fullName)).toEqual([
+      'Wallets.CreditWallet',
+      'Wallets.WalletCredited',
+    ])
+    expect(scenario.finishedAt).toBe('2026-08-24T10:00:03Z')
   })
 
   it('a retry clears the step list for the fresh attempt and lands on passed-on-retry', () => {

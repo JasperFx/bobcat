@@ -31,7 +31,9 @@ public class RunArchiveTests : IDisposable
             new ScenarioStarted(runId, "Calc/adds", "Calc", "adds", 1, t0),
             new StepStarted(runId, "Calc/adds", "s1", "Given", "a calculator"),
             new StepFinished(runId, "Calc/adds", "s1", "success", 5, null),
-            new ScenarioFinished(runId, "Calc/adds", "CleanPass", 1, 20, null),
+            new ScenarioFinished(runId, "Calc/adds", "CleanPass", 1, 20, null,
+                TouchedTypes: [new TouchedType("AddNumbers", "Calc.AddNumbers", "Calc")],
+                At: t0.AddSeconds(1)),
 
             new ScenarioStarted(runId, "Orders/broker", "Orders", "broker", 1, t0),
             new StepStarted(runId, "Orders/broker", "s1", "When", "the broker is asked"),
@@ -88,6 +90,13 @@ public class RunArchiveTests : IDisposable
 
         run.Scenarios.Single(s => s.Uid == "Calc/adds").PriorAttempts.ShouldBeEmpty();
         run.Scenarios.Single(s => s.Uid == "Calc/lost").Outcome.ShouldBeNull();
+
+        // Run evidence (issue #107) folds onto the scenario; a publisher that sends none
+        // leaves the ledger empty rather than erasing anything.
+        var evidenced = run.Scenarios.Single(s => s.Uid == "Calc/adds");
+        evidenced.TouchedTypes.ShouldHaveSingleItem().FullName.ShouldBe("Calc.AddNumbers");
+        evidenced.FinishedAt.ShouldNotBeNull();
+        run.Scenarios.Single(s => s.Uid == "Calc/bad").TouchedTypes.ShouldBeEmpty();
     }
 
     [Fact]
@@ -149,6 +158,11 @@ public class RunArchiveTests : IDisposable
         run.Orphaned.ShouldBeFalse();
         run.Scenarios.Count.ShouldBe(4);
         run.Scenarios.Single(s => s.Uid == "Orders/broker").Outcome.ShouldBe("PassOnRetry");
+
+        // Touched-type evidence survives the archive round trip — and the replay does not
+        // double it, because the fold assigns rather than appends.
+        run.Scenarios.Single(s => s.Uid == "Calc/adds")
+            .TouchedTypes.ShouldHaveSingleItem().FullName.ShouldBe("Calc.AddNumbers");
     }
 
     [Fact]

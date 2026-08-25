@@ -85,8 +85,12 @@ public abstract class CritterStackFixture : Fixture
     {
         StreamId = id;
         AggregateType = typeof(T);
+        Ctx.RecordTouchedType(typeof(T));
         if (events.Length > 0)
+        {
             await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), typeof(T), id, events, Ctx.Cancellation);
+            recordTouched(events);
+        }
     }
 
     /// <summary>The stream <paramref name="id"/> (an <typeparamref name="T"/> aggregate) has no events yet.</summary>
@@ -163,6 +167,7 @@ public abstract class CritterStackFixture : Fixture
             throw new SpecAssertionException(
                 $"Expected a {typeof(T).Name} read-model document with id '{id}', but none exists.");
 
+        Ctx.RecordTouchedType(typeof(T));
         assert(document);
     }
 
@@ -189,10 +194,11 @@ public abstract class CritterStackFixture : Fixture
     {
         StreamId = Guid.Parse(id);
         AggregateType = aggregate;
+        Ctx.RecordTouchedType(aggregate);
     }
 
     [Given("events for {aggregate}")]
-    public Task GivenEventsFor(Type aggregate, StepTable events)
+    public async Task GivenEventsFor(Type aggregate, StepTable events)
     {
         AggregateType = aggregate;
         if (StreamId == Guid.Empty)
@@ -201,7 +207,9 @@ public abstract class CritterStackFixture : Fixture
                 "(or a step that sets the id).");
 
         var built = buildEvents(aggregate, events);
-        return EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, StreamId, built, Ctx.Cancellation);
+        await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, StreamId, built, Ctx.Cancellation);
+        Ctx.RecordTouchedType(aggregate);
+        recordTouched(built);
     }
 
     [When("{command} is received")]
@@ -257,6 +265,8 @@ public abstract class CritterStackFixture : Fixture
             throw new SpecAssertionException(
                 $"Expected a {readmodel.Name} read model with id '{StreamId}', but none exists.");
 
+        Ctx.RecordTouchedType(readmodel);
+
         // One expected row of column = value; compare against the document's properties.
         var row = expected.AsDictionaries().FirstOrDefault()
                   ?? throw new SpecCriticalException($"'Then the {readmodel.Name} read model contains' needs at least one table row.");
@@ -299,6 +309,11 @@ public abstract class CritterStackFixture : Fixture
     private async Task executeCommandCore(object command)
     {
         var before = await Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
+
+        // The command was dispatched either way — a validation rejection still received it,
+        // and "this spec touched that command" is exactly what a sad-path scenario proves.
+        Ctx.RecordTouchedType(command.GetType());
+
         try
         {
             var session = await Ctx.InvokeMessageAndWaitAsync(command, HostResource);
@@ -306,12 +321,25 @@ public abstract class CritterStackFixture : Fixture
             LastEvents = after.Skip(before.Count).ToList();
             LastSession = session;
             LastError = null;
+
+            // Observed run evidence (issue #107): the events the command actually appended and
+            // the messages the tracked session actually sent — never what a Then merely names.
+            recordTouched(LastEvents.Select(e => e.Data));
+            recordTouched(session.Sent.AllMessages());
         }
         catch (Exception e)
         {
             LastError = e;
             LastEvents = [];
             LastSession = null;
+        }
+    }
+
+    private void recordTouched(IEnumerable<object> items)
+    {
+        foreach (var item in items)
+        {
+            if (item != null) Ctx.RecordTouchedType(item.GetType());
         }
     }
 
