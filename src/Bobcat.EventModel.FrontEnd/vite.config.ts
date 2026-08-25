@@ -16,9 +16,10 @@ export default defineConfig({
       fileName: 'event-model-vue',
       formats: ['es']
     },
-    // Peers stay external: a consumer supplies its own Vue and Vue Flow, and bundling a
-    // second copy of Vue is how you get two reactivity systems that cannot see each other.
-    rollupOptions: { external: ['vue', '@vue-flow/core'] }
+    // The peer stays external: a consumer supplies its own Vue, and bundling a second copy
+    // of Vue is how you get two reactivity systems that cannot see each other. (@vue-flow/core
+    // left the peer list in 5679e2d — nothing here imports it any more.)
+    rollupOptions: { external: ['vue'] }
   },
   test: {
     environment: 'happy-dom',
