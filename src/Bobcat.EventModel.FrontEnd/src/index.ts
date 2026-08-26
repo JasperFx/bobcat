@@ -8,13 +8,16 @@ export type {
   LayoutOptions
 } from './layout'
 export { EVENT_MODEL_PALETTE, colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
-export { LANE_ORDER, LANE_LABEL } from './types'
+export { LANE_ORDER, LANE_LABEL, PROVENANCE_ORDER, PROVENANCE_LABEL } from './types'
 export type {
+  EventModelClaim,
   EventModelDescriptor,
   EventModelEdge,
   EventModelElement,
   EventModelElementKind,
   EventModelLane,
+  EventModelProvenance,
+  EventModelRole,
   EventModelSliceDescriptor,
   ExternalSystemDescriptor,
   ExternalSystemDirection,

@@ -52,3 +52,55 @@ export function withdrawFundsModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * jasperfx#703 / #704 — a slice as it comes out of a FOUR-SOURCE merge: a Gherkin spec and the C#
+ * overlay declared it, Wolverine's chains derived it, and CritterWatch observed it in production.
+ *
+ * The interesting bit is the disagreement. The code says this slice emits `FundsWithdrawn`;
+ * production says it appends `FundsWithdrawn` **and** `AuditRecorded`. Observed is the higher rung
+ * so it wins outright — a higher rung REPLACES a list rather than unioning with it — and the
+ * dropped claim survives as a `SourceDisagreement` hotspot instead of vanishing.
+ *
+ * Element shapes match what `EventModelSliceDescriptor.buildGraph` emits: every element carries the
+ * effective rung for its role, and each hotspot is projected into a `Hotspot` element whose LABEL
+ * is the hotspot's text — which is the only join a viewer has back to the origin.
+ */
+export function fourSourceModel(): EventModelDescriptor {
+  const disagreement =
+    'EmittedEvents: Observed claims FundsWithdrawn, AuditRecorded; Derived claims FundsWithdrawn'
+
+  return {
+    name: 'Banking',
+    slices: [
+      {
+        name: 'WithdrawFunds',
+        domain: 'Accounts',
+        pattern: 'Command',
+        elements: [
+          // Declared — nothing else claims a trigger label.
+          { id: 'WithdrawFunds/Trigger/Teller screen', kind: 'Trigger', lane: 'Wireframe', label: 'Teller screen', provenance: 'Declared' },
+          { id: 'WithdrawFunds/Hotspot/pending', kind: 'Hotspot', lane: 'Wireframe', label: 'overdraft not specified', provenance: 'Declared' },
+          { id: `WithdrawFunds/Hotspot/${disagreement}`, kind: 'Hotspot', lane: 'Wireframe', label: disagreement, provenance: 'Declared' },
+          // Derived — read out of the Wolverine chain.
+          { id: 'WithdrawFunds/Command/Bank.WithdrawFunds', kind: 'Command', lane: 'Command', label: 'WithdrawFunds', type: { name: 'WithdrawFunds', fullName: 'Bank.WithdrawFunds' }, provenance: 'Derived' },
+          { id: 'WithdrawFunds/Handler/Bank.AccountHandler', kind: 'Handler', lane: 'Command', label: 'AccountHandler', type: { name: 'AccountHandler', fullName: 'Bank.AccountHandler' }, provenance: 'Derived' },
+          // Observed — production appended both, and that is the claim that won.
+          { id: 'WithdrawFunds/Event/Bank.FundsWithdrawn', kind: 'Event', lane: 'EventStream', label: 'FundsWithdrawn', type: { name: 'FundsWithdrawn', fullName: 'Bank.FundsWithdrawn' }, provenance: 'Observed' },
+          { id: 'WithdrawFunds/Event/Bank.AuditRecorded', kind: 'Event', lane: 'EventStream', label: 'AuditRecorded', type: { name: 'AuditRecorded', fullName: 'Bank.AuditRecorded' }, provenance: 'Observed' }
+        ],
+        edges: [],
+        hotspots: [
+          { origin: 'PendingSpecification', text: 'overdraft not specified', specificationIdentity: 'Account Balance/overdraft' },
+          {
+            origin: 'SourceDisagreement',
+            text: disagreement,
+            role: 'EmittedEvents',
+            winningClaim: { provenance: 'Observed', value: 'FundsWithdrawn, AuditRecorded' },
+            losingClaim: { provenance: 'Derived', value: 'FundsWithdrawn' }
+          }
+        ]
+      }
+    ]
+  }
+}

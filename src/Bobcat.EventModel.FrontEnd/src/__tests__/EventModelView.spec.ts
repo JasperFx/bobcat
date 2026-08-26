@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import EventModelView from '../EventModelView.vue'
-import { withdrawFundsModel } from './fixtures'
+import { fourSourceModel, withdrawFundsModel } from './fixtures'
 
 describe('EventModelView', () => {
   it('renders one card per element with its canonical colour', () => {
@@ -77,5 +77,72 @@ describe('EventModelView', () => {
     })
     expect(wrapper.findAll('.em-card')).toHaveLength(3)
     expect(wrapper.find('[data-slice="WithdrawFunds"]').exists()).toBe(true)
+  })
+})
+
+/**
+ * jasperfx#703 / #704 — the canvas draws WHERE a claim came from, and draws a dropped claim as a
+ * finding rather than as another magenta sticky.
+ */
+describe('EventModelView — provenance and source disagreement', () => {
+  function cards() {
+    return mount(EventModelView, { props: { descriptor: fourSourceModel() } }).findAll('.em-card')
+  }
+
+  it('stamps the ladder rung on every card that carries one', () => {
+    const byLabel = new Map(cards().map((c) => [c.text(), c.attributes('data-provenance')]))
+
+    expect(byLabel.get('Teller screen')).toBe('Declared')
+    expect(byLabel.get('WithdrawFunds')).toBe('Derived')
+    expect(byLabel.get('FundsWithdrawn')).toBe('Observed')
+    expect(byLabel.get('AuditRecorded')).toBe('Observed')
+  })
+
+  it('leaves the fill colour alone — it means the KIND, in every viewer', () => {
+    // The second visual channel must not touch the first: two viewers agreeing on what a colour
+    // means is the whole reason this package exists, so an Observed event is still event-orange.
+    const observed = cards().find((c) => c.text() === 'FundsWithdrawn')!
+    expect(observed.attributes('style')).toContain('background: #F5A623')
+  })
+
+  it('omits the attribute entirely on a descriptor from a pre-2.56 producer', () => {
+    // Absent, not 'Declared' — the viewer must not invent a rung nobody claimed.
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    expect(
+      wrapper.findAll('.em-card').every((c) => c.attributes('data-provenance') === undefined)
+    ).toBe(true)
+  })
+
+  it('marks a source disagreement apart from a pending-specification hotspot', () => {
+    const all = cards()
+    const pending = all.find((c) => c.text() === 'overdraft not specified')!
+    const conflict = all.find((c) => c.text().startsWith('EmittedEvents:'))!
+
+    expect(pending.attributes('data-hotspot-origin')).toBe('PendingSpecification')
+    expect(conflict.attributes('data-hotspot-origin')).toBe('SourceDisagreement')
+  })
+
+  it('puts both claims on the tooltip, so the reader can decide which source to fix', () => {
+    const conflict = cards().find((c) => c.text().startsWith('EmittedEvents:'))!
+    const title = conflict.attributes('title')!
+
+    expect(title).toContain('Kept: Observed claims FundsWithdrawn, AuditRecorded')
+    expect(title).toContain('Dropped: Derived claims FundsWithdrawn')
+  })
+
+  it('explains the rung on the tooltip of an ordinary card', () => {
+    const observed = cards().find((c) => c.text() === 'AuditRecorded')!
+    const title = observed.attributes('title')!
+
+    expect(title).toContain('Bank.AuditRecorded')
+    expect(title).toContain('seen happening in a running system')
+  })
+
+  it('does not mark a non-hotspot card with a hotspot origin', () => {
+    expect(
+      cards()
+        .filter((c) => c.attributes('data-kind') !== 'Hotspot')
+        .every((c) => c.attributes('data-hotspot-origin') === undefined)
+    ).toBe(true)
   })
 })

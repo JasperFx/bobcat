@@ -16,9 +16,11 @@ import { layoutEventModel, type LayoutOptions } from './layout'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
 import {
   LANE_LABEL,
+  PROVENANCE_LABEL,
   type EventModelDescriptor,
   type EventModelElement,
-  type EventModelSliceDescriptor
+  type EventModelSliceDescriptor,
+  type HotspotDescriptor
 } from './types'
 
 const props = withDefaults(
@@ -58,6 +60,43 @@ function styleFor(element: EventModelElement) {
     color: outlined ? fill : inkFor(element.kind),
     border: `${outlined || dashed ? 2 : 1}px ${dashed ? 'dashed' : 'solid'} ${fill}`
   }
+}
+
+/**
+ * jasperfx#704 — the hotspot behind a Hotspot card, looked up by label.
+ *
+ * The producer projects each hotspot into an element with `ForLabel(name, Hotspot, hotspot.Text)`,
+ * so the label IS the hotspot text and that is the only join available. Worth it: without it a
+ * source disagreement renders as a generic magenta sticky indistinguishable from a pending spec,
+ * and "the code says this slice emits X; production says X and Y" is the most valuable thing a
+ * four-source model produces.
+ */
+function hotspotFor(node: { element: EventModelElement; sliceName: string }): HotspotDescriptor | null {
+  if (node.element.kind !== 'Hotspot') return null
+  const slice = graph.value.slices.find((s) => s.name === node.sliceName)
+  return (slice?.descriptor.hotspots ?? []).find((h) => h.text === node.element.label) ?? null
+}
+
+/**
+ * Tooltip text. The type's full name stays the headline where there is one; the ladder rung and a
+ * disagreement's two claims are appended, because both are exactly the kind of thing you want on
+ * hover rather than crowding the card.
+ */
+function titleFor(node: { element: EventModelElement; sliceName: string }): string {
+  const parts: string[] = [node.element.type?.fullName ?? node.element.label]
+
+  const provenance = node.element.provenance
+  if (provenance) parts.push(PROVENANCE_LABEL[provenance] ?? provenance)
+
+  const hotspot = hotspotFor(node)
+  if (hotspot?.origin === 'SourceDisagreement' && hotspot.winningClaim && hotspot.losingClaim) {
+    parts.push(
+      `Kept: ${hotspot.winningClaim.provenance} claims ${hotspot.winningClaim.value}`,
+      `Dropped: ${hotspot.losingClaim.provenance} claims ${hotspot.losingClaim.value}`
+    )
+  }
+
+  return parts.join('\n')
 }
 
 /** The slice's outcome, if run evidence named any of its specifications. */
@@ -122,7 +161,9 @@ function outcomeFor(sliceName: string): string | null {
           type="button"
           :data-kind="node.element.kind"
           :data-lane="node.element.lane"
-          :title="node.element.type?.fullName ?? node.element.label"
+          :data-provenance="node.element.provenance ?? undefined"
+          :data-hotspot-origin="hotspotFor(node)?.origin ?? undefined"
+          :title="titleFor(node)"
           :style="{
             left: `${node.x}px`,
             top: `${node.y}px`,
@@ -209,6 +250,33 @@ function outcomeFor(sliceName: string): string | null {
   cursor: pointer;
   pointer-events: auto;
 }
+/* jasperfx#703 — the ladder, as a SECOND channel. Fill colour is spoken for: it means the element
+   KIND, and that agreement between viewers is the whole reason this package exists. So provenance
+   rides a corner marker instead, and only the top rung gets one.
+
+   Declared and Derived are deliberately left looking exactly as they did. An unattributed model
+   reads Declared rather than absent, so fading it would fade most of a typical canvas — and the
+   new information here is "production has SEEN this", not "this was only written down". */
+.em-card[data-provenance='Observed']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-width: 0 10px 10px 0;
+  border-style: solid;
+  border-color: transparent currentColor transparent transparent;
+  opacity: 0.85;
+}
+
+/* jasperfx#704 — a source disagreement is a FINDING, not decoration, and it is worth more than the
+   generic magenta sticky every other hotspot gets. A double outline in the hotspot colour reads as
+   "two sources, one of them dropped" at a glance, and the two claims are on the tooltip. */
+.em-card[data-hotspot-origin='SourceDisagreement'] {
+  outline: 2px solid #e91e63;
+  outline-offset: 2px;
+  font-weight: 600;
+}
+
 .em-card {
   position: absolute;
   display: flex;
