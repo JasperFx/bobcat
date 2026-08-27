@@ -30,8 +30,12 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Exactly the viewport, never taller: el-main (overflow: auto from Element Plus)
+   is the one scroll container, so the wheel always lands on a real scroller and
+   the sidebar stays pinned. min-height let the page itself grow instead, leaving
+   el-main with nothing to scroll (#166). */
 .bm-app {
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .bm-brand {
