@@ -28,6 +28,11 @@
       ResourceParsingAgreementTests exists for the recovery-hint resource lists.
     -->
     <Compile Include="..\Bobcat.Generators\GeneratorSliceTags.cs" Link="Runtime\GeneratorSliceTags.cs" />
+    <!-- Same deal for the code-first naming rules (issue #170): the generator stamps a spec's
+      {Feature}/{Scenario} identity from its own copy of SpecificationFeature's derivations, and
+      CodeFirstNamingAgreementTests pins the two together — a divergence would silently unjoin
+      run evidence from the design-time model. -->
+    <Compile Include="..\Bobcat.Generators\CodeFirstNaming.cs" Link="Runtime\CodeFirstNaming.cs" />
   </ItemGroup>
 
 </Project>

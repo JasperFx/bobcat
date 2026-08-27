@@ -152,6 +152,51 @@ internal static class EventModelEmitter
     }
 
     /// <summary>
+    /// Fold a code-first specification's scenarios into <paramref name="slices"/> (issue #170) —
+    /// the same rules as the Gherkin overload, applied to what <see cref="CodeFirstSpecs"/>
+    /// extracted: the slice is a scenario-level grouping, an untagged scenario with no roles
+    /// contributes nothing, the identity is <c>{FeatureTitle}/{ScenarioTitle}</c>, and an empty
+    /// scenario method is a pending-specification hotspot. The one asymmetry is the trigger
+    /// label: code-first has no <c>Triggered by</c> line, so none is stamped.
+    /// </summary>
+    public static void Collect(CodeFirstSpecs.SpecInfo spec, Dictionary<string, SliceModel> slices)
+    {
+        foreach (var scenario in spec.Scenarios)
+        {
+            var declared = GeneratorSliceTags.Slice(scenario.Tags);
+            if (declared == null && scenario.Roles.Count == 0) continue;
+
+            var name = declared ?? spec.FeatureTitle;
+            if (!slices.TryGetValue(name, out var slice))
+            {
+                slice = new SliceModel { Name = name, ClassName = CodeEmitter.SanitizeIdentifier(name) };
+                slices[name] = slice;
+            }
+
+            slice.Domain ??= GeneratorSliceTags.Domain(scenario.Tags);
+            slice.ActCommand ??= scenario.ActCommand;
+
+            var resolved = new List<string>();
+            foreach (var (role, type) in scenario.Roles)
+            {
+                addDistinct(resolved, type);
+                switch (role)
+                {
+                    case Command: addDistinct(slice.Commands, type); break;
+                    case Event: addDistinct(slice.Events, type); break;
+                    case Aggregate: addDistinct(slice.Aggregates, type); break;
+                    case ReadModel: addDistinct(slice.ReadModels, type); break;
+                    case Message: addDistinct(slice.Messages, type); break;
+                }
+            }
+
+            var identity = $"{spec.FeatureTitle}/{scenario.Title}";
+            if (scenario.IsPending) slice.PendingSpecifications.Add(identity);
+            else slice.Specifications.Add((identity, resolved));
+        }
+    }
+
+    /// <summary>
     /// The command this scenario is actually specifying: the <em>last</em> <c>{command}</c>
     /// captured on a <c>When</c> step.
     /// </summary>
@@ -221,9 +266,9 @@ internal static class EventModelEmitter
         sb.AppendLine("namespace Bobcat.Generated.EventModel;");
         sb.AppendLine();
         sb.AppendLine("/// <summary>");
-        sb.AppendLine("/// Every Event Modeling slice this assembly's <c>.feature</c> files declare (issue #106),");
-        sb.AppendLine("/// surfaced through JasperFx's <c>IEventModelDefinitionSource</c>. Register with");
-        sb.AppendLine("/// <c>services.AddBobcatEventModel()</c>.");
+        sb.AppendLine("/// Every Event Modeling slice this assembly's <c>.feature</c> files (issue #106) and");
+        sb.AppendLine("/// code-first specifications (issue #170) declare, surfaced through JasperFx's");
+        sb.AppendLine("/// <c>IEventModelDefinitionSource</c>. Register with <c>services.AddBobcatEventModel()</c>.");
         sb.AppendLine("/// </summary>");
         sb.AppendLine($"internal sealed class BobcatEventModelSource : global::{Ns}.IEventModelDefinitionSource");
         sb.AppendLine("{");

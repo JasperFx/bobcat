@@ -26,16 +26,74 @@ public class EventModelDescriptorTests
     {
         var model = describe();
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
-        model.Slices.Select(s => s.Name).ShouldBe(["OpenWallet", "CreditWallet", "DebitWallet"], ignoreOrder: true);
+        model.Slices.Select(s => s.Name).ShouldBe(
+            ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet"], ignoreOrder: true);
     }
 
     [Fact]
     public void a_slice_is_a_scenario_level_grouping_so_several_scenarios_fold_into_one()
     {
-        // Wallet.feature tags three scenarios @slice:CreditWallet. A slice is a vertical
-        // behaviour, not a document, so they are one descriptor with three specifications.
-        slice("CreditWallet").Specifications.Count.ShouldBe(3);
+        // Wallet.feature tags three scenarios @slice:CreditWallet, and WalletAuditSpecification
+        // tags a code-first fourth (issue #170). A slice is a vertical behaviour, not a document
+        // — and not an authoring style either — so they are one descriptor with four
+        // specifications.
+        slice("CreditWallet").Specifications.Count.ShouldBe(4);
+        slice("CreditWallet").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet Audit/a code first credit");
         slice("OpenWallet").Specifications.Count.ShouldBe(1);
+    }
+
+    // ---- issue #170: the same declarations, authored in raw C# ------------------------------
+
+    [Fact]
+    public void a_code_first_specification_declares_a_slice_with_the_same_shape_gherkin_would()
+    {
+        var audit = slice("AuditWallet");
+
+        audit.Domain.ShouldBe("Wallets");
+        audit.Pattern.ShouldBe(SlicePattern.Command);
+
+        // Roles from the typed steps the scenario body names, in their slots — never one bag.
+        audit.AggregateTypes.Select(t => t.Name).ShouldBe(["Wallet"]);
+        audit.EmittedEvents.Select(t => t.Name).ShouldBe(["WalletDebited"]);
+        audit.ReadModelTypes.Select(t => t.Name).ShouldBe(["WalletSummary"]);
+        audit.PublishedMessages.Select(t => t.Name).ShouldBe(["WalletCreditedNotification"]);
+    }
+
+    [Fact]
+    public void the_code_first_act_command_is_the_last_when_not_the_first()
+    {
+        // The scenario arranges with WhenCommand(OpenWallet) before the WhenCommand(DebitWallet)
+        // it is about — the same last-When rule the Gherkin path applies.
+        slice("AuditWallet").CommandType!.Name.ShouldBe("DebitWallet");
+    }
+
+    [Fact]
+    public void the_code_first_identity_is_the_derived_feature_and_scenario_titles()
+    {
+        // WalletAuditSpecification → "Wallet Audit"; auditing_a_credited_wallet → underscores as
+        // spaces. The exact string SpecificationFeature derives at runtime and publishes on
+        // scenario_finished, so run evidence joins with no mapping table — pinned against the
+        // runtime by CodeFirstNamingAgreementTests.
+        slice("AuditWallet").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet Audit/auditing a credited wallet");
+    }
+
+    [Fact]
+    public void an_empty_code_first_scenario_is_a_pending_specification_hotspot()
+    {
+        var pending = slice("AuditWallet").Hotspots.ShouldHaveSingleItem();
+        pending.Origin.ShouldBe(HotspotOrigin.PendingSpecification);
+        pending.SpecificationIdentity.ShouldBe("Wallet Audit/auditing an empty wallet");
+    }
+
+    [Fact]
+    public void an_arrange_command_still_reaches_the_code_first_specification_as_evidence()
+    {
+        var spec = slice("AuditWallet").Specifications
+            .Single(s => s.Identity == "Wallet Audit/auditing a credited wallet");
+        spec.ResolvedTypes.Select(t => t.Name).ShouldContain("OpenWallet");
+        spec.ResolvedTypes.Select(t => t.Name).ShouldContain("DebitWallet");
     }
 
     [Fact]
@@ -123,6 +181,6 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(3);
+        descriptor.Slices.Count.ShouldBe(4);
     }
 }

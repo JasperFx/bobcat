@@ -199,6 +199,28 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   `<Compile Link>`-ed into `Bobcat.Tests` rather than referencing the analyzer assembly). Without
   it the runtime and the descriptor could report different slice names and nothing would say so —
   same guard as `ResourceParsingAgreementTests`.
+- **Code-first specs contribute slices too (issue #170).** `CodeFirstSpecs.Extract` reads
+  `[Scenario]` methods on non-abstract `Specification` subclasses (base classes included; a
+  partial class speaks once) and `EventModelEmitter.Collect` folds them into the *same* slice
+  dictionary the features feed — so one slice fed by a `.feature` and a C# spec is one
+  descriptor. Roslyn-side rather than a runtime-contributed source, deliberately: compile-time
+  extraction keeps identity stamping identical for both authoring styles, which is what lets
+  run evidence join the same way. Slice/domain come from `[Scenario(Tags = ["slice:X",
+  "domain:Y"])]` (same vocabulary, no `@`); identity is `{derived feature title}/{derived
+  scenario title}` via `CodeFirstNaming` — the generator's verbatim copy of
+  `SpecificationFeature.DeriveTitle`/`DeriveScenarioTitle`, pinned by
+  `CodeFirstNamingAgreementTests` (linked source, same pattern as `GeneratorSliceTags`). Roles
+  come from the typed-step convention in the method body, lambdas included
+  (`Host<TFixture>()`-borrowed steps): `GivenEvents<T>`/`GivenNoEvents<T>` → aggregate,
+  `WhenCommand<T>` → aggregate + the argument's static type as command (last one is the act,
+  same last-When rule), `ThenEvents(...)` → argument types as events, `ThenDocument<T>` →
+  readmodel, `ThenMessagesSent<T>` → message — matched by name but gated on the target being
+  declared on a `Bobcat.Fixture` subclass, so an unrelated `WhenCommand` never stamps a phantom
+  role. Arrange-event arguments to `GivenEvents` are deliberately not stamped (the Gherkin path
+  resolves only the aggregate there — same spec, same shape). An empty `[Scenario]` method is
+  the pending-specification hotspot; an untagged scenario with no roles contributes nothing;
+  there is no trigger label (code-first has no `Triggered by` line). An `object`-typed or
+  unresolvable command argument degrades to no role, never a guess.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.

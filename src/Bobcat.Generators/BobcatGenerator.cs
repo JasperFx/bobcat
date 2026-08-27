@@ -36,19 +36,33 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(g => g != null)
             .Select((g, _) => g!);
 
-        // 4. Combine features + fixtures + table grammars + the compilation (type-name captures
-        //    such as {aggregate} are resolved against it — see resolveTypeCaptures).
+        // 3b. Collect code-first specifications (issue #170): [Scenario] methods on Specification
+        //     subclasses build runtime FeatureDefinitions the Gherkin pipeline never sees, so
+        //     their Event Modeling slice declarations are read here, Roslyn-side, keeping the
+        //     {Feature}/{Scenario} identity stamping identical for both authoring styles.
+        var specifications = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.BaseList != null,
+                transform: (ctx, ct) => CodeFirstSpecs.Extract(ctx, ct))
+            .Where(s => s != null)
+            .Select((s, _) => s!);
+
+        // 4. Combine features + fixtures + table grammars + code-first specs + the compilation
+        //    (type-name captures such as {aggregate} are resolved against it — see
+        //    resolveTypeCaptures).
         var combined = featureFiles.Collect()
             .Combine(fixtureClasses.Collect())
             .Combine(tableGrammars.Collect())
+            .Combine(specifications.Collect())
             .Combine(context.CompilationProvider);
 
         // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left.Left.Left;
-            var fixtures = pair.Left.Left.Right;
-            var grammars = pair.Left.Right;
+            var features = pair.Left.Left.Left.Left;
+            var fixtures = pair.Left.Left.Left.Right;
+            var grammars = pair.Left.Left.Right;
+            var specs = pair.Left.Right;
             var resolver = new TypeNameResolver(pair.Right);
 
             // Issue #106. Only emit Event Modeling descriptors where the consuming compilation can
@@ -102,6 +116,14 @@ public class BobcatGenerator : IIncrementalGenerator
                         Microsoft.CodeAnalysis.Location.None,
                         feature.Title, ex.Message));
                 }
+            }
+
+            // Issue #170: code-first specifications feed the same slice fold, so a team authoring
+            // specs in C# gets the same event model — and the same Specifications bindings that
+            // drive drift colouring — as the equivalent .feature files would produce.
+            if (canEmitEventModel)
+            {
+                foreach (var spec in specs) EventModelEmitter.Collect(spec, slices);
             }
 
             // One IEventModelDefinitionSource per assembly, after every feature has contributed.
