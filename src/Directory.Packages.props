@@ -57,7 +57,7 @@
     <PackageVersion Include="WolverineFx.Marten" Version="6.29.1" />
     <PackageVersion Include="WolverineFx.Fisher" Version="6.29.1" />
     <PackageVersion Include="Marten" Version="9.28.0" />
-    <PackageVersion Include="JasperFx" Version="2.54.0" />
+    <PackageVersion Include="JasperFx" Version="2.56.0" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
       IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
@@ -69,7 +69,7 @@
       acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
       documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
-    <PackageVersion Include="JasperFx.Events" Version="2.54.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.56.0" />
     <PackageVersion Include="Fisher" Version="1.0.2" />
     <PackageVersion Include="Polecat" Version="5.19.2" />
     <PackageVersion Include="Alba" Version="8.5.2" />

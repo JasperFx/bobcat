@@ -10,5 +10,10 @@
 
   <ItemGroup>
     <PackageReference Include="JasperFx" />
+    <!-- JasperFx.Events 2.56.0 — IEventModelDefinitionSource, which the generator's emitted
+         BobcatEventModelSource implements, moved out of the JasperFx package and into this one.
+         Bobcat carries the reference so it flows transitively to every project the generator
+         emits into; without it that generated file does not compile in a consumer. -->
+    <PackageReference Include="JasperFx.Events" />
   </ItemGroup>
 </Project>
