@@ -1,3 +1,4 @@
+import { useEventModelStore } from '@/stores/event-model-store'
 import { useRunsStore } from '@/stores/runs-store'
 import type {
   BatchedWebSocketPayload,
@@ -90,6 +91,16 @@ export function relayToStore(message: unknown): void {
       runs.handleRunProgress(envelope.data as RunProgress)
       break
     // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
+    // Issue #169 — hand-written, and deliberately BELOW the marker: EventModelChanged is not a
+    // MonitorEvent, so the generator that fills the block above will never emit it and would
+    // otherwise be entitled to clobber anything it found in there.
+    //
+    // The push carries the model's NAME, not the document — a whole-document replace can be large,
+    // and the page already has a GET that serves it. Re-fetching keeps one definition of how a
+    // model is loaded instead of two that can disagree.
+    case 'event_model_changed':
+      void useEventModelStore().refresh()
+      break
     default:
       // Unknown message types are forward-compatibility, not errors.
       break

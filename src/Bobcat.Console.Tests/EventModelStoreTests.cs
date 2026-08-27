@@ -108,4 +108,56 @@ public class EventModelStoreTests : IDisposable
         stored.GetProperty("name").GetString().ShouldBe("Orders");
         stored.GetProperty("slices").GetArrayLength().ShouldBe(0);
     }
+    // Issue #169 — the change broadcast names the model it is about, so a console watching more
+    // than one producer can say WHICH one moved rather than just "something changed".
+    [Fact]
+    public void the_stored_name_is_available_for_the_change_broadcast()
+    {
+        var store = new EventModelStore(_dataPath);
+        store.Name.ShouldBeNull("nothing has been published yet");
+
+        store.TryStore(wallets).ShouldBeNull();
+        store.Name.ShouldBe("Wallets");
+
+        store.TryStore("""{ "name": "Orders", "slices": [] }""").ShouldBeNull();
+        store.Name.ShouldBe("Orders", "latest wins, for the name as much as for the document");
+    }
+
+    [Fact]
+    public void a_rejected_push_leaves_the_name_alone()
+    {
+        // The broadcast only fires on success, but the name must not move either — a 400 has not
+        // changed what the page would load.
+        var store = new EventModelStore(_dataPath);
+        store.TryStore(wallets).ShouldBeNull();
+
+        store.TryStore("not json at all").ShouldNotBeNull();
+
+        store.Name.ShouldBe("Wallets");
+    }
+
+    [Fact]
+    public void the_name_survives_a_restart()
+    {
+        // Recovered from disk on construction, so the first broadcast after a console restart is
+        // not anonymous.
+        new EventModelStore(_dataPath).TryStore(wallets).ShouldBeNull();
+
+        new EventModelStore(_dataPath).Name.ShouldBe("Wallets");
+    }
+
+    [Fact]
+    public void a_corrupt_document_on_disk_does_not_stop_the_console_booting()
+    {
+        // Best-effort by design: Read() has always handed the bytes back untouched whatever they
+        // are, and recovering the NAME must not be the thing that turns a bad file into a crash.
+        Directory.CreateDirectory(_dataPath);
+        File.WriteAllText(Path.Combine(_dataPath, "event-model.json"), "{ this is not json");
+
+        var store = new EventModelStore(_dataPath);
+
+        store.Name.ShouldBeNull();
+        store.Read().ShouldBe("{ this is not json");
+    }
+
 }

@@ -13,3 +13,15 @@ Feature: Event Model
     Then asking for the event model responds with status 200
     And the published event model is named "Wallets"
     And the slice "CreditWallet" of the event model carries the spec identity "Wallet/Crediting a wallet"
+
+  Scenario: A successful push is broadcast so an open page redraws without an F5
+    When the event model "Wallets" is published with slice "CreditWallet" bound to spec "Wallet/Crediting a wallet"
+    Then the event model change is broadcast for "Wallets"
+
+  # Nothing about what the page would load has moved, so announcing a change would make an open
+  # diagram flicker for a document nobody stored. (Deliberately asserts only the broadcast: the
+  # fixture's data path is shared across a feature's scenarios, so what GET returns here depends on
+  # what the scenarios above published.)
+  Scenario: A rejected push announces nothing
+    When something that is not an event model is published
+    Then no event model change is broadcast

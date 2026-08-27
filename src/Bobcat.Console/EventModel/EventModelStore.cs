@@ -28,18 +28,42 @@ public sealed class EventModelStore
     private readonly string _file;
     private readonly object _gate = new();
     private string? _json;
+    private string? _name;
 
     public EventModelStore(string dataPath)
     {
         Directory.CreateDirectory(dataPath);
         _file = Path.Combine(dataPath, "event-model.json");
-        if (File.Exists(_file)) _json = File.ReadAllText(_file);
+        if (!File.Exists(_file)) return;
+
+        _json = File.ReadAllText(_file);
+        // #169 — recover the name across a restart too, so the first broadcast after one is not
+        // anonymous. Best-effort: a corrupt file on disk must not stop the console booting, and
+        // Read() has always handed the bytes back untouched whatever they are.
+        try
+        {
+            _name = JsonSerializer.Deserialize<EventModelDescriptor>(_json, Wire)?.Name;
+        }
+        catch (JsonException)
+        {
+            // Leave the name null; the document itself is still served exactly as before.
+        }
     }
 
     /// <summary>The stored descriptor's JSON, or null when none has been published.</summary>
     public string? Read()
     {
         lock (_gate) return _json;
+    }
+
+    /// <summary>
+    /// The stored descriptor's name, or null when none has been published yet. Issue #169 — the
+    /// change broadcast names the model it is about, so a console watching two producers can say
+    /// which one moved instead of just "something changed".
+    /// </summary>
+    public string? Name
+    {
+        get { lock (_gate) return _name; }
     }
 
     /// <summary>
@@ -69,6 +93,7 @@ public sealed class EventModelStore
         {
             File.WriteAllText(_file, normalized);
             _json = normalized;
+            _name = descriptor.Name;
         }
 
         return null;

@@ -32,9 +32,37 @@ export const useEventModelStore = defineStore('event-model', () => {
     }
   }
 
+  /**
+   * Issue #169 — re-read after an `event_model_changed` push, WITHOUT the load path's visible
+   * transitions.
+   *
+   * `load` moves status to 'loading' and lets a failure become 'error', which is right on first
+   * mount and wrong for a live refresh: the page already has a good diagram on screen, and a
+   * producer saving a file should never make it flash a spinner or replace it with an error. So
+   * this assigns only on success and leaves the previous descriptor standing otherwise — the next
+   * push will correct it.
+   *
+   * A 404 IS assigned, because "the model was deleted" is a real answer rather than a failure.
+   */
+  async function refresh(fetchImpl: typeof fetch = fetch) {
+    try {
+      const response = await fetchImpl('/api/event-model')
+      if (response.status === 404) {
+        descriptor.value = null
+        status.value = 'absent'
+        return
+      }
+      if (!response.ok) return
+      descriptor.value = (await response.json()) as EventModelDescriptor
+      status.value = 'loaded'
+    } catch {
+      // Keep whatever is on screen. A dropped refresh is not worth blanking a good diagram.
+    }
+  }
+
   const slices = computed<EventModelSliceDescriptor[]>(() => descriptor.value?.slices ?? [])
 
-  return { descriptor, status, load, slices }
+  return { descriptor, status, load, refresh, slices }
 })
 
 /**

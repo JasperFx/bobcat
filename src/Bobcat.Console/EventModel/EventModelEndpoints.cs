@@ -1,4 +1,6 @@
+using Bobcat.Console.Contracts;
 using Microsoft.AspNetCore.Http;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Bobcat.Console.EventModel;
@@ -27,14 +29,25 @@ public static class EventModelEndpoints
     /// rather than as a blank canvas later.
     /// </summary>
     [WolverinePut("/api/event-model")]
-    public static async Task<IResult> Put(HttpRequest request, [NotBody] EventModelStore store)
+    public static async Task<IResult> Put(
+        HttpRequest request,
+        [NotBody] EventModelStore store,
+        [NotBody] IMessageBus bus)
     {
         using var reader = new StreamReader(request.Body);
         var body = await reader.ReadToEndAsync(request.HttpContext.RequestAborted);
 
         var failure = store.TryStore(body);
-        return failure is null
-            ? Results.NoContent()
-            : Results.Problem(statusCode: 400, detail: $"Not an EventModelDescriptor: {failure}");
+        if (failure is not null)
+        {
+            return Results.Problem(statusCode: 400, detail: $"Not an EventModelDescriptor: {failure}");
+        }
+
+        // #169 — tell any open Event Model page to re-fetch. Only on SUCCESS: a rejected push has
+        // not changed what the page would load, and announcing it would make the diagram flicker
+        // for a document nobody stored.
+        await bus.PublishAsync(new EventModelChanged(store.Name ?? string.Empty));
+
+        return Results.NoContent();
     }
 }

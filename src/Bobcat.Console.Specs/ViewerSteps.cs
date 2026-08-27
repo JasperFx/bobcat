@@ -3,6 +3,8 @@ using System.Xml.Linq;
 using Alba;
 using Bobcat.Alba;
 using Bobcat.Console.Contracts;
+using JasperFx.Core;
+using Wolverine.Tracking;
 
 namespace Bobcat.Console.Specs;
 
@@ -27,6 +29,8 @@ public class ViewerSteps : Fixture
     private Guid _current;
     private string? _currentUid;
     private int _stepCounter;
+    // Issue #169 — the EventModelChanged messages the last event-model push broadcast.
+    private string[] _broadcastModelNames = [];
 
     private int _lastStatus;
     private string? _lastContentType;
@@ -183,14 +187,54 @@ public class ViewerSteps : Fixture
             }
             """;
 
-        var result = await host.AlbaHost.Scenario(s =>
-        {
-            s.Put.Text(json).ToUrl("/api/event-model");
-            s.IgnoreStatusCode();
-        });
-
-        _lastStatus = result.Context.Response.StatusCode;
+        await putEventModel(json);
     }
+
+    /// <summary>
+    /// Issue #169 — push a body that is NOT a descriptor, so the rejected path can be asserted on:
+    /// a 400 must not announce a change, because nothing about what the page would load has moved.
+    /// </summary>
+    [When("something that is not an event model is published")]
+    public Task NotAnEventModelPublished() => putEventModel("not a descriptor at all");
+
+    /// <summary>
+    /// PUT the body and capture both the status and any <see cref="EventModelChanged"/> the console
+    /// broadcast (#169), so one step serves the wire assertions and the push assertion.
+    /// </summary>
+    private async Task putEventModel(string json)
+    {
+        // A presence assertion, deliberately: the session waits for activity to settle and the
+        // checks below then look for a message. No exception/timeout suppression — if the console
+        // stops broadcasting, this must fail loudly rather than pass over silence.
+        var tracked = await host.Host
+            .TrackActivity()
+            .Timeout(30.Seconds())
+            .ExecuteAndWaitAsync((Func<Wolverine.IMessageContext, Task>)(async _ =>
+            {
+                var result = await host.AlbaHost.Scenario(s =>
+                {
+                    s.Put.Text(json).ToUrl("/api/event-model");
+                    s.IgnoreStatusCode();
+                });
+
+                _lastStatus = result.Context.Response.StatusCode;
+            }));
+
+        _broadcastModelNames = tracked.Sent.MessagesOf<EventModelChanged>()
+            .Select(x => x.Name)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Issue #169 — the page reads GET /api/event-model on load only, so without this broadcast even
+    /// a successful push needed an F5. Paired with Wolverine's `event-model --url`, a `dotnet watch`
+    /// redraws the diagram on every save.
+    /// </summary>
+    [Check("the event model change is broadcast for {string}")]
+    public bool EventModelChangeBroadcast(string name) => _broadcastModelNames.Contains(name);
+
+    [Check("no event model change is broadcast")]
+    public bool NoEventModelChangeBroadcast() => _broadcastModelNames.Length == 0;
 
     [Then("asking for the event model responds with status {int}")]
     public async Task<int> AskingForTheEventModel()
