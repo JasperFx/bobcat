@@ -31,6 +31,15 @@ namespace Bobcat.CritterStack;
 /// assertion failure rather than a scenario-aborting error.
 /// </para>
 /// <para>
+/// <b>Two refusal styles, two steps (issue #168).</b> <c>Then validation fails with …</c>
+/// describes a refusal that <i>throws</i> — a guard raising an exception the dispatch captures
+/// into <see cref="LastError"/>. Wolverine's recommended messaging railway refuses <i>without</i>
+/// throwing (<c>HandlerContinuation.Stop</c> from a <c>Before</c>/<c>Load</c>), and that is what
+/// <c>Then the command is refused</c> describes: dispatched, nothing thrown, nothing appended.
+/// The clean form is deliberately reason-less, because a clean stop's reason exists only in
+/// Wolverine's own log stream, never as data a spec could assert on.
+/// </para>
+/// <para>
 /// Override <see cref="HostResource"/> / <see cref="StoreName"/> when a suite registers more than
 /// one host or a host registers more than one store; both default to "the only one".
 /// </para>
@@ -150,6 +159,35 @@ public abstract class CritterStackFixture : Fixture
     }
 
     /// <summary>
+    /// Assert the last command was cleanly refused — Wolverine's non-throwing railway, a
+    /// <c>Before</c>/<c>Load</c> returning <c>HandlerContinuation.Stop</c> (issue #168): the
+    /// command was dispatched, nothing threw, and no events were appended to the current stream.
+    /// The counterpart of <see cref="ThenValidationFails"/>, which describes a refusal that
+    /// <i>throws</i> — a handler written the recommended non-throwing way can never satisfy that
+    /// step, and this one is how its sad path is specified.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately reason-less: a clean stop carries no reason anywhere Wolverine surfaces —
+    /// the validation middleware only ever logs it — so a reason clause here would assert on
+    /// nothing. A refusal that also notifies (a cascaded rejection message) composes with
+    /// <see cref="ThenMessagesSent{T}"/>.
+    /// </remarks>
+    public void ThenCommandRefused()
+    {
+        if (LastSession == null)
+            throw new SpecAssertionException(
+                LastError != null
+                    ? $"Expected the command to be cleanly refused, but it threw: {LastError.Message}. " +
+                      "A throwing refusal is what 'Then validation fails with …' describes."
+                    : "Expected the command to be refused, but no command has run.");
+
+        if (LastEvents.Count > 0)
+            throw new SpecAssertionException(
+                $"Expected the command to be refused, but it emitted {LastEvents.Count} event(s): " +
+                describe(LastEvents.Select(e => e.Data)));
+    }
+
+    /// <summary>
     /// Assert the read-model document of type <typeparamref name="T"/> for the current stream exists
     /// and satisfies <paramref name="assert"/>, after waiting for async projections to catch up.
     /// Delegates the load to the store-agnostic authoring helper (<c>LoadAsync&lt;T&gt;</c>), so it reads
@@ -252,6 +290,9 @@ public abstract class CritterStackFixture : Fixture
 
     [Then("validation fails with {string}")]
     public void ThenValidationFailsWith(string message) => ThenValidationFails(message);
+
+    [Then("the command is refused")]
+    public void ThenTheCommandIsRefused() => ThenCommandRefused();
 
     [Then("the {readmodel} read model contains")]
     public async Task ThenReadModelContains(Type readmodel, StepTable expected)

@@ -15,9 +15,11 @@ namespace Bobcat.CritterStack.Tests;
 
 public record OpenWallet(Guid WalletId, string Owner);
 public record CreditWallet(Guid WalletId, decimal Amount);
+public record DebitWallet(Guid WalletId, decimal Amount);
 
 public record WalletOpened(Guid WalletId, string Owner);
 public record WalletCredited(Guid WalletId, decimal Amount);
+public record WalletDebited(Guid WalletId, decimal Amount);
 
 /// <summary>Cascaded by the credit handler, so "Then WalletCreditedNotification is sent" has something to see.</summary>
 public record WalletCreditedNotification(Guid WalletId);
@@ -31,6 +33,7 @@ public class Wallet
 
     public void Apply(WalletOpened e) { Id = e.WalletId; Owner = e.Owner; }
     public void Apply(WalletCredited e) => Balance += e.Amount;
+    public void Apply(WalletDebited e) => Balance -= e.Amount;
 }
 
 /// <summary>The async-projected read model the "read model contains" grammar asserts against.</summary>
@@ -74,6 +77,31 @@ public class WalletHandler
 
     // Local sink so the cascaded notification routes cleanly and is tracked as sent + handled.
     public static void Handle(WalletCreditedNotification notification) { }
+}
+
+/// <summary>
+/// Refuses the way Wolverine's messaging guidance recommends — a <c>Before</c> returning
+/// <c>HandlerContinuation.Stop</c>, no exception anywhere — which is the railway
+/// "Then the command is refused" exists to describe (issue #168). A handler written this way
+/// can never satisfy "Then validation fails with …", because nothing ever throws.
+/// </summary>
+public class DebitWalletHandler
+{
+    public static async Task<HandlerContinuation> Before(DebitWallet command, IDocumentStore store)
+    {
+        await using var session = store.LightweightSession();
+        var wallet = await session.Events.AggregateStreamAsync<Wallet>(command.WalletId);
+        return wallet != null && wallet.Balance >= command.Amount
+            ? HandlerContinuation.Continue
+            : HandlerContinuation.Stop;
+    }
+
+    public static async Task Handle(DebitWallet command, IDocumentStore store)
+    {
+        await using var session = store.LightweightSession();
+        session.Events.Append(command.WalletId, new WalletDebited(command.WalletId, command.Amount));
+        await session.SaveChangesAsync();
+    }
 }
 
 /// <summary>

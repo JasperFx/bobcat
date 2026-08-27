@@ -902,18 +902,28 @@ discovers through its base).
 - **Typed steps** (shared with the code-first API, #105) sit on the fixture: `GivenEvents<T>(id,
   events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (Wolverine invoke + `TrackedSession`,
   returns the `AggregateExecution`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
-  `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
+  `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
 - **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
   {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `When
   {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
-  table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the
-  {readmodel} read model contains` + table · `Then {message} is sent`.
+  table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
+  is refused` · `Then the {readmodel} read model contains` + table · `Then {message} is sent`.
 - **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
   through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
   **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
   `Then` can assert on it (that is what makes `Then validation fails with …` work). Assertions throw
   the new **`SpecAssertionException`** (in core: `ResultStatus.failed` at `FailureLevel.Assertion`, so
   they accumulate rather than abort).
+- **Two refusal styles, two steps (issue #168, decided for option 2).** `Then validation fails
+  with {string}` describes a refusal that *throws* — `executeCommandCore` populates `LastError`
+  only from a caught exception. Wolverine's recommended messaging railway refuses *without*
+  throwing (`HandlerContinuation.Stop` from a `Before`/`Load`), and `Then the command is refused`
+  / `ThenCommandRefused()` describes that: dispatched, nothing thrown, nothing appended to the
+  current stream. Deliberately **reason-less**: a clean stop's reason exists only as Wolverine's
+  `Validation failure: …` log line (all three built-in continuation policies funnel there) and a
+  bare `Stop` has no reason anywhere, so a reason clause would assert on nothing. A refusal that
+  also notifies composes with `Then {message} is sent`. Messages are deliberately not constrained
+  by the refusal step itself.
 - **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
   resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
   **appending** arrange-events and **loading** a read-model document — go through the shared

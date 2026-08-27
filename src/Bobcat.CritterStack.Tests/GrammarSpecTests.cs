@@ -48,7 +48,7 @@ public class GrammarSpecTests
         // The vocabulary is entirely the shipped grammar, discovered from the referenced assembly.
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
-        feature.Scenarios.Count.ShouldBe(4);
+        feature.Scenarios.Count.ShouldBe(5);
 
         foreach (var scenario in feature.Scenarios)
         {
@@ -80,6 +80,16 @@ public class GrammarSpecTests
             {
                 results.TouchedTypes.Select(t => t.Name).ShouldBe(
                     ["Wallet", "OpenWallet", "WalletOpened", "CreditWallet"]);
+            }
+
+            // The clean refusal (issue #168): the rejected DebitWallet is recorded — the spec
+            // touched it — and WalletDebited is not, because nothing was emitted. Same
+            // observed-never-asserted rule as the throwing sad path above.
+            if (scenario.Title == "Debiting more than the balance is refused cleanly")
+            {
+                results.TouchedTypes.Select(t => t.Name).ShouldBe(
+                    ["Wallet", "OpenWallet", "WalletOpened", "CreditWallet", "WalletCredited",
+                     "WalletCreditedNotification", "DebitWallet"]);
             }
         }
     }
@@ -120,7 +130,9 @@ public class GrammarSpecTests
             builder.Services.AddMarten(configureStore).AddAsyncDaemon(DaemonMode.Solo);
             builder.Services.AddWolverine(opts =>
             {
-                opts.Discovery.DisableConventionalDiscovery().IncludeType<WalletHandler>();
+                opts.Discovery.DisableConventionalDiscovery()
+                    .IncludeType<WalletHandler>()
+                    .IncludeType<DebitWalletHandler>();
             });
             return builder.Build();
         });

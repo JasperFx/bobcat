@@ -50,6 +50,24 @@ Feature: Wallet
       | Balance |
       | 50      |
 
+  # The clean-refusal railway (issue #168): the handler's Before returns HandlerContinuation.Stop,
+  # so nothing throws — "validation fails with" cannot describe this handler, and the reason-less
+  # "the command is refused" is its vocabulary.
+  @slice:DebitWallet
+  Scenario: Debiting more than the balance is refused cleanly
+    Given no events for Wallet "55555555-5555-5555-5555-555555555555"
+    When OpenWallet is received
+      | WalletId                             | Owner |
+      | 55555555-5555-5555-5555-555555555555 | Edy   |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | 55555555-5555-5555-5555-555555555555 | 25     |
+    When DebitWallet is received
+      | WalletId                             | Amount |
+      | 55555555-5555-5555-5555-555555555555 | 100    |
+    Then the command is refused
+    And no events are emitted
+
   @slice:CreditWallet
   Scenario: Crediting a non-positive amount fails and emits nothing
     Given no events for Wallet "44444444-4444-4444-4444-444444444444"
