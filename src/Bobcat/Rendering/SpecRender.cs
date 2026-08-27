@@ -13,12 +13,27 @@ public class SpecRender
     public bool Succeeded { get; init; }
     public List<StepRender> Steps { get; init; } = new();
     public Counts Counts { get; init; } = new();
+
+    /// <summary>
+    /// The scenario's wall clock across the whole bracket — reset, scope, hooks, steps,
+    /// teardown (issue #141). Falls back to the last step's end offset only for results that
+    /// carried no wall clock (a bare executor in a test, an older artifact), which
+    /// under-reports by exactly the lifecycle time.
+    /// </summary>
     public long DurationMs { get; init; }
+
+    /// <summary>
+    /// The named non-step stop points — BeforeEach, the ResetAll/BeginScenarioAll bracket,
+    /// EndScenarioAll — on the same clock the steps' <see cref="StepRender.StartedAtMs"/> uses.
+    /// </summary>
+    public List<TimelinePointRender> Timeline { get; init; } = new();
 
     public static SpecRender FromResults(string title, ExecutionResults results, string? featureTitle = null)
     {
         var steps = results.Steps.Select(StepRender.FromStepResult).ToList();
-        var durationMs = results.Steps.Where(s => s.End > 0).Select(s => s.End).DefaultIfEmpty(0).Max();
+        var durationMs = results.WallClockMs > 0
+            ? results.WallClockMs
+            : results.Steps.Where(s => s.End > 0).Select(s => s.End).DefaultIfEmpty(0).Max();
 
         return new SpecRender
         {
@@ -27,9 +42,27 @@ public class SpecRender
             Succeeded = results.Counts.Succeeded,
             Steps = steps,
             Counts = results.Counts,
-            DurationMs = durationMs
+            DurationMs = durationMs,
+            Timeline = results.Timeline
+                .Select(p => new TimelinePointRender
+                {
+                    Name = p.Name,
+                    StartedAtMs = p.StartMs,
+                    DurationMs = p.DurationMs
+                })
+                .ToList()
         };
     }
+}
+
+/// <summary>
+/// A named lifecycle stop point on the scenario's timeline (issue #141).
+/// </summary>
+public class TimelinePointRender
+{
+    public string Name { get; init; } = "";
+    public long StartedAtMs { get; init; }
+    public long DurationMs { get; init; }
 }
 
 /// <summary>
@@ -42,6 +75,15 @@ public class StepRender
     public string StepText { get; init; } = "";
     public ResultStatus Status { get; init; }
     public FailureLevel FailureLevel { get; init; }
+
+    /// <summary>
+    /// Milliseconds from the scenario's announced start to this step starting (issue #141).
+    /// Kept alongside the duration deliberately: durations say what the steps cost, offsets
+    /// say what the steps did NOT cost — the gap between one step's end and the next one's
+    /// start is time no step owns.
+    /// </summary>
+    public long StartedAtMs { get; init; }
+
     public long DurationMs { get; init; }
     public string? ErrorMessage { get; init; }
     public string? ExceptionType { get; init; }
@@ -79,6 +121,7 @@ public class StepRender
             StepText = result.StepText ?? result.StepId,
             Status = result.StepStatus,
             FailureLevel = result.FailureLevel,
+            StartedAtMs = result.Start,
             DurationMs = result.End > result.Start ? result.End - result.Start : 0,
             ErrorMessage = result.Exception?.Message,
             ExceptionType = result.Exception?.GetType().Name,

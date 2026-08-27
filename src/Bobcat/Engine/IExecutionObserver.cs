@@ -36,6 +36,16 @@ public interface IExecutionObserver
     void StepStarted(string stepId, StepKind kind, string stepText);
 
     /// <summary>
+    /// <see cref="StepStarted(string,StepKind,string)"/> plus the step's offset on the
+    /// scenario's wall clock (issue #141) — the executor's own stamp, the same value that
+    /// lands on <see cref="StepResult.Start"/>, so an observer never needs a second clock
+    /// that almost agrees with the report. The default forwards to the three-argument form;
+    /// the executor always calls this one.
+    /// </summary>
+    void StepStarted(string stepId, StepKind kind, string stepText, long scenarioElapsedMs)
+        => StepStarted(stepId, kind, stepText);
+
+    /// <summary>
     /// Interim progress raised by a running step before it finishes — partial results or a
     /// short status message. Renderers should update the step's live row in place. May be
     /// called any number of times (including zero) between StepStarted and StepFinished.

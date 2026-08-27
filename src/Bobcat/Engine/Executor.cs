@@ -8,12 +8,20 @@ public class Executor
     private readonly IContinuationRule[] _rules;
     private readonly IExecutionObserver _observer;
     private readonly Stopwatch _stopwatch;
+    private readonly bool _ownsClock;
 
-    public Executor(IContinuationRule[] rules, IExecutionObserver? observer = null)
+    /// <param name="scenarioClock">
+    /// The scenario's wall clock, when the caller owns one (issue #141). The runner starts it
+    /// at the ScenarioStarted announcement — before ResetAll — so every step offset shares that
+    /// zero and the time no step owns is computable by subtraction. Without one, the executor
+    /// keeps its own clock zeroed at Execute, which is all a bare executor can know.
+    /// </param>
+    public Executor(IContinuationRule[] rules, IExecutionObserver? observer = null, Stopwatch? scenarioClock = null)
     {
         _rules = rules;
         _observer = observer ?? NullObserver.Instance;
-        _stopwatch = new Stopwatch();
+        _stopwatch = scenarioClock ?? new Stopwatch();
+        _ownsClock = scenarioClock == null;
     }
 
     public async Task Execute(ExecutionPlan plan, IExecutionContext context)
@@ -21,7 +29,7 @@ public class Executor
         var cancellation = new CancellationTokenSource();
         cancellation.CancelAfter(plan.Timeout);
 
-        _stopwatch.Restart();
+        if (_ownsClock) _stopwatch.Restart();
         context.ExecutionStarted();
 
         try
@@ -48,7 +56,7 @@ public class Executor
         }
         finally
         {
-            _stopwatch.Stop();
+            if (_ownsClock) _stopwatch.Stop();
         }
     }
 
@@ -59,7 +67,7 @@ public class Executor
 
         var stepText = step is DelegateExecutionStep del ? del.StepText : step.StepId;
         result.StepText = stepText;
-        _observer.StepStarted(step.StepId, step.StepKind, stepText);
+        _observer.StepStarted(step.StepId, step.StepKind, stepText, result.Start);
 
         // Relay any interim progress the running step reports to the observer, tagged with this
         // step's id. Cleared in the finally so progress can't leak across step boundaries.

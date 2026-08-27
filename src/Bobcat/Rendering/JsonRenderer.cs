@@ -67,6 +67,14 @@ public static class JsonRenderer
             Succeeded = spec.Succeeded,
             Counts = countsToJson(spec.Counts),
             DurationMs = spec.DurationMs,
+            Lifecycle = spec.Timeline.Count > 0
+                ? spec.Timeline.Select(p => new JsonTimelinePointOutput
+                {
+                    Name = p.Name,
+                    StartedAtMs = p.StartedAtMs,
+                    DurationMs = p.DurationMs
+                }).ToList()
+                : null,
             Steps = spec.Steps.Select(stepToJson).ToList()
         };
     }
@@ -80,6 +88,7 @@ public static class JsonRenderer
             Text = step.StepText,
             Status = step.Status.ToString(),
             FailureLevel = step.FailureLevel != FailureLevel.None ? step.FailureLevel.ToString() : null,
+            StartedAtMs = step.StartedAtMs,
             DurationMs = step.DurationMs > 0 ? step.DurationMs : null,
             Error = step.ErrorMessage,
             ExceptionType = step.ExceptionType,
@@ -188,8 +197,26 @@ internal class JsonScenarioOutput
     public string? Feature { get; set; }
     public bool Succeeded { get; set; }
     public JsonCountsOutput Counts { get; set; } = null!;
+
+    /// <summary>True bracket wall clock, not the last step's end (issue #141).</summary>
     public long DurationMs { get; set; }
+
+    /// <summary>
+    /// Named lifecycle stop points — BeforeEach, the reset/scope bracket, teardown — on the
+    /// same scenario clock as each step's startedAtMs, so a consumer can rank the time no
+    /// step owns. Null when the results carried no timeline (a foreign worker, an older
+    /// artifact): unmeasured is never zero-filled.
+    /// </summary>
+    public List<JsonTimelinePointOutput>? Lifecycle { get; set; }
+
     public List<JsonStepOutput> Steps { get; set; } = new();
+}
+
+internal class JsonTimelinePointOutput
+{
+    public string Name { get; set; } = "";
+    public long StartedAtMs { get; set; }
+    public long DurationMs { get; set; }
 }
 
 internal class JsonStepOutput
@@ -199,6 +226,10 @@ internal class JsonStepOutput
     public string Text { get; set; } = "";
     public string Status { get; set; } = "";
     public string? FailureLevel { get; set; }
+
+    /// <summary>Offset from the scenario's announced start — the timeline half of the pair.</summary>
+    public long StartedAtMs { get; set; }
+
     public long? DurationMs { get; set; }
     public string? Error { get; set; }
     public string? ExceptionType { get; set; }

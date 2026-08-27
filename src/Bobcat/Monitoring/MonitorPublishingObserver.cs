@@ -24,7 +24,6 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     private readonly TimeSpan _heartbeatInterval;
     private readonly TimeSpan _progressInterval;
     private readonly Dictionary<string, int> _attemptsByUid = new();
-    private readonly Stopwatch _scenarioClock = new();
     private readonly Stopwatch _stepClock = new();
     private Timer? _heartbeat;
     private string _currentUid = "";
@@ -109,13 +108,23 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
         _totalSteps = totalSteps;
         _stepNumber = 0;
-        _scenarioClock.Restart();
 
         _sink.Post(new ScenarioStarted(
             _info.RunId, _currentUid, featureTitle, scenarioTitle, attempt, DateTimeOffset.UtcNow, totalSteps));
     }
 
+    // Only a hand-rolled harness calls the three-argument form; it has no scenario clock to
+    // offer, and null on the wire is honest about that. The executor always calls the
+    // four-argument form with its own stamp — the same value that lands on StepResult.Start —
+    // so the wire's offsets and the persisted report agree by construction (issue #141). This
+    // observer used to keep a second scenario stopwatch that almost agreed; it is gone.
     public void StepStarted(string stepId, StepKind kind, string stepText)
+        => stepStarted(stepId, kind, stepText, scenarioElapsedMs: null);
+
+    public void StepStarted(string stepId, StepKind kind, string stepText, long scenarioElapsedMs)
+        => stepStarted(stepId, kind, stepText, scenarioElapsedMs);
+
+    private void stepStarted(string stepId, StepKind kind, string stepText, long? scenarioElapsedMs)
     {
         _stepNumber++;
         _stepClock.Restart();
@@ -125,7 +134,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             _info.RunId, _currentUid, stepId, kind.ToString(), stepText,
             StepNumber: _stepNumber,
             TotalSteps: _totalSteps,
-            ScenarioElapsedMs: _scenarioClock.ElapsedMilliseconds));
+            ScenarioElapsedMs: scenarioElapsedMs));
     }
 
     /// <summary>
@@ -154,7 +163,9 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             result.StepStatus.ToString(),
             Math.Max(0, result.End - result.Start),
             result.Exception?.Message,
-            ScenarioElapsedMs: _scenarioClock.ElapsedMilliseconds));
+            // The step's own end stamp — the executor's clock, the same one StepStarted rode in
+            // on, rather than a reading taken here a moment later.
+            ScenarioElapsedMs: result.End));
 
     public void ScenarioRetrying(string scenarioTitle, int nextAttempt, string reason)
         // The in-process runner only ever performs in-process retries — fresh-process and

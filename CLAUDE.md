@@ -283,6 +283,22 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   the read model loaded — never what a `Then` merely names. Nothing recorded is null, not an
   empty list. Exposed per scenario by `GET /api/runs/{id}`; CTRF/JUnit untouched. Details in
   `docs/monitor-design.md`, Bobcat-side seams item 6.
+- **Step timeline (issue #141):** one wall clock per attempt, owned by the runner and zeroed at
+  the `ScenarioStarted` announcement — which now fires *before* `ResetAll` (the plan is built
+  first, so the step count was already a fact). The `Executor` stamps step offsets from that
+  shared clock (`Executor` ctor's optional `scenarioClock`; a bare executor keeps its own,
+  zeroed at `Execute`), `IExecutionObserver.StepStarted` gained a four-argument overload
+  carrying the offset, and `MonitorPublishingObserver`'s second scenario stopwatch is gone —
+  the wire's `ScenarioElapsedMs` is now literally `StepResult.Start`/`End`, so wire and report
+  agree by construction (null, not zero, from a three-argument caller with no clock). Lifecycle
+  work that is not a step is captured as named `ExecutionResults.Timeline` points (`ResetAll`,
+  `BeginScenarioAll`, `BeforeEach`, `AfterEach`, `EndScenarioAll`) on the same clock;
+  `ExecutionResults.WallClockMs` is the bracket's true duration, which `SpecRender.DurationMs`
+  now reports (falling back to `max(step.End)` — honestly under-reporting — only for results
+  with no bracket). `JsonStepOutput.StartedAtMs` + the scenario's `lifecycle` block are the
+  persisted artifact #142's analysis reads. Deliberately not captured: per-row table-grammar
+  stop points (too fine), and anything for foreign MTP workers — steps are a Bobcat concept,
+  and a consumer must degrade to "not measured", never zero-fill.
 
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.

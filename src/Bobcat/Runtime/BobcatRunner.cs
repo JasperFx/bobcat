@@ -1,4 +1,5 @@
 using JasperFx.Testing;
+using System.Diagnostics;
 using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
@@ -493,19 +494,50 @@ public class BobcatRunner
 
         for (var attemptNumber = 1; ; attemptNumber++)
         {
+            // The fixture and plan are built before anything is announced or reset: the plan is
+            // pure in-memory composition, and building it first makes the step count a fact for
+            // the announcement below.
+            var fixture = (Fixture)Activator.CreateInstance(feature.FixtureType)!;
+            var timeout = SpecTags.GetTimeout(scenario.Tags) ?? TimeSpan.FromSeconds(30);
+            var plan = new ExecutionPlan(scenario.Title, timeout);
+            scenario.BuildPlan(fixture, plan);
+
+            var context = new SpecExecutionContext(scenario.Title, suite: _suite);
+            fixture.Context = context;
+
+            // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
+            Engine.BobcatClock.ResetToControllable();
+
+            _observer.ScenarioStarted(feature.Title, scenario.Title, plan.Steps.Count);
+
+            // The scenario's one wall clock (issue #141): zero is the announcement just made,
+            // before any reset ran. The executor stamps step offsets from this same clock, so
+            // the whole bracket — reset, scope, hooks, steps, teardown — lands on one timeline
+            // and the time no stop point owns is computable by subtraction.
+            var clock = Stopwatch.StartNew();
+
             // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
             // then open a fresh DI scope over it.
             await _suite.ResetAll();
+            context.Results.RecordTimelinePoint("ResetAll", 0, clock.ElapsedMilliseconds);
+
+            var beginMark = clock.ElapsedMilliseconds;
             await _suite.BeginScenarioAll();
+            context.Results.RecordTimelinePoint("BeginScenarioAll", beginMark, clock.ElapsedMilliseconds);
 
             ScenarioResult result;
             try
             {
-                result = await runScenario(feature, scenario);
+                result = await runScenario(feature, scenario, fixture, plan, context, clock);
             }
             finally
             {
+                var endMark = clock.ElapsedMilliseconds;
                 await _suite.EndScenarioAll();
+                context.Results.RecordTimelinePoint("EndScenarioAll", endMark, clock.ElapsedMilliseconds);
+
+                // The bracket's true wall clock — what max(step.End) structurally under-reports.
+                context.Results.WallClockMs = clock.ElapsedMilliseconds;
             }
 
             var succeeded = result.Results.Counts.Succeeded;
@@ -578,36 +610,32 @@ public class BobcatRunner
         return worst;
     }
 
-    private async Task<ScenarioResult> runScenario(FeatureDefinition feature, ScenarioDefinition scenario)
+    private async Task<ScenarioResult> runScenario(FeatureDefinition feature, ScenarioDefinition scenario,
+        Fixture fixture, ExecutionPlan plan, SpecExecutionContext context, Stopwatch clock)
     {
-        var fixture = (Fixture)Activator.CreateInstance(feature.FixtureType)!;
-
-        var timeout = SpecTags.GetTimeout(scenario.Tags) ?? TimeSpan.FromSeconds(30);
-        var plan = new ExecutionPlan(scenario.Title, timeout);
-        scenario.BuildPlan(fixture, plan);
-
-        var context = new SpecExecutionContext(scenario.Title, suite: _suite);
-        fixture.Context = context;
-
-        // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
-        Engine.BobcatClock.ResetToControllable();
-
-        // The plan is already built, so the step count is a fact rather than an estimate — a
-        // watcher can render "step 3 of 9" from the first step on.
-        _observer.ScenarioStarted(feature.Title, scenario.Title, plan.Steps.Count);
-
         // BeforeEach/AfterEach run inside the scenario's DI scope (opened by the caller), so
-        // they inject the same scoped services the steps see.
-        if (feature.BeforeEach != null) await feature.BeforeEach(fixture, context);
+        // they inject the same scoped services the steps see. Each is a named stop point on the
+        // scenario timeline: "BeforeEach 3.1s" is a diagnostic, "3.1s unaccounted" is a mystery.
+        if (feature.BeforeEach != null)
+        {
+            var mark = clock.ElapsedMilliseconds;
+            await feature.BeforeEach(fixture, context);
+            context.Results.RecordTimelinePoint("BeforeEach", mark, clock.ElapsedMilliseconds);
+        }
 
         try
         {
-            var executor = new Executor([new FailureLevelContinuationRule()], _observer);
+            var executor = new Executor([new FailureLevelContinuationRule()], _observer, clock);
             await executor.Execute(plan, context);
         }
         finally
         {
-            if (feature.AfterEach != null) await feature.AfterEach(fixture, context);
+            if (feature.AfterEach != null)
+            {
+                var mark = clock.ElapsedMilliseconds;
+                await feature.AfterEach(fixture, context);
+                context.Results.RecordTimelinePoint("AfterEach", mark, clock.ElapsedMilliseconds);
+            }
         }
 
         _observer.ScenarioFinished(context.Results);

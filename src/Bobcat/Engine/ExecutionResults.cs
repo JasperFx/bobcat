@@ -52,4 +52,37 @@ public class ExecutionResults
     }
 
     public IReadOnlyList<StepResult> Steps => _stepResults;
+
+    private readonly List<TimelinePoint> _timeline = new();
+
+    /// <summary>
+    /// Named stop points that are not steps — the <c>ResetAll</c> / <c>BeginScenarioAll</c>
+    /// bracket, <c>BeforeEach</c>/<c>AfterEach</c>, <c>EndScenarioAll</c> — each with its offsets
+    /// on the scenario's wall clock (issue #141). Steps carry their own offsets on
+    /// <see cref="StepResult.Start"/>/<see cref="StepResult.End"/>, against the same zero: the
+    /// moment the scenario was announced, before any reset ran. Time between stop points that
+    /// nothing here owns is a gap a consumer can compute by subtraction.
+    /// </summary>
+    public IReadOnlyList<TimelinePoint> Timeline => _timeline;
+
+    public void RecordTimelinePoint(string name, long startMs, long endMs)
+        => _timeline.Add(new TimelinePoint(name, startMs, endMs));
+
+    /// <summary>
+    /// The scenario's true wall clock: announced start to the end of the whole bracket,
+    /// <c>EndScenarioAll</c> included. Zero when the results were produced by something other
+    /// than the runner's bracket (a bare <see cref="Executor"/> in a test, an older artifact) —
+    /// a consumer falls back to the last step's end, knowing that under-reports.
+    /// </summary>
+    public long WallClockMs { get; set; }
+}
+
+/// <summary>
+/// One named, non-step stop point on a scenario's timeline: milliseconds from the scenario's
+/// announced start. Offsets rather than durations, deliberately — durations say what the work
+/// cost, offsets also say what no work owns.
+/// </summary>
+public record TimelinePoint(string Name, long StartMs, long EndMs)
+{
+    public long DurationMs => Math.Max(0, EndMs - StartMs);
 }

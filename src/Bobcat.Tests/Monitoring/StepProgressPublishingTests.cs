@@ -47,19 +47,22 @@ public class StepProgressPublishingTests
         var sink = new RecordingSink();
         var observer = unthrottled(sink);
 
+        // The executor always calls the four-argument form, passing its own wall-clock stamp —
+        // the same value that lands on StepResult.Start (#141), so wire and report agree.
         observer.ScenarioStarted("Orders", "ships", totalSteps: 3);
-        observer.StepStarted("s1", StepKind.Given, "an order");
+        observer.StepStarted("s1", StepKind.Given, "an order", scenarioElapsedMs: 0);
         observer.StepFinished(finished("s1", 0, 5));
-        observer.StepStarted("s2", StepKind.When, "it ships");
+        observer.StepStarted("s2", StepKind.When, "it ships", scenarioElapsedMs: 5);
 
         sink.Events.OfType<ScenarioStarted>().Single().TotalSteps.ShouldBe(3);
 
         var starts = sink.Events.OfType<StepStarted>().ToArray();
         starts.Select(s => s.StepNumber).ShouldBe([1, 2]);
         starts.ShouldAllBe(s => s.TotalSteps == 3);
-        starts.ShouldAllBe(s => s.ScenarioElapsedMs >= 0);
+        starts.Select(s => s.ScenarioElapsedMs).ShouldBe([0L, 5L]);
 
-        sink.Events.OfType<StepFinished>().Single().ScenarioElapsedMs.ShouldNotBeNull();
+        // StepFinished rides the step's own end stamp, not a second reading.
+        sink.Events.OfType<StepFinished>().Single().ScenarioElapsedMs.ShouldBe(5);
     }
 
     [Fact]
@@ -76,6 +79,8 @@ public class StepProgressPublishingTests
         var start = sink.Events.OfType<StepStarted>().Single();
         start.StepNumber.ShouldBe(1);
         start.TotalSteps.ShouldBeNull();
+        // The three-argument caller has no scenario clock to offer; null is honest, not zero.
+        start.ScenarioElapsedMs.ShouldBeNull();
     }
 
     [Fact]

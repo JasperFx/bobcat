@@ -42,6 +42,10 @@ public class CompositeObserver : IExecutionObserver
     // it; one that does not falls through to its own two-argument default.
     public void ScenarioStarted(string featureTitle, string scenarioTitle, int totalSteps) => each(o => o.ScenarioStarted(featureTitle, scenarioTitle, totalSteps));
     public void StepStarted(string stepId, StepKind kind, string stepText) => each(o => o.StepStarted(stepId, kind, stepText));
+    // Fanned out in the four-argument form for the same reason as ScenarioStarted above: an
+    // inner observer that wants the wall-clock offset gets it, one that does not falls through
+    // to its own three-argument default.
+    public void StepStarted(string stepId, StepKind kind, string stepText, long scenarioElapsedMs) => each(o => o.StepStarted(stepId, kind, stepText, scenarioElapsedMs));
     public void StepProgress(string stepId, StepUpdate update) => each(o => o.StepProgress(stepId, update));
     public void StepFinished(StepResult result) => each(o => o.StepFinished(result));
     public void ScenarioFinished(ExecutionResults results) => each(o => o.ScenarioFinished(results));
