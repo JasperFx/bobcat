@@ -80,6 +80,21 @@ public static class RunReport
             }
         }
 
+        // The kills are their own ledger, apart from worker faults and apart from the flaky
+        // ledger (issue #173): a wedge is not a crash and not a flake, and a run that only
+        // stayed green because a wedged worker was shot must say so.
+        if (results.StallKills.Count > 0)
+        {
+            report.AppendLine().AppendLine("Workers killed to clear a stall (StallAction.KillAndRetry):");
+            foreach (var kill in results.StallKills)
+            {
+                report.AppendLine(
+                    $"  ↯ {kill.DisplayName} — killed after {(int)kill.InFlight.TotalSeconds}s in flight" +
+                    (kill.Lane is { } lane ? $" on lane {lane}" : " in a solo process") +
+                    (kill.ProcessId is { } pid ? $" (pid {pid})" : ""));
+            }
+        }
+
         timing(report, results);
         memory(report, results);
 
@@ -253,6 +268,14 @@ public static class RunReport
                 ["displayName"] = s.DisplayName,
                 ["inFlightMs"] = s.InFlight.TotalMilliseconds,
                 ["lane"] = s.Worker.Lane
+            }).ToArray()),
+            ["stallKills"] = new JsonArray(results.StallKills.Select(k => (JsonNode)new JsonObject
+            {
+                ["uid"] = k.Uid,
+                ["displayName"] = k.DisplayName,
+                ["inFlightMs"] = k.InFlight.TotalMilliseconds,
+                ["lane"] = k.Lane,
+                ["processId"] = k.ProcessId
             }).ToArray()),
             ["recyclings"] = new JsonArray(results.Recyclings.Select(r => (JsonNode)r!).ToArray()),
             ["workerFaults"] = new JsonArray(results.WorkerFaults.Select(f => (JsonNode)f!).ToArray()),

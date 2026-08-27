@@ -14,6 +14,23 @@ public sealed class FakeWorker : IWorkerClient
     public int Index { get; init; }
     public bool Disposed { get; private set; }
 
+    private readonly TaskCompletionSource _killed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>The reason the supervisor killed this worker, when it did (issue #173).</summary>
+    public string? KilledReason { get; private set; }
+
+    /// <summary>
+    /// Models the process-tree kill: an in-flight <see cref="Run"/> stops where it stands and
+    /// returns a fault, with indeterminate outcomes synthesized for everything unreported —
+    /// exactly how <see cref="MtpWorkerClient"/> experiences its process dying.
+    /// </summary>
+    public ValueTask Kill(string reason)
+    {
+        KilledReason = reason;
+        _killed.TrySetResult();
+        return default;
+    }
+
     /// <summary>Scripted pid — null by default, modelling an in-process client (issue #146).</summary>
     public int? ProcessId { get; init; }
 
@@ -50,6 +67,9 @@ public sealed class FakeWorker : IWorkerClient
 
         foreach (var uid in requested)
         {
+            // A dead process runs nothing further.
+            if (_killed.Task.IsCompleted) break;
+
             var test = _factory.Tests.FirstOrDefault(t => t.Uid == uid);
             var displayName = _factory.ReportedNameFor(uid) ?? test?.DisplayName ?? uid;
             var traits = test?.Traits ?? new Dictionary<string, string>();
@@ -57,8 +77,10 @@ public sealed class FakeWorker : IWorkerClient
             relay(new WorkerTestUpdate(uid, displayName, "in-progress") { Traits = traits });
 
             // After the in-progress report, before any verdict — a hung test, as the
-            // supervisor experiences one.
-            if (_factory.HoldAfterStart is { } hold) await hold(uid, this);
+            // supervisor experiences one. A kill breaks the hold the way it would break a
+            // real wedged process.
+            if (_factory.HoldAfterStart is { } hold) await Task.WhenAny(hold(uid, this), _killed.Task);
+            if (_killed.Task.IsCompleted) break;
 
             var attempt = _factory.RecordAttempt(uid);
             var state = _factory.StateFor(uid, attempt, this);
@@ -80,7 +102,8 @@ public sealed class FakeWorker : IWorkerClient
             });
         }
 
-        var fault = _factory.FaultFor(this);
+        var fault = _factory.FaultFor(this)
+                    ?? (KilledReason is null ? null : $"the worker process was killed: {KilledReason}");
 
         return new WorkerRunResult(
             MtpWorkerClient.Complete(uids, outcomes, fault))

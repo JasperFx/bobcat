@@ -484,6 +484,22 @@ public sealed class MtpWorkerClient : IWorkerClient
         catch { /* already gone */ }
     }
 
+    /// <summary>
+    /// The stall escalation's kill (issue #173): straight to the process-tree kill, through the
+    /// #147 diagnostics hook with the stall's own reason — this is exactly the moment a
+    /// consumer's <c>dotnet-dump collect</c> wants, and the reason tells it why. No polite exit
+    /// and no grace period on purpose: the worker is presumed wedged, and DisposeAsync's ask-
+    /// then-wait is how a kill would hang behind the very hang it exists to clear. Connection
+    /// teardown is left to the later DisposeAsync, which tolerates an already-dead process;
+    /// the in-flight Run completes with a fault and synthesized indeterminate outcomes, the
+    /// same way a crash does.
+    /// </summary>
+    public async ValueTask Kill(string reason)
+    {
+        await invokeBeforeKillIfAlive(_process, _onBeforeKill, _beforeKillTimeout, _launch, reason);
+        tryKill(_process);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try

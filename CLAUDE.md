@@ -707,10 +707,35 @@ ones on upgrade. Same reasoning as retries being opt-in.
   run (same reasoning as `Quarantine`). `HeartbeatInterval` emits one `Log` line however many
   lanes are running plus `Heartbeat(SupervisorHeartbeat)`; the "longest running" clause is the
   point — a stuck run shows as that figure climbing before any threshold fires. All off by
-  default; the supervisor never kills a worker over a stall (that is a second, separable
-  decision, deliberately not built). Time is injectable (`Supervisor.Time`, a `TimeProvider`)
-  so `StallAndHeartbeatTests` drives a fake clock and holds "hung" workers on a
-  `TaskCompletionSource` instead of sleeping.
+  default; whether the supervisor then acts on a stall is the second, separable, opt-in
+  decision — `StallAction`, issue #173, below. Time is injectable (`Supervisor.Time`, a
+  `TimeProvider`) so `StallAndHeartbeatTests` drives a fake clock and holds "hung" workers on
+  a `TaskCompletionSource` instead of sleeping.
+- **Acting on a stall is `Supervisor.StallAction` (issue #173)** — default `Report` (#145's
+  behaviour, unchanged; detection always still reports whatever the action). `KillAndRetry`:
+  the ticker's `escalate` kills the stalled worker through the new `IWorkerClient.Kill(reason)`
+  (on `MtpWorkerClient`: straight to the process-tree kill through #147's `OnBeforeKill` hook
+  with the stall's reason — no polite exit, because asking a wedged process nicely is how a
+  kill hangs; connection teardown stays with the later `DisposeAsync`). The killed worker's
+  `Run` returns a fault with synthesized Indeterminate outcomes exactly like a crash, and
+  `record()` intercepts them (`stallKilled` flag, consumed per lane / per solo worker): the
+  stalled test gets `RetryInFreshProcess` once — a second stall on its solo retry is
+  `FailAndContinue`, never retried forever — and **innocent batch-mates killed alongside it
+  resume in their lane** (`RetryInProcess` → the same slot, necessarily a fresh process)
+  instead of being reported Indeterminate for the supervisor's own act. `AbortRun` stops the
+  whole run on the first stall; in `KillAndRetry`, `MaxStallKills` (default 3) is the run-wide
+  ceiling after which the next stall aborts — repeated stalls across tests are the shape of
+  dead infrastructure. Three ledger rules, all deliberate: stall-managed outcomes **never
+  consult the policy or spend the `RetryBudget`** (the kill is the supervisor's own act; a
+  wedge is not a flake); `SupervisorAttempt.StallInduced` keeps those attempts out of
+  `PassedOnRetry`/`Quarantine` (via `TestReport.WasRetriedForFailure` — a pass whose only
+  earlier attempt was stall-induced is a **clean pass**, the stall story lives on
+  `SupervisorResults.StallKills` + `StalledTests`); and a stall kill is **not a
+  `WorkerFault`** — the fault ledger is for deaths the supervisor didn't order. Observers get
+  `StallKilled(StallKill)`; `RunReport` renders a "Workers killed to clear a stall" section
+  and a `stallKills` JSON block. Not on the monitor wire as its own event yet — the stall
+  (`test_stalled`) and the retry (with the stall reason) already travel; a dedicated
+  `stall_killed` wire event is a follow-on if the dashboard wants to render kills distinctly.
 - **`MtpWorkerFactory.OnBeforeKill` offers a live worker to the consumer before killing it**
   (issue #147) — a seam, not a feature: Bobcat ships no dump logic and takes no dotnet-dump
   dependency; the consumer captures what it wants (`dotnet-dump collect` + `dumpasync` is what

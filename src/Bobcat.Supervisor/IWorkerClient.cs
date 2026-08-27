@@ -151,6 +151,18 @@ public interface IWorkerClient : IAsyncDisposable
     void OnTestUpdate(Action<WorkerTestUpdate> handler)
     {
     }
+
+    /// <summary>
+    /// Forcibly kill the worker right now, because <paramref name="reason"/> — the stall
+    /// escalation's verb (issue #173). Unlike <see cref="IAsyncDisposable.DisposeAsync"/> there
+    /// is no polite exit request and no grace period: this is called for a worker presumed
+    /// wedged, and asking a wedged process nicely is how a kill hangs. An in-flight
+    /// <see cref="Run"/> is expected to complete afterwards with a
+    /// <see cref="WorkerRunResult.Fault"/> and synthesized indeterminate outcomes, exactly as a
+    /// crash would. The default falls back to disposal, which is the closest thing a client
+    /// without a process has.
+    /// </summary>
+    ValueTask Kill(string reason) => DisposeAsync();
 }
 
 /// <summary>What the supervisor is about to launch a worker for.</summary>

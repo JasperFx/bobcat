@@ -66,6 +66,20 @@ public sealed class Supervisor
     private long _launchTicks;
     private bool _lanesReleased;
 
+    // The stall escalation's books (issue #173), all behind _recordGate: written from the
+    // ticker's thread when a stall fires, consumed on the run's own flow when the killed
+    // worker's result is recorded.
+    private readonly List<StallKill> _stallKills = [];
+    private readonly Dictionary<string, int> _stallKillsOfTest = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, StalledTest> _pendingStallRetry = new(StringComparer.Ordinal);
+    private readonly HashSet<int> _stallKilledLanes = [];
+    private bool _aloneStallKilled;
+    private string? _stallAbort;
+
+    // The one worker currently running a test alone (isolated / recycled / stall retry), so the
+    // ticker can find it to kill — lanes are addressable through _lanes, this one was not.
+    private IWorkerClient? _aloneWorker;
+
     // Fixed for the duration of one run: the registered observers plus, when publishing is on,
     // the monitor's. Computed once so a run's notifications cannot change under it.
     private ISupervisorObserver[] _watching = [];
@@ -176,11 +190,12 @@ public sealed class Supervisor
     /// <see cref="SupervisorResults.StalledTests"/>. Off by default. (issue #145)
     /// </summary>
     /// <remarks>
-    /// Reporting only, and that is a decision, not a gap: the name of the hung test is the
-    /// thing a capped CI job cannot produce today, and a threshold turned into an automatic
+    /// Reporting by default, and that is a decision, not a gap: the name of the hung test is
+    /// the thing a capped CI job cannot produce today, and a threshold turned into an automatic
     /// kill is a knob that will eventually fire on a legitimately slow integration test —
     /// <c>RunTiming</c>'s "report, don't act" note is the right instinct. Whether the
-    /// supervisor should then kill the worker is a second, separable, opt-in decision.
+    /// supervisor should then kill the worker is the second, separable, opt-in decision:
+    /// <see cref="StallAction"/> (issue #173).
     /// </remarks>
     public TimeSpan? StallThreshold { get; set; }
 
@@ -190,6 +205,24 @@ public sealed class Supervisor
     /// never saw falls back to <see cref="StallThreshold"/>.
     /// </summary>
     public Func<WorkerTest, TimeSpan>? StallThresholdFor { get; set; }
+
+    /// <summary>
+    /// What happens when a stall fires (issue #173) — the deferred second half of the stall
+    /// detection, opt-in and off (<see cref="StallAction.Report"/>) by default. See
+    /// <see cref="Supervisor.StallAction"/>'s enum members for the ladder;
+    /// <see cref="MaxStallKills"/> caps how far <see cref="StallAction.KillAndRetry"/> goes
+    /// before conceding the environment is dead. Meaningless without a
+    /// <see cref="StallThreshold"/> / <see cref="StallThresholdFor"/>, since nothing fires.
+    /// </summary>
+    public StallAction StallAction { get; set; } = StallAction.Report;
+
+    /// <summary>
+    /// How many stall kills <see cref="StallAction.KillAndRetry"/> may perform before the next
+    /// stall aborts the run instead. Repeated stalls across different tests are the shape of
+    /// dead infrastructure — a Docker daemon that stopped answering mid-run — and killing one
+    /// worker at a time through that just burns the budget producing misleading failures.
+    /// </summary>
+    public int MaxStallKills { get; set; } = 3;
 
     /// <summary>
     /// Sample each live worker's resident set this often while the run is in flight — RunTiming
@@ -434,6 +467,7 @@ public sealed class Supervisor
             WorkerFaults = faults,
             Recyclings = recyclings,
             StalledTests = ledger.Stalled,
+            StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
             TestMemory = _sampler?.Tests ?? [],
             Duration = live.Elapsed,
@@ -541,9 +575,15 @@ public sealed class Supervisor
             WorkerFaults = _workerFaults,
             Recyclings = _recyclings,
             StalledTests = _ledger.Stalled,
+            StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
             TestMemory = _sampler?.Tests ?? []
         };
+    }
+
+    private IReadOnlyList<StallKill> stallKills()
+    {
+        lock (_recordGate) return _stallKills.ToList();
     }
 
     private async Task<string?> runPreflight(CancellationToken ct)
@@ -604,9 +644,13 @@ public sealed class Supervisor
             foreach (var (index, result) in results.OrderBy(r => r.Index))
             {
                 if (result.Crashed) invalidateLane(index, result.Fault!);
-                recordFault(result, index);
 
-                var abort = record(result, AttemptPlacement.Batched, traits, attempts);
+                // A death the supervisor ordered over a stall (issue #173) is not a worker
+                // fault — it is the supervisor's own action, reported on StallKills.
+                var stallKilled = consumeStallKill(index);
+                if (!stallKilled) recordFault(result, index);
+
+                var abort = record(result, AttemptPlacement.Batched, traits, attempts, stallKilled);
                 if (abort is not null) return abort;
             }
         }
@@ -616,9 +660,9 @@ public sealed class Supervisor
             ct.ThrowIfCancellationRequested();
 
             Log?.Invoke($"running alone: {uid}");
-            var result = await runAlone(uid, WorkerPurpose.Isolated, ct);
+            var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
-            var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
+            var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
             if (abort is not null) return abort;
         }
 
@@ -699,9 +743,11 @@ public sealed class Supervisor
                 foreach (var (index, result) in results.OrderBy(r => r.Index))
                 {
                     if (result.Crashed) invalidateLane(index, result.Fault!);
-                    recordFault(result, index);
 
-                    var abort = record(result, AttemptPlacement.SameProcess, traits, attempts);
+                    var stallKilled = consumeStallKill(index);
+                    if (!stallKilled) recordFault(result, index);
+
+                    var abort = record(result, AttemptPlacement.SameProcess, traits, attempts, stallKilled);
                     if (abort is not null) return abort;
                 }
             }
@@ -711,9 +757,9 @@ public sealed class Supervisor
                 ct.ThrowIfCancellationRequested();
 
                 Log?.Invoke($"retrying alone in a fresh process: {uid}");
-                var result = await runAlone(uid, WorkerPurpose.Isolated, ct);
+                var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
-                var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts);
+                var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
                 if (abort is not null) return abort;
             }
 
@@ -727,35 +773,58 @@ public sealed class Supervisor
                 if (recycleFailure is not null) return recycleFailure;
 
                 Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
-                var result = await runAlone(uid, WorkerPurpose.Recycled, ct);
+                var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Recycled, ct);
 
-                var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts);
+                var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts, stallKilled);
                 if (abort is not null) return abort;
             }
         }
     }
 
     /// <summary>A dedicated process running exactly one test, then thrown away.</summary>
-    private async Task<WorkerRunResult> runAlone(string uid, WorkerPurpose purpose, CancellationToken ct)
+    private async Task<(WorkerRunResult Result, bool StallKilled)> runAlone(
+        string uid, WorkerPurpose purpose, CancellationToken ct)
     {
         // Lane 0: these never run while the pool is running, so reusing the first slot's
         // per-worker resources cannot collide with anything.
         await using var worker = await launchWorker(new WorkerLaunchContext(0, purpose), ct);
-        var result = await worker.Run([uid], ct);
-        // Not a lane: this process ran one test alone and is about to be thrown away.
-        recordFault(result, lane: null);
-        return result;
+
+        // Registered so the stall ticker can find (and kill) it — a solo retry can wedge too.
+        Volatile.Write(ref _aloneWorker, worker);
+        WorkerRunResult result;
+        try
+        {
+            result = await worker.Run([uid], ct);
+        }
+        finally
+        {
+            Volatile.Write(ref _aloneWorker, null);
+        }
+
+        var stallKilled = consumeStallKill(lane: null);
+
+        // Not a lane: this process ran one test alone and is about to be thrown away. A death
+        // the supervisor itself ordered over a stall is not a fault — it is on StallKills.
+        if (!stallKilled) recordFault(result, lane: null);
+        return (result, stallKilled);
     }
 
     /// <summary>
     /// Records outcomes and asks the policy what to do next. Returns an abort reason when a
-    /// policy said to stop the whole run.
+    /// policy said to stop the whole run — or when the stall escalation did (issue #173).
     /// </summary>
+    /// <param name="stallKilled">
+    /// True when this result came from a worker the supervisor itself killed over a stall. Its
+    /// indeterminate outcomes are then the supervisor's own doing — the stalled test and the
+    /// batch-mates that died alongside it — so they take the stall dispositions directly
+    /// instead of consulting the policy or spending the retry budget.
+    /// </param>
     private string? record(
         WorkerRunResult result,
         AttemptPlacement placement,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
-        Dictionary<string, List<SupervisorAttempt>> attempts)
+        Dictionary<string, List<SupervisorAttempt>> attempts,
+        bool stallKilled = false)
     {
         foreach (var reported in result.Outcomes)
         {
@@ -769,10 +838,27 @@ public sealed class Supervisor
                     history = [];
                     attempts[outcome.Uid] = history;
                 }
+
+                // A real verdict supersedes a pending stall retry — the race where the test
+                // finished in the instant between detection and the kill landing.
+                if (outcome.State != WorkerTestState.Indeterminate) _pendingStallRetry.Remove(outcome.Uid);
             }
 
             var attemptNumber = history.Count + 1;
             var testTraits = traitsFor(traits, outcome.Uid);
+
+            if (stallKilled && outcome.State == WorkerTestState.Indeterminate)
+            {
+                var stallAttempt = new SupervisorAttempt(
+                    attemptNumber, outcome, placement, stallDisposition(outcome))
+                {
+                    StallInduced = true
+                };
+
+                lock (_recordGate) history.Add(stallAttempt);
+                notify(observer => observer.AttemptRecorded(outcome.Uid, stallAttempt));
+                continue;
+            }
 
             var decided = policy.Decide(new AttemptContext
             {
@@ -803,7 +889,11 @@ public sealed class Supervisor
             if (effective.Kind == DispositionKind.AbortRun) return effective.Reason;
         }
 
-        return null;
+        // The stall escalation's abort (issue #173): raised on the ticker's thread, honoured
+        // here on the run's own flow, after this result's outcomes were still recorded — the
+        // same manners as a policy's AbortRun, and the same "everything learned so far
+        // survives" rule as a failed recycle.
+        lock (_recordGate) return _stallAbort;
     }
 
     /// <summary>
@@ -981,6 +1071,10 @@ public sealed class Supervisor
                 var report = stalled;
                 notify(observer =>
                     observer.TestStalled(report.Worker, report.Uid, report.DisplayName, report.InFlight));
+
+                // Detection always reports (above, unchanged); acting on it is the opt-in
+                // second decision (issue #173).
+                if (StallAction != StallAction.Report) escalate(stalled);
             }
 
             if (HeartbeatInterval is { } interval && ledger.HeartbeatDue(interval))
@@ -1010,6 +1104,156 @@ public sealed class Supervisor
         }
 
         return StallThreshold;
+    }
+
+    /// <summary>
+    /// Act on a stall (issue #173): kill the worker and book the retry, or abort the run. Runs
+    /// on the ticker's thread; everything it decides is written under <c>_recordGate</c> and
+    /// consumed later on the run's own flow, when the killed worker's <c>Run</c> call returns.
+    /// </summary>
+    private void escalate(StalledTest stalled)
+    {
+        string? abort = null;
+        StallKill? kill = null;
+
+        lock (_recordGate)
+        {
+            // One abort is enough; later stalls in the same dying run change nothing.
+            if (_stallAbort is not null) return;
+
+            var pid = stalled.Worker.ProcessId;
+            var where = $"lane {stalled.Worker.Lane}" + (pid is { } p ? $" (pid {p})" : "");
+
+            if (StallAction == StallAction.AbortRun)
+            {
+                abort = $"{stalled.DisplayName} was in flight {(int)stalled.InFlight.TotalSeconds}s, past its " +
+                        $"stall threshold, on {where}, and StallAction is AbortRun — stopping the run rather " +
+                        "than producing misleading downstream failures";
+            }
+            else if (_stallKills.Count >= MaxStallKills)
+            {
+                abort = $"{stalled.DisplayName} stalled after {_stallKills.Count} stall kill(s) already this " +
+                        "run — repeated stalls are the shape of dead infrastructure, so the run is aborted " +
+                        "rather than killing one worker at a time through it";
+            }
+            else
+            {
+                _stallKillsOfTest.TryGetValue(stalled.Uid, out var perTest);
+                _stallKillsOfTest[stalled.Uid] = perTest + 1;
+                _pendingStallRetry[stalled.Uid] = stalled;
+
+                kill = new StallKill(stalled.Uid, stalled.DisplayName, stalled.InFlight,
+                    stalled.Worker.Purpose == WorkerPurpose.Lane ? stalled.Worker.Lane : null, pid);
+                _stallKills.Add(kill);
+
+                if (stalled.Worker.Purpose == WorkerPurpose.Lane) _stallKilledLanes.Add(stalled.Worker.Lane);
+                else _aloneStallKilled = true;
+            }
+
+            if (abort is not null) _stallAbort = abort;
+        }
+
+        if (abort is not null)
+        {
+            Log?.Invoke($"ABORTING: {abort}");
+            killLiveWorkers($"the run is aborting: {abort}");
+            return;
+        }
+
+        Log?.Invoke($"KILLING the worker running {stalled.DisplayName} to clear the stall");
+        notify(observer => observer.StallKilled(kill!));
+
+        if (liveWorkerFor(stalled.Worker) is { } worker)
+        {
+            // Fire and forget: the kill's effect arrives as the worker's Run call returning
+            // with a fault, on the run's own flow — the ticker must not block on it.
+            _ = worker.Kill(
+                    $"{stalled.DisplayName} stalled ({(int)stalled.InFlight.TotalSeconds}s in flight) " +
+                    "and StallAction is KillAndRetry")
+                .AsTask();
+        }
+        else
+        {
+            // The worker finished (or was replaced) between detection and now. The pending
+            // books self-correct: a real verdict recorded for the test clears its entry.
+            Log?.Invoke("the stalled worker was no longer live; nothing to kill");
+        }
+    }
+
+    /// <summary>The live client for the worker a stall was detected in, when it still exists.</summary>
+    private IWorkerClient? liveWorkerFor(WorkerLaunchContext worker)
+    {
+        if (worker.Purpose == WorkerPurpose.Lane)
+        {
+            lock (_gate) return worker.Lane < _lanes.Count ? _lanes[worker.Lane] : null;
+        }
+
+        return Volatile.Read(ref _aloneWorker);
+    }
+
+    private void killLiveWorkers(string reason)
+    {
+        List<IWorkerClient> live = [];
+        lock (_gate)
+        {
+            foreach (var worker in _lanes)
+            {
+                if (worker is not null) live.Add(worker);
+            }
+        }
+
+        if (Volatile.Read(ref _aloneWorker) is { } alone) live.Add(alone);
+
+        foreach (var worker in live) _ = worker.Kill(reason).AsTask();
+    }
+
+    /// <summary>
+    /// Whether the just-returned result came from a worker this run killed over a stall —
+    /// consumed exactly once, on the run's own flow, right before the result is recorded.
+    /// </summary>
+    private bool consumeStallKill(int? lane)
+    {
+        lock (_recordGate)
+        {
+            if (lane is { } index) return _stallKilledLanes.Remove(index);
+
+            var was = _aloneStallKilled;
+            _aloneStallKilled = false;
+            return was;
+        }
+    }
+
+    /// <summary>
+    /// The disposition for an outcome the supervisor manufactured by killing its worker. The
+    /// policy and the retry budget have no say here — the failure is the supervisor's own act,
+    /// a wedge is not a flake, and spending the operator's retry budget on it would conflate
+    /// the two ledgers the issue says must stay apart.
+    /// </summary>
+    private Disposition stallDisposition(WorkerOutcome outcome)
+    {
+        lock (_recordGate)
+        {
+            if (_pendingStallRetry.Remove(outcome.Uid, out var stalled))
+            {
+                _stallKillsOfTest.TryGetValue(outcome.Uid, out var kills);
+
+                return kills <= 1
+                    ? Disposition.RetryInFreshProcess(
+                        $"stalled: {(int)stalled.InFlight.TotalSeconds}s in flight, past its stall " +
+                        "threshold — the supervisor killed its worker and is retrying it alone in a " +
+                        "fresh process (StallAction.KillAndRetry; not charged to the retry budget)")
+                    : Disposition.FailAndContinue(
+                        $"stalled again on its own solo retry ({(int)stalled.InFlight.TotalSeconds}s in " +
+                        "flight) — a deterministic hang or dead infrastructure, not retried again");
+            }
+
+            // A batch-mate that died alongside the stalled test. It was innocent, so it goes
+            // back to its lane — the same slot, necessarily a fresh process — rather than being
+            // reported indeterminate for the supervisor's own kill.
+            return Disposition.RetryInProcess(
+                "its worker was killed to clear a stalled batch-mate; resuming in its lane " +
+                "(not charged to the retry budget)");
+        }
     }
 
     /// <summary>

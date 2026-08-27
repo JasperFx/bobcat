@@ -29,6 +29,15 @@ public sealed record SupervisorAttempt(
     /// <summary>Set when a disposition could not be acted on, with the reason.</summary>
     public string? Unsupported { get; init; }
 
+    /// <summary>
+    /// True when this attempt's outcome was manufactured by the supervisor's own stall kill
+    /// (issue #173) — the stalled test's killed attempt, or a batch-mate's that died alongside
+    /// it. A wedge is not a flake: attempts marked this way never make a test "passed on
+    /// retry" and never put it in <see cref="SupervisorResults.Quarantine"/>, because
+    /// conflating the two corrupts the flakiness ledger in both directions.
+    /// </summary>
+    public bool StallInduced { get; init; }
+
     public bool Succeeded => Outcome.Succeeded;
 }
 
@@ -44,9 +53,23 @@ public sealed class TestReport
     public bool WasRetried => Attempts.Count > 1;
 
     /// <summary>
+    /// True when some attempt beyond the first was caused by the test's own failure, as opposed
+    /// to every extra attempt being the supervisor killing a stalled worker out from under it
+    /// (issue #173). This — not the structural <see cref="WasRetried"/> — is what the flakiness
+    /// surfaces key off: a test whose only "retry" was a stall kill told us nothing about its
+    /// reliability.
+    /// </summary>
+    public bool WasRetriedForFailure
+        => Attempts.Count > 1 && Attempts.Take(Attempts.Count - 1).Any(a => !a.StallInduced);
+
+    /// <summary>
     /// The honest three-way status. A test that needed retries reports
     /// <see cref="RunOutcome.PassOnRetry"/> and is never counted as a clean pass — collapsing
-    /// the two is how a retry feature turns into a way to launder red into green.
+    /// the two is how a retry feature turns into a way to launder red into green. The one
+    /// exception runs the other way: a pass whose only earlier attempt was stall-induced is a
+    /// clean pass, because the test passed the only time it actually ran — the stall story is
+    /// told by <see cref="SupervisorResults.StalledTests"/> and
+    /// <see cref="SupervisorResults.StallKills"/>, not by the flaky ledger.
     /// </summary>
     public RunOutcome Outcome
     {
@@ -54,7 +77,7 @@ public sealed class TestReport
         {
             if (Attempts.Any(a => a.Disposition.Kind == DispositionKind.AbortRun)) return RunOutcome.Aborted;
             if (!Final.Succeeded) return RunOutcome.Failed;
-            return WasRetried ? RunOutcome.PassOnRetry : RunOutcome.CleanPass;
+            return WasRetriedForFailure ? RunOutcome.PassOnRetry : RunOutcome.CleanPass;
         }
     }
 
@@ -66,6 +89,14 @@ public sealed class TestReport
 }
 
 /// <summary>The whole run.</summary>
+/// <summary>
+/// A worker the supervisor killed to clear a stalled test (issue #173): who stalled, how far
+/// past the threshold it was, and which process died for it.
+/// </summary>
+/// <param name="Lane">The lane whose worker was killed; null when the process ran one test alone.</param>
+public sealed record StallKill(
+    string Uid, string DisplayName, TimeSpan InFlight, int? Lane, int? ProcessId);
+
 public sealed class SupervisorResults
 {
     public required IReadOnlyList<TestReport> Tests { get; init; }
@@ -124,6 +155,14 @@ public sealed class SupervisorResults
     public IReadOnlyList<StalledTest> StalledTests { get; init; } = [];
 
     /// <summary>
+    /// Workers the supervisor killed to clear a stalled test (issue #173), in kill order. Empty
+    /// unless <see cref="Supervisor.StallAction"/> is <see cref="StallAction.KillAndRetry"/> and
+    /// a stall actually fired. Survives into the report even on a green run — a run that only
+    /// stayed green because a wedged worker was shot is a fact the summary must not hide.
+    /// </summary>
+    public IReadOnlyList<StallKill> StallKills { get; init; } = [];
+
+    /// <summary>
     /// Each sampled worker's memory story (issue #149) — first, peak and last resident set.
     /// Empty unless <c>Supervisor.ResourceSampleInterval</c> was configured; a worker that
     /// could not be measured contributes nothing rather than zeroes.
@@ -160,9 +199,12 @@ public sealed class SupervisorResults
     /// Membership is "was retried", not "eventually failed", on purpose. A test that passes on
     /// the third attempt every run is unreliable, and a green build is exactly the situation in
     /// which that fact would otherwise go unnoticed. "Flaky under broker contention" is also
-    /// precisely the behavioural insight the AI outbox wants.
+    /// precisely the behavioural insight the AI outbox wants. Retried <em>for its own
+    /// failure</em>, though — a test whose worker the supervisor killed over a stall (its own
+    /// or a batch-mate's, issue #173) said nothing about its reliability, so stall-induced
+    /// attempts do not put it here; those live on <see cref="StallKills"/>.
     /// </remarks>
-    public IReadOnlyList<TestReport> Quarantine => Tests.Where(t => t.WasRetried).ToList();
+    public IReadOnlyList<TestReport> Quarantine => Tests.Where(t => t.WasRetriedForFailure).ToList();
 
     public IReadOnlyList<string> UnsupportedDispositions
         => Tests.SelectMany(t => t.UnsupportedDispositions).Distinct().ToList();
@@ -195,6 +237,7 @@ public sealed class SupervisorResults
         if (PassedOnRetry.Count > 0) parts.Add($"{PassedOnRetry.Count} passed on retry");
         if (Failed.Count > 0) parts.Add($"{Failed.Count} failed");
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
+        if (StallKills.Count > 0) parts.Add($"{StallKills.Count} stall kill(s)");
 
         var summary = string.Join(", ", parts);
         summary = $"{partial}{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";

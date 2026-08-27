@@ -111,9 +111,21 @@ public interface ISupervisorObserver
     /// <remarks>
     /// Fired once per attempt, from the supervisor's own timer thread, when the threshold is
     /// crossed — the heartbeat's climbing longest-running figure is the continuous view.
-    /// Reporting is the whole feature: the supervisor never kills a worker over a stall.
+    /// Detection always reports; whether the supervisor then acts is
+    /// <see cref="Supervisor.StallAction"/>'s opt-in decision (issue #173), and by default it
+    /// never kills a worker over a stall.
     /// </remarks>
     void TestStalled(WorkerLaunchContext worker, string uid, string displayName, TimeSpan inFlight)
+    {
+    }
+
+    /// <summary>
+    /// The supervisor is killing a worker to clear a stalled test (issue #173) — fired only
+    /// when <see cref="Supervisor.StallAction"/> is <see cref="StallAction.KillAndRetry"/>,
+    /// after the stall itself was announced through
+    /// <see cref="TestStalled(WorkerLaunchContext,string,string,TimeSpan)"/>. Default no-op.
+    /// </summary>
+    void StallKilled(StallKill kill)
     {
     }
 
