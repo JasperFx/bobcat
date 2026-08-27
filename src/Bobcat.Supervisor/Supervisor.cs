@@ -155,8 +155,10 @@ public sealed class Supervisor
     /// Optional, and a first run has none — then partitions are weighted by test count, which is
     /// a poor proxy. Measured on Wolverine's <c>PersistenceTests</c>: count-balanced lanes finished
     /// at 101.5s and 11.4s, so nearly a quarter of the fleet sat idle. The natural source is the
-    /// committed ledger of issues #44 and #56; until that exists a caller can persist
-    /// <c>WorkerOutcome.Duration</c> from the previous run itself.
+    /// committed ledger (<c>docs/ledger-design.md</c>):
+    /// <c>TestLedger.Load(path).KnownDurations()</c> is this exact shape, fed back from prior
+    /// runs' <c>SupervisorLedger.From(results, …)</c> observations. Deliberately not read
+    /// implicitly — an implicit file read is the same kind of side effect as an implicit write.
     /// </remarks>
     public IReadOnlyDictionary<string, TimeSpan>? KnownTestDurations { get; set; }
 

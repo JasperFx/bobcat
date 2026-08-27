@@ -338,8 +338,10 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   `try_it_out` example arrives as a bare duration and cannot be caught here). Figures describe
   the final attempt (retry cost is `RunTiming`'s). "Measured" means the results carry a wall
   clock *or* timeline points — a sub-millisecond scenario legitimately reads 0ms and is not
-  "unmeasured". Items 4–5 (sleep-shaped durations, cross-run trends) stay unbuilt: both need
-  the committed ledger, whose merge strategy is still an open decision.
+  "unmeasured". Item 5 (cross-run trends) now ships on the committed ledger
+  (`TestLedger.Trends()`, `docs/ledger-design.md`); item 4 (sleep-shaped durations) stays
+  unbuilt — its false-positive question is open, and `[SlowByDesign]` is a JasperFx.Testing
+  decision.
 
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.
@@ -524,12 +526,25 @@ public class OrderFixture : Fixture;
   once looks like its tag stopped working. Surfaced as `↯ recovery hint applied` in the console
   and as a `hint` object per attempt in `RunReport.ToJson`.
 
-**Not built yet: layer 2, the committed failure ledger.** The issue's own build order puts it
-second, and its open questions (on-disk format, how a failure class is keyed, merge strategy for
-concurrent CI appends, aging) are decisions rather than code. `RecoveryHint` is the shape it will
-emit. The DECIDED fork stands: the ledger may *propose* a hint, but a human accepts it — a policy
-that silently learns "just retry this" is exactly how red gets laundered into green with nobody
-deciding to.
+**Layer 2, the committed ledger, is built** (`src/Bobcat/Ledger/TestLedger.cs`, design of
+record `docs/ledger-design.md`) — one store serving #44's hint proposals, #142's duration
+trends, and `Supervisor.KnownTestDurations` (the third consumer that made it infrastructure:
+`ledger.KnownDurations()` feeds `WorkPlan`'s balancer from the first pass). The open questions
+were settled by making the merge strategy the design: a grow-only set of per-(test, run)
+observations plus a deterministic clock-free prune — `Record`/`Merge` commutative, associative,
+idempotent; serialization canonical (byte-identical for the same observations, whoever folds) —
+so a git conflict always resolves by load-both-sides → `Merge` → save, no artifacts needed.
+Failure classes are keyed by type *name* (the `FailureSignature` rule); aging is newest
+`MaxRunsPerTest` per test plus explicit `PruneTestsNotSeenSince(cutoff)` for deleted tests.
+Feeds: `SupervisorLedger.From(SupervisorResults, runId, at)` (rich — every attempt survives) and
+`LedgerRuns.From(SuiteResults, runId, at)` (in-process; the #141 wall clock is the duration, and
+a pass-on-retry's original failure type is honestly unknown). Nothing writes the ledger
+implicitly — recording is the caller's line of code, and stall-induced entries (#173) never
+feed hint evidence. The DECIDED fork stands, now in code: `ProposeHints()` emits attribute
+*text* with `Because` evidence (plus the `[NeverRecovers]` counterweight, `minOccurrences`
+gating both) — a human accepts by writing it into the code, and nothing reads proposals back
+into an `IFailurePolicy`; a policy that silently learns "just retry this" is exactly how red
+gets laundered into green with nobody deciding to.
 
 ### MTP Host (`src/Bobcat.Mtp/`)
 Bobcat's spec runner exposed as a **Microsoft.Testing.Platform test host**, so an IDE Test
@@ -799,9 +814,10 @@ ones on upgrade. Same reasoning as retries being opt-in.
   - **Unmeasured is never zero-filled.** A framework that erases durations on the wire (tUnit,
     same as exception types) yields `Unmeasured` counts and `null` JSON figures, and the text
     report says the numbers are a floor. Zero-filling would make every other figure quietly wrong.
-  - Layer 2 (sleep-shaped-duration heuristics) and layer 3 (trend across runs) are **not built**:
-    layer 2's false-positive question is open, and layer 3 needs the same committed ledger #44
-    layer 2 does — one store, not two.
+  - Layer 3 (trend across runs) now rides the committed ledger — `TestLedger.Trends()`, see
+    `docs/ledger-design.md`. Layer 2 (sleep-shaped-duration heuristics) stays **not built**:
+    the cross-run variance it needs exists now, but its false-positive question is open and
+    `[SlowByDesign]` belongs in `JasperFx.Testing` per the #63 precedent.
 
 `Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
 per-process counter), so the isolation tests prove isolation happened rather than merely proving
