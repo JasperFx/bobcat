@@ -286,6 +286,73 @@ public class CommandLineRenderer
         }
     }
 
+    /// <summary>
+    /// Where the run spent its time (issue #142): the slowest scenarios with their share of the
+    /// measured time, what the costliest grammar steps and lifecycle points cost across the
+    /// whole suite, the largest stretches no stop point owns, and the scenarios that assert
+    /// nothing. Report, don't act — evidence for a judgement, never a verdict. Silent when
+    /// nothing was measured and nothing is flagged. The console shows a summary; the JSON
+    /// artifact carries every figure.
+    /// </summary>
+    public void RenderTimingSummary(SuiteTiming timing)
+    {
+        if (!timing.IsMeasured && timing.WithoutAssertions.Count == 0) return;
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine(
+            $"  [bold]Timing[/] [grey]— {SuiteTiming.Humanize(timing.Measured)} measured across " +
+            $"{timing.Scenarios.Count} scenario(s){(timing.Unmeasured > 0 ? $", {timing.Unmeasured} unmeasured (figures are a floor)" : "")}[/]");
+
+        foreach (var scenario in timing.Slowest(3))
+        {
+            var share = timing.Share(scenario.WallClock);
+            var shareText = share is { } s ? $" ({SuiteTiming.Percent(s)} of measured time)" : "";
+            AnsiConsole.MarkupLine(
+                $"    [grey]•[/] {Markup.Escape(scenario.Title)} " +
+                $"[grey]{SuiteTiming.Humanize(scenario.WallClock)}{shareText} — " +
+                $"steps {SuiteTiming.Humanize(scenario.Steps)}, lifecycle {SuiteTiming.Humanize(scenario.Lifecycle)}[/]");
+        }
+
+        foreach (var step in timing.Steps.Take(3))
+        {
+            AnsiConsole.MarkupLine(
+                $"    [grey]step[/] [italic]{Markup.Escape(step.Text)}[/] " +
+                $"[grey]cost {SuiteTiming.Humanize(step.Total)} across {step.Occurrences} occurrence(s)[/]");
+        }
+
+        foreach (var point in timing.Lifecycle.Take(3))
+        {
+            AnsiConsole.MarkupLine(
+                $"    [grey]lifecycle[/] {Markup.Escape(point.Text)} " +
+                $"[grey]cost {SuiteTiming.Humanize(point.Total)} across {point.Occurrences} scenario(s)[/]");
+        }
+
+        // A 100ms console floor keeps micro-gaps (observer callbacks, loop overhead) from
+        // burying the real ones; the JSON carries them all, so nothing is silently dropped.
+        var notable = timing.Gaps.Where(g => g.Duration >= TimeSpan.FromMilliseconds(100)).ToList();
+        foreach (var gap in notable.Take(3))
+        {
+            AnsiConsole.MarkupLine(
+                $"    [yellow]⏳ {SuiteTiming.Humanize(gap.Duration)} unowned[/] [grey]in {Markup.Escape(gap.Scenario)} " +
+                $"between '{Markup.Escape(gap.After)}' and '{Markup.Escape(gap.Before)}'[/]");
+        }
+
+        if (notable.Count > 3)
+        {
+            AnsiConsole.MarkupLine($"    [grey]… {notable.Count - 3} more gap(s) over 100ms in the JSON output[/]");
+        }
+
+        if (timing.WithoutAssertions.Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"  [yellow]⚠ {timing.WithoutAssertions.Count} scenario(s) ran steps but asserted nothing[/]");
+            foreach (var uid in timing.WithoutAssertions)
+            {
+                AnsiConsole.MarkupLine($"    [yellow]•[/] {Markup.Escape(uid)}");
+            }
+        }
+    }
+
     /// <summary>The run-level flakiness ledger. Silent when everything passed cleanly.</summary>
     public void RenderResilienceSummary(SuiteResults results)
     {

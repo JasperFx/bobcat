@@ -299,6 +299,25 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   persisted artifact #142's analysis reads. Deliberately not captured: per-row table-grammar
   stop points (too fine), and anything for foreign MTP workers — steps are a Bobcat concept,
   and a consumer must degrade to "not measured", never zero-fill.
+- **Timeline analysis (issue #142, items 1–3 only):** `SuiteTiming` (`Runtime/SuiteTiming.cs`)
+  is the in-process sibling of the supervisor's `RunTiming` — pure computation over
+  `SuiteResults`, rendered as `CommandLineRenderer.RenderTimingSummary` (a compact console
+  block; a 100ms display floor on gaps, count of the rest noted) and the uncapped `timing`
+  block in `JsonRenderer.RenderSuite`. Report, don't act — same guardrail as `RunTiming` and
+  #44's hints. Three facts, no heuristics: **gap ranking** (time no step or lifecycle point
+  owns, a subtraction attributed by its neighbours), **per-step aggregation** grouped by
+  *normalized* step text (`NormalizeStepText` folds quoted strings/bare numbers to
+  placeholders, because results carry rendered text, not the Cucumber expression — word-embedded
+  digits and dotted versions survive) plus lifecycle points by name (the ResetAll line is the
+  headline in a database-backed suite), and **scenarios that assert nothing** (no Then-kind
+  step, no comparison cell; `Counts.Rights` is deliberately not the signal — the executor
+  auto-marks every completed step `success`; a zero-step scenario is #106's pending hotspot,
+  not this list; and the check is honestly blind to foreign MTP workers — #56's own
+  `try_it_out` example arrives as a bare duration and cannot be caught here). Figures describe
+  the final attempt (retry cost is `RunTiming`'s). "Measured" means the results carry a wall
+  clock *or* timeline points — a sub-millisecond scenario legitimately reads 0ms and is not
+  "unmeasured". Items 4–5 (sleep-shaped durations, cross-run trends) stay unbuilt: both need
+  the committed ledger, whose merge strategy is still an open decision.
 
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.

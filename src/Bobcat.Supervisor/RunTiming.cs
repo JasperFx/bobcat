@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Bobcat.Supervisor;
 
 /// <summary>What one test cost the run, summed across every attempt it took.</summary>
@@ -154,17 +152,11 @@ public sealed class RunTiming
     }
 
     /// <summary>
-    /// A duration a person can read at a glance. Invariant on purpose — a CI log should not
-    /// change shape with the agent's locale.
+    /// A duration a person can read at a glance. The one definition lives on the in-process
+    /// sibling (<see cref="Runtime.SuiteTiming.Humanize"/>), so the two timing reports cannot
+    /// drift apart in format.
     /// </summary>
-    internal static string Humanize(TimeSpan span) => span.TotalSeconds switch
-    {
-        < 1 => span.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture) + "ms",
-        < 60 => span.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + "s",
-        // The remainder rather than Seconds, so 60.9s reads as "1m 1s" rather than "1m 0s".
-        _ => $"{(int)span.TotalMinutes}m {(span.TotalSeconds % 60).ToString("0", CultureInfo.InvariantCulture)}s"
-    };
+    internal static string Humanize(TimeSpan span) => Runtime.SuiteTiming.Humanize(span);
 
-    internal static string Percent(double fraction)
-        => (fraction * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
+    internal static string Percent(double fraction) => Runtime.SuiteTiming.Percent(fraction);
 }

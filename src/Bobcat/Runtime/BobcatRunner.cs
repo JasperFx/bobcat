@@ -682,6 +682,9 @@ public class BobcatRunner
 
         // Clean-pass and pass-on-retry are reported as different facts, never merged.
         _renderer.RenderResilienceSummary(results);
+
+        // Where the time went (issue #142), off the #141 timeline. Evidence, never a verdict.
+        _renderer.RenderTimingSummary(SuiteTiming.For(results));
     }
 
     /// <summary>

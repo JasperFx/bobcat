@@ -33,11 +33,58 @@ public static class JsonRenderer
                     Feature = n.FeatureTitle, Title = n.Title, Reason = n.Reason
                 }).ToList()
                 : null,
-            Features = results.Features.Select(renderFeature).ToList()
+            Features = results.Features.Select(renderFeature).ToList(),
+            Timing = timingToJson(SuiteTiming.For(results))
         };
 
         return JsonSerializer.Serialize(output, options);
     }
+
+    /// <summary>
+    /// The full #142 figures — every scenario, step, lifecycle point and gap, uncapped: the
+    /// console renders a summary, this is the record. Null when nothing was measured and
+    /// nothing is flagged, so an older artifact reads as absent rather than zero.
+    /// </summary>
+    private static JsonTimingOutput? timingToJson(SuiteTiming timing)
+    {
+        if (!timing.IsMeasured && timing.WithoutAssertions.Count == 0 && timing.Unmeasured == 0) return null;
+
+        return new JsonTimingOutput
+        {
+            MeasuredMs = (long)timing.Measured.TotalMilliseconds,
+            Unmeasured = timing.Unmeasured > 0 ? timing.Unmeasured : null,
+            Scenarios = timing.Scenarios.Select(s => new JsonScenarioTimingOutput
+            {
+                Feature = s.Feature,
+                Title = s.Title,
+                WallClockMs = (long)s.WallClock.TotalMilliseconds,
+                StepsMs = (long)s.Steps.TotalMilliseconds,
+                LifecycleMs = (long)s.Lifecycle.TotalMilliseconds,
+                UnownedMs = (long)s.Unowned.TotalMilliseconds
+            }).ToList(),
+            Steps = timing.Steps.Select(costToJson).ToList(),
+            Lifecycle = timing.Lifecycle.Select(costToJson).ToList(),
+            Gaps = timing.Gaps.Count > 0
+                ? timing.Gaps.Select(g => new JsonGapOutput
+                {
+                    Feature = g.Feature,
+                    Scenario = g.Scenario,
+                    After = g.After,
+                    Before = g.Before,
+                    DurationMs = (long)g.Duration.TotalMilliseconds
+                }).ToList()
+                : null,
+            WithoutAssertions = timing.WithoutAssertions.Count > 0 ? timing.WithoutAssertions.ToList() : null
+        };
+    }
+
+    private static JsonStepCostOutput costToJson(StepCost cost) => new()
+    {
+        Text = cost.Text,
+        Occurrences = cost.Occurrences,
+        TotalMs = (long)cost.Total.TotalMilliseconds,
+        MaxMs = (long)cost.Max.TotalMilliseconds
+    };
 
     public static string RenderScenario(SpecRender spec)
     {
@@ -172,6 +219,59 @@ internal class JsonSuiteOutput
     public List<JsonNotRunOutput>? NotRun { get; set; }
 
     public List<JsonFeatureOutput> Features { get; set; } = new();
+
+    /// <summary>Where the run spent its time (issue #142). Null when nothing was measured.</summary>
+    public JsonTimingOutput? Timing { get; set; }
+}
+
+internal class JsonTimingOutput
+{
+    public long MeasuredMs { get; set; }
+
+    /// <summary>Scenarios with no wall clock — the figures above are a floor, never zero-filled.</summary>
+    public int? Unmeasured { get; set; }
+
+    /// <summary>Every measured scenario, slowest first.</summary>
+    public List<JsonScenarioTimingOutput> Scenarios { get; set; } = new();
+
+    /// <summary>Per normalized step text across the suite, costliest first.</summary>
+    public List<JsonStepCostOutput> Steps { get; set; } = new();
+
+    /// <summary>Per lifecycle point across the suite, costliest first.</summary>
+    public List<JsonStepCostOutput> Lifecycle { get; set; } = new();
+
+    /// <summary>Time no stop point owns, largest first.</summary>
+    public List<JsonGapOutput>? Gaps { get; set; }
+
+    /// <summary>Scenarios that ran steps but asserted nothing — no Then step, no comparison cell.</summary>
+    public List<string>? WithoutAssertions { get; set; }
+}
+
+internal class JsonScenarioTimingOutput
+{
+    public string Feature { get; set; } = "";
+    public string Title { get; set; } = "";
+    public long WallClockMs { get; set; }
+    public long StepsMs { get; set; }
+    public long LifecycleMs { get; set; }
+    public long UnownedMs { get; set; }
+}
+
+internal class JsonStepCostOutput
+{
+    public string Text { get; set; } = "";
+    public int Occurrences { get; set; }
+    public long TotalMs { get; set; }
+    public long MaxMs { get; set; }
+}
+
+internal class JsonGapOutput
+{
+    public string Feature { get; set; } = "";
+    public string Scenario { get; set; } = "";
+    public string After { get; set; } = "";
+    public string Before { get; set; } = "";
+    public long DurationMs { get; set; }
 }
 
 internal class JsonNotRunOutput
