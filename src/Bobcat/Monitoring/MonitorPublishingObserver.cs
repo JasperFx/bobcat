@@ -162,7 +162,9 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             _info.RunId, _currentUid, result.StepId,
             result.StepStatus.ToString(),
             Math.Max(0, result.End - result.Start),
-            result.Exception?.Message,
+            // Not just the exception: a [Check] returning false or a table comparison has no
+            // exception, and the console was rendering those as red rows with no detail (#166).
+            result.DescribeFailure(),
             // The step's own end stamp — the executor's clock, the same one StepStarted rode in
             // on, rather than a reading taken here a moment later.
             ScenarioElapsedMs: result.End));
@@ -192,7 +194,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             result.Outcome.ToString(),
             result.AttemptCount,
             (long)(result.Results.EndTime - result.Results.StartTime).TotalMilliseconds,
-            result.Results.AllExceptions().FirstOrDefault()?.Message,
+            result.Results.DescribeFailure(),
             TouchedTypes: touched,
             At: DateTimeOffset.UtcNow));
     }

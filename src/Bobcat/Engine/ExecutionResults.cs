@@ -31,6 +31,13 @@ public class ExecutionResults
     {
         return _stepResults.SelectMany(x => x.AllExceptions());
     }
+
+    /// <summary>
+    /// The first failing step's <see cref="StepResult.DescribeFailure"/> — the scenario-level
+    /// error message, covering assertion failures that carry no exception at all.
+    /// </summary>
+    public string? DescribeFailure()
+        => _stepResults.Select(s => s.DescribeFailure()).FirstOrDefault(m => m != null);
         
     public ExecutionResults(string specId, DateTimeOffset startTime)
     {

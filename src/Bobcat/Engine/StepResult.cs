@@ -126,6 +126,35 @@ public class StepResult
         End = end;
     }
 
+    /// <summary>
+    /// A human-readable account of why this step is not green, whatever form the failure took —
+    /// the escaped exception's message, otherwise the failed cell comparisons (a scalar Then, a
+    /// decision table, a set verification), otherwise, for a bare failed check, a sentence
+    /// naming the step. Null when nothing failed. The monitor wire's ErrorMessage reads this;
+    /// it used to read only <see cref="Exception"/>, so every pure assertion failure reached
+    /// the console as a red row with no detail (noted on issue #166).
+    /// </summary>
+    public string? DescribeFailure()
+    {
+        if (Exception != null) return Exception.Message;
+
+        // Comparison results live on the cells, and the executor marks a step successful
+        // whenever it completed without throwing — so the cells decide, not just the status.
+        var cells = _cells
+            .Where(c => c.Status is not (ResultStatus.success or ResultStatus.ok))
+            .ToList();
+        if (cells.Count > 0)
+        {
+            return string.Join("; ", cells.Select(c => c.Expected is null && c.Actual is null
+                ? $"{c.Name}: {c.DisplayText}"
+                : $"{c.Name}: expected {c.Expected ?? "(none)"}, got {c.Actual ?? "(none)"}"));
+        }
+
+        return StepStatus is ResultStatus.success or ResultStatus.ok
+            ? null
+            : $"'{StepText ?? StepId}' returned false";
+    }
+
     public void MarkSuccess()
     {
         StepStatus = ResultStatus.success;
