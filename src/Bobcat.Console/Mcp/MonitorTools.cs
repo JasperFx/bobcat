@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Text.Json;
+using Bobcat.Console.EventModel;
 using Bobcat.Console.Runs;
+using JasperFx.Events.EventModeling;
 using ModelContextProtocol.Server;
 
 namespace Bobcat.Console.Mcp;
@@ -310,6 +312,255 @@ public class MonitorTools
             return error($"unknown format '{format}' — expected ctrf or junit");
 
         return rendered ?? error($"run {resolved} is not known to this monitor");
+    }
+
+    // ----- Spec Driven Development reads (issue #167): the Event Model and its join to run
+    // evidence, paired with the critterstack-sdd-* skills. All three are reads over data that
+    // already exists — the pushed descriptor (#108) and the spec identity + touched types
+    // published on scenario_finished (#106/#107).
+
+    [McpServerTool(Name = "event_model")]
+    [Description(
+        "The Event Model: every slice with its command, handler, aggregates, emitted events, " +
+        "read models, published messages and bound specifications — the map of the system. " +
+        "Empty until a producer pushes one (PUT /api/event-model; e.g. Wolverine's " +
+        "`event-model --url`). A whole model can be a lot of tokens, so narrow with slice or " +
+        "domain when you only need part of it.")]
+    public static string EventModel(
+        EventModelStore store,
+        [Description("Narrow to the one slice with this name (case-insensitive).")]
+        string? slice = null,
+        [Description("Narrow to the slices in this domain (case-insensitive).")]
+        string? domain = null)
+    {
+        var json = store.Read();
+        if (json == null)
+            return error("no event model has been pushed to this console — see PUT /api/event-model");
+        if (slice == null && domain == null) return json;
+
+        var descriptor = readModel(json, out var problem);
+        if (descriptor == null) return problem!;
+
+        var slices = descriptor.Slices
+            .Where(s => slice == null || string.Equals(s.Name, slice, StringComparison.OrdinalIgnoreCase))
+            .Where(s => domain == null || string.Equals(s.Domain, domain, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (slices.Count == 0)
+        {
+            // Same manners as the generator's BOBCAT012: an unmatched name lists what exists.
+            return error("nothing matched — the model's slices are: " + string.Join(", ",
+                descriptor.Slices.Select(s => s.Domain == null ? s.Name : $"{s.Name} (domain {s.Domain})")));
+        }
+
+        return JsonSerializer.Serialize(descriptor with { Slices = slices }, EventModelStore.Wire);
+    }
+
+    [McpServerTool(Name = "slice_coverage")]
+    [Description(
+        "What is untested, per Event Model slice. The two gaps are distinguished because they " +
+        "imply different actions: 'no-spec' (nothing bound — the slice was never specified, so " +
+        "scaffold scenarios) and 'no-evidence' (specs bound but no known run ever executed " +
+        "them — run the suite, or the spec exists and never executes). A covered slice lists " +
+        "each spec's last outcome and finish time, so a slice whose only spec is red is " +
+        "visible too. Evidence joins by spec identity {Feature}/{Scenario} across every run " +
+        "this console knows.")]
+    public static string SliceCoverage(EventModelStore store, MonitorRunRegistry registry)
+    {
+        var json = store.Read();
+        if (json == null)
+            return error("no event model has been pushed to this console — see PUT /api/event-model");
+
+        var descriptor = readModel(json, out var problem);
+        if (descriptor == null) return problem!;
+
+        // The latest completed verdict per spec identity, across every run this console knows.
+        // A scenario still running is not evidence yet.
+        var evidence = registry.ReadAll(runs => runs
+            .SelectMany(r => r.Scenarios
+                .Where(s => s.Outcome != null)
+                .Select(s => new SpecEvidence(r.RunId, r.Suite, s.Uid, s.Outcome!, s.FinishedAt)))
+            .GroupBy(e => e.Uid)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(e => e.FinishedAt ?? DateTimeOffset.MinValue).First()));
+
+        var slices = descriptor.Slices.Select(s =>
+        {
+            var specs = s.Specifications.Select(spec =>
+            {
+                var seen = evidence.GetValueOrDefault(spec.Identity);
+                return new
+                {
+                    identity = spec.Identity,
+                    lastOutcome = seen?.Outcome,
+                    lastFinishedAt = seen?.FinishedAt,
+                    lastRunId = seen?.RunId,
+                    lastSuite = seen?.Suite
+                };
+            }).ToArray();
+
+            var gap = s.Specifications.Count == 0 ? "no-spec"
+                : specs.All(x => x.lastOutcome == null) ? "no-evidence"
+                : null;
+
+            return new
+            {
+                slice = s.Name,
+                domain = s.Domain,
+                pattern = s.Pattern?.ToString(),
+                gap,
+                specs
+            };
+        }).ToArray();
+
+        return toJson(new
+        {
+            model = descriptor.Name,
+            summary = new
+            {
+                slices = slices.Length,
+                noSpec = slices.Count(s => s.gap == "no-spec"),
+                noEvidence = slices.Count(s => s.gap == "no-evidence"),
+                covered = slices.Count(s => s.gap == null)
+            },
+            slices
+        });
+    }
+
+    [McpServerTool(Name = "failing_spec")]
+    [Description(
+        "Full detail for one scenario — the input for writing the code a red spec describes. " +
+        "Everything failing_tests summarizes away: every step of the final attempt with its " +
+        "status, duration and error, prior attempts with why the policy retried them, the CLR " +
+        "types the scenario observably touched (which aggregate/projection/handler to open), " +
+        "and the Event Model slices the spec is bound to. Omit uid for the run's first " +
+        "failing scenario; omit runId for the most recent run.")]
+    public static string FailingSpec(
+        MonitorRunRegistry registry,
+        EventModelStore store,
+        [Description("Run id from list_runs; omit for the most recent run.")] string? runId = null,
+        [Description(
+            "Spec identity {Feature}/{Scenario}; omit for the run's first failing scenario. " +
+            "A uid naming a passing scenario still returns its detail.")]
+        string? uid = null)
+    {
+        var resolved = resolve(registry, runId, out var problem);
+        if (resolved == null) return problem!;
+
+        return registry.Read(resolved.Value, run =>
+        {
+            ScenarioProjection? scenario;
+            if (uid != null)
+            {
+                scenario = run.Scenarios.FirstOrDefault(s => s.Uid == uid);
+                if (scenario == null) return error($"run {run.RunId} has no scenario '{uid}'");
+            }
+            else
+            {
+                scenario = run.Scenarios
+                    .Where(s => s.Outcome is "Failed" or "Aborted")
+                    .OrderBy(s => s.Uid)
+                    .FirstOrDefault();
+                if (scenario == null)
+                {
+                    return toJson(new
+                    {
+                        runId = run.RunId,
+                        suite = run.Suite,
+                        finished = run.Finished,
+                        message = run.Finished
+                            ? "nothing failed in this run"
+                            : "nothing has failed so far — the run is still going"
+                    });
+                }
+            }
+
+            return toJson(new
+            {
+                runId = run.RunId,
+                suite = run.Suite,
+                uid = scenario.Uid,
+                feature = scenario.Feature,
+                scenario = scenario.Scenario,
+                status = scenario.Outcome ?? "running",
+                attempts = scenario.Attempts ?? scenario.Attempt,
+                durationMs = scenario.DurationMs,
+                errorMessage = scenario.ErrorMessage,
+                finishedAt = scenario.FinishedAt,
+                steps = scenario.Steps.Select(renderStep).ToArray(),
+                priorAttempts = scenario.PriorAttempts.Select(a => new
+                {
+                    attempt = a.Attempt,
+                    disposition = a.Disposition,
+                    reason = a.Reason,
+                    errorMessage = a.ErrorMessage,
+                    steps = a.Steps.Select(renderStep).ToArray()
+                }).ToArray(),
+                // Run evidence (issue #107): observed, never asserted — which aggregate,
+                // command, events and read model this scenario actually reached.
+                touchedTypes = scenario.TouchedTypes.Select(t => new
+                {
+                    name = t.Name,
+                    fullName = t.FullName,
+                    assemblyName = t.AssemblyName
+                }).ToArray(),
+                slices = slicesBoundTo(store, scenario.Uid)
+            });
+        }) ?? error($"run {resolved} disappeared while reading");
+    }
+
+    private static object renderStep(StepProjection step) => new
+    {
+        name = $"{step.Kind} {step.Text}",
+        status = step.Status,
+        durationMs = step.DurationMs,
+        errorMessage = step.ErrorMessage
+    };
+
+    /// <summary>One spec identity's most recent completed verdict, for the coverage join.</summary>
+    private sealed record SpecEvidence(
+        Guid RunId,
+        string Suite,
+        string Uid,
+        string Outcome,
+        DateTimeOffset? FinishedAt);
+
+    /// <summary>
+    /// Parse the stored descriptor. TryStore normalized it, so this only fails for a file
+    /// hand-edited or corrupted on disk — reported rather than thrown, like every other
+    /// tool-level problem.
+    /// </summary>
+    private static EventModelDescriptor? readModel(string json, out string? problem)
+    {
+        try
+        {
+            var descriptor = JsonSerializer.Deserialize<EventModelDescriptor>(json, EventModelStore.Wire);
+            problem = descriptor == null ? error("the stored event model is empty") : null;
+            return descriptor;
+        }
+        catch (JsonException e)
+        {
+            problem = error($"the stored event model is unreadable: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The Event Model slices a spec identity is bound to — best-effort: no model, or an
+    /// unreadable one, just yields none, because the join is context on a failing spec rather
+    /// than the answer.
+    /// </summary>
+    private static object[] slicesBoundTo(EventModelStore store, string uid)
+    {
+        var json = store.Read();
+        if (json == null) return [];
+
+        var descriptor = readModel(json, out _);
+        return descriptor?.Slices
+            .Where(s => s.Specifications.Any(spec => spec.Identity == uid))
+            .Select(object (s) => new { slice = s.Name, domain = s.Domain, pattern = s.Pattern?.ToString() })
+            .ToArray() ?? [];
     }
 
     private static object summarize(RunProjection run)
