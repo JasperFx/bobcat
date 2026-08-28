@@ -7,8 +7,16 @@ Rider plugin to discover Bobcat step definitions, so completion, go-to-definitio
 undefined-step highlighting work for `.feature` files in a project that references Bobcat and not
 Reqnroll.
 
-**Not submitted.** Nothing has been forked, pushed, or opened upstream — that is Jeremy's call,
-and the commands are at the bottom.
+**SUBMITTED 2026-08-28 (Jeremy's call, made in session): [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92)**,
+from `jeremydmiller:bobcat-attributes` (fork created the same day). Before submitting, the 2026.2
+build gap was closed on this machine: `JetBrains.Rider.SDK` 2026.2.0 restores straight from
+nuget.org, and the `./gradlew :prepare` guard in `src/dotnet/Directory.Build.props` only checks
+that `build/DotNetSdkPath.Generated.props` exists — hand-writing it with
+`<DotNetSdkPath>/Applications/Rider.app/Contents/lib/ReSharperHost</DotNetSdkPath>` let
+`dotnet build` compile the full plugin **and** the test project with **0 errors** against the real
+2026.2 SDK, no Gradle and no Java. The net472 test host still crashes outside a Windows/Rider test
+environment (upstream CI's job), and no `:runIde` sandbox session was run. The commands below are
+kept for re-submission or the fork path.
 
 ## What it changes
 

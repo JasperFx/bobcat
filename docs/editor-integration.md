@@ -1,11 +1,11 @@
 # Editor integration — step completion and go-to-definition (issue #109)
 
-Status, 2026-08-21:
+Status, 2026-08-28:
 
 | Editor | Status | What it costs |
 |---|---|---|
 | **VS Code** | Works today, zero Bobcat code | Install the official Cucumber extension, commit three settings (`.vscode/settings.json` in this repo is the sample) |
-| **Rider** | Patch ready, not submitted | `docs/rider/0001-bobcat-attributes.patch` against `reqnroll/Reqnroll.Rider` (+186/−9, 5 files); helper compiled and tested, caches type-checked, **not built with the 2026.2 SDK or run in Rider**; submitting is Jeremy's call — `docs/rider/README.md` has the commands. Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
+| **Rider** | **PR submitted upstream: [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92)** | The `docs/rider/0001-bobcat-attributes.patch` change, pushed as `jeremydmiller:bobcat-attributes`. Before submitting, the 2026.2 gap was closed: the full plugin **and** its test project compile clean with `dotnet build` against the real `JetBrains.Rider.SDK` 2026.2.0 (the `./gradlew :prepare` guard only wants `build/DotNetSdkPath.Generated.props`, satisfiable by hand — see `docs/rider/README.md`). Still not run in a `:runIde` sandbox (that and the net472 test suite are Windows/CI territory). If the PR stalls, the issue's plan is to fork as "Bobcat for Rider". Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
 
 Decision of record from the issue still stands: no Reqnroll package dependency (there is no
 attributes-only package) and no namespace-squatting of `Reqnroll.GivenAttribute`. Everything
