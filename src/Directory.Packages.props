@@ -5,15 +5,26 @@
     package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
     canonical, mutually-compatible alignment that consuming samples must also target:
 
-      WolverineFx 6.29.1  ↔  Marten 9.28.0  ↔  JasperFx(.Events) 2.54.0  ↔  Fisher 1.0.2  ↔  Polecat 5.19.2
+      WolverineFx 6.30.1  ↔  Marten 9.30.0  ↔  JasperFx(.Events) 2.56.0  ↔  Fisher 1.0.4  ↔  Polecat 5.20.0
 
-    Checked against the published nuspecs on 2026-08-21 (issue #125):
-      WolverineFx 6.29.1        requires JasperFx(.Events) >= 2.47.0
-      WolverineFx.Marten 6.29.1 requires Marten >= 9.23.0
-      WolverineFx.Fisher 6.29.1 requires Fisher >= 1.0.0
-      Marten 9.28.0             requires JasperFx(.Events) >= 2.52.0, Weasel >= 9.24.0
-      Fisher 1.0.2              requires JasperFx(.Events) >= 2.53.0, Weasel.Storage >= 9.25.1
-      Polecat 5.19.2            requires JasperFx(.Events) >= 2.53.0, Weasel >= 9.24.0
+    Checked against the published nuspecs on 2026-08-28 (issue #172 — the four-source event
+    model vehicle needs Wolverine >= 6.30.1 for the event-model command's url flag and chains carrying their
+    Event Modeling roles; 6.30.1 rather than 6.30.3 because 6.30.2+ raises the JasperFx floor
+    to 2.57.1 and this repo compiles against 2.56.0, which is also CritterWatch's proven pin):
+      WolverineFx 6.30.1        requires JasperFx(.Events) >= 2.56.0
+      WolverineFx.Marten 6.30.x requires Marten >= 9.23.0
+      WolverineFx.Fisher 6.30.x requires Fisher >= 1.0.2
+      Marten 9.30.0             requires JasperFx(.Events) >= 2.56.0, Weasel >= 9.27.0
+      Fisher 1.0.4              requires JasperFx(.Events) >= 2.56.0, Weasel.Sqlite >= 9.27.0
+      Polecat 5.20.0            requires JasperFx(.Events) >= 2.56.0
+
+    One consequence of Marten 9.30.0 + Fisher 1.0.4: both nupkgs bundle the IDENTICAL
+    JasperFx.Events.SourceGenerator (byte-for-byte), so a project referencing both stores loads
+    the generator twice and every projection's Evolver partial is emitted twice (CS0433/CS0111 —
+    jasperfx#462, the same trap CritterWatch documents). Fix, ported from CritterWatch: drop ALL
+    store-bundled copies via a DropDuplicateBundledEventSourceGenerator target and compile with
+    the explicit JasperFx.Events.SourceGenerator pinned below, so the generator always matches
+    the JasperFx.Events runtime whatever the stores happen to bundle.
     Every floor is at or below the pin, so taking the newest of each still lands on ONE
     JasperFx (2.54.0), which is the property that matters — the event types (IEvent, etc.) only
     unify when every package resolves the same JasperFx.Events. Fisher is what forced the
@@ -52,11 +63,11 @@
 
   <ItemGroup>
     <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx" Version="6.29.1" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.29.1" />
-    <PackageVersion Include="WolverineFx.Marten" Version="6.29.1" />
-    <PackageVersion Include="WolverineFx.Fisher" Version="6.29.1" />
-    <PackageVersion Include="Marten" Version="9.28.0" />
+    <PackageVersion Include="WolverineFx" Version="6.30.1" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.30.1" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.30.1" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.30.1" />
+    <PackageVersion Include="Marten" Version="9.30.0" />
     <PackageVersion Include="JasperFx" Version="2.56.0" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
@@ -70,8 +81,11 @@
       documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
     <PackageVersion Include="JasperFx.Events" Version="2.56.0" />
-    <PackageVersion Include="Fisher" Version="1.0.2" />
-    <PackageVersion Include="Polecat" Version="5.19.2" />
+    <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
+         with the store-bundled copies dropped — see the dual-store note in the header. -->
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.56.0" />
+    <PackageVersion Include="Fisher" Version="1.0.4" />
+    <PackageVersion Include="Polecat" Version="5.20.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
@@ -83,8 +97,8 @@
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
       collapsed when the alignment caught up.
     -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.29.1" />
-    <PackageVersion Include="WolverineFx.SignalR" Version="6.29.1" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.30.1" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.30.1" />
     <!-- MCP server for Bobcat.Console — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!--

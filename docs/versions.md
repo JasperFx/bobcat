@@ -10,11 +10,11 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.29.1` |
-| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.28.0` |
-| Event store (SQLite, inner loop) | `Fisher` | `1.0.2` |
-| Event store (SQL Server) | `Polecat` | `5.19.2` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events` | `2.53.0` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.30.1` |
+| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.30.0` |
+| Event store (SQLite, inner loop) | `Fisher` | `1.0.4` |
+| Event store (SQL Server) | `Polecat` | `5.20.0` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.56.0` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
@@ -23,38 +23,43 @@ target the **same** set when wired up (issue #8).
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.29.1  →  Marten 9.23.0+   →  JasperFx(.Events) 2.52.0+  (Marten 9.28.0's floor)
-WolverineFx.Fisher 6.29.1  →  Fisher 1.0.0+    →  JasperFx(.Events) 2.53.0   (Fisher 1.0.2's floor)
-WolverineFx 6.29.1         →  JasperFx(.Events) 2.47.0+
-Polecat 5.19.2             →  JasperFx(.Events) 2.53.0
+WolverineFx.Marten 6.30.1  →  Marten 9.23.0+   →  JasperFx(.Events) 2.56.0  (Marten 9.30.0's floor)
+WolverineFx.Fisher 6.30.1  →  Fisher 1.0.2+    →  JasperFx(.Events) 2.56.0  (Fisher 1.0.4's floor)
+WolverineFx 6.30.1         →  JasperFx(.Events) 2.56.0
+Polecat 5.20.0             →  JasperFx(.Events) 2.56.0
 ```
 
-So the entire `WolverineFx.*` family must be **6.29.1**, Marten at least **9.23.0** and
-`JasperFx` at least **2.53.0** (the floor Fisher and Polecat both declare) for a single,
+So the entire `WolverineFx.*` family must be **6.30.1**, Marten at least **9.23.0** and
+`JasperFx` exactly **2.56.0** (every current member floors at 2.56.0) for a single,
 conflict-free `JasperFx` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x with Marten 9.x)
 splits `JasperFx`/`JasperFx.Events` across major lines and the event types (`IEvent`, etc.) no
 longer unify.
 
-The pins above take the newest release of each rather than the exact floor Wolverine declares —
-Marten **9.28.0** over the required 9.23.0, and `JasperFx` **2.53.0** over Wolverine's 2.47.0 and
-Marten's 2.52.0 floors. That is safe here precisely because every declared floor is at or below
-it: the chain still terminates in one JasperFx version, which is the invariant this matrix exists
-to protect. Check that property again on the next bump rather than assuming newest-of-each always
+⚠️ **WolverineFx 6.30.2 and 6.30.3 raise the JasperFx floor to 2.57.1** — taking either means
+moving the whole set's JasperFx, which is why the pin sits at 6.30.1 (also CritterWatch's proven
+pin). Check that property again on the next bump rather than assuming newest-of-each always
 preserves it (the nuspec `dependencies` groups on `api.nuget.org/v3-flatcontainer/<id>/<version>/<id>.nuspec`
 are the source of truth; the check that produced this table is recorded in
 `src/Directory.Packages.props`).
 
-One wrinkle worth knowing: Fisher 1.0.2 floors `Weasel.Storage` at 9.25.1 while Marten 9.28.0
-floors Weasel at 9.24.0, so a host referencing both (`samples/BankAccountES`, which switches store
-by configuration) resolves `Weasel.Storage` 9.25.1 beside `Weasel.Postgresql` 9.24.0. Weasel minor
-versions are binary-compatible and that sample runs 9/9 on both stores with that resolution; if a
-future Weasel breaks it, Marten 9.29.0 floors Weasel at 9.25.1 and is the aligned answer.
+Two wrinkles worth knowing:
+
+- Weasel unifies cleanly on this set: Marten 9.30.0 and Fisher 1.0.4 both floor their Weasel
+  packages at 9.27.0 (the earlier 9.24.0/9.25.1 skew is gone).
+- Marten 9.30.0 and Fisher 1.0.4 bundle the **byte-identical** `JasperFx.Events.SourceGenerator`
+  inside their own nupkgs, so a project referencing both stores loads the generator twice and
+  every projection's `Evolver` partial is emitted twice (CS0433 — jasperfx#462). The fix, ported
+  from CritterWatch: a `DropDuplicateBundledEventSourceGenerator` target drops every store-bundled
+  copy and the project references the centrally-pinned `JasperFx.Events.SourceGenerator` as an
+  explicit analyzer, so the generator always matches the runtime. `Bobcat.CritterStack.Tests`
+  carries the pattern.
 
 ### History
 
 | Date | Set | Why |
 |------|-----|-----|
-| 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. |
+| 2026-08-28 | WolverineFx 6.30.1 / Marten 9.30.0 / JasperFx 2.56.0 / Fisher 1.0.4 / Polecat 5.20.0 | Issue #172: the four-source event-model vehicle needs Wolverine ≥ 6.30.1 (chains carry EM roles, `event-model` export with a push URL). JasperFx had already moved to 2.56.0 for descriptor provenance (jasperfx#703/#704). |
+| 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. (JasperFx then moved alone to 2.54.0 for #106's descriptor, and to 2.56.0 for provenance — floors permitted the solo moves.) |
 | 2026-08 | WolverineFx 6.24.2 / Marten 9.22.0 / JasperFx 2.37.0 | Recovery hints (`JasperFx.Testing`, issue #63) needed JasperFx 2.37.0. |
 
 ## What changed during reconciliation (issue #8, prerequisite)
