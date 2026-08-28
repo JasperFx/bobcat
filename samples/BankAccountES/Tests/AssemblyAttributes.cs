@@ -1,4 +1,12 @@
+using Bobcat;
 using Microsoft.AspNetCore.Mvc.Testing;
+
+// Names the Event Model this assembly's specs contribute slices to. Upstream merges descriptors
+// BY MODEL NAME, and the Wolverine-derived model is named for the service ("BankAccount",
+// Program.cs's opts.ServiceName) — without this the generated BobcatEventModelSource would name
+// its model "BankAccountES.Tests" and the Gherkin slices could never fold into the same model as
+// the chains they describe (bobcat#172).
+[assembly: EventModelName("BankAccount")]
 
 // Tells ASP.NET Core's WebApplicationFactory (which Alba uses) where the host's content root
 // is. Without it, discovery walks up from the test assembly's bin directory and synthesizes

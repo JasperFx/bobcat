@@ -1,5 +1,7 @@
 using BankAccountES;
 using Fisher;
+using JasperFx;
+using JasperFx.Events.EventModeling;
 using JasperFx.Events.Projections;
 using Marten;
 using Wolverine;
@@ -83,6 +85,31 @@ builder.Host.UseWolverine(opts =>
     opts.ServiceName = "BankAccount";
 });
 
+// The Event Model OVERLAY (jasperfx#687, decision D5): naming, grouping and trigger labels only —
+// never a factual role. Roles (commands, emitted events, aggregates, read models) are DERIVED from
+// the Wolverine chains and DECLARED by the Bobcat specs; the overlay contributes exactly the things
+// no code can express. The model name matches opts.ServiceName above because upstream,
+// EventModelDiscovery.Assemble folds descriptors together by model name — a mismatch here and the
+// overlay floats off as its own model instead of merging (bobcat#172).
+builder.Services.AddEventModel("BankAccount", model =>
+{
+    model.InDomain("Banking");
+
+    // ⚠️ No TriggeredBy on the HTTP slices, for now: wolverine#4181. Wolverine's HTTP-derived
+    // source claims TriggerLabel with the verb+route ("POST /api/…"), so a human label declared
+    // here loses on the provenance ladder AND mints a SourceDisagreement noise hotspot per slice.
+    // When #4181 ships, restore the labels — EventModel.feature asserts the current behaviour
+    // with a pointer back here, so the fix will trip that spec and flag the restoration.
+    model.Slice("EnrollClient");
+    model.Slice("UpdateClient");
+    model.Slice("OpenAccount");
+    model.Slice("DepositFunds");
+    model.Slice("WithdrawFunds");
+
+    // A message-handled slice's chain claims no TriggerLabel, so this Declared label survives.
+    model.Slice("FreezeAccount").TriggeredBy("The fraud desk");
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -96,4 +123,8 @@ app.MapWolverineEndpoints(opts =>
     opts.UseFluentValidationProblemDetailMiddleware();
 });
 
-await app.RunAsync();
+// RunJasperFxCommands rather than RunAsync so `dotnet run -- event-model --url …` works against
+// this host — the export command builds the host without starting it and PUTs the assembled,
+// provenance-stamped descriptor to a Bobcat console (wolverine#3990, bobcat#171). A bare
+// `dotnet run` still runs the app exactly as before.
+return await app.RunJasperFxCommands(args);

@@ -134,7 +134,9 @@ public class BobcatGenerator : IIncrementalGenerator
                 spc.AddSource(
                     "BobcatEventModelSource.g.cs",
                     EventModelEmitter.EmitSource(
-                        pair.Right.AssemblyName ?? "Bobcat", slices.Values.ToList()));
+                        pair.Right.AssemblyName ?? "Bobcat",
+                        eventModelNameOf(pair.Right),
+                        slices.Values.ToList()));
             }
         });
     }
@@ -142,6 +144,29 @@ public class BobcatGenerator : IIncrementalGenerator
     private static FeatureInfo? parseFeatureFile(string path, string content)
     {
         return SimpleGherkinParser.Parse(content, path);
+    }
+
+    /// <summary>
+    /// The model name declared by an assembly-level <c>[EventModelName("…")]</c>, or null for the
+    /// assembly-name default. Matched by simple name like every other Bobcat attribute, because the
+    /// netstandard2.0 generator references no runtime assembly. Upstream merges descriptors by model
+    /// name, so this is how a spec assembly's slices land on the same model as the service's
+    /// Wolverine-derived chains (issue #172).
+    /// </summary>
+    private static string? eventModelNameOf(Compilation compilation)
+    {
+        foreach (var attribute in compilation.Assembly.GetAttributes())
+        {
+            if (attribute.AttributeClass?.Name != "EventModelNameAttribute") continue;
+            if (attribute.ConstructorArguments.Length == 1 &&
+                attribute.ConstructorArguments[0].Value is string name &&
+                name.Length > 0)
+            {
+                return name;
+            }
+        }
+
+        return null;
     }
 
     private static FixtureInfo? extractFixtureInfo(GeneratorSyntaxContext ctx, CancellationToken ct)

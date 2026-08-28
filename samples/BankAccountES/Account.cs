@@ -19,6 +19,7 @@ public class Account
     public Guid ClientId { get; set; }
     public string Currency { get; set; } = "USD";
     public decimal Balance { get; set; }
+    public bool IsFrozen { get; set; }
 
     public void Apply(AccountOpened e)
     {
@@ -36,4 +37,12 @@ public class Account
     {
         Balance = e.NewBalance;
     }
+
+    public void Apply(AccountFrozen e)
+    {
+        IsFrozen = true;
+    }
+
+    // AccountFlagged deliberately has no Apply — it is an audit marker, and aggregation skips
+    // events no Apply claims. (It is also bobcat#172's planted disagreement; see FreezeAccount.cs.)
 }

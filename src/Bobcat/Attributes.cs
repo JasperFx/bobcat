@@ -15,6 +15,22 @@ public class FixtureTitleAttribute : Attribute
 }
 
 /// <summary>
+/// Names the Event Model this assembly's specs contribute slices to. Without it the generated
+/// <c>BobcatEventModelSource</c> names its model after the spec assembly — and upstream,
+/// <c>EventModelDiscovery.Assemble</c> folds descriptors together <b>by model name</b>, so a spec
+/// assembly called <c>BankAccountES.Tests</c> can never merge with the Wolverine-derived model,
+/// which is named for the <i>service</i> (<c>opts.ServiceName</c>). Set this to the service name
+/// and the Gherkin/code-first slices land on the same model as the chains they describe
+/// (issue #172).
+/// </summary>
+[AttributeUsage(AttributeTargets.Assembly)]
+public sealed class EventModelNameAttribute : Attribute
+{
+    public string Name { get; }
+    public EventModelNameAttribute(string name) => Name = name;
+}
+
+/// <summary>
 /// Composes shared/library grammar modules into a fixture. The generator also scans the
 /// listed module types for [Given]/[When]/[Then]/[Check] methods and matches their steps to
 /// the feature, alongside the fixture's own. Repeatable/composable. Modules are instantiated

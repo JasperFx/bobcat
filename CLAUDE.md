@@ -161,6 +161,29 @@ supervisor/viewer with no Bobcat reference.
 Bobcat is the first real implementation of `IEventModelDefinitionSource` anywhere. One
 `BobcatEventModelSource.g.cs` per assembly, registered with `services.AddBobcatEventModel()`.
 
+- **`[assembly: EventModelName("…")]` names the model; the assembly name is only the fallback
+  (issue #172).** Upstream, `EventModelDiscovery.Assemble` folds descriptors together **by model
+  name**, and the Wolverine-derived model is named for the *service* (`opts.ServiceName`) — so a
+  spec assembly called `BankAccountES.Tests` can never merge with the chains it describes unless
+  it declares the service's name. The attribute renames only the descriptor; the source's
+  `Subject` URI keeps the assembly name, because two spec assemblies may legitimately feed one
+  model. `samples/BankAccountES` is the worked example and its `EventModel.feature` pins the
+  merge end to end.
+- **The generated source is `internal`, and that has a consequence:** the app host cannot see the
+  spec assembly's slices (the reference points the other way), so composing all three design-time
+  sources — chains + overlay + specs — currently only works in the spec-runner's process, where
+  `samples/BankAccountES/Tests/EventModelFixture.cs` does it. The host's own
+  `event-model --url` export (and therefore `bobcat watch-event-model`) pushes a document
+  *without* the spec-declared slices or their `Specifications` bindings. Closing that gap is
+  follow-on work under issue #172.
+- ⚠️ **Wolverine's HTTP source claims `TriggerLabel` with the verb+route (wolverine#4181)**, so an
+  overlay's human trigger label on an HTTP slice loses the merge and mints a noise
+  `SourceDisagreement` hotspot. Until #4181 ships, don't put `TriggeredBy(...)` on HTTP slices —
+  the BankAccountES overlay documents the workaround, and its `EventModel.feature` asserts the
+  current behaviour so the fix trips a spec instead of going unnoticed. (Sibling cosmetic issue:
+  a query endpoint returning `IReadOnlyList<T>` reports the raw generic CLR string as its read
+  model, wolverine#4182.)
+
 - **A slice is a scenario-level grouping, not a feature-level one.** A feature is a document; a
   slice is a vertical behaviour, and several specs usually describe the same one —
   `Wallet.feature` tags `@slice:CreditWallet` three times. Because `SimpleGherkinParser` already
