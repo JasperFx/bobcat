@@ -9,6 +9,7 @@ export {
   MAX_LABEL_LINES
 } from './layout'
 export { estimateTextWidth, requiredContentWidth, segmentLabel } from './text'
+export { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 export type {
   EventModelGraph,
   LaidOutEdge,

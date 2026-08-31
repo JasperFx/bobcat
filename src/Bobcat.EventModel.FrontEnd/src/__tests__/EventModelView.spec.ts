@@ -132,6 +132,44 @@ describe('EventModelView', () => {
     expect(wrapper.findAll('.em-slice-specs')[1].attributes('data-outcome')).toBeUndefined()
   })
 
+  it('marks each slice with a glyph for its trigger kind (#184)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const icons = wrapper.findAll('.em-trigger-icon')
+    // Only the HTTP-triggered slice declares a kind; the view slice gets no invented glyph.
+    expect(icons).toHaveLength(1)
+    expect(icons[0].attributes('data-kind')).toBe('Http')
+    expect(icons[0].find('title').text()).toBe('HTTP endpoint')
+  })
+
+  it('puts the route on the icon tooltip, where it costs no width', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].triggerOrigin = 'POST /api/accounts/{accountId}/withdrawals'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    expect(wrapper.find('.em-trigger-icon title').text()).toBe(
+      'HTTP endpoint · POST /api/accounts/{accountId}/withdrawals'
+    )
+  })
+
+  it('renders a route trigger label as a method badge plus the path', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].elements![0].label = 'POST /api/accounts/{accountId}/withdrawals'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const card = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-kind') === 'Trigger')!
+    expect(card.find('.em-route-method').text()).toBe('POST')
+    expect(card.text()).toContain('/api/accounts/{accountId}/withdrawals')
+  })
+
+  it('leaves a human trigger label alone — only a route gets the badge', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const card = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-kind') === 'Trigger')!
+    expect(card.find('.em-route-method').exists()).toBe(false)
+    expect(card.text()).toBe('Teller screen')
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([

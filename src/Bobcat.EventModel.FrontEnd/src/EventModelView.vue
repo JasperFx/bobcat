@@ -21,6 +21,7 @@ import {
   type LayoutOptions
 } from './layout'
 import { segmentLabel } from './text'
+import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
 import {
   LANE_LABEL,
@@ -128,6 +129,31 @@ function segmentsFor(element: EventModelElement): string[] {
   return segmentLabel(element.label ?? '')
 }
 
+/** A trigger card whose label is an HTTP route renders its verb as a badge (#184). */
+function routeFor(element: EventModelElement) {
+  return element.kind === 'Trigger' ? parseRoute(element.label ?? '') : null
+}
+
+/**
+ * bobcat#184 — the slice's trigger kind, as a glyph and a tooltip.
+ *
+ * `triggerKind` is on every derived slice and was rendered nowhere. The tooltip carries
+ * `triggerOrigin` with it, which is where the route lives now that wolverine#4181 has stopped the
+ * HTTP source claiming `TriggerLabel` — so the human label stays on the card and the machine
+ * detail is one hover away instead of eating a column of width.
+ */
+function triggerIconFor(slice: EventModelSliceDescriptor): string | null {
+  const kind = slice.triggerKind
+  return kind ? (TRIGGER_ICON[kind] ?? null) : null
+}
+
+function triggerTitleFor(slice: EventModelSliceDescriptor): string {
+  const kind = slice.triggerKind
+  const parts = [kind ? (TRIGGER_KIND_LABEL[kind] ?? kind) : 'Trigger']
+  if (slice.triggerOrigin) parts.push(slice.triggerOrigin)
+  return parts.join(' · ')
+}
+
 /**
  * bobcat#183 — how many specifications are bound to this slice, as the header's badge.
  *
@@ -200,6 +226,18 @@ function outcomeFor(sliceName: string): string | null {
           :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
         >
           <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
+            <!-- bobcat#184 — what kind of thing triggers this slice, legible without reading. -->
+            <svg
+              v-if="triggerIconFor(slice.descriptor)"
+              class="em-trigger-icon"
+              :data-kind="slice.descriptor.triggerKind"
+              viewBox="0 0 16 16"
+              role="img"
+              :aria-label="triggerTitleFor(slice.descriptor)"
+            >
+              <title>{{ triggerTitleFor(slice.descriptor) }}</title>
+              <path :d="triggerIconFor(slice.descriptor) ?? undefined" />
+            </svg>
             <button
               class="em-slice-name"
               type="button"
@@ -279,7 +317,14 @@ function outcomeFor(sliceName: string): string | null {
           }"
           @click="emit('element-click', node.element)"
         >
-          <span class="em-card-label"
+          <span v-if="routeFor(node.element)" class="em-card-label"
+            ><span class="em-route-method">{{ routeFor(node.element)!.method }}</span
+            ><template
+              v-for="(segment, index) in segmentLabel(routeFor(node.element)!.path)"
+              :key="index"
+              >{{ segment }}<wbr /></template
+          ></span>
+          <span v-else class="em-card-label"
             ><template v-for="(segment, index) in segmentsFor(node.element)" :key="index"
               >{{ segment }}<wbr /></template
           ></span>
@@ -352,6 +397,18 @@ function outcomeFor(sliceName: string): string | null {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.em-trigger-icon {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.6;
+  pointer-events: auto;
 }
 .em-slice-name {
   /* flex-shrink with min-width: 0 is what lets the NAME give way to the badge rather than pushing
@@ -460,6 +517,21 @@ function outcomeFor(sliceName: string): string | null {
    ends in an ellipsis with its full text on the card's tooltip, rather than being cut mid-glyph
    by `overflow: hidden` as it was before #180. `anywhere` is the backstop for the one segment
    that is itself wider than the cap. */
+/* The verb of a route, as a badge: three to seven characters of fixed vocabulary a reader
+   recognises by shape, so it should not be competing with the path for the same line (#184). */
+.em-route-method {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  /* Outlined in the card's own ink rather than filled: the fill means the element KIND, and a
+     badge that painted over it would be spending the one channel this package guards. */
+  opacity: 0.75;
+}
 .em-card-label {
   display: -webkit-box;
   -webkit-box-orient: vertical;
