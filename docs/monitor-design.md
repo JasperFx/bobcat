@@ -334,6 +334,16 @@ convention:
   spec with its verdict tag, the scenario's step results, and its touched types (#107), with
   `undeclaredTouches` flagging evidence the model does not declare — the "spec touching
   undeclared types" yellow.
+- **Card sizing is decided in the package, not here (issue #180, 0.5.0).** Cards were absolutely
+  sized at 180px with `overflow: hidden`, so a long command name — and worse, a route trigger
+  label — was cut off mid-glyph. The order is now wrap (`<wbr>` at camel humps and after
+  `/ . _ - :`), then widen the column to fit its own labels in two lines up to a `maxCardWidth`
+  cap, then clamp to three lines with the full text on the tooltip. Widths are *estimated* from
+  the label text, never measured, because layout must stay a pure function of the descriptor.
+  One rule worth knowing: a `Hotspot` label is excluded from the width vote — the producer makes
+  the hotspot's *text* the label (jasperfx#704), and letting a sentence size a column of type
+  names widened every column on the real Stoat model to fit the finding rather than the model.
+  Full reasoning in the package README.
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in

@@ -3,6 +3,16 @@ import { COLLAPSED_WIDTH, layoutEventModel } from '../layout'
 import { LANE_ORDER } from '../types'
 import { withdrawFundsModel } from './fixtures'
 
+/** The withdrawal model with one label replaced — the #180 sizing cases in one place. */
+function longLabelModel(label: string) {
+  const model = withdrawFundsModel()
+  model.slices![0].elements = [
+    { id: 'WithdrawFunds/Trigger/long', kind: 'Trigger', lane: 'Wireframe', label }
+  ]
+  model.slices![0].edges = []
+  return model
+}
+
 /**
  * The layout is the part that has to be *identical* between the Bobcat console and CritterWatch,
  * so it is pure and asserted on exact coordinates rather than on "looks about right".
@@ -92,6 +102,54 @@ describe('layoutEventModel', () => {
       label: 'Future'
     })
     expect(layoutEventModel(model).nodes.some((n) => n.id === 'WithdrawFunds/Event/Future')).toBe(false)
+  })
+
+  it('keeps the default width for ordinary type names', () => {
+    // The floor is the common case: nothing on this fixture is long enough to want more room, so
+    // the canvas looks exactly as it did before #180.
+    const graph = layoutEventModel(withdrawFundsModel())
+    expect(graph.slices.map((s) => s.cardWidth)).toEqual([180, 180])
+    expect(graph.nodes.every((n) => n.width === 180)).toBe(true)
+  })
+
+  it('widens a column whose label will not fit two lines at the default width (#180)', () => {
+    // The bug was an absolutely-sized card with overflow:hidden — a long route was cut off. The
+    // card now wraps at its break opportunities first, and the column only grows when two lines
+    // at 180px still are not enough.
+    const model = longLabelModel('PUT /api/organizations/{orgId}/subscriptions/{id}/cancel')
+    const graph = layoutEventModel(model)
+    expect(graph.slices[0].cardWidth).toBe(192)
+    expect(graph.nodes[0].width).toBe(192)
+    // The neighbouring column keeps its own width, and is pushed right by exactly the difference.
+    expect(graph.slices[1].cardWidth).toBe(180)
+    expect(graph.slices[1].x).toBe(192 + 56)
+  })
+
+  it('caps a column at maxCardWidth rather than letting one label own the canvas', () => {
+    const model = longLabelModel('RegisterCustomerAccountForInternationalWireTransferProcessing')
+    expect(layoutEventModel(model).slices[0].cardWidth).toBe(214)
+    // Past the cap the card clamps the label and keeps the full text on its tooltip.
+    expect(layoutEventModel(model, { maxCardWidth: 200 }).slices[0].cardWidth).toBe(200)
+  })
+
+  it('pins every card to one width when maxCardWidth equals cardWidth', () => {
+    // The escape hatch for a consumer that wants the old fixed grid back.
+    const model = longLabelModel('RegisterCustomerAccountForInternationalWireTransferProcessing')
+    const graph = layoutEventModel(model, { cardWidth: 180, maxCardWidth: 180 })
+    expect(graph.slices.map((s) => s.cardWidth)).toEqual([180, 180])
+  })
+
+  it('does not let a hotspot sentence set the width of a column of type names', () => {
+    // A hotspot's label IS its text (jasperfx#704) — prose, not a type name. Sizing to it widened
+    // every column on a real canvas to fit the finding instead of the model.
+    const model = longLabelModel('ClaimNode')
+    model.slices![0].elements!.push({
+      id: 'WithdrawFunds/Hotspot/disagreement',
+      kind: 'Hotspot',
+      lane: 'EventStream',
+      label: 'EmittedEvents: Derived claims ClaimResult; Declared claims NodeClaimed, ClaimRenewed'
+    })
+    expect(layoutEventModel(model).slices[0].cardWidth).toBe(180)
   })
 
   it('handles a null or empty descriptor without throwing', () => {

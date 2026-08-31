@@ -84,6 +84,39 @@ means "both sources agree" — not "seen in production". This one is a ladder of
 `Declared` and `Derived` both map onto its `Inferred`, and its `Confirmed` has no rung here:
 agreement is expressed by the *absence* of a `SourceDisagreement` hotspot.
 
+## Card sizing: wrap, widen, then clamp (0.5.0, bobcat#180)
+
+Cards were absolutely sized at 180px with `overflow: hidden`, so a long command name — and worse,
+an HTTP trigger label like `POST /accounts/{id}/deposit` — was simply cut off mid-glyph. The
+strategy is decided here once so both consoles inherit it, in this order:
+
+1. **Wrap at the points a reader would break the name themselves.** CSS gives a browser break
+   opportunities at spaces and hyphens and nowhere else, and `DepositMoneyIntoAccount` has neither
+   — it is one unbreakable word. `segmentLabel` splits at camel humps and after `/ \ . _ - : , +`,
+   and the card renders the segments with `<wbr>` between them.
+2. **Widen the column only when wrapping is not enough.** `cardWidth` (180) became the *floor*, and
+   a column grows to fit its own widest label in `LABEL_TARGET_LINES` (2) lines. Per column, not
+   per card: cards in a column line up under each other, and ragged widths inside one lane read as
+   a broken grid rather than as "this name is longer".
+3. **Clamp past the cap.** `maxCardWidth` (320) stops one pathological route owning the canvas;
+   beyond it the label clamps to `MAX_LABEL_LINES` (3) with an ellipsis. The full text was already
+   on the card's tooltip, which is what makes truncation acceptable rather than lossy.
+
+Set `maxCardWidth` equal to `cardWidth` to get the old fixed grid back.
+
+**Widths are estimated, never measured** — `estimateTextWidth` is a small per-character model, not
+`canvas.measureText` and not a DOM pass, because layout must stay a pure function of the descriptor
+(below). The estimate only ever chooses a column width, and steps 1 and 3 absorb whatever it gets
+wrong: an estimate 10% out costs a slightly roomy or slightly tight column, never a clipped name.
+That is also why the type scale (`LABEL_FONT_SIZE`, `LABEL_LINE_HEIGHT`, `CARD_PADDING_X`) lives in
+`layout.ts` and is written onto the card as inline style — a width computed from one font size and
+rendered at another is a clipped label with no traceable symptom.
+
+**Considered and rejected:** shrink-to-fit type scale (a canvas of six different text sizes reads
+as noise, and the small end is unreadable at the zoom levels these are viewed at), and
+truncate-with-title alone (it hides exactly the distinction — `OrderPlaced` vs `OrderPlacedV2` —
+that the reader came to the canvas to see).
+
 ## Layout is pure, and that is the point
 
 `layoutEventModel(descriptor, options)` is synchronous and free of any graph library — no elk, no
