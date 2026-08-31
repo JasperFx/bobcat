@@ -38,14 +38,13 @@ Feature: Event Model
     And the "DepositFunds" slice binds the specification "Bank Account Event Sourcing/Deposit funds"
     And the "WithdrawFunds" slice binds the specification "Bank Account Event Sourcing/Withdrawing more than the balance leaves the account untouched"
 
-  # ⚠️ wolverine#4181, asserted deliberately: the HTTP-derived source claims TriggerLabel with the
-  # verb+route, so an overlay label on an HTTP slice cannot win and Program.cs withholds them.
-  # When #4181 ships, the Derived claim disappears, this scenario trips, and whoever sees it
-  # restores the overlay's TriggeredBy labels on the HTTP slices and flips these assertions.
-  Scenario: An HTTP slice's trigger label is claimed by the chains until wolverine 4181 lands
+  # wolverine#4181, FIXED at 6.31.0 — this scenario is the flipped tripwire: the HTTP-derived
+  # source no longer claims TriggerLabel, so the overlay's human label wins the role by being
+  # its only claimant, exactly as jasperfx#703's contract says naming roles should.
+  Scenario: An HTTP slice's trigger label belongs to the overlay again
     When the event model is assembled from the chains, the overlay and this assembly's specs
-    Then the "WithdrawFunds" slice's TriggerLabel role is claimed by Derived
-    And the "WithdrawFunds" slice is triggered by "POST /api/accounts/{accountId}/withdrawals"
+    Then the "WithdrawFunds" slice's TriggerLabel role is claimed by Declared
+    And the "WithdrawFunds" slice is triggered by "Customer at the ATM"
 
   # bobcat#175. Until this, the vehicle asserted read models only as a *provenance* claim
   # ("ReadModelTypes role is claimed by Declared") and never as an identity, so a derived read
@@ -57,12 +56,9 @@ Feature: Event Model
     And the "GET /api/clients/{id}" slice reads the Client read model
     And the "GET /api/accounts/{accountId}/transactions" slice reads the AccountTransactions read model
 
-  # ⚠️ wolverine#4182, asserted deliberately, in the same spirit as the #4181 scenario above:
-  # a query returning IReadOnlyList<Account> reports the raw closed generic as its read model, so
-  # the collection route mints its own canvas node instead of folding onto the Account node its
-  # single-document sibling already produces. Fixed in wolverine#4185, unreleased at 6.30.1.
-  # When the pin bumps, this scenario trips; replace it with the fold assertion in bobcat#175:
-  #   Then the "GET /api/clients/{clientId}/accounts" slice reads the Account read model
-  Scenario: A collection query reports its raw list type until wolverine 4182 lands
+  # wolverine#4182, FIXED at 6.31.0 (via #4185) — the flipped tripwire, now the bobcat#175 fold
+  # assertion: the collection query unwraps to its element type and shares the Account node with
+  # its single-document sibling instead of minting a raw-generic one.
+  Scenario: A collection query reads the element type it returns
     When the event model is assembled from the chains, the overlay and this assembly's specs
-    Then the "GET /api/clients/{clientId}/accounts" slice reads the IReadOnlyList`1 read model
+    Then the "GET /api/clients/{clientId}/accounts" slice reads the Account read model
