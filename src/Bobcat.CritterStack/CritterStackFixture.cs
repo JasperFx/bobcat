@@ -55,8 +55,25 @@ public abstract class CritterStackFixture : Fixture
     /// <summary>How long a projection wait may run before <see cref="ThenDocument{T}"/> gives up.</summary>
     protected virtual TimeSpan ProjectionTimeout => TimeSpan.FromSeconds(20);
 
-    /// <summary>The stream the scenario is arranging and acting on, set by a Given.</summary>
+    /// <summary>
+    /// The stream the scenario is arranging and acting on, set by a Given — when the stream is
+    /// Guid-identified. <see cref="Guid.Empty"/> when the scenario arranged a string-keyed stream
+    /// (see <see cref="StreamKey"/>) or no stream at all.
+    /// </summary>
     protected Guid StreamId { get; private set; }
+
+    /// <summary>
+    /// The stream key the scenario is arranging and acting on, for stores using string stream
+    /// identity (bobcat#177 — Stoat's <c>{plan}/{nodeId}</c> claims, CritterWatch's service
+    /// streams). Null when the scenario arranged a Guid-identified stream. The grammar step
+    /// <c>Given no events for {aggregate} "{id}"</c> decides which: an id that parses as a Guid
+    /// is one, anything else is a stream key verbatim.
+    /// </summary>
+    protected string? StreamKey { get; private set; }
+
+    /// <summary>The current stream identity — the key when string-keyed, else the Guid — boxed for
+    /// the polymorphic load/fetch paths. Null when no Given has established a stream.</summary>
+    private object? streamIdentity => StreamKey ?? (StreamId == Guid.Empty ? null : (object)StreamId);
 
     /// <summary>The aggregate type the current stream belongs to, from the last Given.</summary>
     protected Type? AggregateType { get; private set; }
@@ -77,6 +94,7 @@ public abstract class CritterStackFixture : Fixture
     public void BeforeEach()
     {
         StreamId = Guid.Empty;
+        StreamKey = null;
         AggregateType = null;
         LastEvents = [];
         LastSession = null;
@@ -90,20 +108,40 @@ public abstract class CritterStackFixture : Fixture
     /// exactly these events. Establishes the stream a later <see cref="WhenCommand{T}"/> runs against.
     /// An empty <paramref name="events"/> just records the id — the "no events yet" starting point.
     /// </summary>
-    public async Task GivenEvents<T>(Guid id, params object[] events) where T : class
+    public Task GivenEvents<T>(Guid id, params object[] events) where T : class
     {
         StreamId = id;
+        StreamKey = null;
+        return givenEventsCore<T>(id, events);
+    }
+
+    /// <summary>
+    /// The string-keyed twin of <see cref="GivenEvents{T}(Guid, object[])"/>, for stores using
+    /// string stream identity (bobcat#177).
+    /// </summary>
+    public Task GivenEvents<T>(string key, params object[] events) where T : class
+    {
+        StreamKey = key;
+        StreamId = Guid.Empty;
+        return givenEventsCore<T>(key, events);
+    }
+
+    private async Task givenEventsCore<T>(object identity, object[] events) where T : class
+    {
         AggregateType = typeof(T);
         Ctx.RecordTouchedType(typeof(T));
         if (events.Length > 0)
         {
-            await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), typeof(T), id, events, Ctx.Cancellation);
+            await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), typeof(T), identity, events, Ctx.Cancellation);
             recordTouched(events);
         }
     }
 
     /// <summary>The stream <paramref name="id"/> (an <typeparamref name="T"/> aggregate) has no events yet.</summary>
     public Task GivenNoEvents<T>(Guid id) where T : class => GivenEvents<T>(id);
+
+    /// <inheritdoc cref="GivenNoEvents{T}(Guid)"/>
+    public Task GivenNoEvents<T>(string key) where T : class => GivenEvents<T>(key);
 
     /// <summary>
     /// Act: send <paramref name="command"/> through Wolverine, wait for the tracked session to settle,
@@ -116,7 +154,9 @@ public abstract class CritterStackFixture : Fixture
         await executeCommandCore(command);
         if (LastError != null) return null;
 
-        var aggregate = await Ctx.AggregateEventStreamAsync<T>(StreamId, HostResource, StoreName);
+        var aggregate = StreamKey is { } key
+            ? await Ctx.AggregateEventStreamAsync<T>(key, HostResource, StoreName)
+            : await Ctx.AggregateEventStreamAsync<T>(StreamId, HostResource, StoreName);
         return new AggregateExecution<T>(LastSession!, LastEvents, aggregate);
     }
 
@@ -193,7 +233,7 @@ public abstract class CritterStackFixture : Fixture
     /// Delegates the load to the store-agnostic authoring helper (<c>LoadAsync&lt;T&gt;</c>), so it reads
     /// the same against Marten, Polecat or Fisher.
     /// </summary>
-    public Task ThenDocument<T>(Action<T> assert) where T : class => ThenDocument(StreamId, assert);
+    public Task ThenDocument<T>(Action<T> assert) where T : class => ThenDocument(streamIdentity ?? StreamId, assert);
 
     /// <inheritdoc cref="ThenDocument{T}(System.Action{T})"/>
     public async Task ThenDocument<T>(object id, Action<T> assert) where T : class
@@ -230,7 +270,19 @@ public abstract class CritterStackFixture : Fixture
     [Given("no events for {aggregate} {string}")]
     public void GivenNoEventsFor(Type aggregate, string id)
     {
-        StreamId = Guid.Parse(id);
+        // An id that parses as a Guid is one; anything else is a string stream key verbatim
+        // (bobcat#177 — Stoat's "{plan}/{nodeId}" claims, CritterWatch's service streams).
+        if (Guid.TryParse(id, out var guid))
+        {
+            StreamId = guid;
+            StreamKey = null;
+        }
+        else
+        {
+            StreamKey = id;
+            StreamId = Guid.Empty;
+        }
+
         AggregateType = aggregate;
         Ctx.RecordTouchedType(aggregate);
     }
@@ -239,13 +291,13 @@ public abstract class CritterStackFixture : Fixture
     public async Task GivenEventsFor(Type aggregate, StepTable events)
     {
         AggregateType = aggregate;
-        if (StreamId == Guid.Empty)
+        if (streamIdentity is not { } identity)
             throw new SpecCriticalException(
                 "'Given events for …' needs the stream id — precede it with 'Given no events for <aggregate> \"<id>\"' " +
                 "(or a step that sets the id).");
 
         var built = buildEvents(aggregate, events);
-        await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, StreamId, built, Ctx.Cancellation);
+        await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, identity, built, Ctx.Cancellation);
         Ctx.RecordTouchedType(aggregate);
         recordTouched(built);
     }
@@ -304,7 +356,7 @@ public abstract class CritterStackFixture : Fixture
 
         if (document == null)
             throw new SpecAssertionException(
-                $"Expected a {readmodel.Name} read model with id '{StreamId}', but none exists.");
+                $"Expected a {readmodel.Name} read model with id '{streamIdentity ?? StreamId}', but none exists.");
 
         Ctx.RecordTouchedType(readmodel);
 
@@ -349,7 +401,7 @@ public abstract class CritterStackFixture : Fixture
 
     private async Task executeCommandCore(object command)
     {
-        var before = await Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
+        var before = await fetchCurrentStreamAsync();
 
         // The command was dispatched either way — a validation rejection still received it,
         // and "this spec touched that command" is exactly what a sad-path scenario proves.
@@ -358,7 +410,7 @@ public abstract class CritterStackFixture : Fixture
         try
         {
             var session = await Ctx.InvokeMessageAndWaitAsync(command, HostResource);
-            var after = await Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
+            var after = await fetchCurrentStreamAsync();
             LastEvents = after.Skip(before.Count).ToList();
             LastSession = session;
             LastError = null;
@@ -384,13 +436,19 @@ public abstract class CritterStackFixture : Fixture
         }
     }
 
+    /// <summary>The current stream's events, by whichever identity kind the Given established.</summary>
+    private Task<IReadOnlyList<IEvent>> fetchCurrentStreamAsync()
+        => StreamKey is { } key
+            ? Ctx.FetchEventStreamAsync(key, HostResource, StoreName)
+            : Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
+
     private Task<object?> loadReadModel(Type readmodel)
     {
         // EventStoreAuthoring.LoadDocumentAsync is generic; close it over the read-model type so
         // LoadAsync<T> targets the correct document table.
         var method = typeof(EventStoreAuthoring).GetMethod(nameof(EventStoreAuthoring.LoadDocumentAsync))!
             .MakeGenericMethod(readmodel);
-        var task = (Task)method.Invoke(null, [Ctx.EventStore(HostResource, StoreName), (object)StreamId, Ctx.Cancellation])!;
+        var task = (Task)method.Invoke(null, [Ctx.EventStore(HostResource, StoreName), streamIdentity ?? StreamId, Ctx.Cancellation])!;
         return awaitAsObject(task);
     }
 

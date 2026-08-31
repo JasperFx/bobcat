@@ -24,12 +24,21 @@ internal static class EventStoreAuthoring
     /// <paramref name="aggregateType"/> stream) when it does not exist yet and appending when it does.
     /// This is the arrange half of an event-sourcing spec — the prior events a command runs against.
     /// </summary>
-    public static async Task AppendAsync(IEventStore store, Type aggregateType, Guid streamId,
+    public static async Task AppendAsync(IEventStore store, Type aggregateType, object streamIdentity,
         IReadOnlyList<object> events, CancellationToken token = default)
     {
         if (events.Count == 0) return;
 
-        var existing = await EventStores.FetchStreamAsync(store, streamId, token).ConfigureAwait(false);
+        // Both stream identity kinds, dispatched here so the fixture stays polymorphic
+        // (bobcat#177): a Guid-identified store gets the Guid overloads, a string-keyed one
+        // (Stoat, CritterWatch) the streamKey overloads. Anything else is a wiring mistake.
+        var existing = streamIdentity switch
+        {
+            Guid guid => await EventStores.FetchStreamAsync(store, guid, token).ConfigureAwait(false),
+            string key => await EventStores.FetchStreamAsync(store, key, token).ConfigureAwait(false),
+            _ => throw new ArgumentException(
+                $"A stream identity must be a Guid or a string, not {streamIdentity.GetType().Name}.", nameof(streamIdentity)),
+        };
 
         var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
         await using (session.ConfigureAwait(false))
@@ -37,9 +46,15 @@ internal static class EventStoreAuthoring
             var operations = eventOperationsOf(session);
 
             if (existing.Count == 0)
-                operations.StartStream(aggregateType, streamId, events.ToArray());
+            {
+                if (streamIdentity is Guid guid) operations.StartStream(aggregateType, guid, events.ToArray());
+                else operations.StartStream(aggregateType, (string)streamIdentity, events.ToArray());
+            }
             else
-                operations.Append(streamId, events.ToArray());
+            {
+                if (streamIdentity is Guid guid) operations.Append(guid, events.ToArray());
+                else operations.Append((string)streamIdentity, events.ToArray());
+            }
 
             await saveChangesAsync(session, token).ConfigureAwait(false);
         }
