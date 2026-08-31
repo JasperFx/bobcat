@@ -129,6 +129,40 @@ function segmentsFor(element: EventModelElement): string[] {
   return segmentLabel(element.label ?? '')
 }
 
+/**
+ * bobcat#178 — a source disagreement is a FINDING, and the card has to say so.
+ *
+ * The producer makes the hotspot's text the element label, so the card used to lead with the role
+ * name and a clipped sentence: *"EmittedEvents: Derived claims ClaimResult; Declared claims
+ * NodeClaimed, Cl…"*. The reviewer who designed the feature read it as a malformed events list,
+ * which is the whole finding — nothing on the card said two sources disagreed, and the one thing
+ * a four-source model produces that nothing else can deserves better than tooltip-only.
+ *
+ * So a hotspot card renders structure instead of prose: what kind of finding it is, then (for a
+ * disagreement) the role and the two claims with their rungs, kept first. The claims are typed on
+ * the descriptor — `role`, `winningClaim`, `losingClaim` — so none of this is parsed back out of
+ * the sentence.
+ */
+const HOTSPOT_ORIGIN_LABEL: Record<string, string> = {
+  SourceDisagreement: 'Sources disagree',
+  PendingSpecification: 'Pending spec',
+  Prose: 'Note'
+}
+
+function originLabelFor(hotspot: HotspotDescriptor): string {
+  return HOTSPOT_ORIGIN_LABEL[hotspot.origin] ?? hotspot.origin
+}
+
+/** The two claims of a disagreement, kept first — null unless both are on the descriptor. */
+function claimsFor(hotspot: HotspotDescriptor) {
+  if (hotspot.origin !== 'SourceDisagreement') return null
+  const kept = hotspot.winningClaim
+  const dropped = hotspot.losingClaim
+  // A disagreement whose pair did not survive the wire degrades to its text, never to half a
+  // finding with one side missing.
+  return kept && dropped ? { kept, dropped } : null
+}
+
 /** A trigger card whose label is an HTTP route renders its verb as a badge (#184). */
 function routeFor(element: EventModelElement) {
   return element.kind === 'Trigger' ? parseRoute(element.label ?? '') : null
@@ -317,7 +351,26 @@ function outcomeFor(sliceName: string): string | null {
           }"
           @click="emit('element-click', node.element)"
         >
-          <span v-if="routeFor(node.element)" class="em-card-label"
+          <span v-if="hotspotFor(node)" class="em-hotspot">
+            <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
+            <template v-if="claimsFor(hotspotFor(node)!)">
+              <span v-if="hotspotFor(node)!.role" class="em-hotspot-role">{{
+                hotspotFor(node)!.role
+              }}</span>
+              <span class="em-hotspot-claim" data-claim="kept">
+                <span class="em-hotspot-rung">{{ claimsFor(hotspotFor(node)!)!.kept.provenance }}</span>
+                {{ claimsFor(hotspotFor(node)!)!.kept.value }}
+              </span>
+              <span class="em-hotspot-claim" data-claim="dropped">
+                <span class="em-hotspot-rung">{{
+                  claimsFor(hotspotFor(node)!)!.dropped.provenance
+                }}</span>
+                {{ claimsFor(hotspotFor(node)!)!.dropped.value }}
+              </span>
+            </template>
+            <span v-else class="em-hotspot-text">{{ hotspotFor(node)!.text }}</span>
+          </span>
+          <span v-else-if="routeFor(node.element)" class="em-card-label"
             ><span class="em-route-method">{{ routeFor(node.element)!.method }}</span
             ><template
               v-for="(segment, index) in segmentLabel(routeFor(node.element)!.path)"
@@ -517,6 +570,60 @@ function outcomeFor(sliceName: string): string | null {
    ends in an ellipsis with its full text on the card's tooltip, rather than being cut mid-glyph
    by `overflow: hidden` as it was before #180. `anywhere` is the backstop for the one segment
    that is itself wider than the cap. */
+/* bobcat#178 — a hotspot card is a finding, laid out as one: what kind, then (for a source
+   disagreement) the role and the two claims with their rungs, kept above dropped. Left-aligned
+   and stacked, because a centred sentence is what made it read as a malformed events list. */
+.em-hotspot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+}
+.em-hotspot-origin {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+.em-hotspot-role {
+  font-size: 11px;
+  font-weight: 600;
+}
+.em-hotspot-claim {
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The dropped claim is stated, not hidden — it is half the finding — but it reads as the loser:
+   struck through and faded, where the kept one carries full weight. */
+.em-hotspot-claim[data-claim='dropped'] {
+  opacity: 0.7;
+  text-decoration: line-through;
+}
+.em-hotspot-rung {
+  font-weight: 700;
+}
+.em-hotspot-rung::after {
+  content: ' ·';
+}
+.em-hotspot-text {
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
 /* The verb of a route, as a badge: three to seven characters of fixed vocabulary a reader
    recognises by shape, so it should not be competing with the path for the same line (#184). */
 .em-route-method {

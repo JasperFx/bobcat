@@ -237,19 +237,63 @@ describe('EventModelView — provenance and source disagreement', () => {
 
   it('marks a source disagreement apart from a pending-specification hotspot', () => {
     const all = cards()
-    const pending = all.find((c) => c.text() === 'overdraft not specified')!
-    const conflict = all.find((c) => c.text().startsWith('EmittedEvents:'))!
+    const pending = all.find((c) => c.text().includes('overdraft not specified'))!
+    const conflict = all.find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
 
     expect(pending.attributes('data-hotspot-origin')).toBe('PendingSpecification')
     expect(conflict.attributes('data-hotspot-origin')).toBe('SourceDisagreement')
   })
 
   it('puts both claims on the tooltip, so the reader can decide which source to fix', () => {
-    const conflict = cards().find((c) => c.text().startsWith('EmittedEvents:'))!
+    const conflict = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
+    )!
     const title = conflict.attributes('title')!
 
     expect(title).toContain('Kept: Observed claims FundsWithdrawn, AuditRecorded')
     expect(title).toContain('Dropped: Derived claims FundsWithdrawn')
+  })
+
+  it('renders a disagreement as a finding, not as a sentence (#178)', () => {
+    // The card used to lead with the role name and a clipped sentence, and the reviewer who
+    // designed the feature read it as a malformed events list. It now says what it is.
+    const conflict = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
+    )!
+
+    expect(conflict.find('.em-hotspot-origin').text()).toBe('Sources disagree')
+    expect(conflict.find('.em-hotspot-role').text()).toBe('EmittedEvents')
+
+    const claims = conflict.findAll('.em-hotspot-claim')
+    expect(claims.map((c) => c.attributes('data-claim'))).toEqual(['kept', 'dropped'])
+    // Kept first, each with the rung that claimed it — the ladder is the reason one won.
+    expect(claims[0].text()).toBe('Observed FundsWithdrawn, AuditRecorded')
+    expect(claims[1].text()).toBe('Derived FundsWithdrawn')
+  })
+
+  it('names what kind of finding an ordinary hotspot is, then states it', () => {
+    const pending = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'PendingSpecification'
+    )!
+    expect(pending.find('.em-hotspot-origin').text()).toBe('Pending spec')
+    expect(pending.find('.em-hotspot-text').text()).toBe('overdraft not specified')
+    expect(pending.find('.em-hotspot-claim').exists()).toBe(false)
+  })
+
+  it('degrades a disagreement with no surviving claim pair to its text', () => {
+    // Half a finding — one claim, no counterpart — would be worse than the sentence it replaced.
+    const model = fourSourceModel()
+    for (const slice of model.slices ?? []) {
+      for (const hotspot of slice.hotspots ?? []) {
+        if (hotspot.origin === 'SourceDisagreement') hotspot.losingClaim = null
+      }
+    }
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const conflict = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
+    expect(conflict.find('.em-hotspot-claim').exists()).toBe(false)
+    expect(conflict.find('.em-hotspot-text').text()).toContain('EmittedEvents')
   })
 
   it('explains the rung on the tooltip of an ordinary card', () => {
