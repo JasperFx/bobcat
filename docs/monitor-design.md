@@ -111,6 +111,25 @@ solution-level `dotnet pack` simply skips the project — publish.yml packs it e
 the EmbeddedResource items are created INSIDE the BuildFrontend target, because a static glob
 evaluates before the Vite build runs and silently embeds nothing on a clean build.
 
+## Branding (issue #179, 2026-08-31)
+
+The console had no favicon and no product mark at all — a browser tab of "localhost" beside
+CritterWatch's critter badge. Fixed, in the same family CritterWatch uses:
+
+- **`src/Bobcat.Console.FrontEnd/public/`** holds `favicon.png` (the docs site's own
+  `bobcat-favicon-64.png`), `bobcat-mark-128.png` (the framed lynx avatar, downscaled) and
+  `jasperfx-logo-128.png`. Copied into the SPA rather than referenced across projects: Vite only
+  serves what is under its own root, and the csproj embeds `dist/` verbatim, so a cross-project
+  path would work in `npm run dev` and 404 in the packaged tool.
+- **A title bar, which the console did not have before.** The product on the left (mark + word
+  mark), the company on the right (the JasperFx gear, linking to jasperfx.net). The sidebar's
+  plain-text brand *moved* here rather than being duplicated — and moving it is what gives the
+  company mark a right-hand edge to sit against, which a 220px rail does not have.
+- The #166 scroll invariant survives the extra row: the title bar is a fixed-height flex child
+  and the inner `el-container` takes `flex: 1; min-height: 0`, so `el-main` stays the one
+  scroller. Without the `min-height` the flex child refuses to shrink and `el-main` is pushed
+  off the bottom of the viewport.
+
 ## Transport: HTTP, fire-and-forget, never slows a run
 
 Publishers (BobcatRunner, the supervisor, worker processes) POST batches of events to

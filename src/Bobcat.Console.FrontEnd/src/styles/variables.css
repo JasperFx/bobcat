@@ -43,6 +43,9 @@ body {
 .bm-sidebar .el-menu {
   border-right: none;
   background-color: var(--bm-menu-bg);
+  /* The word mark moved to the title bar (#179), so the first menu item would otherwise sit
+     flush against the title bar's bottom border. */
+  padding-top: 8px;
 }
 
 .bm-sidebar .el-menu-item {
