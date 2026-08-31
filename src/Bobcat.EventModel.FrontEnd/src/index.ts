@@ -1,7 +1,11 @@
 export { default as EventModelView } from './EventModelView.vue'
 export {
   layoutEventModel,
+  canvasSize,
   COLLAPSED_WIDTH,
+  CANVAS_PADDING,
+  GUTTER_GAP,
+  GUTTER_WIDTH,
   CARD_PADDING_X,
   LABEL_FONT_SIZE,
   LABEL_LINE_HEIGHT,
@@ -9,6 +13,7 @@ export {
   MAX_LABEL_LINES
 } from './layout'
 export { estimateTextWidth, requiredContentWidth, segmentLabel } from './text'
+export { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 export type {
   EventModelGraph,
   LaidOutEdge,

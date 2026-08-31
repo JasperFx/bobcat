@@ -110,6 +110,48 @@ the "not both declared" one it replaces: an element in a lane this package does 
 dropped from the canvas, and an arrow into empty space would read as a modelling claim rather than
 as the producer bug it is.
 
+## Reading a big model: zoom, pan, and what each slice is (0.7.0)
+
+The 2026-08-31 review of a real 106-slice canvas produced four notes, all answered here so both
+consoles inherit one answer.
+
+**Zoom and pan (bobcat#182).** Zoom is a CSS transform on a wrapper, deliberately *not* a scale
+factor threaded into `layoutEventModel`: layout is a pure function of the descriptor, and letting
+the viewport change it would put the two viewers' agreement at the mercy of how wide someone's
+window happens to be. The wrapper carries its own scaled `width`/`height`, because a transform does
+not change layout size and the scroller would otherwise still think the canvas was its 100% self.
+Stops (25%–200%) rather than a continuous ramp, so a reader can return to a zoom they had; the
+level doubles as the reset. **Fit** is the one zoom that is not a step — "all of it on screen" is a
+measurement, not a preference — and it never zooms *in* to fill, because a small model blown up to
+200% looks like a mistake. It is clamped at 25% like every other zoom, so a genuinely enormous
+model fits as far as legibility allows and no further. Drag-to-pan on the background; a drag that
+starts on a button is not a pan.
+
+**Bound-specification count (bobcat#183).** A badge on every slice header — `3 specs`, or `no spec`
+spelled out, because zero is the drift case the canvas already colours orange and it should read as
+a finding. Where the host passes `sliceOutcomes` the badge carries the verdict too, so a failing
+slice says so at the same glance it says it has three specs.
+
+**Trigger kind and routes (bobcat#184).** A 12px glyph per `triggerKind` in the slice header —
+globe, envelope, clock, person, paired arrows, box-with-arrow — with `triggerOrigin` on its tooltip,
+which is where the route lives now that wolverine#4181 stopped the HTTP source claiming
+`TriggerLabel`. Inline path data rather than an icon dependency: this component ships to two
+consoles with different icon sets, and a shared third is the one thing neither host wants. A trigger
+card whose label *is* a route renders its verb as an outlined badge and the path beside it — the
+verb is fixed vocabulary a reader recognises by shape, and outlined rather than filled because fill
+means the element kind.
+
+**A source disagreement reads as a finding (bobcat#178).** The producer makes the hotspot's text the
+element label, so the card used to lead with the role name and a clipped sentence — and the reviewer
+who designed the feature read it as a malformed events list and asked what it was for. That reading
+was the finding. A hotspot card now renders structure: what kind of finding it is, then (for a
+disagreement) the role and both claims with their rungs, kept above dropped and the dropped one
+struck through. All from the typed `role`/`winningClaim`/`losingClaim`, so nothing is parsed back
+out of the sentence, and a disagreement whose pair did not survive the wire degrades to its text
+rather than to half a finding. Promoting findings out of the lanes into a strip above the canvas —
+the other candidate on the issue — stays unbuilt: position is what says which slice a finding
+belongs to, and a strip would have to repeat that in words.
+
 ## Card sizing: wrap, widen, then clamp (0.5.0, bobcat#180)
 
 Cards were absolutely sized at 180px with `overflow: hidden`, so a long command name — and worse,

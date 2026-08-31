@@ -123,6 +123,23 @@ export const LABEL_TARGET_LINES = 2
 export const MAX_LABEL_LINES = 3
 
 /**
+ * The canvas chrome around the plot, here for the same reason the type scale is (#182): the zoom
+ * wrapper has to know the *unscaled* size of everything it scales, and a stylesheet holding a
+ * second opinion about the gutter's width is a scrollbar that stops half a lane-label short.
+ */
+export const GUTTER_WIDTH = 132
+export const GUTTER_GAP = 12
+export const CANVAS_PADDING = 12
+
+/** Overall size of the drawn canvas, chrome included — what a zoom wrapper scales. */
+export function canvasSize(graph: EventModelGraph): { width: number; height: number } {
+  return {
+    width: 2 * CANVAS_PADDING + GUTTER_WIDTH + GUTTER_GAP + graph.width,
+    height: 2 * CANVAS_PADDING + graph.height
+  }
+}
+
+/**
  * The width the cards in one column get: the widest label's requirement, held between the
  * caller's floor and ceiling. Pure — it estimates from the label text, never measures the DOM.
  *

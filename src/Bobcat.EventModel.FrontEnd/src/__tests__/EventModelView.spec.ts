@@ -77,7 +77,8 @@ describe('EventModelView', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: model } })
     const name = wrapper.find('.em-slice-name')
     expect(name.attributes('title')).toBe('WithdrawFundsFromAnInternationalAccount')
-    expect(name.attributes('style')).toContain('max-width: 580px')
+    // The header row is what the column bounds; the name gives way inside it (#180, #183).
+    expect(wrapper.find('.em-slice-header').attributes('style')).toContain('max-width: 580px')
   })
 
   it('draws a polyline per edge, behind the cards and pointer-inert (#181)', () => {
@@ -100,6 +101,157 @@ describe('EventModelView', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: model } })
     // A line to nowhere would read as a modelling claim rather than the producer bug it is.
     expect(wrapper.findAll('.em-edge')).toHaveLength(4)
+  })
+
+  it('badges each slice with its bound-specification count (#183)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const badges = wrapper.findAll('.em-slice-specs')
+    expect(badges.map((b) => b.text())).toEqual(['1 spec', '1 spec'])
+    expect(badges[0].attributes('title')).toBe('Withdraw Funds/a withdrawal succeeds')
+  })
+
+  it('spells out a slice with no specification as the drift case, not as a zero', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].specifications = []
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const badge = wrapper.findAll('.em-slice-specs')[0]
+    expect(badge.text()).toBe('no spec')
+    expect(badge.attributes('data-outcome')).toBe('none')
+  })
+
+  it('carries the run verdict on the badge where evidence named the slice', () => {
+    const wrapper = mount(EventModelView, {
+      props: {
+        descriptor: withdrawFundsModel(),
+        sliceOutcomes: { 'Withdraw Funds/a withdrawal succeeds': 'failed' }
+      }
+    })
+    const badge = wrapper.findAll('.em-slice-specs')[0]
+    expect(badge.attributes('data-outcome')).toBe('failed')
+    // A slice the evidence did not name stays unmarked rather than defaulting to green.
+    expect(wrapper.findAll('.em-slice-specs')[1].attributes('data-outcome')).toBeUndefined()
+  })
+
+  it('marks each slice with a glyph for its trigger kind (#184)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const icons = wrapper.findAll('.em-trigger-icon')
+    // Only the HTTP-triggered slice declares a kind; the view slice gets no invented glyph.
+    expect(icons).toHaveLength(1)
+    expect(icons[0].attributes('data-kind')).toBe('Http')
+    expect(icons[0].find('title').text()).toBe('HTTP endpoint')
+  })
+
+  it('puts the route on the icon tooltip, where it costs no width', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].triggerOrigin = 'POST /api/accounts/{accountId}/withdrawals'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    expect(wrapper.find('.em-trigger-icon title').text()).toBe(
+      'HTTP endpoint · POST /api/accounts/{accountId}/withdrawals'
+    )
+  })
+
+  it('renders a route trigger label as a method badge plus the path', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].elements![0].label = 'POST /api/accounts/{accountId}/withdrawals'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const card = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-kind') === 'Trigger')!
+    expect(card.find('.em-route-method').text()).toBe('POST')
+    expect(card.text()).toContain('/api/accounts/{accountId}/withdrawals')
+  })
+
+  it('leaves a human trigger label alone — only a route gets the badge', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const card = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-kind') === 'Trigger')!
+    expect(card.find('.em-route-method').exists()).toBe(false)
+    expect(card.text()).toBe('Teller screen')
+  })
+
+  it('zooms in and out in stops, and clamps at each end (#182)', async () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const level = () => wrapper.find('.em-zoom-level').text()
+    expect(level()).toBe('100%')
+
+    await wrapper.find('.em-zoom-in').trigger('click')
+    expect(level()).toBe('125%')
+    await wrapper.find('.em-zoom-out').trigger('click')
+    await wrapper.find('.em-zoom-out').trigger('click')
+    expect(level()).toBe('85%')
+
+    for (let i = 0; i < 10; i++) await wrapper.find('.em-zoom-out').trigger('click')
+    expect(level()).toBe('25%')
+    expect(wrapper.find('.em-zoom-out').attributes('disabled')).toBeDefined()
+
+    for (let i = 0; i < 20; i++) await wrapper.find('.em-zoom-in').trigger('click')
+    expect(level()).toBe('200%')
+    expect(wrapper.find('.em-zoom-in').attributes('disabled')).toBeDefined()
+
+    await wrapper.find('.em-zoom-level').trigger('click')
+    expect(level()).toBe('100%')
+  })
+
+  it('scales the wrapper and sizes its box to match, so the scroller still knows the width', async () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const zoomed = () => wrapper.find('.em-zoomed').attributes('style')!
+    // Canvas is 12+132+12+graph.width+12 wide; a transform alone would leave the scroller
+    // thinking the canvas was still its 100% self.
+    expect(zoomed()).toContain('transform: scale(1)')
+    const unscaled = /width: (\d+)px/.exec(zoomed())![1]
+
+    await wrapper.find('.em-zoom-out').trigger('click')
+    expect(zoomed()).toContain('transform: scale(0.85)')
+    expect(/width: (\d+)px/.exec(zoomed())![1]).toBe(String(Math.round(Number(unscaled) * 0.85)))
+  })
+
+  it('fits to the measured viewport width, and never zooms in to fill it', async () => {
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport').element
+    Object.defineProperty(viewport, 'clientWidth', { value: 500, configurable: true })
+
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    // The canvas is 12 + 132 + 12 + 1028 (the graph) + 12 = 1196 wide, so 500 / 1196 = 0.418.
+    expect(wrapper.find('.em-zoom-level').text()).toBe('42%')
+
+    Object.defineProperty(viewport, 'clientWidth', { value: 4000, configurable: true })
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    // A small model blown up to fill the window looks like a mistake, not like a fit.
+    expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
+    wrapper.unmount()
+  })
+
+  it('leaves the zoom alone when the viewport has not been measured yet', async () => {
+    // Server-rendered, hidden, or mid-transition: clientWidth 0 must not collapse the canvas.
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
+  })
+
+  it('pans on a drag of the background, and not on a press of a card', async () => {
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport')
+
+    await wrapper.find('.em-card').trigger('mousedown', { button: 0 })
+    expect(viewport.attributes('data-panning')).toBeUndefined()
+
+    await viewport.trigger('mousedown', { button: 0, clientX: 200, clientY: 100 })
+    expect(viewport.attributes('data-panning')).toBe('true')
+
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 100 }))
+    expect(viewport.element.scrollLeft).toBe(50)
+
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await wrapper.vm.$nextTick()
+    expect(viewport.attributes('data-panning')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('renders the four lane captions', () => {
@@ -169,19 +321,63 @@ describe('EventModelView — provenance and source disagreement', () => {
 
   it('marks a source disagreement apart from a pending-specification hotspot', () => {
     const all = cards()
-    const pending = all.find((c) => c.text() === 'overdraft not specified')!
-    const conflict = all.find((c) => c.text().startsWith('EmittedEvents:'))!
+    const pending = all.find((c) => c.text().includes('overdraft not specified'))!
+    const conflict = all.find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
 
     expect(pending.attributes('data-hotspot-origin')).toBe('PendingSpecification')
     expect(conflict.attributes('data-hotspot-origin')).toBe('SourceDisagreement')
   })
 
   it('puts both claims on the tooltip, so the reader can decide which source to fix', () => {
-    const conflict = cards().find((c) => c.text().startsWith('EmittedEvents:'))!
+    const conflict = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
+    )!
     const title = conflict.attributes('title')!
 
     expect(title).toContain('Kept: Observed claims FundsWithdrawn, AuditRecorded')
     expect(title).toContain('Dropped: Derived claims FundsWithdrawn')
+  })
+
+  it('renders a disagreement as a finding, not as a sentence (#178)', () => {
+    // The card used to lead with the role name and a clipped sentence, and the reviewer who
+    // designed the feature read it as a malformed events list. It now says what it is.
+    const conflict = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
+    )!
+
+    expect(conflict.find('.em-hotspot-origin').text()).toBe('Sources disagree')
+    expect(conflict.find('.em-hotspot-role').text()).toBe('EmittedEvents')
+
+    const claims = conflict.findAll('.em-hotspot-claim')
+    expect(claims.map((c) => c.attributes('data-claim'))).toEqual(['kept', 'dropped'])
+    // Kept first, each with the rung that claimed it — the ladder is the reason one won.
+    expect(claims[0].text()).toBe('Observed FundsWithdrawn, AuditRecorded')
+    expect(claims[1].text()).toBe('Derived FundsWithdrawn')
+  })
+
+  it('names what kind of finding an ordinary hotspot is, then states it', () => {
+    const pending = cards().find(
+      (c) => c.attributes('data-hotspot-origin') === 'PendingSpecification'
+    )!
+    expect(pending.find('.em-hotspot-origin').text()).toBe('Pending spec')
+    expect(pending.find('.em-hotspot-text').text()).toBe('overdraft not specified')
+    expect(pending.find('.em-hotspot-claim').exists()).toBe(false)
+  })
+
+  it('degrades a disagreement with no surviving claim pair to its text', () => {
+    // Half a finding — one claim, no counterpart — would be worse than the sentence it replaced.
+    const model = fourSourceModel()
+    for (const slice of model.slices ?? []) {
+      for (const hotspot of slice.hotspots ?? []) {
+        if (hotspot.origin === 'SourceDisagreement') hotspot.losingClaim = null
+      }
+    }
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const conflict = wrapper
+      .findAll('.em-card')
+      .find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
+    expect(conflict.find('.em-hotspot-claim').exists()).toBe(false)
+    expect(conflict.find('.em-hotspot-text').text()).toContain('EmittedEvents')
   })
 
   it('explains the rung on the tooltip of an ordinary card', () => {

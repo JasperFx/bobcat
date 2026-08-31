@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { estimateTextWidth, requiredContentWidth, segmentLabel } from '../text'
+import { parseRoute } from '../icons'
 import { LABEL_FONT_SIZE, LABEL_TARGET_LINES } from '../layout'
 
 /**
@@ -82,5 +83,25 @@ describe('requiredContentWidth', () => {
     const three = requiredContentWidth(label, LABEL_FONT_SIZE, 3)
     expect(three).toBeLessThan(two)
     expect(two).toBeLessThan(requiredContentWidth(label, LABEL_FONT_SIZE, 1))
+  })
+})
+
+describe('parseRoute', () => {
+  it('splits a route label into its verb and path', () => {
+    expect(parseRoute('POST /api/accounts/{id}/withdrawals')).toEqual({
+      method: 'POST',
+      path: '/api/accounts/{id}/withdrawals'
+    })
+  })
+
+  it('is not fooled by prose that happens to start with a word', () => {
+    // "An agent claims ready work" must stay a sentence, not become a badge and a fragment.
+    expect(parseRoute('An agent claims ready work')).toBeNull()
+    expect(parseRoute('WithdrawFunds')).toBeNull()
+    expect(parseRoute('Teller screen')).toBeNull()
+  })
+
+  it('accepts a lower-cased verb and normalizes it', () => {
+    expect(parseRoute('get /api/plans')).toEqual({ method: 'GET', path: '/api/plans' })
   })
 })
