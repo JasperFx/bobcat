@@ -176,13 +176,16 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   `event-model --url` export (and therefore `bobcat watch-event-model`) pushes a document
   *without* the spec-declared slices or their `Specifications` bindings. Closing that gap is
   follow-on work under issue #172.
-- ⚠️ **Wolverine's HTTP source claims `TriggerLabel` with the verb+route (wolverine#4181)**, so an
-  overlay's human trigger label on an HTTP slice loses the merge and mints a noise
-  `SourceDisagreement` hotspot. Until #4181 ships, don't put `TriggeredBy(...)` on HTTP slices —
-  the BankAccountES overlay documents the workaround, and its `EventModel.feature` asserts the
-  current behaviour so the fix trips a spec instead of going unnoticed. (Sibling cosmetic issue:
-  a query endpoint returning `IReadOnlyList<T>` reports the raw generic CLR string as its read
-  model, wolverine#4182.)
+- **An overlay's human trigger label on an HTTP slice works again as of WolverineFx 6.31.0**
+  (wolverine#4181/#4182, both fixed by wolverine#4185). Before it, the HTTP-derived source
+  claimed `TriggerLabel` with the verb+route, so the overlay's label lost the merge and minted a
+  noise `SourceDisagreement` hotspot per labelled slice — and a query endpoint returning
+  `IReadOnlyList<T>` reported the raw generic CLR string as its read model. `samples/BankAccountES`
+  encoded that workaround (no `TriggeredBy` on HTTP slices) with `EventModel.feature` asserting
+  the *broken* behaviour so the fix would trip a spec rather than go unnoticed. It did: both
+  tripwires are flipped, the six overlay labels are restored, and the sample is pinned to 6.31.0.
+  The scenarios that now assert the fixed behaviour are the regression guard — don't delete them
+  as redundant.
 
 - **A slice is a scenario-level grouping, not a feature-level one.** A feature is a document; a
   slice is a vertical behaviour, and several specs usually describe the same one —
