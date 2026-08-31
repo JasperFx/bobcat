@@ -11,7 +11,7 @@
  *
  * Layout is the pure grid from `layout.ts` — synchronous, no elk, no measurement pass.
  */
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import {
   CANVAS_PADDING,
   CARD_PADDING_X,
@@ -88,16 +88,44 @@ const scaledSize = computed(() => ({
   height: Math.round(canvas.value.height * zoom.value)
 }))
 
+/**
+ * Change the zoom and keep the point in the middle of the viewport where it was.
+ *
+ * `transform-origin` is the top-left, so a bare zoom change anchors there — on a canvas 41,000px
+ * wide (CritterWatch's merged model) zooming in while reading slice 80 throws the reader back to
+ * slice 1. What someone means by "closer" is closer to *what they are looking at*, so the scroll
+ * offset moves with the scale.
+ */
+function applyZoom(next: number) {
+  const element = viewport.value
+  const previous = zoom.value
+  if (!element) {
+    zoom.value = next
+    return
+  }
+
+  // Where the middle of the viewport sits in unscaled canvas coordinates.
+  const centreX = (element.scrollLeft + element.clientWidth / 2) / previous
+  const centreY = (element.scrollTop + element.clientHeight / 2) / previous
+
+  zoom.value = next
+  // After the wrapper has been re-sized, or the scroller clamps the offset to the old width.
+  void nextTick(() => {
+    element.scrollLeft = Math.max(0, centreX * next - element.clientWidth / 2)
+    element.scrollTop = Math.max(0, centreY * next - element.clientHeight / 2)
+  })
+}
+
 function zoomIn() {
-  zoom.value = ZOOM_STEPS.find((step) => step > zoom.value + 0.001) ?? MAX_ZOOM
+  applyZoom(ZOOM_STEPS.find((step) => step > zoom.value + 0.001) ?? MAX_ZOOM)
 }
 
 function zoomOut() {
-  zoom.value = [...ZOOM_STEPS].reverse().find((step) => step < zoom.value - 0.001) ?? MIN_ZOOM
+  applyZoom([...ZOOM_STEPS].reverse().find((step) => step < zoom.value - 0.001) ?? MIN_ZOOM)
 }
 
 function resetZoom() {
-  zoom.value = 1
+  applyZoom(1)
 }
 
 /**
@@ -109,7 +137,7 @@ function fitToWidth() {
   const available = viewport.value?.clientWidth ?? 0
   const width = canvas.value.width
   if (available <= 0 || width <= 0) return
-  zoom.value = Math.max(MIN_ZOOM, Math.min(1, available / width))
+  applyZoom(Math.max(MIN_ZOOM, Math.min(1, available / width)))
 }
 
 let panFrom = { x: 0, y: 0, left: 0, top: 0 }
@@ -258,6 +286,18 @@ function claimsFor(hotspot: HotspotDescriptor) {
 /** A trigger card whose label is an HTTP route renders its verb as a badge (#184). */
 function routeFor(element: EventModelElement) {
   return element.kind === 'Trigger' ? parseRoute(element.label ?? '') : null
+}
+
+/**
+ * A slice *named* for its route gets the same treatment (#184 follow-on).
+ *
+ * Wolverine names a query slice for its verb and route — `GET /api/clients/{id}/accounts` — so the
+ * header spends its scarcest width on a word the glyph beside it has already said. Badging the verb
+ * costs the header three characters instead of eight and makes the path start where the eye
+ * expects it. The name itself is untouched; this is only how it is drawn.
+ */
+function sliceRouteFor(slice: EventModelSliceDescriptor) {
+  return parseRoute(slice.name)
 }
 
 /**
@@ -415,19 +455,29 @@ function outcomeFor(sliceName: string): string | null {
                   :title="slice.name"
                   @click="emit('slice-click', slice.descriptor)"
                 >
-                  {{ slice.name }}
+                  <template v-if="sliceRouteFor(slice.descriptor)"
+                    ><span class="em-route-method">{{
+                      sliceRouteFor(slice.descriptor)!.method
+                    }}</span
+                    >{{ sliceRouteFor(slice.descriptor)!.path }}</template
+                  >
+                  <template v-else>{{ slice.name }}</template>
                 </button>
                 <!-- bobcat#183 — the bound-specification count, verdict-tinted where the host gave
                      run evidence. `no spec` is deliberately spelled out rather than shown as 0: it is
                      the drift case, and it should read as a finding. -->
-                <span
+                <!-- A button, not a label: it names the specifications, so a reader clicks it
+                     expecting to see them. It opens the drawer the slice name opens. -->
+                <button
                   class="em-slice-specs"
+                  type="button"
                   :data-outcome="outcomeFor(slice.name) ?? (specCountFor(slice.descriptor) === 0 ? 'none' : undefined)"
                   :data-count="specCountFor(slice.descriptor)"
                   :title="specTitleFor(slice.descriptor)"
+                  @click="emit('slice-click', slice.descriptor)"
                 >
                   {{ specLabelFor(slice.descriptor) }}
-                </span>
+                </button>
               </div>
             </div>
 
@@ -671,6 +721,10 @@ function outcomeFor(sliceName: string): string | null {
 .em-slice-specs {
   flex: 0 0 auto;
   padding: 0 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
   border: 1px solid currentColor;
   border-radius: 8px;
   font-size: 10px;

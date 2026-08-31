@@ -254,6 +254,69 @@ describe('EventModelView', () => {
     wrapper.unmount()
   })
 
+  it('zooms around the middle of the viewport, not the top-left corner', async () => {
+    // transform-origin is 0 0, so a bare zoom change anchors at the far left — on a 41,000px
+    // canvas that throws a reader who is looking at slice 80 back to slice 1.
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport').element
+    Object.defineProperty(viewport, 'clientWidth', { value: 400, configurable: true })
+    Object.defineProperty(viewport, 'clientHeight', { value: 300, configurable: true })
+    viewport.scrollLeft = 600
+
+    // The middle of the view is at 800 unscaled; at 125% that point sits at 1000, so the offset
+    // has to become 1000 - 200 = 800 for it to stay in the middle.
+    await wrapper.find('.em-zoom-in').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(viewport.scrollLeft).toBe(800)
+    wrapper.unmount()
+  })
+
+  it('never scrolls to a negative offset when zooming out at the left edge', async () => {
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport').element
+    Object.defineProperty(viewport, 'clientWidth', { value: 400, configurable: true })
+    viewport.scrollLeft = 0
+
+    await wrapper.find('.em-zoom-out').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(viewport.scrollLeft).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('badges a route-named slice with its verb, the way a route card is drawn (#184)', () => {
+    // Wolverine names a query slice for its verb and route, so the header was spending its
+    // scarcest width on a word the glyph beside it already says.
+    const model = withdrawFundsModel()
+    model.slices![0].name = 'GET /api/clients/{clientId}/accounts'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const name = wrapper.find('.em-slice-name')
+
+    expect(name.find('.em-route-method').text()).toBe('GET')
+    expect(name.text()).toContain('/api/clients/{clientId}/accounts')
+    // The name itself is untouched — this is only how it is drawn.
+    expect(name.attributes('title')).toBe('GET /api/clients/{clientId}/accounts')
+  })
+
+  it('leaves an ordinary slice name alone', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const name = wrapper.find('.em-slice-name')
+    expect(name.find('.em-route-method').exists()).toBe(false)
+    expect(name.text()).toBe('WithdrawFunds')
+  })
+
+  it('opens the drill-down from the spec badge as well as the name (#183)', () => {
+    // It names the specifications, so a reader clicks it expecting to see them.
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    wrapper.findAll('.em-slice-specs')[1].trigger('click')
+    expect(wrapper.emitted('slice-click')![0][0]).toMatchObject({ name: 'AccountBalance' })
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([

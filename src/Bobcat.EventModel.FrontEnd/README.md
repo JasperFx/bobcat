@@ -152,6 +152,24 @@ rather than to half a finding. Promoting findings out of the lanes into a strip 
 the other candidate on the issue — stays unbuilt: position is what says which slice a finding
 belongs to, and a strip would have to repeat that in words.
 
+## Three things the first pass left on the table (0.8.0)
+
+Shaking the 0.7.0 canvas out against a real 106-slice model turned up three gaps, each in one of
+the features it had just shipped:
+
+- **Zoom anchored at the top-left.** `transform-origin` is `0 0`, so changing the zoom moved the
+  canvas out from under the reader — on a 41,000px model, zooming in while reading slice 80 threw
+  them back to slice 1. The scroll offset now moves with the scale, so "closer" means closer to
+  what you were looking at. It clamps at zero rather than scrolling negative at the left edge.
+- **The spec badge was a label.** It names the specifications bound to a slice, so a reader clicks
+  it expecting to see them, and nothing happened. It is a button now, opening the same drawer the
+  slice name opens.
+- **A route-named slice spent its header width on the verb.** Wolverine names a query slice for its
+  verb and route (`GET /api/clients/{id}/accounts`), so the header's scarcest resource went on a
+  word the trigger glyph beside it already says. The verb is badged the way it is on a route card —
+  three characters instead of eight, and the path starts where the eye expects it. The name itself
+  is untouched; this is only how it is drawn.
+
 ## Card sizing: wrap, widen, then clamp (0.5.0, bobcat#180)
 
 Cards were absolutely sized at 180px with `overflow: hidden`, so a long command name — and worse,
