@@ -170,6 +170,90 @@ describe('EventModelView', () => {
     expect(card.text()).toBe('Teller screen')
   })
 
+  it('zooms in and out in stops, and clamps at each end (#182)', async () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const level = () => wrapper.find('.em-zoom-level').text()
+    expect(level()).toBe('100%')
+
+    await wrapper.find('.em-zoom-in').trigger('click')
+    expect(level()).toBe('125%')
+    await wrapper.find('.em-zoom-out').trigger('click')
+    await wrapper.find('.em-zoom-out').trigger('click')
+    expect(level()).toBe('85%')
+
+    for (let i = 0; i < 10; i++) await wrapper.find('.em-zoom-out').trigger('click')
+    expect(level()).toBe('25%')
+    expect(wrapper.find('.em-zoom-out').attributes('disabled')).toBeDefined()
+
+    for (let i = 0; i < 20; i++) await wrapper.find('.em-zoom-in').trigger('click')
+    expect(level()).toBe('200%')
+    expect(wrapper.find('.em-zoom-in').attributes('disabled')).toBeDefined()
+
+    await wrapper.find('.em-zoom-level').trigger('click')
+    expect(level()).toBe('100%')
+  })
+
+  it('scales the wrapper and sizes its box to match, so the scroller still knows the width', async () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const zoomed = () => wrapper.find('.em-zoomed').attributes('style')!
+    // Canvas is 12+132+12+graph.width+12 wide; a transform alone would leave the scroller
+    // thinking the canvas was still its 100% self.
+    expect(zoomed()).toContain('transform: scale(1)')
+    const unscaled = /width: (\d+)px/.exec(zoomed())![1]
+
+    await wrapper.find('.em-zoom-out').trigger('click')
+    expect(zoomed()).toContain('transform: scale(0.85)')
+    expect(/width: (\d+)px/.exec(zoomed())![1]).toBe(String(Math.round(Number(unscaled) * 0.85)))
+  })
+
+  it('fits to the measured viewport width, and never zooms in to fill it', async () => {
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport').element
+    Object.defineProperty(viewport, 'clientWidth', { value: 500, configurable: true })
+
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    // The canvas is 12 + 132 + 12 + 1028 (the graph) + 12 = 1196 wide, so 500 / 1196 = 0.418.
+    expect(wrapper.find('.em-zoom-level').text()).toBe('42%')
+
+    Object.defineProperty(viewport, 'clientWidth', { value: 4000, configurable: true })
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    // A small model blown up to fill the window looks like a mistake, not like a fit.
+    expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
+    wrapper.unmount()
+  })
+
+  it('leaves the zoom alone when the viewport has not been measured yet', async () => {
+    // Server-rendered, hidden, or mid-transition: clientWidth 0 must not collapse the canvas.
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    await wrapper.find('.em-zoom-fit').trigger('click')
+    expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
+  })
+
+  it('pans on a drag of the background, and not on a press of a card', async () => {
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: withdrawFundsModel() },
+      attachTo: document.body
+    })
+    const viewport = wrapper.find('.em-viewport')
+
+    await wrapper.find('.em-card').trigger('mousedown', { button: 0 })
+    expect(viewport.attributes('data-panning')).toBeUndefined()
+
+    await viewport.trigger('mousedown', { button: 0, clientX: 200, clientY: 100 })
+    expect(viewport.attributes('data-panning')).toBe('true')
+
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 100 }))
+    expect(viewport.element.scrollLeft).toBe(50)
+
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await wrapper.vm.$nextTick()
+    expect(viewport.attributes('data-panning')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([

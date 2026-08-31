@@ -1,7 +1,11 @@
 export { default as EventModelView } from './EventModelView.vue'
 export {
   layoutEventModel,
+  canvasSize,
   COLLAPSED_WIDTH,
+  CANVAS_PADDING,
+  GUTTER_GAP,
+  GUTTER_WIDTH,
   CARD_PADDING_X,
   LABEL_FONT_SIZE,
   LABEL_LINE_HEIGHT,

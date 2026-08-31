@@ -11,9 +11,13 @@
  *
  * Layout is the pure grid from `layout.ts` — synchronous, no elk, no measurement pass.
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import {
+  CANVAS_PADDING,
   CARD_PADDING_X,
+  GUTTER_GAP,
+  GUTTER_WIDTH,
+  canvasSize,
   LABEL_FONT_SIZE,
   LABEL_LINE_HEIGHT,
   MAX_LABEL_LINES,
@@ -59,6 +63,94 @@ const graph = computed(() =>
 )
 
 const isEmpty = computed(() => graph.value.nodes.length === 0)
+
+// ------------------------------------------------------------------ zoom & pan (bobcat#182)
+//
+// Stoat is 36 slices and CritterWatch's fleet-wide merged model rendered 121; a canvas that can
+// only be read at 100% through a horizontal scrollbar is a canvas nobody reads. Zoom is a CSS
+// transform on a wrapper, deliberately NOT a scale factor threaded into `layoutEventModel`:
+// layout is a pure function of the descriptor, and letting the viewport change it would put the
+// two viewers' agreement at the mercy of how wide someone's window happens to be.
+
+/** Stops, not a continuous ramp — a reader wants to be able to return to a zoom they had. */
+const ZOOM_STEPS = [0.25, 0.4, 0.55, 0.7, 0.85, 1, 1.25, 1.5, 2] as const
+const MIN_ZOOM = ZOOM_STEPS[0]
+const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1]
+
+const zoom = ref<number>(1)
+const viewport = ref<HTMLElement | null>(null)
+const panning = ref(false)
+
+const canvas = computed(() => canvasSize(graph.value))
+/** The wrapper's own box: a transform does not change layout size, so the scroller needs this. */
+const scaledSize = computed(() => ({
+  width: Math.round(canvas.value.width * zoom.value),
+  height: Math.round(canvas.value.height * zoom.value)
+}))
+
+function zoomIn() {
+  zoom.value = ZOOM_STEPS.find((step) => step > zoom.value + 0.001) ?? MAX_ZOOM
+}
+
+function zoomOut() {
+  zoom.value = [...ZOOM_STEPS].reverse().find((step) => step < zoom.value - 0.001) ?? MIN_ZOOM
+}
+
+function resetZoom() {
+  zoom.value = 1
+}
+
+/**
+ * Fit the canvas to the viewport's width — the one zoom that is not a step, because "all of it on
+ * screen" is a measurement rather than a preference. Never zooms *in* to fill: a small model blown
+ * up to 200% looks like a mistake rather than like a fit.
+ */
+function fitToWidth() {
+  const available = viewport.value?.clientWidth ?? 0
+  const width = canvas.value.width
+  if (available <= 0 || width <= 0) return
+  zoom.value = Math.max(MIN_ZOOM, Math.min(1, available / width))
+}
+
+let panFrom = { x: 0, y: 0, left: 0, top: 0 }
+
+function startPan(event: MouseEvent) {
+  // Left button only, and never a drag that begins on something clickable — a slice header and a
+  // card are the two things on this canvas a reader actually presses.
+  if (event.button !== 0) return
+  if ((event.target as HTMLElement | null)?.closest('button')) return
+  const element = viewport.value
+  if (!element) return
+
+  panning.value = true
+  panFrom = { x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop }
+  window.addEventListener('mousemove', onPan)
+  window.addEventListener('mouseup', endPan)
+}
+
+function onPan(event: MouseEvent) {
+  const element = viewport.value
+  if (!element || !panning.value) return
+  element.scrollLeft = panFrom.left - (event.clientX - panFrom.x)
+  element.scrollTop = panFrom.top - (event.clientY - panFrom.y)
+}
+
+function endPan() {
+  panning.value = false
+  window.removeEventListener('mousemove', onPan)
+  window.removeEventListener('mouseup', endPan)
+}
+
+// A drag that outlived the component would keep scrolling a detached element for ever.
+onBeforeUnmount(endPan)
+
+/** Ctrl/⌘ + wheel is the pinch gesture a trackpad sends; a plain wheel stays scrolling. */
+function onWheel(event: WheelEvent) {
+  if (!event.ctrlKey && !event.metaKey) return
+  event.preventDefault()
+  if (event.deltaY < 0) zoomIn()
+  else zoomOut()
+}
 
 function styleFor(element: EventModelElement) {
   const fill = colorFor(element.kind)
@@ -231,159 +323,207 @@ function outcomeFor(sliceName: string): string | null {
     <p v-if="isEmpty" class="em-empty" data-testid="event-model-empty">
       No slices to render.
     </p>
-    <div v-else class="em-scroll">
-      <div class="em-lane-gutter">
-        <div
-          v-for="lane in graph.lanes"
-          :key="lane.lane"
-          class="em-lane-label"
-          :style="{ top: `${lane.y}px`, height: `${lane.height}px` }"
-        >
-          {{ LANE_LABEL[lane.lane] }}
-        </div>
-      </div>
-
-      <div class="em-plot" :style="{ width: `${graph.width}px`, height: `${graph.height}px` }">
-        <div
-          v-for="lane in graph.lanes"
-          :key="`band-${lane.lane}`"
-          class="em-lane-band"
-          :style="{ top: `${lane.y}px`, height: `${lane.height}px`, width: `${graph.width}px` }"
-        />
-
-        <div
-          v-for="slice in graph.slices"
-          :key="`slice-${slice.name}`"
-          class="em-slice"
-          :data-slice="slice.name"
-          :data-outcome="outcomeFor(slice.name) ?? undefined"
-          :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
-        >
-          <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
-            <!-- bobcat#184 — what kind of thing triggers this slice, legible without reading. -->
-            <svg
-              v-if="triggerIconFor(slice.descriptor)"
-              class="em-trigger-icon"
-              :data-kind="slice.descriptor.triggerKind"
-              viewBox="0 0 16 16"
-              role="img"
-              :aria-label="triggerTitleFor(slice.descriptor)"
-            >
-              <title>{{ triggerTitleFor(slice.descriptor) }}</title>
-              <path :d="triggerIconFor(slice.descriptor) ?? undefined" />
-            </svg>
-            <button
-              class="em-slice-name"
-              type="button"
-              :title="slice.name"
-              @click="emit('slice-click', slice.descriptor)"
-            >
-              {{ slice.name }}
-            </button>
-            <!-- bobcat#183 — the bound-specification count, verdict-tinted where the host gave
-                 run evidence. `no spec` is deliberately spelled out rather than shown as 0: it is
-                 the drift case, and it should read as a finding. -->
-            <span
-              class="em-slice-specs"
-              :data-outcome="outcomeFor(slice.name) ?? (specCountFor(slice.descriptor) === 0 ? 'none' : undefined)"
-              :data-count="specCountFor(slice.descriptor)"
-              :title="specTitleFor(slice.descriptor)"
-            >
-              {{ specLabelFor(slice.descriptor) }}
-            </span>
-          </div>
-        </div>
-
-        <!-- bobcat#181 — the edges the descriptor already computes, which the canvas used to drop
-             on the floor. Behind the cards in DOM order and pointer-inert, so a line never eats a
-             card's click; `currentColor` so it inherits the host's ink in either theme. -->
-        <svg
-          class="em-edges"
-          :width="graph.width"
-          :height="graph.height"
-          :viewBox="`0 0 ${graph.width} ${graph.height}`"
-          aria-hidden="true"
-        >
-          <defs>
-            <marker
-              id="em-arrow"
-              markerWidth="6"
-              markerHeight="6"
-              refX="5"
-              refY="3"
-              orient="auto"
-              markerUnits="strokeWidth"
-            >
-              <path d="M0,0 L6,3 L0,6 z" fill="currentColor" />
-            </marker>
-          </defs>
-          <polyline
-            v-for="edge in graph.edges"
-            :key="`${edge.fromId}->${edge.toId}`"
-            class="em-edge"
-            :data-from="edge.fromId"
-            :data-to="edge.toId"
-            :points="pointsFor(edge)"
-            marker-end="url(#em-arrow)"
-          />
-        </svg>
-
+    <template v-else>
+      <!-- bobcat#182 — 36 slices do not fit at 100%, and 121 (CritterWatch's merged fleet model)
+           are not close. Stops rather than a continuous ramp, plus a measured fit-to-width. -->
+      <div class="em-toolbar">
         <button
-          v-for="node in graph.nodes"
-          :key="node.id"
-          class="em-card"
           type="button"
-          :data-kind="node.element.kind"
-          :data-lane="node.element.lane"
-          :data-provenance="node.element.provenance ?? undefined"
-          :data-hotspot-origin="hotspotFor(node)?.origin ?? undefined"
-          :title="titleFor(node)"
-          :style="{
-            left: `${node.x}px`,
-            top: `${node.y}px`,
-            width: `${node.width}px`,
-            height: `${node.height}px`,
-            padding: `6px ${CARD_PADDING_X}px`,
-            fontSize: `${LABEL_FONT_SIZE}px`,
-            lineHeight: `${LABEL_LINE_HEIGHT}`,
-            '--em-label-lines': MAX_LABEL_LINES,
-            ...styleFor(node.element)
-          }"
-          @click="emit('element-click', node.element)"
+          class="em-zoom em-zoom-out"
+          title="Zoom out"
+          :disabled="zoom <= MIN_ZOOM"
+          @click="zoomOut"
         >
-          <span v-if="hotspotFor(node)" class="em-hotspot">
-            <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
-            <template v-if="claimsFor(hotspotFor(node)!)">
-              <span v-if="hotspotFor(node)!.role" class="em-hotspot-role">{{
-                hotspotFor(node)!.role
-              }}</span>
-              <span class="em-hotspot-claim" data-claim="kept">
-                <span class="em-hotspot-rung">{{ claimsFor(hotspotFor(node)!)!.kept.provenance }}</span>
-                {{ claimsFor(hotspotFor(node)!)!.kept.value }}
-              </span>
-              <span class="em-hotspot-claim" data-claim="dropped">
-                <span class="em-hotspot-rung">{{
-                  claimsFor(hotspotFor(node)!)!.dropped.provenance
-                }}</span>
-                {{ claimsFor(hotspotFor(node)!)!.dropped.value }}
-              </span>
-            </template>
-            <span v-else class="em-hotspot-text">{{ hotspotFor(node)!.text }}</span>
-          </span>
-          <span v-else-if="routeFor(node.element)" class="em-card-label"
-            ><span class="em-route-method">{{ routeFor(node.element)!.method }}</span
-            ><template
-              v-for="(segment, index) in segmentLabel(routeFor(node.element)!.path)"
-              :key="index"
-              >{{ segment }}<wbr /></template
-          ></span>
-          <span v-else class="em-card-label"
-            ><template v-for="(segment, index) in segmentsFor(node.element)" :key="index"
-              >{{ segment }}<wbr /></template
-          ></span>
+          −
+        </button>
+        <button type="button" class="em-zoom em-zoom-level" title="Reset to 100%" @click="resetZoom">
+          {{ Math.round(zoom * 100) }}%
+        </button>
+        <button
+          type="button"
+          class="em-zoom em-zoom-in"
+          title="Zoom in"
+          :disabled="zoom >= MAX_ZOOM"
+          @click="zoomIn"
+        >
+          +
+        </button>
+        <button type="button" class="em-zoom em-zoom-fit" title="Fit to width" @click="fitToWidth">
+          Fit
         </button>
       </div>
-    </div>
+
+      <div
+        ref="viewport"
+        class="em-viewport"
+        :data-panning="panning ? 'true' : undefined"
+        @mousedown="startPan"
+        @wheel="onWheel"
+      >
+        <div
+          class="em-zoomed"
+          :style="{
+            width: `${scaledSize.width}px`,
+            height: `${scaledSize.height}px`,
+            transform: `scale(${zoom})`
+          }"
+        >
+          <div class="em-scroll" :style="{ gap: `${GUTTER_GAP}px`, padding: `${CANVAS_PADDING}px` }">
+          <div class="em-lane-gutter" :style="{ flexBasis: `${GUTTER_WIDTH}px` }">
+            <div
+              v-for="lane in graph.lanes"
+              :key="lane.lane"
+              class="em-lane-label"
+              :style="{ top: `${lane.y}px`, height: `${lane.height}px` }"
+            >
+              {{ LANE_LABEL[lane.lane] }}
+            </div>
+          </div>
+
+          <div class="em-plot" :style="{ width: `${graph.width}px`, height: `${graph.height}px` }">
+            <div
+              v-for="lane in graph.lanes"
+              :key="`band-${lane.lane}`"
+              class="em-lane-band"
+              :style="{ top: `${lane.y}px`, height: `${lane.height}px`, width: `${graph.width}px` }"
+            />
+
+            <div
+              v-for="slice in graph.slices"
+              :key="`slice-${slice.name}`"
+              class="em-slice"
+              :data-slice="slice.name"
+              :data-outcome="outcomeFor(slice.name) ?? undefined"
+              :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
+            >
+              <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
+                <!-- bobcat#184 — what kind of thing triggers this slice, legible without reading. -->
+                <svg
+                  v-if="triggerIconFor(slice.descriptor)"
+                  class="em-trigger-icon"
+                  :data-kind="slice.descriptor.triggerKind"
+                  viewBox="0 0 16 16"
+                  role="img"
+                  :aria-label="triggerTitleFor(slice.descriptor)"
+                >
+                  <title>{{ triggerTitleFor(slice.descriptor) }}</title>
+                  <path :d="triggerIconFor(slice.descriptor) ?? undefined" />
+                </svg>
+                <button
+                  class="em-slice-name"
+                  type="button"
+                  :title="slice.name"
+                  @click="emit('slice-click', slice.descriptor)"
+                >
+                  {{ slice.name }}
+                </button>
+                <!-- bobcat#183 — the bound-specification count, verdict-tinted where the host gave
+                     run evidence. `no spec` is deliberately spelled out rather than shown as 0: it is
+                     the drift case, and it should read as a finding. -->
+                <span
+                  class="em-slice-specs"
+                  :data-outcome="outcomeFor(slice.name) ?? (specCountFor(slice.descriptor) === 0 ? 'none' : undefined)"
+                  :data-count="specCountFor(slice.descriptor)"
+                  :title="specTitleFor(slice.descriptor)"
+                >
+                  {{ specLabelFor(slice.descriptor) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- bobcat#181 — the edges the descriptor already computes, which the canvas used to drop
+                 on the floor. Behind the cards in DOM order and pointer-inert, so a line never eats a
+                 card's click; `currentColor` so it inherits the host's ink in either theme. -->
+            <svg
+              class="em-edges"
+              :width="graph.width"
+              :height="graph.height"
+              :viewBox="`0 0 ${graph.width} ${graph.height}`"
+              aria-hidden="true"
+            >
+              <defs>
+                <marker
+                  id="em-arrow"
+                  markerWidth="6"
+                  markerHeight="6"
+                  refX="5"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L6,3 L0,6 z" fill="currentColor" />
+                </marker>
+              </defs>
+              <polyline
+                v-for="edge in graph.edges"
+                :key="`${edge.fromId}->${edge.toId}`"
+                class="em-edge"
+                :data-from="edge.fromId"
+                :data-to="edge.toId"
+                :points="pointsFor(edge)"
+                marker-end="url(#em-arrow)"
+              />
+            </svg>
+
+            <button
+              v-for="node in graph.nodes"
+              :key="node.id"
+              class="em-card"
+              type="button"
+              :data-kind="node.element.kind"
+              :data-lane="node.element.lane"
+              :data-provenance="node.element.provenance ?? undefined"
+              :data-hotspot-origin="hotspotFor(node)?.origin ?? undefined"
+              :title="titleFor(node)"
+              :style="{
+                left: `${node.x}px`,
+                top: `${node.y}px`,
+                width: `${node.width}px`,
+                height: `${node.height}px`,
+                padding: `6px ${CARD_PADDING_X}px`,
+                fontSize: `${LABEL_FONT_SIZE}px`,
+                lineHeight: `${LABEL_LINE_HEIGHT}`,
+                '--em-label-lines': MAX_LABEL_LINES,
+                ...styleFor(node.element)
+              }"
+              @click="emit('element-click', node.element)"
+            >
+              <span v-if="hotspotFor(node)" class="em-hotspot">
+                <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
+                <template v-if="claimsFor(hotspotFor(node)!)">
+                  <span v-if="hotspotFor(node)!.role" class="em-hotspot-role">{{
+                    hotspotFor(node)!.role
+                  }}</span>
+                  <span class="em-hotspot-claim" data-claim="kept">
+                    <span class="em-hotspot-rung">{{ claimsFor(hotspotFor(node)!)!.kept.provenance }}</span>
+                    {{ claimsFor(hotspotFor(node)!)!.kept.value }}
+                  </span>
+                  <span class="em-hotspot-claim" data-claim="dropped">
+                    <span class="em-hotspot-rung">{{
+                      claimsFor(hotspotFor(node)!)!.dropped.provenance
+                    }}</span>
+                    {{ claimsFor(hotspotFor(node)!)!.dropped.value }}
+                  </span>
+                </template>
+                <span v-else class="em-hotspot-text">{{ hotspotFor(node)!.text }}</span>
+              </span>
+              <span v-else-if="routeFor(node.element)" class="em-card-label"
+                ><span class="em-route-method">{{ routeFor(node.element)!.method }}</span
+                ><template
+                  v-for="(segment, index) in segmentLabel(routeFor(node.element)!.path)"
+                  :key="index"
+                  >{{ segment }}<wbr /></template
+              ></span>
+              <span v-else class="em-card-label"
+                ><template v-for="(segment, index) in segmentsFor(node.element)" :key="index"
+                  >{{ segment }}<wbr /></template
+              ></span>
+            </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -391,16 +531,62 @@ function outcomeFor(sliceName: string): string | null {
 .em-canvas {
   position: relative;
   width: 100%;
-  overflow: auto;
 }
+/* The scroller, and the pan surface. Grab-to-drag because at 55% a 121-slice model is still
+   several screens wide, and a horizontal scrollbar is a poor way to travel that. */
+.em-viewport {
+  width: 100%;
+  overflow: auto;
+  cursor: grab;
+}
+.em-viewport[data-panning='true'] {
+  cursor: grabbing;
+  user-select: none;
+}
+/* Scaled from its top-left, with its own box set to the scaled size — a transform does not change
+   layout size, so without the explicit width/height the scroller would still think the canvas was
+   its 100% self. */
+.em-zoomed {
+  transform-origin: 0 0;
+}
+.em-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 12px 0;
+}
+.em-zoom {
+  min-width: 26px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.em-zoom:hover:not(:disabled) {
+  opacity: 1;
+}
+.em-zoom:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.em-zoom-level {
+  min-width: 44px;
+}
+/* Gap and padding are bound from layout.ts's canvas constants, which is what canvasSize measures
+   the zoom wrapper with — the same anti-drift rule as the card's type scale. */
 .em-scroll {
   display: flex;
-  gap: 12px;
-  padding: 12px;
 }
 .em-lane-gutter {
   position: relative;
-  flex: 0 0 132px;
+  flex-grow: 0;
+  flex-shrink: 0;
 }
 .em-lane-label {
   position: absolute;
