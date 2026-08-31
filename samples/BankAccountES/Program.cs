@@ -1,6 +1,8 @@
 using BankAccountES;
 using Fisher;
 using JasperFx;
+using Wolverine.CritterWatch;
+using Wolverine.RabbitMQ;
 using JasperFx.Events.EventModeling;
 using JasperFx.Events.Projections;
 using Marten;
@@ -83,6 +85,19 @@ builder.Host.UseWolverine(opts =>
     opts.Policies.AutoApplyTransactions();
     opts.UseFluentValidation();
     opts.ServiceName = "BankAccount";
+
+    // bobcat#172, the fourth rung: with CritterWatch:Uri configured, this sample becomes a
+    // MONITORED service — its event-model manifest (chains + overlay) pushes to the console on
+    // its own hash-gated message, and every event append inside a handler or endpoint is
+    // observed and attributed. Unconfigured (specs, CI, a bare dotnet run), nothing changes.
+    if (builder.Configuration["CritterWatch:Uri"] is { Length: > 0 } critterWatchUri)
+    {
+        opts.UseRabbitMq(new Uri(builder.Configuration["CritterWatch:Broker"] ?? "amqp://localhost:5673"))
+            .AutoProvision();
+        opts.AddCritterWatchMonitoring(
+            critterWatchUri: new Uri(critterWatchUri),
+            systemControlUri: new Uri(builder.Configuration["CritterWatch:ControlUri"] ?? "rabbitmq://queue/bank-account-control"));
+    }
 });
 
 // The Event Model OVERLAY (jasperfx#687, decision D5): naming, grouping and trigger labels only —
@@ -95,18 +110,15 @@ builder.Services.AddEventModel("BankAccount", model =>
 {
     model.InDomain("Banking");
 
-    // ⚠️ No TriggeredBy on the HTTP slices, for now: wolverine#4181. Wolverine's HTTP-derived
-    // source claims TriggerLabel with the verb+route ("POST /api/…"), so a human label declared
-    // here loses on the provenance ladder AND mints a SourceDisagreement noise hotspot per slice.
-    // When #4181 ships, restore the labels — EventModel.feature asserts the current behaviour
-    // with a pointer back here, so the fix will trip that spec and flag the restoration.
-    model.Slice("EnrollClient");
-    model.Slice("UpdateClient");
-    model.Slice("OpenAccount");
-    model.Slice("DepositFunds");
-    model.Slice("WithdrawFunds");
-
-    // A message-handled slice's chain claims no TriggerLabel, so this Declared label survives.
+    // Human trigger labels on every command slice. wolverine#4181 (fixed in 6.31.0: the
+    // HTTP-derived source stopped claiming TriggerLabel with the verb+route, which had made
+    // every label here lose the merge) — the verb+route stays available on TriggerOrigin, and
+    // these Declared labels now win because nothing else claims the role.
+    model.Slice("EnrollClient").TriggeredBy("New customer walks in");
+    model.Slice("UpdateClient").TriggeredBy("Customer corrects their details");
+    model.Slice("OpenAccount").TriggeredBy("Enrolled client asks for an account");
+    model.Slice("DepositFunds").TriggeredBy("Customer at the teller");
+    model.Slice("WithdrawFunds").TriggeredBy("Customer at the ATM");
     model.Slice("FreezeAccount").TriggeredBy("The fraud desk");
 });
 
@@ -122,6 +134,11 @@ app.MapWolverineEndpoints(opts =>
 {
     opts.UseFluentValidationProblemDetailMiddleware();
 });
+
+// The fraud desk's HTTP door: forwards straight to the FreezeAccount message handler, which
+// stays the only decider. Wolverine folds this route and the handler into ONE event-model
+// slice, because both key on the FreezeAccount type.
+app.MapPostToWolverine<FreezeAccount>("/api/accounts/freeze");
 
 // RunJasperFxCommands rather than RunAsync so `dotnet run -- event-model --url …` works against
 // this host — the export command builds the host without starting it and PUTs the assembled,

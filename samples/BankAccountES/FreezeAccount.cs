@@ -1,4 +1,5 @@
 using FluentValidation;
+using JasperFx.Events;
 using Wolverine.Persistence.EventSourcing;
 
 namespace BankAccountES;
@@ -33,10 +34,26 @@ public record FreezeAccount(Guid AccountId, string Reason)
 /// received</c> dispatch it with a tracked Wolverine session. Same store-agnostic decider shape
 /// as the HTTP endpoints: load the <see cref="Account"/>, return the events to append.
 /// </summary>
+/// <summary>
+/// ⚠️ The RUNTIME plant for the vehicle's fourth rung (bobcat#172): the audit note is appended
+/// IMPERATIVELY, through the session, inside the handler body — the documented case chain
+/// derivation cannot see. Derived claims this slice emits [AccountFrozen, AccountFlagged];
+/// production appends those AND AuditTrailNoted. Under an observing CritterWatch console the
+/// Observed rung wins the merge, and the dropped Derived claim becomes the SourceDisagreement
+/// whose winner is finally the truth. Do not convert this to a declarative return — the
+/// invisibility is the point.
+/// </summary>
+public record AuditTrailNoted(Guid AccountId, string Entry);
+
 public static class FreezeAccountHandler
 {
     [DeciderFunction]
-    public static (AccountFrozen, AccountFlagged) Handle(FreezeAccount command, Account account)
-        => (new AccountFrozen(command.AccountId, command.Reason),
+    public static (AccountFrozen, AccountFlagged) Handle(
+        FreezeAccount command, Account account, IEventStoreOperations events)
+    {
+        events.Append(command.AccountId, new AuditTrailNoted(command.AccountId, $"Freeze requested: {command.Reason}"));
+
+        return (new AccountFrozen(command.AccountId, command.Reason),
             new AccountFlagged(command.AccountId, $"Frozen: {command.Reason}"));
+    }
 }

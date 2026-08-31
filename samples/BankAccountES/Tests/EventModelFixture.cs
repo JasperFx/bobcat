@@ -77,7 +77,7 @@ public class EventModelFixture : Fixture
                 $"Expected one model named '{name}', but got: [{string.Join(", ", _models.Select(m => m.Name))}]");
     }
 
-    [Then("the {word} slice's {word} role is claimed by {word}")]
+    [Then("the {string} slice's {word} role is claimed by {word}")]
     public void ThenRoleClaimedBy(string slice, string role, string provenance)
     {
         var parsedRole = Enum.Parse<EventModelRole>(role);
@@ -103,7 +103,7 @@ public class EventModelFixture : Fixture
             throw new SpecAssertionException($"Roles with no source: {string.Join(", ", unattributed)}");
     }
 
-    [Then("the {word} slice reports a source disagreement on {word}")]
+    [Then("the {string} slice reports a source disagreement on {word}")]
     public void ThenSliceHasDisagreementOn(string slice, string role)
     {
         var parsedRole = Enum.Parse<EventModelRole>(role);
@@ -130,7 +130,7 @@ public class EventModelFixture : Fixture
                 $"Losing claim is {lost.Provenance} '{lost.Value}', expected {provenance} '{value}'.");
     }
 
-    [Then("the {word} slice reports no source disagreement")]
+    [Then("the {string} slice reports no source disagreement")]
     public void ThenSliceHasNoDisagreement(string slice)
     {
         var found = SliceNamed(slice).Hotspots.Where(h => h.Origin == HotspotOrigin.SourceDisagreement).ToList();
@@ -138,7 +138,7 @@ public class EventModelFixture : Fixture
             throw new SpecAssertionException($"Unexpected disagreement(s) on {slice}: {describeHotspots(slice)}");
     }
 
-    [Then("the {word} slice is in domain {string}")]
+    [Then("the {string} slice is in domain {string}")]
     public void ThenSliceInDomain(string slice, string domain)
     {
         var actual = SliceNamed(slice).Domain;
@@ -146,7 +146,7 @@ public class EventModelFixture : Fixture
             throw new SpecAssertionException($"{slice}.Domain is '{actual}', expected '{domain}'.");
     }
 
-    [Then("the {word} slice is triggered by {string}")]
+    [Then("the {string} slice is triggered by {string}")]
     public void ThenSliceTriggeredBy(string slice, string label)
     {
         var actual = SliceNamed(slice).TriggerLabel;
@@ -154,7 +154,34 @@ public class EventModelFixture : Fixture
             throw new SpecAssertionException($"{slice}.TriggerLabel is '{actual}', expected '{label}'.");
     }
 
-    [Then("the {word} slice binds the specification {string}")]
+    /// <summary>
+    /// Assert which read model a slice reads. bobcat#175.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The vehicle previously asserted read models only as <c>ReadModelTypes role is claimed by
+    /// Declared</c> — provenance, never identity — so a derived read model could be wrong, ugly or
+    /// missing and every scenario still passed. wolverine#4182 was found by looking at the canvas,
+    /// which is exactly the kind of catch a spec is supposed to make instead of a person.
+    /// </para>
+    /// <para>
+    /// <b>The type name is <c>{word}</c>, not <c>{readmodel}</c>, deliberately.</b> A
+    /// <c>{readmodel}</c> capture resolves to a <c>System.Type</c> at compile time and would stamp
+    /// a ReadModelTypes role onto this feature's own slice — these scenarios assert the model, so
+    /// contributing to it would make the vehicle observe itself. The whole feature is untagged and
+    /// capture-free for that reason; a compile-time-checked name is not worth the self-reference.
+    /// </para>
+    /// </remarks>
+    [Then("the {string} slice reads the {word} read model")]
+    public void ThenSliceReadsReadModel(string slice, string readModel)
+    {
+        var names = SliceNamed(slice).ReadModelTypes.Select(t => t.Name).ToList();
+        if (!names.Contains(readModel))
+            throw new SpecAssertionException(
+                $"{slice} reads [{string.Join(", ", names)}], expected '{readModel}'.");
+    }
+
+    [Then("the {string} slice binds the specification {string}")]
     public void ThenSliceBindsSpecification(string slice, string identity)
     {
         var specs = SliceNamed(slice).Specifications;
