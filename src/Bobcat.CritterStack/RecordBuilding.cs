@@ -22,16 +22,26 @@ internal static class RecordBuilding
     /// </summary>
     public static object Build(Type type, IReadOnlyDictionary<string, string> cells)
     {
+        // A parameter with a C# default does not need a column (bobcat#177 dogfood finding):
+        // real commands routinely carry optional trailing parameters (a nullable Session, a
+        // defaulted lease), and demanding a column for each made every table say "null" for
+        // things the author never mentions in code either. Prefer the constructor binding the
+        // MOST columns, so a fuller table still wins over a shorter overload.
         var ctor = type.GetConstructors()
             .Where(c => c.GetParameters().Length > 0)
-            .Where(c => c.GetParameters().All(p => cells.ContainsKey(p.Name!)))
-            .OrderByDescending(c => c.GetParameters().Length)
+            .Where(c => c.GetParameters().All(p => cells.ContainsKey(p.Name!) || p.HasDefaultValue))
+            .OrderByDescending(c => c.GetParameters().Count(p => cells.ContainsKey(p.Name!)))
+            .ThenByDescending(c => c.GetParameters().Length)
             .FirstOrDefault();
 
         if (ctor != null)
         {
             var args = ctor.GetParameters()
-                .Select(p => GherkinValue.Convert(cells[p.Name!], p.ParameterType))
+                .Select(p => cells.TryGetValue(p.Name!, out var raw)
+                    ? GherkinValue.Convert(raw, p.ParameterType)
+                    // An optional value-type parameter declared `= default` reports a null
+                    // DefaultValue through reflection; materialize the actual default(T).
+                    : p.DefaultValue ?? (p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null))
                 .ToArray();
             return ctor.Invoke(args);
         }
