@@ -780,7 +780,11 @@ function outcomeFor(sliceName: string): string | null {
   font-weight: 600;
 }
 .em-hotspot-claim {
-  max-width: 100%;
+  /* stretch + min-width: 0 is what actually makes the ellipsis appear: a column flex item is
+     shrink-to-fit by default, so a long claim sizes to its text and gets cut by the card's
+     overflow with no ellipsis to say it had been. */
+  align-self: stretch;
+  min-width: 0;
   font-size: 10px;
   line-height: 1.3;
   white-space: nowrap;

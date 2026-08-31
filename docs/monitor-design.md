@@ -350,6 +350,13 @@ convention:
   layer behind the cards: straight along a lane, an orthogonal elbow through the middle of the lane
   gap across lanes. The polyline is computed in `layout.ts` beside the coordinates, because a route
   is as much a rendering claim as a position and "identical in both viewers" has to cover it.
+- **The 2026-08-31 review batch, all in the shared package (0.7.0):** zoom/pan for a canvas that
+  is 106 slices wide (#182 — a CSS transform on a wrapper, never a scale factor threaded into the
+  pure layout), a bound-specification badge per slice carrying the run verdict where evidence
+  exists (#183), a trigger-kind glyph with the route on its tooltip plus a verb badge on route
+  cards (#184), and a source disagreement that renders as a structured finding — role, kept claim,
+  struck-through dropped claim — rather than as the clipped sentence that got read as a malformed
+  events list (#178).
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in
