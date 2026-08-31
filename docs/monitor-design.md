@@ -363,6 +363,12 @@ convention:
   the hotspot's *text* the label (jasperfx#704), and letting a sentence size a column of type
   names widened every column on the real Stoat model to fit the finding rather than the model.
   Full reasoning in the package README.
+- **The edges are drawn, and routed in the package (issue #181, 0.6.0).** `Edges` is computed
+  upstream from the typed roles on every read so no renderer invents its own opinion about what
+  connects to what — and the canvas laid them out and then drew nothing. Now one pointer-inert SVG
+  layer behind the cards: straight along a lane, an orthogonal elbow through the middle of the lane
+  gap across lanes. The polyline is computed in `layout.ts` beside the coordinates, because a route
+  is as much a rendering claim as a position and "identical in both viewers" has to cover it.
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in

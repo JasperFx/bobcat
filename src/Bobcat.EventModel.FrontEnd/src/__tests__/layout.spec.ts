@@ -152,6 +152,59 @@ describe('layoutEventModel', () => {
     expect(layoutEventModel(model).slices[0].cardWidth).toBe(180)
   })
 
+  it('routes an edge along a lane as a straight line between the facing card edges (#181)', () => {
+    const graph = layoutEventModel(withdrawFundsModel())
+    const edge = graph.edges.find(
+      (e) => e.toId === 'WithdrawFunds/Handler/Bank.AccountHandler'
+    )!
+    // Command at x 0..180, handler at x 204..384, both mid-band at y 180.
+    expect(edge.points).toEqual([
+      { x: 180, y: 180 },
+      { x: 204, y: 180 }
+    ])
+  })
+
+  it('routes an edge across lanes as an elbow through the middle of the lane gap', () => {
+    const graph = layoutEventModel(withdrawFundsModel())
+    const edge = graph.edges.find((e) => e.toId === 'WithdrawFunds/Event/Bank.FundsWithdrawn')!
+    // Handler bottom (216) down to the event's top (264), turning at the gap's midpoint. A
+    // diagonal would cross the band divider at an arbitrary angle and read as a different claim.
+    expect(edge.points).toEqual([
+      { x: 294, y: 216 },
+      { x: 294, y: 240 },
+      { x: 90, y: 240 },
+      { x: 90, y: 264 }
+    ])
+  })
+
+  it('drops the elbow when one card sits directly above the other', () => {
+    const graph = layoutEventModel(withdrawFundsModel())
+    const edge = graph.edges.find(
+      (e) => e.toId === 'AccountBalance/Projection/Bank.BalanceProjection'
+    )!
+    expect(edge.points).toEqual([
+      { x: 734, y: 336 },
+      { x: 734, y: 384 }
+    ])
+  })
+
+  it('leaves the other face of the source when the edge points backwards', () => {
+    // Declaration order is the producer's, and nothing says a slice declares its elements in
+    // flow order — an edge pointing back up or left must not start on the face it ends at.
+    const model = withdrawFundsModel()
+    model.slices![0].edges = [
+      {
+        fromId: 'WithdrawFunds/Handler/Bank.AccountHandler',
+        toId: 'WithdrawFunds/Command/Bank.WithdrawFunds'
+      }
+    ]
+    const [edge] = layoutEventModel(model).edges
+    expect(edge.points).toEqual([
+      { x: 204, y: 180 },
+      { x: 180, y: 180 }
+    ])
+  })
+
   it('handles a null or empty descriptor without throwing', () => {
     for (const empty of [null, undefined, { name: 'x' }, { name: 'x', slices: [] }]) {
       const graph = layoutEventModel(empty as never)

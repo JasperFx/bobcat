@@ -80,6 +80,28 @@ describe('EventModelView', () => {
     expect(name.attributes('style')).toContain('max-width: 580px')
   })
 
+  it('draws a polyline per edge, behind the cards and pointer-inert (#181)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const lines = wrapper.findAll('.em-edge')
+    expect(lines).toHaveLength(4)
+    const handlerEdge = lines.find(
+      (l) => l.attributes('data-to') === 'WithdrawFunds/Handler/Bank.AccountHandler'
+    )!
+    expect(handlerEdge.attributes('points')).toBe('180,180 204,180')
+    expect(handlerEdge.attributes('marker-end')).toBe('url(#em-arrow)')
+  })
+
+  it('draws nothing for an edge whose endpoints were not both drawn', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].edges!.push({
+      fromId: 'WithdrawFunds/Command/Bank.WithdrawFunds',
+      toId: 'nope'
+    })
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    // A line to nowhere would read as a modelling claim rather than the producer bug it is.
+    expect(wrapper.findAll('.em-edge')).toHaveLength(4)
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([
