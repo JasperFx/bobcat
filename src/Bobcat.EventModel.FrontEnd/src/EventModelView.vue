@@ -128,6 +128,31 @@ function segmentsFor(element: EventModelElement): string[] {
   return segmentLabel(element.label ?? '')
 }
 
+/**
+ * bobcat#183 — how many specifications are bound to this slice, as the header's badge.
+ *
+ * The count is the point, not decoration: a slice with no spec is the drift case the canvas
+ * already colours orange, and until now the only way to learn a slice HAD specs was to click it.
+ * Where the host supplied run evidence the badge carries the verdict too (`outcomeFor`), so a
+ * failing slice says so at the same glance.
+ */
+function specCountFor(slice: EventModelSliceDescriptor): number {
+  return (slice.specifications ?? []).length
+}
+
+function specLabelFor(slice: EventModelSliceDescriptor): string {
+  const count = specCountFor(slice)
+  if (count === 0) return 'no spec'
+  return count === 1 ? '1 spec' : `${count} specs`
+}
+
+/** The bound identities, on hover — the drill-down is a click away, the list should not be. */
+function specTitleFor(slice: EventModelSliceDescriptor): string {
+  const specs = slice.specifications ?? []
+  if (specs.length === 0) return 'No specification is bound to this slice'
+  return specs.map((spec) => spec.identity).join('\n')
+}
+
 /** The slice's outcome, if run evidence named any of its specifications. */
 function outcomeFor(sliceName: string): string | null {
   const outcomes = props.sliceOutcomes
@@ -174,15 +199,27 @@ function outcomeFor(sliceName: string): string | null {
           :data-outcome="outcomeFor(slice.name) ?? undefined"
           :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
         >
-          <button
-            class="em-slice-name"
-            type="button"
-            :style="{ maxWidth: `${slice.width - 8}px` }"
-            :title="slice.name"
-            @click="emit('slice-click', slice.descriptor)"
-          >
-            {{ slice.name }}
-          </button>
+          <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
+            <button
+              class="em-slice-name"
+              type="button"
+              :title="slice.name"
+              @click="emit('slice-click', slice.descriptor)"
+            >
+              {{ slice.name }}
+            </button>
+            <!-- bobcat#183 — the bound-specification count, verdict-tinted where the host gave
+                 run evidence. `no spec` is deliberately spelled out rather than shown as 0: it is
+                 the drift case, and it should read as a finding. -->
+            <span
+              class="em-slice-specs"
+              :data-outcome="outcomeFor(slice.name) ?? (specCountFor(slice.descriptor) === 0 ? 'none' : undefined)"
+              :data-count="specCountFor(slice.descriptor)"
+              :title="specTitleFor(slice.descriptor)"
+            >
+              {{ specLabelFor(slice.descriptor) }}
+            </span>
+          </div>
         </div>
 
         <!-- bobcat#181 — the edges the descriptor already computes, which the canvas used to drop
@@ -308,10 +345,19 @@ function outcomeFor(sliceName: string): string | null {
 }
 /* The overlay itself stays pointer-inert so cards keep their clicks; the name is the one
    interactive part — the slice's drill-down handle. */
-.em-slice-name {
+.em-slice-header {
   position: absolute;
   top: -2px;
   left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.em-slice-name {
+  /* flex-shrink with min-width: 0 is what lets the NAME give way to the badge rather than pushing
+     it out of the column — the count is short and fixed, the name is not. */
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -325,6 +371,32 @@ function outcomeFor(sliceName: string): string | null {
   text-overflow: ellipsis;
   cursor: pointer;
   pointer-events: auto;
+}
+.em-slice-specs {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 15px;
+  opacity: 0.75;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.em-slice-specs[data-outcome='passed'] {
+  color: #46a758;
+  opacity: 1;
+}
+.em-slice-specs[data-outcome='failed'] {
+  color: #e5484d;
+  opacity: 1;
+}
+/* notRun and none share the drift colour on purpose: a claim with no evidence and a claim with
+   nothing to produce evidence are the same problem at different stages. */
+.em-slice-specs[data-outcome='notRun'],
+.em-slice-specs[data-outcome='none'] {
+  color: #e8930c;
+  opacity: 1;
 }
 /* jasperfx#703 — the ladder, as a SECOND channel. Fill colour is spoken for: it means the element
    KIND, and that agreement between viewers is the whole reason this package exists. So provenance

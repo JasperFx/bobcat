@@ -77,7 +77,8 @@ describe('EventModelView', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: model } })
     const name = wrapper.find('.em-slice-name')
     expect(name.attributes('title')).toBe('WithdrawFundsFromAnInternationalAccount')
-    expect(name.attributes('style')).toContain('max-width: 580px')
+    // The header row is what the column bounds; the name gives way inside it (#180, #183).
+    expect(wrapper.find('.em-slice-header').attributes('style')).toContain('max-width: 580px')
   })
 
   it('draws a polyline per edge, behind the cards and pointer-inert (#181)', () => {
@@ -100,6 +101,35 @@ describe('EventModelView', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: model } })
     // A line to nowhere would read as a modelling claim rather than the producer bug it is.
     expect(wrapper.findAll('.em-edge')).toHaveLength(4)
+  })
+
+  it('badges each slice with its bound-specification count (#183)', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const badges = wrapper.findAll('.em-slice-specs')
+    expect(badges.map((b) => b.text())).toEqual(['1 spec', '1 spec'])
+    expect(badges[0].attributes('title')).toBe('Withdraw Funds/a withdrawal succeeds')
+  })
+
+  it('spells out a slice with no specification as the drift case, not as a zero', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].specifications = []
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const badge = wrapper.findAll('.em-slice-specs')[0]
+    expect(badge.text()).toBe('no spec')
+    expect(badge.attributes('data-outcome')).toBe('none')
+  })
+
+  it('carries the run verdict on the badge where evidence named the slice', () => {
+    const wrapper = mount(EventModelView, {
+      props: {
+        descriptor: withdrawFundsModel(),
+        sliceOutcomes: { 'Withdraw Funds/a withdrawal succeeds': 'failed' }
+      }
+    })
+    const badge = wrapper.findAll('.em-slice-specs')[0]
+    expect(badge.attributes('data-outcome')).toBe('failed')
+    // A slice the evidence did not name stays unmarked rather than defaulting to green.
+    expect(wrapper.findAll('.em-slice-specs')[1].attributes('data-outcome')).toBeUndefined()
   })
 
   it('renders the four lane captions', () => {
