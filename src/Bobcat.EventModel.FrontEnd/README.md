@@ -84,6 +84,32 @@ means "both sources agree" — not "seen in production". This one is a ladder of
 `Declared` and `Derived` both map onto its `Inferred`, and its `Confirmed` has no rung here:
 agreement is expressed by the *absence* of a `SourceDisagreement` hotspot.
 
+## Edges are drawn, and routed here (0.6.0, bobcat#181)
+
+`EventModelSliceDescriptor.Edges` is computed upstream from the typed roles on every read —
+precisely so no renderer invents its own opinion about what connects to what — and this component
+used to lay them out and then draw nothing. It draws them now, as one pointer-inert SVG layer
+behind the cards.
+
+**The route is computed in `layout.ts`, not in the component.** A polyline is as much a rendering
+claim as a coordinate, so `LaidOutEdge.points` joins position in the pure layer: same descriptor,
+same picture, checkable by a test. Two shapes, because the canvas has two kinds of relationship:
+
+- **Along a lane** (command → handler → aggregate) the flow is left to right, so the edge is a
+  straight line between the two facing card edges.
+- **Across lanes** (command → event, event → projection) it is an orthogonal elbow turning at the
+  middle of the lane gap. A diagonal would cross the band divider at an arbitrary angle and read as
+  a different kind of statement; the elbow reads as "down into the next lane". A card sitting
+  directly above its partner gets one straight drop instead of an elbow with two zero-length legs.
+
+Both are direction-aware — an edge pointing back up or left leaves the *other* face of its source,
+because declaration order is the producer's and nothing promises it matches flow order.
+
+An edge whose endpoints were not both *drawn* is dropped, which is a slightly stronger test than
+the "not both declared" one it replaces: an element in a lane this package does not know is
+dropped from the canvas, and an arrow into empty space would read as a modelling claim rather than
+as the producer bug it is.
+
 ## Card sizing: wrap, widen, then clamp (0.5.0, bobcat#180)
 
 Cards were absolutely sized at 180px with `overflow: hidden`, so a long command name — and worse,

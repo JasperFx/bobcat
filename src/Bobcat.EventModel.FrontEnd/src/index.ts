@@ -11,6 +11,7 @@ export {
 export { estimateTextWidth, requiredContentWidth, segmentLabel } from './text'
 export type {
   EventModelGraph,
+  LaidOutEdge,
   LaidOutLane,
   LaidOutNode,
   LaidOutSlice,

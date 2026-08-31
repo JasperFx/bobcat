@@ -74,9 +74,21 @@ export interface LaidOutSlice {
   collapsed: boolean
 }
 
+/**
+ * An edge with the polyline a viewer draws it as (issue #180's sibling, bobcat#181).
+ *
+ * Routed here rather than in the component for the same reason positions are: two viewers drawing
+ * the same descriptor differently is the one thing this package exists to prevent, and a route is
+ * as much a rendering claim as a coordinate. `points` is plot-space and always has at least two
+ * entries; the last one is where the arrowhead goes.
+ */
+export interface LaidOutEdge extends EventModelEdge {
+  points: ReadonlyArray<{ x: number; y: number }>
+}
+
 export interface EventModelGraph {
   nodes: LaidOutNode[]
-  edges: EventModelEdge[]
+  edges: LaidOutEdge[]
   lanes: LaidOutLane[]
   slices: LaidOutSlice[]
   width: number
@@ -135,6 +147,51 @@ function cardWidthFor(
   return Math.min(needed, maxCardWidth)
 }
 
+/**
+ * The polyline joining two cards.
+ *
+ * Two cases, because an Event Modeling canvas has exactly two kinds of relationship and they read
+ * differently. Along a lane — command → handler → aggregate — the flow is left to right, so a
+ * straight horizontal line between the facing edges is the whole story. Across lanes — command →
+ * event, event → projection — the line has to cross a lane gap, and an orthogonal elbow through
+ * the midpoint of that gap keeps it legible where a diagonal would cut through the band divider at
+ * an arbitrary angle and read as a different kind of statement.
+ *
+ * Both cases are direction-aware: an edge pointing back up (or left) leaves the *other* side of
+ * its source, so the arrowhead never lands on the face it started from.
+ */
+function routeEdge(from: LaidOutNode, to: LaidOutNode): { x: number; y: number }[] {
+  const fromMidY = from.y + from.height / 2
+  const toMidY = to.y + to.height / 2
+
+  if (from.y === to.y) {
+    return to.x >= from.x
+      ? [
+          { x: from.x + from.width, y: fromMidY },
+          { x: to.x, y: toMidY }
+        ]
+      : [
+          { x: from.x, y: fromMidY },
+          { x: to.x + to.width, y: toMidY }
+        ]
+  }
+
+  const downward = to.y > from.y
+  const startY = downward ? from.y + from.height : from.y
+  const endY = downward ? to.y : to.y + to.height
+  const gapMidY = (startY + endY) / 2
+  const fromMidX = from.x + from.width / 2
+  const toMidX = to.x + to.width / 2
+
+  const start = { x: fromMidX, y: startY }
+  const end = { x: toMidX, y: endY }
+  // A card sitting directly above or below its partner wants one straight drop, not an elbow with
+  // two zero-length legs.
+  if (fromMidX === toMidX) return [start, end]
+
+  return [start, { x: fromMidX, y: gapMidY }, { x: toMidX, y: gapMidY }, end]
+}
+
 export function layoutEventModel(
   descriptor: EventModelDescriptor | null | undefined,
   options: LayoutOptions = {}
@@ -157,7 +214,7 @@ export function layoutEventModel(
 
   const nodes: LaidOutNode[] = []
   const slices: LaidOutSlice[] = []
-  const edges: EventModelEdge[] = []
+  const edges: LaidOutEdge[] = []
 
   let cursorX = 0
 
@@ -168,6 +225,10 @@ export function layoutEventModel(
     // Group by lane, preserving declaration order inside each lane. Declaration order is the
     // producer's statement about sequence (a command before the events it emits), so sorting
     // here would discard information the descriptor deliberately carries.
+    // Laid-out nodes of THIS slice, by element id — what the slice's own edges are routed
+    // against. Per slice because ids are unique per slice and an edge never crosses one.
+    const placed = new Map<string, LaidOutNode>()
+
     const byLane = new Map<EventModelLane, EventModelElement[]>()
     for (const element of elements) {
       const bucket = byLane.get(element.lane)
@@ -194,7 +255,7 @@ export function layoutEventModel(
       if (top === undefined) continue
 
       bucket.forEach((element, index) => {
-        nodes.push({
+        const node: LaidOutNode = {
           id: element.id,
           element,
           sliceName: slice.name,
@@ -202,7 +263,9 @@ export function layoutEventModel(
           y: top + gapY / 2,
           width: cardWidth,
           height: cardHeight
-        })
+        }
+        nodes.push(node)
+        placed.set(node.id, node)
       })
     }
 
@@ -219,9 +282,12 @@ export function layoutEventModel(
       // Edges reference elements by id and never cross a slice, so an edge whose endpoints are
       // not both present is dropped. A dangling edge is a producer bug; rendering it as a line
       // to the origin would make it look like a modelling statement.
-      const present = new Set(elements.map((e) => e.id))
       for (const edge of slice.edges ?? []) {
-        if (present.has(edge.fromId) && present.has(edge.toId)) edges.push(edge)
+        const from = placed.get(edge.fromId)
+        const to = placed.get(edge.toId)
+        // An element in an unknown lane was dropped above, so "placed" — not "declared" — is the
+        // right test: an edge to a card nobody drew has nowhere to point either.
+        if (from && to) edges.push({ ...edge, points: routeEdge(from, to) })
       }
     }
 

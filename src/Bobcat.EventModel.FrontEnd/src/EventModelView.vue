@@ -108,6 +108,15 @@ function titleFor(node: { element: EventModelElement; sliceName: string }): stri
 }
 
 /**
+ * bobcat#181 — an edge as an SVG polyline. The points are `layout.ts`'s routing decision, not this
+ * component's: two viewers drawing the same descriptor differently is what this package exists to
+ * prevent, and a route is as much a rendering claim as a coordinate.
+ */
+function pointsFor(edge: { points: ReadonlyArray<{ x: number; y: number }> }): string {
+  return edge.points.map((p) => `${p.x},${p.y}`).join(' ')
+}
+
+/**
  * bobcat#180 — the label, split at the points a reader would break it themselves.
  *
  * Rendered with a `<wbr>` between segments because CSS offers a browser break opportunities at
@@ -175,6 +184,40 @@ function outcomeFor(sliceName: string): string | null {
             {{ slice.name }}
           </button>
         </div>
+
+        <!-- bobcat#181 — the edges the descriptor already computes, which the canvas used to drop
+             on the floor. Behind the cards in DOM order and pointer-inert, so a line never eats a
+             card's click; `currentColor` so it inherits the host's ink in either theme. -->
+        <svg
+          class="em-edges"
+          :width="graph.width"
+          :height="graph.height"
+          :viewBox="`0 0 ${graph.width} ${graph.height}`"
+          aria-hidden="true"
+        >
+          <defs>
+            <marker
+              id="em-arrow"
+              markerWidth="6"
+              markerHeight="6"
+              refX="5"
+              refY="3"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M0,0 L6,3 L0,6 z" fill="currentColor" />
+            </marker>
+          </defs>
+          <polyline
+            v-for="edge in graph.edges"
+            :key="`${edge.fromId}->${edge.toId}`"
+            class="em-edge"
+            :data-from="edge.fromId"
+            :data-to="edge.toId"
+            :points="pointsFor(edge)"
+            marker-end="url(#em-arrow)"
+          />
+        </svg>
 
         <button
           v-for="node in graph.nodes"
@@ -308,6 +351,23 @@ function outcomeFor(sliceName: string): string | null {
   outline: 2px solid #e91e63;
   outline-offset: 2px;
   font-weight: 600;
+}
+
+/* The edge layer fills the plot and never intercepts a pointer — the cards are the interactive
+   things, and a line crossing one must not steal its click. */
+.em-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.em-edge {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  opacity: 0.45;
 }
 
 .em-card {
