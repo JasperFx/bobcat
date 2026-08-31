@@ -2,6 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Issue #179. The mark is the docs' own bobcat favicon (docs/public/bobcat-favicon-64.png),
+         copied into public/ rather than referenced across projects: Vite only serves what is under
+         its own root, and the csproj embeds dist/ verbatim. Same family as CritterWatch, which
+         serves its critter mark from /favicon.png. -->
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bobcat Console</title>
   </head>
