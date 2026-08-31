@@ -18,6 +18,27 @@ target the **same** set when wired up (issue #8).
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
+## One deliberate exception: `samples/BankAccountES` on WolverineFx 6.31.0
+
+`samples/BankAccountES` pins **WolverineFx 6.31.0**, one release above the canonical set, because
+`Wolverine.CritterWatch 1.0.2-vehicle.1` — the client the #172 fourth-rung vehicle needs — floors
+there. `src/` deliberately did **not** follow, and the reason is the same trap
+`Directory.Packages.props` already records for 6.30.2+:
+
+```
+WolverineFx 6.31.0  →  JasperFx / JasperFx.Events / JasperFx.SourceGenerator 2.57.2
+```
+
+That is above this repo's 2.56.0, so taking it means re-aligning the whole set — every store has
+to resolve one `JasperFx.Events` or the event types stop unifying — and re-checking the
+duplicate-bundled-source-generator workaround against the new store packages. A #125-class bump
+with its own verification, tracked as **issue #191**, not something to fold into a release.
+
+The exception is safe because the sample is a *consumer* of the Bobcat packages, not part of the
+shipped set: it resolves its own Wolverine and Bobcat's libraries do not care which one it got. It
+is recorded here rather than left silent because "samples target the canonical set" (issue #8) is
+otherwise a claim this repo would be quietly breaking.
+
 ## Why these versions line up
 
 The whole set is anchored by one compatibility chain:
