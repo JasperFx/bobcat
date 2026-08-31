@@ -12,7 +12,15 @@
  * Layout is the pure grid from `layout.ts` — synchronous, no elk, no measurement pass.
  */
 import { computed } from 'vue'
-import { layoutEventModel, type LayoutOptions } from './layout'
+import {
+  CARD_PADDING_X,
+  LABEL_FONT_SIZE,
+  LABEL_LINE_HEIGHT,
+  MAX_LABEL_LINES,
+  layoutEventModel,
+  type LayoutOptions
+} from './layout'
+import { segmentLabel } from './text'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
 import {
   LANE_LABEL,
@@ -99,6 +107,18 @@ function titleFor(node: { element: EventModelElement; sliceName: string }): stri
   return parts.join('\n')
 }
 
+/**
+ * bobcat#180 — the label, split at the points a reader would break it themselves.
+ *
+ * Rendered with a `<wbr>` between segments because CSS offers a browser break opportunities at
+ * spaces and hyphens and nowhere else: `DepositMoneyIntoAccount` and `POST /accounts/{id}/deposit`
+ * are each one unbreakable word to the layout engine, which is exactly why the old fixed-width
+ * card clipped them.
+ */
+function segmentsFor(element: EventModelElement): string[] {
+  return segmentLabel(element.label ?? '')
+}
+
 /** The slice's outcome, if run evidence named any of its specifications. */
 function outcomeFor(sliceName: string): string | null {
   const outcomes = props.sliceOutcomes
@@ -148,6 +168,8 @@ function outcomeFor(sliceName: string): string | null {
           <button
             class="em-slice-name"
             type="button"
+            :style="{ maxWidth: `${slice.width - 8}px` }"
+            :title="slice.name"
             @click="emit('slice-click', slice.descriptor)"
           >
             {{ slice.name }}
@@ -169,11 +191,18 @@ function outcomeFor(sliceName: string): string | null {
             top: `${node.y}px`,
             width: `${node.width}px`,
             height: `${node.height}px`,
+            padding: `6px ${CARD_PADDING_X}px`,
+            fontSize: `${LABEL_FONT_SIZE}px`,
+            lineHeight: `${LABEL_LINE_HEIGHT}`,
+            '--em-label-lines': MAX_LABEL_LINES,
             ...styleFor(node.element)
           }"
           @click="emit('element-click', node.element)"
         >
-          {{ node.element.label }}
+          <span class="em-card-label"
+            ><template v-for="(segment, index) in segmentsFor(node.element)" :key="index"
+              >{{ segment }}<wbr /></template
+          ></span>
         </button>
       </div>
     </div>
@@ -247,6 +276,10 @@ function outcomeFor(sliceName: string): string | null {
   font: inherit;
   font-size: 11px;
   white-space: nowrap;
+  /* A long slice name used to run across its neighbour's column. It now ends in an ellipsis
+     inside its own column, with the full name on the title (#180). */
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -282,14 +315,26 @@ function outcomeFor(sliceName: string): string | null {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 8px;
   border-radius: 4px;
   font: inherit;
-  font-size: 13px;
-  line-height: 1.25;
   text-align: center;
   cursor: pointer;
   overflow: hidden;
+  /* padding, font-size and line-height come from layout.ts as inline style: the column width was
+     computed from that type scale, and a stylesheet holding a second opinion about it is a
+     clipped label with no traceable symptom (#180). */
+}
+/* Wrap at the `<wbr>` opportunities, then clamp — a name too long even for the widened column
+   ends in an ellipsis with its full text on the card's tooltip, rather than being cut mid-glyph
+   by `overflow: hidden` as it was before #180. `anywhere` is the backstop for the one segment
+   that is itself wider than the cap. */
+.em-card-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--em-label-lines, 3);
+  line-clamp: var(--em-label-lines, 3);
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .em-empty {
   padding: 24px;

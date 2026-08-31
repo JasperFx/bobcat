@@ -48,6 +48,38 @@ describe('EventModelView', () => {
     expect(emitted).toMatchObject({ name: 'WithdrawFunds' })
   })
 
+  it('gives a long label break opportunities instead of clipping it (#180)', () => {
+    // A PascalCase name is one unbreakable word to a browser, so the fixed-width card simply cut
+    // it off. The label is rendered in segments separated by <wbr>, which is what lets it wrap.
+    const model = withdrawFundsModel()
+    model.slices![0].elements![1].label = 'DepositMoneyIntoAccount'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const label = wrapper
+      .findAll('.em-card-label')
+      .find((l) => l.text() === 'DepositMoneyIntoAccount')!
+    expect(label.findAll('wbr')).toHaveLength(4)
+    // The text itself is untouched — the breaks are opportunities, not inserted characters.
+    expect(label.text()).toBe('DepositMoneyIntoAccount')
+  })
+
+  it('renders the card at the type scale the width was computed from', () => {
+    // layout.ts owns the type scale; a stylesheet with a second opinion about it is a clipped
+    // label with no traceable symptom.
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    const style = wrapper.find('.em-card').attributes('style')!
+    expect(style).toContain('font-size: 13px')
+    expect(style).toContain('padding: 6px 8px')
+  })
+
+  it('keeps a long slice name inside its own column, with the full name on the title', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].name = 'WithdrawFundsFromAnInternationalAccount'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const name = wrapper.find('.em-slice-name')
+    expect(name.attributes('title')).toBe('WithdrawFundsFromAnInternationalAccount')
+    expect(name.attributes('style')).toContain('max-width: 580px')
+  })
+
   it('renders the four lane captions', () => {
     const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
     expect(wrapper.findAll('.em-lane-label').map((l) => l.text())).toEqual([

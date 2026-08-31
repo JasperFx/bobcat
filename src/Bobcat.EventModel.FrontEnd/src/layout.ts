@@ -1,3 +1,4 @@
+import { requiredContentWidth } from './text'
 import {
   LANE_ORDER,
   type EventModelDescriptor,
@@ -23,8 +24,17 @@ import {
  */
 
 export interface LayoutOptions {
-  /** Card width in px. */
+  /**
+   * Minimum card width in px, and the width every column keeps unless its own labels need more
+   * (issue bobcat#180). Set `maxCardWidth` to the same value to pin every card to one width.
+   */
   cardWidth?: number
+  /**
+   * Ceiling a column may grow to for a long label. Past it the card clamps the label to
+   * {@link MAX_LABEL_LINES} lines with an ellipsis and leaves the full text on the tooltip —
+   * one pathological route must not push every other column off the screen.
+   */
+  maxCardWidth?: number
   /** Card height in px. */
   cardHeight?: number
   /** Horizontal gap between cards inside a lane cell. */
@@ -59,6 +69,8 @@ export interface LaidOutSlice {
   descriptor: EventModelSliceDescriptor
   x: number
   width: number
+  /** Width every card in this column was given — sized to the column's own labels (#180). */
+  cardWidth: number
   collapsed: boolean
 }
 
@@ -73,6 +85,7 @@ export interface EventModelGraph {
 
 const DEFAULTS = {
   cardWidth: 180,
+  maxCardWidth: 320,
   cardHeight: 72,
   gapX: 24,
   gapY: 48,
@@ -82,11 +95,52 @@ const DEFAULTS = {
 /** Width of the placeholder a collapsed slice column occupies. */
 export const COLLAPSED_WIDTH = 48
 
+/**
+ * The card's own type scale and box, owned here rather than in the stylesheet (#180).
+ *
+ * A width computed from one font size and rendered at another is a clipped label with no
+ * symptom anyone can trace, so `EventModelView` writes these onto the card as inline style
+ * instead of letting CSS hold a second opinion.
+ */
+export const LABEL_FONT_SIZE = 13
+export const LABEL_LINE_HEIGHT = 1.25
+export const CARD_PADDING_X = 8
+/** Lines a column is *sized* for; see `requiredContentWidth`. */
+export const LABEL_TARGET_LINES = 2
+/** Lines a card will *render* before clamping with an ellipsis. 3 × 1.25 × 13px + padding < 72. */
+export const MAX_LABEL_LINES = 3
+
+/**
+ * The width the cards in one column get: the widest label's requirement, held between the
+ * caller's floor and ceiling. Pure — it estimates from the label text, never measures the DOM.
+ *
+ * A `Hotspot` label is excluded from the vote. The producer projects each hotspot into an element
+ * whose label IS the hotspot text (jasperfx#704), so it is a whole sentence — *"EmittedEvents:
+ * Derived claims ClaimResult; Declared claims NodeClaimed, ClaimRenewed"* — and letting prose set
+ * the width of a column of type names widens every column on a real canvas to fit the finding
+ * rather than the model. The sticky still wraps and clamps inside whatever width it is given, with
+ * its full text on the tooltip, which is where a sentence belongs.
+ */
+function cardWidthFor(
+  elements: readonly EventModelElement[],
+  minCardWidth: number,
+  maxCardWidth: number
+): number {
+  let needed = minCardWidth
+  for (const element of elements) {
+    if (element.kind === 'Hotspot') continue
+    const content = requiredContentWidth(element.label ?? '', LABEL_FONT_SIZE, LABEL_TARGET_LINES)
+    needed = Math.max(needed, Math.ceil(content) + 2 * CARD_PADDING_X)
+  }
+  return Math.min(needed, maxCardWidth)
+}
+
 export function layoutEventModel(
   descriptor: EventModelDescriptor | null | undefined,
   options: LayoutOptions = {}
 ): EventModelGraph {
-  const cardWidth = options.cardWidth ?? DEFAULTS.cardWidth
+  const minCardWidth = options.cardWidth ?? DEFAULTS.cardWidth
+  const maxCardWidth = Math.max(minCardWidth, options.maxCardWidth ?? DEFAULTS.maxCardWidth)
   const cardHeight = options.cardHeight ?? DEFAULTS.cardHeight
   const gapX = options.gapX ?? DEFAULTS.gapX
   const gapY = options.gapY ?? DEFAULTS.gapY
@@ -121,6 +175,12 @@ export function layoutEventModel(
       else byLane.set(element.lane, [element])
     }
 
+    // One card width per slice column, sized to that column's own labels (#180). Per column and
+    // not per card: cards in a column line up under each other, and a lane of ragged widths reads
+    // as a broken grid rather than as "this name is longer". Neighbouring columns may differ —
+    // they are separated by a slice divider, which is where a width change is legible.
+    const cardWidth = isCollapsed ? minCardWidth : cardWidthFor(elements, minCardWidth, maxCardWidth)
+
     const widest = Math.max(1, ...[...byLane.values()].map((b) => b.length))
     const sliceWidth = isCollapsed
       ? COLLAPSED_WIDTH
@@ -151,6 +211,7 @@ export function layoutEventModel(
       descriptor: slice,
       x: cursorX,
       width: sliceWidth,
+      cardWidth,
       collapsed: isCollapsed
     })
 
