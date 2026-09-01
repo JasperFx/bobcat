@@ -26,6 +26,8 @@ namespace Bobcat.Monitoring;
 [JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
 [JsonDerivedType(typeof(WorkerStarted), "worker_started")]
 [JsonDerivedType(typeof(TestStalled), "test_stalled")]
+[JsonDerivedType(typeof(TestStarted), "test_started")]
+[JsonDerivedType(typeof(TestFinished), "test_finished")]
 [JsonDerivedType(typeof(RunProgress), "run_progress")]
 public abstract record MonitorEvent(Guid RunId);
 
@@ -210,4 +212,30 @@ public record RunProgress(
     // Highest worker RSS seen so far, when memory sampling (issue #149) is on; null otherwise —
     // unmeasured is never zero.
     long? PeakWorkerRssBytes,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+// The supervisor's forwarding of a worker's live per-test stream (issue #195) — the only
+// per-test progress a run whose worker is not itself a Bobcat runner ever produces. Uid is
+// the WORKER's test id, not the {Feature}/{Scenario} spec identity ScenarioStarted carries;
+// for a foreign worker it corresponds to no SpecificationDescriptor, which is why the run
+// evidence join stays on the scenario events. Lane is null for a one-test process.
+
+public record TestStarted(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    int? Lane,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+// State is the framework's own word — Passed / Failed / Error / Skipped / Timeout / Cancelled
+// — never re-labelled into RunOutcome by the publisher. Indeterminate never travels here:
+// silence is not a verdict. DurationMs is null when no in-progress update was seen to measure
+// from — unmeasured is never zero.
+public record TestFinished(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    string State,
+    long? DurationMs,
+    int? Lane,
     DateTimeOffset At) : MonitorEvent(RunId);

@@ -37,6 +37,8 @@ namespace Bobcat.Console.Contracts;
 [JsonDerivedType(typeof(WorkerFaulted), "worker_faulted")]
 [JsonDerivedType(typeof(WorkerStarted), "worker_started")]
 [JsonDerivedType(typeof(TestStalled), "test_stalled")]
+[JsonDerivedType(typeof(TestStarted), "test_started")]
+[JsonDerivedType(typeof(TestFinished), "test_finished")]
 [JsonDerivedType(typeof(RunProgress), "run_progress")]
 public abstract record MonitorEvent(Guid RunId) : WebSocketMessage;
 
@@ -262,4 +264,48 @@ public record RunProgress(
     string? LongestRunningDisplayName,
     long? LongestRunningMs,
     long? PeakWorkerRssBytes,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// One foreign test started (issue #195) — the supervisor's forwarding of a worker's live
+/// <c>testing/testUpdates/tests</c> stream, which is the only per-test progress a run whose
+/// worker is not itself a Bobcat runner ever produces. A Bobcat worker publishes its own
+/// richer scenario/step stream, and the console's fold lets that stream win for any uid it
+/// touches, so the two never fight over the same test.
+/// </summary>
+/// <remarks>
+/// <c>Uid</c> here is the WORKER's test id, not the <c>{Feature}/{Scenario}</c> spec identity
+/// <see cref="ScenarioStarted"/> carries. For a Bobcat worker they are the same string; for an
+/// xUnit or tUnit worker it is a dotted method name that corresponds to no
+/// <c>SpecificationDescriptor</c> — which is why the run evidence #106/#107 join on lives on
+/// the scenario events and not here. <c>Lane</c> is null for a one-test isolated or recycled
+/// process, the same rule as <see cref="WorkerFaulted"/>.
+/// </remarks>
+public record TestStarted(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    int? Lane,
+    DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// One foreign test reached a verdict (issue #195). <c>State</c> is the framework's own word —
+/// Passed / Failed / Error / Skipped / Timeout / Cancelled — deliberately NOT re-labelled into
+/// Bobcat's RunOutcome vocabulary by the publisher: two enums meaning the same thing is how a
+/// vocabulary drifts, and the console does the mapping in one documented place per side.
+/// Indeterminate never travels here: silence is not a verdict, and a padded outcome is not a
+/// live one.
+/// </summary>
+/// <param name="DurationMs">
+/// How long the test was in flight, measured from its own in-progress update. Null when the
+/// supervisor never saw that update (it attached mid-test, or the worker never sent one) —
+/// unmeasured is never zero.
+/// </param>
+public record TestFinished(
+    Guid RunId,
+    string Uid,
+    string DisplayName,
+    string State,
+    long? DurationMs,
+    int? Lane,
     DateTimeOffset At) : MonitorEvent(RunId);

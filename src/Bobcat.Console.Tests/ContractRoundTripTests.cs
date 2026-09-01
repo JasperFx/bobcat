@@ -291,4 +291,41 @@ public class ContractRoundTripTests
         roundTrip(new Client.RunProgress(runId, 1000, 0, 1, 1, null, null, null, null, at))
             .ShouldBeOfType<Wire.RunProgress>().PeakWorkerRssBytes.ShouldBeNull();
     }
+
+    [Fact]
+    public void test_started_round_trips()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.TestStarted(runId, "Acme.OrderTests.pays", "Acme.OrderTests.pays", 2, at))
+            .ShouldBeOfType<Wire.TestStarted>();
+
+        wire.Uid.ShouldBe("Acme.OrderTests.pays");
+        wire.DisplayName.ShouldBe("Acme.OrderTests.pays");
+        wire.Lane.ShouldBe(2);
+        wire.At.ShouldBe(at);
+
+        // A one-test isolated or recycled process has no lane slot — same rule as WorkerFaulted.
+        roundTrip(new Client.TestStarted(runId, "t", "t", null, at))
+            .ShouldBeOfType<Wire.TestStarted>().Lane.ShouldBeNull();
+    }
+
+    [Fact]
+    public void test_finished_round_trips_with_the_framework_word_intact()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.TestFinished(runId, "Acme.OrderTests.pays", "pays", "Skipped", 120, 0, at))
+            .ShouldBeOfType<Wire.TestFinished>();
+
+        wire.Uid.ShouldBe("Acme.OrderTests.pays");
+        wire.DisplayName.ShouldBe("pays");
+        // Never re-labelled by the publisher — the console owns that mapping, in one place.
+        wire.State.ShouldBe("Skipped");
+        wire.DurationMs.ShouldBe(120);
+        wire.Lane.ShouldBe(0);
+        wire.At.ShouldBe(at);
+
+        // The supervisor never saw the in-progress update to measure from: unmeasured, not zero.
+        roundTrip(new Client.TestFinished(runId, "t", "t", "Passed", null, null, at))
+            .ShouldBeOfType<Wire.TestFinished>().DurationMs.ShouldBeNull();
+    }
 }

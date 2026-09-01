@@ -1117,11 +1117,45 @@ publisher-side contract in core keeps the monitor vocabulary, because "monitor" 
 namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
 `Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, the env vars
 `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_MONITOR_DATA`, `BOBCAT_MONITOR_RETENTION_DAYS`,
-`BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
+`BOBCAT_MONITOR_RETENTION_RUNS`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
 SignalR/ingest wire shapes, the CTRF reporter name, the duplicated `MonitorEvents.cs` records on
 both sides, and `docs/monitor-design.md` (kept under its name because it documents that wire as
 much as the viewer). Changing any of those is a breaking change that issue #100 scoped out;
 it needs its own decision, not a sweep.
+
+**A supervised suite that is not Bobcat's now has live progress (issue #195).** Per-scenario
+events come from each *worker's* `MonitorPublishingObserver`, so a plain xUnit worker published
+nothing and a supervised run's card sat at `0 / 1627` for its whole five minutes — the shape of
+a wedged run. `SupervisorRunPublisher` forwards `ISupervisorObserver.TestUpdated` as
+**`test_started` / `test_finished`**, a deliberately separate, lower-fidelity pair:
+`scenario_finished.Uid` keeps its documented meaning as spec identity (`{Feature}/{Scenario}`,
+what a `SpecificationDescriptor` joins on), while these carry the *worker's* test id. No spec
+semantics are implied — projecting foreign specs into the Bobcat model is #110, not this.
+
+- **The worker's own stream wins for any uid it touched.** The supervisor forwards for every
+  worker, Bobcat ones included, because it cannot tell which of them publishes without a marker
+  only new workers would carry. `ScenarioProjection.WorkerPublished` / the store's
+  `workerPublished` is the gate, and it lives on the *scenario*, so it holds in either arrival
+  order and one test is one card whichever stream arrives first.
+- **`State` is the framework's own word** — Passed / Failed / Error / Skipped / Timeout /
+  Cancelled — never re-labelled by the publisher; `ForeignTestOutcome.From` and its Pinia mirror
+  map it in one place per side. Skipped counts as a clean pass **because
+  `WorkerOutcome.Succeeded` already does**, so the progress bar and the terminal counts cannot
+  disagree; an unrecognised state fails rather than being dropped, since not counting a finished
+  test stalls the bar this exists to unstick. Indeterminate never reaches the wire: silence is
+  not a verdict, so a crashed run cannot read as a complete one.
+
+**The board is not the archive (issues #196/#197/#198).** Run cards carry an age (relative,
+absolute in the tooltip, anchored on the finish for a finished run and the start for a live one
+— the label says which) and the board sorts newest-first. `DELETE /api/runs` takes a set,
+narrowed by `?olderThan=`/`?exceptRunId=` and returning the ids it actually took. And
+`Monitor:RetentionRuns` / `BOBCAT_MONITOR_RETENTION_RUNS` (default 10) bounds the board by
+count, **per job — repository plus suite** — because a global cap on a shared multi-repo console
+lets the busiest repository starve the quiet ones. Three invariants across all of it: eviction
+is *ejection* (archive into `ejected/`, only the separate age policy ever deletes), a **live run
+is never taken** — not caution, it does not work, since the publisher's next event recreates the
+entry — and an **orphan is fair game** because its publisher is gone by definition. Decisions of
+record in `docs/monitor-design.md`.
 
 **`Bobcat.Console.Specs` is the viewer's end-to-end suite, written in Bobcat itself** (issue
 #86). A spec project *may* reference `Bobcat.Console` — the no-reference rule is for libraries.

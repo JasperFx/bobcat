@@ -16,7 +16,9 @@ import type {
   StepFinished,
   StepProgress,
   StepStarted,
+  TestFinished,
   TestStalled,
+  TestStarted,
   WorkerFaulted,
   WorkerStarted,
 } from './monitor-events'
@@ -89,6 +91,12 @@ export function relayToStore(message: unknown): void {
       break
     case 'run_progress':
       runs.handleRunProgress(envelope.data as RunProgress)
+      break
+    case 'test_started':
+      runs.handleTestStarted(envelope.data as TestStarted)
+      break
+    case 'test_finished':
+      runs.handleTestFinished(envelope.data as TestFinished)
       break
     // *CASE ABOVE* -- generated cases are inserted above this line; keep it.
     // Issue #169 — hand-written, and deliberately BELOW the marker: EventModelChanged is not a

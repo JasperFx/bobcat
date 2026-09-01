@@ -312,6 +312,46 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
    into the Pinia store (`ScenarioState.touchedTypes`/`finishedAt`); CTRF/JUnit exports are
    untouched — they project explicit shapes and CTRF's schema has no vocabulary for this.
 
+7. **Foreign per-test progress: `test_started` / `test_finished`** (built 2026-09-01, issue
+   #195). A supervised run of a **non-Bobcat** suite registered on the dashboard with the right
+   total and then never moved — `scenariosFinished` stayed 0 for the whole run, observed live
+   at 0/1627 for five minutes, which is nearly indistinguishable from a wedged run. The bracket
+   was right; the gap was that per-scenario events come from each *worker's* own
+   `MonitorPublishingObserver`, and a plain xUnit worker has none. The supervisor already had
+   the facts (`ISupervisorObserver.TestUpdated`, item 5's tap) and simply was not forwarding
+   them, so this is forwarding, not new machinery.
+   - **A separate pair, not `scenario_started`/`scenario_finished`.** Those carry spec identity
+     — `{Feature}/{Scenario}`, the string a design-time `SpecificationDescriptor` joins on —
+     and feeding them an xUnit method uid would widen that meaning for every consumer of the
+     join. `TestStarted`/`TestFinished` carry the *worker's* test id and say so; for a Bobcat
+     worker the two strings coincide anyway. Nothing about spec semantics is implied: this is
+     a progress bar, not #110's projection of foreign specs into the Bobcat model.
+   - **The worker's own stream always wins.** The supervisor forwards for *every* worker,
+     Bobcat ones included, because it cannot know which of them publishes without a marker only
+     new workers would carry. `ScenarioProjection.WorkerPublished` (and the store's
+     `ScenarioState.workerPublished`) is set by any `scenario_*`/`step_started` for a uid, and
+     both new handlers stand down for it. The guard is a property of the *scenario*, so it
+     holds in either arrival order — a forwarded verdict that lands first is overwritten by the
+     worker's own, one that lands second is ignored — and one test is one card either way.
+     Two extra events per test against a batching, backpressure-dropping publisher was the
+     cheaper side of that trade.
+   - **The framework's word travels verbatim.** `State` is Passed / Failed / Error / Skipped /
+     Timeout / Cancelled, never re-labelled by the publisher: two enums meaning the same thing
+     is how a vocabulary drifts. `ForeignTestOutcome.From` (and its Pinia mirror) does the
+     mapping in one documented place per side — Skipped counts as a clean pass **because the
+     supervisor's own `WorkerOutcome.Succeeded` does**, so the progress bar and the terminal
+     `run_finished` counts cannot disagree about the same test; an unrecognised state is a
+     failure rather than a drop, since not counting a finished test stalls the whole bar. The
+     raw word survives on `ScenarioResult.State` for anything that wants the distinction.
+   - **Indeterminate never reaches the wire.** Silence is not a verdict, and a padded outcome
+     is not a live one — a test a crashed worker never answered for publishes no `test_finished`
+     at all, so a crashed run cannot read as a complete one.
+   - `DurationMs` is measured between the two updates on the supervisor's own clock, and is
+     null when it never saw the start — unmeasured is never zero. `Lane` is null for a one-test
+     isolated or recycled process, the same rule as `worker_faulted`. Discovery is never tapped.
+   - Free consequence: a supervised xUnit run now has per-test rows in `GET /api/runs/{id}`
+     and therefore a CTRF/JUnit eject, without a Bobcat reference anywhere in the suite.
+
 ## Event Model page + /api/event-model (issue #108, built 2026-08-24)
 
 The design-time Event Modeling viewer with spec drill-down — free, MIT, in this repo by the
@@ -439,7 +479,14 @@ progress like any other (a `dotnet bobcat` on 5525 sees the suite run while it t
 in-memory viewer — no loop is possible, the instance under test has no address); CI sets
 `BOBCAT_MONITOR=0`. What the framework was missing to write it is recorded on issue #62.
 
-## Retention (built 2026-07-31)
+## Retention
+
+Two knobs that bound two different things, and the split is the design. **The board is not the
+archive**: a run evicted from the dashboard still has its NDJSON on disk, and only the age
+policy ever deletes a file. That is what makes an *automatic* eviction reasonable to ship at
+all, and it is the same promise the manual Eject button has always made.
+
+### Archive age (built 2026-07-31)
 
 The archive directory ages instead of growing forever. The NDJSON file's mtime is the aging
 clock — every ingested event (heartbeats included) appends, so a file untouched for the whole
@@ -450,6 +497,79 @@ data for the rest of the retention window. One knob: `Monitor:RetentionDays` con
 `BOBCAT_MONITOR_RETENTION_DAYS` env var → 14 days; zero or negative disables aging entirely.
 Swept at boot (before rehydration, so a long-dead archive is never loaded just to be swept)
 and hourly by `ArchiveRetentionService`.
+
+### Board size (built 2026-09-01, issue #198)
+
+Nothing evicted runs by count, so a board grew until someone cleared it by hand: 46 runs across
+four repositories and worktrees, several days old, accumulated purely by using the tool — a live
+dashboard retaining like an archive. `MonitorRunRegistry.SweepRetainedRuns` keeps the most
+recent N and ejects the rest. One knob: `Monitor:RetentionRuns` config →
+`BOBCAT_MONITOR_RETENTION_RUNS` env var → 10; zero or negative disables it. Swept inline when a
+`run_finished` lands (the only moment the finished pool can grow), at boot after rehydration
+(so a restart does not restore what the policy already evicted), and on the hourly service tick
+for the case with no such moment — an orphan that only *became* evictable because a restart
+declared it one.
+
+The three questions the issue asked to settle before coding, settled:
+
+- **N is per job — repository plus suite — not per box.** A shared console is genuinely
+  multi-repo, and a global cap lets the busiest repository evict every card the quiet ones
+  had, which is the opposite of what someone watching their own gate wants. Per job is also
+  the familiar shape ("the last N builds of this job") and the identity the card is already
+  named by. The same suite in two worktrees is two jobs, deliberately: that is how a comparison
+  between them stays possible.
+- **A live run is never evicted, and never counts against the cap.** Gate runs here are 20–50
+  minutes and must not vanish because the suite ran ten more times. An **orphan** is evictable
+  precisely because its publisher is gone. Being at capacity is a statement about history, not
+  about how many suites may run at once.
+- **Eviction is ejection.** Same code path as `Remove`, archive into `ejected/`, subject to the
+  age policy from there. An automatic policy that deleted archives would be a materially
+  different and much riskier feature.
+
+Nothing joining on run ids across time is disturbed: CritterWatch consumes `GET /api/runs?tag=`
+for spec evidence promptly, and the tag query is correlation, not history.
+
+## Bulk eject (built 2026-09-01, issue #197)
+
+Ejecting was one run at a time, so the only way back to a readable board was one click per
+card. `DELETE /api/runs` takes the whole set, narrowed by `?olderThan=<instant>` (strictly
+before, so the run you anchored on survives its own "eject all older") and `?exceptRunId=`,
+which compose. It returns `{count, runIds}` — the ids, not just the count, so the UI drops
+exactly what the server agreed to take rather than what it predicted.
+
+The verbs are the browser tab menu's, because that is the mental model people already have for
+this exact problem: **Eject all** / **Eject all older** / **Eject all but this**. "Older" rather
+than "to the right" because this board is time-ordered in a way tab position is not — which is
+also why #196 had to land first: a bulk control whose cards show no age is a button whose effect
+the user cannot predict.
+
+Two rules worth stating out loud, both in the UI text as well as here:
+
+- **Eject is not delete.** The confirm names the count and says the archives are kept on disk. A
+  control that reads as "delete 43 test runs" does not get used; the same control labelled as
+  clearing a board does. It is never the default-focused button (`autofocus: false`).
+- **A live run is never taken**, whatever the filter matched — not out of caution but because it
+  does not work: the publisher's next event recreates the entry, so ejecting a live run buys a
+  card that reappears and a count that lied. The confirm says how many are staying.
+
+## Run card timestamps (built 2026-09-01, issue #196)
+
+The card rendered suite, repository, branch, mode, counts and runId — and no time at all, on a
+board where age is the single most useful thing a card carries. Purely a display gap: `startedAt`
+and `finishedAt` were already on `RunSummary` and on the wire.
+
+- Relative by default (`4m ago`, `2d ago`), absolute in the `title`. Relative is what answers
+  "is this mine, from just now?" at a glance.
+- **Anchored on the finish for a finished run and the start for a live one, and the label says
+  which** — a card reading "6m ago" means two different things before and after it finishes, and
+  the reader cannot tell them apart. A live one reads "started 6m ago".
+- Duration for finished runs, from the same two stamps. Null while running, because a duration
+  derived from one stamp plus the current clock is the run's age, not its length.
+- A stamp from the near future reads "just now": that is clock skew between a publisher and the
+  browser, not a scheduled run, and a negative age is not the honest rendering of it.
+- The board is now sorted newest-first (`runsNewestFirst`), anchored on `startedAt` so a card
+  does not jump when its run finishes. Insertion order was no order at all once several
+  repositories' runs shared one board.
 
 ## Hydration (built 2026-07-31)
 
@@ -493,8 +613,11 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 - **Elapsed-vs-expected per step.** Step progress (#99, Bobcat-side seams item 5) carries
   elapsed; "expected" needs a duration history across runs, which is the same committed
   ledger #44 layer 2 and #56 layer 3 want — one store, not three.
-- **Supervisor-side test updates on the wire.** `ISupervisorObserver.TestUpdated` exposes a
-  lane's live per-test state programmatically, but no monitor event carries it — a supervised
-  run's step stream comes from each worker's own publisher, so the dashboard already sees
-  more than the tap does. It earns a wire event when a non-Bobcat worker (xUnit, tUnit) is
-  driven under the viewer; those publish nothing themselves.
+- ~~Supervisor-side test updates on the wire.~~ Built 2026-09-01 — see Bobcat-side seams item
+  7. The condition this bullet named ("it earns a wire event when a non-Bobcat worker is driven
+  under the viewer") arrived exactly as written.
+- **Telling a connected browser that a run was ejected.** Neither the manual eject, the bulk
+  eject (#197) nor the retention sweep (#198) puts anything on the SignalR stream, so another
+  open dashboard keeps its stale cards until it next hydrates. The acting browser drops its own
+  cards, and `hydrateFromServer`'s `pruneTo` reconciles on load and reconnect, so nothing is
+  wrong — just late. A `run_ejected` relay message is the fix when someone is bothered by it.

@@ -5,6 +5,11 @@ namespace Bobcat.Console.Runs;
 /// the registry's constructor only helps a monitor that restarts. Hourly is plenty: retention
 /// is measured in days, and the sweep is a directory scan plus an mtime check per file.
 /// </summary>
+/// <remarks>
+/// It bounds the board's run count on the same tick (issue #198). That sweep's real trigger is
+/// a run finishing, which the registry does inline; this pass exists for the case that has no
+/// such moment — an orphan that only became evictable because a restart declared it one.
+/// </remarks>
 public class ArchiveRetentionService : BackgroundService
 {
     private static readonly TimeSpan interval = TimeSpan.FromHours(1);
@@ -20,7 +25,7 @@ public class ArchiveRetentionService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_registry.Retention <= TimeSpan.Zero) return;
+        if (_registry.Retention <= TimeSpan.Zero && _registry.RetainedRuns <= 0) return;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -35,6 +40,14 @@ public class ArchiveRetentionService : BackgroundService
                     _logger.LogInformation(
                         "Archive aging: ejected {Ejected} stale run(s), deleted {Deleted} ejected archive(s) older than {Retention}",
                         ejected, deleted, _registry.Retention);
+                }
+
+                var evicted = _registry.SweepRetainedRuns();
+                if (evicted.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Run retention: ejected {Count} run(s) beyond the most recent {Retained} of their suite; archives kept on disk",
+                        evicted.Count, _registry.RetainedRuns);
                 }
             }
             catch (Exception ex)
