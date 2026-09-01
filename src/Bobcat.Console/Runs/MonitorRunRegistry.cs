@@ -16,21 +16,39 @@ namespace Bobcat.Console.Runs;
 /// <c>ejected/</c> subfolder — never deleted, but excluded from boot rehydration so an eject
 /// survives a monitor restart. Data location: <c>Monitor:DataPath</c> configuration, then the
 /// <c>BOBCAT_MONITOR_DATA</c> environment variable, then <c>~/.bobcat/monitor/runs</c>.
-/// Retention: <c>Monitor:RetentionDays</c>, then <c>BOBCAT_MONITOR_RETENTION_DAYS</c>, then
-/// 14 days; see <see cref="SweepAging"/> for what aging means.
+/// </remarks>
+/// <remarks>
+/// Two independent retention knobs, because the board and the archive are retained for
+/// different reasons (issue #198). <see cref="SweepAging"/> bounds the ARCHIVE by age —
+/// <c>Monitor:RetentionDays</c>, then <c>BOBCAT_MONITOR_RETENTION_DAYS</c>, then 14 days — and
+/// is the only thing here that ever deletes a file. <see cref="SweepRetainedRuns"/> bounds the
+/// BOARD by count — <c>Monitor:RetentionRuns</c>, then <c>BOBCAT_MONITOR_RETENTION_RUNS</c>,
+/// then 10 — and only ever ejects, so a run evicted from the dashboard keeps its archive on
+/// disk under the age policy for as long as that policy says. Zero or negative disables
+/// either one.
 /// </remarks>
 public sealed class MonitorRunRegistry : IDisposable
 {
     public const string DataPathVariable = "BOBCAT_MONITOR_DATA";
     public const string RetentionVariable = "BOBCAT_MONITOR_RETENTION_DAYS";
+    public const string RetainedRunsVariable = "BOBCAT_MONITOR_RETENTION_RUNS";
     public const string EjectedFolder = "ejected";
 
     public static readonly TimeSpan DefaultRetention = TimeSpan.FromDays(14);
+
+    /// <summary>
+    /// How many finished runs of one job the board keeps by default. Counted per job rather
+    /// than per box — see <see cref="SweepRetainedRuns"/> for why a global cap is the wrong
+    /// shape — and small on purpose: the console is a live dashboard, and the tenth-most-recent
+    /// run of a suite is already something you would go to the archive for.
+    /// </summary>
+    public const int DefaultRetainedRuns = 10;
 
     private static readonly JsonSerializerOptions serializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _dataPath;
     private readonly TimeSpan _retention;
+    private readonly int _retainedRuns;
     private readonly Dictionary<Guid, Entry> _entries = new();
     private readonly Lock _gate = new();
 
@@ -45,7 +63,7 @@ public sealed class MonitorRunRegistry : IDisposable
         public StreamWriter? Writer { get; set; }
     }
 
-    public MonitorRunRegistry(string? dataPath = null, TimeSpan? retention = null)
+    public MonitorRunRegistry(string? dataPath = null, TimeSpan? retention = null, int? retainedRuns = null)
     {
         _dataPath = dataPath
                     ?? Environment.GetEnvironmentVariable(DataPathVariable)
@@ -58,15 +76,27 @@ public sealed class MonitorRunRegistry : IDisposable
                      ?? retentionFromEnvironment()
                      ?? DefaultRetention;
 
+        _retainedRuns = retainedRuns
+                        ?? retainedRunsFromEnvironment()
+                        ?? DefaultRetainedRuns;
+
         Directory.CreateDirectory(_dataPath);
         // Age before rehydrating, so a long-dead archive is never loaded just to be swept.
         SweepAging();
         rehydrate();
+        // And bound the board after: a restart must not restore the 46 cards the policy had
+        // already evicted, which is what makes the eviction stick the way a manual eject does.
+        SweepRetainedRuns();
     }
 
     private static TimeSpan? retentionFromEnvironment()
         => double.TryParse(Environment.GetEnvironmentVariable(RetentionVariable), out var days)
             ? TimeSpan.FromDays(days)
+            : null;
+
+    private static int? retainedRunsFromEnvironment()
+        => int.TryParse(Environment.GetEnvironmentVariable(RetainedRunsVariable), out var runs)
+            ? runs
             : null;
 
     /// <summary>
@@ -112,6 +142,11 @@ public sealed class MonitorRunRegistry : IDisposable
 
     /// <summary>Zero or negative means aging is disabled.</summary>
     public TimeSpan Retention => _retention;
+
+    /// <summary>
+    /// How many finished runs of one job the board keeps. Zero or negative means unbounded.
+    /// </summary>
+    public int RetainedRuns => _retainedRuns;
 
     /// <summary>
     /// Age the archive directory: any archive whose last write is older than the retention
@@ -186,6 +221,54 @@ public sealed class MonitorRunRegistry : IDisposable
         return (ejected, deleted);
     }
 
+    /// <summary>
+    /// Bound the BOARD: keep the most recent <see cref="RetainedRuns"/> finished runs of each
+    /// job and eject the rest (issue #198). Ejecting, never deleting — the archive stays on
+    /// disk under the age policy, which is the same promise the manual Eject button makes and
+    /// the whole reason an automatic policy is reasonable at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A job is a repository and a suite</strong>, not the box. A global cap is the
+    /// wrong shape for a shared console: the board observed on this machine carried four
+    /// repositories' worktrees at once, and a global 20 would have let the busiest of them
+    /// evict every card the quiet ones had — the opposite of what someone watching their own
+    /// gate wants. Per job is also the familiar shape ("the last N builds of this job"), and it
+    /// is the identity the card is already named by.
+    /// </para>
+    /// <para>
+    /// <strong>A run that is not finished is never evicted</strong>, however old the board
+    /// thinks it is. Gate runs here are 20 to 50 minutes and the person watching one must not
+    /// have it disappear because the suite ran nine more times; an orphan (publisher gone, no
+    /// terminal event) is the case that lingers, and it is evictable exactly because nobody is
+    /// watching it finish. Live runs do not count against the cap either — being at capacity is
+    /// a statement about history, not about how many suites may run at once.
+    /// </para>
+    /// <para>
+    /// Ordering is by start, and a run with no <c>run_started</c> at all sorts oldest: it has
+    /// no claim to a slot ahead of one that announced itself.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<Guid> SweepRetainedRuns()
+    {
+        if (_retainedRuns <= 0) return [];
+
+        lock (_gate)
+        {
+            var doomed = _entries.Values
+                .Select(e => e.Projection)
+                .Where(p => p.Finished || p.Orphaned)
+                .GroupBy(p => (p.Repository, p.Suite))
+                .SelectMany(job => job
+                    .OrderByDescending(p => p.StartedAt ?? DateTimeOffset.MinValue)
+                    .Skip(_retainedRuns))
+                .Select(p => p.RunId)
+                .ToList();
+
+            return doomed.Where(Remove).ToList();
+        }
+    }
+
     public string ArchiveFileFor(Guid runId) => Path.Combine(_dataPath, $"{runId}.ndjson");
 
     public string EjectedFileFor(Guid runId) => Path.Combine(_dataPath, EjectedFolder, $"{runId}.ndjson");
@@ -215,6 +298,10 @@ public sealed class MonitorRunRegistry : IDisposable
             {
                 _entries[runId].Writer?.Flush();
             }
+
+            // A run finishing is the only moment the finished-run pool grows, so it is the only
+            // moment the board can go over its cap. Reentrant lock, one eject code path.
+            if (events.Any(e => e is RunFinished)) SweepRetainedRuns();
         }
     }
 
@@ -278,6 +365,34 @@ public sealed class MonitorRunRegistry : IDisposable
             }
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Eject every run matching <paramref name="predicate"/>, on exactly the terms
+    /// <see cref="Remove"/> ejects one — the archives move to <c>ejected/</c> and stay on disk.
+    /// This is the server half of the dashboard's bulk controls (issue #197); the count is what
+    /// the UI already told the user it would take.
+    /// </summary>
+    /// <remarks>
+    /// A run that is still live is never ejected here, whatever the predicate says. Not out of
+    /// caution: it does not work. The next event from a publisher that is still running
+    /// recreates the entry, so ejecting a live run buys a card that reappears seconds later and
+    /// a count that lied. A run the registry has marked <see cref="RunProjection.Orphaned"/> is
+    /// fair game — that publisher is gone by definition.
+    /// </remarks>
+    public IReadOnlyList<Guid> RemoveWhere(Func<RunProjection, bool> predicate)
+    {
+        lock (_gate)
+        {
+            var doomed = _entries.Values
+                .Select(e => e.Projection)
+                .Where(p => p.Finished || p.Orphaned)
+                .Where(predicate)
+                .Select(p => p.RunId)
+                .ToList();
+
+            return doomed.Where(Remove).ToList();
         }
     }
 

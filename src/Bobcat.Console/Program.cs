@@ -29,10 +29,14 @@ builder.Services.AddWolverineHttp();
 
 // The monitor's memory + on-disk NDJSON archive. Singleton so ingestion, exports, and the
 // UI's run list all see one registry; disposal closes the archive writers.
+// Two retention knobs, deliberately separate: RetentionDays bounds the ARCHIVE by age (and is
+// the only setting that ever deletes anything), RetentionRuns bounds the BOARD by count and
+// only ever ejects. See MonitorRunRegistry for why the count is per suite rather than per box.
 var retentionDays = builder.Configuration.GetValue<double?>("Monitor:RetentionDays");
 builder.Services.AddSingleton(new MonitorRunRegistry(
     builder.Configuration["Monitor:DataPath"],
-    retentionDays is { } days ? TimeSpan.FromDays(days) : null));
+    retentionDays is { } days ? TimeSpan.FromDays(days) : null,
+    builder.Configuration.GetValue<int?>("Monitor:RetentionRuns")));
 
 // The current Event Model descriptor (issue #108) — one document beside the run archives,
 // pushed over PUT /api/event-model, rendered by the SPA's Event Model page.

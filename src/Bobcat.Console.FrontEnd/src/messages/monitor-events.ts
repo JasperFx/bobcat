@@ -36,6 +36,8 @@ export type MonitorEventType =
   | 'worker_faulted'
   | 'worker_started'
   | 'test_stalled'
+  | 'test_started'
+  | 'test_finished'
   | 'run_progress'
 
 export interface MonitorEvent {
@@ -181,6 +183,24 @@ export interface TestStalled extends MonitorEvent {
   inFlightMs: number
   lane: number | null
   processId: number | null
+  at: string
+}
+
+/** Envelope type: 'test_started' */
+export interface TestStarted extends MonitorEvent {
+  uid: string
+  displayName: string
+  lane: number | null
+  at: string
+}
+
+/** Envelope type: 'test_finished' */
+export interface TestFinished extends MonitorEvent {
+  uid: string
+  displayName: string
+  state: string
+  durationMs: number | null
+  lane: number | null
   at: string
 }
 

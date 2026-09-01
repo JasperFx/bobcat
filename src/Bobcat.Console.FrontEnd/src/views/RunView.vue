@@ -30,7 +30,10 @@ const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios)
       :data-status="scenario.status"
     >
       <div class="bm-scenario-title">
-        {{ scenario.feature }}: {{ scenario.scenario }}
+        <!-- A supervised foreign test (issue #195) has no feature — it is a test name, not a
+             spec — so nothing invents one for it and the bare colon does not render. -->
+        <span v-if="scenario.feature">{{ scenario.feature }}: </span>{{ scenario.scenario }}
+        <el-tag v-if="scenario.state" size="small">{{ scenario.state }}</el-tag>
         <el-tag v-if="scenario.attempt > 1" size="small" type="warning">
           attempt {{ scenario.attempt }}
         </el-tag>

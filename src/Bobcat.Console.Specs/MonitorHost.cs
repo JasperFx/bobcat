@@ -4,6 +4,7 @@ using Bobcat.Console.Runs;
 using Bobcat.Runtime;
 using JasperFx.CommandLine;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -12,8 +13,10 @@ namespace Bobcat.Console.Specs;
 /// <summary>
 /// The viewer under test: Bobcat.Console's real <c>Program</c>, booted in-process over Alba's
 /// TestServer, with its archive directory pointed at a throwaway folder so a spec run never
-/// touches <c>~/.bobcat/monitor/runs</c>. One resource for the whole suite — runs are cheap and
-/// every scenario mints its own run ids, so there is nothing to reset between scenarios.
+/// touches <c>~/.bobcat/monitor/runs</c>. One resource for the whole suite; the registry is
+/// emptied between scenarios, because the board is persistent state and a scenario that asserts
+/// about the WHOLE board (the bulk ejects, issue #197) would otherwise be reading every run
+/// every earlier scenario left behind.
 /// </summary>
 /// <remarks>
 /// Not an <see cref="AlbaResource{TProgram}"/>, though it is the same shape, because the
@@ -89,13 +92,29 @@ public sealed class MonitorHost : IHostResource, IAlbaResource
             // run summary in request traces. Warnings and up still reach the console.
             builder.ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
             builder.UseSetting("Monitor:DataPath", DataPath);
-            // Retention is its own concern (ArchiveRetentionTests) — make aging inert here so no
-            // scenario can depend on the clock.
+            // Retention is its own concern (ArchiveRetentionTests, RunRetentionTests) — both
+            // policies are inert here so no scenario can depend on the clock, or find its own
+            // runs quietly evicted once a suite name has been used more than ten times.
             builder.UseSetting("Monitor:RetentionDays", "0");
+            builder.UseSetting("Monitor:RetentionRuns", "0");
         });
     }
 
-    public Task ResetBetweenScenarios() => Task.CompletedTask;
+    /// <summary>
+    /// Empty the board. Unconditional, unlike a bulk eject: this is the suite clearing its own
+    /// state between scenarios, not a user asking, so a run left unfinished by an earlier
+    /// scenario goes too. The archives move to <c>ejected/</c> as ever and the folder is thrown
+    /// away with the resource.
+    /// </summary>
+    public Task ResetBetweenScenarios()
+    {
+        if (_host == null) return Task.CompletedTask;
+
+        var registry = _host.Services.GetRequiredService<MonitorRunRegistry>();
+        foreach (var run in registry.All().ToList()) registry.Remove(run.RunId);
+
+        return Task.CompletedTask;
+    }
 
     public ValueTask BeginScenarioScope() => _scope.Begin();
 

@@ -117,13 +117,15 @@ public static class CtrfExport
                 },
                 tests = scenarios.Select(s => new
                 {
-                    name = $"{s.Feature}: {s.Scenario}",
+                    // A supervised foreign test (issue #195) has no feature — it is a test
+                    // name, not a spec — so nothing prefixes it with a bare colon.
+                    name = s.Feature.Length == 0 ? s.Scenario : $"{s.Feature}: {s.Scenario}",
                     status = statusOf(s.Outcome),
                     duration = s.DurationMs ?? 0,
                     // The spec types suite as an ARRAY ("suite hierarchy from top-level to
                     // immediate parent") — a bare string fails schema validation. Found by
                     // validating a live export against schema/ctrf.schema.json.
-                    suite = new[] { s.Feature },
+                    suite = s.Feature.Length == 0 ? Array.Empty<string>() : [s.Feature],
                     retries = Math.Max(0, (s.Attempts ?? s.Attempt) - 1),
                     flaky = s.Outcome == "PassOnRetry",
                     message = s.ErrorMessage,

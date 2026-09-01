@@ -144,9 +144,24 @@ public record ScenarioResult(
 
     /// <summary>When the scenario finished — evidence is observed, and this is its stamp. Additive.</summary>
     public DateTimeOffset? FinishedAt { get; init; }
+
+    /// <summary>
+    /// The worker framework's own word for the verdict — Passed / Failed / Error / Skipped /
+    /// Timeout / Cancelled — for a test the supervisor forwarded rather than a Bobcat worker
+    /// published (issue #195). Null for a Bobcat scenario, whose vocabulary is
+    /// <see cref="Outcome"/>'s. Additive.
+    /// </summary>
+    public string? State { get; init; }
 }
 
 public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage);
+
+/// <summary>
+/// What a bulk eject took (issue #197). The ids are returned, not just the count, so a caller
+/// drops exactly those cards instead of guessing which of its own the server agreed with — a
+/// live run the filter matched is deliberately not among them.
+/// </summary>
+public record EjectedRuns(int Count, Guid[] RunIds);
 
 public static class RunEndpoints
 {
@@ -184,7 +199,8 @@ public static class RunEndpoints
                         .ToArray())
                 {
                     TouchedTypes = s.TouchedTypes.ToArray(),
-                    FinishedAt = s.FinishedAt
+                    FinishedAt = s.FinishedAt,
+                    State = s.State
                 })
                 .ToArray())
         {
@@ -279,6 +295,44 @@ public static class RunEndpoints
     [WolverineDelete("/api/runs/{runId}")]
     public static IResult Eject(Guid runId, [NotBody] MonitorRunRegistry registry)
         => registry.Remove(runId) ? Results.NoContent() : Results.NotFound();
+
+    /// <summary>
+    /// Bulk eject (issue #197): clear the board in one action rather than one card at a time.
+    /// With no parameters it takes every finished or orphaned run; <paramref name="olderThan"/>
+    /// narrows to runs that started strictly before an instant — the run the user anchored on
+    /// survives its own "older than this" — and <paramref name="exceptRunId"/>
+    /// spares one — the three verbs a browser's tab menu already taught everyone (close all,
+    /// close to the right, close others). Both narrow the same set, so they compose.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is eject, not delete: every archive moves to <c>ejected/</c> exactly as the per-run
+    /// button does and stays on disk under the age policy. That is what makes a one-click "take
+    /// all 43" a reasonable control to offer at all, and it is why the UI says so on the button.
+    /// </para>
+    /// <para>
+    /// A live run is never taken, whatever the filter matched — see
+    /// <c>MonitorRunRegistry.RemoveWhere</c>: its publisher recreates the entry with the next
+    /// event, so ejecting it would buy a card that reappears and a count that lied.
+    /// </para>
+    /// <para>
+    /// <c>[NotBody]</c> for the same hard-won reason the per-run delete carries it: on a
+    /// bodyless DELETE, Wolverine's binding otherwise claims the first complex parameter as the
+    /// request body and 400s on the empty payload.
+    /// </para>
+    /// </remarks>
+    [WolverineDelete("/api/runs")]
+    public static EjectedRuns EjectMany(
+        [NotBody] MonitorRunRegistry registry,
+        DateTimeOffset? olderThan = null,
+        Guid? exceptRunId = null)
+    {
+        var ejected = registry.RemoveWhere(run =>
+            run.RunId != exceptRunId &&
+            (olderThan is not { } cutoff || (run.StartedAt ?? DateTimeOffset.MinValue) < cutoff));
+
+        return new EjectedRuns(ejected.Count, ejected.ToArray());
+    }
 
     private static IResult file(string content, string contentType, string fileName)
         => Results.File(Encoding.UTF8.GetBytes(content), contentType, fileName);

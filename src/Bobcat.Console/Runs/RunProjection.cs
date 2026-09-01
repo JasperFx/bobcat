@@ -121,6 +121,7 @@ public class RunProjection
             case ScenarioStarted e:
             {
                 var scenario = ensureScenario(e.Uid);
+                scenario.WorkerPublished = true;
                 scenario.Feature = e.Feature;
                 scenario.Scenario = e.Scenario;
 
@@ -160,6 +161,7 @@ public class RunProjection
             case ScenarioFinished e:
             {
                 var scenario = ensureScenario(e.Uid);
+                scenario.WorkerPublished = true;
                 scenario.Outcome = e.Outcome;
                 // Same correction: a worker reporting "1 attempt" is reporting its own count,
                 // and a total can never be fewer than the attempts we watched start.
@@ -187,8 +189,12 @@ public class RunProjection
             }
 
             case StepStarted e:
-                ensureScenario(e.Uid).Steps.Add(new StepProjection(e.StepId, e.Kind, e.Text));
+            {
+                var scenario = ensureScenario(e.Uid);
+                scenario.WorkerPublished = true;
+                scenario.Steps.Add(new StepProjection(e.StepId, e.Kind, e.Text));
                 break;
+            }
 
             case StepFinished e:
             {
@@ -269,6 +275,41 @@ public class RunProjection
                 if (_stalls.Any(s => s.Uid == e.Uid && s.At == e.At)) break;
                 _stalls.Add(new StallProjection(e.Uid, e.DisplayName, e.InFlightMs, e.Lane, e.At));
                 break;
+
+            // The supervisor's forwarding of a worker's live per-test stream (issue #195) —
+            // the only per-test progress a run whose workers are not Bobcat runners produces.
+            // Both cases stand down for any scenario the worker published itself: that stream
+            // is richer (steps, error, evidence, true attempt numbers) and it owns the uid.
+            // The guard is a property of the scenario rather than of the run, so it holds in
+            // either arrival order — a forwarded verdict that lands first is simply overwritten
+            // by the worker's own, and one that lands second is ignored.
+
+            case TestStarted e:
+            {
+                var scenario = ensureScenario(e.Uid);
+                if (scenario.WorkerPublished) break;
+                scenario.Scenario = e.DisplayName;
+
+                // A verdict already stamped later than this start belongs to a run of the test
+                // we have already seen finish — replay, or a worker re-announcing a decided
+                // node. Only a genuinely newer start reopens it.
+                if (scenario.FinishedAt is { } finished && e.At <= finished) break;
+                scenario.Outcome = null;
+                scenario.FinishedAt = null;
+                break;
+            }
+
+            case TestFinished e:
+            {
+                var scenario = ensureScenario(e.Uid);
+                if (scenario.WorkerPublished) break;
+                scenario.Scenario = e.DisplayName;
+                scenario.Outcome = ForeignTestOutcome.From(e.State);
+                scenario.State = e.State;
+                scenario.DurationMs = e.DurationMs;
+                scenario.FinishedAt = e.At;
+                break;
+            }
 
             case RunProgress e:
                 // Latest wins, and a replayed older heartbeat never rolls progress backwards —
@@ -354,6 +395,22 @@ public class ScenarioProjection
 
     /// <summary>When the scenario finished — the stamp a consumer ages the evidence by.</summary>
     public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>
+    /// The worker's own word for the verdict — Passed / Failed / Error / Skipped / Timeout /
+    /// Cancelled — when this entry came from the supervisor's forwarded per-test stream
+    /// (issue #195). Null for a Bobcat scenario, whose vocabulary is <see cref="Outcome"/>'s.
+    /// Kept because "skipped" is a fact the RunOutcome vocabulary has no word for, and folding
+    /// it into a pass on the wire would have been the drift this contract avoids.
+    /// </summary>
+    public string? State { get; set; }
+
+    /// <summary>
+    /// True once the running worker published this scenario itself. The supervisor forwards a
+    /// lower-fidelity per-test stream for every worker (issue #195), including Bobcat ones that
+    /// are already publishing; this is what keeps the two from fighting over one uid.
+    /// </summary>
+    internal bool WorkerPublished { get; set; }
 
     /// <summary>Steps of the current (or final) attempt.</summary>
     public List<StepProjection> Steps { get; } = new();

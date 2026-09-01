@@ -51,7 +51,16 @@ public class ViewerSteps : Fixture
     [Given("a run {string} tagged {string} has started")]
     public Task RunStartedWithTag(string suite, string tag) => startRun(suite, totalScenarios: null, tag);
 
-    private async Task startRun(string suite, int? totalScenarios, string? tag)
+    /// <summary>
+    /// A run with a start in the past, so a scenario can say which of several is older without
+    /// sleeping. The stamp is the publisher's, which is exactly what "older" means to the
+    /// bulk-eject filter (issue #197) and to the board's ordering (issue #196).
+    /// </summary>
+    [Given("a run {string} started {int} minutes ago")]
+    public Task RunStartedMinutesAgo(string suite, int minutes)
+        => startRun(suite, totalScenarios: null, tag: null, startedAt: DateTimeOffset.UtcNow.AddMinutes(-minutes));
+
+    private async Task startRun(string suite, int? totalScenarios, string? tag, DateTimeOffset? startedAt = null)
     {
         var runId = Guid.NewGuid();
         _runs[suite] = runId;
@@ -60,8 +69,20 @@ public class ViewerSteps : Fixture
 
         await ingest(new RunStarted(
             runId, suite, "/repo/bobcat", "main", "in-process",
-            DateTimeOffset.UtcNow, totalScenarios, tag));
+            startedAt ?? DateTimeOffset.UtcNow, totalScenarios, tag));
     }
+
+    // Issue #195: what a supervised worker that is not a Bobcat runner produces. It publishes
+    // no scenarios of its own — the supervisor forwards its live per-test stream instead — so
+    // these two are the whole vocabulary such a run has.
+
+    [Given("a foreign test {string} has started")]
+    public Task ForeignTestStarted(string uid)
+        => ingest(new TestStarted(current, uid, uid, 0, DateTimeOffset.UtcNow));
+
+    [Given("a foreign test {string} finished as {string}")]
+    public Task ForeignTestFinished(string uid, string state)
+        => ingest(new TestFinished(current, uid, uid, state, 12, 0, DateTimeOffset.UtcNow));
 
     [Given("the scenario {string} has started")]
     public Task ScenarioStarted(string uid) => scenarioStarted(uid, attempt: 1);
@@ -267,6 +288,37 @@ public class ViewerSteps : Fixture
 
     [When("an unknown run is ejected")]
     public Task UnknownRunEjected() => eject(Guid.NewGuid());
+
+    // Issue #197 — the bulk verbs, in the browser tab menu's shape.
+
+    [When("every run is ejected")]
+    public Task EveryRunEjected() => ejectMany("/api/runs");
+
+    [When("every run older than {string} is ejected")]
+    public async Task EveryOlderRunEjected(string suite)
+    {
+        var anchor = (await runList()).Single(r => r.RunId == _runs[suite]);
+        await ejectMany($"/api/runs?olderThan={Uri.EscapeDataString(anchor.StartedAt!.Value.ToString("O"))}");
+    }
+
+    [When("every run but {string} is ejected")]
+    public Task EveryOtherRunEjected(string suite) => ejectMany($"/api/runs?exceptRunId={_runs[suite]}");
+
+    private async Task ejectMany(string url)
+    {
+        var result = await host.AlbaHost.Scenario(s =>
+        {
+            s.Delete.Url(url);
+            s.IgnoreStatusCode();
+        });
+
+        _lastStatus = result.Context.Response.StatusCode;
+        _lastBody = await result.ReadAsTextAsync();
+    }
+
+    [Then("the bulk eject reports {int} runs taken")]
+    public int BulkEjectCount()
+        => JsonDocument.Parse(_lastBody).RootElement.GetProperty("count").GetInt32();
 
     private async Task eject(Guid runId)
     {

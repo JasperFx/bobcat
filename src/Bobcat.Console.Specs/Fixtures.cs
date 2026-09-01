@@ -21,6 +21,10 @@ public class EjectionFixture : Fixture;
 [IncludeGrammars(typeof(ViewerSteps))]
 public class ExportsFixture : Fixture;
 
+[FixtureTitle("Foreign Runs")]
+[IncludeGrammars(typeof(ViewerSteps))]
+public class ForeignRunsFixture : Fixture;
+
 [FixtureTitle("Event Model")]
 [IncludeGrammars(typeof(ViewerSteps))]
 public class EventModelFixture : Fixture;

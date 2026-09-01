@@ -19,6 +19,15 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
     private readonly IMonitorEventSink _sink;
     private readonly MonitorRunInfo _info;
     private readonly IAsyncDisposable? _ownedPublisher;
+
+    /// <summary>
+    /// When each in-flight test was last announced in-progress, so a verdict can be given a
+    /// duration (issue #195). The supervisor's own clock, not the worker's: it is the only one
+    /// both ends of the transition are measured on. A test whose start we never saw simply has
+    /// no duration — unmeasured is never zero.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _startedAt = new(StringComparer.Ordinal);
+
     private Timer? _heartbeat;
 
     private SupervisorRunPublisher(IMonitorEventSink sink, MonitorRunInfo info, IAsyncDisposable? ownedPublisher)
@@ -162,6 +171,64 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         => _sink.Post(new TestStalled(
             _info.RunId, uid, displayName, (long)inFlight.TotalMilliseconds,
             laneOf(worker), worker.ProcessId, DateTimeOffset.UtcNow));
+
+    /// <summary>
+    /// The live per-test stream, forwarded (issue #195). This is the ONLY per-test progress a
+    /// run whose workers are not themselves Bobcat runners ever produces: a plain xUnit worker
+    /// has no <see cref="MonitorPublishingObserver"/>, so without this a supervised suite of
+    /// 1600 tests registered on the dashboard and then sat at 0 finished for its whole
+    /// five-minute run — visually indistinguishable from a wedged one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Deliberately not <c>scenario_started</c>/<c>scenario_finished</c>.</strong> Those
+    /// carry spec identity — <c>{Feature}/{Scenario}</c>, the string a design-time
+    /// <c>SpecificationDescriptor</c> joins on — and a worker's own publisher owns them. Feeding
+    /// them an xUnit method uid would widen that meaning for every consumer of the join. These
+    /// are a separate, lower-fidelity pair, and the console's fold lets a worker's own scenario
+    /// stream win for any uid it has touched — so a Bobcat worker publishing beside its
+    /// supervisor is not double-reported, in either arrival order.
+    /// </para>
+    /// <para>
+    /// Only a classified terminal state is announced as finished. MTP streams other node
+    /// changes through the same channel (a re-announced discovery, for one), and
+    /// <see cref="MtpWorkerClient"/> reports anything it cannot classify as
+    /// <see cref="WorkerTestState.Indeterminate"/> — which is absence of evidence, not a
+    /// verdict, and must never move a progress bar.
+    /// </para>
+    /// <para>
+    /// A supervised Bobcat suite therefore puts both streams on the wire and the console keeps
+    /// one. That redundancy is deliberate: the alternative is the supervisor knowing which of
+    /// its workers publishes, which it cannot learn without a new marker the worker has to
+    /// carry — and a marker only new workers would set, leaving the fold to handle the rest
+    /// anyway. Two extra events per test against a publisher that batches and drops under
+    /// backpressure was the cheaper side of that trade.
+    /// </para>
+    /// </remarks>
+    public void TestUpdated(WorkerLaunchContext worker, WorkerTestUpdate update)
+    {
+        var at = DateTimeOffset.UtcNow;
+
+        if (update.InProgress)
+        {
+            lock (_startedAt) _startedAt[update.Uid] = at;
+            _sink.Post(new TestStarted(_info.RunId, update.Uid, update.DisplayName, laneOf(worker), at));
+            return;
+        }
+
+        if (update.State is not { } state || state == WorkerTestState.Indeterminate) return;
+
+        long? durationMs;
+        lock (_startedAt)
+        {
+            durationMs = _startedAt.Remove(update.Uid, out var started)
+                ? (long)(at - started).TotalMilliseconds
+                : null;
+        }
+
+        _sink.Post(new TestFinished(
+            _info.RunId, update.Uid, update.DisplayName, state.ToString(), durationMs, laneOf(worker), at));
+    }
 
     public void Heartbeat(SupervisorHeartbeat heartbeat)
         => _sink.Post(new RunProgress(

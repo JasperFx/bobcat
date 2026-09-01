@@ -14,7 +14,9 @@ import type {
   StepFinished,
   StepProgress,
   StepStarted,
+  TestFinished,
   TestStalled,
+  TestStarted,
   TouchedType,
   WorkerFaulted,
   WorkerStarted,
@@ -86,6 +88,19 @@ export interface ScenarioState {
   touchedTypes: TouchedType[]
   /** When the scenario finished — the stamp evidence is aged by. Null while running. */
   finishedAt: string | null
+  /**
+   * The worker framework's own word for the verdict — Passed / Failed / Error / Skipped /
+   * Timeout / Cancelled — for a test the supervisor forwarded rather than a Bobcat worker
+   * published (issue #195). Null for a Bobcat scenario, whose vocabulary is `outcome`'s;
+   * "skipped" is the fact that vocabulary has no word for.
+   */
+  state: string | null
+  /**
+   * True once the running worker published this scenario itself. The supervisor forwards a
+   * lower-fidelity per-test stream for every worker it drives (issue #195), Bobcat ones
+   * included; this is what keeps the two from fighting over one uid, in either arrival order.
+   */
+  workerPublished: boolean
 }
 
 // The supervisor's topology (issue #84): which worker process is doing what, what
@@ -211,6 +226,16 @@ export const useRunsStore = defineStore('runs', () => {
   const activeRuns = computed(() => allRuns.value.filter((r) => !r.finished))
   const finishedRuns = computed(() => allRuns.value.filter((r) => r.finished))
 
+  /**
+   * The board's order: newest first (issue #196). Insertion order is whatever the hydration
+   * and the live stream happened to produce, which on a board carrying several repositories'
+   * runs at once is no order at all. Anchored on startedAt, so a card does not jump when its
+   * run finishes.
+   */
+  const runsNewestFirst = computed(() =>
+    [...allRuns.value].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)),
+  )
+
   function runById(runId: string): RunState | undefined {
     return runs.value[runId]
   }
@@ -276,6 +301,8 @@ export const useRunsStore = defineStore('runs', () => {
         totalSteps: null,
         touchedTypes: [],
         finishedAt: null,
+        state: null,
+        workerPublished: false,
       }
       run.scenarios[uid] = scenario
     }
@@ -312,6 +339,7 @@ export const useRunsStore = defineStore('runs', () => {
   function handleScenarioStarted(e: ScenarioStarted) {
     const run = ensureRun(e.runId, e.at)
     const scenario = ensureScenario(run, e.uid)
+    scenario.workerPublished = true
     scenario.feature = e.feature
     scenario.scenario = e.scenario
     scenario.status = 'running'
@@ -332,6 +360,7 @@ export const useRunsStore = defineStore('runs', () => {
   function handleScenarioFinished(e: ScenarioFinished) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
+    scenario.workerPublished = true
     // A worker reporting "1 attempt" is reporting its own count; a total can never be fewer
     // than the attempts we watched start.
     scenario.attempts = Math.max(e.attempts, scenario.attempt)
@@ -363,6 +392,7 @@ export const useRunsStore = defineStore('runs', () => {
   function handleStepStarted(e: StepStarted) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
+    scenario.workerPublished = true
     const step: StepState = {
       stepId: e.stepId,
       kind: e.kind,
@@ -541,6 +571,49 @@ export const useRunsStore = defineStore('runs', () => {
     })
   }
 
+  /**
+   * The supervisor's forwarding of a worker's live per-test stream (issue #195) — the only
+   * per-test progress a run whose workers are not Bobcat runners produces, and what makes a
+   * supervised xUnit suite's card move instead of sitting at 0 of 1627 for five minutes.
+   *
+   * Both handlers stand down for any scenario the worker published itself: that stream is
+   * richer (steps, error, evidence, true attempt numbers) and it owns the uid. The guard lives
+   * on the scenario rather than the run, so it holds in either arrival order — a forwarded
+   * verdict that lands first is overwritten by the worker's own, one that lands second is
+   * ignored. Mirrors the server-side RunProjection fold; the two are pinned together by tests
+   * on both sides.
+   */
+  function handleTestStarted(e: TestStarted) {
+    const run = ensureRun(e.runId, e.at)
+    const scenario = ensureScenario(run, e.uid)
+    if (scenario.workerPublished) return
+    scenario.scenario = e.displayName
+    // A verdict already stamped later than this start belongs to a run of the test we have
+    // seen finish — replay, or a worker re-announcing a decided node.
+    if (scenario.finishedAt !== null && Date.parse(e.at) <= Date.parse(scenario.finishedAt)) return
+    scenario.status = 'running'
+    scenario.outcome = null
+    scenario.finishedAt = null
+  }
+
+  function handleTestFinished(e: TestFinished) {
+    const run = ensureRun(e.runId, e.at)
+    const scenario = ensureScenario(run, e.uid)
+    if (scenario.workerPublished) return
+    scenario.scenario = e.displayName
+    scenario.state = e.state
+    scenario.durationMs = e.durationMs
+    scenario.finishedAt = e.at
+    // Skipped counts as a pass because the supervisor's own WorkerOutcome.Succeeded does, so
+    // it is already inside the passed figure the terminal run_finished carries; calling it
+    // anything else would leave the progress bar and the final counts disagreeing. An
+    // unrecognised state is a failure rather than a drop — a test that reached some terminal
+    // state is done, and not counting it would stall the bar this issue exists to unstick.
+    const passed = e.state === 'Passed' || e.state === 'Skipped'
+    scenario.outcome = passed ? 'CleanPass' : 'Failed'
+    scenario.status = passed ? 'passed' : 'failed'
+  }
+
   function handleRunProgress(e: RunProgress) {
     const run = ensureRun(e.runId, e.at)
     // Latest wins, and a replayed older heartbeat never rolls progress backwards — the
@@ -562,6 +635,11 @@ export const useRunsStore = defineStore('runs', () => {
   /** "Eject": drop a finished run from the dashboard. */
   function removeRun(runId: string) {
     delete runs.value[runId]
+  }
+
+  /** Bulk eject (issue #197) — the local half of clearing a board in one action. */
+  function removeRuns(runIds: Iterable<string>) {
+    for (const runId of runIds) delete runs.value[runId]
   }
 
   /** Server-declared orphan (rehydrated, publisher gone). Cleared by any later run event. */
@@ -586,6 +664,7 @@ export const useRunsStore = defineStore('runs', () => {
     allRuns,
     activeRuns,
     finishedRuns,
+    runsNewestFirst,
     runById,
     progressOf,
     handleRunStarted,
@@ -603,10 +682,13 @@ export const useRunsStore = defineStore('runs', () => {
     handleWorkerFaulted,
     handleWorkerStarted,
     handleTestStalled,
+    handleTestStarted,
+    handleTestFinished,
     handleRunProgress,
     runningIn,
     hasTopology,
     removeRun,
+    removeRuns,
     markOrphaned,
     pruneTo,
   }

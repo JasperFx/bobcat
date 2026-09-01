@@ -38,6 +38,8 @@ function scenario(overrides: Partial<ScenarioState> = {}): ScenarioState {
     totalSteps: null,
     touchedTypes: [],
     finishedAt: null,
+    state: null,
+    workerPublished: true,
     ...overrides,
   }
 }
