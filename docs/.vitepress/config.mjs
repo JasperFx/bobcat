@@ -25,7 +25,9 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Getting Started', link: '/getting-started' },
-          { text: 'Sample Wiring Playbook', link: '/sample-wiring' }
+          { text: 'Sample Wiring Playbook', link: '/sample-wiring' },
+          { text: 'Code-First Specifications', link: '/code-first-specs' },
+          { text: 'Editor Integration', link: '/editor-integration' }
         ]
       },
       {
@@ -41,6 +43,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Version Matrix', link: '/versions' },
+          { text: 'Test Ledger Design', link: '/ledger-design' },
           { text: 'Wolverine CI Rollout', link: '/wolverine-ci-rollout' }
         ]
       }

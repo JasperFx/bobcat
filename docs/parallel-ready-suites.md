@@ -74,8 +74,9 @@ reported 160 passed with the property set.
 > first consumer to *notice*. The fix is fixing the test (the giant output traced to a real
 > message loop), not widening the wire — but recognize the signature: worker fault carrying
 > `Json.SerializeAsync` + `ValueTooLarge`, with a pass/indeterminate split at the choke point.
-> Sister symptom for triage: those indeterminates print as uid hashes, not display names —
-> issue #82, now confirmed on two estates.
+> Sister symptom for triage: on Bobcat before 0.7.0 those indeterminates printed as uid
+> hashes, not display names — fixed by issue #82, which carries the discovery display name onto
+> synthesized never-reported outcomes.
 
 ## Step 1 — the partitioning contract
 
@@ -214,6 +215,27 @@ running" (which only means the entrypoint has not exited).
 `Recycle()` uses `--force-recreate` rather than `restart`, because recycling means throwing the thing
 away.
 
+## When a parallel run hangs, bloats, or is cut short
+
+Everything here is off by default and reporting-first — the same guardrail as the timing report.
+
+- **`HeartbeatInterval`** emits one log line however many lanes are running, leading with the
+  longest-running test — a stuck run shows as that figure climbing before any threshold fires.
+- **`StallThreshold`** (and per-test `StallThresholdFor`) fires a `TestStalled` observer callback
+  and a `STALLED:` log line once per attempt, collected on `SupervisorResults.StalledTests`.
+  Whether the supervisor then *acts* is the separate, opt-in `StallAction`: `Report` (default),
+  `KillAndRetry` (kill the wedged worker, give the stalled test one fresh-process retry, resume
+  its innocent batch-mates in their lane), or `AbortRun`. Stall-managed outcomes never spend the
+  `RetryBudget` and never count as flaky — a wedge is not a flake.
+- **`MtpWorkerFactory.OnBeforeKill`** hands you the live process (with its pid — the supervisor
+  surfaces it, never guesses) before a forced kill, which is where a `dotnet-dump collect` belongs.
+- **`ResourceSampleInterval`** brackets every attempt with worker RSS samples; per-test retained
+  deltas are attributed only when the attempt had the process to itself, and unmeasured is never
+  zero-filled.
+- **`Supervisor.Snapshot()`** is what a cancelled run leaves behind: wire your CI job's SIGTERM to
+  it and write the flakiness ledger from a result stamped `IsPartial`, instead of losing the whole
+  run to a capped job.
+
 ## Triage order for a red first run
 
 1. **Deterministic and database-name-shaped** — text-rewritten connection strings, or assertions
@@ -223,9 +245,15 @@ away.
    partitioner should have prevented this.
 
 A fourth shape is worth ruling out *before* the first parallel run rather than triaging after it:
-a test that only ever passed because something else ran first. Running each test alone and diffing
-against the full-suite result finds those, and it is the one class of failure that parallelism
-exposes without having caused. See issue #61.
+a test that only ever passed because something else ran first. That sweep is built —
+`IsolationSweep` (in `Bobcat.Supervisor`) runs every partition alone, diffs against a baseline
+full-suite run, and classifies what moved: `OrderDependent` (passed with the suite, failed alone —
+the bug this exists to find), `InterferenceVictim` (the same defect seen from the other end),
+`FailedInBoth` (ordinary red), and `EnvironmentSensitive` (failed in the concurrent sweep but
+passed a serial confirmation run — the sweep's own contention, deliberately reported rather than
+counted). Granularity defaults to per-class, matching what the supervisor actually guarantees;
+per-test is strictly finer and catches ordering *within* a class at the cost of one process per
+test. It is the one class of failure that parallelism exposes without having caused.
 
 ## What this does not buy you
 
@@ -235,7 +263,12 @@ that is the retry/quarantine half of the supervisor (`RetryBudget`, `@retry`, `@
 
 Nor does it fix a suite dominated by one slow test. Wall clock is the slowest lane, so the largest
 partition sets the floor: Wolverine's run bottomed out at ~67s because one test slept for 61 of them.
-See issue #56.
+The evidence for attacking that is in the run itself: `RunReport`'s `Timing` section ranks the
+slowest tests by **share of wall clock**, reports parallel efficiency, and prices retries and
+isolation — report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
+Across runs, the committed ledger (`TestLedger`, see `ledger-design.md`) carries duration trends,
+and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
+durations instead of test counts.
 
 And it does not shorten a CI run whose wall clock is set by a *different* job. Wolverine's matrix
 runs ~30 jobs concurrently, so the workflow takes as long as its slowest; parallelising the Redis

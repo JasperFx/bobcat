@@ -237,12 +237,24 @@ the spec is better on every axis that matters once the test is red.
   provider exists in core but the runner never calls `SetContext`; the sample hosts log at Warning
   for now. Worth doing — notes.md lists log correlation as a goal — but it is a runner change.
 
-## Open questions for when the API settles (#105 stays open)
+## Since then (updated 2026-09-03; #104, #105 and #170 closed)
 
-- Should the generator's throwing-`[Then]` semantics move to match (assertion failure, continue)?
-  The twin test would still pass; the question is whether existing Gherkin suites rely on the stop.
-- `CritterStackFixture` (#104) should absorb `CritterStackSpecification.cs` from the sample and
-  delete it; the shapes to keep are `GivenStream`'s rows, `WhenCommand`'s capture, and
-  `ThenNewEvents`' ordered table.
-- `ShouldSatisfy` with a projector; a `Retry =` property on `[Scenario]`; `ScanForFeatures`
-  finding specifications — each one line, each waiting for a second asker.
+- **`CritterStackFixture` shipped** (#104): the typed steps this doc's ports wanted —
+  `GivenEvents<T>` / `GivenNoEvents<T>`, `WhenCommand<T>` (tracked-session dispatch, captured
+  outcome), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
+  `ThenCommandRefused()` (#168 — the non-throwing `HandlerContinuation.Stop` refusal),
+  `ThenDocument<T>` (with a projection wait), `ThenMessagesSent<T>()` — live on the fixture and
+  are shared with code-first specs via `Host<TFixture>()`-borrowed steps. The sample's
+  `CritterStackSpecification.cs` stopgap still exists and deleting it in favour of the fixture
+  remains the follow-up.
+- **Code-first specs feed the Event Model** (#170): the generator reads `[Scenario]` methods on
+  `Specification` subclasses and folds them into the same slice dictionary the `.feature` files
+  feed. Slice and domain come from `[Scenario(Tags = ["slice:X", "domain:Y"])]`; roles come from
+  the typed-step convention in the method body (`WhenCommand<T>` → aggregate + command,
+  `ThenEvents` → events, `ThenDocument<T>` → read model, `ThenMessagesSent<T>` → message), gated
+  on the target being declared on a `Fixture` subclass so an unrelated method never stamps a
+  phantom role. An empty `[Scenario]` method is the pending-specification hotspot.
+- Still open from the original list: the generator's throwing-`[Then]` semantics (critical there,
+  assertion-and-continue here) have not been reconciled; `ShouldSatisfy` with a projector, a
+  `Retry =` property on `[Scenario]`, and `ScanForFeatures` finding specifications each still
+  wait for a second asker.

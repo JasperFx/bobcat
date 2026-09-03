@@ -3,8 +3,8 @@
 **Written 2026-07-31/08-01**, at the end of the session that replaced Wolverine's Nuke test harness
 with supervised runs — [wolverine#3758](https://github.com/JasperFx/wolverine/pull/3758), Bobcat
 0.6.0 and 0.6.1 published to nuget.org the same night. Everything below was measured or observed on
-that PR's CI rounds; nothing is speculative. This is the pickup document for the next session on
-either repo.
+that PR's CI rounds; nothing is speculative. It was the pickup document for the sessions that
+followed; the closing section records where its open items landed.
 
 ## What shipped
 
@@ -78,19 +78,32 @@ Wolverine's `Flaky`-tag removal should start. The one red, CIKafka's
    pre-existing failure now prints its name and exception in the job summary. Nothing was
    laundered.
 
-## Open items for the fresh session
+## Where the open items landed (updated 2026-09-03)
 
-- **Wolverine (a Wolverine agent takes these):** merge #3758; possibly pull supervision back to
-  bare `DotNetTest` for well-behaved small suites (the MTP host property doesn't care); attack the
-  new pole CIAzureServiceBus (16.9m — six compliance classes are ready-made partitions, but need
-  per-lane emulators or queue/topic prefixes); then CISqlServer (15.9m), then the ~12m broker tier
-  (Kafka/Pubsub/RabbitMQ, same per-lane story); fix CIKafka's pre-existing DLQ test; start the
-  `Flaky`-tag removal at the ASB compliance class; scope Marten's sibling databases
-  (`tenant1-3`, `players`, `things`) per lane.
-- **Bobcat:** [#82](https://github.com/JasperFx/bobcat/issues/82) — carry the discovery display
-  name onto synthesized never-reported outcomes (the uid hash made triage a guessing game).
-  `Supervisor.KnownTestDurations` went unused for lane balancing all session because nothing
-  persists durations between runs — the #56/#44 ledger keeps earning its priority.
-- **Wolverine's local dev note:** the user-level NuGet config maps `Bobcat.*` to a folder feed
-  (`~/code/bobcat/artifacts/local-feed`) via packageSourceMapping, exclusively — keep it packed at
-  the referenced version, or remove the mapping to restore from nuget.org.
+The list this section replaced is in git history (`git log -- docs/wolverine-ci-rollout.md`);
+what matters now is what became of it:
+
+- **[#82](https://github.com/JasperFx/bobcat/issues/82) — fixed** (0.7.0): synthesized
+  never-reported outcomes carry the discovery display name, so an indeterminate prints as a test
+  name rather than a uid hash.
+- **The durations ledger is built** (`TestLedger`, `docs/ledger-design.md`): a committed,
+  merge-friendly store of per-run observations. `ledger.KnownDurations()` feeds
+  `Supervisor.KnownTestDurations`, so the lane balancer works from measured durations on the
+  first pass instead of going unused as it did all this session; the same store carries duration
+  trends (#142) and flakiness evidence for hint proposals (#44).
+- **The supervisor grew the observability this rollout ran blind without** (0.7.0–0.9.1):
+  `ISupervisorObserver` live narration (#84), worker pids surfaced (#146), stall detection and
+  the heartbeat (#145/#148) with the opt-in `StallAction` kill-and-retry (#173),
+  `MtpWorkerFactory.OnBeforeKill` for dump capture before a forced kill (#147), per-worker RSS
+  sampling (#149), and `Supervisor.Snapshot()` for cancelled runs (#150). On the Wolverine side,
+  wolverine#4108 retired the shell watchdog this rollout had needed — the supervisor now reports
+  what the watchdog used to infer.
+- **Live progress for foreign workers** (#195, 0.9.1): a supervised xUnit run's console card no
+  longer sits at `0 / N` for its whole duration — the supervisor forwards per-test updates for
+  workers that publish nothing themselves.
+- **The Wolverine-side items** (attacking CIAzureServiceBus and the broker tier, per-lane
+  emulators, the `Flaky`-tag removal, scoping Marten's sibling databases) remain Wolverine's
+  backlog and are tracked there, not here.
+- **Wolverine's local dev note still applies:** the user-level NuGet config maps `Bobcat.*` to a
+  folder feed (`~/code/bobcat/artifacts/local-feed`) via packageSourceMapping, exclusively — keep
+  it packed at the referenced version, or remove the mapping to restore from nuget.org.
