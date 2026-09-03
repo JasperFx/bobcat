@@ -1,43 +1,142 @@
-/* Bobcat Console design tokens — the CritterWatch palette (JasperFx orange over
-   Element Plus) with a --bm- prefix. Keep in sync deliberately, not automatically:
-   the two consoles should look like siblings. */
+/* Bobcat Console design tokens — "Ember on Ink", the docs site's palette.
+   The console and https://jasperfx.github.io/bobcat are the two surfaces a user meets
+   Bobcat through, so they share one brand: rust/ember accents on paper, ink for text.
+   The source of truth is docs/.vitepress/theme/style.css — the raw --bc-* ramp below is
+   copied from it verbatim, and everything else here is derived from those values.
+
+   This deliberately supersedes the earlier decision to mirror CritterWatch's JasperFx
+   orange: CritterWatch is the paid, separate product, and matching Bobcat's own docs is
+   what makes the console read as part of Bobcat. See docs/monitor-design.md.
+
+   Only the light mode of the docs palette is expressed here — the console has no dark
+   mode yet. The --bc-ink-* values are carried anyway so a dark theme has them to hand. */
 :root {
-  --bm-primary: #da6109;
-  --bm-menu-bg: #f5f7fa;
-  --bm-menu-hover: #e8e9eb;
-  --bm-menu-text: #4a4a4a;
-  --bm-menu-active-text: #da6109;
+  /* ---- the docs palette, verbatim ---- */
+  --bc-ink: #0b1421;
+  --bc-ink-surface: #101b2d;
+  --bc-ink-line: #1e3350;
+  --bc-ember: #f0a23b;
+  --bc-rust: #c75b25;
+  --bc-rust-deep: #9a4416;
+  --bc-sky: #7ec8e3;
+  --bc-sky-deep: #1e5f86;
+  --bc-paper: #fbf9f4;
+  --bc-sand: #f2ede1;
+  --bc-sand-line: #ddd5c4;
+  --bc-pass: #2c7f55;
+  --bc-fail: #b8322a;
+
+  /* ---- console chrome ---- */
+  --bm-primary: var(--bc-rust);
+  --bm-primary-deep: var(--bc-rust-deep);
+  --bm-surface: var(--bc-paper);
+  --bm-border: var(--bc-sand-line);
+  --bm-menu-bg: var(--bc-sand);
+  --bm-menu-hover: #eae3d2;
+  --bm-menu-text: #4a5568;
+  --bm-menu-active-text: var(--bc-rust);
+  --bm-menu-active-bg: #f3e2d6;
 
   --el-color-primary: var(--bm-primary);
-  --el-color-primary-light-3: #e8933e;
-  --el-color-primary-light-5: #edb06a;
-  --el-color-primary-light-7: #f3cd97;
-  --el-color-primary-light-8: #f6dbae;
-  --el-color-primary-light-9: #f9e9c5;
-  --el-color-primary-dark-2: #b55007;
+  --el-color-primary-light-3: #d88c66;
+  --el-color-primary-light-5: #e3ad92;
+  --el-color-primary-light-7: #eecebe;
+  --el-color-primary-light-8: #f4ded3;
+  --el-color-primary-light-9: #f9efe9;
+  --el-color-primary-dark-2: var(--bc-rust-deep);
 
-  /* Test-state color grammar, adapted from CritterWatch's Event Modeling grammar:
-     running = command blue, passed = read-model green, failed = failure red,
-     retrying/flaky = event orange. Dark-safe variants chosen up front. */
-  --bm-state-running: #2f6fed;
-  --bm-state-running-bg: #e8f0fe;
-  --bm-state-passed: #2e9e5b;
-  --bm-state-passed-bg: #e7f6ed;
-  --bm-state-failed: #d64541;
-  --bm-state-failed-bg: #fdeaea;
-  --bm-state-retrying: #e8930c;
-  --bm-state-retrying-bg: #fdf3e3;
+  /* Test-state color grammar, unchanged in meaning — running = command blue,
+     passed = read-model green, failed = failure red, retrying/flaky = event orange —
+     but drawn from the docs palette rather than CritterWatch's. The one value that is
+     not a straight lift is retrying: --bc-ember is a dark-mode accent and fails contrast
+     as text on paper, so it is darkened here and kept as the ember hue only in the tint. */
+  --bm-state-running: var(--bc-sky-deep);
+  --bm-state-running-bg: #e3eff5;
+  --bm-state-passed: var(--bc-pass);
+  --bm-state-passed-bg: #e3f1e7;
+  --bm-state-failed: var(--bc-fail);
+  --bm-state-failed-bg: #f9e5e3;
+  --bm-state-retrying: #96600d;
+  --bm-state-retrying-bg: #fbeeda;
+
+  /* Element Plus semantic ramps, so an el-tag/el-alert/el-button that asks for
+     "success" or "danger" lands on the same four state colors the hand-written CSS uses
+     instead of Element's stock blue-grey defaults. */
+  --el-color-success: var(--bm-state-passed);
+  --el-color-success-light-3: #6ba588;
+  --el-color-success-light-5: #96bfaa;
+  --el-color-success-light-7: #c0d9cc;
+  --el-color-success-light-8: #d5e5dd;
+  --el-color-success-light-9: var(--bm-state-passed-bg);
+  --el-color-success-dark-2: #236644;
+
+  --el-color-warning: var(--bm-state-retrying);
+  --el-color-warning-light-3: #b69056;
+  --el-color-warning-light-5: #cbaf86;
+  --el-color-warning-light-7: #e0cfb6;
+  --el-color-warning-light-8: #eadfcf;
+  --el-color-warning-light-9: var(--bm-state-retrying-bg);
+  --el-color-warning-dark-2: #784d0a;
+
+  --el-color-danger: var(--bm-state-failed);
+  --el-color-danger-light-3: #cd706a;
+  --el-color-danger-light-5: #dc9995;
+  --el-color-danger-light-7: #eac2bf;
+  --el-color-danger-light-8: #f1d6d4;
+  --el-color-danger-light-9: var(--bm-state-failed-bg);
+  --el-color-danger-dark-2: #932822;
+
+  --el-color-error: var(--el-color-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+
+  --el-color-info: #5b6b80;
+  --el-color-info-light-3: #8c97a6;
+  --el-color-info-light-5: #adb5bf;
+  --el-color-info-light-7: #ced3d9;
+  --el-color-info-light-8: #dee1e6;
+  --el-color-info-light-9: #eef0f2;
+  --el-color-info-dark-2: #495666;
+
+  /* Neutrals: ink for text, paper for the page, white for anything raised off it
+     (el-card), sand-line for every rule. Without these Element Plus keeps its own
+     cool greys and the warm paper background reads as a mistake. */
+  --el-text-color-primary: var(--bc-ink-surface);
+  --el-text-color-regular: var(--bm-menu-text);
+  --el-text-color-secondary: #7a8496;
+  --el-text-color-placeholder: #9aa3b2;
+  --el-text-color-disabled: #b3bac6;
+
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: var(--bc-paper);
+  --el-bg-color-overlay: #ffffff;
+
+  --el-border-color: var(--bc-sand-line);
+  --el-border-color-light: #e6dfd1;
+  --el-border-color-lighter: #ede7da;
+  --el-border-color-extra-light: #f3efe5;
+
+  --el-fill-color: var(--bc-sand);
+  --el-fill-color-light: #f6f2e9;
+  --el-fill-color-lighter: #f9f6ef;
+  --el-fill-color-blank: #ffffff;
 }
 
 body {
   margin: 0;
+  background-color: var(--bc-paper);
+  color: var(--el-text-color-primary);
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', Arial, sans-serif;
 }
 
 .bm-sidebar {
   background-color: var(--bm-menu-bg);
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid var(--bm-border);
 }
 
 .bm-sidebar .el-menu {
@@ -59,5 +158,5 @@ body {
 
 .bm-sidebar .el-menu-item.is-active {
   color: var(--bm-menu-active-text);
-  background-color: #fdf0e6;
+  background-color: var(--bm-menu-active-bg);
 }

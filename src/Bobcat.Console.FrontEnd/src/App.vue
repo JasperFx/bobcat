@@ -71,7 +71,7 @@ onMounted(() => {
   flex-shrink: 0;
   padding: 0 16px;
   background-color: var(--bm-menu-bg);
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--bm-border);
 }
 
 .bm-titlebar-product {

@@ -73,9 +73,9 @@ Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
   Stores never touch SignalR. The rAF flush has a plain-timer backstop because rAF never fires
   in a hidden tab — without it a backgrounded (or headless) dashboard queues events until
   refocus, which also breaks any headless e2e against the UI (found live 2026-07-31).
-- Color tokens in `src/styles/variables.css` — the JasperFx orange Element Plus ramp, `--bm-`
-  prefix. The test-state grammar (running blue / passed green / failed red / retrying orange)
-  is adapted from CritterWatch's Event Modeling grammar.
+- Color tokens in `src/styles/variables.css` — see "Palette" below. Everything else on this
+  list is still CritterWatch's; the palette is the one place the two consoles deliberately
+  parted company.
 - Backend flow (built 2026-07-31): the `[WolverinePost]` ingestion endpoint folds into the
   registry, then queues events into `SignalRBatchAccumulator` — CritterWatch's 100ms
   accumulator, lifted but simplified: ingestion is the only producer, so the endpoint feeds it
@@ -110,6 +110,39 @@ record: `IsPackable` is gated on `EmbedFrontend`, so the tool nupkg cannot exist
 solution-level `dotnet pack` simply skips the project — publish.yml packs it explicitly); and
 the EmbeddedResource items are created INSIDE the BuildFrontend target, because a static glob
 evaluates before the Vite build runs and silently embeds nothing on a clean build.
+
+## Palette — the docs site's, not CritterWatch's (2026-09-02)
+
+The console wears **"Ember on Ink"**, the palette of https://jasperfx.github.io/bobcat: rust and
+ember accents on paper, ink for text. `docs/.vitepress/theme/style.css` is the source of truth —
+`src/styles/variables.css` copies its `--bc-*` ramp verbatim and derives every `--bm-*` and
+`--el-*` value from those, so the two files can be diffed rather than compared by eye.
+
+This **reverses** the earlier decision (2026-07-31) to mirror CritterWatch's JasperFx orange so
+the two consoles read as siblings. The reasoning that changed: the docs site and the console are
+the two surfaces a Bobcat *user* meets, and they were the pair that did not match. CritterWatch
+is a separate, paid product; looking like it is not a goal worth the console not looking like
+Bobcat. Nothing else about the CritterWatch lineage moved — the stack, the SignalR batching, the
+contract generation and the Event Modeling canvas are all still lifted from it.
+
+Three consequences worth knowing:
+
+- **The test-state grammar keeps its meaning and changes its pigments.** Running is still command
+  blue, passed read-model green, failed failure red, retrying/flaky event orange — now `--bc-sky-deep`,
+  `--bc-pass`, `--bc-fail` and a darkened `--bc-ember`. Retrying is the one value that is not a
+  straight lift: `--bc-ember` (`#f0a23b`) is a *dark-mode* accent in the docs and misses 4.5:1 as
+  text on paper, so the token darkens it and keeps the ember hue only in the row tint.
+- **Element Plus's neutrals are overridden too, not just its primary ramp.** Element's stock greys
+  are cool; against a warm paper background they read as a bug rather than a choice. `--el-text-color-*`,
+  `--el-bg-color*`, `--el-border-color*` and `--el-fill-color*` are all restated from the palette.
+- **The Event Model canvas is untouched.** Its blue/orange/green is the Event Modeling grammar
+  owned by `@jasperfx/event-model-vue` and shared with CritterWatch — "renders identically in both
+  viewers" is the point of that package, and re-tinting it here would break it.
+
+Not done, and not implied by this: **the console still has no dark mode.** Only the docs palette's
+light mode is expressed. The `--bc-ink-*` values are carried in `variables.css` anyway so a dark
+theme has them to hand. Typography was also left alone — the docs' Space Grotesk / JetBrains Mono
+would mean a webfont fetch from a tool that is often run offline, which is its own decision.
 
 ## Branding (issue #179, 2026-08-31)
 
