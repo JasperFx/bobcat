@@ -108,6 +108,11 @@
     -->
     <PackageVersion Include="NJsonSchema" Version="11.5.2" />
     <PackageVersion Include="NJsonSchema.CodeGeneration.TypeScript" Version="11.5.2" />
+    <!--
+      Currently unreferenced (the plan-document parser moved to Stoat in the 2026-08-09 split),
+      but kept for #201/#202: the curated YAML event-model loader and emlang importer land in
+      Bobcat.Console (src/Bobcat.Console/EventModel) and will consume this pin.
+    -->
     <PackageVersion Include="YamlDotNet" Version="16.3.0" />
 
     <!--

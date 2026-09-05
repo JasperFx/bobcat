@@ -13,10 +13,6 @@
     <PackageReference Include="Shouldly" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="Plans/*.yaml" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
   <!--
     The one place both sides of the monitor wire meet: Bobcat's dependency-free publisher
     mirrors and Bobcat.Console's Wolverine-marked ingestion contracts. The round-trip tests
