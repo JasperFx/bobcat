@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Declared Event Model files for the Critter Stack — a curated YAML format that loads as a Declared-rung IEventModelDefinitionSource, plus an importer for eventmodelers.ai emlang board exports.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced directly, not transitively: Central Package Management only pins what a
+         project actually references, and an older transitive JasperFx.Events resolves to the
+         pre-#687 EventModeling sketch that compiles and then silently drops pattern /
+         specifications / elements (see Bobcat.Console.csproj for the same trap). -->
+    <PackageReference Include="JasperFx.Events" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+</Project>
