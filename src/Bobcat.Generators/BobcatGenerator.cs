@@ -81,6 +81,23 @@ public class BobcatGenerator : IIncrementalGenerator
                         Diagnostics.StepHidesBaseStep, Microsoft.CodeAnalysis.Location.None,
                         hidden.Expression, hidden.DeclaringType, hidden.HiddenType));
                 }
+
+                // Issue #212: composition errors are reported per fixture, features or not —
+                // a broken [IncludeGrammars] is a wiring mistake even before a feature binds it.
+                foreach (var duplicate in fixture.DuplicateModules)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.DuplicateGrammarModule, Microsoft.CodeAnalysis.Location.None,
+                        duplicate.DeclaringType, duplicate.Module));
+                }
+
+                foreach (var module in fixture.Modules)
+                {
+                    if (module.Problem == null) continue;
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.ModuleConstructionMismatch, Microsoft.CodeAnalysis.Location.None,
+                        module.DisplayName, fixture.ClassName, module.Problem));
+                }
             }
 
             foreach (var feature in features)
@@ -88,6 +105,11 @@ public class BobcatGenerator : IIncrementalGenerator
                 if (feature == null) continue;
 
                 var fixture = findFixture(feature, fixtures);
+
+                // The composition diagnostics above already failed the build; emitting code
+                // against a broken module declaration would only bury them in C# errors.
+                if (fixture is { HasCompositionErrors: true }) continue;
+
                 if (fixture == null)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
@@ -292,30 +314,96 @@ public class BobcatGenerator : IIncrementalGenerator
         // to Bobcat.Fixture, most-derived first.
         collectStepsAndHooks(symbol, info.StepMethods, info.Hooks, info.HiddenSteps);
 
-        // Collect [IncludeGrammars] modules
-        foreach (var attr in symbol.GetAttributes())
-        {
-            if (attr.AttributeClass?.Name != "IncludeGrammarsAttribute") continue;
-
-            foreach (var arg in attr.ConstructorArguments)
-            {
-                // params Type[] arrives as an array typed constant
-                foreach (var typeConstant in arg.Values)
-                {
-                    if (typeConstant.Value is INamedTypeSymbol moduleSymbol)
-                        info.Modules.Add(extractModuleInfo(moduleSymbol));
-                }
-            }
-        }
+        // Collect [IncludeGrammars] modules — declared on the fixture or inherited from a base
+        // class (issue #212 phase 2), so a shipped assembly fixture can carry its modules.
+        collectModules(symbol, info);
 
         return info;
     }
 
-    private static ModuleInfo extractModuleInfo(INamedTypeSymbol moduleSymbol)
+    /// <summary>
+    /// Walk the fixture and its base classes for <c>[IncludeGrammars]</c>, most-derived first.
+    /// <b>Most-derived wins</b> for a module type declared at several levels — that is how a
+    /// derived fixture re-parameterizes a module its base declared. The same module type declared
+    /// twice on <em>one</em> class is recorded for BOBCAT018: one instance per module type per
+    /// fixture, because a second instance of the same vocabulary would make every one of its step
+    /// texts ambiguous (the problem BOBCAT013 exists to close).
+    /// </summary>
+    private static void collectModules(INamedTypeSymbol symbol, FixtureInfo info)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var type = symbol; type != null && !isDiscoveryRoot(type); type = type.BaseType)
+        {
+            var declaredHere = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var attr in type.GetAttributes())
+            {
+                if (attr.AttributeClass?.Name != "IncludeGrammarsAttribute") continue;
+
+                foreach (var (moduleSymbol, arguments) in readIncludeGrammars(attr))
+                {
+                    var fqn = qualified(moduleSymbol);
+
+                    if (!declaredHere.Add(fqn))
+                    {
+                        info.DuplicateModules.Add(new DuplicateModuleInfo
+                        {
+                            Module = moduleSymbol.ToDisplayString(),
+                            DeclaringType = type.ToDisplayString(),
+                        });
+                        continue;
+                    }
+
+                    // A more-derived class already declared this module type: its declaration
+                    // (and its arguments) win, the way a derived step hides a base one.
+                    if (!seen.Add(fqn)) continue;
+
+                    info.Modules.Add(extractModuleInfo(moduleSymbol, arguments));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The module types (with their construction arguments) one <c>[IncludeGrammars]</c> names.
+    /// Two attribute shapes: <c>(params Type[])</c> — several modules, no arguments — and
+    /// <c>(Type, params object?[])</c> — one module plus its constructor literals.
+    /// </summary>
+    private static IEnumerable<(INamedTypeSymbol Module, ImmutableArray<TypedConstant> Arguments)> readIncludeGrammars(
+        AttributeData attr)
+    {
+        var args = attr.ConstructorArguments;
+        if (args.Length == 0) yield break;
+
+        if (args[0].Kind == TypedConstantKind.Type)
+        {
+            // (Type module, params object?[] arguments)
+            if (args[0].Value is INamedTypeSymbol module)
+            {
+                var arguments = args.Length > 1 && args[1].Kind == TypedConstantKind.Array
+                    ? args[1].Values
+                    : ImmutableArray<TypedConstant>.Empty;
+                yield return (module, arguments);
+            }
+
+            yield break;
+        }
+
+        // (params Type[] modules)
+        foreach (var constant in args[0].Values)
+        {
+            if (constant.Value is INamedTypeSymbol module)
+                yield return (module, ImmutableArray<TypedConstant>.Empty);
+        }
+    }
+
+    private static ModuleInfo extractModuleInfo(INamedTypeSymbol moduleSymbol, ImmutableArray<TypedConstant> arguments)
     {
         var module = new ModuleInfo
         {
             FullyQualifiedName = qualified(moduleSymbol),
+            DisplayName = moduleSymbol.ToDisplayString(),
             IsFixture = inheritsFrom(moduleSymbol, "Bobcat.Fixture"),
         };
 
@@ -325,8 +413,136 @@ public class BobcatGenerator : IIncrementalGenerator
         foreach (var stepMethod in module.StepMethods)
             stepMethod.DeclaringModule = module.FullyQualifiedName;
 
+        bindModuleConstruction(moduleSymbol, arguments, module);
+
         return module;
     }
+
+    /// <summary>
+    /// Decide how the generated code constructs the module (issue #212 phase 2). The attribute's
+    /// literals bind positionally to the constructor's value parameters, in declaration order;
+    /// parameters no literal covers are resolved like step parameters (IStepContext, test
+    /// resources, scoped services — the <see cref="ExtractParameter"/> rules, so
+    /// <c>[FromRootService]</c> and friends work on a module constructor too); trailing optional
+    /// value parameters may be omitted. A shape nothing satisfies is recorded on
+    /// <see cref="ModuleInfo.Problem"/> and reported as BOBCAT019.
+    /// </summary>
+    private static void bindModuleConstruction(INamedTypeSymbol moduleSymbol,
+        ImmutableArray<TypedConstant> arguments, ModuleInfo module)
+    {
+        var constructors = moduleSymbol.InstanceConstructors
+            .Where(c => c.DeclaredAccessibility == Accessibility.Public)
+            .OrderByDescending(c => c.Parameters.Length)
+            .ToList();
+
+        if (constructors.Count == 0)
+        {
+            module.Problem = $"'{module.DisplayName}' has no public constructor";
+            return;
+        }
+
+        string? firstFailure = null;
+
+        foreach (var constructor in constructors)
+        {
+            var attempt = tryBindConstructor(constructor, arguments);
+            if (attempt.Problem == null)
+            {
+                module.ConstructionParameters.AddRange(attempt.Bound);
+                return;
+            }
+
+            firstFailure ??= attempt.Problem;
+        }
+
+        module.Problem = firstFailure;
+    }
+
+    private static (List<ModuleConstructionArg> Bound, string? Problem) tryBindConstructor(
+        IMethodSymbol constructor, ImmutableArray<TypedConstant> arguments)
+    {
+        var bound = new List<ModuleConstructionArg>();
+        var next = 0;
+
+        foreach (var parameter in constructor.Parameters)
+        {
+            var info = ExtractParameter(parameter);
+
+            if (info.Binding == ParameterBinding.Value && next < arguments.Length)
+            {
+                var literal = literalOf(arguments[next]);
+                if (literal == null)
+                {
+                    return (bound, $"argument {next + 1} cannot be written as a literal for " +
+                                   $"parameter '{parameter.Name}' ({info.Type})");
+                }
+
+                bound.Add(new ModuleConstructionArg { Parameter = info, Literal = literal });
+                next++;
+            }
+            else if (info.Binding != ParameterBinding.Value && info.Binding != ParameterBinding.Table)
+            {
+                // Resolved from the scenario at construction time — same rules as a step parameter.
+                bound.Add(new ModuleConstructionArg { Parameter = info, Literal = null });
+            }
+            else if (parameter.HasExplicitDefaultValue)
+            {
+                // Omitted; named-argument emission makes the gap legal.
+            }
+            else
+            {
+                return (bound, $"parameter '{parameter.Name}' ({info.Type}) is covered by no " +
+                               "attribute argument, is not resolvable from the scenario scope, and has no default");
+            }
+        }
+
+        return next < arguments.Length
+            ? (bound, $"{arguments.Length} argument(s) were given but only {next} bind to constructor parameters")
+            : (bound, null);
+    }
+
+    /// <summary>
+    /// A <c>[IncludeGrammars]</c> attribute argument as the C# literal the generated construction
+    /// writes — string/char escaped, numeric suffixed, enums cast, <c>typeof(global::…)</c> for a
+    /// type. Null when the constant has no writable form (an array, an unexpected shape).
+    /// </summary>
+    private static string? literalOf(TypedConstant constant)
+    {
+        if (constant.IsNull) return "null";
+
+        switch (constant.Kind)
+        {
+            case TypedConstantKind.Type:
+                return constant.Value is ITypeSymbol type ? $"typeof({qualified(type)})" : null;
+
+            case TypedConstantKind.Enum:
+                return constant.Type is INamedTypeSymbol enumType
+                    ? $"({qualified(enumType)})({formatPrimitive(constant.Value)})"
+                    : null;
+
+            case TypedConstantKind.Primitive:
+                return formatPrimitive(constant.Value);
+
+            default:
+                return null;
+        }
+    }
+
+    private static string? formatPrimitive(object? value)
+        => value switch
+        {
+            null => "null",
+            string s => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"",
+            char c => "'" + (c == '\'' ? "\\'" : c == '\\' ? "\\\\" : c.ToString()) + "'",
+            bool b => b ? "true" : "false",
+            float f => f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f",
+            double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "d",
+            long l => l.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L",
+            ulong ul => ul.ToString(System.Globalization.CultureInfo.InvariantCulture) + "UL",
+            uint ui => ui.ToString(System.Globalization.CultureInfo.InvariantCulture) + "u",
+            IFormattable formattable => formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+            _ => null,
+        };
 
     /// <summary>
     /// Walk a fixture (or grammar module) and its base classes, stopping at <c>Bobcat.Fixture</c> /
@@ -1306,6 +1522,29 @@ internal static class Diagnostics
         "generated: {1}. Either remove the attribute or call the method from your own configuration.",
         "Bobcat",
         DiagnosticSeverity.Warning,
+        true);
+
+    public static readonly DiagnosticDescriptor DuplicateGrammarModule = new(
+        "BOBCAT018",
+        "Grammar module included more than once",
+        "'{0}' includes the grammar module '{1}' more than once. One instance per module type per " +
+        "fixture — a second instance of the same vocabulary would make every one of its step texts " +
+        "ambiguous. To bind the same grammar against two targets, declare two thin module " +
+        "subclasses with distinct step texts.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor ModuleConstructionMismatch = new(
+        "BOBCAT019",
+        "Grammar module cannot be constructed",
+        "The grammar module '{0}' composed into fixture '{1}' cannot be constructed from its " +
+        "[IncludeGrammars] declaration: {2}. Attribute arguments (constants and typeof only) bind " +
+        "positionally to the constructor's value parameters; other parameters are resolved from " +
+        "the scenario like step parameters (IStepContext, test resources, services); trailing " +
+        "optional parameters may be omitted.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor HookMustBeInstance = new(

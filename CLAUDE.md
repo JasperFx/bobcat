@@ -136,6 +136,33 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   no attribute. `[IncludeGrammars(typeof(Module))]` is for **mix-ins** — a shared module dropped into
   a fixture that already has another base, or several grammars combined. Modules inherit their own
   base's steps too, so an empty `sealed class XGrammars : XFixture` exposes a base fixture as a module.
+- **Parameterized modules (issue #212 phase 2):** `[IncludeGrammars(typeof(HttpGrammars),
+  "/api/wallet")]` — literals after the type flow to the module's per-scenario construction. The
+  vocabulary stays a compile-time fact (steps read from the symbol); only the *binding* is a
+  construction fact. Literals bind positionally to the constructor's value parameters; uncovered
+  parameters resolve like step parameters (`IStepContext`, resources, scoped services — a module
+  needing any of these is constructed lazily by its first step, inside the scenario scope, via
+  `??=`; literal-only modules stay eager at plan build); trailing optionals may be omitted (the
+  emitted construction uses named arguments). `[IncludeGrammars]` is discovered on base classes —
+  most-derived declaration of a module type wins, which is how a derived fixture re-parameterizes
+  a base-declared module (`CritterStackHttpFixture` carries `HttpGrammars`; the user's fixture
+  re-declares it with a route prefix). **One instance per module type per fixture** is load-bearing
+  (phase 3 refused): a same-class duplicate is **BOBCAT018** (error) — two instances of one
+  vocabulary re-open the ambiguity BOBCAT013 closes — and arguments no public constructor can take
+  are **BOBCAT019** (error). Composition errors suppress feature emission for that fixture so the
+  diagnostic isn't buried under generated-code errors. `Bobcat.Generators.Tests` drives the real
+  generator in memory for both sides of both diagnostics (Bobcat.Tests stays deliberately
+  Roslyn-free).
+- **Scenario state is the cross-grammar contract (issue #212 phase 1):** `IStepContext.SetState<T>`
+  / `GetState<T>` / `TryGetState<T>` — a typed per-scenario blackboard, one entry per CLR type,
+  implemented as default interface members over a `ConditionalWeakTable` keyed by the context
+  instance (`Engine/ScenarioState.cs`), so every implementation (fakes included) carries working
+  state and adding it broke no `IStepContext` implementer. The runner builds a context per attempt,
+  so state dies with the scenario bracket and a retry starts blank. Composed grammar instances
+  cooperate agreeing only on a capture *type* — the acting grammar publishes, the asserting grammar
+  reads; `GetState` on a missing entry throws "no step in this scenario produced a T…". Run
+  evidence (#107) deliberately does **not** ride it: `TouchedTypes` must live on
+  `ExecutionResults` to reach the wire, and both are accumulate-onto-context already.
 - **Type-name captures** — `{type}`, and the Event Modeling aliases `{aggregate}`/`{command}`/
   `{event}`/`{readmodel}`/`{message}` — capture a type *name* in the step text and bind to a
   `System.Type` parameter as `typeof(global::…)`. `TypeNameResolver` resolves the name against the
@@ -1063,6 +1090,28 @@ discovers through its base).
   Proven by `TrackedHttpCallTests` (a gated handler makes "the bare Alba call returns while the
   work is in flight; the tracked one does not" an asserted ordering, not a race — no store, always
   runs) and `TrackedHttpFixtureTests` (Marten + async daemon over HTTP, `[PostgresFact]`).
+- **The HTTP lane is `CritterStackHttpFixture` (issue #210), and it is an assembly, not a third
+  monolith** — issue #212's success measure: `CritterStackFixture` base (store vocabulary, the
+  canonical route) + `[IncludeGrammars(typeof(HttpGrammars))]` on the class (the mix-in route,
+  inherited by derived fixtures; re-declare with a route prefix to parameterize) + the tracked
+  capture flowing over scenario state. `HttpGrammars` (`Fixture`-derived so it receives the
+  context; deliberately NOT `CritterStackFixture`-derived, which would duplicate every store step
+  into BOBCAT013 ambiguity) ships two steps: `When {command} is posted to {string}` (+ one table
+  row of body fields → `RecordBuilding`, sent as JSON, run inside the tracked session via the
+  shared `TrackedActs` bracket) and `Then the response is {int}` — the HTTP refusal vocabulary,
+  because an HTTP guard refuses with ProblemDetails/400, not an exception, so `Then validation
+  fails with …` cannot describe it; compose with `Then no events are emitted`. Placement: the
+  grammar lives in Bobcat.CritterStack with **no Alba/ASP.NET reference** — the call goes through
+  `Bobcat.Runtime.IHttpResource` (core; `SpecHttpRequest`/`SpecHttpResponse`, status never
+  asserted by the transport), which `AlbaResource` (both forms) implements over the TestServer
+  with the app's own JSON options. Same dependency arithmetic as `WhenTracked` (#211), just with
+  a resource contract instead of a delegate because generated grammar steps have no caller to
+  supply one. `TrackedActs.ExecuteAsync` is the one shared act bracket (stream snapshot → tracked
+  dispatch → capture-don't-throw → publish `TrackedExecution` to state); `executeTrackedCore`
+  delegates to it, and the Givens publish `ScenarioStream` so a foreign act can bracket the
+  fixture's stream. E2E: `WalletHttp.feature` + `HttpGrammarSpecTests` (`[PostgresFact]`, Alba
+  host with a collapsed endpoint) — and its `@slice:CreditWallet` scenarios fold into the same
+  slice descriptor as the bus-driven ones, because a slice is a behaviour, not a transport.
 - **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
   resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
   **appending** arrange-events and **loading** a read-model document — go through the shared
@@ -1258,6 +1307,8 @@ correlation hook — an opaque string Bobcat stamps on a run and never interpret
 
 - `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
 - `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
+- `docs/composing-grammars.md` — User-facing guide to grammar composition: parameterized
+  `[IncludeGrammars]`, scenario state, and the `CritterStackHttpFixture` HTTP vocabulary
 - `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
   code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
   and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which

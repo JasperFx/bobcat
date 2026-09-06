@@ -33,13 +33,16 @@ public class EventModelDescriptorTests
     [Fact]
     public void a_slice_is_a_scenario_level_grouping_so_several_scenarios_fold_into_one()
     {
-        // Wallet.feature tags three scenarios @slice:CreditWallet, and WalletAuditSpecification
-        // tags a code-first fourth (issue #170). A slice is a vertical behaviour, not a document
-        // — and not an authoring style either — so they are one descriptor with four
-        // specifications.
-        slice("CreditWallet").Specifications.Count.ShouldBe(4);
+        // Wallet.feature tags three scenarios @slice:CreditWallet, WalletHttp.feature tags two
+        // more (the HTTP lane of the same behaviour, issue #210), and WalletAuditSpecification
+        // tags a code-first sixth (issue #170). A slice is a vertical behaviour, not a document
+        // — and not an authoring style or a transport either — so they are one descriptor with
+        // six specifications.
+        slice("CreditWallet").Specifications.Count.ShouldBe(6);
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet Audit/a code first credit");
+        slice("CreditWallet").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet over HTTP/Crediting a wallet over HTTP emits the credited event");
         slice("OpenWallet").Specifications.Count.ShouldBe(1);
     }
 

@@ -25,6 +25,21 @@ public class IncludeGrammarsTests
     }
 
     [Fact]
+    public async Task modules_cooperate_through_scenario_state_agreeing_only_on_the_capture_type()
+    {
+        var results = await Specs.Run(Composed_Feature.Define(), "Two modules cooperate through scenario state");
+        results.Step("the observed act should be \"credit\"").StepStatus.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public async Task scenario_state_dies_with_its_scenario_bracket()
+    {
+        // Runs after the cooperating scenario in feature order; a leaked ActCapture would fail this.
+        var results = await Specs.Run(Composed_Feature.Define(), "Scenario state does not leak between scenarios");
+        results.Step("no act was observed").StepStatus.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
     public async Task fixture_derived_module_receives_context()
     {
         var results = await Specs.Run(Composed_Feature.Define(), "Fixture-derived module receives context");

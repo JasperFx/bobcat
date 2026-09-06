@@ -79,13 +79,26 @@ public abstract class CritterStackFixture : Fixture
     /// <summary>The aggregate type the current stream belongs to, from the last Given.</summary>
     protected Type? AggregateType { get; private set; }
 
+    private TrackedExecution _lastExecution = TrackedExecution.None;
+
     /// <summary>
     /// The capture of the scenario's last act — a dispatched command or a tracked HTTP call —
     /// which is what every <c>Then</c> step here asserts against. Public and typed, so a
     /// cooperating grammar (issue #210's HTTP steps, a composed module under issue #212) can read
     /// it, and written only through <see cref="RecordExecution"/>.
     /// </summary>
-    public TrackedExecution LastExecution { get; private set; } = TrackedExecution.None;
+    /// <remarks>
+    /// The capture also rides the scenario-state blackboard (issue #212): reading prefers the
+    /// scenario's published <see cref="TrackedExecution"/>, so an act performed by a
+    /// <em>different</em> grammar instance in the same scenario — <c>HttpGrammars</c>'
+    /// <c>When {command} is posted to …</c> is the first — feeds these assertion steps with no
+    /// fixture field in common. Outside a scenario (or on a context without state) the fixture's
+    /// own last capture answers, so nothing about the pre-#212 behaviour changed.
+    /// </remarks>
+    public TrackedExecution LastExecution
+        => Context != null && Context.TryGetState<TrackedExecution>(out var published)
+            ? published
+            : _lastExecution;
 
     /// <summary>
     /// Record what an act did, making it the capture the assertion steps read. This is the seam
@@ -93,8 +106,14 @@ public abstract class CritterStackFixture : Fixture
     /// <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
     /// or its own tracked dispatch — feed the same <c>Then {event} is emitted</c> /
     /// <c>Then {message} is sent</c> / refusal vocabulary the command steps use (issue #211).
+    /// The capture is also published to the scenario-state blackboard, so a cooperating grammar
+    /// that only sees <see cref="Engine.IStepContext"/> reads the same record (issue #212).
     /// </summary>
-    public void RecordExecution(TrackedExecution execution) => LastExecution = execution;
+    public void RecordExecution(TrackedExecution execution)
+    {
+        _lastExecution = execution;
+        Context?.SetState(execution);
+    }
 
     /// <summary>The events the last act appended to the current stream, or empty.</summary>
     protected IReadOnlyList<IEvent> LastEvents => LastExecution.NewEvents;
@@ -114,7 +133,7 @@ public abstract class CritterStackFixture : Fixture
         StreamId = Guid.Empty;
         StreamKey = null;
         AggregateType = null;
-        LastExecution = TrackedExecution.None;
+        RecordExecution(TrackedExecution.None);
     }
 
     // ---- typed steps (shared with the code-first API, issue #105) -----------------------------
@@ -146,6 +165,7 @@ public abstract class CritterStackFixture : Fixture
     {
         AggregateType = typeof(T);
         Ctx.RecordTouchedType(typeof(T));
+        Ctx.SetState(new ScenarioStream(typeof(T), identity));
         if (events.Length > 0)
         {
             await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), typeof(T), identity, events, Ctx.Cancellation);
@@ -358,6 +378,10 @@ public abstract class CritterStackFixture : Fixture
 
         AggregateType = aggregate;
         Ctx.RecordTouchedType(aggregate);
+
+        // Published so a cooperating grammar's act (HttpGrammars' POST, a composed module) can
+        // bracket the same stream — the issue #212 shared-state contract.
+        Ctx.SetState(new ScenarioStream(aggregate, streamIdentity!));
     }
 
     [Given("events for {aggregate}")]
@@ -368,6 +392,8 @@ public abstract class CritterStackFixture : Fixture
             throw new SpecCriticalException(
                 "'Given events for …' needs the stream id — precede it with 'Given no events for <aggregate> \"<id>\"' " +
                 "(or a step that sets the id).");
+
+        Ctx.SetState(new ScenarioStream(aggregate, identity));
 
         var built = buildEvents(aggregate, events);
         await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, identity, built, Ctx.Cancellation);
@@ -482,31 +508,15 @@ public abstract class CritterStackFixture : Fixture
     }
 
     /// <summary>
-    /// The shared act bracket: snapshot the current stream, run the tracked dispatch, and capture
-    /// what it did — session, appended events, or the exception — into <see cref="LastExecution"/>.
-    /// One bracket for <see cref="WhenCommand{T}"/> and <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
-    /// so a command act and an HTTP act feed the assertion steps identically.
+    /// The shared act bracket, delegated to <see cref="TrackedActs.ExecuteAsync"/>: snapshot the
+    /// current stream, run the tracked dispatch, and capture what it did — session, appended
+    /// events, or the exception — into <see cref="LastExecution"/>. One bracket for
+    /// <see cref="WhenCommand{T}"/>, <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>
+    /// and a composed grammar's own act (<c>HttpGrammars</c>), so every act feeds the assertion
+    /// steps identically.
     /// </summary>
     private async Task executeTrackedCore(Func<Task<ITrackedSession>> dispatch)
-    {
-        var before = await fetchCurrentStreamAsync();
-
-        try
-        {
-            var session = await dispatch();
-            var after = await fetchCurrentStreamAsync();
-            RecordExecution(new TrackedExecution(session, after.Skip(before.Count).ToList(), null));
-
-            // Observed run evidence (issue #107): the events the act actually appended and
-            // the messages the tracked session actually sent — never what a Then merely names.
-            recordTouched(LastEvents.Select(e => e.Data));
-            recordTouched(session.Sent.AllMessages());
-        }
-        catch (Exception e)
-        {
-            RecordExecution(new TrackedExecution(null, [], e));
-        }
-    }
+        => RecordExecution(await TrackedActs.ExecuteAsync(Ctx, dispatch, streamIdentity, HostResource, StoreName));
 
     private void recordTouched(IEnumerable<object> items)
     {
@@ -515,12 +525,6 @@ public abstract class CritterStackFixture : Fixture
             if (item != null) Ctx.RecordTouchedType(item.GetType());
         }
     }
-
-    /// <summary>The current stream's events, by whichever identity kind the Given established.</summary>
-    private Task<IReadOnlyList<IEvent>> fetchCurrentStreamAsync()
-        => StreamKey is { } key
-            ? Ctx.FetchEventStreamAsync(key, HostResource, StoreName)
-            : Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
 
     private Task<object?> loadReadModel(Type readmodel)
     {

@@ -50,5 +50,27 @@ public interface IStepContext
     {
     }
 
+    /// <summary>
+    /// Publish <paramref name="value"/> as this scenario's <typeparamref name="T"/> on the typed
+    /// per-scenario blackboard (issue #212), replacing any earlier <typeparamref name="T"/>. State
+    /// lives for exactly one scenario bracket — the runner builds a fresh context per attempt, so
+    /// nothing leaks between scenarios or between retry attempts. This is the sanctioned way for
+    /// two grammar modules to cooperate: the acting grammar publishes a capture, the asserting
+    /// grammar reads it, and they agree only on the capture <em>type</em> — no reference between
+    /// the packages, no shared fixture fields.
+    /// </summary>
+    void SetState<T>(T value) where T : notnull => ScenarioStateStore.For(this).Set(value);
+
+    /// <summary>
+    /// The scenario's <typeparamref name="T"/> from the per-scenario blackboard. Throws with a
+    /// "no step in this scenario produced a …" diagnostic when nothing published one — use
+    /// <see cref="TryGetState{T}"/> for a state entry that is legitimately optional.
+    /// </summary>
+    T GetState<T>() where T : notnull => ScenarioStateStore.For(this).Get<T>();
+
+    /// <summary>The scenario's <typeparamref name="T"/> from the per-scenario blackboard, when a step has published one.</summary>
+    bool TryGetState<T>([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out T? value) where T : notnull
+        => ScenarioStateStore.For(this).TryGet(out value);
+
     CancellationToken Cancellation { get; }
 }

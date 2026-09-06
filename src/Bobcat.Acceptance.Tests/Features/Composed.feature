@@ -13,3 +13,10 @@ Feature: Composed
 
   Scenario: Fixture-derived module receives context
     Then the module received a context
+
+  Scenario: Two modules cooperate through scenario state
+    When the acting grammar performs "credit"
+    Then the observed act should be "credit"
+
+  Scenario: Scenario state does not leak between scenarios
+    Then no act was observed

@@ -28,6 +28,7 @@ export default defineConfig({
           { text: 'The Command Line', link: '/command-line' },
           { text: 'Running Specs with dotnet test', link: '/dotnet-test' },
           { text: 'Sample Wiring Playbook', link: '/sample-wiring' },
+          { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
           { text: 'Editor Integration', link: '/editor-integration' }
         ]

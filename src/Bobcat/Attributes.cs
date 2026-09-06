@@ -54,11 +54,46 @@ public sealed class BobcatConfigurationAttribute : Attribute;
 /// the feature, alongside the fixture's own. Repeatable/composable. Modules are instantiated
 /// once per scenario; a module that inherits <see cref="Fixture"/> receives the step context.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Parameterized modules (issue #212, phase 2):</b> constructor arguments after the module type
+/// flow to the module's construction — <c>[IncludeGrammars(typeof(HttpGrammars), "/api/wallet")]</c>
+/// — so one grammar type binds against different targets without a subclass per binding. The
+/// vocabulary stays a compile-time fact (the generator reads the steps from the type symbol); only
+/// the <em>binding</em> becomes a construction fact. Attribute arguments are limited to constants
+/// and <c>typeof</c> by the CLR, and that is deliberate: anything richer — a configured resource, a
+/// delegate — should reach the module from the scenario scope by type, which
+/// <see cref="Engine.IStepContext.SetState{T}"/> and service injection into the module's
+/// constructor already handle. Constructor parameters the literals do not cover are resolved like
+/// step parameters (IStepContext, test resources, scoped services); trailing optional parameters
+/// may be omitted.
+/// </para>
+/// <para>
+/// The attribute is discovered on the fixture <em>and its base classes</em> (most-derived wins for
+/// a module type declared at several levels, so a derived fixture can re-parameterize a
+/// base-declared module). <b>One instance per module type per fixture</b> — the same module type
+/// declared twice on one class is a compile error (BOBCAT018), because two instances of one
+/// vocabulary would make every step text ambiguous (the problem BOBCAT013 exists to close). A
+/// fixture that genuinely needs two HTTP surfaces gets two thin module subclasses with distinct
+/// step texts.
+/// </para>
+/// </remarks>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
 public class IncludeGrammarsAttribute : Attribute
 {
     public Type[] Modules { get; }
+
+    /// <summary>Constructor arguments for a single-module include, in positional order. Empty for the multi-module form.</summary>
+    public object?[] Arguments { get; } = [];
+
     public IncludeGrammarsAttribute(params Type[] modules) => Modules = modules;
+
+    /// <summary>Include one module, constructed with <paramref name="arguments"/> (plus DI-resolved parameters) per scenario.</summary>
+    public IncludeGrammarsAttribute(Type module, params object?[] arguments)
+    {
+        Modules = [module];
+        Arguments = arguments;
+    }
 }
 
 /// <summary>

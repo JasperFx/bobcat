@@ -23,6 +23,25 @@ public class FixtureInfo
     /// <summary>Base-class steps hidden by a more-derived declaration of the same step — reported as BOBCAT015.</summary>
     public List<HiddenStepInfo> HiddenSteps { get; set; } = new();
 
+    /// <summary>
+    /// Module types one class's <c>[IncludeGrammars]</c> attributes name more than once — reported
+    /// as BOBCAT018. One instance per module type per fixture (issue #212 phase 3, refused): a
+    /// second instance of the same vocabulary would make every one of its step texts ambiguous.
+    /// </summary>
+    public List<DuplicateModuleInfo> DuplicateModules { get; set; } = new();
+
+    /// <summary>A fixture whose module composition failed cannot have features emitted against it.</summary>
+    public bool HasCompositionErrors
+    {
+        get
+        {
+            if (DuplicateModules.Count > 0) return true;
+            foreach (var module in Modules)
+                if (module.Problem != null) return true;
+            return false;
+        }
+    }
+
     public IEnumerable<HookMethodInfo> HooksOf(HookKind kind)
     {
         foreach (var h in Hooks) if (h.Kind == kind) yield return h;
@@ -93,8 +112,54 @@ public class HookMethodInfo
 public class ModuleInfo
 {
     public string FullyQualifiedName { get; set; } = "";
+
+    /// <summary>The readable name for diagnostics.</summary>
+    public string DisplayName { get; set; } = "";
+
     public bool IsFixture { get; set; }
     public List<StepMethodInfo> StepMethods { get; set; } = new();
+
+    /// <summary>
+    /// The constructor arguments the generated per-scenario construction passes, in parameter
+    /// order: a literal from the <c>[IncludeGrammars]</c> attribute, or a scenario-scope
+    /// resolution (issue #212 phase 2). Empty means <c>new Module()</c>.
+    /// </summary>
+    public List<ModuleConstructionArg> ConstructionParameters { get; set; } = new();
+
+    /// <summary>
+    /// True when construction resolves anything from the scenario (IStepContext, a resource, a
+    /// service). Those are only reachable inside a step's lambda, so the module is then
+    /// constructed lazily by the first step that uses it — still once per scenario, now inside
+    /// the scenario scope — instead of eagerly at plan-build time.
+    /// </summary>
+    public bool RequiresContext
+    {
+        get
+        {
+            foreach (var arg in ConstructionParameters)
+                if (arg.Literal == null) return true;
+            return false;
+        }
+    }
+
+    /// <summary>Why the module cannot be constructed from its declaration, or null. Reported as BOBCAT019.</summary>
+    public string? Problem { get; set; }
+}
+
+/// <summary>One bound constructor parameter of a grammar module.</summary>
+public class ModuleConstructionArg
+{
+    public ParameterInfo Parameter { get; set; } = null!;
+
+    /// <summary>The C# literal from the attribute argument, or null when the parameter is resolved from the scenario.</summary>
+    public string? Literal { get; set; }
+}
+
+/// <summary>A module type one fixture's [IncludeGrammars] attributes name more than once (BOBCAT018).</summary>
+public class DuplicateModuleInfo
+{
+    public string Module { get; set; } = "";
+    public string DeclaringType { get; set; } = "";
 }
 
 /// <summary>

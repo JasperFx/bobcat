@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+    <!-- Drives BobcatGenerator in memory. Deliberately its own project: Bobcat.Tests links
+         individual generator sources to stay Roslyn-free, while these tests need the real
+         analyzer assembly and a GeneratorDriver. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The analyzer as an ordinary library, so the driver can instantiate it. -->
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj" />
+    <!-- The runtime assembly the in-memory test compilations reference (Bobcat.Fixture etc). -->
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -49,7 +49,7 @@ public static class AlbaResourceDiagnostics
 /// Use this when you want full control over IHostBuilder construction rather than
 /// bootstrapping from a TProgram entry point.
 /// </summary>
-public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource
+public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource, IHttpResource
 {
     private readonly Func<Task<IAlbaHost>> _factory;
     private readonly Func<IAlbaHost, Task>? _reset;
@@ -152,6 +152,10 @@ public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource
 
     public ValueTask EndScenarioScope() => _scope.End();
 
+    /// <inheritdoc cref="IHttpResource.SendAsync"/>
+    public Task<SpecHttpResponse> SendAsync(SpecHttpRequest request, CancellationToken cancellation = default)
+        => AlbaHttpTransport.SendAsync(AlbaHost, request);
+
     public async ValueTask DisposeAsync()
     {
         await _scope.End();
@@ -169,7 +173,7 @@ public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource
 /// Implements IHostResource so that Wolverine, Marten, and other extensions can locate
 /// the host without knowing the specific resource type.
 /// </summary>
-public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartableResource where TProgram : class
+public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartableResource, IHttpResource where TProgram : class
 {
     private readonly Action<IWebHostBuilder>? _configure;
     private readonly IAlbaExtension[] _extensions;
@@ -328,6 +332,10 @@ public class AlbaResource<TProgram> : IHostResource, IAlbaResource, IRestartable
     public ValueTask BeginScenarioScope() => _scope.Begin();
 
     public ValueTask EndScenarioScope() => _scope.End();
+
+    /// <inheritdoc cref="IHttpResource.SendAsync"/>
+    public Task<SpecHttpResponse> SendAsync(SpecHttpRequest request, CancellationToken cancellation = default)
+        => AlbaHttpTransport.SendAsync(AlbaHost, request);
 
     public async ValueTask DisposeAsync()
     {
