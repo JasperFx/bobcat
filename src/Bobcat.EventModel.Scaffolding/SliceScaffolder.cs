@@ -35,6 +35,12 @@ public static class SliceScaffolder
     private static string commandSlice(CuratedSlice slice)
     {
         var frames = new List<ScaffoldFrame>();
+        var command = slice.Command ?? slice.Name;
+
+        // The collapsed default (CritterStackSamples#13): an HTTP-triggered command slice IS its
+        // endpoint. The two-hop translation + message-handler shape is opt-in for bus-visible
+        // commands only — see EndpointTranslationFrame.
+        var collapsed = slice.Pattern == "Command" && slice.Trigger?.Kind is "Http" or "Human";
 
         // Event records, fields synthesized from element hints + scenario columns
         foreach (var @event in slice.Events)
@@ -43,8 +49,12 @@ public static class SliceScaffolder
                 slice.Elements.GetValueOrDefault(@event)?.Description));
         }
 
-        // The command record for a Command slice (an Automation is triggered by an event, not a command)
-        if (slice.Pattern == "Command" && slice.Command is not null)
+        if (collapsed)
+        {
+            frames.Add(new RecordFrame($"{command}Request", fieldsFor(slice, command)));
+            frames.Add(new RecordFrame($"{slice.Name}Response", []));
+        }
+        else if (slice.Pattern == "Command" && slice.Command is not null)
         {
             frames.Add(new RecordFrame(slice.Command, fieldsFor(slice, slice.Command)));
         }
@@ -55,13 +65,15 @@ public static class SliceScaffolder
                 fieldsFor(slice, aggregate)));
         }
 
-        frames.Add(new WriteModelHandlerFrame(slice,
-            maybeNewStream: slice.Pattern == "Command"));
-
-        if (slice.Pattern == "Command" && slice.Trigger?.Kind is "Http" or "Human")
+        if (collapsed)
         {
-            frames.Add(new EndpointTranslationFrame(slice,
+            frames.Add(new CollapsedEndpointFrame(slice,
                 $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}"));
+        }
+        else
+        {
+            frames.Add(new WriteModelHandlerFrame(slice,
+                maybeNewStream: slice.Pattern == "Command"));
         }
 
         return ScaffoldFrame.Render(frames.ToArray());

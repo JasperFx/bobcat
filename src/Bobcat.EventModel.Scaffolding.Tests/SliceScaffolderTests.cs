@@ -55,7 +55,12 @@ public class SliceScaffolderTests
             pattern: View
             domain: Discovery
             projections: [MatchListProjection]
+            fanOut: true
             readModels: [MatchList]
+          - name: ViewSwipePair
+            pattern: View
+            domain: Discovery
+            readModels: [SwipePair]
         """;
 
     private static string scaffold(string sliceName)
@@ -66,35 +71,32 @@ public class SliceScaffolderTests
     }
 
     [Fact]
-    public void a_command_slice_scaffolds_the_aggregate_workflow_shape()
+    public void an_http_command_slice_collapses_the_endpoint_is_the_handler()
     {
         var code = scaffold("SwipeOnDog");
 
-        // The mechanical 80%: shapes, attributes, and warnings — with judgment as marked TODOs.
+        // The collapsed default (CritterStackSamples#13): one transaction, honest status codes.
         code.ShouldContain("public record DogLiked(Guid SwiperDogId, DateTimeOffset LikedAt");
-        code.ShouldContain("public record SwipeOnDog(Guid SwiperDogId, bool Liked);");
-        code.ShouldContain("public static class SwipeOnDogHandler");
-        code.ShouldContain("public static EventsToAppend Handle(SwipeOnDog command, [WriteModel] SwipePair? swipePair)");
+        code.ShouldContain("public record SwipeOnDogRequest(Guid SwiperDogId, bool Liked);");
+        code.ShouldContain("public record SwipeOnDogResponse();");
+        code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
+        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDogRequest request, [WriteModel] SwipePair? swipePair)");
         code.ShouldContain("public static SwipePair Create(DogLiked dogLiked)");
         code.ShouldContain("public void Apply(DogPassed dogPassed)");
         code.ShouldContain("never DateTimeOffset.UtcNow");
         code.ShouldContain("wolverine#4309");
+        // No two-hop shape: the bus-visible command handler is opt-in, not the default.
+        code.ShouldNotContain("SwipeOnDogHandler");
     }
 
     [Fact]
-    public void guards_are_harvested_from_the_scenarios_refusals()
-    {
-        scaffold("SwipeOnDog")
-            .ShouldContain("""throw new InvalidOperationException("profile no longer available")""");
-    }
-
-    [Fact]
-    public void a_command_slice_with_an_http_trigger_gets_the_pure_translation_endpoint()
+    public void refusals_are_harvested_into_the_validate_railway_stub()
     {
         var code = scaffold("SwipeOnDog");
 
-        code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
-        code.ShouldContain("public static (CreationResponse, SwipeOnDog) Post(SwipeOnDogRequest request)");
+        code.ShouldContain("public static ProblemDetails Validate(SwipeOnDogRequest request)");
+        code.ShouldContain("""Detail = "profile no longer available", Status = 400""");
+        code.ShouldContain("return WolverineContinue.NoProblems;");
     }
 
     [Fact]
@@ -108,14 +110,29 @@ public class SliceScaffolderTests
     }
 
     [Fact]
-    public void a_view_slice_scaffolds_read_model_projection_and_get()
+    public void a_fan_out_view_slice_gets_a_multi_stream_projection_and_a_document_load()
     {
         var code = scaffold("MatchList");
 
         code.ShouldContain("public class MatchList");
-        code.ShouldContain("public class MatchListProjection : SingleStreamProjection<MatchList, Guid>");
+        code.ShouldContain("public class MatchListProjection : MultiStreamProjection<MatchList, Guid>");
+        code.ShouldContain("Identities<SourceEvent>");
         code.ShouldContain("daemon RUNNING");
-        code.ShouldContain("[WolverineGet(\"/api/matchlist/{id}\")]");
+        code.ShouldContain("session.LoadAsync<MatchList>(id, ct)");
+        // A fan-out is not a single-stream aggregation — [ReadAggregate] can never serve it.
+        code.ShouldNotContain("[ReadAggregate]");
+    }
+
+    [Fact]
+    public void a_projector_less_view_slice_reads_the_snapshot_with_read_aggregate_and_emits_no_duplicate_class()
+    {
+        var code = scaffold("ViewSwipePair");
+
+        // The write model IS the read model: [ReadAggregate] (single-stream aggregations only),
+        // no second SwipePair class, no session ceremony.
+        code.ShouldContain("public static SwipePair Get([ReadAggregate] SwipePair swipePair) => swipePair;");
+        code.ShouldNotContain("public class SwipePair");
+        code.ShouldNotContain("LoadAsync");
     }
 
     [Fact]

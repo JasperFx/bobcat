@@ -154,8 +154,73 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 }
 
 /// <summary>
-/// The HTTP face of a state-change slice: a pure translation minting identity and cascading the
-/// command through the transactional outbox — no mediator hop, nothing a crash can tear in half.
+/// The collapsed HTTP state-change slice — the default (CritterStackSamples#13 review, 2026-09-06):
+/// the endpoint IS the handler. One transaction appends the events, the outbox carries anything
+/// cascaded, the status code is honest, and a computed stream identity binds off the request body
+/// via <c>[Identity]</c>. Refusals harvested from the slice's <c>validationFails</c> scenarios land
+/// as TODOs in a <c>Validate</c> railway stub, not in the decision.
+/// </summary>
+public class CollapsedEndpointFrame : ScaffoldFrame
+{
+    private readonly CuratedSlice _slice;
+    private readonly string _route;
+
+    public CollapsedEndpointFrame(CuratedSlice slice, string route)
+    {
+        _slice = slice;
+        _route = route;
+    }
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        var command = _slice.Command ?? _slice.Name;
+        var aggregate = _slice.Aggregates.FirstOrDefault() ?? $"{_slice.Name}Model";
+        var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
+
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine("/// The endpoint IS the handler: one transaction, honest status codes. Split a separate");
+        writer.WriteLine("/// message handler out only when this command genuinely needs bus visibility — other");
+        writer.WriteLine("/// callers, retry policies, scheduling — never for testability.");
+        writer.WriteLine("/// </summary>");
+        writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
+
+        writer.Write($"BLOCK:public static ProblemDetails Validate({command}Request request)");
+        var refusals = _slice.Specifications?.Scenarios
+            .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
+        foreach (var refusal in refusals)
+        {
+            writer.WriteLine($"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal}\", Status = 400 }};");
+        }
+
+        writer.WriteLine("return WolverineContinue.NoProblems;");
+        writer.FinishBlock();
+        writer.BlankLine();
+
+        writer.WriteLine($"[WolverinePost(\"{_route}\")]");
+        writer.Write(
+            $"BLOCK:public static ({_slice.Name}Response, EventsToAppend) Post({command}Request request, [WriteModel] {aggregate}? {argument})");
+
+        foreach (var hotspot in _slice.Hotspots)
+        {
+            writer.WriteLine($"// HOTSPOT (from the model): {hotspot}");
+        }
+
+        writer.WriteLine("// TODO: the decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
+        writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
+        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
+        writer.WriteLine($"return (new {_slice.Name}Response(/* TODO */), [{events}]);");
+        writer.FinishBlock();
+        writer.FinishBlock();
+        writer.BlankLine();
+        Next?.GenerateCode(method, writer);
+    }
+}
+
+/// <summary>
+/// The two-hop OPT-IN: an endpoint translating the request into a cascaded, bus-visible command.
+/// ⚠️ Not the default — use only when the command genuinely needs bus visibility (other callers,
+/// retry/error policies, scheduling); the cascade means the response returns before the handler
+/// runs, and creation semantics weaken to accepted-not-created.
 /// </summary>
 public class EndpointTranslationFrame : ScaffoldFrame
 {
@@ -198,6 +263,25 @@ public class ViewSliceFrame : ScaffoldFrame
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
         var readModel = _slice.ReadModels.FirstOrDefault() ?? _slice.Name;
+        var argument = char.ToLowerInvariant(readModel[0]) + readModel[1..];
+
+        if (_slice.Projections.Count == 0)
+        {
+            // The projector-less View slice reads an entity's own snapshot back by id — the
+            // write model IS the read model, so there is no duplicate class to emit and the
+            // endpoint is [ReadAggregate]. That attribute applies ONLY to a single-stream
+            // aggregation (a snapshot or live-aggregable type) — never to a projector-built or
+            // fan-out document.
+            writer.WriteLine($"// {readModel} is the entity's own Inline snapshot — the write model IS the read model.");
+            writer.Write($"BLOCK:public static class Get{readModel}Endpoint");
+            writer.WriteLine($"[WolverineGet(\"/api/{readModel.ToLowerInvariant()}/{{id}}\")]");
+            writer.WriteLine("// [ReadAggregate] only applies to a single-stream aggregation; it 404s a missing stream.");
+            writer.WriteLine($"public static {readModel} Get([ReadAggregate] {readModel} {argument}) => {argument};");
+            writer.FinishBlock();
+            writer.BlankLine();
+            Next?.GenerateCode(method, writer);
+            return;
+        }
 
         writer.Write($"BLOCK:public class {readModel}");
         writer.WriteLine("public Guid Id { get; set; }");
@@ -205,19 +289,28 @@ public class ViewSliceFrame : ScaffoldFrame
         writer.FinishBlock();
         writer.BlankLine();
 
-        if (_slice.Projections.Count > 0)
+        writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
+        if (_slice.FanOut)
         {
-            writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
-            writer.Write($"BLOCK:public class {_slice.Projections[0]} : SingleStreamProjection<{readModel}, Guid>");
-            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.Write($"BLOCK:public class {_slice.Projections[0]} : MultiStreamProjection<{readModel}, Guid>");
+            writer.Write($"BLOCK:public {_slice.Projections[0]}()");
+            writer.WriteLine("// TODO: the fan-out routing — Identities<SourceEvent>(x => [x.OneId, x.OtherId]);");
             writer.FinishBlock();
             writer.BlankLine();
+            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.FinishBlock();
         }
         else
         {
-            writer.WriteLine("// No projector declared: this read model is an entity's own Inline snapshot read back by id.");
+            writer.Write($"BLOCK:public class {_slice.Projections[0]} : SingleStreamProjection<{readModel}, Guid>");
+            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.FinishBlock();
         }
 
+        writer.BlankLine();
+
+        // Projector-built documents load as documents. [ReadAggregate] would be wrong here —
+        // it only applies to a single-stream aggregation, and a fan-out is not one.
         writer.Write($"BLOCK:public static class Get{readModel}Endpoint");
         writer.WriteLine($"[WolverineGet(\"/api/{readModel.ToLowerInvariant()}/{{id}}\")]");
         writer.WriteLine($"public static Task<{readModel}?> Get(Guid id, IQuerySession session, CancellationToken ct)");
