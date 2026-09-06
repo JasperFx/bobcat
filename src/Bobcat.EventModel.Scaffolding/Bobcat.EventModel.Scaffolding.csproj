@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Deterministic slice scaffolding over declared Event Models — JasperFx code-generation frames that turn a curated slice into handler, endpoint, aggregate, and .feature skeletons, leaving only judgment as marked TODOs.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SourceWriter + the Frame model. Direct so CPM pins it (the same trap Bobcat.Alba documents). -->
+    <PackageReference Include="JasperFx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
+  </ItemGroup>
+
+</Project>

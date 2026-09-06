@@ -37,6 +37,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.CritterStack\Bobcat.CritterStack.csproj" />
+    <!-- For the TrackedHttpCall tests (issue #211): the TESTS drive a real HTTP endpoint through
+         Alba to prove the tracked-call bracket. Bobcat.CritterStack itself references neither Alba
+         nor ASP.NET — the HTTP call reaches WhenTracked as a delegate, which is the point. -->
+    <ProjectReference Include="..\Bobcat.Alba\Bobcat.Alba.csproj" />
     <!-- The shipped grammar is compiled from a .feature file, so this project runs the generator to
          prove the #104 acceptance: a feature written only in grammar steps compiles and runs. -->
     <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"

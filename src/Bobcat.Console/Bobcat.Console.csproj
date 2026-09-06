@@ -107,4 +107,11 @@
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The declared event-model file format + emlang importer behind `import-event-model`
+         (#201/#202). This direction is fine under the layering rule: the console consumes the
+         library; no Bobcat.* library references the console. -->
+    <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
+  </ItemGroup>
+
 </Project>
