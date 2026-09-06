@@ -81,9 +81,8 @@ public class SliceScaffolderTests
         code.ShouldContain("public record SwipeOnDogResponse();");
         code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
         code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDogRequest request, [WriteModel] SwipePair? swipePair)");
-        code.ShouldContain("public static SwipePair Create(DogLiked dogLiked)");
-        code.ShouldContain("public void Apply(DogPassed dogPassed)");
-        code.ShouldContain("never DateTimeOffset.UtcNow");
+        // The aggregate is NOT here — it is a model-level artifact now (see below).
+        code.ShouldNotContain("public class SwipePair");
         code.ShouldContain("wolverine#4309");
         // No two-hop shape: the bus-visible command handler is opt-in, not the default.
         code.ShouldNotContain("SwipeOnDogHandler");
@@ -133,6 +132,39 @@ public class SliceScaffolderTests
         code.ShouldContain("public static SwipePair Get([ReadAggregate] SwipePair swipePair) => swipePair;");
         code.ShouldNotContain("public class SwipePair");
         code.ShouldNotContain("LoadAsync");
+    }
+
+    [Fact]
+    public void the_aggregate_is_emitted_once_for_the_whole_model_not_once_per_slice()
+    {
+        // Two slices declare SwipePair; nine would too. Emitting it per slice produces partial
+        // duplicates of one type that cannot compile — an aggregate is a model-level concern,
+        // exactly like a feature file.
+        var files = SliceScaffolder.ScaffoldAggregates(parse(Model));
+
+        var (path, code) = files.Single();
+        path.ShouldBe("Discovery/SwipePair.cs");
+        code.ShouldContain("public class SwipePair");
+        code.ShouldContain("never DateTimeOffset.UtcNow");
+
+        // ...and it folds EVERY declaring slice's events, not just the first slice's.
+        code.ShouldContain("public static SwipePair Create(DogLiked dogLiked)");
+        code.ShouldContain("public void Apply(DogPassed dogPassed)");
+        code.ShouldContain("public void Apply(MutualMatchDetected mutualMatchDetected)");
+    }
+
+    [Fact]
+    public void every_scenario_gets_its_own_stream_id_because_scenarios_share_a_store()
+    {
+        var swiping = SliceScaffolder.ScaffoldFeatures(parse(Model)).Single().Value;
+
+        var ids = swiping.Split('\n')
+            .Where(x => x.Contains("Given no events for "))
+            .Select(x => x.Split('"')[1])
+            .ToList();
+
+        ids.Count.ShouldBeGreaterThan(1);
+        ids.Distinct().Count().ShouldBe(ids.Count);
     }
 
     [Fact]
