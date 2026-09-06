@@ -165,6 +165,7 @@ public abstract class CritterStackFixture : Fixture
     {
         AggregateType = typeof(T);
         Ctx.RecordTouchedType(typeof(T));
+        Ctx.SetState(new ScenarioStream(typeof(T), identity));
         if (events.Length > 0)
         {
             await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), typeof(T), identity, events, Ctx.Cancellation);
@@ -377,6 +378,10 @@ public abstract class CritterStackFixture : Fixture
 
         AggregateType = aggregate;
         Ctx.RecordTouchedType(aggregate);
+
+        // Published so a cooperating grammar's act (HttpGrammars' POST, a composed module) can
+        // bracket the same stream — the issue #212 shared-state contract.
+        Ctx.SetState(new ScenarioStream(aggregate, streamIdentity!));
     }
 
     [Given("events for {aggregate}")]
@@ -387,6 +392,8 @@ public abstract class CritterStackFixture : Fixture
             throw new SpecCriticalException(
                 "'Given events for …' needs the stream id — precede it with 'Given no events for <aggregate> \"<id>\"' " +
                 "(or a step that sets the id).");
+
+        Ctx.SetState(new ScenarioStream(aggregate, identity));
 
         var built = buildEvents(aggregate, events);
         await EventStoreAuthoring.AppendAsync(Ctx.EventStore(HostResource, StoreName), aggregate, identity, built, Ctx.Cancellation);
@@ -501,31 +508,15 @@ public abstract class CritterStackFixture : Fixture
     }
 
     /// <summary>
-    /// The shared act bracket: snapshot the current stream, run the tracked dispatch, and capture
-    /// what it did — session, appended events, or the exception — into <see cref="LastExecution"/>.
-    /// One bracket for <see cref="WhenCommand{T}"/> and <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
-    /// so a command act and an HTTP act feed the assertion steps identically.
+    /// The shared act bracket, delegated to <see cref="TrackedActs.ExecuteAsync"/>: snapshot the
+    /// current stream, run the tracked dispatch, and capture what it did — session, appended
+    /// events, or the exception — into <see cref="LastExecution"/>. One bracket for
+    /// <see cref="WhenCommand{T}"/>, <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>
+    /// and a composed grammar's own act (<c>HttpGrammars</c>), so every act feeds the assertion
+    /// steps identically.
     /// </summary>
     private async Task executeTrackedCore(Func<Task<ITrackedSession>> dispatch)
-    {
-        var before = await fetchCurrentStreamAsync();
-
-        try
-        {
-            var session = await dispatch();
-            var after = await fetchCurrentStreamAsync();
-            RecordExecution(new TrackedExecution(session, after.Skip(before.Count).ToList(), null));
-
-            // Observed run evidence (issue #107): the events the act actually appended and
-            // the messages the tracked session actually sent — never what a Then merely names.
-            recordTouched(LastEvents.Select(e => e.Data));
-            recordTouched(session.Sent.AllMessages());
-        }
-        catch (Exception e)
-        {
-            RecordExecution(new TrackedExecution(null, [], e));
-        }
-    }
+        => RecordExecution(await TrackedActs.ExecuteAsync(Ctx, dispatch, streamIdentity, HostResource, StoreName));
 
     private void recordTouched(IEnumerable<object> items)
     {
@@ -534,12 +525,6 @@ public abstract class CritterStackFixture : Fixture
             if (item != null) Ctx.RecordTouchedType(item.GetType());
         }
     }
-
-    /// <summary>The current stream's events, by whichever identity kind the Given established.</summary>
-    private Task<IReadOnlyList<IEvent>> fetchCurrentStreamAsync()
-        => StreamKey is { } key
-            ? Ctx.FetchEventStreamAsync(key, HostResource, StoreName)
-            : Ctx.FetchEventStreamAsync(StreamId, HostResource, StoreName);
 
     private Task<object?> loadReadModel(Type readmodel)
     {
