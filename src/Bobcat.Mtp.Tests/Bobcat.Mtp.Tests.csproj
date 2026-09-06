@@ -19,6 +19,11 @@
          Main would otherwise collide with the test host's entry point. -->
     <ProjectReference Include="..\Bobcat.Mtp.SampleHost\Bobcat.Mtp.SampleHost.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- Same arrangement for the issue #207 proof project: launched as an executable, its
+         generator-emitted Main would otherwise collide with this test host's entry point. -->
+    <ProjectReference Include="..\Bobcat.Mtp.GeneratedHost\Bobcat.Mtp.GeneratedHost.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

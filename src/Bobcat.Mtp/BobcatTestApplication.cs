@@ -1,6 +1,7 @@
 using Bobcat.Runtime;
 using Microsoft.Testing.Platform.Builder;
 using Microsoft.Testing.Platform.Capabilities.TestFramework;
+using Microsoft.Testing.Platform.Services;
 
 namespace Bobcat.Mtp;
 
@@ -42,9 +43,14 @@ public static class BobcatTestApplication
         // how Bobcat.Console.Specs became the first Bobcat host `dotnet test` ever collected.
         Microsoft.Testing.Platform.MSBuild.TestingPlatformBuilderHook.AddExtensions(builder, args);
 
+        // The friendly filters (issue #207): --filter-feature / --filter-tag beside the
+        // platform's own --filter-uid.
+        builder.CommandLine.AddProvider(() => new BobcatFilterOptionsProvider());
+
         builder.RegisterTestFramework(
             _ => new TestFrameworkCapabilities(),
-            (capabilities, _) => new BobcatTestFramework(configure, capabilities));
+            (capabilities, serviceProvider) => new BobcatTestFramework(
+                configure, capabilities, serviceProvider.GetCommandLineOptions()));
 
         using var app = await builder.BuildAsync();
         return await app.RunAsync();

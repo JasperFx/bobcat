@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Bobcat.Generators;
 
@@ -139,6 +140,89 @@ public class BobcatGenerator : IIncrementalGenerator
                         slices.Values.ToList()));
             }
         });
+
+        // Issue #207: emit the Microsoft.Testing.Platform entry point for a spec assembly that
+        // references Bobcat.Mtp and declares no Main of its own, so a consumer's setup is only
+        // package references + .feature files. [BobcatConfiguration] methods are the configure
+        // seam the generated Main calls. See EntryPointEmitter for the gates.
+        var configurationMethods = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is MethodDeclarationSyntax mds && mds.AttributeLists.Count > 0,
+                transform: (ctx, ct) => EntryPointEmitter.ExtractConfigurationMethod(ctx, ct))
+            .Where(m => m != null)
+            .Select((m, _) => m!);
+
+        var entryPointInputs = context.CompilationProvider
+            .Combine(configurationMethods.Collect())
+            .Combine(context.AnalyzerConfigOptionsProvider);
+
+        context.RegisterSourceOutput(entryPointInputs,
+            (spc, pair) => emitEntryPoint(spc, pair.Left.Left, pair.Left.Right, pair.Right));
+    }
+
+    /// <summary>
+    /// Decides whether this compilation gets a generated MTP entry point, and reports honestly
+    /// on the [BobcatConfiguration] methods either way: a method the generated Main cannot call
+    /// is BOBCAT016 (error — it was declared to be called), and a method that will never be
+    /// called because no entry point is generated is BOBCAT017 (warning naming the reason),
+    /// rather than being silently ignored.
+    /// </summary>
+    private static void emitEntryPoint(SourceProductionContext spc, Compilation compilation,
+        ImmutableArray<EntryPointEmitter.ConfigurationMethodInfo> methods,
+        AnalyzerConfigOptionsProvider config)
+    {
+        string? skipReason = null;
+
+        if (compilation.GetTypeByMetadataName(EntryPointEmitter.GateTypeName) == null)
+        {
+            // Most Bobcat suites run in-process and never reference the MTP host package. No
+            // entry point, and no warning either — unless a configuration method is waiting for
+            // one, which is a wiring mistake worth naming.
+            skipReason = "the compilation does not reference Bobcat.Mtp";
+        }
+        else if (config.GlobalOptions.TryGetValue(EntryPointEmitter.GenerateEntryPointProperty, out var configured)
+                 && string.Equals(configured, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            skipReason = "the BobcatGenerateEntryPoint MSBuild property is false";
+        }
+        else if (compilation.Options.OutputKind != OutputKind.ConsoleApplication)
+        {
+            skipReason = "the project does not build an executable (set <OutputType>Exe</OutputType>)";
+        }
+        else if (compilation.GetEntryPoint(spc.CancellationToken) != null)
+        {
+            // A hand-written Main is authoritative — this is what makes CS0017 impossible and
+            // keeps every existing consumer compiling unchanged.
+            skipReason = "the assembly declares its own entry point, which owns configuration";
+        }
+
+        if (skipReason != null)
+        {
+            foreach (var method in methods)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.ConfigurationMethodNotCalled, Microsoft.CodeAnalysis.Location.None,
+                    method.DisplayName, skipReason));
+            }
+
+            return;
+        }
+
+        var callable = new List<EntryPointEmitter.ConfigurationMethodInfo>();
+        foreach (var method in methods)
+        {
+            if (method.Problem != null)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.InvalidConfigurationMethod, Microsoft.CodeAnalysis.Location.None,
+                    method.DisplayName, method.Problem));
+                continue;
+            }
+
+            callable.Add(method);
+        }
+
+        spc.AddSource(EntryPointEmitter.HintName, EntryPointEmitter.EmitSource(callable));
     }
 
     private static FeatureInfo? parseFeatureFile(string path, string content)
@@ -1203,6 +1287,25 @@ internal static class Diagnostics
         "Step '{0}' on '{1}' hides the same step declared on base class '{2}'; the most-derived declaration is bound.",
         "Bobcat",
         DiagnosticSeverity.Info,
+        true);
+
+    public static readonly DiagnosticDescriptor InvalidConfigurationMethod = new(
+        "BOBCAT016",
+        "Invalid [BobcatConfiguration] method",
+        "The [BobcatConfiguration] method '{0}' cannot be called by the generated entry point: {1}. " +
+        "It must be a static void method taking exactly one BobcatRunner parameter, reachable from " +
+        "generated code.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor ConfigurationMethodNotCalled = new(
+        "BOBCAT017",
+        "[BobcatConfiguration] method is never called",
+        "The [BobcatConfiguration] method '{0}' is never called, because no entry point is being " +
+        "generated: {1}. Either remove the attribute or call the method from your own configuration.",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor HookMustBeInstance = new(

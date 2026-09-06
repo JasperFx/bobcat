@@ -634,6 +634,33 @@ never exercises that path.
 The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
 what `Bobcat.Mtp.Tests` exercises.
 
+**The entry point is generated (issue #207)** — a consumer needs only package references +
+`.feature` files, the zero-ceremony bar xUnit v3 sets. `Bobcat.Generators` emits
+`BobcatEntryPoint.g.cs` (a `Main` through `BobcatTestApplication.Run`, so the MSBuild-extension
+registration above keeps working, scanning the assembly for features and code-first specs) when
+**all four gates** pass, in order: the compilation references `Bobcat.Mtp` (type probe for
+`BobcatTestApplication`, same pattern as the `EventModelSliceDescriptor` probe); the
+`BobcatGenerateEntryPoint` MSBuild property is not `false` (opt-out — surfaced as a
+`CompilerVisibleProperty` in the buildTransitive props; opt-out rather than opt-in because the
+gates already mean the consumer asked to be a host); the output is an executable; and **the
+assembly declares no entry point of its own** — a hand-written `Main` always wins, which is what
+keeps every existing consumer compiling unchanged and makes CS0017 impossible. The configure
+seam is `[BobcatConfiguration]` (core `Bobcat`, on any `static void M(BobcatRunner)`): the
+generated `Main` calls every such method, sorted by declaring type then method name; a wrong
+shape is **BOBCAT016** (error), and a configuration method that will never be called — because
+one of the gates suppressed emission — is **BOBCAT017** (warning naming the reason), never
+silence. `Bobcat.Mtp.GeneratedHost` is the proof project: no `Main` anywhere, `IsTestProject=true`
+so root `dotnet test` collects it, and `Bobcat.Mtp.Tests` drives it as an executable.
+
+**Friendly filters (issue #207)**: `--filter-feature` (case-insensitive substring of the feature
+title) and `--filter-tag` (case-insensitive exact tag; written *without* the `@` — MTP consumes
+`@`-prefixed args as response files) register via `BobcatFilterOptionsProvider` inside
+`BobcatTestApplication.Run`, so hand-written-`Main` hosts get them too. Semantics deliberately
+mirror `BobcatRunner`'s own `--feature`/`--tag`; the pure logic is `SpecFilters` (testable like
+`SpecNodeMapping`), and the filters intersect with the platform's uid filter and narrow
+`--list-tests` as well. User docs: `docs/dotnet-test.md`, including the documented-not-engineered
+cost that an IDE single-scenario run still pays the suite's full resource `StartAll`.
+
 `Bobcat.Mtp.SampleHost` is a spec project run as a host; `IsTestProject=false` keeps `dotnet
 test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
 an executable instead.

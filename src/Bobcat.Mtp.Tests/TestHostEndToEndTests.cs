@@ -141,6 +141,30 @@ public class TestHostEndToEndTests
     }
 
     [Fact]
+    public async Task a_tag_filter_works_against_a_hand_written_main_too()
+    {
+        // The friendly filters register inside BobcatTestApplication.Run, so a host with its own
+        // Main — every pre-#207 consumer — gets them without changing a line. The sample host's
+        // tags come from code-first [Scenario(Tags = ...)], proving the filter is not
+        // Gherkin-only either.
+        var (exitCode, output) = await runHost("--filter-tag", "regression");
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("total: 1");
+        output.ShouldContain("succeeded: 1");
+    }
+
+    [Fact]
+    public async Task a_feature_filter_works_against_a_hand_written_main_too()
+    {
+        var (exitCode, output) = await runHost("--filter-feature", "Inventory");
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("total: 2");
+        output.ShouldContain("succeeded: 2");
+    }
+
+    [Fact]
     public async Task scenario_uids_are_stable_across_separate_processes()
     {
         // A supervisor retries by uid in a later process. If identity drifted between runs the

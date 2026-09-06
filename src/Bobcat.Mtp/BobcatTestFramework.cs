@@ -20,9 +20,15 @@ namespace Bobcat.Mtp;
 public sealed class BobcatTestFramework : ITestFramework, IDataProducer
 {
     private readonly Action<BobcatRunner> _configure;
+    private readonly IReadOnlyList<string> _featureFilters;
+    private readonly IReadOnlyList<string> _tagFilters;
 
-    public BobcatTestFramework(Action<BobcatRunner> configure, ITestFrameworkCapabilities capabilities)
-        => _configure = configure;
+    public BobcatTestFramework(Action<BobcatRunner> configure, ITestFrameworkCapabilities capabilities,
+        Microsoft.Testing.Platform.CommandLine.ICommandLineOptions? commandLineOptions = null)
+    {
+        _configure = configure;
+        (_featureFilters, _tagFilters) = SpecFilters.From(commandLineOptions);
+    }
 
     public string Uid => nameof(BobcatTestFramework);
     public string Version => typeof(BobcatTestFramework).Assembly.GetName().Version?.ToString() ?? "0.0.0";
@@ -71,7 +77,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
 
         foreach (var (feature, scenario) in scenarios(runner))
         {
-            if (!matches(request.Filter, SpecNodeMapping.Uid(feature, scenario))) continue;
+            if (!matches(request.Filter, feature, scenario)) continue;
 
             var properties = new PropertyBag(DiscoveredTestNodeStateProperty.CachedInstance);
             foreach (var trait in SpecNodeMapping.Traits(scenario.Tags)) properties.Add(trait);
@@ -89,10 +95,11 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
     {
         var runner = buildRunner();
 
-        // The platform hands the requested subset down as a filter. Honouring it is what makes
-        // a supervisor's selective re-run and [Isolated] scheduling work against this host.
-        runner.ScenarioFilter = (feature, scenario) =>
-            matches(request.Filter, SpecNodeMapping.Uid(feature, scenario));
+        // The platform hands the requested subset down as a filter, and the friendly
+        // --filter-feature/--filter-tag options intersect with it. Honouring the uid filter is
+        // what makes a supervisor's selective re-run and [Isolated] scheduling work against
+        // this host.
+        runner.ScenarioFilter = (feature, scenario) => matches(request.Filter, feature, scenario);
 
         var publisher = new PublishingObserver(this, context, request.Session.SessionUid);
         runner.WithObserver(publisher);
@@ -117,7 +124,7 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             // that has no verdict yet gets one in error naming the exception — which is worse
             // than a structured report, and far better than silence.
             var planned = scenarios(runner)
-                .Where(pair => matches(request.Filter, SpecNodeMapping.Uid(pair.Feature, pair.Scenario)));
+                .Where(pair => matches(request.Filter, pair.Feature, pair.Scenario));
 
             foreach (var (feature, scenario) in planned)
             {
@@ -144,7 +151,15 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
                 yield return (feature, scenario);
     }
 
-    private static bool matches(ITestExecutionFilter filter, string uid)
+    /// <summary>
+    /// One scenario passes when the platform's uid filter and the host's friendly filters all
+    /// agree — the uid filter selects, the friendly filters narrow.
+    /// </summary>
+    private bool matches(ITestExecutionFilter filter, FeatureDefinition feature, ScenarioDefinition scenario)
+        => matchesUid(filter, SpecNodeMapping.Uid(feature, scenario))
+           && SpecFilters.Matches(feature, scenario, _featureFilters, _tagFilters);
+
+    private static bool matchesUid(ITestExecutionFilter filter, string uid)
         => filter switch
         {
             TestNodeUidListFilter uids => uids.TestNodeUids.Any(u => u.Value == uid),
