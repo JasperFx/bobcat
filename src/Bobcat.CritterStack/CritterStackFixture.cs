@@ -79,13 +79,26 @@ public abstract class CritterStackFixture : Fixture
     /// <summary>The aggregate type the current stream belongs to, from the last Given.</summary>
     protected Type? AggregateType { get; private set; }
 
+    private TrackedExecution _lastExecution = TrackedExecution.None;
+
     /// <summary>
     /// The capture of the scenario's last act — a dispatched command or a tracked HTTP call —
     /// which is what every <c>Then</c> step here asserts against. Public and typed, so a
     /// cooperating grammar (issue #210's HTTP steps, a composed module under issue #212) can read
     /// it, and written only through <see cref="RecordExecution"/>.
     /// </summary>
-    public TrackedExecution LastExecution { get; private set; } = TrackedExecution.None;
+    /// <remarks>
+    /// The capture also rides the scenario-state blackboard (issue #212): reading prefers the
+    /// scenario's published <see cref="TrackedExecution"/>, so an act performed by a
+    /// <em>different</em> grammar instance in the same scenario — <c>HttpGrammars</c>'
+    /// <c>When {command} is posted to …</c> is the first — feeds these assertion steps with no
+    /// fixture field in common. Outside a scenario (or on a context without state) the fixture's
+    /// own last capture answers, so nothing about the pre-#212 behaviour changed.
+    /// </remarks>
+    public TrackedExecution LastExecution
+        => Context != null && Context.TryGetState<TrackedExecution>(out var published)
+            ? published
+            : _lastExecution;
 
     /// <summary>
     /// Record what an act did, making it the capture the assertion steps read. This is the seam
@@ -93,8 +106,14 @@ public abstract class CritterStackFixture : Fixture
     /// <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
     /// or its own tracked dispatch — feed the same <c>Then {event} is emitted</c> /
     /// <c>Then {message} is sent</c> / refusal vocabulary the command steps use (issue #211).
+    /// The capture is also published to the scenario-state blackboard, so a cooperating grammar
+    /// that only sees <see cref="Engine.IStepContext"/> reads the same record (issue #212).
     /// </summary>
-    public void RecordExecution(TrackedExecution execution) => LastExecution = execution;
+    public void RecordExecution(TrackedExecution execution)
+    {
+        _lastExecution = execution;
+        Context?.SetState(execution);
+    }
 
     /// <summary>The events the last act appended to the current stream, or empty.</summary>
     protected IReadOnlyList<IEvent> LastEvents => LastExecution.NewEvents;
@@ -114,7 +133,7 @@ public abstract class CritterStackFixture : Fixture
         StreamId = Guid.Empty;
         StreamKey = null;
         AggregateType = null;
-        LastExecution = TrackedExecution.None;
+        RecordExecution(TrackedExecution.None);
     }
 
     // ---- typed steps (shared with the code-first API, issue #105) -----------------------------

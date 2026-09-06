@@ -1,4 +1,5 @@
 using Bobcat;
+using Bobcat.Engine;
 
 namespace Bobcat.Acceptance.Tests;
 
@@ -24,7 +25,32 @@ public class ContextProbeModule : Fixture
     public bool HasContext() => Context != null;
 }
 
+/// <summary>
+/// The capture two cooperating grammars agree on. Deliberately the ONLY thing
+/// <see cref="ActingModule"/> and <see cref="AssertingModule"/> have in common — no shared base,
+/// no reference between them, exactly the issue #212 phase-1 contract.
+/// </summary>
+public sealed record ActCapture(string Payload);
+
+/// <summary>Performs an act and publishes its capture onto the scenario-state blackboard.</summary>
+public class ActingModule
+{
+    [When("the acting grammar performs {string}")]
+    public void Act(IStepContext context, string payload) => context.SetState(new ActCapture(payload));
+}
+
+/// <summary>Asserts on whatever act happened, knowing only the capture type.</summary>
+public class AssertingModule
+{
+    [Then("the observed act should be {string}")]
+    public string Observed(IStepContext context) => context.GetState<ActCapture>().Payload;
+
+    [Check("no act was observed")]
+    public bool NoActObserved(IStepContext context) => !context.TryGetState<ActCapture>(out _);
+}
+
 [IncludeGrammars(typeof(CounterModule), typeof(ContextProbeModule))]
+[IncludeGrammars(typeof(ActingModule), typeof(AssertingModule))]
 public class ComposedFixture : Fixture
 {
     [Check("the fixture's own check passes")]
