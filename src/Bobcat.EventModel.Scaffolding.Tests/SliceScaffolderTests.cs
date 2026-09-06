@@ -55,7 +55,12 @@ public class SliceScaffolderTests
             pattern: View
             domain: Discovery
             projections: [MatchListProjection]
+            fanOut: true
             readModels: [MatchList]
+          - name: ViewSwipePair
+            pattern: View
+            domain: Discovery
+            readModels: [SwipePair]
         """;
 
     private static string scaffold(string sliceName)
@@ -105,14 +110,29 @@ public class SliceScaffolderTests
     }
 
     [Fact]
-    public void a_view_slice_scaffolds_read_model_projection_and_get()
+    public void a_fan_out_view_slice_gets_a_multi_stream_projection_and_a_document_load()
     {
         var code = scaffold("MatchList");
 
         code.ShouldContain("public class MatchList");
-        code.ShouldContain("public class MatchListProjection : SingleStreamProjection<MatchList, Guid>");
+        code.ShouldContain("public class MatchListProjection : MultiStreamProjection<MatchList, Guid>");
+        code.ShouldContain("Identities<SourceEvent>");
         code.ShouldContain("daemon RUNNING");
-        code.ShouldContain("[WolverineGet(\"/api/matchlist/{id}\")]");
+        code.ShouldContain("session.LoadAsync<MatchList>(id, ct)");
+        // A fan-out is not a single-stream aggregation — [ReadAggregate] can never serve it.
+        code.ShouldNotContain("[ReadAggregate]");
+    }
+
+    [Fact]
+    public void a_projector_less_view_slice_reads_the_snapshot_with_read_aggregate_and_emits_no_duplicate_class()
+    {
+        var code = scaffold("ViewSwipePair");
+
+        // The write model IS the read model: [ReadAggregate] (single-stream aggregations only),
+        // no second SwipePair class, no session ceremony.
+        code.ShouldContain("public static SwipePair Get([ReadAggregate] SwipePair swipePair) => swipePair;");
+        code.ShouldNotContain("public class SwipePair");
+        code.ShouldNotContain("LoadAsync");
     }
 
     [Fact]

@@ -263,6 +263,25 @@ public class ViewSliceFrame : ScaffoldFrame
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
         var readModel = _slice.ReadModels.FirstOrDefault() ?? _slice.Name;
+        var argument = char.ToLowerInvariant(readModel[0]) + readModel[1..];
+
+        if (_slice.Projections.Count == 0)
+        {
+            // The projector-less View slice reads an entity's own snapshot back by id — the
+            // write model IS the read model, so there is no duplicate class to emit and the
+            // endpoint is [ReadAggregate]. That attribute applies ONLY to a single-stream
+            // aggregation (a snapshot or live-aggregable type) — never to a projector-built or
+            // fan-out document.
+            writer.WriteLine($"// {readModel} is the entity's own Inline snapshot — the write model IS the read model.");
+            writer.Write($"BLOCK:public static class Get{readModel}Endpoint");
+            writer.WriteLine($"[WolverineGet(\"/api/{readModel.ToLowerInvariant()}/{{id}}\")]");
+            writer.WriteLine("// [ReadAggregate] only applies to a single-stream aggregation; it 404s a missing stream.");
+            writer.WriteLine($"public static {readModel} Get([ReadAggregate] {readModel} {argument}) => {argument};");
+            writer.FinishBlock();
+            writer.BlankLine();
+            Next?.GenerateCode(method, writer);
+            return;
+        }
 
         writer.Write($"BLOCK:public class {readModel}");
         writer.WriteLine("public Guid Id { get; set; }");
@@ -270,19 +289,28 @@ public class ViewSliceFrame : ScaffoldFrame
         writer.FinishBlock();
         writer.BlankLine();
 
-        if (_slice.Projections.Count > 0)
+        writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
+        if (_slice.FanOut)
         {
-            writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
-            writer.Write($"BLOCK:public class {_slice.Projections[0]} : SingleStreamProjection<{readModel}, Guid>");
-            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.Write($"BLOCK:public class {_slice.Projections[0]} : MultiStreamProjection<{readModel}, Guid>");
+            writer.Write($"BLOCK:public {_slice.Projections[0]}()");
+            writer.WriteLine("// TODO: the fan-out routing — Identities<SourceEvent>(x => [x.OneId, x.OtherId]);");
             writer.FinishBlock();
             writer.BlankLine();
+            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.FinishBlock();
         }
         else
         {
-            writer.WriteLine("// No projector declared: this read model is an entity's own Inline snapshot read back by id.");
+            writer.Write($"BLOCK:public class {_slice.Projections[0]} : SingleStreamProjection<{readModel}, Guid>");
+            writer.WriteLine("// TODO: Apply methods per source event");
+            writer.FinishBlock();
         }
 
+        writer.BlankLine();
+
+        // Projector-built documents load as documents. [ReadAggregate] would be wrong here —
+        // it only applies to a single-stream aggregation, and a fan-out is not one.
         writer.Write($"BLOCK:public static class Get{readModel}Endpoint");
         writer.WriteLine($"[WolverineGet(\"/api/{readModel.ToLowerInvariant()}/{{id}}\")]");
         writer.WriteLine($"public static Task<{readModel}?> Get(Guid id, IQuerySession session, CancellationToken ct)");

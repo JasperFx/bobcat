@@ -56,6 +56,15 @@ public sealed class CuratedSlice
     public List<string> Messages { get; set; } = [];
 
     public List<string> Projections { get; set; } = [];
+
+    /// <summary>
+    /// View slices only: true when one event updates MANY read-model documents (a multi-stream
+    /// fan-out — e.g. a match updating both dogs' lists) rather than folding one stream into one
+    /// document. A scaffolding hint the board cannot express and code cannot yet derive; the
+    /// scaffolder emits a MultiStreamProjection with an Identities routing TODO when set.
+    /// </summary>
+    public bool FanOut { get; set; }
+
     public List<string> ReadModels { get; set; } = [];
 
     public List<CuratedExternalSystem> ExternalSystems { get; set; } = [];
