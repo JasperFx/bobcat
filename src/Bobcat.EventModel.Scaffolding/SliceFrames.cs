@@ -94,11 +94,19 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly bool _maybeNewStream;
+    private readonly IReadOnlyList<CascadedMessage> _cascaded;
+    private readonly IReadOnlyList<string> _warnings;
+    private readonly string? _publishedBy;
 
-    public WriteModelHandlerFrame(CuratedSlice slice, bool maybeNewStream)
+    public WriteModelHandlerFrame(CuratedSlice slice, bool maybeNewStream,
+        IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null,
+        string? publishedBy = null)
     {
         _slice = slice;
         _maybeNewStream = maybeNewStream;
+        _cascaded = cascaded ?? [];
+        _warnings = warnings ?? [];
+        _publishedBy = publishedBy;
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -116,17 +124,30 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         writer.WriteLine(isAutomation
             ? "/// the framework loads the aggregate, appends, and commits. Design for at-least-once delivery."
             : "/// is a separate automation triggered by an event appended here.");
+        if (_publishedBy is not null)
+        {
+            writer.WriteLine($"/// Triggered over the bus: the model shows slice '{_publishedBy}' publishing {trigger}.");
+        }
+
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Handler");
 
         var parameter = _maybeNewStream ? $"[WriteModel] {aggregate}? " : $"[WriteModel] {aggregate} ";
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
+        var returnType = _cascaded.Count == 0
+            ? "EventsToAppend"
+            : $"(EventsToAppend, {string.Join(", ", _cascaded.Select(x => x.Name))})";
         writer.Write(
-            $"BLOCK:public static EventsToAppend Handle({trigger} {(isAutomation ? "trigger" : "command")}, {parameter}{argument})");
+            $"BLOCK:public static {returnType} Handle({trigger} {(isAutomation ? "trigger" : "command")}, {parameter}{argument})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
             writer.WriteLine($"// HOTSPOT (from the model): {hotspot}");
+        }
+
+        foreach (var warning in _warnings)
+        {
+            writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
         foreach (var refusal in refusals())
@@ -136,8 +157,18 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         }
 
         writer.WriteLine("// TODO: the decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
+        foreach (var message in _cascaded)
+        {
+            writer.WriteLine(message.LeavesTheSystem
+                ? $"// {message.Name} leaves the system (outbound external edge); the cascade rides the transactional outbox."
+                : $"// The model designates {message.Name} as bus-visible — slice '{message.HandledBy}' handles it; the cascade rides the transactional outbox.");
+        }
+
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
-        writer.WriteLine(events.Length > 0 ? $"return [{events}];" : "return [];");
+        var appended = events.Length > 0 ? $"[{events}]" : "[]";
+        writer.WriteLine(_cascaded.Count == 0
+            ? $"return {appended};"
+            : $"return ({appended}, {string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* TODO */)"))});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -164,11 +195,16 @@ public class CollapsedEndpointFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly string _route;
+    private readonly IReadOnlyList<CascadedMessage> _cascaded;
+    private readonly IReadOnlyList<string> _warnings;
 
-    public CollapsedEndpointFrame(CuratedSlice slice, string route)
+    public CollapsedEndpointFrame(CuratedSlice slice, string route,
+        IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null)
     {
         _slice = slice;
         _route = route;
+        _cascaded = cascaded ?? [];
+        _warnings = warnings ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -181,6 +217,11 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.WriteLine("/// The endpoint IS the handler: one transaction, honest status codes. Split a separate");
         writer.WriteLine("/// message handler out only when this command genuinely needs bus visibility — other");
         writer.WriteLine("/// callers, retry policies, scheduling — never for testability.");
+        if (_cascaded.Count > 0)
+        {
+            writer.WriteLine($"/// The model designates {string.Join(", ", _cascaded.Select(x => x.Name))} as bus-visible; the cascade below rides this transaction's outbox.");
+        }
+
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
 
@@ -197,18 +238,32 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.BlankLine();
 
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
+        var returnType = $"({_slice.Name}Response, EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
         writer.Write(
-            $"BLOCK:public static ({_slice.Name}Response, EventsToAppend) Post({command}Request request, [WriteModel] {aggregate}? {argument})");
+            $"BLOCK:public static {returnType} Post({command}Request request, [WriteModel] {aggregate}? {argument})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
             writer.WriteLine($"// HOTSPOT (from the model): {hotspot}");
         }
 
+        foreach (var warning in _warnings)
+        {
+            writer.WriteLine($"// WARNING (from the model): {warning}");
+        }
+
         writer.WriteLine("// TODO: the decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
         writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
+        foreach (var message in _cascaded)
+        {
+            writer.WriteLine(message.LeavesTheSystem
+                ? $"// {message.Name} leaves the system (outbound external edge); the cascade rides the transactional outbox."
+                : $"// The model designates {message.Name} as bus-visible — slice '{message.HandledBy}' handles it; the cascade rides the transactional outbox.");
+        }
+
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
-        writer.WriteLine($"return (new {_slice.Name}Response(/* TODO */), [{events}]);");
+        var cascades = string.Concat(_cascaded.Select(x => $", new {x.Name}(/* TODO */)"));
+        writer.WriteLine($"return (new {_slice.Name}Response(/* TODO */), [{events}]{cascades});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -220,25 +275,47 @@ public class CollapsedEndpointFrame : ScaffoldFrame
 /// The two-hop OPT-IN: an endpoint translating the request into a cascaded, bus-visible command.
 /// ⚠️ Not the default — use only when the command genuinely needs bus visibility (other callers,
 /// retry/error policies, scheduling); the cascade means the response returns before the handler
-/// runs, and creation semantics weaken to accepted-not-created.
+/// runs, and creation semantics weaken to accepted-not-created. The model itself opts in
+/// (issue #218) when an eventless HTTP slice publishes one message another slice handles off the
+/// bus — that is the only way the scaffolder selects this shape.
 /// </summary>
 public class EndpointTranslationFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly string _route;
+    private readonly CascadedMessage? _cascadedCommand;
+    private readonly IReadOnlyList<string> _warnings;
 
-    public EndpointTranslationFrame(CuratedSlice slice, string route)
+    public EndpointTranslationFrame(CuratedSlice slice, string route,
+        CascadedMessage? cascadedCommand = null, IReadOnlyList<string>? warnings = null)
     {
         _slice = slice;
         _route = route;
+        _cascadedCommand = cascadedCommand;
+        _warnings = warnings ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        var command = _slice.Command ?? _slice.Name;
+        var request = _slice.Command ?? _slice.Name;
+        var command = _cascadedCommand?.Name ?? request;
+
+        if (_cascadedCommand is { HandledBy: { } handledBy })
+        {
+            writer.WriteLine("/// <summary>");
+            writer.WriteLine($"/// Pure translation: the model designates {command} as bus-visible — slice '{handledBy}'");
+            writer.WriteLine("/// handles it off the bus; this endpoint only mints identity and cascades.");
+            writer.WriteLine("/// </summary>");
+        }
+
         writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
-        writer.Write($"BLOCK:public static (CreationResponse, {command}) Post({command}Request request)");
+        writer.Write($"BLOCK:public static (CreationResponse, {command}) Post({request}Request request)");
+        foreach (var warning in _warnings)
+        {
+            writer.WriteLine($"// WARNING (from the model): {warning}");
+        }
+
         writer.WriteLine("// TODO: mint identity here at the edge (Guid.NewGuid(), or the slice's deterministic id");
         writer.WriteLine("// helper), then cascade the command — the cascade rides the transactional outbox.");
         writer.WriteLine($"var command = new {command}(/* TODO from request */);");
