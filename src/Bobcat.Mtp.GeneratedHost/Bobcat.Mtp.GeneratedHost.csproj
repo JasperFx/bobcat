@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bobcat.Mtp.GeneratedHost: the proof project for issue #207. There is no Program.cs and no
+    hand-written Main anywhere — Bobcat.Generators emits the Microsoft.Testing.Platform entry
+    point because this compilation references Bobcat.Mtp and declares none of its own. Setup is
+    exactly what a consumer's would be: package references, .feature files, and an optional
+    [BobcatConfiguration] method for suite configuration.
+
+    Its scenarios all pass, so `dotnet test` at the solution root collects it (IsTestProject) —
+    which is itself part of the proof: the generated Main must register the MSBuild extension
+    `dotnet test` talks to. Bobcat.Mtp.Tests additionally drives it as a bare executable for
+    the list-tests / filter-feature / filter-tag end-to-end tests.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- src/Directory.Build.props only applies the MTP properties to *.Tests projects. -->
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+    <!-- A package consumer inherits this from Bobcat.Mtp's buildTransitive props; a
+         ProjectReference does not consume build assets, so in-repo it is set by hand. The
+         Bobcat-generated entry point replaces the platform's synthesized one. -->
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Mtp\Bobcat.Mtp.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Features\**\*.feature" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- A package consumer inherits this from Bobcat.Mtp's buildTransitive props too; in-repo
+         it is declared by hand. It is what lets `-p:BobcatGenerateEntryPoint=false` reach the
+         generator and suppress the entry point (the build then fails with CS5001, proving the
+         opt-out is real — exercised manually, not in CI). -->
+    <CompilerVisibleProperty Include="BobcatGenerateEntryPoint" />
+  </ItemGroup>
+
+</Project>
