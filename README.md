@@ -27,6 +27,10 @@ npm install
 npm run docs
 ```
 
+- [The Command Line](docs/command-line.md) — the runner's `run` / `list` / `preview` /
+  `interactive` commands, filters, and exit codes.
+- [Running Specs with `dotnet test`](docs/dotnet-test.md) — the generated MTP entry point,
+  `[BobcatConfiguration]`, and the `--filter-feature` / `--filter-tag` options.
 - [Sample Wiring Playbook](docs/sample-wiring.md) — how to wire a sample host to `BobcatRunner`
   so its `.feature` specs run end-to-end through Alba, plus the known wiring footguns and fixes.
 - [Version Matrix](docs/versions.md) — the canonical, mutually-compatible dependency set

@@ -241,7 +241,10 @@ the spec is better on every axis that matters once the test is red.
 
 - **`CritterStackFixture` shipped** (#104): the typed steps this doc's ports wanted —
   `GivenEvents<T>` / `GivenNoEvents<T>`, `WhenCommand<T>` (tracked-session dispatch, captured
-  outcome), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
+  outcome), `WhenTracked(() => …)` (issue #211: any act — typically an Alba HTTP call — run inside
+  the tracked session, outcome captured identically, so every `Then` below asserts on what the
+  call *caused*; `Bobcat.Wolverine`'s `context.ExecuteAndWaitAsync` is the raw surface),
+  `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()` (#168 — the non-throwing `HandlerContinuation.Stop` refusal),
   `ThenDocument<T>` (with a projection wait), `ThenMessagesSent<T>()` — live on the fixture and
   are shared with code-first specs via `Host<TFixture>()`-borrowed steps. The sample's

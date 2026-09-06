@@ -31,6 +31,7 @@ supervise, and report identically.
 
 ## Next
 
+- [The Command Line](command-line.md) — `run`, `list`, `preview` (step bindings, nothing executed), and the warm-suite `interactive` mode
 - [Running Specs with `dotnet test`](dotnet-test.md) — the generated MTP entry point, `[BobcatConfiguration]`, and the `--filter-feature`/`--filter-tag` options
 - [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
