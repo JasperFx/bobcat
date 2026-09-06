@@ -75,12 +75,6 @@ public static class SliceScaffolder
                 slice.Elements.GetValueOrDefault(message.Name)?.Description));
         }
 
-        foreach (var aggregate in slice.Aggregates)
-        {
-            frames.Add(new AggregateFrame(aggregate, slice.Events,
-                fieldsFor(slice, aggregate)));
-        }
-
         var route = $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}";
         if (translation)
         {
@@ -107,6 +101,42 @@ public static class SliceScaffolder
     /// The identity discipline made mechanical: Feature name and Scenario titles reproduce the
     /// curated identities exactly, and the GWT sub-schema maps 1:1 onto the shipped grammar.
     /// </summary>
+    /// <summary>
+    /// One file per aggregate, folding EVERY event of EVERY slice that declares it. An aggregate
+    /// is a model-level concern, not a slice-level one: nine slices declaring
+    /// <c>aggregates: [Appointment]</c> describe ONE type with nine events, and emitting it per
+    /// slice produces nine partial duplicates that cannot compile. Same lesson as the feature
+    /// files — identity is the key, and a name shared across slices means one artifact.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ScaffoldAggregates(CuratedModelFile model)
+    {
+        var files = new Dictionary<string, string>();
+        var ns = model.Namespace ?? model.Model;
+
+        var byName = model.Slices
+            .SelectMany(slice => slice.Aggregates.Select(name => (Name: name, Slice: slice)))
+            .GroupBy(x => x.Name, StringComparer.Ordinal);
+
+        foreach (var group in byName)
+        {
+            var slices = group.Select(x => x.Slice).ToList();
+            var domain = slices.Select(x => x.Domain).FirstOrDefault(x => x is not null) ?? "Shared";
+
+            // Every event any declaring slice emits, in model order, once.
+            var events = slices.SelectMany(x => x.Events).Distinct(StringComparer.Ordinal).ToList();
+            var fields = slices
+                .SelectMany(x => fieldsFor(x, group.Key))
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .ToList();
+
+            files[$"{domain}/{group.Key}.cs"] =
+                $"namespace {ns}.{domain};\n\n" + ScaffoldFrame.Render(new AggregateFrame(group.Key, events, fields));
+        }
+
+        return files;
+    }
+
     public static IReadOnlyDictionary<string, string> ScaffoldFeatures(CuratedModelFile model)
     {
         // A feature legally spans slices (and a slice can span features) — group scenarios by
@@ -142,14 +172,13 @@ public static class SliceScaffolder
         var specs = slice.Specifications!;
 
         var aggregate = slice.Aggregates.FirstOrDefault() ?? "TODO";
-        var streamId = "11111111-1111-1111-1111-111111111111";
 
         foreach (var scenario in specs.Scenarios)
         {
             writer.BlankLine();
             writer.WriteLine($"  @slice:{slice.Name}");
             writer.WriteLine($"  Scenario: {scenario.Name}");
-            writer.WriteLine($"    Given no events for {aggregate} \"{streamId}\"");
+            writer.WriteLine($"    Given no events for {aggregate} \"{streamIdFor(scenario.Name)}\"");
 
             foreach (var given in scenario.Given)
             {
@@ -183,6 +212,21 @@ public static class SliceScaffolder
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// A legible, DISTINCT id per scenario. Scenarios share a store, so reusing one id across
+    /// them couples scenarios that should be independent — a stale stream from the last one is
+    /// indistinguishable from a bug in this one. Derived from the scenario name so it is stable
+    /// across regenerations and readable in a failure message.
+    /// </summary>
+    private static string streamIdFor(string scenarioName)
+    {
+        // A small stable hash — no dependency, and the digits stay readable in a failure message.
+        uint hash = 2166136261;
+        foreach (var c in scenarioName) hash = (hash ^ c) * 16777619;
+        var block = (hash % 8999 + 1000).ToString();
+        return $"{block}{block}-{block}-{block}-{block}-{block}{block}{block}";
     }
 
     private static void table(ISourceWriter writer, string indent, IEnumerable<string> headers, IEnumerable<string> values)
