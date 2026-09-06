@@ -1,3 +1,4 @@
+using JasperFx.CommandLine;
 using JasperFx.Testing;
 using System.Diagnostics;
 using System.Reflection;
@@ -5,6 +6,7 @@ using Bobcat.Engine;
 using Bobcat.Monitoring;
 using Bobcat.Rendering;
 using Bobcat.Resilience;
+using Bobcat.Runtime.Commands;
 
 namespace Bobcat.Runtime;
 
@@ -264,6 +266,109 @@ public class BobcatRunner
         }
     }
 
+    // --- Warm-suite session (issue #209) ---
+    //
+    // The interactive command's loop: StartAll once, run selections against the warm resources,
+    // DisposeAsync on exit. Each selected scenario still gets the full ResetAll →
+    // BeginScenarioAll → EndScenarioAll bracket (runScenarioWithRetries owns it per attempt),
+    // so warmth never means dirty state — what changes hands is only who pays for StartAll.
+
+    /// <summary>
+    /// Starts the suite's resources, preflight and global set-up ONCE for a warm session.
+    /// Returns a failure description — with whatever started already torn down — or null when
+    /// the suite is up and <see cref="RunWarmSelection"/> may be called repeatedly.
+    /// </summary>
+    internal async Task<string?> StartWarmSuite()
+    {
+        try
+        {
+            await _suite.StartAll();
+        }
+        catch (SpecCatastrophicException e)
+        {
+            return e.Message + await tryDisposeSuite();
+        }
+
+        var preflight = await runPreflight();
+        if (preflight is not null)
+        {
+            return preflight + await tryDisposeSuite();
+        }
+
+        try
+        {
+            await _suite.RunGlobalSetUp();
+        }
+        catch (SpecCatastrophicException e)
+        {
+            return e.Message + await tryDisposeSuite();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Runs the scenarios matching the filters (and the optional selection predicate) against
+    /// the already-started suite. Features with nothing selected are skipped entirely, so their
+    /// BeforeAll/AfterAll never run for a selection that does not touch them.
+    /// </summary>
+    internal async Task<SuiteResults> RunWarmSelection(
+        string? featureFilter, string? tagFilter,
+        Func<FeatureDefinition, ScenarioDefinition, bool>? selection = null)
+    {
+        var suiteResults = new SuiteResults();
+
+        var previous = ScenarioFilter;
+        if (selection != null)
+        {
+            ScenarioFilter = previous == null
+                ? selection
+                : (f, s) => previous(f, s) && selection(f, s);
+        }
+
+        try
+        {
+            var features = filteredFeatures(featureFilter)
+                .Where(f => filteredScenarios(f, tagFilter).Any())
+                .ToArray();
+
+            foreach (var feature in features)
+            {
+                var featureResults = new FeatureResults(feature.Title);
+                suiteResults.Add(featureResults);
+
+                await runFeature(feature, tagFilter, featureResults);
+
+                if (featureResults.WasCatastrophic) break;
+            }
+        }
+        catch (Exception e)
+        {
+            // Same last line of defence as RunAll: a harness failure is reported, never thrown
+            // — the interactive loop must survive a bad selection and offer the next one.
+            markCatastrophic(suiteResults, [], tagFilter, describe(e), e);
+        }
+        finally
+        {
+            ScenarioFilter = previous;
+        }
+
+        return suiteResults;
+    }
+
+    /// <summary>Closes a warm session: global tear-down, then every resource disposed.</summary>
+    internal async Task StopWarmSuite()
+    {
+        try
+        {
+            await _suite.RunGlobalTearDown();
+        }
+        finally
+        {
+            await _suite.DisposeAsync();
+        }
+    }
+
     /// <summary>
     /// Disposes the suite on the way out of a failed start, returning a note for the report
     /// when the teardown itself failed — never throwing, because the start failure is the fact
@@ -342,6 +447,16 @@ public class BobcatRunner
         AddObserver(observer);
         return observer;
     }
+
+    /// <summary>The features matching a <c>--feature</c> filter — what the command family and
+    /// the interactive tree enumerate, so they can never disagree with what a run would do.</summary>
+    internal IEnumerable<FeatureDefinition> SelectFeatures(string? featureFilter)
+        => filteredFeatures(featureFilter);
+
+    /// <summary>The scenarios of a feature matching a <c>--tag</c> filter (plus any
+    /// <see cref="ScenarioFilter"/>), same contract as <see cref="SelectFeatures"/>.</summary>
+    internal IEnumerable<ScenarioDefinition> SelectScenarios(FeatureDefinition feature, string? tagFilter)
+        => filteredScenarios(feature, tagFilter);
 
     private IEnumerable<FeatureDefinition> filteredFeatures(string? featureFilter)
         => featureFilter == null
@@ -757,41 +872,40 @@ public class BobcatRunner
         // assembly — so run the collision guard after it, once both assemblies are present.
         GuardAgainstProgramCollision();
 
-        // Simple arg parsing (will move to JasperFx commands later)
-        var command = args.Length > 0 ? args[0] : "run";
-
-        if (command == "list")
+        // The JasperFx command family (issue #206): run (default), list, preview, interactive.
+        // Registration is explicit — never a scan — so nothing a consumer's assemblies carry
+        // can join this surface by accident. The MTP host (BobcatTestApplication.Run) is a
+        // deliberately separate entry point: its protocol flags (--list-tests, --filter-uid,
+        // --internal-msbuild-node) must never reach this parser.
+        BobcatInput? bound = null;
+        var executor = CommandExecutor.For(factory =>
         {
-            runner.ListFeatures();
-            return 0;
-        }
+            factory.RegisterCommand<RunCommand>();
+            factory.RegisterCommand<ListCommand>();
+            factory.RegisterCommand<PreviewCommand>();
+            factory.RegisterCommand<InteractiveCommand>();
+            factory.DefaultCommand = typeof(RunCommand);
+            factory.SetAppName("Bobcat");
 
-        string? featureFilter = null;
-        string? tagFilter = null;
-        bool jsonOutput = false;
+            // The commands are built by JasperFx, so the configured runner rides in on the
+            // input just before execution — and holding the input here is how the command's
+            // decided exit code gets back out.
+            factory.ConfigureRun = run =>
+            {
+                if (run.Input is BobcatInput input)
+                {
+                    input.Runner = runner;
+                    bound = input;
+                }
+            };
+        });
 
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == "--feature" && i + 1 < args.Length)
-                featureFilter = args[++i];
-            if (args[i] == "--tag" && i + 1 < args.Length)
-                tagFilter = args[++i];
-            if (args[i] == "--json")
-                jsonOutput = true;
-        }
+        var jasperFxCode = await executor.ExecuteAsync(args);
 
-        runner.SuppressConsoleOutput = jsonOutput;
-        var results = await runner.RunAll(featureFilter, tagFilter);
-
-        if (jsonOutput)
-        {
-            Console.WriteLine(Rendering.JsonRenderer.RenderSuite(results));
-        }
-        else
-        {
-            runner.RenderSummary(results);
-        }
-
-        return results.ExitCode;
+        // The exit-code contract (0 pass / 1 regression fail / 2 catastrophic) is Bobcat's,
+        // recorded on the input by whichever command ran. JasperFx's own success/failure codes
+        // apply only when no Bobcat command decided anything — help, an unknown flag (which now
+        // errors instead of being silently ignored), or an exception escaping a command.
+        return bound?.ExitCode ?? jasperFxCode;
     }
 }

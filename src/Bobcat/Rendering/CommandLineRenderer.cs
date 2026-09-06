@@ -41,6 +41,70 @@ public class CommandLineRenderer
         AnsiConsole.WriteLine();
     }
 
+    /// <summary>
+    /// Renders a scenario preview (issue #208): the planned steps, each annotated with the
+    /// fixture method it bound to and where every parameter's value comes from — the one thing
+    /// reading the <c>.feature</c> file cannot show.
+    /// </summary>
+    public void RenderPreview(PreviewRender preview)
+    {
+        AnsiConsole.WriteLine();
+        var tags = preview.Tags.Length > 0
+            ? " [blue]" + Markup.Escape(string.Join(" ", preview.Tags.Select(t => $"@{t}"))) + "[/]"
+            : "";
+        AnsiConsole.MarkupLine($"  {Markup.Escape(preview.Title)}{tags}");
+        AnsiConsole.MarkupLine($"  [dim]{new string('─', Math.Min(preview.Title.Length + 10, 60))}[/]");
+
+        if (preview.Error != null)
+        {
+            AnsiConsole.MarkupLine($"    [red]✗ {Markup.Escape(preview.Error)}[/]");
+            return;
+        }
+
+        foreach (var step in preview.Steps)
+        {
+            var kindLabel = step.Kind switch
+            {
+                StepKind.Given => "[dim]Given[/] ",
+                StepKind.When => "[dim]When[/]  ",
+                StepKind.Then => "[dim]Then[/]  ",
+                StepKind.SetUp => "[dim]Setup[/] ",
+                StepKind.TearDown => "[dim]Teardown[/] ",
+                _ => ""
+            };
+
+            AnsiConsole.MarkupLine($"    [dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
+
+            if (step.Binding == null)
+            {
+                // Code-first specs and hand-built definitions carry no generated metadata —
+                // that is not an error, so say so quietly rather than implying a broken match.
+                AnsiConsole.MarkupLine("      [dim]↳ (no binding metadata)[/]");
+                continue;
+            }
+
+            var binding = step.Binding;
+            AnsiConsole.MarkupLine(
+                $"      [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]" +
+                $" [dim]— \"{Markup.Escape(binding.Expression)}\"[/]");
+
+            foreach (var argument in binding.Arguments)
+            {
+                var origin = argument.Source switch
+                {
+                    Runtime.StepArgumentSource.Capture => $"\"{Markup.Escape(argument.Value)}\" [dim](capture)[/]",
+                    Runtime.StepArgumentSource.TableColumn => $"column [yellow]{Markup.Escape(argument.Value)}[/]",
+                    Runtime.StepArgumentSource.DocString => "[dim]doc string[/]",
+                    Runtime.StepArgumentSource.Table => "[dim]the step's table[/]",
+                    Runtime.StepArgumentSource.Service => $"[green]{Markup.Escape(argument.Value)}[/] [dim](injected)[/]",
+                    Runtime.StepArgumentSource.Expected => $"\"{Markup.Escape(argument.Value)}\" [dim](expected)[/]",
+                    _ => "[dim]default[/]"
+                };
+                AnsiConsole.MarkupLine($"        {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
+            }
+        }
+    }
+
     public void RenderStep(StepRender step)
     {
         var icon = step.Status switch

@@ -31,6 +31,13 @@ public class DelegateExecutionStep : IExecutionStep
     /// </summary>
     public string StepText { get; }
 
+    /// <summary>
+    /// The compile-time step-to-method binding, emitted by the source generator for the
+    /// <c>preview</c> command (issue #208). Null for steps that carry no generated metadata —
+    /// code-first specs, hand-built definitions, or code generated before the property existed.
+    /// </summary>
+    public StepBinding? Binding { get; init; }
+
     public Task Execute(IStepContext context, StepResult result, CancellationToken token)
     {
         return _execute(context, result, token);
