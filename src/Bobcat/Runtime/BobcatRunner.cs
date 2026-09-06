@@ -779,6 +779,7 @@ public class BobcatRunner
         {
             factory.RegisterCommand<RunCommand>();
             factory.RegisterCommand<ListCommand>();
+            factory.RegisterCommand<PreviewCommand>();
             factory.DefaultCommand = typeof(RunCommand);
             factory.SetAppName("Bobcat");
 

@@ -18,9 +18,11 @@ public class CommandLineTests
 
     public CommandLineTests()
     {
-        // Run() is the real entry point and turns monitor publishing on; the kill switch keeps
-        // these tests from probing for a live console on the developer's box.
-        Environment.SetEnvironmentVariable("BOBCAT_MONITOR", "0");
+        // Run() is the real entry point and turns monitor publishing on. Pointing the probe at
+        // the discard port keeps these tests from finding a live console on the developer's box
+        // — the kill switch would work too, but it is process-wide and MonitorPublisherTests
+        // runs concurrently and needs it clear.
+        Environment.SetEnvironmentVariable("BOBCAT_MONITOR_URL", "http://127.0.0.1:9");
         log.Clear();
     }
 
@@ -134,6 +136,22 @@ public class CommandLineTests
 
         code.ShouldBe(0);
         log.ShouldBeEmpty("list must never execute a scenario");
+    }
+
+    [Fact]
+    public async Task preview_executes_nothing_and_never_starts_a_resource()
+    {
+        var code = await BobcatRunner.Run(["preview"], r =>
+        {
+            r.AddFeature(buildFeature("Orders", passes: false, "places"));
+
+            // The resource throws on Start, so exit 0 is only reachable if preview never
+            // started it — the same never-start rule as MTP discovery.
+            r.Suite.AddResource(new FailingResource());
+        });
+
+        code.ShouldBe(0);
+        log.ShouldBeEmpty("preview must never execute a scenario");
     }
 
     [Fact]

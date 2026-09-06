@@ -168,9 +168,13 @@ public static class CodeEmitter
         var scopeStmt = method.NewScope ? childScopeStatement(method, "__sc") + " " : "";
         var scopeProvider = method.NewScope ? "__sc.ServiceProvider" : null;
 
+        // The step's compile-time binding (issue #208): the match the emit below acts on,
+        // written down for the preview command.
+        var declaringType = method.DeclaringModule ?? fixture.FullyQualifiedName;
+
         if (method.IsDecisionTable && step.TableRows != null && step.TableHeaders != null)
         {
-            emitDecisionTableStep(sb, step, method, stepId, target, ctxStmt, scopeStmt, scopeProvider);
+            emitDecisionTableStep(sb, step, method, stepId, target, ctxStmt, declaringType, scopeStmt, scopeProvider);
         }
         else if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
         {
@@ -188,31 +192,41 @@ public static class CodeEmitter
                 var args = buildTableRowArgs(method, values, headers, row, rowScopeProvider);
                 var rowStepId = $"{stepId}.row{rowIdx + 1}";
                 var awaitRow = method.IsAsync ? "await " : "";
+                var rowBinding = bindingInitializer(declaringType, method.MethodName, method.Expression,
+                    bindingArgsFromColumns(method.Parameters, values, headers));
 
                 sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
                 sb.AppendLine($"                        \"{escapeString(rowStepId)}\",");
                 sb.AppendLine($"                        {stepKind},");
                 sb.AppendLine($"                        \"{escapeString(step.Text)} (row {rowIdx + 1})\",");
                 if (method.IsAsync)
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{awaitRow}{target}.{method.MethodName}({args}); }}));");
+                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{awaitRow}{target}.{method.MethodName}({args}); }}) {rowBinding});");
                 else
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{target}.{method.MethodName}({args}); return Task.CompletedTask; }}));");
+                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{target}.{method.MethodName}({args}); return Task.CompletedTask; }}) {rowBinding});");
             }
         }
         else if (method.IsSetVerification && step.TableRows != null && step.TableHeaders != null)
         {
             // Set verification — emit comparison code
-            emitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt, values);
+            var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
+                bindingArgsFromCaptures(method.Parameters, values, step.DocString));
+            emitSetVerificationStep(sb, step, method, stepId, stepKind, target, ctxStmt, values, binding);
         }
         else if (method.WaitForTimeoutMs.HasValue)
         {
+            var waitArgs = bindingArgsFromCaptures(method.Parameters, values, step.DocString);
+            if (compareReturn) withReturnCompare(waitArgs, method, values);
+            var binding = bindingInitializer(declaringType, method.MethodName, method.Expression, waitArgs);
             emitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison, target, ctxStmt,
-                scopeStmt, scopeProvider);
+                binding, scopeStmt, scopeProvider);
         }
         else if (isComparison)
         {
+            var comparisonArgs = bindingArgsFromCaptures(method.Parameters, values, step.DocString);
+            if (compareReturn) withReturnCompare(comparisonArgs, method, values);
+            var binding = bindingInitializer(declaringType, method.MethodName, method.Expression, comparisonArgs);
             emitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn, target, ctxStmt,
-                scopeStmt, scopeProvider);
+                binding, scopeStmt, scopeProvider);
         }
         else
         {
@@ -220,6 +234,8 @@ public static class CodeEmitter
             var args = buildSentenceArgs(method, values, step.DocString, scopeProvider, tableLiteral(step));
             var awaitPrefix = method.IsAsync ? "await " : "";
             var returnSuffix = method.IsAsync ? "" : " return Task.CompletedTask;";
+            var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
+                bindingArgsFromCaptures(method.Parameters, values, step.DocString));
 
             if (method.StepKind == "Check")
             {
@@ -230,11 +246,11 @@ public static class CodeEmitter
                 sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}if (!await {target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); }}));");
+                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}if (!await {target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); }}) {binding});");
                 }
                 else
                 {
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}if (!{target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); return Task.CompletedTask; }}));");
+                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}if (!{target}.{method.MethodName}({args})) result.MarkFailed(); else result.MarkSuccess(); return Task.CompletedTask; }}) {binding});");
                 }
             }
             else
@@ -245,11 +261,11 @@ public static class CodeEmitter
                 sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
                 if (method.IsAsync)
                 {
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}{awaitPrefix}{target}.{method.MethodName}({args}); }}));");
+                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}{awaitPrefix}{target}.{method.MethodName}({args}); }}) {binding});");
                 }
                 else
                 {
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}{target}.{method.MethodName}({args});{returnSuffix} }}));");
+                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{scopeStmt}{target}.{method.MethodName}({args});{returnSuffix} }}) {binding});");
                 }
             }
         }
@@ -414,7 +430,21 @@ public static class CodeEmitter
 
         sb.AppendLine("                        }");
         sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
-        sb.AppendLine("                    }));");
+
+        // The grammar's binding: the class is the match, Row (or the recipe entity's
+        // construction) is what each data row feeds, and the expected column — when the table
+        // is a decision table — is the compared output.
+        var bindingArgs = row != null
+            ? bindingArgsFromColumns(row.Parameters, values, headers)
+            : headers.Where(h => expectedColumn == null || !string.Equals(h, expectedColumn, StringComparison.OrdinalIgnoreCase))
+                .Select(h => bindingArgLiteral(h, h, "TableColumn")).ToList();
+        if (expectedColumn != null)
+            bindingArgs.Add(bindingArgLiteral(expectedColumn, expectedColumn, "Expected"));
+
+        var boundMethod = row?.MethodName
+            ?? (grammar.RecipeEntity != null ? $"new {grammar.RecipeEntity.Name}" : "Row");
+        var binding = bindingInitializer(grammar.FullyQualifiedName, boundMethod, grammar.Expression, bindingArgs);
+        sb.AppendLine($"                    }}) {binding});");
     }
 
     /// <summary>
@@ -467,7 +497,7 @@ public static class CodeEmitter
             "no settable properties match. Write a Row method returning the entity to control construction.");
     }
 
-    private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt, List<string> values)
+    private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt, List<string> values, string binding)
     {
         var keyColumns = string.IsNullOrEmpty(method.SetVerificationKeyColumns)
             ? "Array.Empty<string>()"
@@ -520,7 +550,7 @@ public static class CodeEmitter
             sb.AppendLine("                        return Task.CompletedTask;");
         }
 
-        sb.AppendLine("                    }));");
+        sb.AppendLine($"                    }}) {binding});");
     }
 
     /// <summary>
@@ -530,7 +560,7 @@ public static class CodeEmitter
     /// </summary>
     private static void emitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
         string stepId, string stepKind, List<string> values, bool compareReturn, string target, string ctxStmt,
-        string scopeStmt = "", string? scopeProvider = null)
+        string binding, string scopeStmt = "", string? scopeProvider = null)
     {
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
         sb.AppendLine($"                        \"{escapeString(stepId)}\",");
@@ -597,7 +627,7 @@ public static class CodeEmitter
         if (!method.IsAsync)
             sb.AppendLine("                        return Task.CompletedTask;");
 
-        sb.AppendLine("                    }));");
+        sb.AppendLine($"                    }}) {binding});");
     }
 
     /// <summary>
@@ -605,7 +635,7 @@ public static class CodeEmitter
     /// arguments and out/return columns compared as expected outputs. Renders as a grid.
     /// </summary>
     private static void emitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId,
-        string target, string ctxStmt, string scopeStmt = "", string? stepScopeProvider = null)
+        string target, string ctxStmt, string declaringType, string scopeStmt = "", string? stepScopeProvider = null)
     {
         var headers = step.TableHeaders!;
         var rows = step.TableRows!;
@@ -720,7 +750,9 @@ public static class CodeEmitter
         sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
         if (!method.IsAsync)
             sb.AppendLine("                        return Task.CompletedTask;");
-        sb.AppendLine("                    }));");
+        var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
+            bindingArgsForDecisionTable(method, headers, returnColumn));
+        sb.AppendLine($"                    }}) {binding});");
     }
 
     /// <summary>
@@ -730,7 +762,7 @@ public static class CodeEmitter
     /// </summary>
     private static void emitWaitForStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
         string stepId, string stepKind, List<string> values, bool compareReturn, bool isComparison,
-        string target, string ctxStmt, string scopeStmt = "", string? scopeProvider = null)
+        string target, string ctxStmt, string binding, string scopeStmt = "", string? scopeProvider = null)
     {
         var timeout = method.WaitForTimeoutMs!.Value;
         var poll = method.WaitForPollMs;
@@ -814,7 +846,153 @@ public static class CodeEmitter
         }
 
         sb.AppendLine("                        }, ct, ctx);");
-        sb.AppendLine("                    }));");
+        sb.AppendLine($"                    }}) {binding});");
+    }
+
+    // --- Step binding metadata (issue #208) ---
+    //
+    // The matcher already decided which method a step runs and where every parameter's value
+    // comes from; these helpers write that decision down as a StepBinding initializer so the
+    // preview command can show it without executing anything. Each builder MIRRORS the
+    // corresponding arg builder's rules — the description must never disagree with the call.
+
+    /// <summary>The <c>{ Binding = ... }</c> object initializer emitted after a step's ctor args.</summary>
+    private static string bindingInitializer(string declaringType, string method, string expression,
+        List<string> argLiterals)
+    {
+        var args = argLiterals.Count == 0
+            ? "System.Array.Empty<global::Bobcat.Runtime.StepBindingArgument>()"
+            : "new global::Bobcat.Runtime.StepBindingArgument[] { " + string.Join(", ", argLiterals) + " }";
+
+        return "{ Binding = new global::Bobcat.Runtime.StepBinding(" +
+               $"\"{escapeString(declaringType)}\", \"{escapeString(method)}\", \"{escapeString(expression)}\", {args}) }}";
+    }
+
+    private static string bindingArgLiteral(string name, string value, string source)
+        => $"new global::Bobcat.Runtime.StepBindingArgument(\"{escapeString(name)}\", \"{escapeString(value)}\", " +
+           $"global::Bobcat.Runtime.StepArgumentSource.{source})";
+
+    /// <summary>Mirrors <see cref="buildArgsFromCaptures"/> (and the comparison/wait-for loops,
+    /// which additionally consume captures as <c>out</c>-parameter expected values).</summary>
+    private static List<string> bindingArgsFromCaptures(List<ParameterInfo> parameters, List<string> values,
+        string? docString)
+    {
+        var args = new List<string>();
+        var vi = 0;
+        var docStringAvailable = docString != null;
+        foreach (var param in parameters)
+        {
+            if (param.Binding == ParameterBinding.Table)
+            {
+                args.Add(bindingArgLiteral(param.Name, param.Type, "Table"));
+            }
+            else if (param.IsInjected)
+            {
+                args.Add(bindingArgLiteral(param.Name, param.Type, "Service"));
+            }
+            else if (param.IsOut)
+            {
+                var capture = vi < values.Count ? values[vi] : "";
+                vi++;
+                args.Add(bindingArgLiteral(param.Name, capture, "Expected"));
+            }
+            else if (vi < values.Count)
+            {
+                args.Add(bindingArgLiteral(param.Name, values[vi], "Capture"));
+                vi++;
+            }
+            else if (docStringAvailable && param.Type == "string")
+            {
+                args.Add(bindingArgLiteral(param.Name, "doc string", "DocString"));
+                docStringAvailable = false;
+            }
+            else
+            {
+                args.Add(bindingArgLiteral(param.Name, "", "Default"));
+            }
+        }
+
+        return args;
+    }
+
+    /// <summary>Adds the compared-return pseudo-argument a comparison step carries.</summary>
+    private static List<string> withReturnCompare(List<string> args, StepMethodInfo method, List<string> values)
+    {
+        var col = method.ReturnColumn ?? "result";
+        var expected = valueParamCount(method) < values.Count ? values[valueParamCount(method)] : "";
+        args.Add(bindingArgLiteral(col, expected, "Expected"));
+        return args;
+    }
+
+    /// <summary>Mirrors <see cref="buildArgsFromColumns"/>: header match beats convention
+    /// injection, explicit injection beats a header, leftover captures bind positionally.</summary>
+    private static List<string> bindingArgsFromColumns(List<ParameterInfo> parameters, List<string> values,
+        List<string> headers)
+    {
+        var args = new List<string>();
+        var vi = 0;
+        foreach (var param in parameters)
+        {
+            var colIndex = headers.FindIndex(h =>
+                string.Equals(h, param.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (param.IsExplicitlyInjected || (param.IsInjected && colIndex < 0))
+            {
+                args.Add(bindingArgLiteral(param.Name, param.Type, "Service"));
+            }
+            else if (colIndex >= 0)
+            {
+                args.Add(bindingArgLiteral(param.Name, headers[colIndex], "TableColumn"));
+            }
+            else if (vi < values.Count)
+            {
+                args.Add(bindingArgLiteral(param.Name, values[vi], "Capture"));
+                vi++;
+            }
+            else
+            {
+                args.Add(bindingArgLiteral(param.Name, "", "Default"));
+            }
+        }
+
+        return args;
+    }
+
+    /// <summary>Mirrors <see cref="emitDecisionTableStep"/>'s column classification: out
+    /// parameters and the return column are expected outputs, headers supply inputs.</summary>
+    private static List<string> bindingArgsForDecisionTable(StepMethodInfo method, List<string> headers,
+        string? returnColumn)
+    {
+        var args = new List<string>();
+        foreach (var param in method.Parameters)
+        {
+            var colIndex = headers.FindIndex(h =>
+                string.Equals(h, param.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (param.IsOut)
+            {
+                args.Add(bindingArgLiteral(param.Name, colIndex >= 0 ? headers[colIndex] : param.Name, "Expected"));
+            }
+            else if (param.IsExplicitlyInjected || (param.IsInjected && colIndex < 0))
+            {
+                args.Add(bindingArgLiteral(param.Name, param.Type, "Service"));
+            }
+            else if (colIndex >= 0)
+            {
+                args.Add(bindingArgLiteral(param.Name, headers[colIndex], "TableColumn"));
+            }
+            else
+            {
+                args.Add(bindingArgLiteral(param.Name, "", "Default"));
+            }
+        }
+
+        if (returnColumn != null)
+        {
+            args.Add(bindingArgLiteral(returnColumn, returnColumn, "Expected"));
+        }
+
+        return args;
     }
 
     private static string emitCheckOptions(StepMethodInfo method)
