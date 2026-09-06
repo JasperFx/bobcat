@@ -12,4 +12,15 @@
     <GenerateTestingPlatformEntryPoint Condition="'$(GenerateTestingPlatformEntryPoint)' == ''">false</GenerateTestingPlatformEntryPoint>
   </PropertyGroup>
 
+  <!--
+    Bobcat.Generators emits the host's Main itself when the project declares none (issue #207).
+    Surfacing this property to the analyzer lets `<BobcatGenerateEntryPoint>false</BobcatGenerateEntryPoint>`
+    opt a project out of the generated entry point. A ProjectReference does not consume these
+    props, so in-repo projects that want the opt-out must declare the CompilerVisibleProperty
+    themselves.
+  -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="BobcatGenerateEntryPoint" />
+  </ItemGroup>
+
 </Project>

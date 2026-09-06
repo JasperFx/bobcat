@@ -31,6 +31,24 @@ public sealed class EventModelNameAttribute : Attribute
 }
 
 /// <summary>
+/// Marks a static method the generated Microsoft.Testing.Platform entry point calls to
+/// configure the suite — <c>static void Configure(BobcatRunner runner)</c>, any method and
+/// type name. This is the seam for registering resources, failure policies, and anything else
+/// a hand-written <c>Main</c> would have done, in a spec project that lets Bobcat.Generators
+/// emit the entry point (issue #207). The generated <c>Main</c> scans the assembly for features
+/// and code-first specifications first, then calls every <c>[BobcatConfiguration]</c> method in
+/// a deterministic order (sorted by declaring type, then method name).
+/// </summary>
+/// <remarks>
+/// Ignored — with a build warning saying so — when the assembly declares its own entry point,
+/// because a hand-written <c>Main</c> owns configuration completely. The method must be static,
+/// return <c>void</c>, take exactly one <c>BobcatRunner</c> parameter, and be reachable from
+/// generated code (not private).
+/// </remarks>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class BobcatConfigurationAttribute : Attribute;
+
+/// <summary>
 /// Composes shared/library grammar modules into a fixture. The generator also scans the
 /// listed module types for [Given]/[When]/[Then]/[Check] methods and matches their steps to
 /// the feature, alongside the fixture's own. Repeatable/composable. Modules are instantiated
