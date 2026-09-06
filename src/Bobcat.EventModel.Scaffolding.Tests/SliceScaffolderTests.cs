@@ -66,35 +66,32 @@ public class SliceScaffolderTests
     }
 
     [Fact]
-    public void a_command_slice_scaffolds_the_aggregate_workflow_shape()
+    public void an_http_command_slice_collapses_the_endpoint_is_the_handler()
     {
         var code = scaffold("SwipeOnDog");
 
-        // The mechanical 80%: shapes, attributes, and warnings — with judgment as marked TODOs.
+        // The collapsed default (CritterStackSamples#13): one transaction, honest status codes.
         code.ShouldContain("public record DogLiked(Guid SwiperDogId, DateTimeOffset LikedAt");
-        code.ShouldContain("public record SwipeOnDog(Guid SwiperDogId, bool Liked);");
-        code.ShouldContain("public static class SwipeOnDogHandler");
-        code.ShouldContain("public static EventsToAppend Handle(SwipeOnDog command, [WriteModel] SwipePair? swipePair)");
+        code.ShouldContain("public record SwipeOnDogRequest(Guid SwiperDogId, bool Liked);");
+        code.ShouldContain("public record SwipeOnDogResponse();");
+        code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
+        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDogRequest request, [WriteModel] SwipePair? swipePair)");
         code.ShouldContain("public static SwipePair Create(DogLiked dogLiked)");
         code.ShouldContain("public void Apply(DogPassed dogPassed)");
         code.ShouldContain("never DateTimeOffset.UtcNow");
         code.ShouldContain("wolverine#4309");
+        // No two-hop shape: the bus-visible command handler is opt-in, not the default.
+        code.ShouldNotContain("SwipeOnDogHandler");
     }
 
     [Fact]
-    public void guards_are_harvested_from_the_scenarios_refusals()
-    {
-        scaffold("SwipeOnDog")
-            .ShouldContain("""throw new InvalidOperationException("profile no longer available")""");
-    }
-
-    [Fact]
-    public void a_command_slice_with_an_http_trigger_gets_the_pure_translation_endpoint()
+    public void refusals_are_harvested_into_the_validate_railway_stub()
     {
         var code = scaffold("SwipeOnDog");
 
-        code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
-        code.ShouldContain("public static (CreationResponse, SwipeOnDog) Post(SwipeOnDogRequest request)");
+        code.ShouldContain("public static ProblemDetails Validate(SwipeOnDogRequest request)");
+        code.ShouldContain("""Detail = "profile no longer available", Status = 400""");
+        code.ShouldContain("return WolverineContinue.NoProblems;");
     }
 
     [Fact]

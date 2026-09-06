@@ -154,8 +154,73 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 }
 
 /// <summary>
-/// The HTTP face of a state-change slice: a pure translation minting identity and cascading the
-/// command through the transactional outbox — no mediator hop, nothing a crash can tear in half.
+/// The collapsed HTTP state-change slice — the default (CritterStackSamples#13 review, 2026-09-06):
+/// the endpoint IS the handler. One transaction appends the events, the outbox carries anything
+/// cascaded, the status code is honest, and a computed stream identity binds off the request body
+/// via <c>[Identity]</c>. Refusals harvested from the slice's <c>validationFails</c> scenarios land
+/// as TODOs in a <c>Validate</c> railway stub, not in the decision.
+/// </summary>
+public class CollapsedEndpointFrame : ScaffoldFrame
+{
+    private readonly CuratedSlice _slice;
+    private readonly string _route;
+
+    public CollapsedEndpointFrame(CuratedSlice slice, string route)
+    {
+        _slice = slice;
+        _route = route;
+    }
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        var command = _slice.Command ?? _slice.Name;
+        var aggregate = _slice.Aggregates.FirstOrDefault() ?? $"{_slice.Name}Model";
+        var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
+
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine("/// The endpoint IS the handler: one transaction, honest status codes. Split a separate");
+        writer.WriteLine("/// message handler out only when this command genuinely needs bus visibility — other");
+        writer.WriteLine("/// callers, retry policies, scheduling — never for testability.");
+        writer.WriteLine("/// </summary>");
+        writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
+
+        writer.Write($"BLOCK:public static ProblemDetails Validate({command}Request request)");
+        var refusals = _slice.Specifications?.Scenarios
+            .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
+        foreach (var refusal in refusals)
+        {
+            writer.WriteLine($"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal}\", Status = 400 }};");
+        }
+
+        writer.WriteLine("return WolverineContinue.NoProblems;");
+        writer.FinishBlock();
+        writer.BlankLine();
+
+        writer.WriteLine($"[WolverinePost(\"{_route}\")]");
+        writer.Write(
+            $"BLOCK:public static ({_slice.Name}Response, EventsToAppend) Post({command}Request request, [WriteModel] {aggregate}? {argument})");
+
+        foreach (var hotspot in _slice.Hotspots)
+        {
+            writer.WriteLine($"// HOTSPOT (from the model): {hotspot}");
+        }
+
+        writer.WriteLine("// TODO: the decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
+        writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
+        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
+        writer.WriteLine($"return (new {_slice.Name}Response(/* TODO */), [{events}]);");
+        writer.FinishBlock();
+        writer.FinishBlock();
+        writer.BlankLine();
+        Next?.GenerateCode(method, writer);
+    }
+}
+
+/// <summary>
+/// The two-hop OPT-IN: an endpoint translating the request into a cascaded, bus-visible command.
+/// ⚠️ Not the default — use only when the command genuinely needs bus visibility (other callers,
+/// retry/error policies, scheduling); the cascade means the response returns before the handler
+/// runs, and creation semantics weaken to accepted-not-created.
 /// </summary>
 public class EndpointTranslationFrame : ScaffoldFrame
 {
