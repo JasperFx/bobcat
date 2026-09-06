@@ -54,6 +54,19 @@ jobs:
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal
 
+      # Bobcat specs running THROUGH `dotnet test` is a supported path, and the root run above
+      # covers it only implicitly: Bobcat.Console.Specs is collected because it sets the MTP
+      # test-host properties by hand. If that wiring ever broke, the specs would drop out of
+      # the root run and this job would stay green. This targeted run makes the path a stated
+      # fact — and the grep refuses a run that collected zero tests, which `dotnet test` does
+      # not reliably treat as a failure.
+      - name: Bobcat specs through dotnet test
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet test src/Bobcat.Console.Specs --no-build -c Release | tee specs-via-dotnet-test.log
+          grep -E "Total: [1-9][0-9]*" specs-via-dotnet-test.log
+
       # The MSBuild integration of Microsoft.Testing.Platform prints only "Failed: N" to the
       # console and writes the failing tests' names and assertions to each project's
       # TestResults/*.log. Keep those when the job is red, or the name of the failing test is
