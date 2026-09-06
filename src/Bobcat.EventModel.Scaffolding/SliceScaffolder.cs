@@ -21,7 +21,7 @@ public static class SliceScaffolder
         {
             case "Command":
             case "Automation":
-                files[$"{domain}/{slice.Name}.cs"] = withHeader(commandSlice(slice));
+                files[$"{domain}/{slice.Name}.cs"] = withHeader(commandSlice(model, slice));
                 break;
 
             case "View":
@@ -32,15 +32,23 @@ public static class SliceScaffolder
         return files;
     }
 
-    private static string commandSlice(CuratedSlice slice)
+    private static string commandSlice(CuratedModelFile model, CuratedSlice slice)
     {
         var frames = new List<ScaffoldFrame>();
         var command = slice.Command ?? slice.Name;
 
         // The collapsed default (CritterStackSamples#13): an HTTP-triggered command slice IS its
         // endpoint. The two-hop translation + message-handler shape is opt-in for bus-visible
-        // commands only — see EndpointTranslationFrame.
+        // commands only — and the model itself opts in (issue #218): a `messages:` entry another
+        // slice handles off the bus selects the cascading shape, no flag.
         var collapsed = slice.Pattern == "Command" && slice.Trigger?.Kind is "Http" or "Human";
+
+        var visibility = BusVisibility.Resolve(model, slice);
+
+        // The pure translation front (#218): every consequence of this slice is a bus-visible
+        // command and it appends nothing itself, so the endpoint is exactly the opt-in two-hop
+        // shape — selected by the model rather than by hand.
+        var translation = collapsed && slice.Events.Count == 0 && visibility.Cascaded.Count == 1;
 
         // Event records, fields synthesized from element hints + scenario columns
         foreach (var @event in slice.Events)
@@ -52,11 +60,19 @@ public static class SliceScaffolder
         if (collapsed)
         {
             frames.Add(new RecordFrame($"{command}Request", fieldsFor(slice, command)));
-            frames.Add(new RecordFrame($"{slice.Name}Response", []));
+            if (!translation) frames.Add(new RecordFrame($"{slice.Name}Response", []));
         }
         else if (slice.Pattern == "Command" && slice.Command is not null)
         {
             frames.Add(new RecordFrame(slice.Command, fieldsFor(slice, slice.Command)));
+        }
+
+        // A cascaded message another slice handles is that slice's record; one leaving the
+        // system belongs to nobody else, so the publisher's scaffold owns the contract.
+        foreach (var message in visibility.Cascaded.Where(x => x.LeavesTheSystem))
+        {
+            frames.Add(new RecordFrame(message.Name, fieldsFor(slice, message.Name),
+                slice.Elements.GetValueOrDefault(message.Name)?.Description));
         }
 
         foreach (var aggregate in slice.Aggregates)
@@ -65,15 +81,23 @@ public static class SliceScaffolder
                 fieldsFor(slice, aggregate)));
         }
 
-        if (collapsed)
+        var route = $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}";
+        if (translation)
         {
-            frames.Add(new CollapsedEndpointFrame(slice,
-                $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}"));
+            frames.Add(new EndpointTranslationFrame(slice, route,
+                cascadedCommand: visibility.Cascaded[0], warnings: visibility.Warnings));
+        }
+        else if (collapsed)
+        {
+            frames.Add(new CollapsedEndpointFrame(slice, route,
+                cascaded: visibility.Cascaded, warnings: visibility.Warnings));
         }
         else
         {
             frames.Add(new WriteModelHandlerFrame(slice,
-                maybeNewStream: slice.Pattern == "Command"));
+                maybeNewStream: slice.Pattern == "Command",
+                cascaded: visibility.Cascaded, warnings: visibility.Warnings,
+                publishedBy: BusVisibility.PublishedBy(model, slice)));
         }
 
         return ScaffoldFrame.Render(frames.ToArray());
