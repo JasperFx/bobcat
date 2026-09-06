@@ -266,6 +266,109 @@ public class BobcatRunner
         }
     }
 
+    // --- Warm-suite session (issue #209) ---
+    //
+    // The interactive command's loop: StartAll once, run selections against the warm resources,
+    // DisposeAsync on exit. Each selected scenario still gets the full ResetAll →
+    // BeginScenarioAll → EndScenarioAll bracket (runScenarioWithRetries owns it per attempt),
+    // so warmth never means dirty state — what changes hands is only who pays for StartAll.
+
+    /// <summary>
+    /// Starts the suite's resources, preflight and global set-up ONCE for a warm session.
+    /// Returns a failure description — with whatever started already torn down — or null when
+    /// the suite is up and <see cref="RunWarmSelection"/> may be called repeatedly.
+    /// </summary>
+    internal async Task<string?> StartWarmSuite()
+    {
+        try
+        {
+            await _suite.StartAll();
+        }
+        catch (SpecCatastrophicException e)
+        {
+            return e.Message + await tryDisposeSuite();
+        }
+
+        var preflight = await runPreflight();
+        if (preflight is not null)
+        {
+            return preflight + await tryDisposeSuite();
+        }
+
+        try
+        {
+            await _suite.RunGlobalSetUp();
+        }
+        catch (SpecCatastrophicException e)
+        {
+            return e.Message + await tryDisposeSuite();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Runs the scenarios matching the filters (and the optional selection predicate) against
+    /// the already-started suite. Features with nothing selected are skipped entirely, so their
+    /// BeforeAll/AfterAll never run for a selection that does not touch them.
+    /// </summary>
+    internal async Task<SuiteResults> RunWarmSelection(
+        string? featureFilter, string? tagFilter,
+        Func<FeatureDefinition, ScenarioDefinition, bool>? selection = null)
+    {
+        var suiteResults = new SuiteResults();
+
+        var previous = ScenarioFilter;
+        if (selection != null)
+        {
+            ScenarioFilter = previous == null
+                ? selection
+                : (f, s) => previous(f, s) && selection(f, s);
+        }
+
+        try
+        {
+            var features = filteredFeatures(featureFilter)
+                .Where(f => filteredScenarios(f, tagFilter).Any())
+                .ToArray();
+
+            foreach (var feature in features)
+            {
+                var featureResults = new FeatureResults(feature.Title);
+                suiteResults.Add(featureResults);
+
+                await runFeature(feature, tagFilter, featureResults);
+
+                if (featureResults.WasCatastrophic) break;
+            }
+        }
+        catch (Exception e)
+        {
+            // Same last line of defence as RunAll: a harness failure is reported, never thrown
+            // — the interactive loop must survive a bad selection and offer the next one.
+            markCatastrophic(suiteResults, [], tagFilter, describe(e), e);
+        }
+        finally
+        {
+            ScenarioFilter = previous;
+        }
+
+        return suiteResults;
+    }
+
+    /// <summary>Closes a warm session: global tear-down, then every resource disposed.</summary>
+    internal async Task StopWarmSuite()
+    {
+        try
+        {
+            await _suite.RunGlobalTearDown();
+        }
+        finally
+        {
+            await _suite.DisposeAsync();
+        }
+    }
+
     /// <summary>
     /// Disposes the suite on the way out of a failed start, returning a note for the report
     /// when the teardown itself failed — never throwing, because the start failure is the fact
@@ -780,6 +883,7 @@ public class BobcatRunner
             factory.RegisterCommand<RunCommand>();
             factory.RegisterCommand<ListCommand>();
             factory.RegisterCommand<PreviewCommand>();
+            factory.RegisterCommand<InteractiveCommand>();
             factory.DefaultCommand = typeof(RunCommand);
             factory.SetAppName("Bobcat");
 
