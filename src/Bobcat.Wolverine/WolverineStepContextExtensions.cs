@@ -55,4 +55,18 @@ public static class WolverineStepContextExtensions
         this IStepContext context,
         string? resourceName = null)
         => getWolverineHost(context, resourceName).TrackActivity();
+
+    /// <summary>
+    /// Run any action — an Alba HTTP scenario, a client call, anything that reaches the
+    /// application from the outside — inside Wolverine's tracked session, and wait for every
+    /// message the action caused (cascades, forwarded events, local queues) to settle before
+    /// returning the session's full record. Wolverine's <c>TrackedHttpCall</c> pattern with the
+    /// call itself supplied as a delegate, so this package needs no HTTP dependency (issue #211).
+    /// </summary>
+    public static Task<ITrackedSession> ExecuteAndWaitAsync(
+        this IStepContext context,
+        Func<Task> action,
+        string? resourceName = null,
+        int timeoutInMilliseconds = 5000)
+        => getWolverineHost(context, resourceName).ExecuteAndWaitAsync(action, timeoutInMilliseconds);
 }

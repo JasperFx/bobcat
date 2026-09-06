@@ -1,6 +1,7 @@
 using Bobcat.Engine;
 using Bobcat.Wolverine;
 using JasperFx.Events;
+using Wolverine;
 using Wolverine.Tracking;
 
 namespace Bobcat.CritterStack;
@@ -78,14 +79,31 @@ public abstract class CritterStackFixture : Fixture
     /// <summary>The aggregate type the current stream belongs to, from the last Given.</summary>
     protected Type? AggregateType { get; private set; }
 
-    /// <summary>The events the last <see cref="WhenCommand{T}"/> appended, or empty.</summary>
-    protected IReadOnlyList<IEvent> LastEvents { get; private set; } = [];
+    /// <summary>
+    /// The capture of the scenario's last act — a dispatched command or a tracked HTTP call —
+    /// which is what every <c>Then</c> step here asserts against. Public and typed, so a
+    /// cooperating grammar (issue #210's HTTP steps, a composed module under issue #212) can read
+    /// it, and written only through <see cref="RecordExecution"/>.
+    /// </summary>
+    public TrackedExecution LastExecution { get; private set; } = TrackedExecution.None;
 
-    /// <summary>The tracked Wolverine session of the last command, or null when it failed to run.</summary>
-    protected ITrackedSession? LastSession { get; private set; }
+    /// <summary>
+    /// Record what an act did, making it the capture the assertion steps read. This is the seam
+    /// that lets another grammar's act — an HTTP call run through
+    /// <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
+    /// or its own tracked dispatch — feed the same <c>Then {event} is emitted</c> /
+    /// <c>Then {message} is sent</c> / refusal vocabulary the command steps use (issue #211).
+    /// </summary>
+    public void RecordExecution(TrackedExecution execution) => LastExecution = execution;
 
-    /// <summary>The exception the last command raised, or null when it succeeded — the subject of <see cref="ThenValidationFails"/>.</summary>
-    protected Exception? LastError { get; private set; }
+    /// <summary>The events the last act appended to the current stream, or empty.</summary>
+    protected IReadOnlyList<IEvent> LastEvents => LastExecution.NewEvents;
+
+    /// <summary>The tracked Wolverine session of the last act, or null when it failed to run.</summary>
+    protected ITrackedSession? LastSession => LastExecution.Session;
+
+    /// <summary>The exception the last act raised, or null when it succeeded — the subject of <see cref="ThenValidationFails"/>.</summary>
+    protected Exception? LastError => LastExecution.Error;
 
     private IStepContext Ctx => Context ?? throw new InvalidOperationException(
         "No IStepContext is set on the fixture — a CritterStack step ran outside a scenario.");
@@ -96,9 +114,7 @@ public abstract class CritterStackFixture : Fixture
         StreamId = Guid.Empty;
         StreamKey = null;
         AggregateType = null;
-        LastEvents = [];
-        LastSession = null;
-        LastError = null;
+        LastExecution = TrackedExecution.None;
     }
 
     // ---- typed steps (shared with the code-first API, issue #105) -----------------------------
@@ -159,6 +175,63 @@ public abstract class CritterStackFixture : Fixture
             : await Ctx.AggregateEventStreamAsync<T>(StreamId, HostResource, StoreName);
         return new AggregateExecution<T>(LastSession!, LastEvents, aggregate);
     }
+
+    /// <summary>
+    /// Act: run any call that reaches the application from the outside — an Alba HTTP scenario, a
+    /// SignalR client, a gRPC call — inside Wolverine's tracked session, waiting for everything the
+    /// call <i>caused</i> (cascades, forwarded events, local queues drained) before capturing the
+    /// outcome. Wolverine's <c>TrackedHttpCall</c> pattern as a first-class act step (issue #211):
+    /// a bare Alba call returns when the HTTP response does while the downstream work is still in
+    /// flight; this one returns when the work has landed, so the whole assertion vocabulary —
+    /// <see cref="ThenEvents"/>, <see cref="ThenMessagesSent{T}"/>, <see cref="ThenDocument{T}(Action{T})"/>,
+    /// the refusal checks — works unchanged after an HTTP act.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The call itself is a delegate, so this fixture needs no HTTP dependency — pair it with
+    /// <c>Bobcat.Alba</c>'s helpers: <c>await WhenTracked(() => Context.PostJsonAsync&lt;Req, Res&gt;(url, body))</c>.
+    /// Like <see cref="WhenCommand{T}"/>, a failure is <i>captured</i> into
+    /// <see cref="LastExecution"/> rather than thrown (the return is <c>default</c> in that case),
+    /// which is what lets <c>Then validation fails with …</c> assert on it.
+    /// </para>
+    /// <para>
+    /// <paramref name="configureTracking"/> exists for the call that only <i>enqueues</i> work: an
+    /// endpoint handing envelopes to a local queue can return before the tracked session observes
+    /// any activity, and the session then completes on zero activity. Stating the expected
+    /// executions up front (<c>t => t.WaitForMessageToBeReceivedAt&lt;M&gt;(host)</c> and friends)
+    /// closes that race — the same reason Wolverine's own sample grew the overload (wolverine GH-3714).
+    /// </para>
+    /// </remarks>
+    public async Task<T?> WhenTracked<T>(
+        Func<Task<T>> act,
+        int timeoutInMilliseconds = 5000,
+        Func<TrackedSessionConfiguration, TrackedSessionConfiguration>? configureTracking = null)
+    {
+        T? result = default;
+
+        await executeTrackedCore(() =>
+        {
+            var tracking = Ctx.TrackActivity(HostResource)
+                .Timeout(TimeSpan.FromMilliseconds(timeoutInMilliseconds));
+            if (configureTracking != null) tracking = configureTracking(tracking);
+
+            Func<IMessageContext, Task> execution = async _ => result = await act();
+            return tracking.ExecuteAndWaitAsync(execution);
+        });
+
+        return LastError == null ? result : default;
+    }
+
+    /// <inheritdoc cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>
+    public Task WhenTracked(
+        Func<Task> act,
+        int timeoutInMilliseconds = 5000,
+        Func<TrackedSessionConfiguration, TrackedSessionConfiguration>? configureTracking = null)
+        => WhenTracked<object?>(async () =>
+        {
+            await act();
+            return null;
+        }, timeoutInMilliseconds, configureTracking);
 
     /// <summary>Assert the current stream's last command emitted exactly <paramref name="expected"/> (by value).</summary>
     public void ThenEvents(params object[] expected)
@@ -399,32 +472,39 @@ public abstract class CritterStackFixture : Fixture
 
     // ---- plumbing -----------------------------------------------------------------------------
 
-    private async Task executeCommandCore(object command)
+    private Task executeCommandCore(object command)
     {
-        var before = await fetchCurrentStreamAsync();
-
         // The command was dispatched either way — a validation rejection still received it,
         // and "this spec touched that command" is exactly what a sad-path scenario proves.
         Ctx.RecordTouchedType(command.GetType());
 
+        return executeTrackedCore(() => Ctx.InvokeMessageAndWaitAsync(command, HostResource));
+    }
+
+    /// <summary>
+    /// The shared act bracket: snapshot the current stream, run the tracked dispatch, and capture
+    /// what it did — session, appended events, or the exception — into <see cref="LastExecution"/>.
+    /// One bracket for <see cref="WhenCommand{T}"/> and <see cref="WhenTracked{T}(Func{Task{T}}, int, Func{TrackedSessionConfiguration, TrackedSessionConfiguration}?)"/>,
+    /// so a command act and an HTTP act feed the assertion steps identically.
+    /// </summary>
+    private async Task executeTrackedCore(Func<Task<ITrackedSession>> dispatch)
+    {
+        var before = await fetchCurrentStreamAsync();
+
         try
         {
-            var session = await Ctx.InvokeMessageAndWaitAsync(command, HostResource);
+            var session = await dispatch();
             var after = await fetchCurrentStreamAsync();
-            LastEvents = after.Skip(before.Count).ToList();
-            LastSession = session;
-            LastError = null;
+            RecordExecution(new TrackedExecution(session, after.Skip(before.Count).ToList(), null));
 
-            // Observed run evidence (issue #107): the events the command actually appended and
+            // Observed run evidence (issue #107): the events the act actually appended and
             // the messages the tracked session actually sent — never what a Then merely names.
             recordTouched(LastEvents.Select(e => e.Data));
             recordTouched(session.Sent.AllMessages());
         }
         catch (Exception e)
         {
-            LastError = e;
-            LastEvents = [];
-            LastSession = null;
+            RecordExecution(new TrackedExecution(null, [], e));
         }
     }
 

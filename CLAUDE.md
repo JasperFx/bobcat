@@ -1013,6 +1013,29 @@ discovers through its base).
   bare `Stop` has no reason anywhere, so a reason clause would assert on nothing. A refusal that
   also notifies composes with `Then {message} is sent`. Messages are deliberately not constrained
   by the refusal step itself.
+- **The tracked HTTP call is `WhenTracked`, and it lives here, not in Bobcat.Alba (issue #211).**
+  Wolverine's sample `TrackedHttpCall` pattern — the Alba scenario executed inside
+  `TrackActivity().ExecuteAndWaitAsync(...)` so the session waits for everything the call *caused*
+  (cascades, forwarded events, local queues drained) — ships as
+  `CritterStackFixture.WhenTracked(Func<Task<T>>)`: the same before/after stream bracket and
+  capture-don't-throw semantics as `WhenCommand` (one shared `executeTrackedCore`), so the whole
+  assertion vocabulary (`Then {event} is emitted`, `Then {message} is sent`, refusal checks,
+  `ThenDocument`'s projection wait) works unchanged after an HTTP act. Placement is the dependency
+  arithmetic: the call reaches `WhenTracked` as a *delegate*, so Bobcat.CritterStack needs no Alba
+  or ASP.NET reference, Bobcat.Alba stays Wolverine-free for Alba users who run no bus, and no
+  bridge package exists for one method — `Bobcat.Alba`'s helpers are the natural delegate body
+  (`WhenTracked(() => Ctx.PostJsonAsync(...))`). The hand-written-fixture surface is
+  `Bobcat.Wolverine`'s `context.ExecuteAndWaitAsync(Func<Task>)`. The capture is the public, typed
+  `TrackedExecution` (session, new stream events, error) on `CritterStackFixture.LastExecution`,
+  written only via `RecordExecution(...)` — deliberately a seam, not private fields, because it is
+  the first consumer of #212's cross-grammar shared-state contract: #210's HTTP grammar feeds the
+  store grammar's `Then` steps by recording its own capture. `LastEvents`/`LastSession`/`LastError`
+  are now read-only views over it. The `configureTracking` parameter exists for the call that only
+  *enqueues* (wolverine GH-3714): an endpoint handing envelopes to a local queue can return before
+  the session observes activity, and `WaitForExecutionOf<T>()`-style conditions close that race.
+  Proven by `TrackedHttpCallTests` (a gated handler makes "the bare Alba call returns while the
+  work is in flight; the tracked one does not" an asserted ordering, not a race — no store, always
+  runs) and `TrackedHttpFixtureTests` (Marten + async daemon over HTTP, `[PostgresFact]`).
 - **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
   resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
   **appending** arrange-events and **loading** a read-model document — go through the shared
