@@ -109,6 +109,11 @@ public static class CodeEmitter
         sb.AppendLine($"                    var f = ({fixture.FullyQualifiedName})fixture;");
 
         // Declare instances for the grammar modules used by this scenario (one per scenario).
+        // A module whose construction resolves nothing from the scenario is built eagerly at
+        // plan-build time, with the [IncludeGrammars] literals (issue #212 phase 2). One that
+        // injects from the scenario scope (IStepContext, a resource, a service) is declared
+        // null here and constructed lazily by the first step that uses it — the scope only
+        // exists inside the step lambdas.
         var usedModules = scenario.Steps
             .Where(s => s.Match != null)
             .Select(s => s.Match!.Method.DeclaringModule)
@@ -117,7 +122,13 @@ public static class CodeEmitter
             .ToList();
         foreach (var moduleFqn in usedModules)
         {
-            sb.AppendLine($"                    var {fixture.ModuleLocal(moduleFqn!)} = new {moduleFqn}();");
+            var module = fixture.FindModule(moduleFqn!);
+            var local = fixture.ModuleLocal(moduleFqn!);
+
+            if (module is { RequiresContext: true })
+                sb.AppendLine($"                    {module.FullyQualifiedName}? {local} = null;");
+            else
+                sb.AppendLine($"                    var {local} = {moduleConstruction(module, moduleFqn!)};");
         }
 
         foreach (var matched in scenario.Steps)
@@ -154,8 +165,22 @@ public static class CodeEmitter
         // Call routing: the fixture itself ("f") or a per-scenario grammar-module instance.
         var target = method.DeclaringModule == null ? "f" : fixture.ModuleLocal(method.DeclaringModule);
         var module = method.DeclaringModule == null ? null : fixture.FindModule(method.DeclaringModule);
-        // A module that inherits Fixture receives the step context before its method runs.
-        var ctxStmt = module is { IsFixture: true } ? $"{target}.Context = ctx; " : "";
+        var ctxStmt = "";
+        if (module != null)
+        {
+            if (module.RequiresContext)
+            {
+                // Lazy per-scenario construction (issue #212 phase 2): the first step using the
+                // module constructs it inside the scenario scope, where ctx exists; later steps
+                // see the same instance through the ??=. Steps run sequentially, so no race.
+                var holder = target;
+                target = holder + "i";
+                ctxStmt = $"var {target} = {holder} ??= {moduleConstruction(module, method.DeclaringModule!)}; ";
+            }
+
+            // A module that inherits Fixture receives the step context before its method runs.
+            if (module.IsFixture) ctxStmt += $"{target}.Context = ctx; ";
+        }
 
         // Does this comparison have a return-value capture? (one capture beyond the value params)
         var compareReturn = method.HasReturnValue && method.StepKind == "Then"
@@ -1107,6 +1132,23 @@ public static class CodeEmitter
         }
 
         return string.Join(", ", args);
+    }
+
+    /// <summary>
+    /// The <c>new Module(...)</c> expression for a grammar module instance (issue #212 phase 2):
+    /// the <c>[IncludeGrammars]</c> literals plus scenario-scope resolutions, all as named
+    /// arguments so omitted trailing optional parameters leave no illegal positional gap.
+    /// </summary>
+    private static string moduleConstruction(ModuleInfo? module, string fallbackFqn)
+    {
+        if (module == null || module.ConstructionParameters.Count == 0)
+            return $"new {module?.FullyQualifiedName ?? fallbackFqn}()";
+
+        var args = module.ConstructionParameters.Select(arg => arg.Literal != null
+            ? $"{arg.Parameter.Name}: {arg.Literal}"
+            : $"{arg.Parameter.Name}: {injectionExpression(arg.Parameter, null)}");
+
+        return $"new {module.FullyQualifiedName}({string.Join(", ", args)})";
     }
 
     /// <summary>
