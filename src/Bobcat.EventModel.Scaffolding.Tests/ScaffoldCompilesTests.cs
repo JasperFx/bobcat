@@ -88,15 +88,9 @@ public class ScaffoldCompilesTests
     }
 
     private static IEnumerable<(string Path, string Code)> csharpFor(string yaml)
-    {
-        var model = parse(yaml);
-
-        foreach (var pair in model.Slices.SelectMany(slice => SliceScaffolder.Scaffold(model, slice))
-                     .Concat(SliceScaffolder.ScaffoldAggregates(model)))
-        {
-            yield return (pair.Key, pair.Value);
-        }
-    }
+        => SliceScaffolder.ScaffoldAll(parse(yaml))
+            .Where(x => x.Key.EndsWith(".cs"))
+            .Select(x => (x.Key, x.Value));
 
     private static string scaffold(string sliceName)
     {
@@ -114,7 +108,11 @@ public class ScaffoldCompilesTests
     [Fact]
     public void no_generated_line_leaves_a_comment_standing_where_an_expression_must_be()
     {
-        foreach (var yaml in new[] { ModelYaml, SliceScaffolderTests.ModelYaml, BusVisibilityTests.ModelYaml })
+        foreach (var yaml in new[]
+                 {
+                     ModelYaml, SliceScaffolderTests.ModelYaml, BusVisibilityTests.ModelYaml,
+                     TriggerOriginTests.ModelYaml
+                 })
         foreach (var (path, code) in csharpFor(yaml))
         foreach (var line in code.Split('\n'))
         {

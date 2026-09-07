@@ -1,3 +1,4 @@
+using Bobcat.EventModel.Emlang;
 using JasperFx.CodeGeneration;
 
 namespace Bobcat.EventModel.Scaffolding;
@@ -16,6 +17,17 @@ public static class SliceScaffolder
     /// </summary>
     public static string AggregateFor(CuratedSlice slice)
         => slice.Aggregates.FirstOrDefault() ?? $"{slice.Name}Model";
+
+    /// <summary>
+    /// The event type an Automation slice's handler takes. The board names it as a label
+    /// (<c>trigger: { kind: MessageHandler, label: Home check assignment accepted }</c>); with no
+    /// label the slice's own first event stands in, and with neither the name is derived from the
+    /// slice so two label-less automations in one domain cannot collide on a shared placeholder.
+    /// </summary>
+    public static string TriggerFor(CuratedSlice slice)
+        => slice.Trigger?.Label is { } label
+            ? EmlangImport.PascalName(label)
+            : slice.Events.FirstOrDefault() ?? $"{slice.Name}Trigger";
 
     public static IReadOnlyDictionary<string, string> Scaffold(CuratedModelFile model, CuratedSlice slice)
     {
@@ -177,6 +189,73 @@ public static class SliceScaffolder
 
             files[$"{domain}/{group.Key}.cs"] =
                 $"namespace {ns}.{domain};\n\n" + ScaffoldFrame.Render(new AggregateFrame(group.Key, events, fields));
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// One file per trigger event that arrives from outside this model (issue #223): an
+    /// automation whose trigger no slice here emits has nobody to declare its record, and the
+    /// generated handler does not compile until somebody does.
+    /// </summary>
+    /// <remarks>
+    /// Model-level rather than per-slice for the same reason an aggregate is (issue #222): a type
+    /// name is one artifact. Three automations in a chapter can legally share one inbound
+    /// contract, and emitting it into each of their files would be three declarations of one
+    /// record — which does not compile either.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> ScaffoldTriggerContracts(CuratedModelFile model)
+    {
+        var files = new Dictionary<string, string>();
+        var ns = model.Namespace ?? model.Model;
+
+        var owned = model.Slices
+            .Select(slice => (Slice: slice, Origin: TriggerOrigins.Resolve(model, slice)))
+            .Where(x => x.Origin is { OwnsTheContract: true })
+            .GroupBy(x => x.Origin!.Event, StringComparer.Ordinal);
+
+        foreach (var group in owned)
+        {
+            var declaring = group.ToList();
+            var domain = declaring[0].Slice.Domain ?? "Shared";
+
+            // An inbound edge on ANY declaring slice accounts for the contract; the warning below
+            // still names every slice that left it unaccounted for.
+            var origin = declaring.Select(x => x.Origin!).FirstOrDefault(x => x.Source == TriggerSource.Inbound)
+                         ?? declaring[0].Origin!;
+
+            var fields = declaring
+                .SelectMany(x => fieldsFor(x.Slice, group.Key))
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .ToList();
+
+            var warnings = declaring.Select(x => TriggerOrigins.Warning(x.Origin!, x.Slice)).OfType<string>().ToList();
+
+            files[$"{domain}/{group.Key}.cs"] = $"namespace {ns}.{domain};\n\n"
+                + ScaffoldFrame.Render(new RecordFrame(group.Key, fields, TriggerOrigins.ContractComment(origin), warnings));
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Every file a model scaffolds into. The single door, because the pieces are not independent:
+    /// a slice's handler binds a write model <see cref="ScaffoldAggregates"/> emits, and an
+    /// automation's trigger record comes from <see cref="ScaffoldTriggerContracts"/>. A caller that
+    /// skips one produces a dangling type, and a dangling type fails the whole project (issue #226).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ScaffoldAll(CuratedModelFile model)
+    {
+        var files = new Dictionary<string, string>();
+
+        foreach (var pair in model.Slices.SelectMany(slice => Scaffold(model, slice))
+                     .Concat(ScaffoldAggregates(model))
+                     .Concat(ScaffoldTriggerContracts(model))
+                     .Concat(ScaffoldFeatures(model)))
+        {
+            files[pair.Key] = pair.Value;
         }
 
         return files;
