@@ -1,4 +1,3 @@
-using Bobcat.EventModel.Emlang;
 using JasperFx.CodeGeneration;
 
 namespace Bobcat.EventModel.Scaffolding;
@@ -9,19 +8,41 @@ public class RecordFrame : ScaffoldFrame
     private readonly string _name;
     private readonly IReadOnlyList<(string Type, string Name)> _fields;
     private readonly string? _docComment;
+    private readonly IReadOnlyList<string> _warnings;
 
-    public RecordFrame(string name, IReadOnlyList<(string Type, string Name)> fields, string? docComment = null)
+    public RecordFrame(string name, IReadOnlyList<(string Type, string Name)> fields, string? docComment = null,
+        IReadOnlyList<string>? warnings = null)
     {
         _name = name;
         _fields = fields;
         _docComment = docComment;
+        _warnings = warnings ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
+        foreach (var warning in _warnings)
+        {
+            writer.WriteLine($"// WARNING (from the model): {warning}");
+        }
+
         if (_docComment is not null)
         {
-            writer.WriteLine($"/// <summary>{_docComment}</summary>");
+            var lines = _docComment.Split('\n');
+            if (lines.Length == 1)
+            {
+                writer.WriteLine($"/// <summary>{_docComment}</summary>");
+            }
+            else
+            {
+                writer.WriteLine("/// <summary>");
+                foreach (var line in lines)
+                {
+                    writer.WriteLine($"/// {line}");
+                }
+
+                writer.WriteLine("/// </summary>");
+            }
         }
 
         var fields = string.Join(", ", _fields.Select(x => $"{x.Type} {x.Name}"));
@@ -113,9 +134,7 @@ public class WriteModelHandlerFrame : ScaffoldFrame
     {
         var aggregate = SliceScaffolder.AggregateFor(_slice);
         var isAutomation = _slice.Pattern == "Automation";
-        var trigger = isAutomation
-            ? _slice.Trigger?.Label is { } label ? EmlangImport.PascalName(label) : _slice.Events.FirstOrDefault() ?? "TodoTriggerEvent"
-            : _slice.Command ?? _slice.Name;
+        var trigger = isAutomation ? SliceScaffolder.TriggerFor(_slice) : _slice.Command ?? _slice.Name;
 
         writer.WriteLine("/// <summary>");
         writer.WriteLine(isAutomation
