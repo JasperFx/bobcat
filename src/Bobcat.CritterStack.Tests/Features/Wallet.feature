@@ -89,3 +89,19 @@ Feature: Wallet
     Given no events for Wallet "88888888-8888-8888-8888-888888888888"
     When SweepWallets is received
     Then no events are emitted
+
+  # Issue #236: a fan-out read model is keyed by an owner, never by a stream, so the shortcut
+  # step — which loads by the scenario's stream id — cannot address it at all. Two wallets, two
+  # streams, one document.
+  @slice:OwnerWallets
+  Scenario: Two wallets for one owner fold into that owner's read model
+    Given no events for Wallet "66666666-6666-6666-6666-666666666666"
+    When OpenWallet is received
+      | WalletId                             | Owner |
+      | 66666666-6666-6666-6666-666666666666 | Fay   |
+    When OpenWallet is received
+      | WalletId                             | Owner |
+      | 77777777-7777-7777-7777-777777777777 | Fay   |
+    Then the OwnerWallets read model with id "Fay" contains
+      | Wallets |
+      | 2       |

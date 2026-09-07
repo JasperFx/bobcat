@@ -67,6 +67,27 @@ public class WalletSummary
     }
 }
 
+/// <summary>
+/// The fan-out read model (issue #236): one document per <b>owner</b>, folding that owner's
+/// wallets from every stream. Its id is the owner's name, not a stream id — which is precisely
+/// what <c>Then the {readmodel} read model contains</c> cannot address, because that step loads
+/// by the scenario's stream. A read model like this is half the read-model space, and before the
+/// identity-bearing step the only ways to spec it were to redefine it as single-stream (a
+/// modelling lie told to satisfy a grammar) or to leave it spec-less.
+/// </summary>
+public class OwnerWallets
+{
+    public string Id { get; set; } = "";
+    public int Wallets { get; set; }
+}
+
+public class OwnerWalletsProjection : MultiStreamProjection<OwnerWallets, string>
+{
+    public OwnerWalletsProjection() => Identity<WalletOpened>(x => x.Owner);
+
+    public void Apply(WalletOpened e, OwnerWallets view) => view.Wallets++;
+}
+
 public class WalletHandler
 {
     public static async Task Handle(OpenWallet command, IDocumentStore store)
