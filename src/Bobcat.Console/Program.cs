@@ -10,6 +10,23 @@ using Wolverine.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The console's port is 5525 everywhere a CLIENT looks — MonitorPublisher.DefaultUrl, the
+// event-model watch plan, the Vite dev proxy, the docs. The SERVER only ever had it in
+// launchSettings.json, which is a `dotnet run` file the packaged tool never sees, so `bobcat run`
+// fell to Kestrel's bare :5000 (issue #200): unreachable by every publisher, which all probe
+// 5525, and squatting on the port every other ASP.NET default host on the box wants.
+// ConsoleUrlAgreementTests pins this constant to MonitorPublisher.DefaultUrl, because the
+// layering rule keeps the console from referencing Bobcat to share the literal outright.
+//
+// A default, not an override: ASPNETCORE_URLS still wins. It has to, because the command line
+// cannot reach this — RunJasperFxCommands wraps an already-built WebApplication in a
+// PreBuiltHostBuilder, and NetCoreInput.ApplyHostBuilderInput returns early for one, so
+// `--config:urls=...` is silently inert.
+if (string.IsNullOrWhiteSpace(builder.Configuration[WebHostDefaults.ServerUrlsKey]))
+{
+    builder.WebHost.UseUrls(EventModelWatchPlan.DefaultConsoleUrl);
+}
+
 builder.Host.UseWolverine(opts =>
 {
     opts.UseSignalR();
@@ -47,6 +64,11 @@ builder.Services.AddSingleton<SignalRBatchAccumulator>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SignalRBatchAccumulator>());
 builder.Services.AddHostedService<ArchiveRetentionService>();
 
+// Liveness, and the ceiling that acts on it (issue #200): a console with nothing connected and
+// nothing publishing to it stops itself rather than outliving the session that started it.
+builder.Services.AddSingleton<ConsoleActivity>();
+builder.Services.AddHostedService<IdleShutdownService>();
+
 // MCP server (CritterWatch *.Mcp shape): streamable HTTP, stateless so every tool call is a
 // self-contained request. This is the agent-facing surface — every dashboard query, plus
 // await_run_completion for blocking on a suite instead of polling it.
@@ -55,6 +77,23 @@ builder.Services.AddMcpServer()
     .WithTools<MonitorTools>();
 
 var app = builder.Build();
+
+// First in the pipeline, so every request counts — the SPA, /api/ingest, the SignalR hub, the
+// MCP surface. A WebSocket is one request that never completes, which is exactly how an open
+// dashboard tab keeps the idle ceiling below from ever starting.
+var activity = app.Services.GetRequiredService<ConsoleActivity>();
+app.Use(async (context, next) =>
+{
+    activity.Began();
+    try
+    {
+        await next(context);
+    }
+    finally
+    {
+        activity.Ended();
+    }
+});
 
 // No-op in a dev build (Vite serves the SPA); in an EmbedFrontend build this serves the
 // embedded console at the root with an index.html fallback for the Vue Router's routes.

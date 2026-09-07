@@ -640,6 +640,58 @@ Exports are validated against the official `ctrf-io/ctrf` schema — which also 
 `suite` must be an ARRAY (hierarchy), fixed at the same time. Null-valued fields are omitted
 (CTRF's typed fields don't admit null).
 
+## The console's own port and lifetime (issue #200, built 2026-09-07)
+
+A `bobcat run` was found alive **20h52m** after the Claude session that started it had ended —
+its cwd a since-abandoned scratchpad for a different repository — wedged on `127.0.0.1:5000`.
+The next repository's gate then failed 15 tests across two suites with `AddressInUseException`,
+and the red read as a product regression until `lsof -iTCP:5000` named the squatter. Two
+independent defects, both fixed here.
+
+**The port was never applied server-side.** 5525 is the console's address everywhere a *client*
+looks — `MonitorPublisher.DefaultUrl`, `EventModelWatchPlan.DefaultConsoleUrl`, the Vite dev
+proxy, this document — but the only server-side declaration was `launchSettings.json`, a
+`dotnet run` file the packaged tool never sees. So `bobcat run` fell to Kestrel's bare `:5000`:
+unreachable by every publisher (they all probe 5525, so the console silently saw nothing) *and*
+squatting on the port every other ASP.NET default host on the box wants. `Program.cs` now applies
+`EventModelWatchPlan.DefaultConsoleUrl` when nothing else configured a URL. A **default**, so
+`ASPNETCORE_URLS` still wins — and it has to be one, because the command line cannot reach this:
+`RunJasperFxCommands` wraps an already-built `WebApplication` in a `PreBuiltHostBuilder`, and
+`NetCoreInput.ApplyHostBuilderInput` returns early for one, which makes `--config:urls=…`
+silently inert. The two constants are pinned to each other by `ConsoleUrlAgreementTests`, on
+opposite sides of the layering rule; a publisher probing an address the server does not bind is
+precisely how an orphan goes unnoticed for a day.
+
+**Nothing in the process could ever have ended it.** JasperFx's `run` blocks on an untimed
+`ManualResetEventSlim` whose only realistic release is a `Console.CancelKeyPress` that a process
+detached from a dead terminal never receives. `IdleShutdownService` gives it one: after a stretch
+with nothing connected and nothing publishing, it logs loudly and calls `StopApplication()`.
+
+- **Idleness rather than parent death.** A parent-death watchdog is the obvious answer and is not
+  portable — .NET has no cross-platform "who is my parent" — and watching for stdin to close
+  kills a legitimately backgrounded console the moment it starts. Idleness is a statement about
+  the process's *purpose*: a viewer with no browser attached and no run publishing to it is doing
+  nothing for anybody, and is only holding its port against whoever wants it next.
+- **In flight is half of "idle".** `ConsoleActivity` is fed by one middleware at the top of the
+  pipeline and counts requests *in flight* as well as the last one seen. A browser with the
+  dashboard open holds a SignalR connection, which is one request that never completes — so a
+  watched console never even starts the window, however long it sits between runs. That is the
+  case an idle ceiling must not break, and it cannot.
+- **On by default, unlike the retry and stall knobs.** Those are opt-in because they preserve a
+  behaviour someone may be relying on; this one preserves nothing. Two hours, reset by any
+  request at all: `Monitor:IdleMinutes` → `BOBCAT_MONITOR_IDLE_MINUTES` → 2h, zero or negative
+  runs until stopped — the same order as the retention knobs.
+
+**And the diagnosis is in the failure message now.** `PortHolder` (in core `Bobcat.Runtime`, not
+here) turns a resource's bind collision into the name of the process holding the port, appended
+to the `SpecCatastrophicException` `TestSuite.StartAll` already raises: *"Port 5000 is held by pid
+12345 (bobcat) — that process, not this suite, is what has to go."* It matches Kestrel's
+`AddressInUseException` by type name, because core must not reference ASP.NET, and the wrapped
+`SocketException` properly; both halves are required, so a message that merely mentions a port is
+not mistaken for a collision. Report, never act: naming the holder is the whole feature, because
+killing somebody else's process for being in our way is not a decision a test harness gets to
+make, and the holder is as likely to be a development server somebody is using as an orphan.
+
 ## Not built yet
 
 - Gherkin-runner dogfood e2e against this UI (#86).
