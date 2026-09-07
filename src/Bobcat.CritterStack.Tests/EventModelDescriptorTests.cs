@@ -27,7 +27,7 @@ public class EventModelDescriptorTests
         var model = describe();
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
         model.Slices.Select(s => s.Name).ShouldBe(
-            ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet"], ignoreOrder: true);
+            ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets"], ignoreOrder: true);
     }
 
     [Fact]
@@ -184,6 +184,6 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(4);
+        descriptor.Slices.Count.ShouldBe(5);
     }
 }

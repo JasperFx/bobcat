@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using Bobcat;
+using Bobcat.Engine;
 
 namespace Bobcat.CritterStack;
 
@@ -20,7 +21,7 @@ internal static class RecordBuilding
     /// constructor whose parameters the columns can all supply (records-friendly), then a
     /// parameterless constructor with settable-property assignment.
     /// </summary>
-    public static object Build(Type type, IReadOnlyDictionary<string, string> cells)
+    public static object Build(Type type, IReadOnlyDictionary<string, string> cells, string? step = null)
     {
         // A parameter with a C# default does not need a column (bobcat#177 dogfood finding):
         // real commands routinely carry optional trailing parameters (a nullable Session, a
@@ -60,9 +61,19 @@ internal static class RecordBuilding
             return instance;
         }
 
-        throw new InvalidOperationException(
-            $"Cannot build '{type.FullName}' from the columns [{string.Join(", ", cells.Keys)}]. No public constructor's " +
-            "parameters are all supplied by columns, and there is no parameterless constructor to set properties on.");
+        // Name the step and the fields it did not get. The reader's next move is to add columns,
+        // and the message they used to get was a bare NRE from inside the fixture (issue #233).
+        var wanted = type.GetConstructors()
+            .Where(c => c.GetParameters().Length > 0)
+            .OrderByDescending(c => c.GetParameters().Length)
+            .Select(c => string.Join(", ", c.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}")))
+            .FirstOrDefault();
+
+        throw new SpecCriticalException(
+            (step is null ? "" : $"'{step}': ")
+            + $"cannot build '{type.Name}' from the columns [{string.Join(", ", cells.Keys)}]"
+            + (wanted is null ? ". It has no public constructor to build it with." : $" — it needs ({wanted}).")
+            + " Give the step a one-row table naming those columns.");
     }
 
     /// <summary>Build one object per <see cref="StepTable"/> row, all of the same <paramref name="type"/>.</summary>

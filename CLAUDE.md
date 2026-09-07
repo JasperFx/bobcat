@@ -174,6 +174,18 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   step's whole trailing data table as one argument (headers + rows as written), instead of the
   per-row `[Table]` calls. Never binds a column, never resolved from DI. Built for grammars whose row
   shape is not fixed at compile time (event records of several types, a command bound by column name).
+  **The nullable annotation is load-bearing and enforced (issue #233): a step with no trailing table
+  bound to a method declaring a non-nullable `StepTable` is BOBCAT020, an error.** Before it, the
+  generator passed null and the fixture dereferenced it — `NullReferenceException at
+  CritterStackFixture.WhenCommandIsReceived`, a stack that is Bobcat's rather than the author's, over
+  legal Gherkin that bound fine. The binding's own doc comment already said "null when the step has
+  none *and the parameter is nullable*"; nothing enforced the second half. Nullable-disabled
+  consumer projects are exempt — there the author had no way to say the table is optional.
+  Consequence in the shipped grammar: `When {command} is received` takes `StepTable?` and builds a
+  field-less command through its parameterless constructor (an emlang import carries no field
+  information, so a scaffolded act routinely has nothing to tabulate), while `Given events for
+  {aggregate}` and `Then the {readmodel} read model contains` keep the non-nullable parameter and so
+  are refused at build time.
 
 ### Event Modeling slice tags and descriptors (`SliceTags`, issues #104/#106)
 
