@@ -151,16 +151,18 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly bool _maybeNewStream;
+    private readonly bool _startsStream;
     private readonly IReadOnlyList<CascadedMessage> _cascaded;
     private readonly IReadOnlyList<string> _warnings;
     private readonly string? _publishedBy;
 
-    public WriteModelHandlerFrame(CuratedSlice slice, bool maybeNewStream,
+    public WriteModelHandlerFrame(CuratedSlice slice, bool maybeNewStream, bool startsStream = false,
         IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null,
         string? publishedBy = null)
     {
         _slice = slice;
         _maybeNewStream = maybeNewStream;
+        _startsStream = startsStream;
         _cascaded = cascaded ?? [];
         _warnings = warnings ?? [];
         _publishedBy = publishedBy;
@@ -187,10 +189,10 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Handler");
 
-        // A slice every one of whose scenarios arranges nothing STARTS the stream, and a
-        // [WriteModel] cannot start one — it loads an existing stream (issue #239). The
-        // store-agnostic side effect is the shape, and there is no aggregate to bind at all.
-        var creates = SliceScaffolder.CreatesTheStream(_slice);
+        // A slice whose act cannot identify a stream and whose scenarios arrange none STARTS the
+        // stream, and a [WriteModel] cannot start one — it loads an existing stream (issue #239).
+        // The store-agnostic side effect is the shape, and there is no aggregate to bind at all.
+        var creates = _startsStream;
         var parameter = _maybeNewStream ? $"[WriteModel] {aggregate}? " : $"[WriteModel] {aggregate} ";
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
         var appendType = creates ? "StartStream" : "EventsToAppend";

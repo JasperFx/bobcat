@@ -85,13 +85,42 @@ public static class SliceScaffolder
     /// This is the same fact the aggregate scaffolder acts on when it makes the first event a
     /// <c>Create</c> rather than an <c>Apply</c>; before this, only the aggregate half derived it.
     ///
-    /// A slice with no scenarios at all is deliberately NOT creating: silence is not evidence, and
-    /// reading vacuous truth out of an empty scenario list would hand back a handler shape nobody
-    /// can fill on the strength of a model that said nothing.
+    /// It takes BOTH signals, and positive evidence for each. "No scenario arranges history" alone
+    /// makes every slice of an emlang import a creating slice, because a board export whose tests
+    /// declare no prior events carries no <c>given:</c> anywhere. "The act carries no id" alone
+    /// catches the computed-identity request this scaffold itself teaches. Silence is not evidence
+    /// either way, so a model saying nothing about the act's fields leaves the slice binding a
+    /// write model — which fails loudly and accurately at dispatch, where the wrong guess in the
+    /// other direction quietly creates a second stream per message forever.
     /// </remarks>
-    public static bool CreatesTheStream(CuratedSlice slice)
-        => slice.Specifications is { Scenarios.Count: > 0 } specs
-           && specs.Scenarios.All(x => x.Given.Count == 0);
+    public static bool CreatesTheStream(CuratedModelFile model, CuratedSlice slice)
+    {
+        // Can the act's payload identify a stream at all? [WriteModel] resolves the id out of the
+        // incoming message, so a trigger carrying an upstream flow's ids and no {Aggregate}Id or
+        // Id cannot bind one — and Wolverine refuses the DISPATCH rather than the body ("Unable to
+        // determine an aggregate id for the parameter 'appointment'"), a framework error saying
+        // nothing about the slice, where every other unfilled slice fails on its own named TODO.
+        var aggregate = AggregateFor(slice);
+        var actType = slice.Pattern == "Automation" ? TriggerFor(slice) : slice.Command ?? slice.Name;
+        var actFields = fieldsFor(slice, actType);
+
+        // Positive evidence only. A model that says nothing about the act's fields says nothing
+        // about this either, and "we do not know" must not become "it creates a stream": a wrongly
+        // bound [WriteModel] fails loudly and accurately at dispatch, where a wrongly emitted
+        // StartStream would quietly create a second stream per message, forever.
+        var identifiable = actFields.Count == 0
+                           || actFields.Any(x => string.Equals(x.Name, "Id", StringComparison.OrdinalIgnoreCase)
+                                                 || string.Equals(x.Name, aggregate + "Id", StringComparison.OrdinalIgnoreCase));
+
+        // And the second signal, which is why one alone will not do. A request whose identity is
+        // COMPUTED rather than carried has no id field either — a real shape this scaffold itself
+        // teaches, `[Identity] public Guid ...Id => …` on the request record. What separates it
+        // from a slice that genuinely creates is history: a computed identity addresses a stream
+        // that exists, so its scenarios arrange one. A creating slice's never do.
+        var arrangesHistory = (slice.Specifications?.Scenarios ?? []).Any(x => x.Given.Count > 0);
+
+        return !identifiable && !arrangesHistory;
+    }
 
     /// <summary>
     /// The events a View slice's projection folds, each with the Guid field a fan-out can route
@@ -230,6 +259,7 @@ public static class SliceScaffolder
             Command: slice.Command ?? slice.Name,
             Aggregate: AggregateFor(slice),
             ArrangeAggregate: ArrangeAggregateFor(model, slice),
+            StartsStream: shape != SliceShape.Translation && CreatesTheStream(model, slice),
             AggregateWarnings: arrangeWarnings(model, slice),
             Route: $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}",
             Trigger: TriggerOrigins.Resolve(model, slice),
@@ -321,6 +351,7 @@ public static class SliceScaffolder
         {
             frames.Add(new WriteModelHandlerFrame(slice,
                 maybeNewStream: slice.Pattern == "Command",
+                startsStream: plan.StartsStream,
                 cascaded: visibility.Cascaded, warnings: visibility.Warnings,
                 publishedBy: BusVisibility.PublishedBy(model, slice)));
         }

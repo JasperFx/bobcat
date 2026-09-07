@@ -37,6 +37,9 @@ public enum SliceShape
 /// <param name="ArrangeAggregate">The aggregate a scenario's arrange steps name — null when the
 /// slice has no write model and the model identifies no stream for it (issue #240). A View slice
 /// is the case: nothing emits a synthesized <c>{Slice}Model</c>, so naming one is BOBCAT011.</param>
+/// <param name="StartsStream">Whether the slice STARTS its stream rather than appending to one
+/// (issue #239) — see <see cref="SliceScaffolder.CreatesTheStream"/> for the two signals it takes
+/// and why either alone gets it wrong.</param>
 /// <param name="AggregateWarnings">What the feature says out loud when the arrange steps cannot
 /// be trusted — arranged events spanning several aggregates, or none this model declares.</param>
 public sealed record SlicePlan(
@@ -46,6 +49,7 @@ public sealed record SlicePlan(
     string Aggregate,
     string? ArrangeAggregate,
     IReadOnlyList<string> AggregateWarnings,
+    bool StartsStream,
     string Route,
     TriggerOrigin? Trigger,
     BusVisibilityResolution Visibility)
