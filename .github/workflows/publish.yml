@@ -74,3 +74,47 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --api-key ${{ secrets.NUGET_API_KEY }}
           --skip-duplicate
+
+      # --skip-duplicate keeps the push idempotent for re-runs, but it also means a push
+      # NuGet swallowed and a genuine duplicate look identical — both leave this job green.
+      # That is how Bobcat.Console 0.11.0 sat invisible in nuget.org's validation pipeline
+      # until a downstream consumer hit "not found" (issue #224). So verify the outcome,
+      # not the request: poll the flat container until every packed id/version is actually
+      # downloadable, and fail the release if any is still missing after the grace period.
+      # This deliberately covers the bobcat tool too — the version is centralized in
+      # src/Directory.Build.props, so the tool lagging the libraries is never a supported
+      # state; a red run here means go look at the package's status on the nuget.org
+      # account page. Validation normally clears in a few minutes; 30 is the generosity.
+      - name: Verify packages are live on NuGet
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 30 * 60 ))
+          missing=""
+          for pkg in "${{ github.workspace }}"/artifacts/*.nupkg; do
+            file=$(basename "$pkg" .nupkg)
+            if [[ ! "$file" =~ ^(.+)\.([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+              echo "::error::Cannot parse a package id and version out of '$file'"
+              exit 1
+            fi
+            # The flat container is addressed by lowercase id only — uppercase 404s.
+            id=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
+            version="${BASH_REMATCH[2]}"
+            while true; do
+              if curl -sf "https://api.nuget.org/v3-flatcontainer/$id/index.json" \
+                  | jq -e --arg v "$version" 'any(.versions[]; . == $v)' > /dev/null; then
+                echo "$id $version is live"
+                break
+              fi
+              if (( $(date +%s) >= deadline )); then
+                echo "::error::$id $version was pushed but is not downloadable from nuget.org — likely stuck in or rejected by validation; check the package's status on the nuget.org account page"
+                missing="$missing $id@$version"
+                break
+              fi
+              echo "$id $version not indexed yet, retrying in 30s..."
+              sleep 30
+            done
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::Release is incomplete — missing on nuget.org:$missing"
+            exit 1
+          fi
