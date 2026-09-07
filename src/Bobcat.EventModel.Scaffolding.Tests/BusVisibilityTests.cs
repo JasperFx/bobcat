@@ -112,9 +112,12 @@ public class BusVisibilityTests
     {
         var code = scaffold("ReviewListing");
 
-        // Its trigger IS the published command: WriteModelHandlerFrame, never a route.
+        // Its trigger IS the published command: WriteModelHandlerFrame, never a route. And it
+        // starts the Review's stream (issue #239) — the command carries a ListingId and nothing
+        // that names a Review, so [WriteModel] had no id to resolve and would have failed the
+        // dispatch; no scenario of this slice arranges a Review either.
         code.ShouldContain("public record ReviewListing(Guid ListingId, string Reason);");
-        code.ShouldContain("public static EventsToAppend Handle(ReviewListing command, [WriteModel] Review? review)");
+        code.ShouldContain("public static StartStream Handle(ReviewListing command)");
         code.ShouldContain("Triggered over the bus: the model shows slice 'RemoveListing' publishing ReviewListing.");
         code.ShouldNotContain("WolverinePost");
     }

@@ -124,10 +124,10 @@ public partial class SpecAndCodeAgreementTests
         feature.ShouldContain("When HomeCheckAssignmentAccepted is received");
         feature.ShouldNotContain("When ProposeHomeCheckAppointment is received");
 
-        // And it starts the appointment's stream rather than binding a write model that cannot
-        // exist: every scenario of this slice arranges no prior events (issue #239).
+        // It still binds a write model: this fixture's model says nothing about the trigger's
+        // fields, and silence is not evidence that the slice creates its stream (issue #239).
         codeFor("ProposeHomeCheckAppointment")
-            .ShouldContain("public static StartStream Handle(HomeCheckAssignmentAccepted trigger)");
+            .ShouldContain("Handle(HomeCheckAssignmentAccepted trigger, [WriteModel] Appointment appointment)");
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public partial class SpecAndCodeAgreementTests
     {
         // The case `is received` was always right for — the fix must not overreach into it.
         featureFor("Moderation").ShouldContain("When ReviewAppointment is received");
-        codeFor("ReviewAppointment").ShouldContain("Handle(ReviewAppointment command)");
+        codeFor("ReviewAppointment").ShouldContain("Handle(ReviewAppointment command,");
     }
 
     [Fact]

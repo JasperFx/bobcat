@@ -149,7 +149,11 @@ public class TriggerOriginTests
         var code = SliceScaffolder.Scaffold(file, file.Slices.Single(x => x.Name == "ProposeHomeCheckAppointment"))
             .Single().Value;
 
-        code.ShouldContain("public static EventsToAppend Handle(HomeCheckAssignmentAccepted trigger, [WriteModel] Appointment appointment)");
+        // And it starts the appointment's stream (issue #239): the contract this model named
+        // carries the volunteering flow's ids — assignmentId, volunteerId — and nothing that
+        // identifies an Appointment, because the appointment does not exist until this slice
+        // creates it. A [WriteModel] here failed the dispatch, not the body.
+        code.ShouldContain("public static StartStream Handle(HomeCheckAssignmentAccepted trigger)");
     }
 
     [Fact]
