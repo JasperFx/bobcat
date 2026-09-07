@@ -417,11 +417,14 @@ public class ViewSliceFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly IReadOnlyList<ViewSource> _sources;
+    private readonly IReadOnlyList<(string Type, string Name)> _fields;
 
-    public ViewSliceFrame(CuratedSlice slice, IReadOnlyList<ViewSource>? sources = null)
+    public ViewSliceFrame(CuratedSlice slice, IReadOnlyList<ViewSource>? sources = null,
+        IReadOnlyList<(string Type, string Name)>? fields = null)
     {
         _slice = slice;
         _sources = sources ?? [];
+        _fields = fields ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -447,9 +450,22 @@ public class ViewSliceFrame : ScaffoldFrame
             return;
         }
 
+        // The projected columns, from the same two sources every other frame reads: the slice's
+        // `elements:` hints and the columns its scenarios assert on (issue #240). Both were
+        // sitting there unused, and the read model was the one type in the scaffold that came out
+        // empty however well the model was curated.
         writer.Write($"BLOCK:public class {readModel}");
         writer.WriteLine("public Guid Id { get; set; }");
-        writer.WriteLine("// TODO: the projected columns the model's scenarios assert on");
+        if (_fields.Count == 0)
+        {
+            writer.WriteLine("// TODO: the projected columns — this model's `elements:` and scenarios name none.");
+        }
+
+        foreach (var (type, name) in _fields.Where(x => x.Name != "Id"))
+        {
+            writer.WriteLine($"public {type} {name} {{ get; set; }}");
+        }
+
         writer.FinishBlock();
         writer.BlankLine();
 

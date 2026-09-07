@@ -19,6 +19,48 @@ public static class SliceScaffolder
         => slice.Aggregates.FirstOrDefault() ?? $"{slice.Name}Model";
 
     /// <summary>
+    /// The read model a View slice projects into. Its own <c>readModels:</c> when it names one,
+    /// otherwise the slice's name — the same rule <see cref="ViewSliceFrame"/> emits by.
+    /// </summary>
+    public static string ReadModelFor(CuratedSlice slice)
+        => slice.ReadModels.FirstOrDefault() ?? slice.Name;
+
+    /// <summary>
+    /// The aggregate a scenario's <c>Given no events for … / And events for …</c> steps name, or
+    /// null when the slice has no write model and the model does not identify one (issue #240).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AggregateFor"/> synthesizes <c>{Slice}Model</c> for a slice that declares no
+    /// <c>aggregates:</c>, which is right for a Command or an Automation — the handler binds a
+    /// <c>[WriteModel]</c> of that name, and <see cref="ScaffoldAggregates"/> emits a type for it.
+    /// A View slice has no write model, so nothing emits <c>{Slice}Model</c> and the arrange step
+    /// named a type that does not exist: BOBCAT011, which fails the whole spec project.
+    ///
+    /// And there should be no such type. The events a View scenario arranges belong to the stream
+    /// the projection READS, which the model already identifies twice over — they are declared by
+    /// sibling slices whose <c>aggregates:</c> say so. Resolving them is the honest answer;
+    /// inventing a name is not.
+    ///
+    /// Arranged events that disagree — declared by slices over different aggregates — take the
+    /// first and warn. A scenario arranging two streams at once is not something this grammar can
+    /// express, and saying so beats picking silently.
+    /// </remarks>
+    public static string? ArrangeAggregateFor(CuratedModelFile model, CuratedSlice slice)
+        => slice.Aggregates.FirstOrDefault()
+           ?? arrangedAggregates(model, slice).FirstOrDefault()
+           ?? (slice.Pattern is "Command" or "Automation" ? AggregateFor(slice) : null);
+
+    /// <summary>Every distinct aggregate the slices declaring this one's arranged events name.</summary>
+    private static List<string> arrangedAggregates(CuratedModelFile model, CuratedSlice slice)
+        => (slice.Specifications?.Scenarios ?? [])
+            .SelectMany(x => x.Given)
+            .Select(x => x.Event)
+            .Distinct(StringComparer.Ordinal)
+            .SelectMany(name => model.Slices.Where(x => x.Events.Contains(name)).SelectMany(x => x.Aggregates))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
     /// The event type an Automation slice's handler takes. The board names it as a label
     /// (<c>trigger: { kind: MessageHandler, label: Home check assignment accepted }</c>); with no
     /// label the slice's own first event stands in, and with neither the name is derived from the
@@ -150,7 +192,8 @@ public static class SliceScaffolder
 
             case "View":
                 files[$"{domain}/{slice.Name}.cs"] =
-                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice))));
+                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice),
+                        fieldsFor(slice, ReadModelFor(slice)))));
                 break;
         }
 
@@ -186,9 +229,42 @@ public static class SliceScaffolder
             shape,
             Command: slice.Command ?? slice.Name,
             Aggregate: AggregateFor(slice),
+            ArrangeAggregate: ArrangeAggregateFor(model, slice),
+            AggregateWarnings: arrangeWarnings(model, slice),
             Route: $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}",
             Trigger: TriggerOrigins.Resolve(model, slice),
             Visibility: visibility);
+    }
+
+    /// <summary>
+    /// What the feature says out loud when its arrange steps cannot be trusted: events belonging
+    /// to more than one aggregate, or to none this model declares.
+    /// </summary>
+    private static IReadOnlyList<string> arrangeWarnings(CuratedModelFile model, CuratedSlice slice)
+    {
+        if (slice.Aggregates.Count > 0) return [];
+
+        var resolved = arrangedAggregates(model, slice);
+        if (resolved.Count > 1)
+        {
+            return
+            [
+                $"WARNING: the events this slice arranges belong to several aggregates ({string.Join(", ", resolved)});",
+                $"the steps below use {resolved[0]}. Declare `aggregates:` on the slice to say which stream it means."
+            ];
+        }
+
+        if (resolved.Count == 0 && slice.Pattern == "View"
+            && (slice.Specifications?.Scenarios ?? []).Any(x => x.Given.Count > 0))
+        {
+            return
+            [
+                "WARNING: no slice in this model declares an aggregate for the events arranged below, so the",
+                "arrange steps are omitted. Declare `aggregates:` on the slice whose events these are."
+            ];
+        }
+
+        return [];
     }
 
     private static string commandSlice(CuratedModelFile model, CuratedSlice slice)
@@ -427,8 +503,10 @@ public static class SliceScaffolder
         var specs = slice.Specifications!;
 
         // A literal "TODO" here names a type the generator cannot resolve (BOBCAT011), which
-        // fails the spec project — the .feature half of the same defect as issue #226.
-        var aggregate = plan.Aggregate;
+        // fails the spec project — the .feature half of the same defect as issue #226. Null is
+        // the View slice with no write model: there is no type to name, and inventing one is
+        // that same build error (issue #240).
+        var aggregate = plan.ArrangeAggregate;
 
         foreach (var scenario in specs.Scenarios)
         {
@@ -437,13 +515,22 @@ public static class SliceScaffolder
             writer.BlankLine();
             writer.WriteLine($"  @slice:{slice.Name}");
             writer.WriteLine($"  Scenario: {scenario.Name}");
-            writer.WriteLine($"    Given no events for {aggregate} \"{streamId}\"");
 
-            foreach (var given in scenario.Given)
+            foreach (var warning in plan.AggregateWarnings)
             {
-                writer.WriteLine($"    And events for {aggregate}");
-                table(writer, "      ", new[] { "Event" }.Concat(given.With.Keys),
-                    new[] { given.Event }.Concat(expand(given.With.Values, streamId)));
+                writer.WriteLine($"    # {warning}");
+            }
+
+            if (aggregate is not null)
+            {
+                writer.WriteLine($"    Given no events for {aggregate} \"{streamId}\"");
+
+                foreach (var given in scenario.Given)
+                {
+                    writer.WriteLine($"    And events for {aggregate}");
+                    table(writer, "      ", new[] { "Event" }.Concat(given.With.Keys),
+                        new[] { given.Event }.Concat(expand(given.With.Values, streamId)));
+                }
             }
 
             if (scenario.When is not null)
@@ -591,6 +678,15 @@ public static class SliceScaffolder
 
             foreach (var then in scenario.Then.Where(x => x.Event == typeName))
             foreach (var (name, value) in then.With)
+            {
+                fields.TryAdd(name, inferType(value));
+            }
+
+            // A read model's columns are the ones its scenarios assert on (issue #240) — the
+            // other half of the model that was sitting there unused while the scaffolded class
+            // came out holding an Id and a comment.
+            foreach (var then in scenario.Then.Where(x => x.ReadModel == typeName))
+            foreach (var (name, value) in then.Contains)
             {
                 fields.TryAdd(name, inferType(value));
             }

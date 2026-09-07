@@ -31,11 +31,21 @@ public enum SliceShape
 /// aggregate (#222) and trigger-contract (#223) bugs already taught in the other direction, where
 /// a name shared between artifacts had to be computed in one place.
 /// </remarks>
+/// <param name="Aggregate">The write model the slice's handler binds. Always a name, because a
+/// handler must bind something and <see cref="SliceScaffolder.ScaffoldAggregates"/> emits a type
+/// for the synthesized one.</param>
+/// <param name="ArrangeAggregate">The aggregate a scenario's arrange steps name — null when the
+/// slice has no write model and the model identifies no stream for it (issue #240). A View slice
+/// is the case: nothing emits a synthesized <c>{Slice}Model</c>, so naming one is BOBCAT011.</param>
+/// <param name="AggregateWarnings">What the feature says out loud when the arrange steps cannot
+/// be trusted — arranged events spanning several aggregates, or none this model declares.</param>
 public sealed record SlicePlan(
     CuratedSlice Slice,
     SliceShape Shape,
     string Command,
     string Aggregate,
+    string? ArrangeAggregate,
+    IReadOnlyList<string> AggregateWarnings,
     string Route,
     TriggerOrigin? Trigger,
     BusVisibilityResolution Visibility)
