@@ -80,7 +80,9 @@ public class SliceScaffolderTests
         code.ShouldContain("public record SwipeOnDogRequest(Guid SwiperDogId, bool Liked);");
         code.ShouldContain("public record SwipeOnDogResponse();");
         code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
-        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDogRequest request, [WriteModel] SwipePair? swipePair)");
+        // No write model: SwipeOnDogRequest carries SwiperDogId and Liked, and neither can identify
+        // a SwipePair — so [WriteModel] could not have resolved a stream id here either (issue #239).
+        code.ShouldContain("public static (SwipeOnDogResponse, IStartStream) Post(SwipeOnDogRequest request)");
         // The aggregate is NOT here — it is a model-level artifact now (see below).
         code.ShouldNotContain("public class SwipePair");
         code.ShouldContain("wolverine#4309");

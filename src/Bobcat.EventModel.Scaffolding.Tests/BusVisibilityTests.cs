@@ -114,7 +114,9 @@ public class BusVisibilityTests
 
         // Its trigger IS the published command: WriteModelHandlerFrame, never a route.
         code.ShouldContain("public record ReviewListing(Guid ListingId, string Reason);");
-        code.ShouldContain("public static EventsToAppend Handle(ReviewListing command, [WriteModel] Review? review)");
+        // The shape under test is the message handler, which it still is; the write model went away
+        // because ReviewListing carries no ReviewId to resolve one with (issue #239).
+        code.ShouldContain("public static IStartStream Handle(ReviewListing command)");
         code.ShouldContain("Triggered over the bus: the model shows slice 'RemoveListing' publishing ReviewListing.");
         code.ShouldNotContain("WolverinePost");
     }

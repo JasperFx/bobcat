@@ -56,6 +56,36 @@ public class RecordFrame : ScaffoldFrame
 /// The self-aggregating write model: Create for the first event, Apply per event — the only
 /// mutators, owned by the store.
 /// </summary>
+/// <summary>
+/// How a scaffolded auto-property is written so a <c>&lt;Nullable&gt;enable&lt;/Nullable&gt;</c> project — the
+/// default for <c>dotnet new</c> — builds without CS8618 (issue #242). A repo with
+/// TreatWarningsAsErrors otherwise gets a red build out of a scaffold that #226 established should
+/// be green; "the scaffold compiles" means cleanly.
+/// </summary>
+internal static class ScaffoldedProperty
+{
+    public static string Declare(string type, string name)
+    {
+        var initializer = type switch
+        {
+            "string" => " = string.Empty;",
+            _ when isValueType(type) => "",
+            // A reference type the scaffold cannot invent a value for: the projection or the
+            // Create method fills it, and `null!` says "assigned before anyone reads it" rather
+            // than making the model lie about nullability.
+            _ => " = null!;"
+        };
+
+        return $"public {type} {name} {{ get; set; }}{initializer}";
+    }
+
+    private static bool isValueType(string type)
+        => type.EndsWith('?')
+           || type is "Guid" or "int" or "long" or "short" or "byte" or "bool" or "decimal"
+               or "double" or "float" or "DateTimeOffset" or "DateTime" or "DateOnly" or "TimeOnly"
+               or "TimeSpan";
+}
+
 public class AggregateFrame : ScaffoldFrame
 {
     private readonly string _name;
@@ -75,7 +105,7 @@ public class AggregateFrame : ScaffoldFrame
         writer.WriteLine("public Guid Id { get; set; }");
         foreach (var (type, fieldName) in _fields.Where(x => x.Name != "Id"))
         {
-            writer.WriteLine($"public {type} {fieldName} {{ get; set; }}");
+            writer.WriteLine(ScaffoldedProperty.Declare(type, fieldName));
         }
 
         var first = true;
@@ -119,11 +149,14 @@ public class WriteModelHandlerFrame : ScaffoldFrame
     private readonly IReadOnlyList<string> _warnings;
     private readonly string? _publishedBy;
 
-    public WriteModelHandlerFrame(CuratedSlice slice, bool maybeNewStream,
+    private readonly SlicePlan _plan;
+
+    public WriteModelHandlerFrame(CuratedSlice slice, SlicePlan plan, bool maybeNewStream,
         IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null,
         string? publishedBy = null)
     {
         _slice = slice;
+        _plan = plan;
         _maybeNewStream = maybeNewStream;
         _cascaded = cascaded ?? [];
         _warnings = warnings ?? [];
@@ -132,9 +165,9 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        var aggregate = SliceScaffolder.AggregateFor(_slice);
+        var aggregate = _plan.Aggregate;
         var isAutomation = _slice.Pattern == "Automation";
-        var trigger = isAutomation ? SliceScaffolder.TriggerFor(_slice) : _slice.Command ?? _slice.Name;
+        var trigger = isAutomation ? SliceScaffolder.TriggerFor(_slice) : _plan.Command;
 
         writer.WriteLine("/// <summary>");
         writer.WriteLine(isAutomation
@@ -151,13 +184,23 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Handler");
 
-        var parameter = _maybeNewStream ? $"[WriteModel] {aggregate}? " : $"[WriteModel] {aggregate} ";
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
+
+        // A slice that CREATES the stream binds no write model at all (issue #239): [WriteModel]
+        // loads an existing stream, and there is nothing to load — Wolverine fails the dispatch
+        // with "Unable to determine an aggregate id for the parameter" before the body ever runs.
+        var parameter = _plan.StartsStream
+            ? ""
+            : _maybeNewStream
+                ? $", [WriteModel] {aggregate}? {argument}"
+                : $", [WriteModel] {aggregate} {argument}";
+
+        var appendType = _plan.StartsStream ? "IStartStream" : "EventsToAppend";
         var returnType = _cascaded.Count == 0
-            ? "EventsToAppend"
-            : $"(EventsToAppend, {string.Join(", ", _cascaded.Select(x => x.Name))})";
+            ? appendType
+            : $"({appendType}, {string.Join(", ", _cascaded.Select(x => x.Name))})";
         writer.Write(
-            $"BLOCK:public static {returnType} Handle({trigger} {(isAutomation ? "trigger" : "command")}, {parameter}{argument})");
+            $"BLOCK:public static {returnType} Handle({trigger} {(isAutomation ? "trigger" : "command")}{parameter})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
@@ -169,13 +212,25 @@ public class WriteModelHandlerFrame : ScaffoldFrame
             writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
-        foreach (var refusal in refusals())
+        foreach (var refusal in _plan.Refusals)
         {
             writer.WriteLine(
                 $"// TODO guard: throw new InvalidOperationException(\"{refusal}\"); (asserted by `validation fails with`)");
         }
 
-        writer.WriteLine("// The decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
+        writer.WriteLine("// The decision. Never a nullable event (wolverine#4309).");
+        if (_plan.StartsStream)
+        {
+            writer.WriteLine($"// This slice CREATES the {aggregate} stream: nothing on the trigger can identify one,");
+            writer.WriteLine("// and no scenario arranges any history, so there is none to bind — MartenOps.StartStream");
+            writer.WriteLine("// is how a stream begins. Decide the id: minted here, or carried on the trigger.");
+            writer.WriteLine("// At-least-once delivery still applies: a deterministic id makes the retry idempotent.");
+        }
+        else
+        {
+            writer.WriteLine("// Nothing to append is `return [];`.");
+        }
+
         foreach (var message in _cascaded)
         {
             writer.WriteLine(message.LeavesTheSystem
@@ -184,9 +239,13 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         }
 
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
-        var appended = events.Length > 0 ? $"[{events}]" : "[]";
+        var appended = _plan.StartsStream
+            ? $"MartenOps.StartStream<{aggregate}>(/* id */, {events})"
+            : events.Length > 0 ? $"[{events}]" : "[]";
         writeUnfilledDecision(writer,
-            $"{_slice.Name} — decide which events this slice appends",
+            _plan.StartsStream
+                ? $"{_slice.Name} — decide the new stream's id and its first event"
+                : $"{_slice.Name} — decide which events this slice appends",
             _cascaded.Count == 0
                 ? $"return {appended};"
                 : $"return ({appended}, {string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* … */)"))});");
@@ -196,13 +255,6 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         Next?.GenerateCode(method, writer);
     }
 
-    private IEnumerable<string> refusals()
-        => _slice.Specifications?.Scenarios
-               .SelectMany(x => x.Then)
-               .Select(x => x.ValidationFails)
-               .OfType<string>()
-               .Distinct()
-           ?? [];
 }
 
 /// <summary>
@@ -219,19 +271,22 @@ public class CollapsedEndpointFrame : ScaffoldFrame
     private readonly IReadOnlyList<CascadedMessage> _cascaded;
     private readonly IReadOnlyList<string> _warnings;
 
-    public CollapsedEndpointFrame(CuratedSlice slice, string route,
+    private readonly SlicePlan _plan;
+
+    public CollapsedEndpointFrame(CuratedSlice slice, string route, SlicePlan plan,
         IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null)
     {
         _slice = slice;
         _route = route;
+        _plan = plan;
         _cascaded = cascaded ?? [];
         _warnings = warnings ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        var command = _slice.Command ?? _slice.Name;
-        var aggregate = SliceScaffolder.AggregateFor(_slice);
+        var command = _plan.Command;
+        var aggregate = _plan.Aggregate;
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
 
         writer.WriteLine("/// <summary>");
@@ -246,10 +301,20 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
 
-        writer.Write($"BLOCK:public static ProblemDetails Validate({command}Request request)");
-        var refusals = _slice.Specifications?.Scenarios
-            .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
-        foreach (var refusal in refusals)
+        // A refusal the model arranges history for is about the aggregate's STATE, and a guard
+        // handed only the request cannot answer it — so bind the aggregate here too (issue #238).
+        // Wolverine resolves it from the endpoint's own binding below; the parameter is bare.
+        var guardSignature = _plan.RefusesOnState
+            ? $"public static ProblemDetails Validate({command}Request request, {aggregate}? {argument})"
+            : $"public static ProblemDetails Validate({command}Request request)";
+
+        writer.Write($"BLOCK:{guardSignature}");
+        if (_plan.RefusesOnState)
+        {
+            writer.WriteLine($"// A null {argument} means the stream does not exist yet — decide whether that is a refusal.");
+        }
+
+        foreach (var refusal in _plan.Refusals)
         {
             writer.WriteLine($"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal}\", Status = 400 }};");
         }
@@ -259,9 +324,11 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.BlankLine();
 
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
-        var returnType = $"({_slice.Name}Response, EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
+        var appendType = _plan.StartsStream ? "IStartStream" : "EventsToAppend";
+        var returnType = $"({_slice.Name}Response, {appendType}{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
+        var writeModel = _plan.StartsStream ? "" : $", [WriteModel] {aggregate}? {argument}";
         writer.Write(
-            $"BLOCK:public static {returnType} Post({command}Request request, [WriteModel] {aggregate}? {argument})");
+            $"BLOCK:public static {returnType} Post({command}Request request{writeModel})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
@@ -273,8 +340,19 @@ public class CollapsedEndpointFrame : ScaffoldFrame
             writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
-        writer.WriteLine("// The decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
-        writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
+        writer.WriteLine("// The decision. Never a nullable event (wolverine#4309).");
+        if (_plan.StartsStream)
+        {
+            writer.WriteLine($"// This slice CREATES the {aggregate} stream: nothing on the request can identify one,");
+            writer.WriteLine("// and no scenario arranges any history, so there is none to bind — MartenOps.StartStream");
+            writer.WriteLine("// is how a stream begins. Decide the id: minted here, or carried on the request.");
+        }
+        else
+        {
+            writer.WriteLine("// Nothing to append is `return (..., []);`.");
+            writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
+        }
+
         foreach (var message in _cascaded)
         {
             writer.WriteLine(message.LeavesTheSystem
@@ -284,9 +362,14 @@ public class CollapsedEndpointFrame : ScaffoldFrame
 
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
         var cascades = string.Concat(_cascaded.Select(x => $", new {x.Name}(/* … */)"));
+        var appended = _plan.StartsStream
+            ? $"MartenOps.StartStream<{aggregate}>(/* id */, {events})"
+            : $"[{events}]";
         writeUnfilledDecision(writer,
-            $"{_slice.Name} — decide which events this slice appends, and what to answer with",
-            $"return (new {_slice.Name}Response(/* … */), [{events}]{cascades});");
+            _plan.StartsStream
+                ? $"{_slice.Name} — decide the new stream's id and its first event, and what to answer with"
+                : $"{_slice.Name} — decide which events this slice appends, and what to answer with",
+            $"return (new {_slice.Name}Response(/* … */), {appended}{cascades});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -375,11 +458,14 @@ public class ViewSliceFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
     private readonly IReadOnlyList<ViewSource> _sources;
+    private readonly IReadOnlyList<(string Type, string Name)> _fields;
 
-    public ViewSliceFrame(CuratedSlice slice, IReadOnlyList<ViewSource>? sources = null)
+    public ViewSliceFrame(CuratedSlice slice, IReadOnlyList<ViewSource>? sources = null,
+        IReadOnlyList<(string Type, string Name)>? fields = null)
     {
         _slice = slice;
         _sources = sources ?? [];
+        _fields = fields ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -407,7 +493,17 @@ public class ViewSliceFrame : ScaffoldFrame
 
         writer.Write($"BLOCK:public class {readModel}");
         writer.WriteLine("public Guid Id { get; set; }");
-        writer.WriteLine("// TODO: the projected columns the model's scenarios assert on");
+        if (_fields.Count == 0)
+        {
+            writer.WriteLine("// TODO: the projected columns — the model names none, in `elements:` or in what");
+            writer.WriteLine("// its scenarios assert, so there is nothing here to emit.");
+        }
+
+        foreach (var (type, name) in _fields.Where(x => x.Name != "Id"))
+        {
+            writer.WriteLine(ScaffoldedProperty.Declare(type, name));
+        }
+
         writer.FinishBlock();
         writer.BlankLine();
 

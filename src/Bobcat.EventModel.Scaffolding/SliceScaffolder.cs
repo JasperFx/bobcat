@@ -19,6 +19,41 @@ public static class SliceScaffolder
         => slice.Aggregates.FirstOrDefault() ?? $"{slice.Name}Model";
 
     /// <summary>
+    /// The same question with the model in hand, which a View slice needs (issue #240). A View
+    /// slice has no write model of its own, so synthesizing <c>{SliceName}Model</c> for it names a
+    /// type nothing emits — BOBCAT011 in its arrange step, the #231 failure mode again.
+    /// </summary>
+    /// <remarks>
+    /// The events a View slice's scenarios arrange belong to some stream, and the model already
+    /// says which: the slices that DECLARE those events name their aggregate. So resolve through
+    /// the events rather than through the slice's own name, and fall back to the slice's domain
+    /// before inventing anything.
+    /// </remarks>
+    public static string AggregateFor(CuratedModelFile model, CuratedSlice slice)
+    {
+        if (slice.Aggregates.FirstOrDefault() is { } declared) return declared;
+        if (slice.Pattern != "View") return AggregateFor(slice);
+
+        var arranged = (slice.Specifications?.Scenarios ?? [])
+            .SelectMany(x => x.Given)
+            .Select(x => x.Event)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        var byArrangedEvent = model.Slices
+            .Where(x => x.Events.Any(arranged.Contains))
+            .SelectMany(x => x.Aggregates)
+            .FirstOrDefault();
+
+        var byDomain = model.Slices
+            .Where(x => slice.Domain is not null && x.Domain == slice.Domain)
+            .SelectMany(x => x.Aggregates)
+            .FirstOrDefault();
+
+        return byArrangedEvent ?? byDomain ?? AggregateFor(slice);
+    }
+
+    /// <summary>
     /// The event type an Automation slice's handler takes. The board names it as a label
     /// (<c>trigger: { kind: MessageHandler, label: Home check assignment accepted }</c>); with no
     /// label the slice's own first event stands in, and with neither the name is derived from the
@@ -107,7 +142,8 @@ public static class SliceScaffolder
 
             case "View":
                 files[$"{domain}/{slice.Name}.cs"] =
-                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice))));
+                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice),
+                        fieldsFor(slice, slice.ReadModels.FirstOrDefault() ?? slice.Name))));
                 break;
         }
 
@@ -138,14 +174,43 @@ public static class SliceScaffolder
                 ? SliceShape.Translation
                 : SliceShape.CollapsedEndpoint;
 
+        var command = slice.Command ?? slice.Name;
+        var aggregate = AggregateFor(model, slice);
+        var trigger = TriggerOrigins.Resolve(model, slice);
+
+        // Can the act's payload identify the stream at all? [WriteModel] resolves the id out of the
+        // incoming message, so a trigger with no {Aggregate}Id and no Id cannot bind one — and
+        // Wolverine refuses the dispatch rather than the body ("Unable to determine an aggregate id
+        // for the parameter"). That slice creates its stream (issue #239).
+        var actType = shape == SliceShape.WriteModelHandler && slice.Pattern == "Automation"
+            ? TriggerFor(slice)
+            : command;
+
+        // Positive evidence only. A model that says nothing about the act's fields says nothing
+        // about this either, and "we do not know" must not become "it creates a stream" — today's
+        // shape at least fails loudly and accurately at dispatch, where a wrongly-emitted
+        // StartStream would quietly create a second stream per message forever.
+        var actFields = fieldsFor(slice, actType);
+        var identifiable = actFields.Count == 0
+                           || actFields.Any(x => string.Equals(x.Name, "Id", StringComparison.OrdinalIgnoreCase)
+                                                 || string.Equals(x.Name, aggregate + "Id", StringComparison.OrdinalIgnoreCase));
+
+        // The second signal, and the reason both are required: a request whose id is COMPUTED
+        // rather than carried is a real shape the scaffold already teaches — "[Identity] public
+        // Guid ...Id => …" on the request record — and it also has no id field. What separates it
+        // from a slice that genuinely creates is history: a computed identity addresses a stream
+        // that exists, so its scenarios arrange one. A creating slice's never do.
+        var arrangesHistory = (slice.Specifications?.Scenarios ?? []).Any(x => x.Given.Count > 0);
+
         return new SlicePlan(
             slice,
             shape,
-            Command: slice.Command ?? slice.Name,
-            Aggregate: AggregateFor(slice),
+            Command: command,
+            Aggregate: aggregate,
             Route: $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}",
-            Trigger: TriggerOrigins.Resolve(model, slice),
-            Visibility: visibility);
+            Trigger: trigger,
+            Visibility: visibility,
+            StartsStream: shape != SliceShape.Translation && !identifiable && !arrangesHistory);
     }
 
     private static string commandSlice(CuratedModelFile model, CuratedSlice slice)
@@ -195,12 +260,12 @@ public static class SliceScaffolder
         }
         else if (collapsed)
         {
-            frames.Add(new CollapsedEndpointFrame(slice, route,
+            frames.Add(new CollapsedEndpointFrame(slice, route, plan,
                 cascaded: visibility.Cascaded, warnings: visibility.Warnings));
         }
         else
         {
-            frames.Add(new WriteModelHandlerFrame(slice,
+            frames.Add(new WriteModelHandlerFrame(slice, plan,
                 maybeNewStream: slice.Pattern == "Command",
                 cascaded: visibility.Cascaded, warnings: visibility.Warnings,
                 publishedBy: BusVisibility.PublishedBy(model, slice)));
@@ -231,6 +296,14 @@ public static class SliceScaffolder
             if (slice.Aggregates.Count > 0)
             {
                 declared.AddRange(slice.Aggregates.Select(name => (name, slice)));
+            }
+            else if (slice.Pattern == "View")
+            {
+                // A View slice's arrange step names the stream it reads (issue #240). Usually that
+                // is an aggregate a command slice already declares, and grouping by name folds it
+                // in; where nothing resolved, the synthesized name still needs a type behind it
+                // rather than a dangling reference.
+                declared.Add((AggregateFor(model, slice), slice));
             }
             else if (slice.Pattern is "Command" or "Automation"
                      && PlanFor(model, slice).Shape != SliceShape.Translation)
@@ -486,6 +559,15 @@ public static class SliceScaffolder
             if (scenario.When?.Command == typeName)
             {
                 foreach (var (name, value) in scenario.When.With) fields.TryAdd(name, inferType(value));
+            }
+
+            // A read model's columns are named by the assertions against it, exactly as an event's
+            // are named by the rows that arrange it (issue #240). The scaffolded TODO used to point
+            // at "the columns the model's scenarios assert on" while reading none of them.
+            foreach (var then in scenario.Then.Where(x => x.ReadModel == typeName))
+            foreach (var (name, value) in then.Contains)
+            {
+                fields.TryAdd(name, inferType(value));
             }
 
             foreach (var then in scenario.Then.Where(x => x.Event == typeName))

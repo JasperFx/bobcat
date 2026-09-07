@@ -149,7 +149,9 @@ public class TriggerOriginTests
         var code = SliceScaffolder.Scaffold(file, file.Slices.Single(x => x.Name == "ProposeHomeCheckAppointment"))
             .Single().Value;
 
-        code.ShouldContain("public static EventsToAppend Handle(HomeCheckAssignmentAccepted trigger, [WriteModel] Appointment appointment)");
+        // The trigger carries the VOLUNTEERING flow's ids, never an AppointmentId — the appointment
+        // does not exist until this slice creates it (issue #239).
+        code.ShouldContain("public static IStartStream Handle(HomeCheckAssignmentAccepted trigger)");
     }
 
     [Fact]

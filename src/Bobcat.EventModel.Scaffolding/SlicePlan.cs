@@ -18,6 +18,20 @@ public enum SliceShape
 /// code takes, the route its endpoint answers on, the write model it binds, where its trigger
 /// comes from, and what the model says about its published messages.
 /// </summary>
+/// <param name="StartsStream">
+/// This slice CREATES its stream, so it binds no write model (issue #239). Read from the one fact
+/// that decides it: whether the type the act carries has a field that could identify the
+/// aggregate. <c>[WriteModel]</c> resolves the stream id out of the incoming message, so a trigger
+/// carrying <c>AssignmentId</c>, <c>OwnerId</c> and <c>ProposedFor</c> — but no
+/// <c>AppointmentId</c> — cannot bind one at all. Wolverine says exactly that, at dispatch, before
+/// the body runs: "Unable to determine an aggregate id for the parameter". Emitting
+/// <c>MartenOps.StartStream</c> there is not a guess about intent; it is the only shape that can
+/// work.
+/// <para>
+/// An unenriched model, where the act type has no fields at all, lands here too — and correctly:
+/// a write model cannot be bound from an empty record either.
+/// </para>
+/// </param>
 /// <remarks>
 /// The code generator and the feature generator used to derive this separately, and they
 /// disagreed (issue #231). A collapsed endpoint — no bus-visible command type anywhere — was
@@ -38,10 +52,30 @@ public sealed record SlicePlan(
     string Aggregate,
     string Route,
     TriggerOrigin? Trigger,
-    BusVisibilityResolution Visibility)
+    BusVisibilityResolution Visibility,
+    bool StartsStream = false)
 {
     /// <summary>True when the act is an HTTP POST rather than a bus dispatch — both endpoint shapes.</summary>
     public bool OverHttp => Shape is SliceShape.CollapsedEndpoint or SliceShape.Translation;
+
+    private IReadOnlyList<CuratedScenario> Scenarios => Slice.Specifications?.Scenarios ?? [];
+
+    /// <summary>
+    /// The refusals this slice's specs describe, split by what they can see. A refusal arranged
+    /// with prior history is about the aggregate's STATE — "this appointment was cancelled" — and
+    /// a guard given only the request cannot answer it, which makes the TODO impossible to fill
+    /// without redesigning the signature first (issue #238).
+    /// </summary>
+    public bool RefusesOnState => Scenarios
+        .Any(x => x.Given.Count > 0 && x.Then.Any(t => t.ValidationFails is not null));
+
+    /// <summary>Every distinct refusal reason the model states for this slice, in model order.</summary>
+    public IReadOnlyList<string> Refusals => Scenarios
+        .SelectMany(x => x.Then)
+        .Select(x => x.ValidationFails)
+        .OfType<string>()
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
 
     /// <summary>The request record an endpoint takes as its body. Only meaningful when <see cref="OverHttp"/>.</summary>
     public string RequestType => $"{Command}Request";
