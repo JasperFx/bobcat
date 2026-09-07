@@ -56,6 +56,42 @@ public class RecordFrame : ScaffoldFrame
 /// The self-aggregating write model: Create for the first event, Apply per event — the only
 /// mutators, owned by the store.
 /// </summary>
+/// <summary>
+/// How a scaffolded auto-property is written, so a <c>&lt;Nullable&gt;enable&lt;/Nullable&gt;</c> project — the
+/// <c>dotnet new</c> default — builds without CS8618 (issue #242).
+/// </summary>
+/// <remarks>
+/// Small, but the same principle as #226: the scaffold's job is to hand back something that builds
+/// cleanly, so the only thing left to do is the decision. A repo with TreatWarningsAsErrors
+/// otherwise gets a red build out of a scaffold that is supposed to be green, and the warning is
+/// not one the reader can act on — it is asking them to initialize a property the projection or the
+/// Create method is about to fill.
+///
+/// <c>null!</c> rather than a nullable declaration on purpose: making the property nullable would
+/// push the warning into every consumer that reads it, and it would make the model lie — these are
+/// values the fill-in assigns before anything reads them, not values that may be absent.
+/// </remarks>
+internal static class ScaffoldedProperty
+{
+    public static string Declare(string type, string name)
+    {
+        var initializer = type switch
+        {
+            "string" => " = string.Empty;",
+            _ when isValueType(type) => "",
+            _ => " = null!;"
+        };
+
+        return $"public {type} {name} {{ get; set; }}{initializer}";
+    }
+
+    private static bool isValueType(string type)
+        => type.EndsWith('?')
+           || type is "Guid" or "int" or "long" or "short" or "byte" or "bool" or "decimal"
+               or "double" or "float" or "DateTimeOffset" or "DateTime" or "DateOnly" or "TimeOnly"
+               or "TimeSpan";
+}
+
 public class AggregateFrame : ScaffoldFrame
 {
     private readonly string _name;
@@ -75,7 +111,7 @@ public class AggregateFrame : ScaffoldFrame
         writer.WriteLine("public Guid Id { get; set; }");
         foreach (var (type, fieldName) in _fields.Where(x => x.Name != "Id"))
         {
-            writer.WriteLine($"public {type} {fieldName} {{ get; set; }}");
+            writer.WriteLine(ScaffoldedProperty.Declare(type, fieldName));
         }
 
         var first = true;
