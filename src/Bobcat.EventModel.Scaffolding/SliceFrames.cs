@@ -353,14 +353,33 @@ public class EndpointTranslationFrame : ScaffoldFrame
     }
 }
 
-/// <summary>A read-model + projection + GET endpoint skeleton for a View slice.</summary>
+/// <summary>
+/// A read-model + projection + GET endpoint skeleton for a View slice — and a projection that
+/// <em>registers</em>, which is a higher bar than one that compiles (issue #232).
+/// </summary>
+/// <remarks>
+/// The empty projection this used to emit compiled perfectly and could not be registered: Marten
+/// validates that a projection has at least one conventional method, so <c>Program.cs</c> threw
+/// "No matching conventional Apply/Create/ShouldDelete methods", the host resource never started,
+/// and all eleven scenarios of the chapter reported <c>did not run</c>. Two unfilled View slices
+/// took down nine other slices' specs — the runtime form of exactly the "one hole fails
+/// everything" property #226 removed from the compile side.
+///
+/// So "the scaffold compiles" is the wrong bar; "the host boots" is the bar. Measured against a
+/// real Marten (see <c>ProjectionRegistrationTests</c>): a conventional <c>Apply</c> is enough for
+/// a single-stream projection, and a fan-out needs an <c>Identity</c> slicing rule as well or it
+/// trades one registration failure for another ("is a multi-stream projection, but has no defined
+/// event slicing rules").
+/// </remarks>
 public class ViewSliceFrame : ScaffoldFrame
 {
     private readonly CuratedSlice _slice;
+    private readonly IReadOnlyList<ViewSource> _sources;
 
-    public ViewSliceFrame(CuratedSlice slice)
+    public ViewSliceFrame(CuratedSlice slice, IReadOnlyList<ViewSource>? sources = null)
     {
         _slice = slice;
+        _sources = sources ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -392,25 +411,7 @@ public class ViewSliceFrame : ScaffoldFrame
         writer.FinishBlock();
         writer.BlankLine();
 
-        writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
-        if (_slice.FanOut)
-        {
-            writer.Write($"BLOCK:public class {_slice.Projections[0]} : MultiStreamProjection<{readModel}, Guid>");
-            writer.Write($"BLOCK:public {_slice.Projections[0]}()");
-            writer.WriteLine("// TODO: the fan-out routing — Identities<SourceEvent>(x => [x.OneId, x.OtherId]);");
-            writer.FinishBlock();
-            writer.BlankLine();
-            writer.WriteLine("// TODO: Apply methods per source event");
-            writer.FinishBlock();
-        }
-        else
-        {
-            writer.Write($"BLOCK:public class {_slice.Projections[0]} : SingleStreamProjection<{readModel}, Guid>");
-            writer.WriteLine("// TODO: Apply methods per source event");
-            writer.FinishBlock();
-        }
-
-        writer.BlankLine();
+        writeProjection(writer, readModel);
 
         // Projector-built documents load as documents. [ReadAggregate] would be wrong here —
         // it only applies to a single-stream aggregation, and a fan-out is not one.
@@ -421,5 +422,78 @@ public class ViewSliceFrame : ScaffoldFrame
         writer.FinishBlock();
         writer.BlankLine();
         Next?.GenerateCode(method, writer);
+    }
+
+    private void writeProjection(ISourceWriter writer, string readModel)
+    {
+        var projection = _slice.Projections[0];
+
+        if (_sources.Count == 0)
+        {
+            // Nothing in the model to fold. A projection class with no conventional method cannot
+            // be registered at all, so emitting one here would hand over a host that will not
+            // boot — the defect this type exists to avoid.
+            writer.WriteLine($"// No {projection} yet: this model names no event for {readModel} to fold, and a");
+            writer.WriteLine("// projection with no Apply method cannot be registered — it would stop the host booting.");
+            writer.WriteLine("// Add the source events to the model and regenerate.");
+            writer.BlankLine();
+            return;
+        }
+
+        var routable = _sources.Where(x => x.IdentityField is not null).ToList();
+        var fanOut = _slice.FanOut && routable.Count > 0;
+        var sources = fanOut ? routable : _sources;
+
+        writer.WriteLine("// Async lifecycle: register with the daemon RUNNING (AddAsyncDaemon), or this never advances.");
+
+        if (_slice.FanOut && !fanOut)
+        {
+            writer.WriteLine("// The model asks for a fan-out, but names no Guid field on any source event to slice");
+            writer.WriteLine("// by — and a multi-stream projection with no slicing rule cannot be registered at all.");
+            writer.WriteLine("// Single-stream until the model names one; then swap the base class back and add the");
+            writer.WriteLine("// Identity<T>(x => x.SomeId) / Identities<T>(x => [x.OneId, x.OtherId]) routing.");
+        }
+
+        if (fanOut)
+        {
+            writer.Write($"BLOCK:public class {projection} : MultiStreamProjection<{readModel}, Guid>");
+            writer.Write($"BLOCK:public {projection}()");
+            writer.WriteLine("// The slicing rule, without which this projection cannot be registered. One document");
+            writer.WriteLine("// per key; Identities<T>(x => [x.OneId, x.OtherId]) where one event updates several.");
+            foreach (var source in sources)
+            {
+                writer.WriteLine($"Identity<{source.Event}>(x => x.{source.IdentityField});");
+            }
+
+            writer.FinishBlock();
+
+            if (_sources.Count > routable.Count)
+            {
+                var dropped = _sources.Except(routable).Select(x => x.Event);
+                writer.BlankLine();
+                writer.WriteLine($"// Not sliced here: {string.Join(", ", dropped)}. The model names no Guid field on");
+                writer.WriteLine("// them, so a routing rule would not compile. Add their identifiers to the model, or");
+                writer.WriteLine("// write the Identity/Identities rules and Apply methods by hand.");
+            }
+        }
+        else
+        {
+            writer.Write($"BLOCK:public class {projection} : SingleStreamProjection<{readModel}, Guid>");
+        }
+
+        foreach (var source in sources)
+        {
+            var argument = char.ToLowerInvariant(source.Event[0]) + source.Event[1..];
+            writer.BlankLine();
+            writer.Write($"BLOCK:public void Apply({source.Event} {argument}, {readModel} view)");
+            writer.WriteLine("// Fill this in and delete the throw — the model's scenarios say what the view holds.");
+            writer.WriteLine("// Until then the projection stops on this event, so a scenario asserting the read model");
+            writer.WriteLine("// fails on its projection wait rather than on a value.");
+            writer.WriteLine($"throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\");");
+            writer.FinishBlock();
+        }
+
+        writer.FinishBlock();
+        writer.BlankLine();
     }
 }

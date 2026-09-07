@@ -115,7 +115,10 @@ public class SliceScaffolderTests
 
         code.ShouldContain("public class MatchList");
         code.ShouldContain("public class MatchListProjection : MultiStreamProjection<MatchList, Guid>");
-        code.ShouldContain("Identities<SourceEvent>");
+        // A real slicing rule, not a TODO: a multi-stream projection without one cannot be
+        // registered, and an unregistrable projection is a host that will not boot (issue #232).
+        code.ShouldContain("Identity<DogLiked>(x => x.SwiperDogId);");
+        code.ShouldContain("public void Apply(DogLiked dogLiked, MatchList view)");
         code.ShouldContain("daemon RUNNING");
         code.ShouldContain("session.LoadAsync<MatchList>(id, ct)");
         // A fan-out is not a single-stream aggregation — [ReadAggregate] can never serve it.

@@ -29,6 +29,66 @@ public static class SliceScaffolder
             ? EmlangImport.PascalName(label)
             : slice.Events.FirstOrDefault() ?? $"{slice.Name}Trigger";
 
+    /// <summary>
+    /// The events a View slice's projection folds, each with the Guid field a fan-out can route
+    /// it by. The slice's own <c>events:</c> when it declares them, otherwise the events of the
+    /// slices sharing its aggregate, otherwise its domain's, otherwise the model's.
+    /// </summary>
+    /// <remarks>
+    /// A projection needs at least one, and not for style: Marten validates at registration that
+    /// a projection has a conventional method, so a projection with none is a host that will not
+    /// boot — and every scenario in the suite dies at resource startup, not just the two View
+    /// slices nobody has filled in (issue #232).
+    /// </remarks>
+    public static IReadOnlyList<ViewSource> ViewSourcesFor(CuratedModelFile model, CuratedSlice slice)
+    {
+        var events = slice.Events.Count > 0
+            ? slice.Events
+            : eventsOf(model, x => slice.Aggregates.Count > 0 && x.Aggregates.Intersect(slice.Aggregates).Any())
+              ?? eventsOf(model, x => slice.Domain is not null && x.Domain == slice.Domain)
+              ?? eventsOf(model, _ => true)
+              ?? [];
+
+        return events.Select(name => new ViewSource(name, identityFieldFor(model, name))).ToList();
+    }
+
+    private static List<string>? eventsOf(CuratedModelFile model, Func<CuratedSlice, bool> predicate)
+    {
+        var events = model.Slices.Where(predicate)
+            .SelectMany(x => x.Events)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        return events.Count > 0 ? events : null;
+    }
+
+    /// <summary>
+    /// A Guid field of the event's record, preferring one whose name ends in <c>Id</c> — the
+    /// routing key a <c>MultiStreamProjection</c> slices by. Read from the slice that DECLARES
+    /// the event, because that is the slice whose scaffold emits the record: routing on a field
+    /// some other slice's scenario mentioned would not compile.
+    /// </summary>
+    private static string? identityFieldFor(CuratedModelFile model, string eventName)
+    {
+        var declaring = model.Slices.FirstOrDefault(x => x.Events.Contains(eventName));
+        if (declaring is null) return null;
+
+        var guids = fieldsFor(declaring, eventName).Where(x => x.Type == "Guid").ToList();
+        return (guids.FirstOrDefault(x => x.Name.EndsWith("Id", StringComparison.Ordinal)) is { Name: { } named }
+            ? named
+            : guids.Select(x => x.Name).FirstOrDefault());
+    }
+
+    /// <summary>
+    /// Whether this slice's file is the one that declares an event's record. Two slices may
+    /// legally name the same event — the importer folds by command, not by event — and emitting
+    /// the record into both files is two declarations of one type in one namespace, which does
+    /// not compile. First declaring slice in model order owns it, the same rule that gives an
+    /// aggregate one file (#222) and a trigger contract one file (#223).
+    /// </summary>
+    private static bool declaresEventRecord(CuratedModelFile model, CuratedSlice slice, string eventName)
+        => ReferenceEquals(model.Slices.First(x => x.Events.Contains(eventName)), slice);
+
     public static IReadOnlyDictionary<string, string> Scaffold(CuratedModelFile model, CuratedSlice slice)
     {
         var files = new Dictionary<string, string>();
@@ -46,7 +106,8 @@ public static class SliceScaffolder
                 break;
 
             case "View":
-                files[$"{domain}/{slice.Name}.cs"] = withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice)));
+                files[$"{domain}/{slice.Name}.cs"] =
+                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice))));
                 break;
         }
 
@@ -98,8 +159,9 @@ public static class SliceScaffolder
 
         var visibility = plan.Visibility;
 
-        // Event records, fields synthesized from element hints + scenario columns
-        foreach (var @event in slice.Events)
+        // Event records, fields synthesized from element hints + scenario columns. Only the
+        // first slice to declare an event emits its record — see declaresEventRecord.
+        foreach (var @event in slice.Events.Where(x => declaresEventRecord(model, slice, x)))
         {
             frames.Add(new RecordFrame(@event, fieldsFor(slice, @event),
                 slice.Elements.GetValueOrDefault(@event)?.Description));
