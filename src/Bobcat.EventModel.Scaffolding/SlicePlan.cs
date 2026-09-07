@@ -58,24 +58,6 @@ public sealed record SlicePlan(
     /// <summary>True when the act is an HTTP POST rather than a bus dispatch — both endpoint shapes.</summary>
     public bool OverHttp => Shape is SliceShape.CollapsedEndpoint or SliceShape.Translation;
 
-    private IReadOnlyList<CuratedScenario> Scenarios => Slice.Specifications?.Scenarios ?? [];
-
-    /// <summary>
-    /// The refusals this slice's specs describe, split by what they can see. A refusal arranged
-    /// with prior history is about the aggregate's STATE — "this appointment was cancelled" — and
-    /// a guard given only the request cannot answer it, which makes the TODO impossible to fill
-    /// without redesigning the signature first (issue #238).
-    /// </summary>
-    public bool RefusesOnState => Scenarios
-        .Any(x => x.Given.Count > 0 && x.Then.Any(t => t.ValidationFails is not null));
-
-    /// <summary>Every distinct refusal reason the model states for this slice, in model order.</summary>
-    public IReadOnlyList<string> Refusals => Scenarios
-        .SelectMany(x => x.Then)
-        .Select(x => x.ValidationFails)
-        .OfType<string>()
-        .Distinct(StringComparer.Ordinal)
-        .ToList();
 
     /// <summary>The request record an endpoint takes as its body. Only meaningful when <see cref="OverHttp"/>.</summary>
     public string RequestType => $"{Command}Request";

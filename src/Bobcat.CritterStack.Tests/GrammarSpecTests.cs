@@ -48,7 +48,7 @@ public class GrammarSpecTests
         // The vocabulary is entirely the shipped grammar, discovered from the referenced assembly.
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
-        feature.Scenarios.Count.ShouldBe(6);
+        feature.Scenarios.Count.ShouldBe(7);
 
         foreach (var scenario in feature.Scenarios)
         {
@@ -143,6 +143,7 @@ public class GrammarSpecTests
         options.DatabaseSchemaName = schema;
         options.AutoCreateSchemaObjects = AutoCreate.All;
         options.Projections.Snapshot<WalletSummary>(SnapshotLifecycle.Async);
+        options.Projections.Add<OwnerWalletsProjection>(ProjectionLifecycle.Async);
     }
 
     private static async Task cleanSchema()

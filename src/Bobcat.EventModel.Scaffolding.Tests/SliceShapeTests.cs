@@ -121,21 +121,6 @@ public class SliceShapeTests
     }
 
     [Fact]
-    public void a_state_dependent_guard_is_given_the_state_it_refuses_on()
-    {
-        // Issue #238. "This appointment was cancelled" is a fact about the aggregate, and the guard
-        // used to take the request alone — so the TODO the scaffolder wrote could not be filled
-        // without redesigning the signature first, which is exactly the token cost the emission
-        // engine exists to remove.
-        var code = scaffold("ConfirmAppointment");
-
-        code.ShouldContain(
-            "public static ProblemDetails Validate(ConfirmAppointmentRequest request, Appointment? appointment)");
-        code.ShouldContain("A null appointment means the stream does not exist yet");
-        code.ShouldContain("Detail = \"This appointment was cancelled\"");
-    }
-
-    [Fact]
     public void a_read_model_gets_the_columns_the_model_names()
     {
         // Issue #240. Both sources were sitting there unused: the `elements:` hints, and the

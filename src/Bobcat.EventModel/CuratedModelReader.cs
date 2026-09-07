@@ -121,6 +121,11 @@ public static class CuratedModelReader
                 {
                     wellFormed.Add(then);
                 }
+
+                if (then.Id is not null && then.ReadModel is null)
+                {
+                    problems.Add($"{where}: `id:` names the read-model document to assert on, so it only belongs on a `readModel:` entry.");
+                }
             }
 
             // The grammar's shape rules, applied over the well-formed entries only so a
