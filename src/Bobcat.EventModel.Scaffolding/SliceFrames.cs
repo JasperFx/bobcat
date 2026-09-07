@@ -246,9 +246,27 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
 
-        writer.Write($"BLOCK:public static ProblemDetails Validate({command}Request request)");
+        // A refusal the model states over arranged history is about the aggregate's STATE, and
+        // `request` cannot answer that (issue #238) — so the guard binds the aggregate too.
+        //
+        // [ReadModel] rather than Marten's [ReadAggregate]: it is the store-agnostic twin of the
+        // [WriteModel] this frame already emits below, and it infers requiredness from the
+        // annotation — so `{aggregate}?` really means "may not exist" and the guard gets to decide,
+        // where [ReadAggregate] keeps its original unconditional not-found guard (wolverine#3929)
+        // and would 404 before the refusal ran.
+        var onState = SliceScaffolder.RefusesOnState(_slice);
+        writer.Write(onState
+            ? $"BLOCK:public static ProblemDetails Validate({command}Request request, [ReadModel] {aggregate}? {argument})"
+            : $"BLOCK:public static ProblemDetails Validate({command}Request request)");
+
         var refusals = _slice.Specifications?.Scenarios
             .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
+        if (onState)
+        {
+            writer.WriteLine($"// The model's refusing scenarios arrange prior events, so these refusals are about");
+            writer.WriteLine($"// {argument}'s state, not the request's shape. Null means the stream does not exist yet.");
+        }
+
         foreach (var refusal in refusals)
         {
             writer.WriteLine($"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal}\", Status = 400 }};");
