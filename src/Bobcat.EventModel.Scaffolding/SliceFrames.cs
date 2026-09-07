@@ -151,13 +151,19 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         writer.WriteLine("/// </summary>");
         writer.Write($"BLOCK:public static class {_slice.Name}Handler");
 
+        // A slice every one of whose scenarios arranges nothing STARTS the stream, and a
+        // [WriteModel] cannot start one — it loads an existing stream (issue #239). The
+        // store-agnostic side effect is the shape, and there is no aggregate to bind at all.
+        var creates = SliceScaffolder.CreatesTheStream(_slice);
         var parameter = _maybeNewStream ? $"[WriteModel] {aggregate}? " : $"[WriteModel] {aggregate} ";
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
+        var appendType = creates ? "StartStream" : "EventsToAppend";
         var returnType = _cascaded.Count == 0
-            ? "EventsToAppend"
-            : $"(EventsToAppend, {string.Join(", ", _cascaded.Select(x => x.Name))})";
-        writer.Write(
-            $"BLOCK:public static {returnType} Handle({trigger} {(isAutomation ? "trigger" : "command")}, {parameter}{argument})");
+            ? appendType
+            : $"({appendType}, {string.Join(", ", _cascaded.Select(x => x.Name))})";
+        var arguments = $"{trigger} {(isAutomation ? "trigger" : "command")}"
+                        + (creates ? "" : $", {parameter}{argument}");
+        writer.Write($"BLOCK:public static {returnType} Handle({arguments})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
@@ -175,7 +181,14 @@ public class WriteModelHandlerFrame : ScaffoldFrame
                 $"// TODO guard: throw new InvalidOperationException(\"{refusal}\"); (asserted by `validation fails with`)");
         }
 
-        writer.WriteLine("// The decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
+        writer.WriteLine(creates
+            ? "// The decision. Every scenario of this slice arranges no prior events, so it starts the"
+            : "// The decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
+        if (creates)
+        {
+            writer.WriteLine($"// stream: mint the id (or take it off the trigger) and hand back the {aggregate}'s first event.");
+        }
+
         foreach (var message in _cascaded)
         {
             writer.WriteLine(message.LeavesTheSystem
@@ -185,11 +198,22 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
         var appended = events.Length > 0 ? $"[{events}]" : "[]";
-        writeUnfilledDecision(writer,
-            $"{_slice.Name} — decide which events this slice appends",
-            _cascaded.Count == 0
-                ? $"return {appended};"
-                : $"return ({appended}, {string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* … */)"))});");
+        var cascades = string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* … */)"));
+
+        if (creates)
+        {
+            var started = $"Storage.StartStream<{aggregate}>(id{(events.Length > 0 ? ", " + events : "")})";
+            writeUnfilledDecision(writer,
+                $"{_slice.Name} — decide which event starts the stream, and what its id is",
+                "var id = Guid.NewGuid();   // or the identity the trigger already carries",
+                _cascaded.Count == 0 ? $"return {started};" : $"return ({started}, {cascades});");
+        }
+        else
+        {
+            writeUnfilledDecision(writer,
+                $"{_slice.Name} — decide which events this slice appends",
+                _cascaded.Count == 0 ? $"return {appended};" : $"return ({appended}, {cascades});");
+        }
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
