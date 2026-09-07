@@ -40,6 +40,33 @@ public abstract class ScaffoldFrame : SyncFrame
     }
 
     /// <summary>
+    /// The initializer a scaffolded auto-property needs so that the file is warning-clean under
+    /// <c>&lt;Nullable&gt;enable&lt;/Nullable&gt;</c> — the default for <c>dotnet new</c> (issue #242).
+    /// </summary>
+    /// <remarks>
+    /// A non-nullable reference-typed auto-property with no initializer is CS8618, and a repo with
+    /// <c>TreatWarningsAsErrors</c> gets a red build out of a scaffold #226 established should be
+    /// green. Same principle as #226 one notch quieter: the scaffold's job is to hand back
+    /// something that builds, so the only thing left to do is the decision.
+    ///
+    /// <c>string.Empty</c> for a string and <c>null!</c> for any other reference type, which keeps
+    /// the shape the filler works with unchanged — a defaulted property still reads as "nothing
+    /// has folded into this yet". Value types and already-nullable annotations need nothing.
+    /// </remarks>
+    protected static string initializerFor(string type)
+    {
+        if (type.EndsWith("?", StringComparison.Ordinal) || valueTypes.Contains(type)) return "";
+        return type == "string" ? " = string.Empty;" : " = null!;";
+    }
+
+    /// <summary>Every type <c>SliceScaffolder.inferType</c> can emit that is not a reference type.</summary>
+    private static readonly HashSet<string> valueTypes = new(StringComparer.Ordinal)
+    {
+        "Guid", "int", "long", "short", "byte", "bool", "char", "decimal", "double", "float",
+        "DateTime", "DateTimeOffset", "DateOnly", "TimeOnly", "TimeSpan"
+    };
+
+    /// <summary>
     /// The unfilled judgment point, written so that it <em>compiles</em> (issue #226).
     /// </summary>
     /// <remarks>

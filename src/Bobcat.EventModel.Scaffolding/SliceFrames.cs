@@ -75,7 +75,7 @@ public class AggregateFrame : ScaffoldFrame
         writer.WriteLine("public Guid Id { get; set; }");
         foreach (var (type, fieldName) in _fields.Where(x => x.Name != "Id"))
         {
-            writer.WriteLine($"public {type} {fieldName} {{ get; set; }}");
+            writer.WriteLine($"public {type} {fieldName} {{ get; set; }}{initializerFor(type)}");
         }
 
         var first = true;
@@ -463,7 +463,7 @@ public class ViewSliceFrame : ScaffoldFrame
 
         foreach (var (type, name) in _fields.Where(x => x.Name != "Id"))
         {
-            writer.WriteLine($"public {type} {name} {{ get; set; }}");
+            writer.WriteLine($"public {type} {name} {{ get; set; }}{initializerFor(type)}");
         }
 
         writer.FinishBlock();
