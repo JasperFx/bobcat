@@ -54,40 +54,49 @@ public static class SliceScaffolder
     }
 
     /// <summary>
-    /// Which shape a Command or Automation slice scaffolds into. One place, because two callers
-    /// depend on the answer: the slice's own file, and <see cref="ScaffoldAggregates"/> — which
-    /// must know whether a <c>[WriteModel]</c> is going to be bound at all before it emits a type
-    /// for one.
+    /// The whole decision about one slice, derived once. Every emitter reads it — the slice's own
+    /// file, <see cref="ScaffoldAggregates"/> (which must know whether a <c>[WriteModel]</c> is
+    /// bound at all before emitting a type for one), <see cref="ScaffoldTriggerContracts"/>, and
+    /// the feature writer, whose act step has to name the type the code actually accepts.
     /// </summary>
-    private static SliceShape shapeOf(CuratedModelFile model, CuratedSlice slice)
+    public static SlicePlan PlanFor(CuratedModelFile model, CuratedSlice slice)
     {
+        var visibility = BusVisibility.Resolve(model, slice);
+
         // The collapsed default (CritterStackSamples#13): an HTTP-triggered command slice IS its
         // endpoint. The two-hop translation + message-handler shape is opt-in for bus-visible
         // commands only — and the model itself opts in (issue #218): a `messages:` entry another
         // slice handles off the bus selects the cascading shape, no flag.
-        if (slice.Pattern != "Command" || slice.Trigger?.Kind is not ("Http" or "Human"))
-        {
-            return SliceShape.WriteModelHandler;
-        }
-
+        //
         // The pure translation front (#218): every consequence of this slice is a bus-visible
         // command and it appends nothing itself, so the endpoint is exactly the opt-in two-hop
         // shape — selected by the model rather than by hand.
-        return slice.Events.Count == 0 && BusVisibility.Resolve(model, slice).Cascaded.Count == 1
-            ? SliceShape.Translation
-            : SliceShape.CollapsedEndpoint;
+        var shape = slice.Pattern != "Command" || slice.Trigger?.Kind is not ("Http" or "Human")
+            ? SliceShape.WriteModelHandler
+            : slice.Events.Count == 0 && visibility.Cascaded.Count == 1
+                ? SliceShape.Translation
+                : SliceShape.CollapsedEndpoint;
+
+        return new SlicePlan(
+            slice,
+            shape,
+            Command: slice.Command ?? slice.Name,
+            Aggregate: AggregateFor(slice),
+            Route: $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}",
+            Trigger: TriggerOrigins.Resolve(model, slice),
+            Visibility: visibility);
     }
 
     private static string commandSlice(CuratedModelFile model, CuratedSlice slice)
     {
         var frames = new List<ScaffoldFrame>();
-        var command = slice.Command ?? slice.Name;
+        var plan = PlanFor(model, slice);
+        var command = plan.Command;
 
-        var shape = shapeOf(model, slice);
-        var collapsed = shape is SliceShape.CollapsedEndpoint or SliceShape.Translation;
-        var translation = shape == SliceShape.Translation;
+        var collapsed = plan.OverHttp;
+        var translation = plan.Shape == SliceShape.Translation;
 
-        var visibility = BusVisibility.Resolve(model, slice);
+        var visibility = plan.Visibility;
 
         // Event records, fields synthesized from element hints + scenario columns
         foreach (var @event in slice.Events)
@@ -116,7 +125,7 @@ public static class SliceScaffolder
                 slice.Elements.GetValueOrDefault(message.Name)?.Description));
         }
 
-        var route = $"/api/{(slice.Domain ?? "app").ToLowerInvariant()}/{slice.Name.ToLowerInvariant()}";
+        var route = plan.Route;
         if (translation)
         {
             frames.Add(new EndpointTranslationFrame(slice, route,
@@ -162,7 +171,7 @@ public static class SliceScaffolder
                 declared.AddRange(slice.Aggregates.Select(name => (name, slice)));
             }
             else if (slice.Pattern is "Command" or "Automation"
-                     && shapeOf(model, slice) != SliceShape.Translation)
+                     && PlanFor(model, slice).Shape != SliceShape.Translation)
             {
                 // No aggregate declared, but the handler still binds a [WriteModel] of the
                 // synthesized name — so that name needs a type as much as a declared one does.
@@ -211,7 +220,7 @@ public static class SliceScaffolder
         var ns = model.Namespace ?? model.Model;
 
         var owned = model.Slices
-            .Select(slice => (Slice: slice, Origin: TriggerOrigins.Resolve(model, slice)))
+            .Select(slice => (Slice: slice, Origin: PlanFor(model, slice).Trigger))
             .Where(x => x.Origin is { OwnsTheContract: true })
             .GroupBy(x => x.Origin!.Event, StringComparer.Ordinal);
 
@@ -271,33 +280,50 @@ public static class SliceScaffolder
             .GroupBy(x => x.Specifications!.Feature ?? x.Name)
             .ToDictionary(
                 group => $"Features/{group.Key}.feature",
-                group => feature(group.Key, group.ToList()));
+                group => feature(group.Key, group.Select(slice => PlanFor(model, slice)).ToList()));
     }
 
-    private static string feature(string featureName, IReadOnlyList<CuratedSlice> slices)
+    private static string feature(string featureName, IReadOnlyList<SlicePlan> plans)
     {
         var writer = new SourceWriter();
-        var first = slices[0];
+        var first = plans[0].Slice;
 
         if (first.Domain is not null) writer.WriteLine($"@domain:{first.Domain}");
         writer.WriteLine($"Feature: {featureName}");
         if (first.Trigger?.Label is { } featureLabel) writer.WriteLine($"  Triggered by {featureLabel}");
 
-        foreach (var slice in slices)
+        // Which fixture binds these steps is decided by the same plan that decided the code's
+        // shape, so say it here rather than leaving it to be discovered as an unbound step. A
+        // feature whose acts POST needs HttpGrammars, which only CritterStackHttpFixture carries.
+        writer.BlankLine();
+        if (plans.Any(x => x.OverHttp))
         {
-            writeScenarios(writer, slice);
+            writer.WriteLine("  # Fixture: derive from CritterStackHttpFixture. At least one act below POSTs to a");
+            writer.WriteLine("  # collapsed endpoint, and `is posted to` is HttpGrammars' step — CritterStackFixture");
+            writer.WriteLine("  # alone carries the store vocabulary but not the HTTP one. Routes here are absolute,");
+            writer.WriteLine("  # so leave the module's route prefix empty.");
+        }
+        else
+        {
+            writer.WriteLine("  # Fixture: derive from CritterStackFixture — every act below dispatches over the bus.");
+        }
+
+        foreach (var plan in plans)
+        {
+            writeScenarios(writer, plan);
         }
 
         return writer.Code();
     }
 
-    private static void writeScenarios(ISourceWriter writer, CuratedSlice slice)
+    private static void writeScenarios(ISourceWriter writer, SlicePlan plan)
     {
+        var slice = plan.Slice;
         var specs = slice.Specifications!;
 
         // A literal "TODO" here names a type the generator cannot resolve (BOBCAT011), which
         // fails the spec project — the .feature half of the same defect as issue #226.
-        var aggregate = AggregateFor(slice);
+        var aggregate = plan.Aggregate;
 
         foreach (var scenario in specs.Scenarios)
         {
@@ -313,10 +339,17 @@ public static class SliceScaffolder
                     new[] { given.Event }.Concat(given.With.Values));
             }
 
-            if (scenario.When is { } when)
+            if (scenario.When is not null)
             {
-                writer.WriteLine($"    When {when.Command} is received");
-                if (when.With.Count > 0) table(writer, "      ", when.With.Keys, when.With.Values);
+                // The act names the type the emitted code ACCEPTS, from the plan — not the
+                // command the model happened to write in the scenario. Those differ exactly where
+                // issue #231 bit: a collapsed endpoint has no bus-visible command type at all,
+                // and an automation's handler takes its trigger event, not the slice's command.
+                writer.WriteLine($"    {plan.ActStep}");
+                if (scenario.When.With.Count > 0)
+                {
+                    table(writer, "      ", scenario.When.With.Keys, scenario.When.With.Values);
+                }
             }
 
             foreach (var then in scenario.Then)
@@ -333,8 +366,10 @@ public static class SliceScaffolder
                 }
                 else if (then.ValidationFails is not null)
                 {
-                    writer.WriteLine($"    Then validation fails with \"{then.ValidationFails}\"");
-                    writer.WriteLine("    And no events are emitted");
+                    foreach (var step in plan.RefusalSteps(then.ValidationFails))
+                    {
+                        writer.WriteLine($"    {step}");
+                    }
                 }
             }
         }
@@ -414,17 +449,4 @@ public static class SliceScaffolder
         if (DateTimeOffset.TryParse(sketch, out _)) return "DateTimeOffset";
         return "string";
     }
-}
-
-/// <summary>The three shapes a Command or Automation slice scaffolds into.</summary>
-internal enum SliceShape
-{
-    /// <summary>The two-hop OPT-IN (#218): the endpoint mints identity and cascades, binding no write model.</summary>
-    Translation,
-
-    /// <summary>The default for an HTTP- or Human-triggered command slice: the endpoint IS the handler.</summary>
-    CollapsedEndpoint,
-
-    /// <summary>An automation, or a command taken off the bus: a message handler over the write model.</summary>
-    WriteModelHandler
 }

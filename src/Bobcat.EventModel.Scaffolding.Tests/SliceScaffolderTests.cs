@@ -190,10 +190,15 @@ public class SliceScaffolderTests
         // ⚠️ THE load-bearing assertion of this type: Feature + Scenario are the identity that
         // joins the descriptor binding, Bobcat run evidence, and a Stoat spec-identity gate.
         swiping.ShouldContain("Feature: Swiping");
-        swiping.ShouldContain("When SwipeOnDog is received");
         swiping.ShouldContain("Then DogLiked is emitted");
-        swiping.ShouldContain("Then validation fails with \"profile no longer available\"");
         swiping.ShouldContain("And no events are emitted");
+
+        // SwipeOnDog is HTTP-triggered, so its code is the collapsed endpoint and its act is the
+        // POST that binds to it — never the bus dispatch, whose type that shape does not emit
+        // (issue #231). Its refusal is the endpoint's 400 for the same reason.
+        swiping.ShouldContain("When SwipeOnDogRequest is posted to \"/api/discovery/swipeondog\"");
+        swiping.ShouldContain("# refused with: \"profile no longer available\"");
+        swiping.ShouldContain("Then the response is 400");
     }
 
     [Fact]
