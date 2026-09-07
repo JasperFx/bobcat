@@ -25,7 +25,15 @@ public sealed record EventModelWatchPlan(
     bool StartConsole,
     IReadOnlyList<string> WatcherArguments)
 {
-    /// <summary>The console's default address — the same one <c>launchSettings.json</c> uses.</summary>
+    /// <summary>
+    /// The console's default address, and as of issue #200 the one the console itself binds:
+    /// <c>Program.cs</c> applies it when nothing configured a URL, so the packaged tool stops
+    /// falling to Kestrel's :5000 where no publisher would ever have found it. Must equal
+    /// <c>Bobcat.Monitoring.MonitorPublisher.DefaultUrl</c> — a publisher probing an address the
+    /// server does not bind is a console that silently sees nothing — which
+    /// <c>ConsoleUrlAgreementTests</c> pins, since the layering rule keeps this project from
+    /// referencing Bobcat to share the literal outright.
+    /// </summary>
     public const string DefaultConsoleUrl = "http://localhost:5525";
 
     /// <summary>Where the SPA renders the model, for the "open this" line the command prints.</summary>

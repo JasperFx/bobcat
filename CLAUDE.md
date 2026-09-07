@@ -1216,11 +1216,30 @@ publisher-side contract in core keeps the monitor vocabulary, because "monitor" 
 namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
 `Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, the env vars
 `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_MONITOR_DATA`, `BOBCAT_MONITOR_RETENTION_DAYS`,
-`BOBCAT_MONITOR_RETENTION_RUNS`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
+`BOBCAT_MONITOR_RETENTION_RUNS`, `BOBCAT_MONITOR_IDLE_MINUTES`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
 SignalR/ingest wire shapes, the CTRF reporter name, the duplicated `MonitorEvents.cs` records on
 both sides, and `docs/monitor-design.md` (kept under its name because it documents that wire as
 much as the viewer). Changing any of those is a breaking change that issue #100 scoped out;
 it needs its own decision, not a sweep.
+
+**The console binds 5525 and stops itself when nobody is using it (issue #200).** A `bobcat run`
+was found alive 20h52m after its session had ended, wedged on `:5000` and failing the next
+repository's gate with `AddressInUseException`. Two defects. The port was never applied
+server-side — 5525 lived only in `launchSettings.json`, which the packaged tool never sees, so
+the tool fell to Kestrel's default and was both invisible to every publisher and squatting on a
+port everyone wants; `Program.cs` now applies it as a *default* (`ASPNETCORE_URLS` still wins,
+and must, because `--config:urls=` cannot reach a `PreBuiltHostBuilder`), pinned to
+`MonitorPublisher.DefaultUrl` by `ConsoleUrlAgreementTests` across the layering rule. And
+nothing in the process could ever have ended it, since JasperFx's `run` blocks on an untimed
+wait released only by a Ctrl-C a detached process never receives; `IdleShutdownService` stops
+the host after a stretch with nothing connected and nothing publishing
+(`Monitor:IdleMinutes` → `BOBCAT_MONITOR_IDLE_MINUTES` → 2h, 0 disables). Idleness rather than a
+parent-death watchdog because .NET has no portable "who is my parent", and *in flight* is half
+of idle: an open dashboard holds a SignalR connection, which is one request that never
+completes, so a watched console never starts the window. On by default unlike the retry/stall
+knobs — those preserve a behaviour someone relies on, this one preserves nothing. Separately,
+`Bobcat.Runtime.PortHolder` names the process holding a port when a resource fails to bind
+(appended to `TestSuite.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
 **A supervised suite that is not Bobcat's now has live progress (issue #195).** Per-scenario
 events come from each *worker's* `MonitorPublishingObserver`, so a plain xUnit worker published

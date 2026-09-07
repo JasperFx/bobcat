@@ -59,8 +59,11 @@ public class TestSuite : IAsyncDisposable
             }
             catch (Exception ex)
             {
+                // A bind collision names the process holding the port (issue #200): without it,
+                // "failed to start" over somebody else's orphan reads as a product regression,
+                // and the diagnosis costs minutes that one lsof call would have cost nobody.
                 throw new SpecCatastrophicException(
-                    $"Resource '{resource.Name}' failed to start: {ex.Message}", ex);
+                    $"Resource '{resource.Name}' failed to start: {ex.Message}{PortHolder.Explain(ex)}", ex);
             }
         }
     }

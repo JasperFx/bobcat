@@ -19,6 +19,14 @@
     here are what let the two record sets stay deliberately unshared.
   -->
   <ItemGroup>
+    <!-- The supervisor tests' hand-rolled clock, linked rather than duplicated: the idle-shutdown
+         ceiling (issue #200) needs exactly the same "advance time by hand" facility, and a second
+         copy is a second thing to keep correct. Same pattern as the agreement tests' linked
+         sources. -->
+    <Compile Include="..\Bobcat.Supervisor.Tests\FakeTimeProvider.cs" Link="FakeTimeProvider.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
     <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj" />
   </ItemGroup>
