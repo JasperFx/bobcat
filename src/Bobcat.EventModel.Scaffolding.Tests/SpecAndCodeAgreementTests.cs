@@ -175,7 +175,8 @@ public partial class SpecAndCodeAgreementTests
         foreach (var yaml in new[]
                  {
                      ModelYaml, SliceScaffolderTests.ModelYaml, BusVisibilityTests.ModelYaml,
-                     ScaffoldCompilesTests.ModelYaml, TriggerOriginTests.ModelYaml
+                     ScaffoldCompilesTests.ModelYaml, TriggerOriginTests.ModelYaml,
+                     ScenarioStreamIdTests.ModelYaml
                  })
         {
             var files = SliceScaffolder.ScaffoldAll(parse(yaml));

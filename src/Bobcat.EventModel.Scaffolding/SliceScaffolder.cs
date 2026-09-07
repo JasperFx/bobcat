@@ -389,20 +389,27 @@ public static class SliceScaffolder
 
         foreach (var scenario in specs.Scenarios)
         {
+            var streamId = streamIdFor(scenario.Name);
+
             writer.BlankLine();
             writer.WriteLine($"  @slice:{slice.Name}");
             writer.WriteLine($"  Scenario: {scenario.Name}");
-            writer.WriteLine($"    Given no events for {aggregate} \"{streamIdFor(scenario.Name)}\"");
+            writer.WriteLine($"    Given no events for {aggregate} \"{streamId}\"");
 
             foreach (var given in scenario.Given)
             {
                 writer.WriteLine($"    And events for {aggregate}");
                 table(writer, "      ", new[] { "Event" }.Concat(given.With.Keys),
-                    new[] { given.Event }.Concat(given.With.Values));
+                    new[] { given.Event }.Concat(expand(given.With.Values, streamId)));
             }
 
             if (scenario.When is not null)
             {
+                foreach (var warning in strandedActWarnings(plan, scenario))
+                {
+                    writer.WriteLine($"    # {warning}");
+                }
+
                 // The act names the type the emitted code ACCEPTS, from the plan — not the
                 // command the model happened to write in the scenario. Those differ exactly where
                 // issue #231 bit: a collapsed endpoint has no bus-visible command type at all,
@@ -410,7 +417,7 @@ public static class SliceScaffolder
                 writer.WriteLine($"    {plan.ActStep}");
                 if (scenario.When.With.Count > 0)
                 {
-                    table(writer, "      ", scenario.When.With.Keys, scenario.When.With.Values);
+                    table(writer, "      ", scenario.When.With.Keys, expand(scenario.When.With.Values, streamId));
                 }
             }
 
@@ -419,12 +426,12 @@ public static class SliceScaffolder
                 if (then.Event is not null)
                 {
                     writer.WriteLine($"    Then {then.Event} is emitted");
-                    if (then.With.Count > 0) table(writer, "      ", then.With.Keys, then.With.Values);
+                    if (then.With.Count > 0) table(writer, "      ", then.With.Keys, expand(then.With.Values, streamId));
                 }
                 else if (then.ReadModel is not null)
                 {
                     writer.WriteLine($"    Then the {then.ReadModel} read model contains");
-                    if (then.Contains.Count > 0) table(writer, "      ", then.Contains.Keys, then.Contains.Values);
+                    if (then.Contains.Count > 0) table(writer, "      ", then.Contains.Keys, expand(then.Contains.Values, streamId));
                 }
                 else if (then.ValidationFails is not null)
                 {
@@ -435,6 +442,49 @@ public static class SliceScaffolder
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// The one token a curated scenario may write in a <c>with:</c> or <c>contains:</c> value:
+    /// <c>{streamId}</c> stands for the stream this scenario runs against, and the feature writer
+    /// expands it to the same id the scenario's <c>Given no events for …</c> step establishes.
+    /// </summary>
+    /// <remarks>
+    /// Issue #235. A collapsed endpoint computes its stream from the request body — <c>[Identity]
+    /// public Guid AppointmentId</c> — and <c>HttpGrammars.WhenCommandIsPosted</c> builds that body
+    /// from the act's table and nothing else. So without a way to say "this scenario's stream", the
+    /// act writes to whatever stream the body happens to name, which is never the stream the
+    /// <c>Given</c> events reached. The happy paths still pass (the endpoint starts a fresh stream
+    /// and <c>Then X is emitted</c> reads the tracked session, not the store) and — far worse — so
+    /// do the refusals, because the guard sees an empty aggregate and refuses nothing. A spec that
+    /// is green when the behaviour is absent is worse than a red one.
+    ///
+    /// The id cannot come from the model, because it is generated downstream of it. Resolving the
+    /// token entirely inside <see cref="writeScenarios"/> keeps the emitted <c>.feature</c> literal
+    /// and readable, and needs no grammar change at all.
+    /// </remarks>
+    public const string StreamIdToken = "{streamId}";
+
+    private static bool isStreamIdToken(string value)
+        => value.Trim().Equals(StreamIdToken, StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> expand(IEnumerable<string> values, string streamId)
+        => values.Select(x => x.Replace(StreamIdToken, streamId, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The scenario that arranges history and then acts on a stream it never named. Report, never
+    /// act: the fix is a <c>{streamId}</c> in the model's <c>with:</c>, and the scaffolder cannot
+    /// know which field of the request carries the identity — so it says so in the feature, where
+    /// whoever fills the slice in will read it.
+    /// </summary>
+    private static IEnumerable<string> strandedActWarnings(SlicePlan plan, CuratedScenario scenario)
+    {
+        if (!plan.OverHttp || scenario.Given.Count == 0) yield break;
+        if (scenario.When!.With.Values.Any(isStreamIdToken)) yield break;
+
+        yield return "WARNING: this scenario arranges history, but the act names no stream — the endpoint";
+        yield return "computes its identity from the body below, so it will address a DIFFERENT stream than";
+        yield return $"the Given above. Give the model's `with:` the identity field with the value \"{StreamIdToken}\".";
     }
 
     /// <summary>
@@ -503,6 +553,10 @@ public static class SliceScaffolder
 
     private static string inferType(string sketch)
     {
+        // The scenario's own stream id, expanded by the feature writer (issue #235). It is always
+        // a Guid, and it must never fall through to the sample-value inference below — a literal
+        // "{streamId}" parses as nothing and would type the identity field as a string.
+        if (isStreamIdToken(sketch)) return "Guid";
         if (KnownTypes.Contains(sketch)) return sketch is "guid" or "Guid" ? "Guid" : sketch;
         if (Guid.TryParse(sketch, out _)) return "Guid";
         if (bool.TryParse(sketch, out _)) return "bool";

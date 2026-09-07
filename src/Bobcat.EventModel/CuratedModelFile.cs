@@ -143,12 +143,22 @@ public sealed class CuratedScenario
 public sealed class CuratedGiven
 {
     public string Event { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="CuratedWhen.With"/>
     public Dictionary<string, string> With { get; set; } = [];
 }
 
 public sealed class CuratedWhen
 {
     public string Command { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Field name → value, as the scaffolder writes it into the step's table. One token is
+    /// understood: <c>{streamId}</c> expands to the stream this scenario runs against — the same
+    /// id the scenario's <c>Given no events for …</c> step establishes (issue #235). Use it for
+    /// the identity field a collapsed endpoint computes its stream from, or the act writes to a
+    /// stream the <c>given:</c> events never reached.
+    /// </summary>
     public Dictionary<string, string> With { get; set; } = [];
 }
 
