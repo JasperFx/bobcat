@@ -284,6 +284,16 @@ public class ParameterInfo
     /// "from a Cucumber capture, a table column, or a DocString".</summary>
     public ParameterBinding Binding { get; set; } = ParameterBinding.Value;
 
+    /// <summary>
+    /// A <see cref="ParameterBinding.Table"/> parameter the step cannot do without, because the
+    /// method declared it non-nullable (issue #233). A step used with no trailing table would
+    /// pass null into it and the fixture would dereference null — an NRE from inside Bobcat, which
+    /// sends the reader into Bobcat's own stack instead of naming their step. Reported as
+    /// BOBCAT020 instead, at build time. False when the fixture's project has nullable reference
+    /// types disabled, since the author had no way there to say the table is optional.
+    /// </summary>
+    public bool TableRequired { get; set; }
+
     /// <summary>Resource name for a service resolution (null = the single host resource).</summary>
     public string? ResourceName { get; set; }
 

@@ -873,6 +873,10 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Binding = ParameterBinding.Table;
             info.IsExplicitlyInjected = true;
             info.IsSimpleType = false;
+
+            // `StepTable` says the step needs one; `StepTable?` says it may. Enforced as
+            // BOBCAT020 rather than left to become a null-deref inside the fixture (#233).
+            info.TableRequired = param.NullableAnnotation == NullableAnnotation.NotAnnotated;
         }
         else if (param.Type.ToDisplayString() == "Bobcat.Engine.IStepContext")
         {
@@ -1010,6 +1014,17 @@ public class BobcatGenerator : IIncrementalGenerator
                         // pass — a verification that verifies nothing.
                         spc.ReportDiagnostic(Diagnostic.Create(
                             Diagnostics.SetVerificationNeedsTable, Microsoft.CodeAnalysis.Location.None,
+                            step.Text, match.Method.MethodName));
+                        hasErrors = true;
+                    }
+
+                    if (step.TableRows == null &&
+                        match.Method.Parameters.Any(p => p.Binding == ParameterBinding.Table && p.TableRequired))
+                    {
+                        // Without this the step calls the method with null and the fixture
+                        // dereferences it — an NRE whose stack is Bobcat's, not the author's.
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.StepNeedsTable, Microsoft.CodeAnalysis.Location.None,
                             step.Text, match.Method.MethodName));
                         hasErrors = true;
                     }
@@ -1543,6 +1558,16 @@ internal static class Diagnostics
         "positionally to the constructor's value parameters; other parameters are resolved from " +
         "the scenario like step parameters (IStepContext, test resources, services); trailing " +
         "optional parameters may be omitted.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor StepNeedsTable = new(
+        "BOBCAT020",
+        "Step has no data table, and the method it binds requires one",
+        "Step '{0}' has no trailing data table, but the method '{1}' it binds declares a non-nullable " +
+        "Bobcat.StepTable parameter. Add the table, or declare the parameter as 'StepTable?' if the step " +
+        "is meant to work without one.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

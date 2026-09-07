@@ -79,3 +79,13 @@ Feature: Wallet
       | 44444444-4444-4444-4444-444444444444 | 0      |
     Then validation fails with "must be positive"
     And no events are emitted
+
+  # Issue #233: `When {command} is received` used to declare a non-nullable StepTable, so a step
+  # with no table handed the fixture null and it dereferenced it — a bare NRE whose stack was
+  # Bobcat's, not the spec's. A field-less command is a perfectly good act, so the table is
+  # optional now (and BOBCAT020 catches the steps that genuinely do need one, at build time).
+  @slice:SweepWallets
+  Scenario: A field-less command needs no table
+    Given no events for Wallet "88888888-8888-8888-8888-888888888888"
+    When SweepWallets is received
+    Then no events are emitted

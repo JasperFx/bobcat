@@ -24,6 +24,21 @@ public record WalletDebited(Guid WalletId, decimal Amount);
 /// <summary>Cascaded by the credit handler, so "Then WalletCreditedNotification is sent" has something to see.</summary>
 public record WalletCreditedNotification(Guid WalletId);
 
+/// <summary>
+/// A field-less command (issue #233). Nothing on the wire means nothing to put in a table, and
+/// the shipped act step has to accept that: an emlang import carries no field information at all,
+/// so a scaffolded scenario's act is routinely this shape. It used to be a null-deref inside the
+/// fixture.
+/// </summary>
+public record SweepWallets();
+
+public static class SweepWalletsHandler
+{
+    public static void Handle(SweepWallets command)
+    {
+    }
+}
+
 /// <summary>Live-aggregated on read.</summary>
 public class Wallet
 {

@@ -401,14 +401,25 @@ public abstract class CritterStackFixture : Fixture
         recordTouched(built);
     }
 
+    /// <summary>
+    /// The bus act. The table is optional (issue #233): a field-less command is a perfectly good
+    /// act — <c>new HomeCheckAssignmentAccepted()</c> — and an emlang import carries no field
+    /// information at all, so scaffolded scenarios routinely have nothing to put in a table.
+    /// Absent, it builds through the parameterless constructor; a command that needs fields says
+    /// which ones it did not get, naming this step.
+    /// </summary>
     [When("{command} is received")]
-    public Task WhenCommandIsReceived(Type command, StepTable fields)
+    public Task WhenCommandIsReceived(Type command, StepTable? fields)
     {
-        if (fields.Rows.Count != 1)
+        if (fields is { Rows.Count: > 1 })
             throw new SpecCriticalException(
-                $"'When {command.Name} is received' expects exactly one table row of command fields, but got {fields.Rows.Count}.");
+                $"'When {command.Name} is received' expects at most one table row of command fields, but got {fields.Rows.Count}.");
 
-        var message = RecordBuilding.Build(command, fields.AsDictionaries()[0]);
+        var row = fields is { Rows.Count: 1 }
+            ? fields.AsDictionaries()[0]
+            : new Dictionary<string, string>();
+
+        var message = RecordBuilding.Build(command, row, $"When {command.Name} is received");
         return executeCommandCore(message);
     }
 

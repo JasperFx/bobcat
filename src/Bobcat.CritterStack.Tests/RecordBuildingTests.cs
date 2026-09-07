@@ -1,3 +1,4 @@
+using Bobcat.Engine;
 using Shouldly;
 
 namespace Bobcat.CritterStack.Tests;
@@ -54,9 +55,35 @@ public class RecordBuildingTests
     [Fact]
     public void a_missing_non_defaulted_column_still_refuses_by_name()
     {
-        var ex = Should.Throw<InvalidOperationException>(() =>
+        // SpecCriticalException rather than a bare InvalidOperationException: this is a step that
+        // cannot proceed, and the reader's next move is in the message (issue #233).
+        var ex = Should.Throw<SpecCriticalException>(() =>
             RecordBuilding.Build(typeof(Claim), new Dictionary<string, string> { ["Plan"] = "p" }));
 
         ex.Message.ShouldContain(nameof(Claim));
+        ex.Message.ShouldContain("it needs (String Plan, String Node, String Agent");
+        ex.Message.ShouldContain("Give the step a one-row table");
+    }
+
+    [Fact]
+    public void the_refusal_names_the_step_when_a_step_asked()
+    {
+        // What the reader used to get instead was `NullReferenceException at
+        // CritterStackFixture.WhenCommandIsReceived`, which names Bobcat's stack, not their spec.
+        var ex = Should.Throw<SpecCriticalException>(() =>
+            RecordBuilding.Build(typeof(Claim), new Dictionary<string, string>(), "When Claim is received"));
+
+        ex.Message.ShouldStartWith("'When Claim is received': cannot build 'Claim'");
+    }
+
+    [Fact]
+    public void a_field_less_record_needs_no_columns_at_all()
+    {
+        // Issue #233's second question, answered yes: `new Beat()` is a perfectly good act, and an
+        // emlang import carries no field information, so scaffolded scenarios routinely have
+        // nothing to put in a table.
+        RecordBuilding.Build(typeof(Beat), new Dictionary<string, string>()).ShouldBe(new Beat());
     }
 }
+
+public record Beat();
