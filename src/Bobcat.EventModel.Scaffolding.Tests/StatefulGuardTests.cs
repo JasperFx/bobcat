@@ -46,7 +46,7 @@ public class StatefulGuardTests
                     - { event: AppointmentCancelled, with: { appointmentId: "{streamId}" } }
                   when: { command: ConfirmAppointment, with: { appointmentId: "{streamId}" } }
                   then: [{ validationFails: "This appointment was cancelled" }]
-          # Request-shaped: nothing arranged, so the guard needs the request and nothing else.
+          # Request-shaped: nothing arranged, so the guard needs the command and nothing else.
           - name: ProposeAppointment
             pattern: Command
             domain: Appointments
@@ -76,7 +76,7 @@ public class StatefulGuardTests
         var code = codeFor("ConfirmAppointment");
 
         code.ShouldContain(
-            "public static ProblemDetails Validate(ConfirmAppointmentRequest request, [ReadModel] Appointment? appointment)");
+            "public static ProblemDetails Validate(ConfirmAppointment command, [ReadModel] Appointment? appointment)");
 
         // And the TODO it must fill says which question it is answering.
         code.ShouldContain("// TODO guard: return new ProblemDetails { Detail = \"This appointment was cancelled\", Status = 400 };");
@@ -90,7 +90,7 @@ public class StatefulGuardTests
         // scenario did not ask for, and a parameter nobody uses reads as a mistake.
         var code = codeFor("ProposeAppointment");
 
-        code.ShouldContain("public static ProblemDetails Validate(ProposeAppointmentRequest request)");
+        code.ShouldContain("public static ProblemDetails Validate(ProposeAppointment command)");
         code.ShouldNotContain("[ReadModel]");
     }
 

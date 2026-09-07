@@ -77,10 +77,10 @@ public class SliceScaffolderTests
 
         // The collapsed default (CritterStackSamples#13): one transaction, honest status codes.
         code.ShouldContain("public record DogLiked(Guid SwiperDogId, DateTimeOffset LikedAt");
-        code.ShouldContain("public record SwipeOnDogRequest(Guid SwiperDogId, bool Liked);");
+        code.ShouldContain("public record SwipeOnDog(Guid SwiperDogId, bool Liked);");
         code.ShouldContain("public record SwipeOnDogResponse();");
         code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
-        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDogRequest request, [WriteModel] SwipePair? swipePair)");
+        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDog command, [WriteModel] SwipePair? swipePair)");
         // The aggregate is NOT here — it is a model-level artifact now (see below).
         code.ShouldNotContain("public class SwipePair");
         code.ShouldContain("wolverine#4309");
@@ -93,7 +93,7 @@ public class SliceScaffolderTests
     {
         var code = scaffold("SwipeOnDog");
 
-        code.ShouldContain("public static ProblemDetails Validate(SwipeOnDogRequest request)");
+        code.ShouldContain("public static ProblemDetails Validate(SwipeOnDog command)");
         code.ShouldContain("""Detail = "profile no longer available", Status = 400""");
         code.ShouldContain("return WolverineContinue.NoProblems;");
     }
@@ -199,7 +199,7 @@ public class SliceScaffolderTests
         // SwipeOnDog is HTTP-triggered, so its code is the collapsed endpoint and its act is the
         // POST that binds to it — never the bus dispatch, whose type that shape does not emit
         // (issue #231). Its refusal is the endpoint's 400 for the same reason.
-        swiping.ShouldContain("When SwipeOnDogRequest is posted to \"/api/discovery/swipeondog\"");
+        swiping.ShouldContain("When SwipeOnDog is posted to \"/api/discovery/swipeondog\"");
         swiping.ShouldContain("# refused with: \"profile no longer available\"");
         swiping.ShouldContain("Then the response is 400");
     }

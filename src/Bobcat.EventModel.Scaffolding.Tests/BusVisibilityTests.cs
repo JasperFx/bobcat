@@ -99,7 +99,7 @@ public class BusVisibilityTests
         var code = scaffold("RemoveListing");
 
         // The model selected the cascading shape — no busVisible flag, no by-hand opt-in.
-        code.ShouldContain("public static (RemoveListingResponse, EventsToAppend, ReviewListing) Post(RemoveListingRequest request, [WriteModel] Listing? listing)");
+        code.ShouldContain("public static (RemoveListingResponse, EventsToAppend, ReviewListing) Post(RemoveListing command, [WriteModel] Listing? listing)");
         code.ShouldContain("slice 'ReviewListing' handles it; the cascade rides the transactional outbox");
         code.ShouldContain("//     return (new RemoveListingResponse(/* … */), [new ListingRemoved(/* … */)], new ReviewListing(/* … */));");
         // The handling slice owns the command record; the publisher never re-declares it.
@@ -169,7 +169,7 @@ public class BusVisibilityTests
 
         // The opt-in EndpointTranslationFrame, selected by the model rather than by hand: the
         // slice appends nothing itself, so the endpoint only mints identity and cascades.
-        code.ShouldContain("public static (CreationResponse, ReviewListing) Post(SubmitModerationCaseRequest request)");
+        code.ShouldContain("public static (CreationResponse, ReviewListing) Post(SubmitModerationCase submitModerationCase)");
         code.ShouldContain("//     var command = new ReviewListing(id /*, … from request */);");
         code.ShouldNotContain("EventsToAppend");
         code.ShouldNotContain("SubmitModerationCaseResponse");

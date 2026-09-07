@@ -318,7 +318,7 @@ public static class SliceScaffolder
 
         if (collapsed)
         {
-            frames.Add(new RecordFrame($"{command}Request", fieldsFor(slice, command)));
+            frames.Add(new RecordFrame(command, fieldsFor(slice, command)));
             if (!translation) frames.Add(new RecordFrame($"{slice.Name}Response", []));
         }
         else if (slice.Pattern == "Command")

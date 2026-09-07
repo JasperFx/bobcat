@@ -318,8 +318,8 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         // and would 404 before the refusal ran.
         var onState = SliceScaffolder.RefusesOnState(_slice);
         writer.Write(onState
-            ? $"BLOCK:public static ProblemDetails Validate({command}Request request, [ReadModel] {aggregate}? {argument})"
-            : $"BLOCK:public static ProblemDetails Validate({command}Request request)");
+            ? $"BLOCK:public static ProblemDetails Validate({command} command, [ReadModel] {aggregate}? {argument})"
+            : $"BLOCK:public static ProblemDetails Validate({command} command)");
 
         var refusals = _slice.Specifications?.Scenarios
             .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
@@ -341,7 +341,7 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
         var returnType = $"({_slice.Name}Response, EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
         writer.Write(
-            $"BLOCK:public static {returnType} Post({command}Request request, [WriteModel] {aggregate}? {argument})");
+            $"BLOCK:public static {returnType} Post({command} command, [WriteModel] {aggregate}? {argument})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
@@ -413,7 +413,10 @@ public class EndpointTranslationFrame : ScaffoldFrame
 
         writer.Write($"BLOCK:public static class {_slice.Name}Endpoint");
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
-        writer.Write($"BLOCK:public static (CreationResponse, {command}) Post({request}Request request)");
+        // The incoming type keeps the board's name too, so the pair reads as two commands rather
+        // than as a request that turns into one.
+        var incoming = char.ToLowerInvariant(request[0]) + request[1..];
+        writer.Write($"BLOCK:public static (CreationResponse, {command}) Post({request} {incoming})");
         foreach (var warning in _warnings)
         {
             writer.WriteLine($"// WARNING (from the model): {warning}");

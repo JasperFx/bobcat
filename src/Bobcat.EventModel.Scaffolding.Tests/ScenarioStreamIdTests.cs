@@ -87,7 +87,7 @@ public class ScenarioStreamIdTests
 
         // "{streamId}" parses as no sample value at all, so the inference would otherwise fall
         // through to string and the request would not bind an [Identity] Guid.
-        files["Appointments/ConfirmAppointment.cs"].ShouldContain("public record ConfirmAppointmentRequest(Guid AppointmentId");
+        files["Appointments/ConfirmAppointment.cs"].ShouldContain("public record ConfirmAppointment(Guid AppointmentId");
         files["Appointments/ConfirmAppointment.cs"].ShouldContain("public record HomeCheckAppointmentProposed(Guid OwnerId);");
     }
 

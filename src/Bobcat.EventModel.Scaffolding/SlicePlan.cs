@@ -57,8 +57,21 @@ public sealed record SlicePlan(
     /// <summary>True when the act is an HTTP POST rather than a bus dispatch — both endpoint shapes.</summary>
     public bool OverHttp => Shape is SliceShape.CollapsedEndpoint or SliceShape.Translation;
 
-    /// <summary>The request record an endpoint takes as its body. Only meaningful when <see cref="OverHttp"/>.</summary>
-    public string RequestType => $"{Command}Request";
+    /// <summary>
+    /// The record an endpoint takes as its body — the command, under the name the BOARD gave it.
+    /// </summary>
+    /// <remarks>
+    /// No <c>Request</c> suffix. The board says <c>ConfirmAppointment</c>, so the type is
+    /// <c>ConfirmAppointment</c>: a slice's command is the same thing whether it arrives over HTTP
+    /// or over the bus, and decorating it by transport makes the model and the code disagree about
+    /// what a thing is called for no gain. <c>Response</c> keeps its suffix, because that names the
+    /// other half of an exchange rather than renaming the command.
+    ///
+    /// It also closes half of wolverine#4385 for free: the derived Event Model names a slice after
+    /// its message type, so a command named for the board matches the declared slice name and the
+    /// two models merge instead of stacking up as two disconnected diagrams.
+    /// </remarks>
+    public string RequestType => Command;
 
     /// <summary>
     /// The type a scenario's act names, which is always the type the emitted code actually

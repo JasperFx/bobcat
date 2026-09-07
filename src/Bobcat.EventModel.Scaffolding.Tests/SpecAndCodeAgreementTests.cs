@@ -107,9 +107,9 @@ public partial class SpecAndCodeAgreementTests
 
         // The step HttpGrammars binds (#210), naming the request record the endpoint takes and
         // the route it answers on — both from the same plan that emitted them below.
-        feature.ShouldContain("When ConfirmAppointmentRequest is posted to \"/api/appointments/confirmappointment\"");
+        feature.ShouldContain("When ConfirmAppointment is posted to \"/api/appointments/confirmappointment\"");
         code.ShouldContain("[WolverinePost(\"/api/appointments/confirmappointment\")]");
-        code.ShouldContain("Post(ConfirmAppointmentRequest request");
+        code.ShouldContain("Post(ConfirmAppointment command");
 
         // And NOT the bus dispatch, which requires a type the collapsed shape deliberately omits.
         feature.ShouldNotContain("When ConfirmAppointment is received");
