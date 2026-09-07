@@ -501,7 +501,7 @@ public class ViewSliceFrame : ScaffoldFrame
 
         foreach (var (type, name) in _fields.Where(x => x.Name != "Id"))
         {
-            writer.WriteLine($"public {type} {name} {{ get; set; }}");
+            writer.WriteLine(ScaffoldedProperty.Declare(type, name));
         }
 
         writer.FinishBlock();
