@@ -50,6 +50,8 @@ public class SliceScaffolderTests
               feature: Swiping
               scenarios:
                 - name: A mutual like produces a match
+                  given:
+                    - { event: DogLiked, with: { swiperDogId: "{streamId}" } }
                   then: [{ event: MutualMatchDetected }]
           - name: MatchList
             pattern: View
@@ -103,6 +105,8 @@ public class SliceScaffolderTests
     {
         var code = scaffold("DetectMutualMatch");
 
+        // The pair already exists — the scenario arranges the first like — so this automation
+        // appends to its stream rather than starting one (issue #239).
         code.ShouldContain("public static EventsToAppend Handle(DogLiked trigger, [WriteModel] SwipePair swipePair)");
         code.ShouldContain("HOTSPOT (from the model): Notify both owners?");
         code.ShouldNotContain("WolverinePost");

@@ -30,6 +30,28 @@ public static class SliceScaffolder
             : slice.Events.FirstOrDefault() ?? $"{slice.Name}Trigger";
 
     /// <summary>
+    /// Whether this slice <b>starts</b> the stream rather than appending to an existing one —
+    /// which the model already says, with no new field: every scenario bound to the slice
+    /// arranges no prior events (issue #239).
+    /// </summary>
+    /// <remarks>
+    /// <c>[WriteModel]</c> loads an existing stream; it is not the way to start one, and binding
+    /// it non-nullable on a slice that creates asks the framework for an aggregate that cannot
+    /// exist. The scaffolded feature said so itself — <c>Given no events for Appointment "…"</c>
+    /// and nothing else — while the handler beside it demanded one.
+    ///
+    /// This is the same fact the aggregate scaffolder acts on when it makes the first event a
+    /// <c>Create</c> rather than an <c>Apply</c>; before this, only the aggregate half derived it.
+    ///
+    /// A slice with no scenarios at all is deliberately NOT creating: silence is not evidence, and
+    /// reading vacuous truth out of an empty scenario list would hand back a handler shape nobody
+    /// can fill on the strength of a model that said nothing.
+    /// </remarks>
+    public static bool CreatesTheStream(CuratedSlice slice)
+        => slice.Specifications is { Scenarios.Count: > 0 } specs
+           && specs.Scenarios.All(x => x.Given.Count == 0);
+
+    /// <summary>
     /// The events a View slice's projection folds, each with the Guid field a fan-out can route
     /// it by. The slice's own <c>events:</c> when it declares them, otherwise the events of the
     /// slices sharing its aggregate, otherwise its domain's, otherwise the model's.

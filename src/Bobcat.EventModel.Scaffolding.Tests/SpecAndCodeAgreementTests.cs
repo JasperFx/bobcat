@@ -124,8 +124,10 @@ public partial class SpecAndCodeAgreementTests
         feature.ShouldContain("When HomeCheckAssignmentAccepted is received");
         feature.ShouldNotContain("When ProposeHomeCheckAppointment is received");
 
+        // And it starts the appointment's stream rather than binding a write model that cannot
+        // exist: every scenario of this slice arranges no prior events (issue #239).
         codeFor("ProposeHomeCheckAppointment")
-            .ShouldContain("Handle(HomeCheckAssignmentAccepted trigger, [WriteModel] Appointment appointment)");
+            .ShouldContain("public static StartStream Handle(HomeCheckAssignmentAccepted trigger)");
     }
 
     [Fact]
@@ -133,7 +135,7 @@ public partial class SpecAndCodeAgreementTests
     {
         // The case `is received` was always right for — the fix must not overreach into it.
         featureFor("Moderation").ShouldContain("When ReviewAppointment is received");
-        codeFor("ReviewAppointment").ShouldContain("Handle(ReviewAppointment command,");
+        codeFor("ReviewAppointment").ShouldContain("Handle(ReviewAppointment command)");
     }
 
     [Fact]
@@ -177,7 +179,7 @@ public partial class SpecAndCodeAgreementTests
                      ModelYaml, SliceScaffolderTests.ModelYaml, BusVisibilityTests.ModelYaml,
                      ScaffoldCompilesTests.ModelYaml, TriggerOriginTests.ModelYaml,
                      ScenarioStreamIdTests.ModelYaml, ReadModelIdentityTests.ModelYaml,
-                     StatefulGuardTests.ModelYaml
+                     StatefulGuardTests.ModelYaml, CreatingSliceTests.ModelYaml
                  })
         {
             var files = SliceScaffolder.ScaffoldAll(parse(yaml));
