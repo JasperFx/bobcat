@@ -18,10 +18,27 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>testing;integration-testing;bdd;gherkin;specification;critterstack</PackageTags>
+    <PackageIcon>icon.png</PackageIcon>
 
     <!-- Released libraries opt back in individually. -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+
+  <!--
+    The lynx mark every Bobcat package wears on nuget.org — src/icon.png, a 256px downscale of
+    the docs site's own avatar (docs/public/bobcat-avatar-dark-512.png), copied rather than
+    referenced across the tree for the same reason the SPA copies it: a package's content has to
+    live where its build can see it, and a path out of src/ is one more thing that can rot.
+
+    Unconditional on purpose. <PackageIcon> names a file NuGet expects to find PACKED, so a
+    packable project without the item errors with NU5046 — and the obvious condition,
+    '$(IsPackable)' == 'true', would be wrong here: this file is imported at the top of every
+    csproj, before the project sets IsPackable, so it would read the false above for everyone
+    and pack nothing anywhere. A None item in a project that never packs costs nothing.
+  -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
   <!--
     Test projects run on Microsoft.Testing.Platform rather than VSTest. xUnit v3 ships as an MTP
