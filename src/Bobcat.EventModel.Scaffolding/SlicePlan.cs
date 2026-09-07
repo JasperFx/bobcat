@@ -88,3 +88,10 @@ public sealed record SlicePlan(
         yield return "And no events are emitted";
     }
 }
+
+/// <summary>
+/// One event a View slice's projection folds, and the Guid field a fan-out can route it by —
+/// null when the model names none, which is the difference between a MultiStreamProjection that
+/// registers and one that cannot (issue #232).
+/// </summary>
+public sealed record ViewSource(string Event, string? IdentityField);
