@@ -8,6 +8,15 @@ namespace Bobcat.EventModel.Scaffolding;
 /// </summary>
 public static class SliceScaffolder
 {
+    /// <summary>
+    /// The write model a slice's handler binds to. A slice that declares no <c>aggregates:</c>
+    /// still needs a type name, and it must be the same name <see cref="ScaffoldAggregates"/>
+    /// emits — a synthesized name nothing declares is a dangling type, and a dangling type fails
+    /// the whole project exactly the way a hole in expression position does (issue #226).
+    /// </summary>
+    public static string AggregateFor(CuratedSlice slice)
+        => slice.Aggregates.FirstOrDefault() ?? $"{slice.Name}Model";
+
     public static IReadOnlyDictionary<string, string> Scaffold(CuratedModelFile model, CuratedSlice slice)
     {
         var files = new Dictionary<string, string>();
@@ -32,23 +41,41 @@ public static class SliceScaffolder
         return files;
     }
 
+    /// <summary>
+    /// Which shape a Command or Automation slice scaffolds into. One place, because two callers
+    /// depend on the answer: the slice's own file, and <see cref="ScaffoldAggregates"/> — which
+    /// must know whether a <c>[WriteModel]</c> is going to be bound at all before it emits a type
+    /// for one.
+    /// </summary>
+    private static SliceShape shapeOf(CuratedModelFile model, CuratedSlice slice)
+    {
+        // The collapsed default (CritterStackSamples#13): an HTTP-triggered command slice IS its
+        // endpoint. The two-hop translation + message-handler shape is opt-in for bus-visible
+        // commands only — and the model itself opts in (issue #218): a `messages:` entry another
+        // slice handles off the bus selects the cascading shape, no flag.
+        if (slice.Pattern != "Command" || slice.Trigger?.Kind is not ("Http" or "Human"))
+        {
+            return SliceShape.WriteModelHandler;
+        }
+
+        // The pure translation front (#218): every consequence of this slice is a bus-visible
+        // command and it appends nothing itself, so the endpoint is exactly the opt-in two-hop
+        // shape — selected by the model rather than by hand.
+        return slice.Events.Count == 0 && BusVisibility.Resolve(model, slice).Cascaded.Count == 1
+            ? SliceShape.Translation
+            : SliceShape.CollapsedEndpoint;
+    }
+
     private static string commandSlice(CuratedModelFile model, CuratedSlice slice)
     {
         var frames = new List<ScaffoldFrame>();
         var command = slice.Command ?? slice.Name;
 
-        // The collapsed default (CritterStackSamples#13): an HTTP-triggered command slice IS its
-        // endpoint. The two-hop translation + message-handler shape is opt-in for bus-visible
-        // commands only — and the model itself opts in (issue #218): a `messages:` entry another
-        // slice handles off the bus selects the cascading shape, no flag.
-        var collapsed = slice.Pattern == "Command" && slice.Trigger?.Kind is "Http" or "Human";
+        var shape = shapeOf(model, slice);
+        var collapsed = shape is SliceShape.CollapsedEndpoint or SliceShape.Translation;
+        var translation = shape == SliceShape.Translation;
 
         var visibility = BusVisibility.Resolve(model, slice);
-
-        // The pure translation front (#218): every consequence of this slice is a bus-visible
-        // command and it appends nothing itself, so the endpoint is exactly the opt-in two-hop
-        // shape — selected by the model rather than by hand.
-        var translation = collapsed && slice.Events.Count == 0 && visibility.Cascaded.Count == 1;
 
         // Event records, fields synthesized from element hints + scenario columns
         foreach (var @event in slice.Events)
@@ -62,9 +89,11 @@ public static class SliceScaffolder
             frames.Add(new RecordFrame($"{command}Request", fieldsFor(slice, command)));
             if (!translation) frames.Add(new RecordFrame($"{slice.Name}Response", []));
         }
-        else if (slice.Pattern == "Command" && slice.Command is not null)
+        else if (slice.Pattern == "Command")
         {
-            frames.Add(new RecordFrame(slice.Command, fieldsFor(slice, slice.Command)));
+            // The handler's parameter type, whether the model named the command or the slice
+            // name stood in for it — either way the record has to exist.
+            frames.Add(new RecordFrame(command, fieldsFor(slice, command)));
         }
 
         // A cascaded message another slice handles is that slice's record; one leaving the
@@ -113,9 +142,25 @@ public static class SliceScaffolder
         var files = new Dictionary<string, string>();
         var ns = model.Namespace ?? model.Model;
 
-        var byName = model.Slices
-            .SelectMany(slice => slice.Aggregates.Select(name => (Name: name, Slice: slice)))
-            .GroupBy(x => x.Name, StringComparer.Ordinal);
+        var declared = new List<(string Name, CuratedSlice Slice)>();
+        foreach (var slice in model.Slices)
+        {
+            if (slice.Aggregates.Count > 0)
+            {
+                declared.AddRange(slice.Aggregates.Select(name => (name, slice)));
+            }
+            else if (slice.Pattern is "Command" or "Automation"
+                     && shapeOf(model, slice) != SliceShape.Translation)
+            {
+                // No aggregate declared, but the handler still binds a [WriteModel] of the
+                // synthesized name — so that name needs a type as much as a declared one does.
+                // The translation shape is the exception: it binds no write model, so emitting
+                // one would be a file nothing references.
+                declared.Add((AggregateFor(slice), slice));
+            }
+        }
+
+        var byName = declared.GroupBy(x => x.Name, StringComparer.Ordinal);
 
         foreach (var group in byName)
         {
@@ -171,7 +216,9 @@ public static class SliceScaffolder
     {
         var specs = slice.Specifications!;
 
-        var aggregate = slice.Aggregates.FirstOrDefault() ?? "TODO";
+        // A literal "TODO" here names a type the generator cannot resolve (BOBCAT011), which
+        // fails the spec project — the .feature half of the same defect as issue #226.
+        var aggregate = AggregateFor(slice);
 
         foreach (var scenario in specs.Scenarios)
         {
@@ -288,4 +335,17 @@ public static class SliceScaffolder
         if (DateTimeOffset.TryParse(sketch, out _)) return "DateTimeOffset";
         return "string";
     }
+}
+
+/// <summary>The three shapes a Command or Automation slice scaffolds into.</summary>
+internal enum SliceShape
+{
+    /// <summary>The two-hop OPT-IN (#218): the endpoint mints identity and cascades, binding no write model.</summary>
+    Translation,
+
+    /// <summary>The default for an HTTP- or Human-triggered command slice: the endpoint IS the handler.</summary>
+    CollapsedEndpoint,
+
+    /// <summary>An automation, or a command taken off the bus: a message handler over the write model.</summary>
+    WriteModelHandler
 }

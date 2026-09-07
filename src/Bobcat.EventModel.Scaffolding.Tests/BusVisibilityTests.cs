@@ -20,7 +20,7 @@ public class BusVisibilityTests
         return reading.File!;
     }
 
-    private const string Model =
+    internal const string ModelYaml =
         """
         schema: 1
         model: Marketplace
@@ -88,7 +88,7 @@ public class BusVisibilityTests
 
     private static string scaffold(string sliceName)
     {
-        var model = parse(Model);
+        var model = parse(ModelYaml);
         var slice = model.Slices.Single(x => x.Name == sliceName);
         return SliceScaffolder.Scaffold(model, slice).Single().Value;
     }
@@ -101,7 +101,7 @@ public class BusVisibilityTests
         // The model selected the cascading shape — no busVisible flag, no by-hand opt-in.
         code.ShouldContain("public static (RemoveListingResponse, EventsToAppend, ReviewListing) Post(RemoveListingRequest request, [WriteModel] Listing? listing)");
         code.ShouldContain("slice 'ReviewListing' handles it; the cascade rides the transactional outbox");
-        code.ShouldContain("return (new RemoveListingResponse(/* TODO */), [new ListingRemoved(/* TODO */)], new ReviewListing(/* TODO */));");
+        code.ShouldContain("//     return (new RemoveListingResponse(/* … */), [new ListingRemoved(/* … */)], new ReviewListing(/* … */));");
         // The handling slice owns the command record; the publisher never re-declares it.
         code.ShouldNotContain("public record ReviewListing(");
         code.ShouldNotContain("WARNING");
@@ -130,7 +130,7 @@ public class BusVisibilityTests
         code.ShouldContain("public static (ArchiveListingResponse, EventsToAppend) Post(");
         code.ShouldNotContain("new PurgeListingMedia(");
 
-        BusVisibility.Warnings(parse(Model)).ShouldContain(x => x.Contains("PurgeListingMedia"));
+        BusVisibility.Warnings(parse(ModelYaml)).ShouldContain(x => x.Contains("PurgeListingMedia"));
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public class BusVisibilityTests
         // The opt-in EndpointTranslationFrame, selected by the model rather than by hand: the
         // slice appends nothing itself, so the endpoint only mints identity and cascades.
         code.ShouldContain("public static (CreationResponse, ReviewListing) Post(SubmitModerationCaseRequest request)");
-        code.ShouldContain("var command = new ReviewListing(/* TODO from request */);");
+        code.ShouldContain("//     var command = new ReviewListing(id /*, … from request */);");
         code.ShouldNotContain("EventsToAppend");
         code.ShouldNotContain("SubmitModerationCaseResponse");
     }
@@ -175,7 +175,7 @@ public class BusVisibilityTests
     [Fact]
     public void a_model_with_every_published_message_accounted_for_raises_no_warnings()
     {
-        var model = parse(Model);
+        var model = parse(ModelYaml);
 
         // The two deliberate gaps above are the only warnings the whole model produces.
         var warnings = BusVisibility.Warnings(model);

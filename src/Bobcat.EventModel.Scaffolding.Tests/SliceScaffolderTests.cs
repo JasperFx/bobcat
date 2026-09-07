@@ -13,7 +13,7 @@ public class SliceScaffolderTests
         return reading.File!;
     }
 
-    private const string Model =
+    internal const string ModelYaml =
         """
         schema: 1
         model: CritterCrush
@@ -65,7 +65,7 @@ public class SliceScaffolderTests
 
     private static string scaffold(string sliceName)
     {
-        var model = parse(Model);
+        var model = parse(ModelYaml);
         var slice = model.Slices.Single(x => x.Name == sliceName);
         return SliceScaffolder.Scaffold(model, slice).Single().Value;
     }
@@ -140,7 +140,7 @@ public class SliceScaffolderTests
         // Two slices declare SwipePair; nine would too. Emitting it per slice produces partial
         // duplicates of one type that cannot compile — an aggregate is a model-level concern,
         // exactly like a feature file.
-        var files = SliceScaffolder.ScaffoldAggregates(parse(Model));
+        var files = SliceScaffolder.ScaffoldAggregates(parse(ModelYaml));
 
         var (path, code) = files.Single();
         path.ShouldBe("Discovery/SwipePair.cs");
@@ -156,7 +156,7 @@ public class SliceScaffolderTests
     [Fact]
     public void every_scenario_gets_its_own_stream_id_because_scenarios_share_a_store()
     {
-        var swiping = SliceScaffolder.ScaffoldFeatures(parse(Model)).Single().Value;
+        var swiping = SliceScaffolder.ScaffoldFeatures(parse(ModelYaml)).Single().Value;
 
         var ids = swiping.Split('\n')
             .Where(x => x.Contains("Given no events for "))
@@ -172,7 +172,7 @@ public class SliceScaffolderTests
     {
         // Per-slice feature emission clobbered scenarios on the CritterCrush corpus — feature
         // files group by the identity's feature half, model-wide.
-        var features = SliceScaffolder.ScaffoldFeatures(parse(Model));
+        var features = SliceScaffolder.ScaffoldFeatures(parse(ModelYaml));
 
         var swiping = features.Single().Value;
         features.Single().Key.ShouldBe("Features/Swiping.feature");
@@ -185,7 +185,7 @@ public class SliceScaffolderTests
     [Fact]
     public void the_feature_reproduces_identities_and_grammar_exactly()
     {
-        var swiping = SliceScaffolder.ScaffoldFeatures(parse(Model)).Single().Value;
+        var swiping = SliceScaffolder.ScaffoldFeatures(parse(ModelYaml)).Single().Value;
 
         // ⚠️ THE load-bearing assertion of this type: Feature + Scenario are the identity that
         // joins the descriptor binding, Bobcat run evidence, and a Stoat spec-identity gate.

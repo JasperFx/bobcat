@@ -111,7 +111,7 @@ public class WriteModelHandlerFrame : ScaffoldFrame
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        var aggregate = _slice.Aggregates.FirstOrDefault() ?? $"{_slice.Name}Model";
+        var aggregate = SliceScaffolder.AggregateFor(_slice);
         var isAutomation = _slice.Pattern == "Automation";
         var trigger = isAutomation
             ? _slice.Trigger?.Label is { } label ? EmlangImport.PascalName(label) : _slice.Events.FirstOrDefault() ?? "TodoTriggerEvent"
@@ -156,7 +156,7 @@ public class WriteModelHandlerFrame : ScaffoldFrame
                 $"// TODO guard: throw new InvalidOperationException(\"{refusal}\"); (asserted by `validation fails with`)");
         }
 
-        writer.WriteLine("// TODO: the decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
+        writer.WriteLine("// The decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309).");
         foreach (var message in _cascaded)
         {
             writer.WriteLine(message.LeavesTheSystem
@@ -164,11 +164,13 @@ public class WriteModelHandlerFrame : ScaffoldFrame
                 : $"// The model designates {message.Name} as bus-visible — slice '{message.HandledBy}' handles it; the cascade rides the transactional outbox.");
         }
 
-        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
+        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
         var appended = events.Length > 0 ? $"[{events}]" : "[]";
-        writer.WriteLine(_cascaded.Count == 0
-            ? $"return {appended};"
-            : $"return ({appended}, {string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* TODO */)"))});");
+        writeUnfilledDecision(writer,
+            $"{_slice.Name} — decide which events this slice appends",
+            _cascaded.Count == 0
+                ? $"return {appended};"
+                : $"return ({appended}, {string.Join(", ", _cascaded.Select(x => $"new {x.Name}(/* … */)"))});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -210,7 +212,7 @@ public class CollapsedEndpointFrame : ScaffoldFrame
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
         var command = _slice.Command ?? _slice.Name;
-        var aggregate = _slice.Aggregates.FirstOrDefault() ?? $"{_slice.Name}Model";
+        var aggregate = SliceScaffolder.AggregateFor(_slice);
         var argument = char.ToLowerInvariant(aggregate[0]) + aggregate[1..];
 
         writer.WriteLine("/// <summary>");
@@ -252,7 +254,7 @@ public class CollapsedEndpointFrame : ScaffoldFrame
             writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
-        writer.WriteLine("// TODO: the decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
+        writer.WriteLine("// The decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
         writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
         foreach (var message in _cascaded)
         {
@@ -261,9 +263,11 @@ public class CollapsedEndpointFrame : ScaffoldFrame
                 : $"// The model designates {message.Name} as bus-visible — slice '{message.HandledBy}' handles it; the cascade rides the transactional outbox.");
         }
 
-        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* TODO */)"));
-        var cascades = string.Concat(_cascaded.Select(x => $", new {x.Name}(/* TODO */)"));
-        writer.WriteLine($"return (new {_slice.Name}Response(/* TODO */), [{events}]{cascades});");
+        var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
+        var cascades = string.Concat(_cascaded.Select(x => $", new {x.Name}(/* … */)"));
+        writeUnfilledDecision(writer,
+            $"{_slice.Name} — decide which events this slice appends, and what to answer with",
+            $"return (new {_slice.Name}Response(/* … */), [{events}]{cascades});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -316,10 +320,13 @@ public class EndpointTranslationFrame : ScaffoldFrame
             writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
-        writer.WriteLine("// TODO: mint identity here at the edge (Guid.NewGuid(), or the slice's deterministic id");
+        writer.WriteLine("// Mint identity here at the edge (Guid.NewGuid(), or the slice's deterministic id");
         writer.WriteLine("// helper), then cascade the command — the cascade rides the transactional outbox.");
-        writer.WriteLine($"var command = new {command}(/* TODO from request */);");
-        writer.WriteLine($"return (new CreationResponse(\"{_route}/\" + /* TODO: the minted id */ Guid.Empty), command);");
+        writeUnfilledDecision(writer,
+            $"{_slice.Name} — mint the identity and cascade {command}",
+            "var id = Guid.NewGuid();",
+            $"var command = new {command}(id /*, … from request */);",
+            $"return (new CreationResponse($\"{_route}/{{id}}\"), command);");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();

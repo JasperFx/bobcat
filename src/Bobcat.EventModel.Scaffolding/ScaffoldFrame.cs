@@ -38,4 +38,31 @@ public abstract class ScaffoldFrame : SyncFrame
         frames[0].GenerateCode(method, writer);
         return writer.Code();
     }
+
+    /// <summary>
+    /// The unfilled judgment point, written so that it <em>compiles</em> (issue #226).
+    /// </summary>
+    /// <remarks>
+    /// A hole in expression position — <c>new AppointmentConfirmed(/* TODO */)</c> — is a compile
+    /// error, and one unfilled slice therefore fails the whole application project. That defeats
+    /// per-slice independence at the source: no slice's specs can build or run until every slice
+    /// is filled, so nine agents handed nine slices are each blocked by a hole in somebody else's
+    /// file, and the failure reads as "your slice is broken" when the cause is a sibling nobody
+    /// has touched yet.
+    ///
+    /// So the hole belongs in the <em>behaviour</em>, not in the syntax. The intended shape still
+    /// travels — as a comment, so the deterministic 80% is handed over intact — and the body
+    /// throws. Every slice's specs then run on day one and fail on their own assertions, which is
+    /// the correct spec-first state and names the slice that owns the failure.
+    /// </remarks>
+    protected static void writeUnfilledDecision(ISourceWriter writer, string intent, params string[] shape)
+    {
+        writer.WriteLine("// Fill this in and delete the throw — the shape is:");
+        foreach (var line in shape)
+        {
+            writer.WriteLine($"//     {line}");
+        }
+
+        writer.WriteLine($"throw new NotImplementedException(\"TODO: {intent}\");");
+    }
 }
