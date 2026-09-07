@@ -430,7 +430,12 @@ public static class SliceScaffolder
                 }
                 else if (then.ReadModel is not null)
                 {
-                    writer.WriteLine($"    Then the {then.ReadModel} read model contains");
+                    // A document keyed by anything but its stream is the identity-bearing step
+                    // (issue #236) — a fan-out read model is keyed by an owner or a tenant, and
+                    // the single-stream shortcut would load the scenario's stream instead.
+                    writer.WriteLine(then.Id is null
+                        ? $"    Then the {then.ReadModel} read model contains"
+                        : $"    Then the {then.ReadModel} read model with id \"{expand(then.Id, streamId)}\" contains");
                     if (then.Contains.Count > 0) table(writer, "      ", then.Contains.Keys, expand(then.Contains.Values, streamId));
                 }
                 else if (then.ValidationFails is not null)
@@ -469,7 +474,10 @@ public static class SliceScaffolder
         => value.Trim().Equals(StreamIdToken, StringComparison.OrdinalIgnoreCase);
 
     private static IEnumerable<string> expand(IEnumerable<string> values, string streamId)
-        => values.Select(x => x.Replace(StreamIdToken, streamId, StringComparison.OrdinalIgnoreCase));
+        => values.Select(x => expand(x, streamId));
+
+    private static string expand(string value, string streamId)
+        => value.Replace(StreamIdToken, streamId, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The scenario that arranges history and then acts on a stream it never named. Report, never

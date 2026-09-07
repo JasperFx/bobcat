@@ -456,23 +456,54 @@ public abstract class CritterStackFixture : Fixture
     [Then("the command is refused")]
     public void ThenTheCommandIsRefused() => ThenCommandRefused();
 
+    /// <summary>
+    /// The single-stream shortcut: the document id IS the scenario's stream id, which is exactly
+    /// right for a <c>SingleStreamProjection</c> and wrong for everything else. A read model keyed
+    /// by anything but its stream — an owner, a tenant, a day — is
+    /// <see cref="ThenReadModelWithIdContains"/>.
+    /// </summary>
     [Then("the {readmodel} read model contains")]
-    public async Task ThenReadModelContains(Type readmodel, StepTable expected)
+    public Task ThenReadModelContains(Type readmodel, StepTable expected)
+        => assertReadModel(readmodel, streamIdentity ?? StreamId, expected, "Then the {0} read model contains");
+
+    /// <summary>
+    /// The identity-bearing form (issue #236): assert the read-model document with <b>this</b> id,
+    /// whatever the scenario's stream is.
+    /// </summary>
+    /// <remarks>
+    /// Without it a multi-stream projection is unspecifiable, and that is half the read-model
+    /// space rather than a corner of it: the whole point of a fan-out is that the document is
+    /// keyed by something other than the stream — one document per owner, folding that owner's
+    /// appointments from every stream. The pressure was to redefine such a read model as
+    /// single-stream so it could be tested, which is a modelling lie told to satisfy a grammar;
+    /// the alternative was leaving the slice spec-less, which derives <c>unrealized</c> forever.
+    ///
+    /// The id arrives as a Gherkin string and the document's identity may be a Guid or a string,
+    /// so it converts against the read model's own <c>Id</c> member — the same rule
+    /// <c>LoadAsync&lt;T&gt;</c> is picked by, and the reason a mistyped id names the type it
+    /// could not convert to rather than failing inside the store.
+    /// </remarks>
+    [Then("the {readmodel} read model with id {string} contains")]
+    public Task ThenReadModelWithIdContains(Type readmodel, string id, StepTable expected)
+        => assertReadModel(readmodel, identityOf(readmodel, id), expected,
+            "Then the {0} read model with id \"" + id + "\" contains");
+
+    private async Task assertReadModel(Type readmodel, object id, StepTable expected, string step)
     {
         await Ctx.WaitForNonStaleProjectionsAsync(ProjectionTimeout, HostResource, StoreName);
 
         // Load through the concrete read-model type so LoadAsync<T> targets the right document table.
-        var document = await loadReadModel(readmodel);
+        var document = await loadReadModel(readmodel, id);
 
         if (document == null)
             throw new SpecAssertionException(
-                $"Expected a {readmodel.Name} read model with id '{streamIdentity ?? StreamId}', but none exists.");
+                $"Expected a {readmodel.Name} read model with id '{id}', but none exists.");
 
         Ctx.RecordTouchedType(readmodel);
 
         // One expected row of column = value; compare against the document's properties.
         var row = expected.AsDictionaries().FirstOrDefault()
-                  ?? throw new SpecCriticalException($"'Then the {readmodel.Name} read model contains' needs at least one table row.");
+                  ?? throw new SpecCriticalException($"'{string.Format(step, readmodel.Name)}' needs at least one table row.");
 
         var failures = new List<string>();
         foreach (var (column, value) in row)
@@ -492,6 +523,35 @@ public abstract class CritterStackFixture : Fixture
 
         if (failures.Count > 0)
             throw new SpecAssertionException($"{readmodel.Name} read model did not match: {string.Join("; ", failures)}");
+    }
+
+    /// <summary>
+    /// The id a step wrote as text, as the type the document is actually keyed by. The read
+    /// model's own <c>Id</c> member is the authority — <c>LoadAsync&lt;T&gt;</c> is chosen by the
+    /// id's CLR type, so handing a Guid-keyed document a string finds nothing at all.
+    /// </summary>
+    private static object identityOf(Type readmodel, string id)
+    {
+        var identity = readmodel.GetProperty("Id")?.PropertyType
+                       ?? readmodel.GetField("Id")?.FieldType;
+
+        if (identity is null)
+        {
+            // Nothing to convert against: a Guid-shaped id is a Guid, everything else is text.
+            return Guid.TryParse(id, out var guid) ? guid : id;
+        }
+
+        try
+        {
+            return GherkinValue.Convert(id, identity)
+                   ?? throw new SpecCriticalException(
+                       $"'{id}' is not a usable {readmodel.Name} identity — it converted to null.");
+        }
+        catch (Exception e) when (e is FormatException or OverflowException or ArgumentException)
+        {
+            throw new SpecCriticalException(
+                $"'{id}' is not a valid {identity.Name}, which is what {readmodel.Name}.Id is keyed by.", e);
+        }
     }
 
     [Then("{message} is sent")]
@@ -537,13 +597,13 @@ public abstract class CritterStackFixture : Fixture
         }
     }
 
-    private Task<object?> loadReadModel(Type readmodel)
+    private Task<object?> loadReadModel(Type readmodel, object id)
     {
         // EventStoreAuthoring.LoadDocumentAsync is generic; close it over the read-model type so
         // LoadAsync<T> targets the correct document table.
         var method = typeof(EventStoreAuthoring).GetMethod(nameof(EventStoreAuthoring.LoadDocumentAsync))!
             .MakeGenericMethod(readmodel);
-        var task = (Task)method.Invoke(null, [Ctx.EventStore(HostResource, StoreName), streamIdentity ?? StreamId, Ctx.Cancellation])!;
+        var task = (Task)method.Invoke(null, [Ctx.EventStore(HostResource, StoreName), id, Ctx.Cancellation])!;
         return awaitAsObject(task);
     }
 
