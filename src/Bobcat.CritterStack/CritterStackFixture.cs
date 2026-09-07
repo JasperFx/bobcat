@@ -1,3 +1,4 @@
+using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Wolverine;
 using JasperFx.Events;
@@ -437,14 +438,57 @@ public abstract class CritterStackFixture : Fixture
 
         if (fields == null || fields.Rows.Count == 0) return;
 
-        // Each expected row must equal one of the emitted events of this type.
+        // Each expected row must be matched by one of the emitted events of this type — on the
+        // COLUMNS THE ROW NAMES, not by whole-record equality (issue #241). A `Then` row says
+        // "the event carries these values", never "the event equals this whole record"; comparing
+        // whole records forced every assertion to restate every field, including the ones the
+        // scenario is not about — and once a Given may arrange partially, an expected record built
+        // from a partial row is full of defaults that no real event will ever equal.
         foreach (var row in fields.AsDictionaries())
         {
-            var expected = RecordBuilding.Build(@event, row);
-            if (!emitted.Any(e => Equals(e, expected)))
+            var mismatches = new List<string>();
+            if (!emitted.Any(e => matchesRow(e, row, mismatches)))
                 throw new SpecAssertionException(
-                    $"No emitted {@event.Name} equals the expected row.\n  expected: {expected}\n  emitted:  {describe(emitted)}");
+                    $"No emitted {@event.Name} matches the expected row.\n"
+                    + $"  expected: {string.Join(", ", row.Select(c => $"{c.Key}={c.Value}"))}\n"
+                    + $"  emitted:  {describe(emitted)}"
+                    + (mismatches.Count == 0 ? "" : $"\n  differed on: {string.Join("; ", mismatches.Distinct())}"));
         }
+    }
+
+    /// <summary>
+    /// Does this emitted event carry the values the row names? Only the named columns are read, so
+    /// an assertion stays about what the scenario is about (issue #241). Column names match a
+    /// property or field case-insensitively; a column matching neither is a spec defect, not a
+    /// mismatch, so it is refused rather than quietly failing the comparison.
+    /// </summary>
+    private static bool matchesRow(object emitted, IReadOnlyDictionary<string, string> row, List<string> mismatches)
+    {
+        var type = emitted.GetType();
+        var matched = true;
+
+        foreach (var (column, cell) in row)
+        {
+            var member = (MemberInfo?)type.GetProperty(column,
+                             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+                         ?? type.GetField(column, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+
+            if (member is null)
+                throw new SpecCriticalException(
+                    $"'Then {type.Name} is emitted' has a column '{column}', but {type.Name} has no such "
+                    + "property or field. Check the spelling, or the field may have been renamed.");
+
+            var memberType = member is PropertyInfo property ? property.PropertyType : ((FieldInfo)member).FieldType;
+            var actual = member is PropertyInfo p ? p.GetValue(emitted) : ((FieldInfo)member).GetValue(emitted);
+            var expected = GherkinValue.Convert(cell, memberType);
+
+            if (Equals(actual, expected)) continue;
+
+            mismatches.Add($"{column}: expected {cell}, was {actual}");
+            matched = false;
+        }
+
+        return matched;
     }
 
     [Then("no events are emitted")]
@@ -627,7 +671,9 @@ public abstract class CritterStackFixture : Fixture
             var eventType = EventTypeResolver.Resolve(row[typeColumn], aggregate.Assembly);
             var fields = row.Where(kv => !string.Equals(kv.Key, typeColumn, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
-            events.Add(RecordBuilding.Build(eventType, fields));
+            // Arranging history, not performing an act: the scenario names the fields the
+            // behaviour depends on and the rest default (issue #241).
+            events.Add(RecordBuilding.Build(eventType, fields, "Given events for " + aggregate.Name, partial: true));
         }
 
         return events;
