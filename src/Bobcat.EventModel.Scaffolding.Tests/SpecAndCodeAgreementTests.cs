@@ -176,7 +176,8 @@ public partial class SpecAndCodeAgreementTests
                  {
                      ModelYaml, SliceScaffolderTests.ModelYaml, BusVisibilityTests.ModelYaml,
                      ScaffoldCompilesTests.ModelYaml, TriggerOriginTests.ModelYaml,
-                     ScenarioStreamIdTests.ModelYaml, ReadModelIdentityTests.ModelYaml
+                     ScenarioStreamIdTests.ModelYaml, ReadModelIdentityTests.ModelYaml,
+                     StatefulGuardTests.ModelYaml
                  })
         {
             var files = SliceScaffolder.ScaffoldAll(parse(yaml));

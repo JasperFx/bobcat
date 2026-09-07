@@ -80,6 +80,27 @@ public static class SliceScaffolder
     }
 
     /// <summary>
+    /// Whether this slice's refusals are about the aggregate's <b>state</b> rather than the
+    /// request's shape — which the model already says, with no new field: it is whether the
+    /// refusing scenario arranged any history (issue #238).
+    /// </summary>
+    /// <remarks>
+    /// The refusals a scaffold writes as TODOs are copied from the model's <c>validationFails:</c>,
+    /// and in a real chapter every one of them reads like <em>this appointment was cancelled</em>
+    /// or <em>this appointment is already completed</em>. A guard given the request alone cannot
+    /// answer either question, so the scaffolded signature made the scaffolded TODO impossible to
+    /// fill — and the point of a scaffold is that filling it in is a decision, not a redesign. An
+    /// agent that has to change the guard's signature has to re-derive Wolverine's compound-handler
+    /// rules to know it may, which is exactly the token cost this engine exists to remove.
+    ///
+    /// Any refusing scenario with history widens the signature: the state-bearing parameter is a
+    /// superset, so a slice refusing on both grounds is still one guard.
+    /// </remarks>
+    public static bool RefusesOnState(CuratedSlice slice)
+        => slice.Specifications?.Scenarios.Any(x =>
+               x.Given.Count > 0 && x.Then.Any(t => t.ValidationFails is not null)) ?? false;
+
+    /// <summary>
     /// Whether this slice's file is the one that declares an event's record. Two slices may
     /// legally name the same event — the importer folds by command, not by event — and emitting
     /// the record into both files is two declarations of one type in one namespace, which does
