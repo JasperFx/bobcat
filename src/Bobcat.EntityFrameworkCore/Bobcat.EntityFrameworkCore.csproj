@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- net10.0 alone, and not an oversight: Microsoft.EntityFrameworkCore 10.0.0 supports net10.0
+         only. Multi-targeting this package would mean a conditional EF Core 9 reference for net9.0
+         — a second dependency graph to keep working — which is a real choice rather than a
+         formality, so it is left to whoever needs it. Every other Bobcat package targets
+         net9.0;net10.0. -->
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
