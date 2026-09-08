@@ -85,11 +85,20 @@ jobs:
       # src/Directory.Build.props, so the tool lagging the libraries is never a supported
       # state; a red run here means go look at the package's status on the nuget.org
       # account page. Validation normally clears in a few minutes; 30 is the generosity.
+      # Waits for every pushed package to become downloadable. NuGet accepts a push long before
+      # the package is restorable, so "pushed" is not "released" — a consumer that restores in
+      # between gets the previous version and no error.
+      #
+      # Every outstanding package is checked on each pass, and the deadline covers the SET. The
+      # previous shape computed one deadline and then looped packages one at a time, so the first
+      # package spent the entire window and the remaining eleven were declared missing without ever
+      # being given time: on 0.15.0 they all failed within one second of each other, half an hour
+      # after the first one started waiting. The release was fine and shipped minutes later.
       - name: Verify packages are live on NuGet
         run: |
           set -euo pipefail
-          deadline=$(( $(date +%s) + 30 * 60 ))
-          missing=""
+
+          outstanding=()
           for pkg in "${{ github.workspace }}"/artifacts/*.nupkg; do
             file=$(basename "$pkg" .nupkg)
             if [[ ! "$file" =~ ^(.+)\.([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
@@ -98,23 +107,39 @@ jobs:
             fi
             # The flat container is addressed by lowercase id only — uppercase 404s.
             id=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
-            version="${BASH_REMATCH[2]}"
-            while true; do
+            outstanding+=("$id ${BASH_REMATCH[2]}")
+          done
+
+          deadline=$(( $(date +%s) + 45 * 60 ))
+          while true; do
+            still=()
+            for entry in "${outstanding[@]}"; do
+              read -r id version <<< "$entry"
               if curl -sf "https://api.nuget.org/v3-flatcontainer/$id/index.json" \
                   | jq -e --arg v "$version" 'any(.versions[]; . == $v)' > /dev/null; then
                 echo "$id $version is live"
-                break
+              else
+                still+=("$entry")
               fi
-              if (( $(date +%s) >= deadline )); then
-                echo "::error::$id $version was pushed but is not downloadable from nuget.org — likely stuck in or rejected by validation; check the package's status on the nuget.org account page"
-                missing="$missing $id@$version"
-                break
-              fi
-              echo "$id $version not indexed yet, retrying in 30s..."
-              sleep 30
             done
+
+            outstanding=("${still[@]:-}")
+            [[ -z "${outstanding[0]:-}" ]] && break
+
+            if (( $(date +%s) >= deadline )); then
+              break
+            fi
+
+            echo "waiting on ${#outstanding[@]}: ${outstanding[*]} — retrying in 30s..."
+            sleep 30
           done
-          if [[ -n "$missing" ]]; then
-            echo "::error::Release is incomplete — missing on nuget.org:$missing"
+
+          if [[ -n "${outstanding[0]:-}" ]]; then
+            for entry in "${outstanding[@]}"; do
+              read -r id version <<< "$entry"
+              echo "::error::$id $version was pushed but is not downloadable from nuget.org — likely still in validation, or rejected; check the package's status on the nuget.org account page"
+            done
+            echo "::error::Release is incomplete — ${#outstanding[@]} package(s) never became downloadable"
             exit 1
+          fi
           fi
