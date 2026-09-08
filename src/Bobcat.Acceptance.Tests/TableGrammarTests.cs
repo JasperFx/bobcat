@@ -6,6 +6,15 @@ using Shouldly;
 
 namespace Bobcat.Acceptance.Tests;
 
+/// <remarks>
+/// Shares a collection with the other class that touches <c>CustomerSetupGrammar</c>. Its
+/// <c>Log</c> is a static <c>List&lt;string&gt;</c> and <c>Reset()</c> clears it, while these tests
+/// reset it, run, and then assert its exact contents — so two classes running in parallel can
+/// clear the list between another test's reset and its assertion. xUnit runs separate classes
+/// concurrently by default, which made this a rare CI-only failure: one test of 69, unreproducible
+/// locally and green on a re-run.
+/// </remarks>
+[Collection("CustomerSetupGrammar")]
 public class TableGrammarTests
 {
     [Fact]
