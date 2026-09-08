@@ -48,6 +48,22 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(s => s != null)
             .Select((s, _) => s!);
 
+        // 3c. Collect calls to [BobcatStep] helpers (issue #110). Each one becomes an interceptor
+        //     that reports the step as it runs — the only way a step declared OUTSIDE the test
+        //     body, on a shared helper, can report progress without the test being edited.
+        var stepCalls = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is InvocationExpressionSyntax,
+                transform: StepInterceptors.Extract)
+            .Where(c => c != null)
+            .Select((c, _) => c!);
+
+        context.RegisterSourceOutput(stepCalls.Collect(), (spc, calls) =>
+        {
+            if (calls.Length == 0) return;
+            spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));
+        });
+
         // 4. Combine features + fixtures + table grammars + code-first specs + the compilation
         //    (type-name captures such as {aggregate} are resolved against it — see
         //    resolveTypeCaptures).
