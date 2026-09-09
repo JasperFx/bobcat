@@ -11,6 +11,10 @@
 
     Additive, and the guard matters: a consumer that already set the property for its own
     interceptors keeps what it had.
+
+    Shipped under buildTransitive/ rather than build/ so it also reaches a project that gets the
+    generator second-hand across a ProjectReference — which happens whenever one test project
+    references another, and which is a hard CS9137 build failure rather than a missing feature.
   -->
   <PropertyGroup Condition="!$(InterceptorsNamespaces.Contains('Bobcat.Generated'))">
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
