@@ -29,10 +29,15 @@ Prefer C# to `.feature` files? The same engine runs [code-first specifications](
 `[Scenario]` methods on a `Specification` class, no generator involved — and both styles render,
 supervise, and report identically.
 
+Already have a large test suite you would rather not rewrite? [Specs from tests you already
+have](marker-steps.md) turns existing xUnit tests into specifications with marker comments and
+decorated helpers, one class at a time.
+
 ## Next
 
 - [The Command Line](command-line.md) — `run`, `list`, `preview` (step bindings, nothing executed), and the warm-suite `interactive` mode
 - [Running Specs with `dotnet test`](dotnet-test.md) — the generated MTP entry point, `[BobcatConfiguration]`, and the `--filter-feature`/`--filter-tag` options
+- [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
 - [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Parallel-Ready Suites](parallel-ready-suites.md) — what a suite needs before the supervisor splits it

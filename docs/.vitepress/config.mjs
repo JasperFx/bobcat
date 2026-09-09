@@ -30,6 +30,7 @@ export default defineConfig({
           { text: 'Sample Wiring Playbook', link: '/sample-wiring' },
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
+          { text: 'Specs From Existing Tests', link: '/marker-steps' },
           { text: 'Editor Integration', link: '/editor-integration' }
         ]
       },
