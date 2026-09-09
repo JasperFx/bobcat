@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Opt the consuming project into the interceptors this generator emits (issue #110).
+
+    Interceptors are opted into per namespace, and Bobcat.Generated is a constant the generator
+    itself owns — identical in every project, and never something a consumer should have to know.
+    Left to a hand-typed csproj line, forgetting it is not a degraded experience but a hard build
+    failure: every generated interceptor becomes CS9137. Marten shipped the feature with the line
+    in one project and had to add it to a sibling that linked the same files one commit later.
+
+    Additive, and the guard matters: a consumer that already set the property for its own
+    interceptors keeps what it had.
+  -->
+  <PropertyGroup Condition="!$(InterceptorsNamespaces.Contains('Bobcat.Generated'))">
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+</Project>

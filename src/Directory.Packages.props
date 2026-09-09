@@ -141,6 +141,17 @@
       point of the MTP work in issue #41.
     -->
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <!--
+      Runner adapters (Bobcat.Xunit, Bobcat.TUnit — issue #110). Each takes the smallest piece of
+      its runner that an adapter can be written against: xunit.v3.extensibility.core is what
+      xunit.v3 itself layers the runner and assertions on top of, and TUnit.Core is TUnit's
+      equivalent. A consumer already has the full package; an adapter that dragged it in would be
+      pinning that consumer's runner version from underneath.
+
+      xunit.v3.extensibility.core moves in lockstep with xunit.v3 above and must stay equal to it.
+    -->
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
+    <PackageVersion Include="TUnit.Core" Version="1.66.27" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
   </ItemGroup>

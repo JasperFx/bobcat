@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <!--
+      The TUnit adapter is verified from here rather than from a TUnit test project, and that is a
+      constraint rather than a shortcut. TUnit.Engine depends on Microsoft.Testing.Platform 2.4.0;
+      this repo pins 1.9.1 because that is what xunit.v3 3.2.2 builds against, and CLAUDE.md
+      records what moving it costs (a TypeLoadException on IDataConsumer from xUnit's own MSBuild
+      extension). Bobcat.TUnit itself references only TUnit.Core, which depends on no test platform
+      at all — so the package is safe to ship and safe to reference here, and only a TUnit *runner*
+      would collide.
+    -->
+    <ProjectReference Include="..\Bobcat.TUnit\Bobcat.TUnit.csproj" />
+  </ItemGroup>
+
+</Project>
