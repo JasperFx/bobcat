@@ -64,6 +64,23 @@ public class BobcatGenerator : IIncrementalGenerator
             spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));
         });
 
+        // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
+        //     comments (issue #110). Comments are erased by the compiler, so unlike every other
+        //     authoring style this one cannot be recorded as it executes — the syntax tree is the
+        //     only place the information exists, and a module initializer carries it to runtime.
+        var markedSpecs = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.AttributeLists.Count > 0,
+                transform: MarkerCommentSpecs.Extract)
+            .Where(s => s != null)
+            .Select((s, _) => s!);
+
+        context.RegisterSourceOutput(markedSpecs.Collect(), (spc, specs) =>
+        {
+            if (!MarkerCommentSpecs.HasSteps(specs)) return;
+            spc.AddSource("BobcatDeclaredSteps.g.cs", MarkerCommentSpecs.Emit(specs));
+        });
+
         // 4. Combine features + fixtures + table grammars + code-first specs + the compilation
         //    (type-name captures such as {aggregate} are resolved against it — see
         //    resolveTypeCaptures).

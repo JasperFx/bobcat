@@ -28,4 +28,11 @@
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!-- The marker-comment parser (issue #110) is a heuristic over comment text, and its risk is
+         reading too much: an ordinary explanatory comment must not become a step. That is worth
+         unit tests against the parser rather than only end-to-end through the harness. -->
+    <InternalsVisibleTo Include="Bobcat.Generators.Tests" />
+  </ItemGroup>
 </Project>

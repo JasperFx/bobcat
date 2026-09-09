@@ -61,7 +61,13 @@ public static class ScenarioRecorder
             _publisher = publisher;
             _runId = runId;
 
-            publisher?.Post(new ScenarioStarted(runId, Uid, feature, scenario, 1, DateTimeOffset.UtcNow));
+            // What the test SAYS it does, read from its marker comments at compile time. Known
+            // before a line of it runs, which is why the step count can be announced up front.
+            Declared = DeclaredSteps.For(Uid);
+
+            publisher?.Post(new ScenarioStarted(
+                runId, Uid, feature, scenario, 1, DateTimeOffset.UtcNow,
+                TotalSteps: Declared.Count > 0 ? Declared.Count : null));
         }
 
         public string Feature { get; }
@@ -70,6 +76,9 @@ public static class ScenarioRecorder
         /// <summary>The identity that joins run evidence to a slice, with no mapping table.</summary>
         public string Uid => $"{Feature}/{Scenario}";
 
+        /// <summary>The steps this scenario's marker comments declare, in source order.</summary>
+        public IReadOnlyList<DeclaredStep> Declared { get; }
+
         public IReadOnlyList<RecordedStep> Steps => _steps;
 
         /// <summary>Set by the adapter when the test fails, so the verdict is the runner's.</summary>
@@ -77,9 +86,35 @@ public static class ScenarioRecorder
 
         internal IDisposable BeginStep(string keyword, string text)
         {
-            var step = new RecordedStep(keyword, text, _clock.ElapsedMilliseconds);
+            var step = new RecordedStep(keyword, text, _clock.ElapsedMilliseconds)
+            {
+                StepId = "s" + (_steps.Count + 1)
+            };
             _steps.Add(step);
-            return new StepHandle(step, _clock);
+
+            // Published as it opens, not at the end: a watcher showing a run in flight needs to
+            // see the step that is currently taking the time, which is exactly the step that has
+            // not finished yet.
+            _publisher?.Post(new StepStarted(
+                _runId, Uid, step.StepId, keyword, text,
+                StepNumber: _steps.Count,
+                TotalSteps: Declared.Count > 0 ? Declared.Count : null,
+                ScenarioElapsedMs: step.StartedAtMs));
+
+            return new StepHandle(this, step, _clock);
+        }
+
+        internal void EndStep(RecordedStep step, long endedAtMs, Exception? failure)
+        {
+            step.EndedAtMs = endedAtMs;
+            step.Failure = failure;
+
+            _publisher?.Post(new StepFinished(
+                _runId, Uid, step.StepId,
+                failure is null ? "Passed" : "Failed",
+                DurationMs: endedAtMs - step.StartedAtMs,
+                ErrorMessage: failure?.Message,
+                ScenarioElapsedMs: endedAtMs));
         }
 
         public void Dispose()
@@ -96,9 +131,23 @@ public static class ScenarioRecorder
                 At: DateTimeOffset.UtcNow));
         }
 
-        private sealed class StepHandle(RecordedStep step, Stopwatch clock) : IDisposable
+        private sealed class StepHandle(Recording recording, RecordedStep step, Stopwatch clock) : IStepHandle
         {
-            public void Dispose() => step.EndedAtMs = clock.ElapsedMilliseconds;
+            private bool _ended;
+
+            public void Fail(Exception exception) => end(exception);
+
+            public void Dispose() => end(null);
+
+            private void end(Exception? failure)
+            {
+                // Track() fails the step and then its finally disposes it. First call wins, so the
+                // failure is not overwritten by the disposal that follows it.
+                if (_ended) return;
+                _ended = true;
+
+                recording.EndStep(step, clock.ElapsedMilliseconds, failure);
+            }
         }
     }
 
@@ -108,6 +157,12 @@ public static class ScenarioRecorder
         public string Text { get; } = text;
         public long StartedAtMs { get; } = startedAtMs;
         public long? EndedAtMs { get; set; }
+
+        /// <summary>Unique within the scenario; the id the wire events key on.</summary>
+        public string StepId { get; internal set; } = "";
+
+        /// <summary>What the helper threw, when it threw. Null on a step that passed.</summary>
+        public Exception? Failure { get; internal set; }
 
         /// <summary>Null while the step is still running — which is what makes progress visible.</summary>
         public long? DurationMs => EndedAtMs - StartedAtMs;
@@ -121,4 +176,14 @@ public static class ScenarioRecorder
         public static readonly NoStep Instance = new();
         public void Dispose() { }
     }
+}
+
+/// <summary>
+/// A step in progress that can be told it failed. Separate from <see cref="IDisposable"/> so
+/// <see cref="MarkerStepRuntime"/> can report the exception it already had to catch, without
+/// every caller of <c>ScenarioRecorder.Step</c> having to know about it.
+/// </summary>
+public interface IStepHandle : IDisposable
+{
+    void Fail(Exception exception);
 }

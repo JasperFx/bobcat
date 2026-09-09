@@ -22,6 +22,13 @@ public static class MarkerStepRuntime
         {
             await task.ConfigureAwait(false);
         }
+        catch (Exception e)
+        {
+            // The step's own verdict, not the scenario's. A helper that threw is the step that
+            // failed, and this continuation is the only place that is still knowable.
+            (step as IStepHandle)?.Fail(e);
+            throw;
+        }
         finally
         {
             step.Dispose();
@@ -34,6 +41,11 @@ public static class MarkerStepRuntime
         try
         {
             return await task.ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            (step as IStepHandle)?.Fail(e);
+            throw;
         }
         finally
         {
