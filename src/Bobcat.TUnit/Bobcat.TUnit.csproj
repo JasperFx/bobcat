@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + TUnit — projects ordinary [Test] methods into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- TUnit.Core, not TUnit: the adapter needs the event-receiver interfaces and TestContext,
+         and nothing from the engine or the assertion library. -->
+    <PackageReference Include="TUnit.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

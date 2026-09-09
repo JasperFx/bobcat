@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + xUnit v3 — projects ordinary [Fact] and [Theory] tests into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The extensibility package, not xunit.v3: an adapter needs BeforeAfterTestAttribute and
+         TestContext, and nothing in the runner or the assertion library. A consumer already has
+         those from its own test project. -->
+    <PackageReference Include="xunit.v3.extensibility.core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

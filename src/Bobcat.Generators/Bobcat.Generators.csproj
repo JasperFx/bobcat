@@ -26,6 +26,8 @@
   <!-- Pack the generator into the analyzer path so consumers pick it up via PackageReference. -->
   <ItemGroup>
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <!-- Imported by every consuming project, so nobody has to type the interceptor opt-in. -->
+    <None Include="build\Bobcat.Generators.props" Pack="true" PackagePath="build" Visible="false" />
   </ItemGroup>
 
 

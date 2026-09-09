@@ -84,6 +84,16 @@ public static class ScenarioRecorder
         /// <summary>Set by the adapter when the test fails, so the verdict is the runner's.</summary>
         public Exception? Failure { get; set; }
 
+        /// <summary>
+        /// The failure as the runner described it, when there is no exception to hand over —
+        /// xUnit v3 reports exception <i>types and messages</i> on <c>TestContext.TestState</c>,
+        /// never the exception itself. Set by <see cref="MarkerStepRun.EndScenario"/>; either this
+        /// or <see cref="Failure"/> makes the scenario a failure.
+        /// </summary>
+        public string? FailureDescription { get; set; }
+
+        private bool _cancelled;
+
         internal IDisposable BeginStep(string keyword, string text)
         {
             var step = new RecordedStep(keyword, text, _clock.ElapsedMilliseconds)
@@ -117,17 +127,32 @@ public static class ScenarioRecorder
                 ScenarioElapsedMs: endedAtMs));
         }
 
+        /// <summary>
+        /// Withdraw the scenario: close it locally and publish no verdict at all. For a test that
+        /// was skipped or never ran — it asserted nothing, and every outcome word available here
+        /// would claim it did.
+        /// </summary>
+        public void Cancel()
+        {
+            _cancelled = true;
+            Dispose();
+        }
+
         public void Dispose()
         {
             _clock.Stop();
             _current.Value = null;
 
+            if (_cancelled) return;
+
+            var failure = FailureDescription ?? Failure?.Message;
+
             _publisher?.Post(new ScenarioFinished(
                 _runId, Uid,
-                Failure is null ? "CleanPass" : "Failed",
+                failure is null ? "CleanPass" : "Failed",
                 Attempts: 1,
                 DurationMs: _clock.ElapsedMilliseconds,
-                ErrorMessage: Failure?.Message,
+                ErrorMessage: failure,
                 At: DateTimeOffset.UtcNow));
         }
 

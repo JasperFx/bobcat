@@ -62,14 +62,15 @@ across every test in the suite that touches them.
 
 | | |
 |---|---|
-| Packages | `Bobcat` and `Bobcat.Generators` |
-| One csproj line | `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>` |
-| A runner adapter | ~40 lines, see below |
+| Packages | `Bobcat`, `Bobcat.Generators`, and the adapter for your runner |
+| A runner adapter | `Bobcat.Xunit` or `Bobcat.TUnit` |
 
-The `InterceptorsNamespaces` line is only needed for `[BobcatStep]`. Marker comments reach the
-runtime through a module initializer instead, which is why opting in really is only comments --
-nothing in a test body could have been made to carry them, and an assembly with no marked class
-gains no initializer and no startup cost.
+That is the whole list. `Bobcat.Generators` brings the interceptor opt-in with it, so there is no
+csproj line to remember -- and no sibling project that silently needed the same one.
+
+Marker comments reach the runtime through a module initializer, which is why opting in really is
+only comments -- nothing in a test body could have been made to carry them, and an assembly with no
+marked class gains no initializer and no startup cost.
 
 ### `[BobcatStep]` helpers cannot be `protected`
 
@@ -81,27 +82,42 @@ constraint.
 
 ### The runner adapter
 
-Bobcat does not ship one yet, deliberately: the attributes here reference no test framework, and
-guessing at xUnit v2 vs v3 vs TUnit vs NUnit in the core package would be worse than the forty
-lines you write once. For xUnit v3:
+Add the package for your runner and put `[BobcatScenario]` on the test class:
 
 ```csharp
-public sealed class BobcatScenarioAttribute : BeforeAfterTestAttribute
-{
-    public override void Before(MethodInfo methodUnderTest, IXunitTest test)
-        => _recording = ScenarioRecorder.Begin(feature, scenario, Sink.Value, RunId);
+using Bobcat.Xunit;      // or Bobcat.TUnit
 
-    public override void After(MethodInfo methodUnderTest, IXunitTest test)
+[BobcatFeature("Async daemon"), BobcatScenario]
+public class DaemonSpecs
+{
+    [Fact]
+    public async Task the_daemon_catches_up()
     {
-        _recording.Failure = …;   // the runner's verdict, not ours
-        _recording.Dispose();
+        // Given events are published
+        ...
     }
 }
 ```
 
-Marten's copy is in
-[`src/DaemonTests/TestingSupport/BobcatScenarioAttribute.cs`](https://github.com/JasperFx/marten/blob/master/src/DaemonTests/TestingSupport/BobcatScenarioAttribute.cs)
-and is a reasonable thing to paste.
+It works on a single method too. Both packages open a scenario around each test and close it with
+**the verdict the runner reported** -- a failing test is published as a failure, and a skipped one
+is withdrawn rather than reported as anything.
+
+Bobcat deliberately shipped no adapter at first, on the theory that forty lines were cheaper than
+guessing at a runner. That was wrong, and the reason is worth stating: those forty lines carry four things only
+Bobcat knows, and getting any of them wrong leaves a green suite looking exactly like a correct one.
+Marten's hand-rolled copy -- the one this page used to invite you to paste -- got all four wrong.
+It never set the verdict, so every scenario it ever published was a `CleanPass`. It minted its own
+run id and dropped `BOBCAT_RUN_TAG`, so its evidence could not be attributed to whatever asked for
+the run. It published a `RunStarted` it might not own, and never a `RunFinished`. And its
+interceptor opt-in was a csproj line that a sibling project also needed, where forgetting it is a
+`CS9137` build failure rather than a missing feature.
+
+**xUnit v2 has no adapter and is not simply waiting for one.** v2's `BeforeAfterTestAttribute` is
+`Before(MethodInfo)` / `After(MethodInfo)` with no test context anywhere, so there is no verdict to
+read at that point at all -- reporting one would mean replacing the test framework rather than
+hooking it. v3 and TUnit both hand the result over at the end of a test, which is what makes their
+adapters small.
 
 ## Declared is not executed
 
