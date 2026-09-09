@@ -142,4 +142,3 @@ jobs:
             echo "::error::Release is incomplete — ${#outstanding[@]} package(s) never became downloadable"
             exit 1
           fi
-          fi
