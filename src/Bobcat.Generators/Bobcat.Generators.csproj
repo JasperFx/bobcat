@@ -26,8 +26,19 @@
   <!-- Pack the generator into the analyzer path so consumers pick it up via PackageReference. -->
   <ItemGroup>
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <!-- Imported by every consuming project, so nobody has to type the interceptor opt-in. -->
-    <None Include="build\Bobcat.Generators.props" Pack="true" PackagePath="build" Visible="false" />
+    <!--
+      buildTransitive, not build. A package's build/ assets are private to the project that
+      references it (NuGet's default PrivateAssets includes `build`), and this generator reaches
+      further than that: an analyzer DOES flow across a ProjectReference, so a project that merely
+      references a marked-up test project gets generated interceptors it never asked for — and,
+      under build/, no opt-in to compile them with. That asymmetry is exactly what broke Marten's
+      DaemonTests.ManualOnly, and shipping the props under build/ in 0.17.0 did not fix it.
+
+      Verified with a two-project probe: buildTransitive/ props reach the direct referencer AND the
+      transitive one; build/ props reach neither once buildTransitive exists, so there is no reason
+      to ship both.
+    -->
+    <None Include="buildTransitive\Bobcat.Generators.props" Pack="true" PackagePath="buildTransitive" Visible="false" />
   </ItemGroup>
 
 
