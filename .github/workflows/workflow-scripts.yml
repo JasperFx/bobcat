@@ -1,0 +1,25 @@
+name: workflow-scripts
+
+# publish.yml runs only on a `v*` tag push, so nothing parses it until a release is already
+# underway. A stray `fi` shipped that way once and failed the 0.16.0 run *after* all twelve
+# packages were live. This lane parses every workflow's inline scripts on every push, which is
+# the cheapest thing that would have caught it.
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+
+jobs:
+  bash-syntax:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Check that every inline script parses
+        run: python3 .github/scripts/check_workflow_scripts.py
