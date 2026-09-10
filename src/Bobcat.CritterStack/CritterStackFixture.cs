@@ -464,6 +464,114 @@ public abstract class CritterStackFixture : Fixture
     }
 
     /// <summary>
+    /// Arrange <b>one</b> event, named in the step text rather than in a table cell — the
+    /// per-event shape issue #259 asked for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Given events for {aggregate}</c> puts the event type in an <c>Event</c> column, which
+    /// costs three things. The reader looks for the event where Gherkin puts everything else that
+    /// matters — the step text — and finds a table header instead. A scenario arranging two
+    /// unrelated events writes two tables whose columns have nothing to do with each other, so the
+    /// sentence "a home check was proposed, then it was cancelled" is spread across seven lines.
+    /// And a table carrying several event types needs a <em>union</em> header, blank wherever a
+    /// column does not apply, which is mostly whitespace by the fifth event.
+    /// </para>
+    /// <para>
+    /// <b>The fourth cost is the one that is not about reading.</b> A type named in a table cell is
+    /// resolved at <em>run time</em>, by <see cref="EventTypeResolver"/> — so a misspelled event
+    /// name in the old form is a failing scenario, discovered when the suite runs. A type named in
+    /// the step text is an <c>{event}</c> capture, resolved by the generator against the
+    /// compilation: a typo is <b>BOBCAT011</b> and a name matching two types is <b>BOBCAT012</b>,
+    /// both at build time. The same arrangement, moved one step earlier in the feedback loop.
+    /// </para>
+    /// <para>
+    /// Ordering is the step order, which is what a reader already assumes of a history — the old
+    /// form made it row order inside a table, which is true but silent.
+    /// </para>
+    /// <para>
+    /// The table is optional and holds <b>one row of this event's own fields</b>: no <c>Event</c>
+    /// column, no union header. A field-less event (<c>new AppointmentArchived()</c>) needs no
+    /// table at all, and an emlang import carries no field information, so a scaffolded arrange
+    /// routinely has nothing to tabulate. Partial like every arrange (issue #241): the scenario
+    /// names the fields the behaviour depends on, and a column matching nothing is still refused
+    /// by name.
+    /// </para>
+    /// <para>
+    /// <c>Given events for {aggregate}</c> is <b>not</b> deprecated. A table is still the better
+    /// shape when several events of the <em>same</em> type differ only by their values — three
+    /// deposits, one row each — which is exactly the case this step reads worse for.
+    /// </para>
+    /// <para>
+    /// The table may also run <b>vertically</b>: a <c>| field | value |</c> header (case-insensitive)
+    /// makes each row one field, which reads top-down and stays readable however wide the event is.
+    /// Orientation is decided per step from the header alone — see <see cref="ArrangedEventFields"/>.
+    /// </para>
+    /// </remarks>
+    [Given("{event} occurred")]
+    public async Task GivenEventOccurred(Type @event, StepTable? fields)
+    {
+        var row = ArrangedEventFields(@event, fields);
+
+        if (streamIdentity is not { } identity || AggregateType is not { } aggregate)
+            throw new SpecCriticalException(
+                $"'Given {@event.Name} occurred' needs to know which stream it belongs to — precede it "
+                + "with 'Given no events for <aggregate> \"<id>\"'.");
+
+        var built = RecordBuilding.Build(@event, row, $"Given {@event.Name} occurred", partial: true);
+
+        Ctx.SetState(new ScenarioStream(aggregate, identity));
+        await EventStoreAuthoring.AppendAsync(
+            Ctx.EventStore(HostResource, StoreName), aggregate, identity, [built], Ctx.Cancellation);
+
+        Ctx.RecordTouchedType(aggregate);
+        recordTouched([built]);
+    }
+
+    /// <summary>
+    /// The fields <c>Given {event} occurred</c> arranges, read from either orientation of its table:
+    /// one horizontal row, or a vertical <c>| field | value |</c> table with a field per row.
+    /// </summary>
+    /// <remarks>
+    /// The header is the whole signal — exactly two columns named <c>field</c> and <c>value</c>,
+    /// case-insensitive — so the choice is per step and no scenario commits to one shape. The cost
+    /// is that an event whose properties are literally <c>Field</c> and <c>Value</c> can only be
+    /// arranged vertically; <c>ArrangedEventTableTests</c> pins that trade-off.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string> ArrangedEventFields(Type @event, StepTable? fields)
+    {
+        if (fields is null) return new Dictionary<string, string>();
+
+        var isVertical = fields.Headers.Count == 2
+                         && fields.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+                         && fields.Headers[1].Trim().Equals("value", StringComparison.OrdinalIgnoreCase);
+
+        if (!isVertical)
+        {
+            if (fields.Rows.Count > 1)
+                throw new SpecCriticalException(
+                    $"'Given {@event.Name} occurred' describes one event, so it takes at most one table row "
+                    + $"of that event's fields, but got {fields.Rows.Count}. For several events of one type, "
+                    + "use 'Given events for <aggregate>' with a row each; for a wide event, turn the "
+                    + "table on its side with a '| field | value |' header.");
+
+            return fields.Rows.Count == 1 ? fields.AsDictionaries()[0] : new Dictionary<string, string>();
+        }
+
+        var byField = new Dictionary<string, string>();
+        foreach (var row in fields.Rows)
+        {
+            var name = row[0].Trim();
+            if (!byField.TryAdd(name, row[1]))
+                throw new SpecCriticalException(
+                    $"'Given {@event.Name} occurred' names the field '{name}' twice in its vertical table. "
+                    + "Each row is one field of the event, so name each field once.");
+        }
+
+        return byField;
+    }
+
+    /// <summary>
     /// The bus act. The table is optional (issue #233): a field-less command is a perfectly good
     /// act — <c>new HomeCheckAssignmentAccepted()</c> — and an emlang import carries no field
     /// information at all, so scaffolded scenarios routinely have nothing to put in a table.

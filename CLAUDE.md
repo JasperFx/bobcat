@@ -1064,7 +1064,11 @@ discovers through its base).
   returns the `AggregateExecution`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
 - **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
-  {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `When
+  {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `Given
+  {event} occurred` (issue #259 — one event per step, type in the step text so a misspelling is
+  BOBCAT011 at build; optional table of only that event's fields, one horizontal row *or* a
+  vertical `| field | value |` table, orientation detected per step from the header; an arranged
+  `{event}` stamps **no** role — it is history, not an output of the slice) · `When
   {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
   table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
   is refused` · `Then the {readmodel} read model contains` + table · `Then {message} is sent`.

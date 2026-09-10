@@ -50,6 +50,51 @@ Feature: Wallet
       | Balance |
       | 50      |
 
+  # The SAME arrangement as the scenario above, in the per-event shape (issue #259). Deliberately
+  # kept side by side rather than replacing it: the two forms are meant to be read against each
+  # other, and each is better at something. Here the event type is in the step text, where a reader
+  # looks — and where the generator resolves it, so a misspelling is BOBCAT011 at build time
+  # instead of a failing scenario. Above, the type lives in a table cell and is resolved at run
+  # time. The table form still wins for several events of ONE type differing only by their values.
+  @slice:CreditWallet
+  Scenario: A wallet with prior events keeps accumulating, arranged per event
+    Given no events for Wallet "88888888-8888-8888-8888-888888888888"
+    And WalletOpened occurred
+      | WalletId                             | Owner |
+      | 88888888-8888-8888-8888-888888888888 | Eve   |
+    And WalletCredited occurred
+      | WalletId                             | Amount |
+      | 88888888-8888-8888-8888-888888888888 | 40     |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | 88888888-8888-8888-8888-888888888888 | 10     |
+    Then WalletCredited is emitted
+    And the WalletSummary read model contains
+      | Balance |
+      | 50      |
+
+  # The per-event shape with its table turned on its side (issue #259): a `| field | value |`
+  # header makes the table vertical, one field per row, which reads top-down and stays readable
+  # however wide the event is. The orientation is decided per step, so the second arrange below is
+  # still horizontal — the same arrangement a third time, so all three can be read together.
+  @slice:CreditWallet
+  Scenario: A wallet with prior events keeps accumulating, arranged per event with vertical fields
+    Given no events for Wallet "99999999-9999-9999-9999-999999999999"
+    And WalletOpened occurred
+      | field    | value                                |
+      | WalletId | 99999999-9999-9999-9999-999999999999 |
+      | Owner    | Ivy                                  |
+    And WalletCredited occurred
+      | WalletId                             | Amount |
+      | 99999999-9999-9999-9999-999999999999 | 40     |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | 99999999-9999-9999-9999-999999999999 | 10     |
+    Then WalletCredited is emitted
+    And the WalletSummary read model contains
+      | Balance |
+      | 50      |
+
   # The clean-refusal railway (issue #168): the handler's Before returns HandlerContinuation.Stop,
   # so nothing throws — "validation fails with" cannot describe this handler, and the reason-less
   # "the command is refused" is its vocabulary.

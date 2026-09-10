@@ -224,6 +224,14 @@ internal static class EventModelEmitter
         return act;
     }
 
+    /// <summary>
+    /// A role word carried by no slot on the descriptor. The type is still a type the
+    /// specification resolved — it belongs in <c>ResolvedTypes</c>, which is what run evidence
+    /// joins on — but it describes no element of the slice, so the stamping switch has no case for
+    /// it and it falls through.
+    /// </summary>
+    private const string Unstamped = "(unstamped)";
+
     /// <summary>Every (role word, qualified type) a matched step resolved.</summary>
     private static IEnumerable<(string Role, string Type)> rolesOf(MatchedStep step)
     {
@@ -240,9 +248,39 @@ internal static class EventModelEmitter
             // resolveTypeCaptures has already overwritten the raw Gherkin word with the
             // global::-qualified name, so an unresolved capture never reaches here — it failed the
             // build as BOBCAT011/BOBCAT012 first.
-            yield return (parameter.ParameterName, match.ExtractedValues[i]);
+            yield return (roleOf(parameter.ParameterName, step), match.ExtractedValues[i]);
         }
     }
+
+    /// <summary>
+    /// The role a capture actually plays, which the capture word alone does not always settle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An <c>{event}</c> on a <c>Given</c> is arranged history, not an emitted event</b> (issue
+    /// #259). A slice's <c>EmittedEvents</c> are what it <em>produces</em>; the events a scenario
+    /// lays down first are prior facts it runs against, and stamping them would put
+    /// <c>WalletOpened</c> on the CreditWallet slice as an output it never writes — a wrong arrow
+    /// on the canvas, which is worse than a missing one.
+    /// </para>
+    /// <para>
+    /// The rule is not new; it is newly <em>expressible</em>. <c>Given events for {aggregate}</c>
+    /// names its event types in a table cell, so they were never captures and never reached this
+    /// method — the exemption came free from the shape. The per-event <c>Given {event} occurred</c>
+    /// names the type in the step text, which is the whole point of it, so the exemption has to be
+    /// stated rather than inherited from a limitation.
+    /// </para>
+    /// <para>
+    /// The type is still <em>resolved</em>: it stays in the specification's <c>ResolvedTypes</c>,
+    /// which is where "this spec touched that type" belongs and what issue #107's run evidence
+    /// joins on — exactly the treatment arrange <em>commands</em> already get.
+    /// </para>
+    /// </remarks>
+    private static string roleOf(string parameterName, MatchedStep step)
+        => parameterName == Event && isArrange(step) ? Unstamped : parameterName;
+
+    private static bool isArrange(MatchedStep step)
+        => string.Equals(step.Step.ResolvedKeyword, "Given", StringComparison.OrdinalIgnoreCase);
 
     private static void addDistinct(List<string> list, string value)
     {
