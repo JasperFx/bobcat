@@ -468,3 +468,52 @@ Why it stayed invisible until a real broker was in the suite: an in-memory trans
 for a message to survive a reset. `Bobcat.Wolverine.Tests`' transport-isolation tests therefore
 take a real RabbitMQ (`docker compose up -d`, port 5683) rather than a stub — the same
 never-skip-on-CI rule as Postgres, because a silent pass there would rebuild the blind spot.
+
+### 18. The first act of a run pays Wolverine's codegen — Bobcat primes it, HTTP routes are yours
+Under the default `TypeLoadMode.Dynamic`, Wolverine compiles a handler the first time a message
+reaches it. The host has started by then, so on a cold host the compile lands **inside** the first
+tracked act — against a 5s timeout chosen for a warm host. Measured on one POST that cascades one
+message (issue #287):
+
+| | first act | later acts |
+|---|---|---|
+| local, cold | ~480ms | ~1ms |
+| throttled to background QoS | ~1.9s | ~5ms |
+| loaded CI runner (the flake that found it) | 7.98s | — |
+
+A timeout here does not read as one: the act captures rather than throws, so the reader is told
+"no message was sent" by a downstream `Then` and goes looking at their handler.
+
+**What Bobcat does:** every tracked act (every shipped `When` step, and every
+`Bobcat.Wolverine` step-context helper) primes the compiler once per host *before* its session
+starts the clock, by compiling one handler chain (`HandlerWarmUp.Automatic`, default
+`PrimeCompiler`). Starting the compiler is about two thirds of the cost; what is left in the
+window is a compile per handler the act actually touches:
+
+| same probe | prime (outside the window) | left inside the tracked window |
+|---|---|---|
+| local | ~360ms | ~165ms (was ~480ms) |
+| throttled | ~1.4s | ~700ms (was ~1.9s) |
+
+**To pay it before any scenario,** compile every chain after the resources start:
+
+```csharp
+runner.Suite.AddResource(resource);
+runner.Suite.AddGlobalAction(new WarmUpWolverineHandlers(resource));
+```
+
+That costs more in total than priming — it compiles handlers the suite may never reach — and buys
+honest #141 timings for the first scenario. A chain that cannot compile fails the warm-up with
+every broken handler named (`HandlerWarmUpException`) instead of failing whichever scenario first
+touches it.
+
+**Wolverine.HTTP endpoints are not covered** — a route compiles on its first request, and
+Bobcat.Wolverine has no Wolverine.HTTP reference. Wolverine has the switch; set it in the spec
+host:
+
+```csharp
+app.MapWolverineEndpoints(opts => opts.WarmUpRoutes = RouteWarmup.Eager);
+```
+
+Or skip all of it: pre-generated code (`codegen write` + `TypeLoadMode.Static`, footgun 4) pays
+nothing at run time.
