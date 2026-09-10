@@ -53,6 +53,38 @@ public class BookingShipmentsFixture : CritterStackFixture;
 /// </remarks>
 public class HttpActComposesWithMessageAssertionsTests
 {
+    /// <summary>
+    /// Well above <see cref="HttpGrammars"/>' 5s default, because these tests pay something a real
+    /// spec does not: the tracked window here also covers Wolverine's cold start — handler
+    /// discovery and dynamic codegen — for a host built inside the test.
+    /// </summary>
+    /// <remarks>
+    /// At the default this flaked on CI, roughly one run in ten and never locally. The act timed
+    /// out, so the assertion under test reported "the act failed before its tracked session
+    /// completed" instead of the message the test was checking — a confusing mismatch rather than
+    /// an honest "this timed out". The run that caught it took <b>7.98s</b> for a test whose work
+    /// is one POST. Raising it is not hiding latency: the subject of these tests is the assertion
+    /// message, and 5s is a product default for a warm host, not a claim about a cold one.
+    /// </remarks>
+    private const int TrackedActTimeoutMs = 60_000;
+
+    /// <summary>
+    /// Fail with the act's own error rather than with a downstream mismatch.
+    /// </summary>
+    /// <remarks>
+    /// The act captures instead of throwing, which is the whole point of the vocabulary — so a
+    /// test asserting on what the act PRODUCED has to check the act ran first, or a timeout shows
+    /// up as a confusing assertion about message text. That is exactly how this flake presented.
+    /// </remarks>
+    private static void theActSucceeded(CritterStackFixture fixture)
+    {
+        var error = fixture.LastExecution.Error;
+        if (error != null)
+            throw new Xunit.Sdk.XunitException(
+                $"The tracked act did not complete, so nothing downstream is being tested: " +
+                $"{error.GetType().Name}: {error.Message}");
+    }
+
     private static AlbaResource hostResource()
         => new(async () =>
         {
@@ -85,7 +117,7 @@ public class HttpActComposesWithMessageAssertionsTests
         suite.AddResource(resource);
 
         var fixture = new BookingShipmentsFixture();
-        var http = new HttpGrammars();
+        var http = new HttpGrammars(timeoutInMilliseconds: TrackedActTimeoutMs);
         var context = new SpecExecutionContext("Booking a shipment", suite: suite)
         {
             Cancellation = CancellationToken.None,
@@ -105,6 +137,7 @@ public class HttpActComposesWithMessageAssertionsTests
 
             await http.WhenCommandIsPosted(typeof(BookShipmentRequest), "/shipments", table);
 
+            theActSucceeded(fixture);
             http.ThenTheResponseIs(202);
 
             // The step that reported "no command has run (or it failed)".
@@ -129,7 +162,7 @@ public class HttpActComposesWithMessageAssertionsTests
         suite.AddResource(resource);
 
         var fixture = new BookingShipmentsFixture();
-        var http = new HttpGrammars();
+        var http = new HttpGrammars(timeoutInMilliseconds: TrackedActTimeoutMs);
         var context = new SpecExecutionContext("Booking a shipment", suite: suite)
         {
             Cancellation = CancellationToken.None,
@@ -145,6 +178,8 @@ public class HttpActComposesWithMessageAssertionsTests
                 [["Dallas", "Austin", "12.5"]]);
 
             await http.WhenCommandIsPosted(typeof(BookShipmentRequest), "/shipments", table);
+
+            theActSucceeded(fixture);
 
             var ex = Should.Throw<SpecAssertionException>(
                 () => fixture.ThenMessageIsSent(typeof(BookShipmentRequest)));

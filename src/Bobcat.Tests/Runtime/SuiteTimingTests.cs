@@ -196,6 +196,22 @@ public class SuiteTimingTests
         timing.Lifecycle.Select(c => c.Text).ShouldContain("ResetAll");
         timing.Steps.Single().Text.ShouldBe("a real check");
         timing.WithoutAssertions.ShouldBeEmpty();
-        timing.Scenarios.Single().WallClock.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(20));
+
+        // The claim is that a real measurement reaches the analysis, and it is asserted
+        // STRUCTURALLY rather than against the delay's nominal 20ms.
+        //
+        // `WallClock >= 20ms` looked exact and was not: it is the boundary of the very delay
+        // being measured, and Task.Delay(20) can return a hair under 20ms on a Stopwatch because
+        // the platform timer's granularity does not divide it. So the assertion failed roughly
+        // once in twenty-five runs, always by a fraction of a millisecond — a flake bought for no
+        // extra coverage, since nothing about the feature depends on that number.
+        //
+        // The bracket containing its own steps is true by construction and is the thing worth
+        // pinning: it is what would break if the wall clock were zero-filled or measured from the
+        // wrong clock, which is what issue #141 was about.
+        var scenario = timing.Scenarios.Single();
+        scenario.WallClock.ShouldBeGreaterThan(TimeSpan.Zero);
+        scenario.WallClock.ShouldBeGreaterThanOrEqualTo(scenario.Steps);
+        scenario.Steps.ShouldBeGreaterThan(TimeSpan.Zero);
     }
 }

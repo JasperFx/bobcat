@@ -108,10 +108,35 @@ public class MonitorPublisherTests : IDisposable
             return port;
         }
 
+        private bool _disposed;
+
+        /// <summary>
+        /// Idempotent, because this host is disposed <b>twice by design</b>: once explicitly by
+        /// <c>disposing_with_a_dead_monitor_does_not_hang</c>, which kills the monitor mid-run as
+        /// the whole point of the test, and once again by its <c>using</c> at scope exit.
+        /// </summary>
+        /// <remarks>
+        /// Without the guard the second call reached <c>HttpListener.Dispose()</c> on an already
+        /// disposed listener, which walks <c>RemoveListener → RemovePrefixInternal →
+        /// GetEPListener</c> and <b>re-binds the port</b> to remove a prefix that is already gone.
+        /// If anything had taken that port in between, it threw:
+        /// <code>
+        /// System.Net.HttpListenerException : Address already in use
+        ///    at System.Net.HttpEndPointManager.GetEPListener(...)
+        ///    at System.Net.HttpListener.Dispose()
+        ///    at FakeMonitorHost.Dispose()
+        /// </code>
+        /// A race, so it failed roughly one run in six and never in the same place — the shape
+        /// that reads as "the suite is flaky" rather than as the ordinary double-dispose bug it
+        /// is. An IDisposable that throws on a second Dispose is broken whatever the odds.
+        /// </remarks>
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             try { _listener.Stop(); } catch { }
-            ((IDisposable)_listener).Dispose();
+            try { ((IDisposable)_listener).Dispose(); } catch { }
         }
     }
 
