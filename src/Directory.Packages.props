@@ -119,6 +119,9 @@
     -->
     <PackageVersion Include="WolverineFx.Http" Version="6.35.0" />
     <PackageVersion Include="WolverineFx.SignalR" Version="6.35.0" />
+    <!-- Test-only: the real broker issue #282's transport-isolation tests need. No Bobcat.* library
+         references it — the reset seam is transport-agnostic; only the proof is RabbitMQ-shaped. -->
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.35.0" />
     <!-- MCP server for Bobcat.Console — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!--
