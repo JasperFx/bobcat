@@ -483,6 +483,35 @@ public static class SliceScaffolder
     }
 
     public static IReadOnlyDictionary<string, string> ScaffoldFeatures(CuratedModelFile model)
+        => ScaffoldFeatures(model, arrangements: false);
+
+    /// <summary>
+    /// The features, with <paramref name="arrangements"/> rewriting history repeated across a
+    /// feature's scenarios into named <c>@arrangement</c> scenarios (issue #259; see
+    /// <see cref="HistoryArrangements"/>). Off unless asked for, because it changes what a
+    /// regenerated feature looks like: a caller asks the user first, showing
+    /// <see cref="FindRepeatedHistory"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ScaffoldFeatures(CuratedModelFile model, bool arrangements)
+    {
+        return featureGroups(model).ToDictionary(
+            group => $"Features/{group.Name}.feature",
+            group => feature(group.Name, group.Plans, arrangements ? historyFor(group.Plans) : HistoryArrangementPlan.None));
+    }
+
+    /// <summary>
+    /// Every feature whose scenarios repeat arranged history, with the arrangements
+    /// <see cref="ScaffoldFeatures(CuratedModelFile, bool)"/> would write for it. Empty when no
+    /// feature does — in which case there is nothing to ask the user.
+    /// </summary>
+    public static IReadOnlyList<RepeatedHistory> FindRepeatedHistory(CuratedModelFile model)
+        => featureGroups(model)
+            .Select(group => (group.Name, History: historyFor(group.Plans)))
+            .Where(x => x.History.Arrangements.Count > 0)
+            .Select(x => new RepeatedHistory(x.Name, x.History.Arrangements.Select(a => a.Name).ToList(), x.History.ScenariosUsing))
+            .ToList();
+
+    private static IEnumerable<(string Name, IReadOnlyList<SlicePlan> Plans)> featureGroups(CuratedModelFile model)
     {
         // A feature legally spans slices (and a slice can span features) — group scenarios by
         // the feature half of their identity, or the last slice to write wins and scenarios
@@ -490,12 +519,16 @@ public static class SliceScaffolder
         return model.Slices
             .Where(x => x.Specifications is { Scenarios.Count: > 0 })
             .GroupBy(x => x.Specifications!.Feature ?? x.Name)
-            .ToDictionary(
-                group => $"Features/{group.Key}.feature",
-                group => feature(group.Key, group.Select(slice => PlanFor(model, slice)).ToList()));
+            .Select(group => (group.Key, (IReadOnlyList<SlicePlan>)group.Select(slice => PlanFor(model, slice)).ToList()));
     }
 
-    private static string feature(string featureName, IReadOnlyList<SlicePlan> plans)
+    // Only scenarios that write their history can share it: a View slice with no write model
+    // writes no Given at all (issue #240).
+    private static HistoryArrangementPlan historyFor(IReadOnlyList<SlicePlan> plans)
+        => HistoryArrangements.Plan(plans.Where(x => x.ArrangeAggregate is not null)
+            .SelectMany(x => x.Slice.Specifications!.Scenarios));
+
+    private static string feature(string featureName, IReadOnlyList<SlicePlan> plans, HistoryArrangementPlan history)
     {
         var writer = new SourceWriter();
         var first = plans[0].Slice;
@@ -527,15 +560,47 @@ public static class SliceScaffolder
             writer.WriteLine("  # Fixture: derive from CritterStackFixture — every act below dispatches over the bus.");
         }
 
+        foreach (var arrangement in history.Arrangements)
+        {
+            writeArrangement(writer, arrangement);
+        }
+
         foreach (var plan in plans)
         {
-            writeScenarios(writer, plan, triggerPerScenario: labels.Count > 1);
+            writeScenarios(writer, plan, history, triggerPerScenario: labels.Count > 1);
         }
 
         return writer.Code();
     }
 
-    private static void writeScenarios(ISourceWriter writer, SlicePlan plan, bool triggerPerScenario)
+    /// <summary>
+    /// An <c>@arrangement</c> scenario (issue #259): its parent referenced first when it builds on
+    /// one, then its own events in the same per-event shape a scenario writes them in. No stream id
+    /// appears — a shared event never carries <c>{streamId}</c> — so the arrangement fits any stream
+    /// a scenario opens before referencing it.
+    /// </summary>
+    private static void writeArrangement(ISourceWriter writer, HistoryArrangement arrangement)
+    {
+        writer.BlankLine();
+        writer.WriteLine("  @arrangement");
+        writer.WriteLine($"  Scenario: {arrangement.Name}");
+
+        var keyword = "Given";
+        if (arrangement.Parent is { } parent)
+        {
+            writer.WriteLine($"    Given the arrangement \"{parent.Name}\"");
+            keyword = "And";
+        }
+
+        foreach (var given in arrangement.Events)
+        {
+            writer.WriteLine($"    {keyword} {given.Event} occurred");
+            keyword = "And";
+            if (given.With.Count > 0) table(writer, "      ", given.With.Keys, given.With.Values);
+        }
+    }
+
+    private static void writeScenarios(ISourceWriter writer, SlicePlan plan, HistoryArrangementPlan history, bool triggerPerScenario)
     {
         var slice = plan.Slice;
         var specs = slice.Specifications!;
@@ -581,7 +646,11 @@ public static class SliceScaffolder
                 // Scaffolded arranges are exactly the case that wins: an emlang import carries no
                 // field information, so `given.With` is usually empty and the old form emitted a
                 // two-line table to say one event name.
-                foreach (var given in scenario.Given)
+                // Issue #259: history the feature's scenarios share is referenced, not restated.
+                var (shared, consumed) = history.For(scenario);
+                if (shared is not null) writer.WriteLine($"    And the arrangement \"{shared.Name}\"");
+
+                foreach (var given in scenario.Given.Skip(consumed))
                 {
                     writer.WriteLine($"    And {given.Event} occurred");
                     if (given.With.Count > 0)

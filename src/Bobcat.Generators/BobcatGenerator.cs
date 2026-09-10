@@ -152,6 +152,10 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
+                // Issue #259: the parser has already inlined every arrangement reference, or
+                // recorded why it could not. Either kind of failure suppresses the feature.
+                if (!arrangementsAreSound(feature, spc)) continue;
+
                 try
                 {
                     if (!validateHooks(fixture, spc)) continue;
@@ -1112,6 +1116,21 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
+                // Issue #259: an arrangement is referenced as `the arrangement "…"`, so a Given that
+                // writes an arrangement's NAME bare is a reference in the wrong shape. Saying how to
+                // write it beats a generic "unmatched step".
+                var nearest = Arrangements.NearestName(feature, step.Text);
+                if (nearest != null)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.UnknownArrangement, Microsoft.CodeAnalysis.Location.None,
+                        feature.Title,
+                        $"the step '{step.Text}' matches no step on fixture '{fixture.ClassName}', but looks like the " +
+                        $"arrangement \"{nearest}\" — an arrangement is referenced as 'the arrangement \"{nearest}\"'"));
+                    hasErrors = true;
+                    continue;
+                }
+
                 spc.ReportDiagnostic(Diagnostic.Create(
                     Diagnostics.UnmatchedStep,
                     Microsoft.CodeAnalysis.Location.None,
@@ -1123,6 +1142,30 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return hasErrors ? null : matched;
+    }
+
+    /// <summary>
+    /// Reports why the feature's <c>@arrangement</c> scenarios could not be expanded: BOBCAT022 for
+    /// a broken arrangement or reference, BOBCAT021 for a <c>the arrangement "…"</c> naming none the
+    /// feature declares. A false return suppresses the feature, so the diagnostic is not buried
+    /// under the errors an unexpanded reference would otherwise produce.
+    /// </summary>
+    private static bool arrangementsAreSound(FeatureInfo feature, SourceProductionContext spc)
+    {
+        foreach (var problem in feature.ArrangementProblems)
+        {
+            spc.ReportDiagnostic(Diagnostic.Create(
+                Diagnostics.InvalidArrangement, Microsoft.CodeAnalysis.Location.None, feature.Title, problem));
+        }
+
+        foreach (var unknown in feature.UnknownArrangementReferences)
+        {
+            spc.ReportDiagnostic(Diagnostic.Create(
+                Diagnostics.UnknownArrangement, Microsoft.CodeAnalysis.Location.None, feature.Title,
+                Arrangements.Describe(feature, unknown)));
+        }
+
+        return feature.ArrangementProblems.Count == 0 && feature.UnknownArrangementReferences.Count == 0;
     }
 
     /// <summary>
@@ -1675,6 +1718,24 @@ internal static class Diagnostics
         "Step '{0}' has no trailing data table, but the method '{1}' it binds declares a non-nullable " +
         "Bobcat.StepTable parameter. Add the table, or declare the parameter as 'StepTable?' if the step " +
         "is meant to work without one.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor UnknownArrangement = new(
+        "BOBCAT021",
+        "Step names no arrangement",
+        "Feature '{0}': {1}. An @arrangement scenario is referenced as 'Given the arrangement \"<name>\"' " +
+        "(the name case-insensitive), from the same feature file.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor InvalidArrangement = new(
+        "BOBCAT022",
+        "Arrangement cannot be expanded",
+        "Feature '{0}': {1}. An @arrangement scenario is a named list of Given steps, inlined wherever a " +
+        "Given step says 'the arrangement \"<name>\"'; it never runs as a test of its own.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

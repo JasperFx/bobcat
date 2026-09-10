@@ -113,6 +113,16 @@ Two smaller findings from the same run:
   consumer can point `cucumber.glue` at it. The Bobcat **generator** still needs no source — it
   reads a base fixture's steps from assembly metadata — this is purely for the editors. The core
   `ClockGrammars` is not yet source-shipped the same way.
+- **Named-arrangement references** (`Given the arrangement "a proposed home check"`, issue #259)
+  resolve to `Bobcat.ArrangementSteps.TheArrangement`, a real `[Given("the arrangement {string}")]`
+  that exists only so the editor completes the reference and goes to a definition — the generator
+  replaces every reference with the arrangement's steps at compile time and never binds it. It
+  ships as source in the **Bobcat** package (`contentFiles/cs/any/Bobcat/`, `content/grammars/`),
+  so add that to `cucumber.glue` in a consumer; in this repo `src/*/*.cs` already covers it.
+  **Verified** with the harness below (language service 1.7.0): the expression is found with no
+  errors, `the arrangement "…"` and `the arrangement '…'` match, and the bare name and a
+  capitalised `The arrangement` do not. The editor cannot know which names a feature declares —
+  a reference to an undeclared name is not underlined; the generator reports it as BOBCAT021.
 - Globs are expanded one at a time with `fast-glob`, so a `!**/obj/**` entry excludes nothing.
   The sample stays one directory level deep instead, which is where every fixture in this repo
   lives and keeps `bin/` and `obj/` out.

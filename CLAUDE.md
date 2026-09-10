@@ -118,6 +118,48 @@ for `@` identifiers afterwards and give those a real name instead — `testsInCl
 ### Fixture → Feature Mapping
 One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
 
+### Named arrangements (`@arrangement`, issue #259)
+A scenario tagged `@arrangement` is a **named list of Given steps that never runs as a test**;
+wherever a Given step says `the arrangement "<name>"` (name case-insensitive), the parser inlines
+its steps in place (`Arrangements.Expand`, end of `SimpleGherkinParser.Parse`). Chosen over `Background:`
+(one prefix per feature — the BookingAppointments chapter needs three overlapping ones) and over a
+C# `[Given]` method (moves the history out of the document and renders one opaque step). Valid
+Gherkin, no new keyword.
+
+- **Expansion is before step matching**, so inlined steps bind, resolve captures (a misspelled
+  event is still BOBCAT011) and stamp Event Modeling roles **exactly as if written longhand** —
+  which is why arranged `{event}`s stamp no role (the Given demotion) and an arrangement never has
+  a spec identity (it is not in `FeatureInfo.Scenarios`). The report shows the inlined steps, not
+  the name.
+- **Given only, referenced only from a Given**: an arrangement is history, so it can never supply
+  a scenario's act or the `When` the Event Model reads as the slice's command. Composition (one
+  arrangement referencing another) is allowed; cycles, duplicate names, a Scenario Outline, and a
+  reference carrying a table/doc string are all **BOBCAT022** and suppress the feature. The stream
+  is the scenario's: `Given no events for X "id"` comes first, and an arrangement referenced with
+  no stream open fails at run time with `GivenEventOccurred`'s "precede it with Given no events
+  for …" critical error.
+- **The reference is a fixed phrase, `the arrangement "<name>"`, and a real step** —
+  `Bobcat.ArrangementSteps.TheArrangement` (`[Given("the arrangement {string}")]`, shipped as source
+  in the Bobcat package) — purely so VS Code completes it; the generator expands references itself
+  and never binds that method, which throws if ever invoked. The first cut matched the bare name
+  (`And a proposed home check`), which read better but was an undefined step to every editor.
+  The phrase is written as a literal in the attribute (the extension's tree-sitter query cannot see
+  a constant) and pinned to `Arrangements.ReferenceExpression` by a test. It also retired the
+  "name equals a real step's text" rule, since a reference can no longer be confused with a step.
+- **A reference naming no declared arrangement is BOBCAT021** and suppresses the feature — always,
+  because the phrase makes it unmistakably a reference; the message suggests the nearest name
+  ("did you mean …") or lists what the feature declares. A Given writing an arrangement's name bare
+  is also BOBCAT021, saying how to reference it.
+- Scope is the feature file. An unused arrangement is not a warning (decided 2026-09-10).
+- **The scaffolder can write arrangements, but only when asked** (decided 2026-09-10: it changes
+  what a regenerated feature looks like, so the user decides). `HistoryArrangements.Plan` builds a
+  prefix tree of each feature's `given:` events; a node earns an arrangement when two or more
+  scenarios pass through it and they do not all continue into the same child, which on
+  BookingAppointments yields exactly the three written by hand. A value carrying `{streamId}` is
+  never shared. `SliceScaffolder.ScaffoldFeatures(model, arrangements: true)` applies it;
+  `FindRepeatedHistory(model)` reports what would change, for the caller to ask about. No CLI
+  command runs the scaffolder today, so there is not yet a prompt anywhere.
+
 ### Step discovery walks base classes — base class *or* `[IncludeGrammars]`, both ship (issue #104)
 The generator discovers `[Given]/[When]/[Then]/[Check]` methods declared on a fixture **and on its
 base classes**, stopping at `Bobcat.Fixture`/`object` (`BobcatGenerator.collectStepsAndHooks`). This

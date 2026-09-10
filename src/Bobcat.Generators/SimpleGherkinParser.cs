@@ -115,6 +115,9 @@ public static class SimpleGherkinParser
                 FlushOutline();
                 inDescription = false;
                 var title = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
+                if (isArrangement(pendingTags))
+                    feature.ArrangementProblems.Add(
+                        $"'{title}' is tagged @{Arrangements.Tag} but is a Scenario Outline — an arrangement is one fixed history");
                 outline = new OutlineState { Title = title, Tags = ScenarioTags() };
                 describingScenario = null;
                 describingOutline = outline;
@@ -130,9 +133,26 @@ public static class SimpleGherkinParser
             {
                 FlushOutline();
                 inDescription = false;
+                var title = trimmed.Substring("Scenario:".Length).Trim();
+
+                // Issue #259: an @arrangement scenario is a named list of Given steps, not a test.
+                // It takes no Background — it is inlined into scenarios that already have theirs —
+                // and is read off the scenario's OWN tags, so a feature-level tag cannot turn every
+                // scenario into one.
+                if (isArrangement(pendingTags))
+                {
+                    var arrangement = new ArrangementInfo { Name = title };
+                    feature.Arrangements.Add(arrangement);
+                    currentSteps = arrangement.Steps;
+                    currentStep = null;
+                    lastKeyword = "Given";
+                    pendingTags.Clear();
+                    continue;
+                }
+
                 var scenario = new ScenarioInfo
                 {
-                    Title = trimmed.Substring("Scenario:".Length).Trim(),
+                    Title = title,
                     Tags = ScenarioTags()
                 };
                 // Background steps run first.
@@ -239,10 +259,16 @@ public static class SimpleGherkinParser
         feature.Tags = featureTags;
         feature.Description = description.Count > 0 ? string.Join("\n", description) : null;
 
+        // After the whole file, so an arrangement may be declared below its first use (issue #259).
+        Arrangements.Expand(feature);
+
         return feature.Title.Length > 0 ? feature : null;
     }
 
     private static string appendLine(string? text, string line) => text == null ? line : text + "\n" + line;
+
+    private static bool isArrangement(List<string> ownTags)
+        => ownTags.Any(t => string.Equals(t, Arrangements.Tag, StringComparison.OrdinalIgnoreCase));
 
     private sealed class OutlineState
     {

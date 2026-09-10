@@ -35,17 +35,32 @@ public class EventModelDescriptorTests
     [Fact]
     public void a_slice_is_a_scenario_level_grouping_so_several_scenarios_fold_into_one()
     {
-        // Wallet.feature tags five scenarios @slice:CreditWallet (two are #259's per-event twins),
-        // WalletHttp.feature tags two more (the HTTP lane of the same behaviour, issue #210), and
-        // WalletAuditSpecification tags a code-first eighth (issue #170). A slice is a vertical
-        // behaviour, not a document — and not an authoring style or a transport either — so they
-        // are one descriptor with eight specifications.
-        slice("CreditWallet").Specifications.Count.ShouldBe(8);
+        // Wallet.feature tags seven scenarios @slice:CreditWallet (two are #259's per-event twins
+        // and two arrange by name), WalletHttp.feature tags two more (the HTTP lane of the same
+        // behaviour, issue #210), and WalletAuditSpecification tags a code-first tenth (issue
+        // #170). A slice is a vertical behaviour, not a document — and not an authoring style or a
+        // transport either — so they are one descriptor with ten specifications.
+        slice("CreditWallet").Specifications.Count.ShouldBe(10);
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet Audit/a code first credit");
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet over HTTP/Crediting a wallet over HTTP emits the credited event");
         slice("OpenWallet").Specifications.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void a_named_arrangement_is_inlined_history_never_a_specification_of_its_own()
+    {
+        // Issue #259: an @arrangement scenario never runs, so it has no identity to bind run
+        // evidence to — and the scenarios using it keep exactly the identity they would have had.
+        var identities = describe().Slices.SelectMany(s => s.Specifications).Select(s => s.Identity).ToList();
+        identities.ShouldNotContain("Wallet/an open wallet for Hal");
+        identities.ShouldNotContain("Wallet/Hal's wallet with 40 credited");
+        identities.ShouldContain("Wallet/A wallet with prior events keeps accumulating, arranged by name");
+
+        // The inlined WalletOpened/WalletCredited are arranged history: resolved, never stamped as
+        // events the slice emits beyond the one its act actually produces.
+        slice("CreditWallet").EmittedEvents.Select(t => t.Name).ShouldNotContain("WalletOpened");
     }
 
     // ---- issue #170: the same declarations, authored in raw C# ------------------------------
