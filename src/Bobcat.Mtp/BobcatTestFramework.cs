@@ -225,6 +225,18 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
         /// </summary>
         public void RunFinished(SuiteResults results)
         {
+            // A run that discovered nothing has no node to fail, and publishing nothing is exactly
+            // what the problem looks like — "Zero tests ran … total: 0" with exit code 0 (issue
+            // #273). Same reasoning issue #123 settled for a scenario that could not run: silence
+            // is indistinguishable from a crashed worker, so the harness's own verdict is
+            // published rather than left to be inferred. It is deliberately not dressed up as a
+            // scenario — the feature name is the framework, and the reason is the message.
+            if (results.DiscoveryFailure is not null)
+            {
+                ReportNotRun(new NotRunScenario(
+                    "Bobcat", "spec discovery", [], results.DiscoveryFailure));
+            }
+
             foreach (var scenario in results.NotRun) ReportNotRun(scenario);
         }
 

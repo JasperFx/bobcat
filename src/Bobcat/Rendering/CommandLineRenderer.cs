@@ -269,13 +269,19 @@ public class CommandLineRenderer
     /// </summary>
     public void RenderHarnessSummary(SuiteResults results)
     {
-        if (results.PreflightFailure is null && results.CatastrophicFailure is null &&
+        if (results.DiscoveryFailure is null && results.PreflightFailure is null &&
+            results.CatastrophicFailure is null &&
             results.NotRun.Count == 0 && results.Features.All(f => f.LifecycleFailure is null))
         {
             return;
         }
 
         AnsiConsole.WriteLine();
+
+        if (results.DiscoveryFailure is not null)
+        {
+            AnsiConsole.MarkupLine($"  [red bold]{Markup.Escape(results.DiscoveryFailure)}[/]");
+        }
 
         if (results.PreflightFailure is not null)
         {
