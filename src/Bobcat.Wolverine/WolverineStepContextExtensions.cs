@@ -12,8 +12,14 @@ namespace Bobcat.Wolverine;
 /// </summary>
 public static class WolverineStepContextExtensions
 {
+    // Every helper below opens a tracked session, and each resolves its host here — so this is
+    // where handler compilation is moved out of the session's timeout window (issue #287).
     private static IHost getWolverineHost(IStepContext context, string? resourceName)
-        => context.GetResource<IHostResource>(resourceName).Host;
+    {
+        var host = context.GetResource<IHostResource>(resourceName).Host;
+        HandlerWarmUp.WarmBeforeTracking(host);
+        return host;
+    }
 
     /// <summary>
     /// Invoke a message and wait for it and all cascading messages to complete.

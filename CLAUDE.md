@@ -1130,6 +1130,20 @@ discovers through its base).
   Proven by `TrackedHttpCallTests` (a gated handler makes "the bare Alba call returns while the
   work is in flight; the tracked one does not" an asserted ordering, not a race — no store, always
   runs) and `TrackedHttpFixtureTests` (Marten + async daemon over HTTP, `[PostgresFact]`).
+- **Every tracked act primes Wolverine's compiler before its session starts (issue #287).**
+  Under `TypeLoadMode.Dynamic` a handler compiles on first use, which put the cold host's codegen
+  *inside* the first act's 5s window (7.98s on a loaded CI runner, reported as a downstream `Then`
+  failure). `Bobcat.Wolverine`'s step-context helpers — which every shipped act goes through —
+  call `HandlerWarmUp.WarmBeforeTracking` when they resolve the host, once per
+  `IWolverineRuntime`. Default `AutomaticWarmUp.PrimeCompiler` compiles **one** chain, not all:
+  starting the compiler is ~2/3 of the cold cost and is paid once, while compiling every chain
+  charges a large application for handlers the suite never reaches (measured: warm-all cost more
+  in total than the lazy path on an 8-handler host). `WarmUpWolverineHandlers` (an
+  `IGlobalAction`) / `host.WarmUpHandlers()` compile everything before the first feature when a
+  suite wants no codegen in any scenario. A chain that fails to compile is a
+  `HandlerWarmUpException` naming every broken handler, remembered per host — never skipped.
+  The 5s default is unchanged. Wolverine.HTTP routes are out of reach (no Wolverine.HTTP
+  reference) and are documented instead: `WarmUpRoutes = RouteWarmup.Eager`, footgun 18.
 - **The HTTP lane is `CritterStackHttpFixture` (issue #210), and it is an assembly, not a third
   monolith** — issue #212's success measure: `CritterStackFixture` base (store vocabulary, the
   canonical route) + `[IncludeGrammars(typeof(HttpGrammars))]` on the class (the mix-in route,
