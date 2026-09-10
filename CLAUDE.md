@@ -1068,6 +1068,25 @@ discovers through its base).
   {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
   table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
   is refused` · `Then the {readmodel} read model contains` + table · `Then {message} is sent`.
+- **The document lane is `DocumentGrammars` (issue #270), for an app that is not event sourced.**
+  `Given documents of type {document}` + table · `Then the {document} with id {string} has` + table ·
+  `Then no {document} exists with id {string}`. A module, not a base class — compose it with
+  `[IncludeGrammars(typeof(DocumentGrammars))]` onto a bare `Fixture`, or beside
+  `CritterStackFixture` when the messaging vocabulary is also wanted (its stream steps then simply
+  go unused). It exists because exactly **four of the ten** shipped steps applied to a measured
+  document-backed Wolverine app — `Storage.Insert`, `[Entity]`, a revisioned document — and all
+  four were the messaging and HTTP halves, so such a project had to write a private grammar before
+  its first scenario. Assertions compare **only the columns the row names** and the arrange is
+  partial, following #241 rather than inventing a second convention. Store-agnostic through
+  `JasperFx.Events.Documents`, and nothing extra has to be registered: on every Critter Stack store
+  the concrete store object is **both** `IEventStore` and `IDocumentSessionFactory`, so the document
+  steps resolve what the event steps already resolve and cast. `DocumentStores.LoadAsync(store,
+  type, id)` is public for the same reason `RecordBuilding` is — `LoadAsync<T>` is generic-only on
+  every store while a `{document}` capture yields nothing but a `Type`, and every type-capturing
+  grammar hits that wall. **Saga state is deliberately not covered** (issue #281): a saga is a
+  different storage surface, and under most providers a completed saga is deleted, so "is complete"
+  and "was never started" may be indistinguishable — a step that cannot tell them apart is the
+  spec-that-cannot-fail #273 was about.
 - **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
   through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
   **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
