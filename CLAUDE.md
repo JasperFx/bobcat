@@ -198,6 +198,17 @@ A feature declares the non-derivable bits of an Event Modeling slice: `@slice:<n
 `@domain:<name>` tags, and a `Triggered by …` description line. The parser carries feature tags
 (inherited by every scenario, standard Gherkin) and the description onto
 `FeatureDefinition.Tags`/`Description`, surfaced as `Slice`/`Domain`/`TriggeredBy`.
+
+**`Triggered by` may sit on the scenario, and there it wins (issue #258).** Free text between
+`Scenario:` and the first step is the scenario's description (`ScenarioInfo.Description`; the
+parser used to drop it). For the slice descriptor, a scenario's own `Triggered by` beats the
+feature's whatever order scenarios fold in (`SliceModel.TriggerLabelDeclaredOnScenario`); the
+feature line stays the fallback, correct when the feature's slices share a trigger. Found by the
+#258 equivalence experiment: one feature-level line had put a wrong trigger on 9 of the
+CritterCrush chapter's 10 slices, and the scaffolder produced it — it wrote the *first* slice's
+label at feature level. `SliceScaffolder` now writes the feature line only when every slice in the
+feature agrees, and per-scenario lines otherwise. The runtime `FeatureDefinition.TriggeredBy` is
+unchanged: scenario descriptions reach the generator's descriptor, not the runtime model.
 `ResilienceTags` projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a
 supervisor/viewer with no Bobcat reference.
 

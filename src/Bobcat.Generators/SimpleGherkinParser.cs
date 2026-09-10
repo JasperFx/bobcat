@@ -8,7 +8,7 @@ namespace Bobcat.Generators;
 /// Minimal Gherkin parser that handles the subset Bobcat needs.
 /// Avoids the Gherkin NuGet dependency loading issue with source generators.
 /// Supports: Feature, Background, Scenario, Scenario Outline + Examples,
-/// Given/When/Then/And/But, Data Tables, DocStrings, Tags.
+/// Given/When/Then/And/But, Data Tables, DocStrings, Tags, feature and scenario descriptions.
 /// Does NOT support: i18n.
 /// </summary>
 public static class SimpleGherkinParser
@@ -28,6 +28,12 @@ public static class SimpleGherkinParser
         var featureTags = new List<string>();
         var description = new List<string>();
         var inDescription = false;
+
+        // A scenario's own description — free text after Scenario: and before its first step,
+        // standard Gherkin. Before issue #258 these lines were silently dropped, which left a
+        // feature-level "Triggered by" as the only place a slice's trigger could be declared.
+        ScenarioInfo? describingScenario = null;
+        OutlineState? describingOutline = null;
 
         // A scenario's effective tag list: the feature's, then its own, without duplicates.
         List<string> ScenarioTags()
@@ -94,6 +100,8 @@ public static class SimpleGherkinParser
             {
                 FlushOutline();
                 inDescription = false;
+                describingScenario = null;
+                describingOutline = null;
                 currentSteps = background;
                 currentStep = null;
                 lastKeyword = "Given";
@@ -108,6 +116,8 @@ public static class SimpleGherkinParser
                 inDescription = false;
                 var title = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
                 outline = new OutlineState { Title = title, Tags = ScenarioTags() };
+                describingScenario = null;
+                describingOutline = outline;
                 currentSteps = outline.Steps;
                 currentStep = null;
                 lastKeyword = "Given";
@@ -128,6 +138,8 @@ public static class SimpleGherkinParser
                 // Background steps run first.
                 scenario.Steps.AddRange(background.Select(s => s.Clone()));
                 feature.Scenarios.Add(scenario);
+                describingScenario = scenario;
+                describingOutline = null;
                 currentSteps = scenario.Steps;
                 currentStep = null;
                 lastKeyword = "Given";
@@ -139,6 +151,7 @@ public static class SimpleGherkinParser
             if (trimmed.StartsWith("Examples:") || trimmed.StartsWith("Scenarios:"))
             {
                 inExamples = true;
+                describingOutline = null;
                 currentStep = null;
                 continue;
             }
@@ -196,8 +209,24 @@ public static class SimpleGherkinParser
                 {
                     currentSteps.Add(step);
                     currentStep = step;
+                    // A description ends at the first step; free text after it is not Gherkin.
+                    describingScenario = null;
+                    describingOutline = null;
                     continue;
                 }
+            }
+
+            // Free text under Scenario: before its first step is that scenario's description.
+            if (describingScenario != null)
+            {
+                describingScenario.Description = appendLine(describingScenario.Description, trimmed);
+                continue;
+            }
+
+            if (describingOutline != null)
+            {
+                describingOutline.Description = appendLine(describingOutline.Description, trimmed);
+                continue;
             }
 
             // Anything else directly under Feature: is description — "Triggered by …" lives here.
@@ -213,11 +242,14 @@ public static class SimpleGherkinParser
         return feature.Title.Length > 0 ? feature : null;
     }
 
+    private static string appendLine(string? text, string line) => text == null ? line : text + "\n" + line;
+
     private sealed class OutlineState
     {
         public string Title = "";
         public List<string> Tags = new();
         public List<StepInfo> Steps = new();
+        public string? Description;
     }
 
     private static void expandOutline(FeatureInfo feature, List<StepInfo> background,
@@ -233,7 +265,8 @@ public static class SimpleGherkinParser
             var scenario = new ScenarioInfo
             {
                 Title = $"{outline.Title} [Example {r + 1}]",
-                Tags = new List<string>(outline.Tags)
+                Tags = new List<string>(outline.Tags),
+                Description = outline.Description
             };
 
             scenario.Steps.AddRange(background.Select(s => s.Clone()));

@@ -98,8 +98,13 @@ Feature: Wallet
   # The clean-refusal railway (issue #168): the handler's Before returns HandlerContinuation.Stop,
   # so nothing throws — "validation fails with" cannot describe this handler, and the reason-less
   # "the command is refused" is its vocabulary.
+  #
+  # Its trigger is declared on the scenario (issue #258): a slice is scenario-level, so a
+  # scenario's "Triggered by" wins over the feature's for that slice, while OpenWallet and
+  # CreditWallet keep the feature-level "the wallet holder".
   @slice:DebitWallet
   Scenario: Debiting more than the balance is refused cleanly
+    Triggered by a card payment at the till
     Given no events for Wallet "55555555-5555-5555-5555-555555555555"
     When OpenWallet is received
       | WalletId                             | Owner |

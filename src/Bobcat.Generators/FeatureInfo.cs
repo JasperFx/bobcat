@@ -27,6 +27,13 @@ public class ScenarioInfo
     public string Title { get; set; } = "";
     public List<string> Tags { get; set; } = new();
     public List<StepInfo> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Free-text lines between <c>Scenario:</c> and the scenario's first step, joined with "\n";
+    /// null when there are none. A slice is scenario-level, so its <c>Triggered by …</c> line
+    /// belongs here and wins over the feature's (issue #258).
+    /// </summary>
+    public string? Description { get; set; }
 }
 
 public class StepInfo

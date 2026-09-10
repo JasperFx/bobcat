@@ -116,6 +116,17 @@ public class EventModelDescriptorTests
     }
 
     [Fact]
+    public void a_scenario_level_triggered_by_line_wins_over_the_features_for_its_slice()
+    {
+        // Issue #258: a slice is scenario-level, and a feature-level line stamped on every slice
+        // gave nine of the CritterCrush chapter's ten slices a trigger belonging to another.
+        slice("DebitWallet").TriggerLabel.ShouldBe("a card payment at the till");
+
+        // The feature's line still reaches the slices whose scenarios declare none.
+        slice("CreditWallet").TriggerLabel.ShouldBe("the wallet holder");
+    }
+
+    [Fact]
     public void the_command_is_the_act_not_the_first_command_the_scenario_names()
     {
         // The CreditWallet scenarios arrange by issuing `When OpenWallet is received` first. The

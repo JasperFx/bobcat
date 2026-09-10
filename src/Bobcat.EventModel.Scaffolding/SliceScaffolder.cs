@@ -502,7 +502,14 @@ public static class SliceScaffolder
 
         if (first.Domain is not null) writer.WriteLine($"@domain:{first.Domain}");
         writer.WriteLine($"Feature: {featureName}");
-        if (first.Trigger?.Label is { } featureLabel) writer.WriteLine($"  Triggered by {featureLabel}");
+
+        // A slice is scenario-level, and so is its trigger (issue #258). Writing the FIRST slice's
+        // label at feature level stamped it on every slice the feature held — nine wrong labels on
+        // the CritterCrush canvas from one line. The feature line is kept only when every slice
+        // agrees; otherwise each scenario declares its own slice's trigger.
+        var labels = plans.Select(x => x.Slice.Trigger?.Label).Distinct().ToList();
+        var sharedLabel = labels.Count == 1 ? labels[0] : null;
+        if (sharedLabel is not null) writer.WriteLine($"  Triggered by {sharedLabel}");
 
         // Which fixture binds these steps is decided by the same plan that decided the code's
         // shape, so say it here rather than leaving it to be discovered as an unbound step. A
@@ -522,13 +529,13 @@ public static class SliceScaffolder
 
         foreach (var plan in plans)
         {
-            writeScenarios(writer, plan);
+            writeScenarios(writer, plan, triggerPerScenario: labels.Count > 1);
         }
 
         return writer.Code();
     }
 
-    private static void writeScenarios(ISourceWriter writer, SlicePlan plan)
+    private static void writeScenarios(ISourceWriter writer, SlicePlan plan, bool triggerPerScenario)
     {
         var slice = plan.Slice;
         var specs = slice.Specifications!;
@@ -546,6 +553,7 @@ public static class SliceScaffolder
             writer.BlankLine();
             writer.WriteLine($"  @slice:{slice.Name}");
             writer.WriteLine($"  Scenario: {scenario.Name}");
+            if (triggerPerScenario && slice.Trigger?.Label is { } label) writer.WriteLine($"    Triggered by {label}");
 
             foreach (var warning in plan.AggregateWarnings)
             {

@@ -62,6 +62,12 @@ internal static class EventModelEmitter
         /// happen to name. See <c>actCommandOf</c>.
         /// </summary>
         public string? ActCommand;
+
+        /// <summary>
+        /// True once a scenario's own <c>Triggered by</c> line set <see cref="TriggerLabel"/>, so a
+        /// feature-level fallback from a scenario folded later cannot replace it (issue #258).
+        /// </summary>
+        public bool TriggerLabelDeclaredOnScenario;
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -125,7 +131,23 @@ internal static class EventModelEmitter
             }
 
             slice.Domain ??= GeneratorSliceTags.Domain(tags);
-            slice.TriggerLabel ??= triggerLabel;
+            // A slice is scenario-level, and so is its trigger (issue #258). A feature-level
+            // "Triggered by" used to be stamped on every slice the feature held, which put nine
+            // wrong labels on the CritterCrush canvas from one line. A scenario's own line wins,
+            // whichever order the scenarios arrive in; the feature's stays the fallback, and is
+            // right when the feature's slices share a trigger (Wallet's all start with the holder).
+            if (GeneratorSliceTags.TriggeredBy(scenario.Scenario.Description) is { } declaredLabel)
+            {
+                if (!slice.TriggerLabelDeclaredOnScenario)
+                {
+                    slice.TriggerLabel = declaredLabel;
+                    slice.TriggerLabelDeclaredOnScenario = true;
+                }
+            }
+            else
+            {
+                slice.TriggerLabel ??= triggerLabel;
+            }
             slice.ActCommand ??= actCommandOf(scenario);
 
             foreach (var (role, type) in roles)
