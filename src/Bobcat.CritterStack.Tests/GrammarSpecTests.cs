@@ -48,7 +48,7 @@ public class GrammarSpecTests
         // The vocabulary is entirely the shipped grammar, discovered from the referenced assembly.
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
-        feature.Scenarios.Count.ShouldBe(7);
+        feature.Scenarios.Count.ShouldBe(8);
 
         foreach (var scenario in feature.Scenarios)
         {

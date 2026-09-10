@@ -82,7 +82,10 @@ public class ViewSliceTests
 
         // The events arranged are declared by a sibling slice whose `aggregates:` say Appointment.
         feature.ShouldContain("Given no events for Appointment ");
-        feature.ShouldContain("And events for Appointment");
+        // The arranged event names itself in the step text (issue #259), so the aggregate is
+        // established once by the "no events for" step and each prior fact reads as a sentence.
+        feature.ShouldContain("And HomeCheckAppointmentProposed occurred");
+        feature.ShouldNotContain("And events for Appointment");
         feature.ShouldNotContain("AppointmentsQueueModel");
     }
 
@@ -132,5 +135,20 @@ public class ViewSliceTests
 
         SliceScaffolder.ArrangeAggregateFor(model, queue).ShouldBe("Appointment");
         SliceScaffolder.AggregateFor(queue).ShouldBe("AppointmentsQueueModel");
+    }
+
+    [Fact]
+    public void scaffolded_tables_are_column_aligned()
+    {
+        var feature = scaffold()["Features/Appointments.feature"];
+
+        // A ragged table — a one-word header over a 36-character GUID — reads as two unrelated
+        // lines, which undoes the readability the per-event arrange step buys (issue #259).
+        feature.ShouldContain("| ownerId                              |");
+        feature.ShouldContain("| 92249224-9224-9224-9224-922492249224 |");
+
+        // Narrow columns pad to the widest cell rather than to some fixed width.
+        feature.ShouldContain("| status   | awaitingAction |");
+        feature.ShouldContain("| proposed | true           |");
     }
 }

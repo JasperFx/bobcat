@@ -40,7 +40,7 @@ public class EventModelDescriptorTests
         // tags a code-first sixth (issue #170). A slice is a vertical behaviour, not a document
         // — and not an authoring style or a transport either — so they are one descriptor with
         // six specifications.
-        slice("CreditWallet").Specifications.Count.ShouldBe(6);
+        slice("CreditWallet").Specifications.Count.ShouldBe(7);
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet Audit/a code first credit");
         slice("CreditWallet").Specifications.Select(s => s.Identity)
@@ -207,5 +207,33 @@ public class EventModelDescriptorTests
         shipments.AggregateTypes.ShouldBeEmpty();
         shipments.EmittedEvents.ShouldBeEmpty();
         shipments.ReadModelTypes.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void an_arranged_event_is_resolved_but_never_stamped_as_one_the_slice_emits()
+    {
+        // "A wallet with prior events keeps accumulating, arranged per event" lays down
+        // WalletOpened and WalletCredited with `Given {event} occurred` (issue #259), then acts.
+        var credit = slice("CreditWallet");
+
+        // WalletOpened is prior history. The slice does not emit it, and stamping it would draw an
+        // arrow on the canvas for an output CreditWallet never writes — worse than a missing one.
+        credit.EmittedEvents.Select(t => t.Name).ShouldNotContain("WalletOpened");
+
+        // …but it is still a type the specification resolved, which is where "this spec touched
+        // that type" belongs and what #107's run evidence joins on — the same treatment arrange
+        // COMMANDS already get.
+        var perEvent = credit.Specifications
+            .Single(s => s.Identity == "Wallet/A wallet with prior events keeps accumulating, arranged per event");
+        perEvent.ResolvedTypes.Select(t => t.Name).ShouldContain("WalletOpened");
+    }
+
+    [Fact]
+    public void the_event_the_slice_really_does_emit_is_still_stamped()
+    {
+        // The counterweight: the demotion is keyed on the GIVEN keyword, not on the type. The same
+        // WalletCredited that is arranged in one scenario is emitted in others, and a Then must
+        // still stamp it.
+        slice("CreditWallet").EmittedEvents.Select(t => t.Name).ShouldContain("WalletCredited");
     }
 }

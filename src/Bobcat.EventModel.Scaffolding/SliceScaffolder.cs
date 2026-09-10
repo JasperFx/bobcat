@@ -556,11 +556,30 @@ public static class SliceScaffolder
             {
                 writer.WriteLine($"    Given no events for {aggregate} \"{streamId}\"");
 
+                // The per-event shape (issue #259): the event type in the STEP TEXT, and the
+                // table carrying only that event's own fields.
+                //
+                // The old form put the type in an `Event` column, which cost three things a
+                // reader notices and one they do not. Two arranged events became two tables whose
+                // columns have nothing to do with each other, so "a home check was proposed, then
+                // it was cancelled" was spread over seven lines; the type sat in a table cell
+                // rather than in the step text, where Gherkin puts everything else that matters;
+                // and several types in one table needed a union header, mostly whitespace by the
+                // fifth event. The one nobody sees: a type named in a cell is resolved at RUN
+                // time, so a scaffolder typo — or a model whose event was renamed in the code —
+                // was a failing scenario. Named in the step text it is an {event} capture the
+                // generator resolves, so the same mistake is BOBCAT011 at build.
+                //
+                // Scaffolded arranges are exactly the case that wins: an emlang import carries no
+                // field information, so `given.With` is usually empty and the old form emitted a
+                // two-line table to say one event name.
                 foreach (var given in scenario.Given)
                 {
-                    writer.WriteLine($"    And events for {aggregate}");
-                    table(writer, "      ", new[] { "Event" }.Concat(given.With.Keys),
-                        new[] { given.Event }.Concat(expand(given.With.Values, streamId)));
+                    writer.WriteLine($"    And {given.Event} occurred");
+                    if (given.With.Count > 0)
+                    {
+                        table(writer, "      ", given.With.Keys, expand(given.With.Values, streamId));
+                    }
                 }
             }
 
@@ -671,10 +690,46 @@ public static class SliceScaffolder
         return $"{block}{block}-{block}-{block}-{block}-{block}{block}{block}";
     }
 
+    /// <summary>
+    /// One header row and one value row, with every column padded to its widest cell.
+    /// </summary>
+    /// <remarks>
+    /// The alignment is not decoration. A scaffolded feature is the first thing a reader sees of a
+    /// slice, and a ragged table — a one-word header over a 36-character GUID — makes a
+    /// two-column table read as two unrelated lines:
+    /// <code>
+    /// | ownerId |
+    /// | 92249224-9224-9224-9224-922492249224 |
+    /// </code>
+    /// Padding costs nothing and is what every hand-written Gherkin table in this repository
+    /// already does, so a scaffolded feature and an authored one now look the same. Issue #259.
+    /// </remarks>
     private static void table(ISourceWriter writer, string indent, IEnumerable<string> headers, IEnumerable<string> values)
     {
-        writer.WriteLine($"{indent}| {string.Join(" | ", headers)} |");
-        writer.WriteLine($"{indent}| {string.Join(" | ", values)} |");
+        var headerCells = headers.ToList();
+        var valueCells = values.ToList();
+
+        var widths = new int[Math.Max(headerCells.Count, valueCells.Count)];
+        for (var i = 0; i < widths.Length; i++)
+        {
+            var header = i < headerCells.Count ? headerCells[i] ?? "" : "";
+            var value = i < valueCells.Count ? valueCells[i] ?? "" : "";
+            widths[i] = Math.Max(header.Length, value.Length);
+        }
+
+        writer.WriteLine(row(indent, headerCells, widths));
+        writer.WriteLine(row(indent, valueCells, widths));
+    }
+
+    private static string row(string indent, IReadOnlyList<string> cells, int[] widths)
+    {
+        var padded = new List<string>(widths.Length);
+        for (var i = 0; i < widths.Length; i++)
+        {
+            padded.Add((i < cells.Count ? cells[i] ?? "" : "").PadRight(widths[i]));
+        }
+
+        return $"{indent}| {string.Join(" | ", padded)} |";
     }
 
     /// <summary>
