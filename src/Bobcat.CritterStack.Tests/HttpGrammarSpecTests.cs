@@ -24,7 +24,11 @@ namespace Bobcat.CritterStack.Tests;
 /// most-derived [IncludeGrammars] wins). No hand-written steps, no third monolith.
 /// </summary>
 [FixtureTitle("Wallet over HTTP")]
-[IncludeGrammars(typeof(HttpGrammars), "/wallets")]
+// The timeout is raised for the same reason as HttpActComposesWithMessageAssertionsTests:
+// the tracked window here also covers Wolverine's first-message dynamic codegen, which a real
+// spec suite pays once but a per-test host pays every time. 5s is the product default and is
+// fine for a warm host; on a loaded CI runner it is not. See the issue on the default itself.
+[IncludeGrammars(typeof(HttpGrammars), "/wallets", null, null, 60000)]
 public class WalletOverHttpFixture : CritterStackHttpFixture;
 
 /// <summary>
