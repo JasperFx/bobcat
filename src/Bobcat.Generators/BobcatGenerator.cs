@@ -994,7 +994,7 @@ public class BobcatGenerator : IIncrementalGenerator
             case "System.Uri":
                 return true;
 
-            // A type name in the step text ({type}/{aggregate}/{command}/{event}/{readmodel}/
+            // A type name in the step text ({type}/{aggregate}/{command}/{event}/{readmodel}/{document}/
             // {message}), resolved against the compilation and emitted as typeof(global::...).
             // Captures only — a data-table cell cannot supply one.
             case CucumberExpressionParser.TypeCSharpType:
@@ -1588,7 +1588,7 @@ internal static class Diagnostics
         "BOBCAT011",
         "Type name in step cannot be resolved",
         "'{0}' in step '{1}' names no type in this compilation or its references. A {{type}}/{{aggregate}}/" +
-        "{{command}}/{{event}}/{{readmodel}}/{{message}} capture must be a type's simple name (Account) or " +
+        "{{command}}/{{event}}/{{readmodel}}/{{message}}/{{document}} capture must be a type's simple name (Account) or " +
         "its namespace-qualified name (Banking.Account). Is the project that declares it referenced?",
         "Bobcat",
         DiagnosticSeverity.Error,

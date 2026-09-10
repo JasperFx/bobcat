@@ -38,6 +38,13 @@ public static class CucumberExpressionParser
         ["event"] = (TypeNameRegex, TypeCSharpType),
         ["readmodel"] = (TypeNameRegex, TypeCSharpType),
         ["message"] = (TypeNameRegex, TypeCSharpType),
+        // {document} is the document-store vocabulary (issue #270), not an Event Modeling role:
+        // a document-backed application has no stream, and stamping one would put an element on a
+        // canvas that describes nothing. EventModelEmitter switches on the role words above and
+        // lets this one fall through, so it is inert there by construction — same as {type}. It
+        // exists so `Given Shipments` reads as a document rather than as the generic
+        // `Given documents of type Shipment` that {type} forces.
+        ["document"] = (TypeNameRegex, TypeCSharpType),
     };
 
     /// <summary>A simple or dotted type name: <c>Account</c>, <c>Banking.Account</c>, <c>Outer+Nested</c>.</summary>

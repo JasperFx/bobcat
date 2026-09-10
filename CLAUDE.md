@@ -163,9 +163,14 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   reads; `GetState` on a missing entry throws "no step in this scenario produced a T…". Run
   evidence (#107) deliberately does **not** ride it: `TouchedTypes` must live on
   `ExecutionResults` to reach the wire, and both are accumulate-onto-context already.
-- **Type-name captures** — `{type}`, and the Event Modeling aliases `{aggregate}`/`{command}`/
-  `{event}`/`{readmodel}`/`{message}` — capture a type *name* in the step text and bind to a
-  `System.Type` parameter as `typeof(global::…)`. `TypeNameResolver` resolves the name against the
+- **Type-name captures** — `{type}`, the Event Modeling aliases `{aggregate}`/`{command}`/
+  `{event}`/`{readmodel}`/`{message}`, and the document-store `{document}` (issue #270) — capture a
+  type *name* in the step text and bind to a `System.Type` parameter as `typeof(global::…)`.
+  **`{document}` stamps no Event Modeling role**, deliberately: a document-backed application has
+  no stream, so an aggregate or read model on the canvas for it would describe nothing. It is inert
+  in `EventModelEmitter` by construction — that switches on the role words and lets `{document}`
+  fall through exactly as it does `{type}` — and `EventModelDescriptorTests` asserts that
+  positively rather than by silence. `TypeNameResolver` resolves the name against the
   consuming compilation and its non-framework references: a dotted name matches a full name; a simple
   name must match exactly one type by simple name. Unresolved is **BOBCAT011**, ambiguous is
   **BOBCAT012** (qualify it in the step text). Ambiguous *step* matches are **BOBCAT013**; a

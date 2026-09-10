@@ -75,6 +75,68 @@ steps publish the `ScenarioStream` being arranged, and every store assertion rea
 capture — which is what lets a *different* grammar's act feed `Then {event} is emitted`
 unchanged.
 
+## The document lane: `DocumentGrammars`
+
+The shipped Critter Stack vocabulary assumed event sourcing. Measured on a real document-backed
+Wolverine application — `Storage.Insert`, `[Entity]`, a revisioned document, no event store — exactly
+**four of the ten** shipped steps applied, and all four were the messaging and HTTP halves. Nothing
+could arrange a document, assert one, or say it was gone, so such a project had to write a private
+grammar before it could write its first scenario (issue #270).
+
+`DocumentGrammars` is that lane, as a module:
+
+```csharp
+[FixtureTitle("Shipments")]
+[IncludeGrammars(typeof(DocumentGrammars))]
+[IncludeGrammars(typeof(HttpGrammars))]
+public class ShipmentsFixture : CritterStackFixture;
+```
+
+Three steps:
+
+```gherkin
+Given documents of type Shipment
+  | Id                                   | Origin | Destination | Status |
+  | 11111111-1111-1111-1111-111111111111 | Dallas | Austin      | Booked |
+
+Then the Shipment with id "11111111-1111-1111-1111-111111111111" has
+  | Origin | Status |
+  | Dallas | Booked |
+
+Then no Shipment exists with id "33333333-3333-3333-3333-333333333333"
+```
+
+The assertion compares **only the columns the row names** — the rule #241 established for events,
+followed rather than replaced with a second convention. A document has fields the scenario does not
+care about, and demanding a column for each makes the table say things the scenario does not mean.
+The arrange is partial for the same reason; a column matching nothing is still refused by name.
+
+Three things worth knowing:
+
+- **`{document}` is a capture word of its own**, beside `{type}`/`{aggregate}`/`{command}`/
+  `{event}`/`{readmodel}`/`{message}`. It resolves a type name exactly as the others do, but it
+  stamps **no Event Modeling role** — a document-backed application has no stream, and putting an
+  aggregate or read model on the canvas for it would describe nothing. Inert by construction: the
+  emitter switches on the role words and lets this one fall through, as it does `{type}`.
+- **The base class above is for the messaging vocabulary, not for event sourcing.**
+  `CritterStackFixture`'s stream steps simply go unused; `Then {message} is sent` and the refusal
+  checks work with no stream at all. `DocumentGrammars` itself derives from `Fixture`, so a project
+  that only wants documents composes it onto a bare fixture and references no event-sourcing
+  vocabulary.
+- **Store-agnostic, like everything else here.** The steps reach the store through
+  `JasperFx.Events.Documents`, so `Bobcat.CritterStack` still references no Marten, no Polecat and
+  no Fisher. Nothing extra has to be registered either: on every Critter Stack store the concrete
+  store object is both `IEventStore` and `IDocumentSessionFactory`, so the document steps resolve
+  what the event steps already resolve.
+
+`DocumentStores` is the public helper behind them — `LoadAsync(store, type, id)` closes the
+generic `LoadAsync<T>` over a runtime `Type`, which every grammar taking a type-name capture
+otherwise has to reflect for itself. Use it rather than hand-rolling, for the same reason as
+`RecordBuilding` below.
+
+**Not covered: saga state.** A Wolverine saga is a different storage surface from a document, and
+asserting one needs its own vocabulary rather than a `{document}` in disguise. Tracked separately.
+
 ## Building an object from a table row
 
 A grammar that takes a `StepTable` almost always has to turn each row into an object, and
