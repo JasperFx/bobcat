@@ -27,6 +27,7 @@ import {
 import { segmentLabel } from './text'
 import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
+import { domainsOf, hiddenSliceNames, isEmptyFilter, type SliceFilter } from './filters'
 import {
   LANE_LABEL,
   PROVENANCE_LABEL,
@@ -45,24 +46,102 @@ const props = withDefaults(
     /** Outcome per spec identity, from run evidence (issue #107). Colours the slice header. */
     sliceOutcomes?: Record<string, 'passed' | 'failed' | 'notRun'>
     layout?: LayoutOptions
+    /**
+     * Show the filter bar (issue #194). On by default, and in the shared component rather than in
+     * each host's page, so both consoles filter the same model the same way — the argument that
+     * has won every other time on this canvas.
+     */
+    filterable?: boolean
   }>(),
-  { descriptor: null, collapsedSlices: undefined, sliceOutcomes: undefined, layout: undefined }
+  {
+    descriptor: null,
+    collapsedSlices: undefined,
+    sliceOutcomes: undefined,
+    layout: undefined,
+    filterable: true
+  }
 )
 
 const emit = defineEmits<{
   'element-click': [element: EventModelElement]
   /** The slice header was clicked — the drill-down hook (issue #108). */
   'slice-click': [slice: EventModelSliceDescriptor]
+  /** The reader narrowed the canvas. Hosts that want to persist the view can listen. */
+  'filter-change': [filter: SliceFilter]
 }>()
+
+// ------------------------------------------------------------------ filter & collapse (#194)
+//
+// Zoom is the wrong lever past a certain size and no tuning fixes it: CritterWatch's merged model
+// is 106 slices and ~10,000px wide at the 25% zoom floor, and the floor is deliberate — below it
+// the labels stop being labels. So the answer is to render fewer slices, not smaller ones.
+//
+// The state lives here, but the DECISION is a pure function (`hiddenSliceNames`) handed to
+// `layoutEventModel` as an option. Layout never learns what a filter is, which is what keeps it a
+// pure function of (descriptor, options) and keeps the two viewers' agreement checkable.
+
+const filter = ref<SliceFilter>({})
+
+const availableDomains = computed(() => domainsOf(props.descriptor))
+
+const hidden = computed(() => hiddenSliceNames(props.descriptor, filter.value))
+
+const totalSlices = computed(() => (props.descriptor?.slices ?? []).length)
+const shownSlices = computed(() => totalSlices.value - hidden.value.size)
+const filtering = computed(() => !isEmptyFilter(filter.value))
+
+function updateFilter(patch: Partial<SliceFilter>) {
+  filter.value = { ...filter.value, ...patch }
+  emit('filter-change', filter.value)
+}
+
+function toggleDomain(domain: string) {
+  const next = new Set(filter.value.domains ?? [])
+  if (next.has(domain)) next.delete(domain)
+  else next.add(domain)
+  updateFilter({ domains: next })
+}
+
+function clearFilter() {
+  filter.value = {}
+  emit('filter-change', filter.value)
+}
+
+// Collapse is per slice and reader-driven, unioned with whatever the host passed. A chevron in
+// the header rather than a click ON the header: the header already opens the drill-down, and
+// stealing that click would trade one navigation problem for another.
+const collapsedByReader = ref<Set<string>>(new Set())
+
+const effectiveCollapsed = computed(() => {
+  const merged = new Set(collapsedByReader.value)
+  for (const name of props.collapsedSlices ?? []) merged.add(name)
+  return merged
+})
+
+function toggleCollapsed(name: string) {
+  const next = new Set(collapsedByReader.value)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  collapsedByReader.value = next
+}
 
 const graph = computed(() =>
   layoutEventModel(props.descriptor, {
     ...props.layout,
-    collapsedSlices: props.collapsedSlices
+    collapsedSlices: effectiveCollapsed.value,
+    hiddenSlices: hidden.value
   })
 )
 
-const isEmpty = computed(() => graph.value.nodes.length === 0)
+/**
+ * Empty means there is no SLICE to draw, not no card.
+ *
+ * Node count was the same thing until slices could be collapsed by the reader (issue #194):
+ * collapse every slice and the canvas has no nodes, but it has columns, headers and a reason for
+ * each — replacing all of that with "No slices to render" tells the reader their model vanished.
+ * Filtering everything out genuinely does leave nothing, and still reports empty.
+ */
+const isEmpty = computed(() => graph.value.slices.length === 0)
 
 // ------------------------------------------------------------------ zoom & pan (bobcat#182)
 //
@@ -393,6 +472,86 @@ function outcomeFor(sliceName: string): string | null {
         </button>
       </div>
 
+      <!-- issue #194 — zoom cannot make 106 slices navigable, so narrow the model instead.
+           Every control here resolves to `hiddenSliceNames`, a pure function; the layout is
+           handed a set of names and never learns a filter exists. -->
+      <div v-if="filterable" class="em-filterbar" data-testid="event-model-filter">
+        <input
+          class="em-filter-search"
+          type="search"
+          placeholder="Find a slice…"
+          data-testid="filter-search"
+          :value="filter.search ?? ''"
+          @input="updateFilter({ search: ($event.target as HTMLInputElement).value })"
+        />
+
+        <div v-if="availableDomains.length > 0" class="em-filter-domains">
+          <button
+            v-for="domain in availableDomains"
+            :key="domain"
+            type="button"
+            class="em-filter-chip"
+            :data-domain="domain"
+            :data-on="filter.domains?.has(domain) ? 'true' : undefined"
+            :aria-pressed="filter.domains?.has(domain) ? 'true' : 'false'"
+            @click="toggleDomain(domain)"
+          >
+            {{ domain }}
+          </button>
+        </div>
+
+        <!-- The drift view. `unbound` is the one that earns its place: on the measured model 125
+             of 125 slices had no spec, and "which ones do" is the whole question. -->
+        <button
+          type="button"
+          class="em-filter-chip"
+          data-testid="filter-unbound"
+          :data-on="filter.specs === 'unbound' ? 'true' : undefined"
+          :aria-pressed="filter.specs === 'unbound' ? 'true' : 'false'"
+          title="Only slices with no bound specification"
+          @click="updateFilter({ specs: filter.specs === 'unbound' ? 'any' : 'unbound' })"
+        >
+          no spec
+        </button>
+        <button
+          type="button"
+          class="em-filter-chip"
+          data-testid="filter-bound"
+          :data-on="filter.specs === 'bound' ? 'true' : undefined"
+          :aria-pressed="filter.specs === 'bound' ? 'true' : 'false'"
+          title="Only slices with at least one bound specification"
+          @click="updateFilter({ specs: filter.specs === 'bound' ? 'any' : 'bound' })"
+        >
+          has spec
+        </button>
+        <button
+          type="button"
+          class="em-filter-chip"
+          data-testid="filter-hotspots"
+          :data-on="filter.hotspotsOnly ? 'true' : undefined"
+          :aria-pressed="filter.hotspotsOnly ? 'true' : 'false'"
+          title="Only slices carrying a hotspot"
+          @click="updateFilter({ hotspotsOnly: !filter.hotspotsOnly })"
+        >
+          hotspots
+        </button>
+
+        <!-- Always shown, not only while filtering: a canvas that silently renders a subset is
+             how a reader concludes a slice does not exist. -->
+        <span class="em-filter-count" data-testid="filter-count">
+          {{ shownSlices }} of {{ totalSlices }}
+        </span>
+        <button
+          v-if="filtering"
+          type="button"
+          class="em-filter-clear"
+          data-testid="filter-clear"
+          @click="clearFilter"
+        >
+          clear
+        </button>
+      </div>
+
       <div
         ref="viewport"
         class="em-viewport"
@@ -437,6 +596,19 @@ function outcomeFor(sliceName: string): string | null {
               :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
             >
               <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
+                <!-- issue #194 — collapse THIS slice. A chevron rather than a click on the header,
+                     because the header already opens the drill-down and stealing that click would
+                     trade one navigation problem for another. -->
+                <button
+                  type="button"
+                  class="em-slice-collapse"
+                  :data-collapsed="slice.collapsed ? 'true' : undefined"
+                  :aria-expanded="slice.collapsed ? 'false' : 'true'"
+                  :title="slice.collapsed ? `Expand ${slice.name}` : `Collapse ${slice.name}`"
+                  @click.stop="toggleCollapsed(slice.name)"
+                >
+                  {{ slice.collapsed ? '›' : '‹' }}
+                </button>
                 <!-- bobcat#184 — what kind of thing triggers this slice, legible without reading. -->
                 <svg
                   v-if="triggerIconFor(slice.descriptor)"
@@ -604,6 +776,101 @@ function outcomeFor(sliceName: string): string | null {
   justify-content: flex-end;
   gap: 4px;
   padding: 4px 12px 0;
+}
+
+/* issue #194 — the filter bar. Same ink-and-opacity idiom as the zoom controls, so it reads as
+   one toolbar in either host's theme rather than as a widget bolted on. */
+.em-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+.em-filter-search {
+  min-width: 120px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.55;
+}
+.em-filter-search:focus {
+  opacity: 1;
+  outline: none;
+}
+.em-filter-domains {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.em-filter-chip {
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.em-filter-chip:hover {
+  opacity: 1;
+}
+/* An active chip inverts rather than merely brightening: at 106 slices a reader needs to see
+   what is ON at a glance, and "slightly less faded" is not a state anyone can read. */
+.em-filter-chip[data-on='true'] {
+  opacity: 1;
+  background: currentColor;
+}
+.em-filter-chip[data-on='true'] {
+  color: inherit;
+}
+.em-filter-chip[data-on='true']::after {
+  content: '';
+}
+.em-filter-count {
+  margin-left: auto;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+.em-filter-clear {
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.em-filter-clear:hover {
+  opacity: 1;
+}
+
+.em-slice-collapse {
+  flex: 0 0 auto;
+  padding: 0 3px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  opacity: 0.4;
+  cursor: pointer;
+}
+.em-slice-collapse:hover {
+  opacity: 1;
 }
 .em-zoom {
   min-width: 26px;

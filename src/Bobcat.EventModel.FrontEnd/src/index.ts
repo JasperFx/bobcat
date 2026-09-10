@@ -12,6 +12,13 @@ export {
   LABEL_TARGET_LINES,
   MAX_LABEL_LINES
 } from './layout'
+export {
+  domainsOf,
+  hiddenSliceNames,
+  isEmptyFilter,
+  matchesFilter
+} from './filters'
+export type { SliceFilter } from './filters'
 export { estimateTextWidth, requiredContentWidth, segmentLabel } from './text'
 export { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 export type {

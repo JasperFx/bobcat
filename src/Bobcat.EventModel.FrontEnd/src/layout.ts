@@ -45,6 +45,20 @@ export interface LayoutOptions {
   sliceGap?: number
   /** Slice names to collapse to a single placeholder column. */
   collapsedSlices?: ReadonlySet<string>
+
+  /**
+   * Slice names to omit from the layout entirely — no cards, no placeholder, no width.
+   *
+   * The distinction from {@link collapsedSlices} is the point (issue #194). A collapsed slice
+   * keeps a {@link COLLAPSED_WIDTH} placeholder so it stays findable, which is what a reader
+   * wants for one slice they put away. A hidden slice costs nothing at all, which is what a
+   * reader needs at 106 slices — the measured CritterWatch model is ~10,000px wide at the 25%
+   * zoom floor, and 106 placeholders would still be 5,000px of it.
+   *
+   * A name in both sets is hidden: hiding is the stronger statement, and rendering a placeholder
+   * for something the reader filtered out would put back the width they asked to remove.
+   */
+  hiddenSlices?: ReadonlySet<string>
 }
 
 export interface LaidOutNode {
@@ -220,6 +234,7 @@ export function layoutEventModel(
   const gapY = options.gapY ?? DEFAULTS.gapY
   const sliceGap = options.sliceGap ?? DEFAULTS.sliceGap
   const collapsed = options.collapsedSlices ?? new Set<string>()
+  const hidden = options.hiddenSlices ?? new Set<string>()
 
   const laneHeight = cardHeight + gapY
   const lanes: LaidOutLane[] = LANE_ORDER.map((lane, index) => ({
@@ -236,6 +251,10 @@ export function layoutEventModel(
   let cursorX = 0
 
   for (const slice of descriptor?.slices ?? []) {
+    // Hidden slices contribute nothing — not a node, not a placeholder, not a gap. Skipping
+    // before the cursor moves is what makes the canvas actually narrower.
+    if (hidden.has(slice.name)) continue
+
     const isCollapsed = collapsed.has(slice.name)
     const elements = isCollapsed ? [] : (slice.elements ?? [])
 
