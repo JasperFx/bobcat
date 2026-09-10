@@ -10,6 +10,11 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
+    <!-- A REAL broker, for issue #282's transport-isolation tests. The defect — messages a
+         scenario cascaded surviving the per-scenario reset and arriving inside the NEXT scenario —
+         has nowhere to happen on an in-memory transport, which is precisely why nothing in this
+         suite could see it. Gated by RabbitFactAttribute: skips off-CI without Docker, never on CI. -->
+    <PackageReference Include="WolverineFx.RabbitMQ" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="Shouldly" />
   </ItemGroup>

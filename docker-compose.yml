@@ -1,4 +1,4 @@
-# Local Postgres for the Bobcat Marten integration tests.
+# Local services for the Bobcat integration tests.
 #
 #   docker compose up -d
 #   dotnet test
@@ -21,3 +21,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # RabbitMQ for the transport-isolation tests (issue #282).
+  #
+  # A REAL broker, deliberately. The defect it exists to catch — messages a scenario cascaded
+  # surviving the per-scenario reset and being delivered inside the NEXT scenario — is invisible to
+  # an in-memory transport, because a local queue has nowhere to survive. That is exactly why it
+  # shipped: every sample either stubs the transport or does not cascade across one inside a
+  # scenario, so nothing in the suite could see it.
+  #
+  # 5683/15683 to sit beside any RabbitMQ you already run — the same reasoning as Postgres on 5445,
+  # and 5673 was already taken by a Wolverine emulator on this machine when it was picked.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "5683:5672"
+      - "15683:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 10s
+      retries: 12

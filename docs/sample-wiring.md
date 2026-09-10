@@ -424,3 +424,47 @@ follow-up), and JasperFx's own command-runner chatter under `AutoStartHost` (`Se
 commands`, `JasperFx cannot override the environment name …`) — that is `AnsiConsole` in JasperFx,
 not `ILogger`, and is not gated by `JasperFxEnvironment.RunQuiet` in 2.37.0; quieting it is a
 JasperFx change.
+
+### 17. A per-scenario reset clears the store but not the broker
+A scenario acts, its handler cascades, and those messages go to a **real** broker. The scenario
+ends, the resource's `reset` clears the document store and the envelope tables — and the messages
+already sitting on RabbitMQ survive it. They are delivered inside the *next* scenario, against a
+store that no longer holds what they refer to:
+
+```
+Expected a BookShipment message to be sent, but the act failed before its tracked session
+completed — AggregateException: (Unknown Shipment with identity 7760a001-…).
+```
+
+That id belongs to the **previous** scenario, so the natural reading is "the scenario that failed
+is broken" when the cause is the one before it. Issue #282.
+
+**Fix:** drain the transports where the store reset already goes.
+
+```csharp
+new HostResource<Program>(reset: async host =>
+{
+    await host.ResetStoreAsync();        // whatever the suite already did
+    await host.DrainTransportsAsync();   // …and the broker too
+});
+```
+
+`DrainTransportsAsync` stops the listeners, purges every `IBrokerQueue` the application declares,
+and restarts them. The listener bracket is not decoration: without it the purge races the
+consumers it is trying to make pointless, and a message pulled into an in-process buffer a moment
+early is past the reach of anything the broker can be told to do.
+
+- **Opt-in, not automatic**, for the same reason the store reset is: purging is destructive, and a
+  broker shared with something else — a developer watching a queue, a second application in a
+  modular monolith — must not be emptied without being asked.
+- **Safe when transports are stubbed.** An endpoint with nothing to purge is skipped rather than
+  failed, so the same reset line works in a suite that stubs its transports.
+- **It does not cover a cascade still in flight.** A message enqueued in Wolverine's *outbound*
+  buffer but not yet on the broker can be delivered after the purge — there was nothing to purge
+  when the reset ran. Acts that go through the tracked session (every shipped `When` step) already
+  wait for what they caused, which is what keeps that case rare.
+
+Why it stayed invisible until a real broker was in the suite: an in-memory transport has nowhere
+for a message to survive a reset. `Bobcat.Wolverine.Tests`' transport-isolation tests therefore
+take a real RabbitMQ (`docker compose up -d`, port 5683) rather than a stub — the same
+never-skip-on-CI rule as Postgres, because a silent pass there would rebuild the blind spot.

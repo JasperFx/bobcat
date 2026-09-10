@@ -28,8 +28,26 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # A REAL broker for the transport-isolation tests (issue #282). The defect they pin —
+      # messages a scenario cascaded surviving the per-scenario reset and being delivered inside
+      # the NEXT scenario — has nowhere to happen on an in-memory transport, which is exactly why
+      # it shipped: every sample either stubs the transport or does not cascade across one inside a
+      # scenario. RabbitFactAttribute skips off-CI without Docker and never here, for the same
+      # reason PostgresFactAttribute does not: a silent pass would rebuild the blind spot.
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        ports:
+          - 5683:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_running"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+
     env:
       BOBCAT_POSTGRES: "Host=localhost;Port=5445;Database=bobcat_test;Username=postgres;Password=postgres"
+      BOBCAT_RABBIT_HOST: "localhost"
+      BOBCAT_RABBIT_PORT: "5683"
       # Bobcat.Console.Specs (the viewer's end-to-end suite, collected by `dotnet test` below) is
       # itself a Bobcat spec host, and a spec host publishes its own progress to a viewer on
       # localhost:5525 when one answers. Nothing listens there on CI, so this only spares the
