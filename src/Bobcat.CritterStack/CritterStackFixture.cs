@@ -125,6 +125,69 @@ public abstract class CritterStackFixture : Fixture
     /// <summary>The exception the last act raised, or null when it succeeded — the subject of <see cref="ThenValidationFails"/>.</summary>
     protected Exception? LastError => LastExecution.Error;
 
+    /// <summary>
+    /// The tracked session an assertion needs, or a failure that says which of three different
+    /// things actually happened. Issue #271: these were one message —
+    /// <c>"but no command has run (or it failed)"</c> — which is a guess presented as a finding,
+    /// and it guessed at the reader's application when the truth was usually elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three states a missing session can mean, and why the difference is worth the code:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><b>Nothing acted.</b> The scenario has no <c>When</c> before this <c>Then</c>. Naming
+    /// both act vocabularies — the bus one and the HTTP one — is the whole point, because
+    /// <c>"no command has run"</c> is what a reader who just wrote an HTTP act reads as "Bobcat
+    /// cannot see my HTTP act", which is a bug report about composition rather than the missing
+    /// step it is.</item>
+    /// <item><b>An act ran and threw.</b> The exception is already captured on the
+    /// <see cref="TrackedExecution"/>, and the old message discarded it — so the one fact that
+    /// explains the failure was thrown away in favour of speculating about the application. This
+    /// is the case that reads worst over HTTP: the response was recorded (<c>Then the response is
+    /// 202</c> passes on it) and only the <em>tracked session</em> failed, so the endpoint
+    /// genuinely did work and the reader is told nothing ran.</item>
+    /// <item><b>An act ran and succeeded.</b> Return the session and let the real assertion
+    /// speak.</item>
+    /// </list>
+    /// </remarks>
+    private ITrackedSession requireSession(string expectation)
+    {
+        var execution = LastExecution;
+        if (execution.Session != null) return execution.Session;
+
+        if (execution.Error != null)
+            throw new SpecAssertionException(
+                $"{expectation}, but the act failed before its tracked session completed — " +
+                $"{execution.Error.GetType().Name}: {execution.Error.Message}." +
+                httpNote() +
+                " Nothing was sent, because the act did not finish.");
+
+        throw new SpecAssertionException($"{expectation}, but {noActRan()}");
+    }
+
+    /// <summary>
+    /// Says an act ran over HTTP when one did, so a reader whose <c>Then the response is …</c> just
+    /// passed is not told the act did not happen. The exchange is the HTTP grammar's own capture
+    /// and is recorded even when the tracked session then fails, which is exactly the split that
+    /// made issue #271 read as "the two grammars do not compose".
+    /// </summary>
+    private string httpNote()
+        => Context != null && Context.TryGetState<HttpExchange>(out var exchange)
+            ? $" The HTTP call itself completed: {exchange.Request.Method} '{exchange.Request.Url}' " +
+              $"returned {exchange.Response.StatusCode}, so the endpoint ran and the failure is in " +
+              "what it caused — a cascade that never landed, or a tracked session that timed out " +
+              "waiting for one."
+            : "";
+
+    /// <summary>
+    /// Names both act vocabularies. A fixture composing <c>HttpGrammars</c> has two ways to act and
+    /// only one of them is a "command", so a message naming a single one misdirects half its readers.
+    /// </summary>
+    private static string noActRan()
+        => "no act has run in this scenario — no 'When … is received' or 'When … is posted to …' " +
+           "step ran before this one.";
+
     private IStepContext Ctx => Context ?? throw new InvalidOperationException(
         "No IStepContext is set on the fixture — a CritterStack step ran outside a scenario.");
 
@@ -313,7 +376,7 @@ public abstract class CritterStackFixture : Fixture
                 LastError != null
                     ? $"Expected the command to be cleanly refused, but it threw: {LastError.Message}. " +
                       "A throwing refusal is what 'Then validation fails with …' describes."
-                    : "Expected the command to be refused, but no command has run.");
+                    : $"Expected the command to be refused, but {noActRan()}");
 
         if (LastEvents.Count > 0)
             throw new SpecAssertionException(
@@ -343,14 +406,12 @@ public abstract class CritterStackFixture : Fixture
         assert(document);
     }
 
-    /// <summary>Assert the last command sent a message of type <typeparamref name="T"/> (at least one).</summary>
+    /// <summary>Assert the last act sent a message of type <typeparamref name="T"/> (at least one).</summary>
     public void ThenMessagesSent<T>(int count = 1)
     {
-        if (LastSession == null)
-            throw new SpecAssertionException(
-                $"Expected {count} message(s) of type {typeof(T).Name} to be sent, but no command has run (or it failed).");
+        var session = requireSession($"Expected {count} message(s) of type {typeof(T).Name} to be sent");
 
-        var sent = LastSession.Sent.MessagesOf<T>().Count();
+        var sent = session.Sent.MessagesOf<T>().Count();
         if (sent < count)
             throw new SpecAssertionException(
                 $"Expected at least {count} message(s) of type {typeof(T).Name} to be sent, but {sent} were.");
@@ -601,14 +662,12 @@ public abstract class CritterStackFixture : Fixture
     [Then("{message} is sent")]
     public void ThenMessageIsSent(Type message)
     {
-        if (LastSession == null)
-            throw new SpecAssertionException(
-                $"Expected a {message.Name} message to be sent, but no command has run (or it failed).");
+        var session = requireSession($"Expected a {message.Name} message to be sent");
 
-        var sent = LastSession.Sent.AllMessages().Any(m => m.GetType() == message);
+        var sent = session.Sent.AllMessages().Any(m => m.GetType() == message);
         if (!sent)
             throw new SpecAssertionException(
-                $"Expected a {message.Name} message to be sent. Sent: {describe(LastSession.Sent.AllMessages())}");
+                $"Expected a {message.Name} message to be sent. Sent: {describe(session.Sent.AllMessages())}");
     }
 
     // ---- plumbing -----------------------------------------------------------------------------
