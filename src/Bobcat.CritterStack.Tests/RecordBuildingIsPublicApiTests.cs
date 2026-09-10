@@ -20,8 +20,10 @@ namespace Bobcat.CritterStack.Tests;
 public class RecordBuildingIsPublicApiTests
 {
     // The shape a grammar module written outside Bobcat actually has: a step text, a trailing
-    // table, and a runtime Type it must turn into an object.
-    public record Shipment(string Origin, string Destination, decimal WeightKg, string? Carrier = null);
+    // table, and a runtime Type it must turn into an object. Named Parcel rather than Shipment so
+    // it cannot collide by simple name with the document-lane sample (issue #270) — a {document}
+    // capture resolves by simple name across the whole compilation, and two of them is BOBCAT012.
+    public record Parcel(string Origin, string Destination, decimal WeightKg, string? Carrier = null);
 
     [Fact]
     public void RecordBuilding_is_reachable_from_outside_the_assembly()
@@ -49,7 +51,7 @@ public class RecordBuildingIsPublicApiTests
             ["Origin", "Destination", "WeightKg"],
             [["Dallas", "Austin", "12.5"]]);
 
-        var built = (Shipment)RecordBuilding.BuildAll(typeof(Shipment), table).Single();
+        var built = (Parcel)RecordBuilding.BuildAll(typeof(Parcel), table).Single();
 
         built.Origin.ShouldBe("Dallas");
         built.Destination.ShouldBe("Austin");
@@ -66,7 +68,7 @@ public class RecordBuildingIsPublicApiTests
             [["Dallas", "Austin", "12.5", "12.5"]]);
 
         var ex = Should.Throw<SpecCriticalException>(() =>
-            RecordBuilding.BuildAll(typeof(Shipment), table, "Given shipments exist"));
+            RecordBuilding.BuildAll(typeof(Parcel), table, "Given shipments exist"));
 
         // The point of sharing the helper: one typo message, not one per consumer's copy.
         ex.Message.ShouldContain("Wieght");
@@ -81,10 +83,10 @@ public class RecordBuildingIsPublicApiTests
             [["Dallas"], ["Austin"]]);
 
         // Non-partial refuses: an act's fields are the scenario's input (issue #241).
-        Should.Throw<SpecCriticalException>(() => RecordBuilding.BuildAll(typeof(Shipment), table));
+        Should.Throw<SpecCriticalException>(() => RecordBuilding.BuildAll(typeof(Parcel), table));
 
-        var arranged = RecordBuilding.BuildAll(typeof(Shipment), table, partial: true)
-            .Cast<Shipment>()
+        var arranged = RecordBuilding.BuildAll(typeof(Parcel), table, partial: true)
+            .Cast<Parcel>()
             .ToList();
 
         arranged.Select(s => s.Origin).ShouldBe(["Dallas", "Austin"]);

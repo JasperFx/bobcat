@@ -40,7 +40,7 @@
     read-only source the editors can parse and the compiler ignores. See docs/editor-integration.md.
   -->
   <ItemGroup>
-    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs">
+    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs;DocumentGrammars.cs">
       <Pack>true</Pack>
       <PackagePath>contentFiles/cs/any/Bobcat.CritterStack/</PackagePath>
       <BuildAction>None</BuildAction>
@@ -49,7 +49,7 @@
       <Visible>false</Visible>
     </Content>
     <!-- Also under content/ so a consumer can copy the grammar into their workspace for the editor. -->
-    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs">
+    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs;DocumentGrammars.cs">
       <Pack>true</Pack>
       <PackagePath>content/grammars/</PackagePath>
       <BuildAction>None</BuildAction>

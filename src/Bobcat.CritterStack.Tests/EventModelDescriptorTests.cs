@@ -27,7 +27,8 @@ public class EventModelDescriptorTests
         var model = describe();
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
         model.Slices.Select(s => s.Name).ShouldBe(
-            ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets", "OwnerWallets"],
+            ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets", "OwnerWallets",
+             "Shipments"],
             ignoreOrder: true);
     }
 
@@ -185,6 +186,26 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(6);
+        descriptor.Slices.Count.ShouldBe(7);
+    }
+
+    [Fact]
+    public void a_document_capture_stamps_no_event_modeling_role()
+    {
+        // Shipments.feature is the document lane (issue #270), against an application with no
+        // event store. It reaches the model at all because it genuinely declares Event Modeling
+        // elements — a command is posted, a message is sent — and untagged scenarios with roles
+        // fall back to the feature title.
+        var shipments = slice("Shipments");
+
+        shipments.CommandType!.Name.ShouldBe(nameof(ShipmentRequest));
+
+        // …but {document} is NOT one of them. A document-backed application has no stream, and
+        // stamping an aggregate, event or read model for it would put elements on the canvas that
+        // describe nothing. Inert by construction: EventModelEmitter switches on the role words
+        // and lets {document} fall through, exactly as it does {type}.
+        shipments.AggregateTypes.ShouldBeEmpty();
+        shipments.EmittedEvents.ShouldBeEmpty();
+        shipments.ReadModelTypes.ShouldBeEmpty();
     }
 }
