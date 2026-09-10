@@ -152,6 +152,11 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
+                // Issue #259: the parser has already inlined every arrangement reference. What it
+                // could not judge without the fixture is whether an arrangement's name is also a
+                // real step, which would make every reference to it mean two things.
+                if (!arrangementsAreSound(feature, fixture, grammars, spc)) continue;
+
                 try
                 {
                     if (!validateHooks(fixture, spc)) continue;
@@ -1112,6 +1117,19 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
+                // Issue #259: a reference is ordinary step text, so a misspelled one is just an
+                // unmatched step — unless it is close to a name the feature declares, in which case
+                // saying which arrangement it missed is the useful error.
+                var nearest = Arrangements.NearestName(feature, step.Text);
+                if (nearest != null)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.UnknownArrangement, Microsoft.CodeAnalysis.Location.None,
+                        step.Text, fixture.ClassName, feature.Title, nearest));
+                    hasErrors = true;
+                    continue;
+                }
+
                 spc.ReportDiagnostic(Diagnostic.Create(
                     Diagnostics.UnmatchedStep,
                     Microsoft.CodeAnalysis.Location.None,
@@ -1123,6 +1141,50 @@ public class BobcatGenerator : IIncrementalGenerator
         }
 
         return hasErrors ? null : matched;
+    }
+
+    /// <summary>
+    /// Reports every reason the feature's <c>@arrangement</c> scenarios could not be expanded as
+    /// BOBCAT022 — the parser's findings, plus the one only the fixture can settle: an arrangement
+    /// whose name is also a real step's text, which would make every reference to it mean two
+    /// things. A false return suppresses the feature, so the diagnostic is not buried under the
+    /// unmatched steps an unexpanded reference would otherwise produce.
+    /// </summary>
+    private static bool arrangementsAreSound(FeatureInfo feature, FixtureInfo fixture,
+        ImmutableArray<TableGrammarInfo> grammars, SourceProductionContext spc)
+    {
+        var problems = new List<string>(feature.ArrangementProblems);
+
+        foreach (var arrangement in feature.Arrangements)
+        {
+            var probe = new StepInfo { Keyword = "Given", ResolvedKeyword = "Given", Text = arrangement.Name };
+
+            string? binds;
+            try
+            {
+                binds = StepMatcher.Match(probe, fixture)?.Method.MethodName
+                        ?? StepMatcher.MatchTableGrammar(probe, grammars)?.Grammar.ClassName;
+            }
+            catch (InvalidOperationException)
+            {
+                binds = "more than one step";
+            }
+
+            if (binds != null)
+            {
+                problems.Add(
+                    $"the arrangement '{arrangement.Name}' has the same text as the step '{binds}' on fixture " +
+                    $"'{fixture.ClassName}', so a reference to it would mean two things — rename the arrangement");
+            }
+        }
+
+        foreach (var problem in problems)
+        {
+            spc.ReportDiagnostic(Diagnostic.Create(
+                Diagnostics.InvalidArrangement, Microsoft.CodeAnalysis.Location.None, feature.Title, problem));
+        }
+
+        return problems.Count == 0;
     }
 
     /// <summary>
@@ -1675,6 +1737,25 @@ internal static class Diagnostics
         "Step '{0}' has no trailing data table, but the method '{1}' it binds declares a non-nullable " +
         "Bobcat.StepTable parameter. Add the table, or declare the parameter as 'StepTable?' if the step " +
         "is meant to work without one.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor UnknownArrangement = new(
+        "BOBCAT021",
+        "Step names no arrangement",
+        "Step '{0}' matches no step on fixture '{1}' and no arrangement in feature '{2}', but is close to " +
+        "the arrangement '{3}'. An arrangement is referenced by its exact name (case-insensitive) — did you " +
+        "mean '{3}'?",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor InvalidArrangement = new(
+        "BOBCAT022",
+        "Arrangement cannot be expanded",
+        "Feature '{0}': {1}. An @arrangement scenario is a named list of Given steps, inlined wherever a " +
+        "Given step's text is its name; it never runs as a test of its own.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

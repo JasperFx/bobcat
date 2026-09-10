@@ -118,6 +118,31 @@ for `@` identifiers afterwards and give those a real name instead — `testsInCl
 ### Fixture → Feature Mapping
 One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
 
+### Named arrangements (`@arrangement`, issue #259)
+A scenario tagged `@arrangement` is a **named list of Given steps that never runs as a test**;
+wherever a Given step's text is exactly its name (case-insensitive), the parser inlines its steps
+in place (`Arrangements.Expand`, end of `SimpleGherkinParser.Parse`). Chosen over `Background:`
+(one prefix per feature — the BookingAppointments chapter needs three overlapping ones) and over a
+C# `[Given]` method (moves the history out of the document and renders one opaque step). Valid
+Gherkin, no new keyword.
+
+- **Expansion is before step matching**, so inlined steps bind, resolve captures (a misspelled
+  event is still BOBCAT011) and stamp Event Modeling roles **exactly as if written longhand** —
+  which is why arranged `{event}`s stamp no role (the Given demotion) and an arrangement never has
+  a spec identity (it is not in `FeatureInfo.Scenarios`). The report shows the inlined steps, not
+  the name.
+- **Given only, referenced only from a Given**: an arrangement is history, so it can never supply
+  a scenario's act or the `When` the Event Model reads as the slice's command. Composition (one
+  arrangement referencing another) is allowed; cycles, duplicate names, a Scenario Outline, a
+  reference carrying a table/doc string, and a name that is also a real step's text are all
+  **BOBCAT022** and suppress the feature. The stream is the scenario's: `Given no events for X
+  "id"` comes first, and an arrangement referenced with no stream open fails at run time with
+  `GivenEventOccurred`'s "precede it with Given no events for …" critical error.
+- **A misspelled reference is BOBCAT021** ("did you mean …"), but only when it is within a small
+  edit distance of a declared name — a reference is ordinary step text, so a typo far from every
+  name is indistinguishable from any other unmatched step and stays BOBCAT002.
+- Scope is the feature file.
+
 ### Step discovery walks base classes — base class *or* `[IncludeGrammars]`, both ship (issue #104)
 The generator discovers `[Given]/[When]/[Then]/[Check]` methods declared on a fixture **and on its
 base classes**, stopping at `Bobcat.Fixture`/`object` (`BobcatGenerator.collectStepsAndHooks`). This

@@ -95,6 +95,48 @@ Feature: Wallet
       | Balance |
       | 50      |
 
+  # Named arrangements (issue #259): an @arrangement scenario is a named list of Given steps that
+  # never runs as a test. The generator inlines it wherever a Given step's text is its name, so the
+  # two scenarios below arrange history without restating it — and the second arrangement builds
+  # on the first. Neither names a WalletId: arranged history is partial (#241), and leaving the id
+  # out is what lets two scenarios on two different streams share one arrangement.
+  @arrangement
+  Scenario: an open wallet for Hal
+    Given WalletOpened occurred
+      | Owner |
+      | Hal   |
+
+  @arrangement
+  Scenario: Hal's wallet with 40 credited
+    Given an open wallet for Hal
+    And WalletCredited occurred
+      | Amount |
+      | 40     |
+
+  @slice:CreditWallet
+  Scenario: A wallet with prior events keeps accumulating, arranged by name
+    Given no events for Wallet "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    And Hal's wallet with 40 credited
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa | 10     |
+    Then WalletCredited is emitted
+    And the WalletSummary read model contains
+      | Balance |
+      | 50      |
+
+  @slice:CreditWallet
+  Scenario: A first credit to an open wallet, arranged by name
+    Given no events for Wallet "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    And an open wallet for Hal
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | 25     |
+    Then WalletCredited is emitted
+    And the WalletSummary read model contains
+      | Balance |
+      | 25      |
+
   # The clean-refusal railway (issue #168): the handler's Before returns HandlerContinuation.Stop,
   # so nothing throws — "validation fails with" cannot describe this handler, and the reason-less
   # "the command is refused" is its vocabulary.

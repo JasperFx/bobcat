@@ -20,6 +20,20 @@ public class FeatureInfo
     /// "\n"; null when there are none. Carries the <c>Triggered by …</c> declaration.
     /// </summary>
     public string? Description { get; set; }
+
+    /// <summary>
+    /// The feature's <c>@arrangement</c> scenarios (issue #259): named lists of Given steps that
+    /// never run as tests. By the time parsing returns, every reference to one in
+    /// <see cref="Scenarios"/> has already been replaced by its steps — this list survives only so
+    /// the generator can report on the arrangements themselves. See <see cref="Arrangements"/>.
+    /// </summary>
+    public List<ArrangementInfo> Arrangements { get; set; } = new();
+
+    /// <summary>
+    /// Why the feature's arrangements could not be expanded, one sentence each; empty when they
+    /// could. The generator reports each as BOBCAT022 and emits nothing for the feature.
+    /// </summary>
+    public List<string> ArrangementProblems { get; set; } = new();
 }
 
 public class ScenarioInfo
@@ -34,6 +48,13 @@ public class ScenarioInfo
     /// belongs here and wins over the feature's (issue #258).
     /// </summary>
     public string? Description { get; set; }
+}
+
+/// <summary>A named arrangement: an <c>@arrangement</c> scenario's title and steps, as written.</summary>
+public class ArrangementInfo
+{
+    public string Name { get; set; } = "";
+    public List<StepInfo> Steps { get; set; } = new();
 }
 
 public class StepInfo
