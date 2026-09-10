@@ -45,6 +45,11 @@ public static class CucumberExpressionParser
         // exists so `Given Shipments` reads as a document rather than as the generic
         // `Given documents of type Shipment` that {type} forces.
         ["document"] = (TypeNameRegex, TypeCSharpType),
+        // {saga} is Wolverine's saga vocabulary (issue #281), and inert in EventModelEmitter for the
+        // same reason as {document}: a saga's state is not an aggregate, an event or a read model,
+        // and a wrong element on the canvas is worse than a missing one. It earns its own word so
+        // a misspelled saga is BOBCAT011 at build and the step reads as a saga, not a {type}.
+        ["saga"] = (TypeNameRegex, TypeCSharpType),
     };
 
     /// <summary>A simple or dotted type name: <c>Account</c>, <c>Banking.Account</c>, <c>Outer+Nested</c>.</summary>
