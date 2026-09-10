@@ -1,0 +1,93 @@
+using System.Reflection;
+using Bobcat;
+using Bobcat.Engine;
+using Bobcat.CritterStack;
+using Shouldly;
+
+namespace Bobcat.CritterStack.Tests;
+
+/// <summary>
+/// Issue #272: <see cref="RecordBuilding"/> is public API, because <c>[IncludeGrammars]</c> is the
+/// designed extension point and any custom grammar taking a <see cref="StepTable"/> needs exactly
+/// this conversion.
+/// </summary>
+/// <remarks>
+/// The accessibility is asserted by reflection rather than by the tests merely compiling, because
+/// this project has <c>InternalsVisibleTo</c> — it would compile against an <c>internal</c> class
+/// just as happily, which is how the surface could silently close again. The consumer that matters
+/// is outside the Bobcat assemblies and has no such grant.
+/// </remarks>
+public class RecordBuildingIsPublicApiTests
+{
+    // The shape a grammar module written outside Bobcat actually has: a step text, a trailing
+    // table, and a runtime Type it must turn into an object.
+    public record Shipment(string Origin, string Destination, decimal WeightKg, string? Carrier = null);
+
+    [Fact]
+    public void RecordBuilding_is_reachable_from_outside_the_assembly()
+    {
+        typeof(RecordBuilding).IsPublic.ShouldBeTrue(
+            "a custom [IncludeGrammars] module lives outside Bobcat and has no InternalsVisibleTo grant");
+    }
+
+    [Fact]
+    public void Build_and_BuildAll_are_both_part_of_that_surface()
+    {
+        var members = typeof(RecordBuilding)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Select(m => m.Name)
+            .ToList();
+
+        members.ShouldContain(nameof(RecordBuilding.Build));
+        members.ShouldContain(nameof(RecordBuilding.BuildAll));
+    }
+
+    [Fact]
+    public void a_custom_grammar_can_build_a_row_the_way_the_shipped_ones_do()
+    {
+        var table = new StepTable(
+            ["Origin", "Destination", "WeightKg"],
+            [["Dallas", "Austin", "12.5"]]);
+
+        var built = (Shipment)RecordBuilding.BuildAll(typeof(Shipment), table).Single();
+
+        built.Origin.ShouldBe("Dallas");
+        built.Destination.ShouldBe("Austin");
+        built.WeightKg.ShouldBe(12.5m);
+        // A trailing optional needs no column — the same rule the shipped grammars get.
+        built.Carrier.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_conventions_a_custom_grammar_inherits_include_the_unmatched_column_message()
+    {
+        var table = new StepTable(
+            ["Origin", "Destination", "WeightKg", "Wieght"],
+            [["Dallas", "Austin", "12.5", "12.5"]]);
+
+        var ex = Should.Throw<SpecCriticalException>(() =>
+            RecordBuilding.BuildAll(typeof(Shipment), table, "Given shipments exist"));
+
+        // The point of sharing the helper: one typo message, not one per consumer's copy.
+        ex.Message.ShouldContain("Wieght");
+        ex.Message.ShouldContain("Given shipments exist");
+    }
+
+    [Fact]
+    public void BuildAll_carries_the_partial_arrange_rule_through_to_every_row()
+    {
+        var table = new StepTable(
+            ["Origin"],
+            [["Dallas"], ["Austin"]]);
+
+        // Non-partial refuses: an act's fields are the scenario's input (issue #241).
+        Should.Throw<SpecCriticalException>(() => RecordBuilding.BuildAll(typeof(Shipment), table));
+
+        var arranged = RecordBuilding.BuildAll(typeof(Shipment), table, partial: true)
+            .Cast<Shipment>()
+            .ToList();
+
+        arranged.Select(s => s.Origin).ShouldBe(["Dallas", "Austin"]);
+        arranged.ShouldAllBe(s => s.Destination == null);
+    }
+}

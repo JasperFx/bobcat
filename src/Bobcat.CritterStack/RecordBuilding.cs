@@ -14,7 +14,23 @@ namespace Bobcat.CritterStack;
 /// primary constructor; a settable-property object is the fallback. Cells convert with the same
 /// rules a Gherkin literal uses everywhere else in Bobcat.
 /// </summary>
-internal static class RecordBuilding
+/// <remarks>
+/// <para>
+/// <b>Public because <c>[IncludeGrammars]</c> is the designed extension point</b> (issue #272).
+/// Any custom grammar module that declares a <see cref="StepTable"/> parameter needs exactly this
+/// conversion, and while it was <c>internal</c> every one of them had to hand-roll a poorer copy —
+/// each with its own type coercion, its own treatment of a blank cell, and its own message when a
+/// column matches nothing. That is precisely the divergence issue #241 spent effort removing from
+/// the shipped grammars, reintroduced once per consumer.
+/// </para>
+/// <para>
+/// Being public also means the shipped conventions are what a custom grammar inherits for free:
+/// the partial-row rule, the empty-cell rule, and the "a column matching no parameter is refused
+/// by name" message all come along, so a hand-written grammar and a shipped one fail the same way
+/// over the same table.
+/// </para>
+/// </remarks>
+public static class RecordBuilding
 {
     /// <summary>
     /// Construct one instance of <paramref name="type"/> from a header → cell map. Prefers the public
@@ -157,8 +173,16 @@ internal static class RecordBuilding
     }
 
     /// <summary>Build one object per <see cref="StepTable"/> row, all of the same <paramref name="type"/>.</summary>
-    public static IReadOnlyList<object> BuildAll(Type type, StepTable table)
-        => table.AsDictionaries().Select(row => Build(type, row)).ToList();
+    /// <param name="step">
+    /// The step text, so a failure names the step the reader has to go and fix rather than only the
+    /// type. Optional, but a grammar that has it should pass it.
+    /// </param>
+    /// <param name="partial">
+    /// Arranging rather than acting — see <see cref="Build"/>. Applies to every row.
+    /// </param>
+    public static IReadOnlyList<object> BuildAll(Type type, StepTable table, string? step = null,
+        bool partial = false)
+        => table.AsDictionaries().Select(row => Build(type, row, step, partial)).ToList();
 }
 
 /// <summary>

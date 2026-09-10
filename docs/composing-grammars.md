@@ -75,6 +75,45 @@ steps publish the `ScenarioStream` being arranged, and every store assertion rea
 capture — which is what lets a *different* grammar's act feed `Then {event} is emitted`
 unchanged.
 
+## Building an object from a table row
+
+A grammar that takes a `StepTable` almost always has to turn each row into an object, and
+`Bobcat.CritterStack.RecordBuilding` is that conversion — the same one every shipped grammar
+uses, and public API for exactly this reason (issue #272):
+
+```csharp
+[Given("shipments exist")]
+public void GivenShipments(StepTable rows)
+{
+    foreach (var shipment in RecordBuilding.BuildAll(typeof(Shipment), rows,
+                                                     "Given shipments exist", partial: true))
+    {
+        // …
+    }
+}
+```
+
+`Build` takes one header → cell map; `BuildAll` does one object per row. Records land on their
+primary constructor, a settable-property object is the fallback, and cells convert with the same
+rules a Gherkin literal uses everywhere else in Bobcat.
+
+Two arguments are worth passing rather than defaulting:
+
+- **`step`** — the step text, so a failure names the step the reader has to go and fix, not just
+  the type.
+- **`partial`** — `true` when the step is *arranging* history and `false` when it is performing an
+  act. A `Given` names the fields the behaviour depends on and leaves the rest of a six-field event
+  alone; a command's fields **are** the scenario's input, so a missing one is a spec that tests
+  something other than what it says (issue #241).
+
+Use it rather than hand-rolling. A private `bindRow` in each module is how the type coercion, the
+treatment of a blank cell, and the message when a column matches nothing diverge once per
+consumer — the divergence #241 spent effort removing from the shipped grammars. Sharing the helper
+means a hand-written grammar and a shipped one fail the same way over the same table, including
+the "the column [Wieght] matches nothing on 'Shipment'" typo message, the empty-unmatched-cell
+rule that lets one table carry rows of several shapes, and the trailing-optional rule that lets a
+column be omitted when the constructor has a default.
+
 ## The HTTP lane: `CritterStackHttpFixture`
 
 The shipped grammar's `When {command} is received` dispatches over the message bus, which only
