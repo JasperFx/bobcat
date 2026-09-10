@@ -16,9 +16,21 @@ public static class GeneratorHarness
 {
     public sealed record RunOutcome(
         ImmutableArray<Diagnostic> Diagnostics,
-        GeneratorDriverRunResult Result)
+        GeneratorDriverRunResult Result,
+        Compilation Compilation)
     {
         public IEnumerable<Diagnostic> WithId(string id) => Diagnostics.Where(d => d.Id == id);
+
+        /// <summary>
+        /// Compiler errors from the source PLUS everything the generator emitted. A generator can
+        /// produce no diagnostics of its own and still write a file that does not parse, which is
+        /// exactly what issue #269 was: `namespace &lt;global namespace&gt;;` and 14 CS errors in a
+        /// file the author never wrote and cannot edit.
+        /// </summary>
+        public IReadOnlyList<Diagnostic> CompilationErrors =>
+            Compilation.GetDiagnostics()
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .ToList();
 
         public string GeneratedSource(string hintContains)
             => Result.Results
@@ -45,9 +57,9 @@ public static class GeneratorHarness
             [new BobcatGenerator().AsSourceGenerator()],
             additionalTexts: featureFiles.Select(f => (AdditionalText)new FeatureText(f.Path, f.Content)));
 
-        var ran = driver.RunGenerators(compilation);
+        var ran = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out _);
         var result = ran.GetRunResult();
-        return new RunOutcome(result.Diagnostics, result);
+        return new RunOutcome(result.Diagnostics, result, updated);
     }
 
     private static ImmutableArray<MetadataReference> referenceSet()
