@@ -13,8 +13,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # This job runs the full suite before packing, so it needs the same database the
-    # Marten integration tests use.
+    # This job runs the full suite before packing, so it needs the same infrastructure the test
+    # job has: the database the Marten integration tests use, and the real broker the
+    # transport-isolation tests use (issue #282). Both fact attributes refuse to skip on CI, so a
+    # service missing here fails the release rather than quietly passing. The broker was added to
+    # tests.yml by #282 and not here, which would have failed the v0.19.0 tag at its test step.
     services:
       postgres:
         image: postgres:16-alpine
@@ -30,8 +33,22 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        ports:
+          - 5683:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_running"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+
     env:
       BOBCAT_POSTGRES: "Host=localhost;Port=5445;Database=bobcat_test;Username=postgres;Password=postgres"
+      BOBCAT_RABBIT_HOST: "localhost"
+      BOBCAT_RABBIT_PORT: "5683"
+      # Same as tests.yml: spec hosts in the suite would otherwise probe for a viewer on 5525.
+      BOBCAT_MONITOR: "0"
 
     steps:
       - uses: actions/checkout@v4
