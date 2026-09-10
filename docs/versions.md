@@ -10,75 +10,97 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.30.1` |
-| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.30.0` |
-| Event store (SQLite, inner loop) | `Fisher` | `1.0.4` |
-| Event store (SQL Server) | `Polecat` | `5.20.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.56.0` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.35.0` |
+| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.33.0` |
+| Event store (SQLite, inner loop) | `Fisher` | `1.3.0` |
+| Event store (SQL Server) | `Polecat` | `5.25.0` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.67.1` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
 
-## One deliberate exception: `samples/BankAccountES` on WolverineFx 6.31.0
+## The samples now target the canonical set
 
-`samples/BankAccountES` pins **WolverineFx 6.31.0**, one release above the canonical set, because
-`Wolverine.CritterWatch 1.0.2-vehicle.1` — the client the #172 fourth-rung vehicle needs — floors
-there. `src/` deliberately did **not** follow, and the reason is the same trap
-`Directory.Packages.props` already records for 6.30.2+:
+The standing exception — `samples/BankAccountES` on WolverineFx 6.31.0 while `src/` stayed on
+6.30.1 — is **gone**. It existed because `Wolverine.CritterWatch 1.0.2-vehicle.1` floors at
+6.31.0, and following it in `src/` would have forced JasperFx above 2.56.0. JasperFx has now
+moved to 2.67.1 for its own reason (below), so the whole set re-aligned above the client's floor
+and the gap closed with it. That was issue **#191**.
 
-```
-WolverineFx 6.31.0  →  JasperFx / JasperFx.Events / JasperFx.SourceGenerator 2.57.2
-```
-
-That is above this repo's 2.56.0, so taking it means re-aligning the whole set — every store has
-to resolve one `JasperFx.Events` or the event types stop unifying — and re-checking the
-duplicate-bundled-source-generator workaround against the new store packages. A #125-class bump
-with its own verification, tracked as **issue #191**, not something to fold into a release.
-
-The exception is safe because the sample is a *consumer* of the Bobcat packages, not part of the
-shipped set: it resolves its own Wolverine and Bobcat's libraries do not care which one it got. It
-is recorded here rather than left silent because "samples target the canonical set" (issue #8) is
-otherwise a claim this repo would be quietly breaking.
+The other samples still pin WolverineFx 6.29.1 and resolve their own stores. They are standalone
+consumers with no `ProjectReference` to Bobcat, so they never see this repo's JasperFx and the
+load-order rule below does not reach them. `BankAccountES` is the one sample that *does* link
+against the Bobcat projects, which is exactly why it is the one that must track the set.
 
 ## Why these versions line up
 
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.30.1  →  Marten 9.23.0+   →  JasperFx(.Events) 2.56.0  (Marten 9.30.0's floor)
-WolverineFx.Fisher 6.30.1  →  Fisher 1.0.2+    →  JasperFx(.Events) 2.56.0  (Fisher 1.0.4's floor)
-WolverineFx 6.30.1         →  JasperFx(.Events) 2.56.0
-Polecat 5.20.0             →  JasperFx(.Events) 2.56.0
+WolverineFx.Marten 6.35.0  →  Marten 9.32.1+   →  JasperFx(.Events) 2.67.0  (Marten 9.33.0's floor)
+WolverineFx.Fisher 6.35.0  →  Fisher 1.2.0+    →  JasperFx(.Events) 2.67.0  (Fisher 1.3.0's floor)
+WolverineFx 6.35.0         →  JasperFx(.Events) 2.66.1
+Polecat 5.25.0             →  JasperFx(.Events) 2.67.0
 ```
 
-So the entire `WolverineFx.*` family must be **6.30.1**, Marten at least **9.23.0** and
-`JasperFx` exactly **2.56.0** (every current member floors at 2.56.0) for a single,
-conflict-free `JasperFx` to satisfy everything. Mixing (e.g. WolverineFx 5.30.x with Marten 9.x)
-splits `JasperFx`/`JasperFx.Events` across major lines and the event types (`IEvent`, etc.) no
-longer unify.
+Every floor is at or below the pin, so taking the newest of each still lands on a single
+`JasperFx.Events` (2.67.1) — the property that matters, because the event types (`IEvent`, etc.)
+only unify when every package resolves the same one. Mixing (e.g. WolverineFx 5.30.x with
+Marten 9.x) splits `JasperFx`/`JasperFx.Events` across major lines and they no longer unify.
 
-⚠️ **WolverineFx 6.30.2 and 6.30.3 raise the JasperFx floor to 2.57.1** — taking either means
-moving the whole set's JasperFx, which is why the pin sits at 6.30.1 (also CritterWatch's proven
-pin). Check that property again on the next bump rather than assuming newest-of-each always
-preserves it (the nuspec `dependencies` groups on `api.nuget.org/v3-flatcontainer/<id>/<version>/<id>.nuspec`
-are the source of truth; the check that produced this table is recorded in
-`src/Directory.Packages.props`).
+### ⚠️ A floor constrains resolution, not the vtable
+
+This is the rule the 2026-09-09 bump was taught the hard way, and it is the thing to read before
+moving `JasperFx` on its own again.
+
+JasperFx moving alone *looked* safe: every store declares it only as a floor (`>= 2.56.0`), so
+2.67.1 satisfies them all and one JasperFx.Events still serves everyone. Resolution was indeed
+fine. Loading was not:
+
+```
+System.TypeLoadException: Method 'QueryStreamStates' in type 'Marten.Events.QueryEventStore'
+from assembly 'Marten, Version=9.30.0.0' does not have an implementation.
+```
+
+JasperFx.Events 2.67 added `QueryStreamStates` to `IReadOnlyEventStore` as an **abstract**
+member. A store compiled against 2.56.0 has no slot for it, so the type fails to load the first
+time anything opens a session — for Bobcat, every arrange step. It took out Marten 9.30.0 and
+Fisher 1.0.4 identically: 13 failures in `Bobcat.CritterStack.Tests`, 3 in `Bobcat.Marten.Tests`,
+9 in `Bobcat.CodeFirst.Samples`, and the `BankAccountES`-on-Fisher leg in the samples build.
+
+A nuspec cannot predict this: `>= 2.56.0` means the store can run against 2.67.1 *for members
+that existed when it was built*. An interface gaining an abstract member is a runtime break for
+every implementer. **The only safe signal is that the store itself was built against the JasperFx
+you are pinning** — which is why Marten 9.33.0, Fisher 1.3.0 and Polecat 5.25.0 are the versions
+here: each is compiled against JasperFx 2.67.0, so each necessarily implements whatever 2.67 made
+abstract. WolverineFx is exempt from the rule; it implements none of the event-store interfaces.
+
+The mirror-image hazard runs the other way and is why the set moves as a **unit**. On
+CritterWatch's bump, `EventQuery.TagValues` joined `EventQueryFilters.All`: a store *rebuilt*
+against a newer JasperFx without implementing the filter would **claim** it and silently return
+unfiltered results. Enum constants inline at compile time, so old stores were safe from that one
+precisely by being old — the property this bump gives up. Watch for event queries returning too
+much, not for an exception.
 
 Two wrinkles worth knowing:
 
-- Weasel unifies cleanly on this set: Marten 9.30.0 and Fisher 1.0.4 both floor their Weasel
-  packages at 9.27.0 (the earlier 9.24.0/9.25.1 skew is gone).
-- Marten 9.30.0 and Fisher 1.0.4 bundle the **byte-identical** `JasperFx.Events.SourceGenerator`
-  inside their own nupkgs, so a project referencing both stores loads the generator twice and
-  every projection's `Evolver` partial is emitted twice (CS0433 — jasperfx#462). The fix, ported
-  from CritterWatch: a `DropDuplicateBundledEventSourceGenerator` target drops every store-bundled
-  copy and the project references the centrally-pinned `JasperFx.Events.SourceGenerator` as an
-  explicit analyzer, so the generator always matches the runtime. `Bobcat.CritterStack.Tests`
-  carries the pattern.
+- Weasel unifies cleanly on this set: Marten 9.33.0 floors Weasel at 9.31.1, Fisher 1.3.0 at
+  9.31.0, so `Weasel.Storage` resolves to 9.31.1 for both.
+- Marten and Fisher each bundle `JasperFx.Events.SourceGenerator` inside their own nupkgs, so a
+  project referencing both stores loads the generator twice and every projection's `Evolver`
+  partial is emitted twice (CS0433 — jasperfx#462). The fix, ported from CritterWatch: a
+  `DropDuplicateBundledEventSourceGenerator` target drops every store-bundled copy and the project
+  references one explicit `JasperFx.Events.SourceGenerator` as an analyzer, so the generator always
+  matches the runtime. `Bobcat.CritterStack.Tests` and `samples/BankAccountES` both carry it.
+  Note the trap: on the previous set the two bundled copies were **byte-identical** and deduped
+  themselves, so `BankAccountES` compiled without the target. Moving the stores to different
+  JasperFx builds is what made them differ — a bump can therefore *introduce* CS0433 in a project
+  that never had it.
 
 ### History
 
 | Date | Set | Why |
 |------|-----|-----|
+| 2026-09-09 | WolverineFx 6.35.0 / Marten 9.33.0 / JasperFx 2.67.1 / Fisher 1.3.0 / Polecat 5.25.0 | CritterWatch#1212 needs partial Event Model descriptors to round-trip (jasperfx#807, in 2.67.1). JasperFx was moved alone first and broke every store at runtime — `IReadOnlyEventStore.QueryStreamStates` became abstract in 2.67 — so the whole set re-aligned onto stores built against 2.67.0. Closes the samples/src pin gap (#191). |
 | 2026-08-28 | WolverineFx 6.30.1 / Marten 9.30.0 / JasperFx 2.56.0 / Fisher 1.0.4 / Polecat 5.20.0 | Issue #172: the four-source event-model vehicle needs Wolverine ≥ 6.30.1 (chains carry EM roles, `event-model` export with a push URL). JasperFx had already moved to 2.56.0 for descriptor provenance (jasperfx#703/#704). |
 | 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. (JasperFx then moved alone to 2.54.0 for #106's descriptor, and to 2.56.0 for provenance — floors permitted the solo moves.) |
 | 2026-08 | WolverineFx 6.24.2 / Marten 9.22.0 / JasperFx 2.37.0 | Recovery hints (`JasperFx.Testing`, issue #63) needed JasperFx 2.37.0. |

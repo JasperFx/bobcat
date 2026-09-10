@@ -149,15 +149,36 @@ public class EventModelStoreTests : IDisposable
     [Fact]
     public void a_corrupt_document_on_disk_does_not_stop_the_console_booting()
     {
-        // Best-effort by design: Read() has always handed the bytes back untouched whatever they
-        // are, and recovering the NAME must not be the thing that turns a bad file into a crash.
+        // Best-effort by design: a bad file on disk must not turn into a crash on the way up.
         Directory.CreateDirectory(_dataPath);
         File.WriteAllText(Path.Combine(_dataPath, "event-model.json"), "{ this is not json");
 
         var store = new EventModelStore(_dataPath);
 
         store.Name.ShouldBeNull();
-        store.Read().ShouldBe("{ this is not json");
+
+        // ⚠️ This used to assert Read() handed the corrupt bytes back UNTOUCHED. It cannot any
+        // more, and that is a consequence rather than a regression: Read() merges the sources
+        // (CritterWatch#1212), and merging means parsing, so a document that does not parse cannot
+        // participate. The stated intent of this test — the console still boots — is unchanged.
+        store.Read().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The other half of the same change: one corrupt source must not take the parseable ones with
+    /// it. This is what the merge buys that verbatim passthrough could not.
+    /// </summary>
+    [Fact]
+    public void a_corrupt_source_does_not_suppress_the_ones_that_parse()
+    {
+        Directory.CreateDirectory(_dataPath);
+        new EventModelStore(_dataPath).TryStore(wallets).ShouldBeNull();
+        File.WriteAllText(Path.Combine(_dataPath, "event-model.rubbish.json"), "{ this is not json");
+
+        var store = new EventModelStore(_dataPath);
+
+        store.Name.ShouldBe("Wallets");
+        store.Read().ShouldNotBeNull();
     }
 
 }
