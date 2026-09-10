@@ -148,7 +148,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     spc.ReportDiagnostic(Diagnostic.Create(
                         Diagnostics.NoMatchingFixture,
                         Microsoft.CodeAnalysis.Location.None,
-                        feature.Title));
+                        feature.Title, conventionAdviceFor(feature.Title)));
                     continue;
                 }
 
@@ -1415,6 +1415,52 @@ public class BobcatGenerator : IIncrementalGenerator
         return false;
     }
 
+    /// <summary>
+    /// What to actually tell someone whose feature bound to nothing. Issue #273: the old message
+    /// pasted "Fixture" onto the feature title, and following it did not clear the diagnostic.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Convention matching runs the other way — class name, minus a trailing "Fixture", split on
+    /// camel humps by <see cref="deriveTitle"/> — so title and class name are inverses only when
+    /// the title's spaces already sit exactly where the humps are. Two common titles where they
+    /// do not:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>BookingShipments</c> was told to write <c>BookingShipmentsFixture</c>, which
+    /// derives back to "Booking Shipments" and matches nothing. That is the case in the report:
+    /// following the diagnostic's own advice left the diagnostic in place, and only
+    /// <c>[FixtureTitle]</c> ever worked.</item>
+    /// <item><c>Wallet over HTTP</c> was told to write <c>Wallet over HTTPFixture</c>, which is
+    /// not a legal identifier at all.</item>
+    /// </list>
+    /// <para>
+    /// So the conventional name is offered only when it is real: build the candidate, run it back
+    /// through the same derivation the matcher uses, and suggest it only if the round trip lands
+    /// on this title. When nothing does, say so — an attribute-only instruction that works beats a
+    /// convention that does not.
+    /// </para>
+    /// </remarks>
+    private static string conventionAdviceFor(string title)
+    {
+        var candidate = new string(title.Where(c => !char.IsWhiteSpace(c)).ToArray()) + "Fixture";
+
+        var legal = candidate.Length > "Fixture".Length
+                    && (char.IsLetter(candidate[0]) || candidate[0] == '_')
+                    && candidate.All(c => char.IsLetterOrDigit(c) || c == '_');
+
+        var roundTrips = legal && string.Equals(
+            deriveTitle(candidate.Substring(0, candidate.Length - "Fixture".Length)),
+            title,
+            StringComparison.OrdinalIgnoreCase);
+
+        return roundTrips
+            ? $"Create a fixture class with [FixtureTitle(\"{title}\")] or name it {candidate}."
+            : $"Create a fixture class with [FixtureTitle(\"{title}\")]. No class name derives to " +
+              "this title by convention (the convention splits a class name on its camel humps), " +
+              "so the attribute is the only way to bind it.";
+    }
+
     private static string deriveTitle(string name)
     {
         var sb = new StringBuilder();
@@ -1436,12 +1482,34 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
+    /// <summary>
+    /// A <c>.feature</c> in <c>AdditionalFiles</c> that binds to no fixture.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An error since issue #273, and the odd one out until then.</b> A feature file is a
+    /// declaration of intent; no fixture for it is a mistake, not a preference. The scenarios
+    /// exist, someone believes they are covered, and nothing runs — a spec that cannot fail,
+    /// which is the one thing this stack exists to prevent. As a warning it scrolled past in a
+    /// normal build and was invisible in CI, and the run it left behind reported
+    /// "Zero tests ran … total: 0" with exit code 0.
+    /// </para>
+    /// <para>
+    /// It also matches how the closed step vocabulary already behaves: an unmatched <em>step</em>
+    /// is BOBCAT002, a build error. An unmatched <em>feature</em> being a warning was the
+    /// inconsistency.
+    /// </para>
+    /// <para>
+    /// The advice is composed per feature ({1}) rather than templated, because the templated form
+    /// was wrong — see <c>conventionAdviceFor</c>.
+    /// </para>
+    /// </remarks>
     public static readonly DiagnosticDescriptor NoMatchingFixture = new(
         "BOBCAT001",
         "No matching fixture",
-        "No fixture found for feature '{0}'. Create a fixture class with [FixtureTitle(\"{0}\")] or name it {0}Fixture.",
+        "No fixture found for feature '{0}'. {1}",
         "Bobcat",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor UnmatchedStep = new(

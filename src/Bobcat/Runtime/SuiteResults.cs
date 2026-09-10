@@ -49,6 +49,7 @@ public class SuiteResults
     {
         get
         {
+            if (DiscoveryFailure is not null) return 2;
             if (PreflightFailure is not null) return 2;
             if (CatastrophicFailure is not null) return 2;
             if (_features.Any(f => f.WasCatastrophic)) return 2;
@@ -59,6 +60,31 @@ public class SuiteResults
             return 0;
         }
     }
+
+    /// <summary>
+    /// Set when the run had nothing to execute — no specs were discovered, or the filters excluded
+    /// every one of them. Exits 2 (issue #273).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Zero specs used to be a clean pass. A spec project whose fixtures did not match its features
+    /// reported "Zero tests ran … total: 0, failed: 0, succeeded: 0" and exited 0, with a clean
+    /// build behind it: every signal available said the run was fine, and nothing had asserted
+    /// anything.
+    /// </para>
+    /// <para>
+    /// Which is the failure this whole stack exists to prevent — a spec that cannot fail is worse
+    /// than no spec — arriving by a route the step vocabulary already closed. BOBCAT001 is now an
+    /// error, so the specific cause is caught at build time; this catches the case whatever the
+    /// cause, including one no diagnostic can see.
+    /// </para>
+    /// <para>
+    /// A run of an empty suite that genuinely means nothing is available (a scan that legitimately
+    /// found no specs, a filter deliberately narrowing to nothing) opts out with
+    /// <c>BobcatRunner.RequireSpecs = false</c>.
+    /// </para>
+    /// </remarks>
+    public string? DiscoveryFailure { get; set; }
 
     /// <summary>
     /// Set when the environment preflight failed, in which case no feature ran at all. Exits 2:

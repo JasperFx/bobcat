@@ -25,6 +25,7 @@ public static class JsonRenderer
         {
             ExitCode = results.ExitCode,
             Counts = countsToJson(results.Counts),
+            DiscoveryFailure = results.DiscoveryFailure,
             PreflightFailure = results.PreflightFailure,
             CatastrophicFailure = results.CatastrophicFailure,
             NotRun = results.NotRun.Count > 0
@@ -212,6 +213,8 @@ internal class JsonSuiteOutput
     public JsonCountsOutput Counts { get; set; } = null!;
 
     /// <summary>Why the harness stopped the run, when it did. Null on a run that got going.</summary>
+    public string? DiscoveryFailure { get; set; }
+
     public string? PreflightFailure { get; set; }
     public string? CatastrophicFailure { get; set; }
 

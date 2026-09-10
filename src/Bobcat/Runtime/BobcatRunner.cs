@@ -49,6 +49,25 @@ public class BobcatRunner
     public RetryBudget RetryBudget { get; set; } = RetryBudget.None;
 
     /// <summary>
+    /// A run that has nothing to execute fails (exit 2) instead of passing. Default <c>true</c>
+    /// (issue #273).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On by default, unlike the retry and stall knobs. Those preserve a behaviour someone relies
+    /// on; this one preserves nothing — a suite that discovers no specs, reports
+    /// "Zero tests ran … total: 0" and exits 0 has a clean build behind it and every signal
+    /// available saying it is fine, while nothing has asserted anything. That is the same failure
+    /// as a spec that cannot fail, which is the premise of the whole stack.
+    /// </para>
+    /// <para>
+    /// Turn it off for a host that legitimately runs an empty suite — a shared runner assembled
+    /// before its specs are registered, or a deliberate filter-to-nothing.
+    /// </para>
+    /// </remarks>
+    public bool RequireSpecs { get; set; } = true;
+
+    /// <summary>
     /// Registered policies, tried in order; <see cref="DefaultFailurePolicy"/> always decides
     /// last so a custom policy can abstain on cases it does not care about.
     /// </summary>
@@ -169,11 +188,23 @@ public class BobcatRunner
         var suiteResults = new SuiteResults();
 
         var features = filteredFeatures(featureFilter).ToArray();
+
+        // Nothing to run is not a pass (issue #273). Checked before resources start, because
+        // standing a database up to execute nothing is pure cost, and reported before the monitor
+        // is attached only in the sense that the run still opens and closes normally below.
+        var nothingToRun = describeEmptyRun(features, featureFilter, tagFilter);
+
         var monitor = await tryAttachMonitor();
 
         try
         {
             _observer.RunStarted(features.Sum(f => filteredScenarios(f, tagFilter).Count()));
+
+            if (nothingToRun != null)
+            {
+                suiteResults.DiscoveryFailure = nothingToRun;
+                return suiteResults;
+            }
 
             try
             {
@@ -198,6 +229,57 @@ public class BobcatRunner
             _observer.RunFinished(suiteResults);
             if (monitor != null) await monitor.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// Why this run had nothing to execute, or null when it has something. Issue #273.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two cases, kept apart because the reader's next move differs. <b>Nothing was discovered at
+    /// all</b> — the scan found no features and no code-first specs — which is a wiring problem:
+    /// the feature files are not <c>AdditionalFiles</c>, the assembly being scanned is the wrong
+    /// one, or every feature failed to bind (now a build error, BOBCAT001). <b>Filters excluded
+    /// everything</b> — the specs exist, and the argument that selected none of them is the thing
+    /// to look at, so the message quotes it back.
+    /// </para>
+    /// <para>
+    /// The second is included deliberately, and it is the one that looks arguable: the user did
+    /// ask for the filter. But a filter matching nothing is a typo far more often than an
+    /// intention, and the outcome it produced — a green run over no assertions — is exactly what
+    /// this is here to stop. "I asked for these specs and got none" is not a passing condition
+    /// either.
+    /// </para>
+    /// </remarks>
+    private string? describeEmptyRun(FeatureDefinition[] features, string? featureFilter, string? tagFilter)
+    {
+        if (!RequireSpecs) return null;
+
+        if (_features.Count == 0)
+            return "No specs were discovered, so this run asserted nothing. A .feature file must be "
+                   + "an <AdditionalFiles> item in the project the generator runs in, and its "
+                   + "fixture must bind (BOBCAT001). Set BobcatRunner.RequireSpecs = false if an "
+                   + "empty run is expected here.";
+
+        // A programmatic ScenarioFilter is the PLATFORM's narrowing, not the user's — under MTP it
+        // carries the requested subset, and an IDE, a `--filter-uid`, or a supervisor lane whose
+        // partition holds nothing from this assembly all legitimately select zero here. That case
+        // has its own guard at the altitude that can judge it (Supervisor's
+        // GuardAgainstAnUnfilteredRun), so this one stays out of it and speaks only for filters a
+        // human typed.
+        if (ScenarioFilter != null) return null;
+
+        var scenarios = features.Sum(f => filteredScenarios(f, tagFilter).Count());
+        if (scenarios > 0) return null;
+
+        var applied = new List<string>();
+        if (!string.IsNullOrWhiteSpace(featureFilter)) applied.Add($"--feature \"{featureFilter}\"");
+        if (!string.IsNullOrWhiteSpace(tagFilter)) applied.Add($"--tag \"{tagFilter}\"");
+
+        return applied.Count > 0
+            ? $"{applied.Count} filter(s) — {string.Join(" and ", applied)} — matched no scenario out "
+              + $"of the {_features.Sum(f => f.Scenarios.Count)} discovered, so this run asserted nothing."
+            : "Every discovered feature has no scenarios, so this run asserted nothing.";
     }
 
     private async Task runSuite(FeatureDefinition[] features, string? tagFilter, SuiteResults suiteResults)
