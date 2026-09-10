@@ -117,7 +117,37 @@ with no attribute. `resource.ContentRoot` tells you what was decided and why.
   explicit.
 - **Diagnostic:** a content-root failure that still gets through (no solution file above the
   test output, or a resolved directory the host rejects) is wrapped in a
-  `BobcatConfigurationException` that names the directory Bobcat resolved and how.
+  `BobcatConfigurationException` that names the directory Bobcat resolved and how — plus the
+  path the *failure itself* quoted, and whether that path is the doubled shape below.
+
+#### The doubled path, and the form that still hits it (issue #274)
+
+A repository whose solution file sits in a directory named after the project — 
+`ShipmentTracking/ShipmentTracking.sln` beside `ShipmentTracking/*.csproj`, a completely ordinary
+layout — makes `WebApplicationFactory`'s unchecked `<solution dir>/<assembly name>` fallback
+resolve to `…/ShipmentTracking/ShipmentTracking`, which does not exist:
+
+```
+Resource 'AlbaHost' failed to start: …/samples/ShipmentTracking/ShipmentTracking/
+```
+
+That was the entire message, and the repeated name reads like a framework bug. It is not:
+`AlbaContentRoot` handles this layout correctly, because its project-file search checks the
+solution directory *itself* before searching below it. **`AlbaResource<TProgram>` never produces
+the doubled path.**
+
+The form that does is the **factory-delegate `AlbaResource`** — 
+`new AlbaResource(async () => await AlbaHost.For<Program>(…))`. It builds the host from your
+lambda, so Bobcat never sees a `TProgram` and cannot resolve anything on your behalf; the
+factory's own guessing applies in full. Two ways out, and the failure now names both:
+
+```csharp
+// Pin it in the factory…
+new AlbaResource(async () => await AlbaHost.For<Program>(x => x.UseContentRoot(appDirectory)));
+
+// …or use the typed form, which resolves the root itself.
+new AlbaResource<Program>();
+```
 
 ### 3. `(body, IResult)` tuple returns silently misrouted by Wolverine.HTTP
 Wolverine.HTTP treats tuple returns as `(http-body, ...cascaded-messages)`. Returning

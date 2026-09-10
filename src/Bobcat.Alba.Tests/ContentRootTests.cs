@@ -31,7 +31,11 @@ public class ContentRootTests
 
         var config = wrapped.ShouldBeOfType<BobcatConfigurationException>();
         config.Message.ShouldContain("WebApplicationFactoryContentRoot");
-        config.Message.ShouldContain("WithContentRoot");
+        // The concrete way to set the root differs by resource form (issue #274): the typed
+        // AlbaResource<TProgram> is told about WithContentRoot, the factory-delegate form about
+        // UseContentRoot inside its own lambda. Both are pinned in DoubledContentRootTests; what
+        // this test is about is that a content-root failure gets wrapped and explained at all.
+        config.Message.ShouldContain("ContentRoot");
         config.Message.ShouldContain("MySample");
         config.InnerException.ShouldBeOfType<DirectoryNotFoundException>();
     }
@@ -44,7 +48,7 @@ public class ContentRootTests
         var wrapped = AlbaResourceDiagnostics.WrapStartException(
             new InvalidOperationException("Solution root could not be located using application root /x/bin."), "MySample");
 
-        wrapped.ShouldBeOfType<BobcatConfigurationException>().Message.ShouldContain("WithContentRoot");
+        wrapped.ShouldBeOfType<BobcatConfigurationException>().Message.ShouldContain("ContentRoot");
     }
 
     [Fact]

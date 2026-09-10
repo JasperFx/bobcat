@@ -23,24 +23,102 @@ public static class AlbaResourceDiagnostics
     /// </summary>
     public static Exception WrapStartException(Exception ex, string program, string? contentRoot = null)
         => IsContentRootFailure(ex)
-            ? new BobcatConfigurationException(ContentRootHelp(program, contentRoot), ex)
+            ? new BobcatConfigurationException(ContentRootHelp(program, contentRoot, ex), ex)
             : ex;
 
     public static bool IsContentRootFailure(Exception ex)
         => ex is DirectoryNotFoundException
            || (ex is InvalidOperationException && ex.Message.StartsWith("Solution root could not be located", StringComparison.Ordinal));
 
-    public static string ContentRootHelp(string program, string? contentRoot = null)
+    /// <summary>
+    /// Guidance for a content-root failure. <paramref name="contentRoot"/> is Bobcat's own
+    /// resolution when it made one (<see cref="AlbaResource{TProgram}"/>); it is null for the
+    /// factory-delegate <see cref="AlbaResource"/>, which never sees a <c>TProgram</c> and so
+    /// leaves the resolution to WebApplicationFactory. <paramref name="failure"/> is the exception
+    /// itself, read for the path it names.
+    /// </summary>
+    public static string ContentRootHelp(string program, string? contentRoot = null, Exception? failure = null)
     {
         var used = contentRoot == null ? "" : $" Bobcat resolved it to: {contentRoot}.";
-        return $"Alba could not resolve the content root while starting host '{program}'.{used} " +
+        var suspect = failure == null ? "" : DescribeSuspectRoot(failure);
+
+        var fix = contentRoot == null
+            // The delegate form: the host is built by the caller's own lambda, so that lambda is
+            // where the root gets pinned. Naming AlbaResource<TProgram>.WithContentRoot here would
+            // be advice for a type this caller is not using.
+            ? "Fix: call .UseContentRoot(path) on the builder inside the factory you passed to " +
+              "AlbaResource, or use AlbaResource<TProgram>, which resolves the root itself"
+            : "Fix: call AlbaResource<TProgram>.WithContentRoot(path)";
+
+        return $"Alba could not resolve the content root while starting host '{program}'.{used}{suspect} " +
                "Bobcat resolves it from MvcTestingAppManifest.json in the test output, then " +
                "[assembly: WebApplicationFactoryContentRoot(...)], then the project directory below the solution, " +
                "then the test output directory itself — so reaching this usually means no solution file is above the " +
-               "test output, or the directory it found is not the one the host wants. Fix: call " +
-               "AlbaResource<TProgram>.WithContentRoot(path), or add " +
+               $"test output, or the directory it found is not the one the host wants. {fix}, or add " +
                "[assembly: WebApplicationFactoryContentRoot(\"<HostAssemblyName>\", \"<relative path from the test output>\", \"appsettings.json\", \"1\")] " +
                "to the test assembly. See docs/sample-wiring.md footgun 2.";
+    }
+
+    /// <summary>
+    /// Read the path out of the failure and say what is wrong with it — issue #274 asked for
+    /// exactly this one line, because the whole error was a bare path and the reader had to guess.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The doubled tail is worth calling out by name because it has one cause and one cure.
+    /// WebApplicationFactory's last-resort fallback is <c>&lt;solution dir&gt;/&lt;assembly
+    /// name&gt;</c>, taken <em>unchecked</em> — so a repository whose solution file sits in a
+    /// directory named after the project (<c>ShipmentTracking/ShipmentTracking.sln</c> beside
+    /// <c>ShipmentTracking/*.csproj</c>, a completely ordinary layout) resolves to
+    /// <c>…/ShipmentTracking/ShipmentTracking</c>, which does not exist. Reading that path, the
+    /// name appears twice and looks like a Bobcat bug; it is the documented guess, landing badly.
+    /// </para>
+    /// <para>
+    /// Deliberately descriptive, never corrective. Bobcat does not rewrite the path — a directory
+    /// that happens to nest a same-named folder is legal, and silently retargeting someone's
+    /// content root is a worse failure than the one being explained.
+    /// </para>
+    /// </remarks>
+    public static string DescribeSuspectRoot(Exception failure)
+    {
+        var path = ExtractPath(failure.Message);
+        if (path == null) return "";
+
+        var trimmed = path.TrimEnd('/', '\\');
+        var leaf = Path.GetFileName(trimmed);
+        var parent = Path.GetFileName(Path.GetDirectoryName(trimmed) ?? "");
+
+        var doubled = leaf.Length > 0 && string.Equals(leaf, parent, StringComparison.OrdinalIgnoreCase)
+            ? $" The last two segments repeat ('{parent}/{leaf}'), which is the shape of " +
+              "WebApplicationFactory's unchecked <solution directory>/<assembly name> fallback " +
+              "landing in a repository whose solution file sits in a directory named after the project."
+            : "";
+
+        return $" The content root it tried was '{path}', which does not exist.{doubled}";
+    }
+
+    /// <summary>
+    /// The path named by a WebApplicationFactory content-root failure. Both messages that reach
+    /// here quote one, and neither is structured, so this reads it back out — returning null
+    /// rather than guessing when the shape is unfamiliar.
+    /// </summary>
+    public static string? ExtractPath(string message)
+    {
+        // DirectoryNotFoundException from the factory is the path and nothing else; the
+        // solution-root InvalidOperationException quotes it after "application root ".
+        const string marker = "application root ";
+        var index = message.IndexOf(marker, StringComparison.Ordinal);
+        if (index >= 0)
+        {
+            var rest = message[(index + marker.Length)..].Trim().TrimEnd('.');
+            return rest.Length > 0 ? rest : null;
+        }
+
+        var candidate = message.Trim();
+        return candidate.Length > 0 && (candidate[0] == '/' || candidate.Contains(":\\", StringComparison.Ordinal))
+               && !candidate.Contains(' ')
+            ? candidate
+            : null;
     }
 }
 
@@ -121,7 +199,20 @@ public class AlbaResource : IHostResource, IAlbaResource, IRestartableResource, 
     public async Task Start()
     {
         PrepareJasperFxHosting();
-        _albaHost = await _factory();
+        try
+        {
+            _albaHost = await _factory();
+        }
+        catch (Exception ex)
+        {
+            // Issue #274. This form builds the host from the caller's own factory, so Bobcat never
+            // sees a TProgram and cannot resolve the content root for it — WebApplicationFactory's
+            // own guessing applies, including the unchecked <solution>/<assembly> fallback. What it
+            // CAN do is explain the failure instead of passing a bare path up, which is all the
+            // reader got: "Resource 'AlbaHost' failed to start: …/ShipmentTracking/ShipmentTracking/".
+            // Only content-root failures are wrapped; everything else surfaces unchanged.
+            throw AlbaResourceDiagnostics.WrapStartException(ex, Name);
+        }
     }
 
     /// <inheritdoc cref="IRestartableResource.Restart"/>
