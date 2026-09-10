@@ -54,7 +54,7 @@ public class ShipmentHandler
 /// </remarks>
 [FixtureTitle("Shipments")]
 [IncludeGrammars(typeof(DocumentGrammars))]
-[IncludeGrammars(typeof(HttpGrammars))]
+[IncludeGrammars(typeof(HttpGrammars), "", null, null, 60000)]
 public class ShipmentsFixture : CritterStackFixture;
 
 /// <summary>
