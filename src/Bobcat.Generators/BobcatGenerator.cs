@@ -152,10 +152,9 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                // Issue #259: the parser has already inlined every arrangement reference. What it
-                // could not judge without the fixture is whether an arrangement's name is also a
-                // real step, which would make every reference to it mean two things.
-                if (!arrangementsAreSound(feature, fixture, grammars, spc)) continue;
+                // Issue #259: the parser has already inlined every arrangement reference, or
+                // recorded why it could not. Either kind of failure suppresses the feature.
+                if (!arrangementsAreSound(feature, spc)) continue;
 
                 try
                 {
@@ -1117,15 +1116,17 @@ public class BobcatGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                // Issue #259: a reference is ordinary step text, so a misspelled one is just an
-                // unmatched step — unless it is close to a name the feature declares, in which case
-                // saying which arrangement it missed is the useful error.
+                // Issue #259: an arrangement is referenced as `the arrangement "…"`, so a Given that
+                // writes an arrangement's NAME bare is a reference in the wrong shape. Saying how to
+                // write it beats a generic "unmatched step".
                 var nearest = Arrangements.NearestName(feature, step.Text);
                 if (nearest != null)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
                         Diagnostics.UnknownArrangement, Microsoft.CodeAnalysis.Location.None,
-                        step.Text, fixture.ClassName, feature.Title, nearest));
+                        feature.Title,
+                        $"the step '{step.Text}' matches no step on fixture '{fixture.ClassName}', but looks like the " +
+                        $"arrangement \"{nearest}\" — an arrangement is referenced as 'the arrangement \"{nearest}\"'"));
                     hasErrors = true;
                     continue;
                 }
@@ -1144,47 +1145,27 @@ public class BobcatGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Reports every reason the feature's <c>@arrangement</c> scenarios could not be expanded as
-    /// BOBCAT022 — the parser's findings, plus the one only the fixture can settle: an arrangement
-    /// whose name is also a real step's text, which would make every reference to it mean two
-    /// things. A false return suppresses the feature, so the diagnostic is not buried under the
-    /// unmatched steps an unexpanded reference would otherwise produce.
+    /// Reports why the feature's <c>@arrangement</c> scenarios could not be expanded: BOBCAT022 for
+    /// a broken arrangement or reference, BOBCAT021 for a <c>the arrangement "…"</c> naming none the
+    /// feature declares. A false return suppresses the feature, so the diagnostic is not buried
+    /// under the errors an unexpanded reference would otherwise produce.
     /// </summary>
-    private static bool arrangementsAreSound(FeatureInfo feature, FixtureInfo fixture,
-        ImmutableArray<TableGrammarInfo> grammars, SourceProductionContext spc)
+    private static bool arrangementsAreSound(FeatureInfo feature, SourceProductionContext spc)
     {
-        var problems = new List<string>(feature.ArrangementProblems);
-
-        foreach (var arrangement in feature.Arrangements)
-        {
-            var probe = new StepInfo { Keyword = "Given", ResolvedKeyword = "Given", Text = arrangement.Name };
-
-            string? binds;
-            try
-            {
-                binds = StepMatcher.Match(probe, fixture)?.Method.MethodName
-                        ?? StepMatcher.MatchTableGrammar(probe, grammars)?.Grammar.ClassName;
-            }
-            catch (InvalidOperationException)
-            {
-                binds = "more than one step";
-            }
-
-            if (binds != null)
-            {
-                problems.Add(
-                    $"the arrangement '{arrangement.Name}' has the same text as the step '{binds}' on fixture " +
-                    $"'{fixture.ClassName}', so a reference to it would mean two things — rename the arrangement");
-            }
-        }
-
-        foreach (var problem in problems)
+        foreach (var problem in feature.ArrangementProblems)
         {
             spc.ReportDiagnostic(Diagnostic.Create(
                 Diagnostics.InvalidArrangement, Microsoft.CodeAnalysis.Location.None, feature.Title, problem));
         }
 
-        return problems.Count == 0;
+        foreach (var unknown in feature.UnknownArrangementReferences)
+        {
+            spc.ReportDiagnostic(Diagnostic.Create(
+                Diagnostics.UnknownArrangement, Microsoft.CodeAnalysis.Location.None, feature.Title,
+                Arrangements.Describe(feature, unknown)));
+        }
+
+        return feature.ArrangementProblems.Count == 0 && feature.UnknownArrangementReferences.Count == 0;
     }
 
     /// <summary>
@@ -1744,9 +1725,8 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor UnknownArrangement = new(
         "BOBCAT021",
         "Step names no arrangement",
-        "Step '{0}' matches no step on fixture '{1}' and no arrangement in feature '{2}', but is close to " +
-        "the arrangement '{3}'. An arrangement is referenced by its exact name (case-insensitive) — did you " +
-        "mean '{3}'?",
+        "Feature '{0}': {1}. An @arrangement scenario is referenced as 'Given the arrangement \"<name>\"' " +
+        "(the name case-insensitive), from the same feature file.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
@@ -1755,7 +1735,7 @@ internal static class Diagnostics
         "BOBCAT022",
         "Arrangement cannot be expanded",
         "Feature '{0}': {1}. An @arrangement scenario is a named list of Given steps, inlined wherever a " +
-        "Given step's text is its name; it never runs as a test of its own.",
+        "Given step says 'the arrangement \"<name>\"'; it never runs as a test of its own.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

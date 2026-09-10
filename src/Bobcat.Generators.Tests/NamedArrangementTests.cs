@@ -1,12 +1,15 @@
+using System.Reflection;
+using Bobcat;
 using Shouldly;
 
 namespace Bobcat.Generators.Tests;
 
 /// <summary>
 /// Issue #259: a scenario tagged <c>@arrangement</c> is a named list of Given steps that never runs
-/// as a test. The generator inlines it wherever a Given step's text is its name, so a history most
-/// scenarios in a chapter share is written once — and every inlined step still binds, resolves its
-/// captures and stamps roles exactly as it would have written out longhand.
+/// as a test. A Given step <c>the arrangement "…"</c> references it, and the generator inlines its
+/// steps there — so a history most scenarios in a chapter share is written once, and every inlined
+/// step still binds, resolves its captures and stamps roles exactly as it would have written out
+/// longhand.
 /// </summary>
 public class NamedArrangementTests
 {
@@ -53,13 +56,18 @@ public class NamedArrangementTests
     private static string feature(params string[] blocks)
         => "Feature: Wallet\n\n" + string.Join("\n\n", blocks) + "\n";
 
-    private static string scenarioUsing(string reference, string keyword = "And")
+    private static string reference(string name) => $"the arrangement \"{name}\"";
+
+    private static string scenarioWith(string step, string keyword = "And")
         => $"""
               Scenario: Crediting
                 Given no events for Wallet "11111111-1111-1111-1111-111111111111"
-                {keyword} {reference}
+                {keyword} {step}
                 When CreditWallet is received
             """;
+
+    private static string scenarioUsing(string name, string keyword = "And")
+        => scenarioWith(reference(name), keyword);
 
     private static GeneratorHarness.RunOutcome run(string featureText)
         => GeneratorHarness.Run(Fixture, ("Wallet.feature", featureText));
@@ -69,7 +77,7 @@ public class NamedArrangementTests
             .Any(s => s.HintName.Contains("Wallet_Feature", StringComparison.Ordinal));
 
     [Fact]
-    public void an_arrangement_is_inlined_where_its_name_is_used_and_never_runs_itself()
+    public void an_arrangement_is_inlined_where_it_is_referenced_and_never_runs_itself()
     {
         var outcome = run(feature(OpenWallet, scenarioUsing("an open wallet")));
 
@@ -82,8 +90,9 @@ public class NamedArrangementTests
         source.ShouldContain("WalletOpened occurred");
         source.ShouldContain("typeof(global::Specs.WalletOpened)");
 
-        // Not a scenario, not a step: the name is gone once its steps are in place.
+        // Not a scenario, not a step: the reference is gone once its steps are in place.
         source.ShouldNotContain("an open wallet");
+        source.ShouldNotContain("the arrangement");
     }
 
     [Fact]
@@ -97,13 +106,22 @@ public class NamedArrangementTests
     }
 
     [Fact]
+    public void the_referenced_name_is_matched_case_insensitively()
+    {
+        var outcome = run(feature(OpenWallet, scenarioUsing("An Open Wallet")));
+
+        outcome.WithId("BOBCAT021").ShouldBeEmpty();
+        outcome.CompilationErrors.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void an_arrangement_builds_on_another_and_inlines_in_order()
     {
         const string credited =
             """
               @arrangement
               Scenario: a credited wallet
-                Given an open wallet
+                Given the arrangement "an open wallet"
                 And WalletCredited occurred
                   | Amount |
                   | 40     |
@@ -125,16 +143,47 @@ public class NamedArrangementTests
         var outcome = run(feature(OpenWallet, scenarioUsing("an opn wallet")));
 
         var diagnostic = outcome.WithId("BOBCAT021").ShouldHaveSingleItem();
-        diagnostic.GetMessage().ShouldContain("'an open wallet'");
+        diagnostic.GetMessage().ShouldContain("did you mean \"an open wallet\"");
 
         // Reported once, as the specific error — not also as a generic unmatched step.
+        outcome.WithId("BOBCAT002").ShouldBeEmpty();
+        emittedTheFeature(outcome).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void a_reference_far_from_every_name_is_still_a_reference_and_lists_what_the_feature_declares()
+    {
+        // The fixed phrase is what makes this possible: the step is unmistakably a reference, so an
+        // unknown name is BOBCAT021 however far it is from the declared ones — never BOBCAT002.
+        var outcome = run(feature(OpenWallet, scenarioUsing("the moon is full")));
+
+        outcome.WithId("BOBCAT021").ShouldHaveSingleItem().GetMessage().ShouldContain("declares \"an open wallet\"");
+        outcome.WithId("BOBCAT002").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_reference_in_a_feature_with_no_arrangements_says_arrangements_are_per_file()
+    {
+        var outcome = run(feature(scenarioUsing("an open wallet")));
+
+        outcome.WithId("BOBCAT021").ShouldHaveSingleItem().GetMessage().ShouldContain("its own feature file");
+        emittedTheFeature(outcome).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void an_arrangements_name_written_bare_is_told_how_to_reference_it()
+    {
+        var outcome = run(feature(OpenWallet, scenarioWith("an open wallet")));
+
+        outcome.WithId("BOBCAT021").ShouldHaveSingleItem().GetMessage()
+            .ShouldContain("referenced as 'the arrangement \"an open wallet\"'");
         outcome.WithId("BOBCAT002").ShouldBeEmpty();
     }
 
     [Fact]
     public void an_unmatched_step_nowhere_near_an_arrangement_is_still_an_unmatched_step()
     {
-        var outcome = run(feature(OpenWallet, scenarioUsing("the moon is full")));
+        var outcome = run(feature(OpenWallet, scenarioWith("the moon is full")));
 
         outcome.WithId("BOBCAT002").ShouldHaveSingleItem();
         outcome.WithId("BOBCAT021").ShouldBeEmpty();
@@ -175,11 +224,11 @@ public class NamedArrangementTests
             """
               @arrangement
               Scenario: first
-                Given second
+                Given the arrangement "second"
 
               @arrangement
               Scenario: second
-                Given first
+                Given the arrangement "first"
             """;
 
         var outcome = run(feature(cycle, scenarioUsing("first")));
@@ -190,19 +239,35 @@ public class NamedArrangementTests
     }
 
     [Fact]
-    public void an_arrangement_named_like_a_real_step_is_refused_because_a_reference_would_mean_two_things()
+    public void an_arrangement_may_share_a_real_steps_text_because_a_reference_is_explicit()
     {
-        const string shadowing =
+        // The bare-name form had to refuse this, since `Given a wallet exists` would have meant two
+        // things. With the fixed reference phrase the two can no longer be confused.
+        const string sameText =
             """
               @arrangement
               Scenario: a wallet exists
                 Given WalletOpened occurred
             """;
 
-        var outcome = run(feature(shadowing, scenarioUsing("a wallet exists")));
+        const string scenario =
+            """
+              Scenario: Crediting
+                Given a wallet exists
+                And no events for Wallet "11111111-1111-1111-1111-111111111111"
+                And the arrangement "a wallet exists"
+                When CreditWallet is received
+            """;
 
-        outcome.WithId("BOBCAT022").ShouldHaveSingleItem().GetMessage().ShouldContain("AWalletExists");
-        emittedTheFeature(outcome).ShouldBeFalse();
+        var outcome = run(feature(sameText, scenario));
+
+        outcome.WithId("BOBCAT022").ShouldBeEmpty();
+        outcome.WithId("BOBCAT021").ShouldBeEmpty();
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var source = outcome.GeneratedSource("Wallet");
+        source.ShouldContain("AWalletExists");
+        source.ShouldContain("WalletOpened occurred");
     }
 
     [Fact]
@@ -212,7 +277,7 @@ public class NamedArrangementTests
             """
               Scenario: Crediting
                 Given no events for Wallet "11111111-1111-1111-1111-111111111111"
-                And an open wallet
+                And the arrangement "an open wallet"
                   | Owner |
                   | Ivy   |
             """;
@@ -230,5 +295,41 @@ public class NamedArrangementTests
 
         outcome.WithId("BOBCAT022").ShouldHaveSingleItem().GetMessage().ShouldContain("more than once");
         emittedTheFeature(outcome).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("the arrangement \"a proposed home check\"", "a proposed home check")]
+    [InlineData("the arrangement 'a proposed home check'", "a proposed home check")]
+    [InlineData("  the arrangement \"x\"  ", "x")]
+    [InlineData("The arrangement \"x\"", null)]
+    [InlineData("the arrangement x", null)]
+    [InlineData("the arrangement \"x'", null)]
+    [InlineData("a proposed home check", null)]
+    public void a_reference_is_the_fixed_phrase_and_a_quoted_name(string stepText, string? expected)
+    {
+        // Case-sensitive on the phrase, like every Cucumber match: the editor would underline
+        // "The arrangement", so the generator must not quietly accept it.
+        Arrangements.ReferencedName(stepText).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void the_editor_facing_step_definition_declares_the_phrase_the_generator_expands()
+    {
+        // ArrangementSteps must spell the expression as a literal — VS Code's Cucumber extension
+        // reads it with a tree-sitter query that cannot see a constant — so nothing but this test
+        // keeps the editor's phrase and the generator's phrase the same.
+        var method = typeof(ArrangementSteps).GetMethod(nameof(ArrangementSteps.TheArrangement))!;
+        var given = method.GetCustomAttributesData().Single(x => x.AttributeType == typeof(GivenAttribute));
+
+        given.ConstructorArguments[0].Value.ShouldBe(Arrangements.ReferenceExpression);
+    }
+
+    [Fact]
+    public void the_editor_facing_step_definition_refuses_to_run()
+    {
+        // It is never bound, but if it somehow ran the scenario would be missing the history it
+        // claims to arrange — so it fails loudly rather than doing nothing.
+        var ex = Should.Throw<InvalidOperationException>(() => ArrangementSteps.TheArrangement("an open wallet"));
+        ex.Message.ShouldContain("an open wallet");
     }
 }

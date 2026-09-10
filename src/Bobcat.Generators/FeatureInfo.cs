@@ -34,6 +34,26 @@ public class FeatureInfo
     /// could. The generator reports each as BOBCAT022 and emits nothing for the feature.
     /// </summary>
     public List<string> ArrangementProblems { get; set; } = new();
+
+    /// <summary>
+    /// Every <c>the arrangement "…"</c> step naming no arrangement this feature declares. The
+    /// generator reports each as BOBCAT021 and emits nothing for the feature — a reference that
+    /// reached the runner would arrange nothing while saying otherwise.
+    /// </summary>
+    public List<UnknownArrangementReference> UnknownArrangementReferences { get; set; } = new();
+}
+
+/// <summary>A reference to an arrangement the feature does not declare.</summary>
+public class UnknownArrangementReference
+{
+    /// <summary>The reference step as written, e.g. <c>the arrangement "an opn wallet"</c>.</summary>
+    public string StepText { get; set; } = "";
+
+    /// <summary>The name it references.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The declared arrangement within a small edit distance of <see cref="Name"/>, if any.</summary>
+    public string? Suggestion { get; set; }
 }
 
 public class ScenarioInfo

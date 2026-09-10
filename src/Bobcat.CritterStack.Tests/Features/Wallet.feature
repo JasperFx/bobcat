@@ -96,10 +96,11 @@ Feature: Wallet
       | 50      |
 
   # Named arrangements (issue #259): an @arrangement scenario is a named list of Given steps that
-  # never runs as a test. The generator inlines it wherever a Given step's text is its name, so the
-  # two scenarios below arrange history without restating it — and the second arrangement builds
-  # on the first. Neither names a WalletId: arranged history is partial (#241), and leaving the id
-  # out is what lets two scenarios on two different streams share one arrangement.
+  # never runs as a test. The generator inlines it wherever a Given says `the arrangement "<name>"`,
+  # so the two scenarios below arrange history without restating it — and the second arrangement
+  # builds on the first. The reference is a real step (Bobcat.ArrangementSteps) purely so editors
+  # complete it. Neither arrangement names a WalletId: arranged history is partial (#241), and
+  # leaving the id out is what lets two scenarios on two different streams share one arrangement.
   @arrangement
   Scenario: an open wallet for Hal
     Given WalletOpened occurred
@@ -108,7 +109,7 @@ Feature: Wallet
 
   @arrangement
   Scenario: Hal's wallet with 40 credited
-    Given an open wallet for Hal
+    Given the arrangement "an open wallet for Hal"
     And WalletCredited occurred
       | Amount |
       | 40     |
@@ -116,7 +117,7 @@ Feature: Wallet
   @slice:CreditWallet
   Scenario: A wallet with prior events keeps accumulating, arranged by name
     Given no events for Wallet "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    And Hal's wallet with 40 credited
+    And the arrangement "Hal's wallet with 40 credited"
     When CreditWallet is received
       | WalletId                             | Amount |
       | aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa | 10     |
@@ -128,7 +129,7 @@ Feature: Wallet
   @slice:CreditWallet
   Scenario: A first credit to an open wallet, arranged by name
     Given no events for Wallet "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-    And an open wallet for Hal
+    And the arrangement "an open wallet for Hal"
     When CreditWallet is received
       | WalletId                             | Amount |
       | bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | 25     |
