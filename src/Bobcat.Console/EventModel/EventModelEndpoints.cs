@@ -24,12 +24,29 @@ public static class EventModelEndpoints
             : Results.NotFound();
 
     /// <summary>
-    /// Publish the current descriptor — latest wins, whole document. 400 with the parse
-    /// failure when the body is not a descriptor, so a bad push fails loudly at the push
-    /// rather than as a blank canvas later.
+    /// Publish the default source's descriptor — whole document, replacing what that source
+    /// published before. 400 with the parse failure when the body is not a descriptor, so a bad
+    /// push fails loudly at the push rather than as a blank canvas later.
     /// </summary>
     [WolverinePut("/api/event-model")]
-    public static async Task<IResult> Put(
+    public static Task<IResult> Put(
+        HttpRequest request,
+        [NotBody] EventModelStore store,
+        [NotBody] IMessageBus bus)
+        => PutSource(EventModelStore.DefaultSource, request, store, bus);
+
+    /// <summary>
+    /// Publish ONE producer's contribution to the model (CritterWatch#1212). <c>GET</c> serves the
+    /// merge of every source, so the host's <c>event-model</c> export and a spec assembly's
+    /// generated source can each push their half and the slices fold together by name.
+    /// </summary>
+    /// <remarks>
+    /// A re-push replaces only that source, which is what keeps it idempotent — a producer that
+    /// renames or drops a slice actually loses it, instead of leaving the old one behind forever.
+    /// </remarks>
+    [WolverinePut("/api/event-model/{source}")]
+    public static async Task<IResult> PutSource(
+        string source,
         HttpRequest request,
         [NotBody] EventModelStore store,
         [NotBody] IMessageBus bus)
@@ -37,7 +54,7 @@ public static class EventModelEndpoints
         using var reader = new StreamReader(request.Body);
         var body = await reader.ReadToEndAsync(request.HttpContext.RequestAborted);
 
-        var failure = store.TryStore(body);
+        var failure = store.TryStore(body, source);
         if (failure is not null)
         {
             return Results.Problem(statusCode: 400, detail: $"Not an EventModelDescriptor: {failure}");

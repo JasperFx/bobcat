@@ -212,6 +212,62 @@ public class ViewerSteps : Fixture
     }
 
     /// <summary>
+    /// CritterWatch#1212 — the HOST half. Slices and a command type, and deliberately NO
+    /// specifications: this is what Wolverine's <c>event-model</c> export produces, because the
+    /// spec assembly it would need is not one the host references.
+    /// </summary>
+    [When("the event model {string} is published with slice {string} carrying no spec")]
+    public Task EventModelPublishedWithoutSpec(string name, string slice)
+        => putEventModel($$"""
+            {
+              "name": "{{name}}",
+              "slices": [
+                {
+                  "name": "{{slice}}",
+                  "pattern": "Command",
+                  "commandType": { "name": "{{slice}}", "fullName": "Specs.{{slice}}", "assemblyName": "Specs" },
+                  "emittedEvents": [],
+                  "projectionTypes": [],
+                  "readModelTypes": []
+                }
+              ]
+            }
+            """);
+
+    /// <summary>
+    /// CritterWatch#1212 — the SPEC half, pushed under its own source. Carries the specification and
+    /// nothing else, which is exactly what a spec assembly's generated source knows.
+    /// </summary>
+    [When("the source {string} publishes the event model {string} with slice {string} bound to spec {string}")]
+    public Task SourcePublishesEventModel(string source, string name, string slice, string spec)
+        => putEventModel($$"""
+            {
+              "name": "{{name}}",
+              "slices": [
+                {
+                  "name": "{{slice}}",
+                  "specifications": [{ "identity": "{{spec}}", "resolvedTypes": [] }]
+                }
+              ]
+            }
+            """, source);
+
+    /// <summary>The merge must keep the other source's contribution, not just accept the newer one.</summary>
+    [Check("the slice {string} of the event model still carries its command type")]
+    public async Task<bool> SliceStillCarriesCommandType(string slice)
+    {
+        await fetchRaw("/api/event-model");
+        return JsonDocument.Parse(_lastBody).RootElement.GetProperty("slices").EnumerateArray()
+            .Any(s => s.GetProperty("name").GetString() == slice
+                      && s.TryGetProperty("commandType", out var c)
+                      && c.ValueKind == JsonValueKind.Object);
+    }
+
+    [Check("the slice {string} of the event model does not carry the spec identity {string}")]
+    public async Task<bool> SliceDoesNotCarrySpec(string slice, string spec)
+        => !await SliceCarriesSpec(slice, spec);
+
+    /// <summary>
     /// Issue #169 — push a body that is NOT a descriptor, so the rejected path can be asserted on:
     /// a 400 must not announce a change, because nothing about what the page would load has moved.
     /// </summary>
@@ -222,8 +278,11 @@ public class ViewerSteps : Fixture
     /// PUT the body and capture both the status and any <see cref="EventModelChanged"/> the console
     /// broadcast (#169), so one step serves the wire assertions and the push assertion.
     /// </summary>
-    private async Task putEventModel(string json)
+    private Task putEventModel(string json) => putEventModel(json, null);
+
+    private async Task putEventModel(string json, string? source)
     {
+        var url = source is null ? "/api/event-model" : $"/api/event-model/{source}";
         // A presence assertion, deliberately: the session waits for activity to settle and the
         // checks below then look for a message. No exception/timeout suppression — if the console
         // stops broadcasting, this must fail loudly rather than pass over silence.
@@ -234,7 +293,7 @@ public class ViewerSteps : Fixture
             {
                 var result = await host.AlbaHost.Scenario(s =>
                 {
-                    s.Put.Text(json).ToUrl("/api/event-model");
+                    s.Put.Text(json).ToUrl(url);
                     s.IgnoreStatusCode();
                 });
 
