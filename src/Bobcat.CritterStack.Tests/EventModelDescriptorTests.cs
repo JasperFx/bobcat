@@ -28,7 +28,7 @@ public class EventModelDescriptorTests
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
         model.Slices.Select(s => s.Name).ShouldBe(
             ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets", "OwnerWallets",
-             "Shipments"],
+             "Shipments", "Deliveries"],
             ignoreOrder: true);
     }
 
@@ -197,7 +197,7 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(7);
+        descriptor.Slices.Count.ShouldBe(8);
     }
 
     [Fact]
@@ -246,5 +246,23 @@ public class EventModelDescriptorTests
         // WalletCredited that is arranged in one scenario is emitted in others, and a Then must
         // still stamp it.
         slice("CreditWallet").EmittedEvents.Select(t => t.Name).ShouldContain("WalletCredited");
+    }
+
+    [Fact]
+    public void a_saga_capture_stamps_no_event_modeling_role()
+    {
+        // Deliveries.feature is the saga lane (issue #281). Its acts are real commands, so the
+        // slice exists — but a saga's state is not an aggregate, an event or a read model, and
+        // {saga} falls through EventModelEmitter's role switch exactly as {document} does.
+        var deliveries = slice("Deliveries");
+
+        deliveries.CommandType!.Name.ShouldBe(nameof(DeliveryBooked));
+        deliveries.AggregateTypes.ShouldBeEmpty();
+        deliveries.EmittedEvents.ShouldBeEmpty();
+        deliveries.ReadModelTypes.ShouldBeEmpty();
+
+        // Still evidence, though: the spec did name the type, and run evidence joins on this.
+        deliveries.Specifications.SelectMany(s => s.ResolvedTypes).Select(t => t.Name)
+            .ShouldContain(nameof(DeliverySaga));
     }
 }

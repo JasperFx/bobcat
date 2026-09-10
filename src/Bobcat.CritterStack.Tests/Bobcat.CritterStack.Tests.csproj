@@ -20,6 +20,11 @@
     <PackageReference Include="Marten" />
     <PackageReference Include="Fisher" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
+    <!-- Saga persistence is WolverineFx.Marten's job, so SagaGrammarSpecTests (issue #281) needs it
+         to have a saga to read. Test-only: the grammar reads through IWolverineRuntime.SagaStorage and
+         Bobcat.CritterStack still references no store. The other Marten hosts here deliberately do
+         not call IntegrateWithWolverine, to prove the helpers without it. -->
+    <PackageReference Include="WolverineFx.Marten" />
     <!-- Marten 9.30.0 and Fisher 1.0.4 each bundle JasperFx.Events.SourceGenerator inside their
          own nupkg, so referencing both loads the generator twice and every projection's Evolver
          partial is emitted twice (CS0433 — jasperfx#462). Compile with the explicit, centrally

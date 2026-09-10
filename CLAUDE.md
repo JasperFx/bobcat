@@ -164,12 +164,13 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   evidence (#107) deliberately does **not** ride it: `TouchedTypes` must live on
   `ExecutionResults` to reach the wire, and both are accumulate-onto-context already.
 - **Type-name captures** — `{type}`, the Event Modeling aliases `{aggregate}`/`{command}`/
-  `{event}`/`{readmodel}`/`{message}`, and the document-store `{document}` (issue #270) — capture a
-  type *name* in the step text and bind to a `System.Type` parameter as `typeof(global::…)`.
-  **`{document}` stamps no Event Modeling role**, deliberately: a document-backed application has
-  no stream, so an aggregate or read model on the canvas for it would describe nothing. It is inert
-  in `EventModelEmitter` by construction — that switches on the role words and lets `{document}`
-  fall through exactly as it does `{type}` — and `EventModelDescriptorTests` asserts that
+  `{event}`/`{readmodel}`/`{message}`, the document-store `{document}` (issue #270) and Wolverine's
+  `{saga}` (issue #281) — capture a type *name* in the step text and bind to a `System.Type`
+  parameter as `typeof(global::…)`. **`{document}` and `{saga}` stamp no Event Modeling role**,
+  deliberately: a document-backed application has no stream, and a saga's state is not an
+  aggregate, event or read model, so an element on the canvas for either would describe nothing.
+  Both are inert in `EventModelEmitter` by construction — that switches on the role words and lets
+  them fall through exactly as it does `{type}` — and `EventModelDescriptorTests` asserts each
   positively rather than by silence. `TypeNameResolver` resolves the name against the
   consuming compilation and its non-framework references: a dotted name matches a full name; a simple
   name must match exactly one type by simple name. Unresolved is **BOBCAT011**, ambiguous is
@@ -1098,10 +1099,21 @@ discovers through its base).
   steps resolve what the event steps already resolve and cast. `DocumentStores.LoadAsync(store,
   type, id)` is public for the same reason `RecordBuilding` is — `LoadAsync<T>` is generic-only on
   every store while a `{document}` capture yields nothing but a `Type`, and every type-capturing
-  grammar hits that wall. **Saga state is deliberately not covered** (issue #281): a saga is a
-  different storage surface, and under most providers a completed saga is deleted, so "is complete"
-  and "was never started" may be indistinguishable — a step that cannot tell them apart is the
-  spec-that-cannot-fail #273 was about.
+  grammar hits that wall.
+- **The saga lane is `SagaGrammars` (issue #281)** — `Then the {saga} with id {string} is active`
+  (+ optional one-row table, only named columns compared) · `Then no {saga} exists with id
+  {string}`. A module like `DocumentGrammars`, composed with `[IncludeGrammars(typeof(SagaGrammars))]`.
+  Reads through `IWolverineRuntime.SagaStorage` — Wolverine's read-only view aggregated over every
+  saga storage (Marten, Polecat, Fisher, EF Core, RavenDB, RDBMS) — so no store reference. Three
+  decisions of record (2026-09-10): **no "is complete" step**, because every saga storage deletes a
+  completed saga (one completing inside its start handler is never inserted), so "complete" and
+  "never started" are the same row — none — and a step claiming completion would be the
+  spec-that-cannot-fail #273 was about; showing the saga active, then gone, says it honestly.
+  **No arrange step**: sagas vary too much for a pre-canned start, so they start the way the app
+  starts them — a Wolverine message or an Alba call. **An unknown saga type is refused**, not read
+  as absent: the storage view returns null both for "no instance" and "no storage owns this type",
+  so each step first checks `GetRegisteredSagasAsync` and names what is registered. The id is
+  converted to the saga's own `Id` type before the read, so no provider has to guess at a string.
 - **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
   through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
   **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
