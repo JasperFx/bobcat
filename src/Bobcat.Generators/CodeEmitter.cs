@@ -27,8 +27,14 @@ public static class CodeEmitter
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine();
-        sb.AppendLine($"namespace {fixture.Namespace};");
-        sb.AppendLine();
+        // Empty means the fixture is in the global namespace — emit no declaration at all rather
+        // than a bare `namespace ;`. FullyQualifiedName is `global::`-prefixed either way, so the
+        // generated code binds to the fixture from wherever it lands. See issue #269.
+        if (fixture.Namespace.Length > 0)
+        {
+            sb.AppendLine($"namespace {fixture.Namespace};");
+            sb.AppendLine();
+        }
         sb.AppendLine($"[System.CodeDom.Compiler.GeneratedCode(\"Bobcat.Generators\", \"1.0\")]");
         sb.AppendLine($"public static class {safeClassName}");
         sb.AppendLine("{");

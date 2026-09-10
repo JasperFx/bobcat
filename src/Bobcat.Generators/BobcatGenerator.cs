@@ -323,7 +323,13 @@ public class BobcatGenerator : IIncrementalGenerator
         var info = new FixtureInfo
         {
             ClassName = symbol.Name,
-            Namespace = symbol.ContainingNamespace.ToDisplayString(),
+            // The global namespace stringifies as the literal "<global namespace>", which is a
+            // display string, not code. Emitting it produced `namespace <global namespace>;` and
+            // 14 compile errors in a file the user cannot edit (issue #269). A fixture with no
+            // namespace declaration is the shape a quickstart has, so this lands on first contact.
+            Namespace = symbol.ContainingNamespace.IsGlobalNamespace
+                ? ""
+                : symbol.ContainingNamespace.ToDisplayString(),
             FullyQualifiedName = qualified(symbol),
         };
 
