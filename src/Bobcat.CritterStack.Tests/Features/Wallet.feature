@@ -73,6 +73,28 @@ Feature: Wallet
       | Balance |
       | 50      |
 
+  # The per-event shape with its table turned on its side (issue #259): a `| field | value |`
+  # header makes the table vertical, one field per row, which reads top-down and stays readable
+  # however wide the event is. The orientation is decided per step, so the second arrange below is
+  # still horizontal — the same arrangement a third time, so all three can be read together.
+  @slice:CreditWallet
+  Scenario: A wallet with prior events keeps accumulating, arranged per event with vertical fields
+    Given no events for Wallet "99999999-9999-9999-9999-999999999999"
+    And WalletOpened occurred
+      | field    | value                                |
+      | WalletId | 99999999-9999-9999-9999-999999999999 |
+      | Owner    | Ivy                                  |
+    And WalletCredited occurred
+      | WalletId                             | Amount |
+      | 99999999-9999-9999-9999-999999999999 | 40     |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | 99999999-9999-9999-9999-999999999999 | 10     |
+    Then WalletCredited is emitted
+    And the WalletSummary read model contains
+      | Balance |
+      | 50      |
+
   # The clean-refusal railway (issue #168): the handler's Before returns HandlerContinuation.Stop,
   # so nothing throws — "validation fails with" cannot describe this handler, and the reason-less
   # "the command is refused" is its vocabulary.

@@ -502,24 +502,21 @@ public abstract class CritterStackFixture : Fixture
     /// shape when several events of the <em>same</em> type differ only by their values — three
     /// deposits, one row each — which is exactly the case this step reads worse for.
     /// </para>
+    /// <para>
+    /// The table may also run <b>vertically</b>: a <c>| field | value |</c> header (case-insensitive)
+    /// makes each row one field, which reads top-down and stays readable however wide the event is.
+    /// Orientation is decided per step from the header alone — see <see cref="ArrangedEventFields"/>.
+    /// </para>
     /// </remarks>
     [Given("{event} occurred")]
     public async Task GivenEventOccurred(Type @event, StepTable? fields)
     {
-        if (fields is { Rows.Count: > 1 })
-            throw new SpecCriticalException(
-                $"'Given {@event.Name} occurred' describes one event, so it takes at most one table row "
-                + $"of that event's fields, but got {fields.Rows.Count}. For several events of one type, "
-                + "use 'Given events for <aggregate>' with a row each.");
+        var row = ArrangedEventFields(@event, fields);
 
         if (streamIdentity is not { } identity || AggregateType is not { } aggregate)
             throw new SpecCriticalException(
                 $"'Given {@event.Name} occurred' needs to know which stream it belongs to — precede it "
                 + "with 'Given no events for <aggregate> \"<id>\"'.");
-
-        var row = fields is { Rows.Count: 1 }
-            ? fields.AsDictionaries()[0]
-            : new Dictionary<string, string>();
 
         var built = RecordBuilding.Build(@event, row, $"Given {@event.Name} occurred", partial: true);
 
@@ -529,6 +526,49 @@ public abstract class CritterStackFixture : Fixture
 
         Ctx.RecordTouchedType(aggregate);
         recordTouched([built]);
+    }
+
+    /// <summary>
+    /// The fields <c>Given {event} occurred</c> arranges, read from either orientation of its table:
+    /// one horizontal row, or a vertical <c>| field | value |</c> table with a field per row.
+    /// </summary>
+    /// <remarks>
+    /// The header is the whole signal — exactly two columns named <c>field</c> and <c>value</c>,
+    /// case-insensitive — so the choice is per step and no scenario commits to one shape. The cost
+    /// is that an event whose properties are literally <c>Field</c> and <c>Value</c> can only be
+    /// arranged vertically; <c>ArrangedEventTableTests</c> pins that trade-off.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string> ArrangedEventFields(Type @event, StepTable? fields)
+    {
+        if (fields is null) return new Dictionary<string, string>();
+
+        var isVertical = fields.Headers.Count == 2
+                         && fields.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+                         && fields.Headers[1].Trim().Equals("value", StringComparison.OrdinalIgnoreCase);
+
+        if (!isVertical)
+        {
+            if (fields.Rows.Count > 1)
+                throw new SpecCriticalException(
+                    $"'Given {@event.Name} occurred' describes one event, so it takes at most one table row "
+                    + $"of that event's fields, but got {fields.Rows.Count}. For several events of one type, "
+                    + "use 'Given events for <aggregate>' with a row each; for a wide event, turn the "
+                    + "table on its side with a '| field | value |' header.");
+
+            return fields.Rows.Count == 1 ? fields.AsDictionaries()[0] : new Dictionary<string, string>();
+        }
+
+        var byField = new Dictionary<string, string>();
+        foreach (var row in fields.Rows)
+        {
+            var name = row[0].Trim();
+            if (!byField.TryAdd(name, row[1]))
+                throw new SpecCriticalException(
+                    $"'Given {@event.Name} occurred' names the field '{name}' twice in its vertical table. "
+                    + "Each row is one field of the event, so name each field once.");
+        }
+
+        return byField;
     }
 
     /// <summary>

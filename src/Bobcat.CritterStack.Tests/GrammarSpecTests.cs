@@ -48,7 +48,7 @@ public class GrammarSpecTests
         // The vocabulary is entirely the shipped grammar, discovered from the referenced assembly.
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
-        feature.Scenarios.Count.ShouldBe(8);
+        feature.Scenarios.Count.ShouldBe(9);
 
         foreach (var scenario in feature.Scenarios)
         {
@@ -60,7 +60,10 @@ public class GrammarSpecTests
 
             foreach (var step in results.Steps)
             {
-                step.StepStatus.ShouldBeOneOf(ResultStatus.success, ResultStatus.ok);
+                // Name the scenario and step: nine scenarios share this loop, and a bare status
+                // mismatch says nothing about which one broke or why.
+                step.StepStatus.ShouldBeOneOf([ResultStatus.success, ResultStatus.ok],
+                    $"{scenario.Title} / {step.StepText}: {step.DescribeFailure()}");
             }
 
             // The run evidence (issue #107): the typed steps record what the scenario observably
