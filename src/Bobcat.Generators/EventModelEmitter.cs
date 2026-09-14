@@ -68,6 +68,15 @@ internal static class EventModelEmitter
         /// feature-level fallback from a scenario folded later cannot replace it (issue #258).
         /// </summary>
         public bool TriggerLabelDeclaredOnScenario;
+
+        /// <summary>
+        /// <c>Http</c> when a scenario of this slice acts through the HTTP grammar (issue #258),
+        /// else null. The one trigger kind Gherkin can settle on its own — see <c>httpActOf</c>.
+        /// </summary>
+        public string? TriggerKind;
+
+        /// <summary>The route the HTTP act posts to, prefix included, or null when unknowable.</summary>
+        public string? TriggerRoute;
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -96,7 +105,8 @@ internal static class EventModelEmitter
     /// </para>
     /// </remarks>
     public static void Collect(
-        FeatureInfo feature, List<MatchedScenario> matched, Dictionary<string, SliceModel> slices)
+        FeatureInfo feature, List<MatchedScenario> matched, Dictionary<string, SliceModel> slices,
+        FixtureInfo? fixture = null)
     {
         var triggerLabel = GeneratorSliceTags.TriggeredBy(feature.Description);
 
@@ -149,6 +159,17 @@ internal static class EventModelEmitter
                 slice.TriggerLabel ??= triggerLabel;
             }
             slice.ActCommand ??= actCommandOf(scenario);
+
+            // Issue #258, gap 4. `is posted to` is the HTTP grammar's own sentence, so a scenario
+            // that uses it IS reached over HTTP — a compile-time fact rather than a guess, which is
+            // the bar every other role on this descriptor is held to. First scenario to say so
+            // wins, like ActCommand: a slice reached over HTTP does not stop being so because a
+            // later scenario of the same slice drives it another way.
+            if (httpActOf(scenario, fixture) is { } act)
+            {
+                slice.TriggerKind ??= "Http";
+                slice.TriggerRoute ??= act;
+            }
 
             foreach (var (role, type) in roles)
             {
@@ -245,6 +266,106 @@ internal static class EventModelEmitter
 
         return act;
     }
+
+    /// <summary>
+    /// The HTTP grammar's step sentence. Matched on the <em>expression</em> — what the grammar
+    /// declared in its attribute — rather than on a type name, so the generator keeps needing no
+    /// reference to the package that ships it, the same rule the marker-comment and interceptor
+    /// pipelines follow.
+    /// </summary>
+    private const string HttpActExpression = "is posted to";
+
+    /// <summary>The constructor parameter a grammar module prefixes its routes with.</summary>
+    private const string RoutePrefixParameter = "routePrefix";
+
+    /// <summary>
+    /// The route this scenario's HTTP act posts to, or null when it has no HTTP act.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <em>last</em> <c>When</c>, for the same reason <c>actCommandOf</c> takes the last one:
+    /// earlier Whens arrange, the final one is the act. Returns the route with the module's
+    /// <c>routePrefix</c> applied, because that is the route the app actually serves.
+    /// </para>
+    /// <para>
+    /// <b>An empty string means "HTTP, route unknown".</b> A module whose prefix is resolved from
+    /// the scenario rather than from an <c>[IncludeGrammars]</c> literal has no compile-time
+    /// route, and a route missing its prefix is a wrong route — worse on a canvas than no route at
+    /// all. The <em>kind</em> is still certain, so it is still stamped.
+    /// </para>
+    /// <para>
+    /// Only Http, and only from this sentence. <c>When {command} is received</c> dispatches
+    /// ordinary commands as readily as it does messages a handler is subscribed to, so deriving
+    /// <c>MessageHandler</c> from it would be the guess this method exists to avoid (issue #258
+    /// gap 4, classified "not Gherkin's job").
+    /// </para>
+    /// </remarks>
+    private static string? httpActOf(MatchedScenario scenario, FixtureInfo? fixture)
+    {
+        string? route = null;
+
+        foreach (var step in scenario.Steps)
+        {
+            if (!string.Equals(step.Step.ResolvedKeyword.Trim(), "When", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var match = step.Match;
+            var method = match?.Method;
+            if (match == null || method == null) continue;
+            if (method.Expression.IndexOf(HttpActExpression, StringComparison.Ordinal) < 0) continue;
+
+            route = routePrefixOf(method, fixture) + stringCaptureOf(match, method);
+        }
+
+        return route;
+    }
+
+    /// <summary>The first <c>{string}</c> the step captured — the route on the HTTP act.</summary>
+    private static string stringCaptureOf(StepMatcher.MatchResult match, StepMethodInfo method)
+    {
+        var parsed = method.ParsedExpression;
+        if (parsed == null) return "";
+
+        for (var i = 0; i < parsed.Parameters.Count && i < match.ExtractedValues.Count; i++)
+        {
+            // The {string} capture group excludes its quotes, so this is the route as written.
+            if (parsed.Parameters[i].CSharpType == "string") return match.ExtractedValues[i];
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// The literal route prefix the declaring grammar module was composed with, or "" when there
+    /// is none to read.
+    /// </summary>
+    private static string routePrefixOf(StepMethodInfo method, FixtureInfo? fixture)
+    {
+        if (fixture == null || method.DeclaringModule == null) return "";
+
+        foreach (var module in fixture.Modules)
+        {
+            if (module.FullyQualifiedName != method.DeclaringModule) continue;
+
+            foreach (var argument in module.ConstructionParameters)
+            {
+                if (argument.Parameter.Name != RoutePrefixParameter) continue;
+
+                // A prefix resolved from the scenario has no literal, and guessing "" for it would
+                // publish a route missing its prefix.
+                return argument.Literal == null ? "" : unquote(argument.Literal);
+            }
+
+            return "";
+        }
+
+        return "";
+    }
+
+    private static string unquote(string literal)
+        => literal.Length >= 2 && literal[0] == '"' && literal[literal.Length - 1] == '"'
+            ? literal.Substring(1, literal.Length - 2)
+            : literal;
 
     /// <summary>
     /// A role word carried by no slot on the descriptor. The type is still a type the
@@ -394,6 +515,21 @@ internal static class EventModelEmitter
         if (slice.Domain != null) sb.AppendLine($"            Domain = {literal(slice.Domain)},");
         var pattern = patternOf(slice);
         if (pattern != null) sb.AppendLine($"            Pattern = global::{Ns}.SlicePattern.{pattern},");
+        if (slice.TriggerKind != null)
+        {
+            sb.AppendLine($"            TriggerKind = global::{Ns}.TriggerKind.{slice.TriggerKind},");
+            if (!string.IsNullOrEmpty(slice.TriggerRoute))
+            {
+                // POST is the only verb the HTTP grammar has; when it grows others the verb comes
+                // from the step's own sentence rather than from a default here.
+                sb.AppendLine($"            TriggerOrigin = new global::{Ns}.PublisherOrigin");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                HttpRoute = {literal(slice.TriggerRoute)},");
+                sb.AppendLine("                HttpMethod = \"POST\",");
+                sb.AppendLine($"                Label = {literal("POST " + slice.TriggerRoute)}");
+                sb.AppendLine("            },");
+            }
+        }
         sb.AppendLine($"            AggregateTypes = {typeDescriptorList(slice.Aggregates)},");
         sb.AppendLine($"            PublishedMessages = {typeDescriptorList(slice.Messages)},");
         sb.AppendLine($"            Specifications = {specifications(slice)},");
