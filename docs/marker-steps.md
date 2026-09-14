@@ -58,6 +58,40 @@ reading "published on threadCount threads" would be worse than one that visibly 
 The two compose. Comments give a test its narrative; decorated helpers give real per-step timing
 across every test in the suite that touches them.
 
+### They are different steps, and they nest (issue #305)
+
+When a decorated helper is called inside a comment-declared region, **both** describe the same
+stretch of the test — and the answer is not a precedence rule, because they are not the same kind
+of claim. The comment is the author's sentence about *this* test. The attribute reports an
+*operation*, wherever it is called from. So the comment is the row, and the helper renders
+underneath it with its own keyword and its own verdict:
+
+```
+Given the events are published                    52ms
+    Given the events are published on 3 threads   40ms
+    Given the events are flushed                  12ms
+When the projection daemon is running             declared
+```
+
+Neither keyword overrides the other, because they never occupy the same line. A helper called
+where no comment has been written yet — before the first marker, or from a method that is not a
+test — belongs to no sentence and renders on its own.
+
+### What a declared step can say about itself (issue #304)
+
+A declared step reports **the work observed inside it**: the steps that ran under it, their
+verdicts, and the sum of their durations. It reports nothing else, and a region with no decorated
+helper inside it stays blank — marked `declared`, with no duration and no verdict. Nothing
+observed it, and a number borrowed from its neighbours would be exactly the inference this feature
+promises not to make.
+
+The attribution is decided **by the generator, from the call site's line**, against the comments
+in the same method. Not from a stack trace, not from a clock: an interceptor is generated per call
+site, so at build time which sentence a call sits under is an exact fact, and at runtime it would
+be a guess. An index that does not match the comments actually registered — a stale `obj/`, a
+class the feature attribute never marked — attributes to nothing rather than to the wrong
+sentence.
+
 ## What you have to add
 
 | | |
@@ -134,20 +168,26 @@ carries the source line its comment came from.
 
 ## What reaches the viewer
 
-A scenario publishes `ScenarioStarted` (with the declared step count when it has one),
-`StepStarted` as each step **opens**, `StepFinished` with that step's own verdict, and
+A scenario publishes `ScenarioStarted` (with the declared step count and, since #304, the
+declared sentences themselves), `StepStarted` as each step **opens** — carrying
+`DeclaredStepNumber`, the sentence it ran under — `StepFinished` with that step's own verdict, and
 `ScenarioFinished`. Steps are announced when they open rather than when they end, because a
 watcher looking at a run in flight needs the step that is currently taking the time — which is
 exactly the one that has not finished yet.
+
+The narrative rides on `ScenarioStarted` rather than arriving as steps, and that is the wire
+shape of "declared is not executed": publishing a declared step as a `StepStarted` would be
+announcing that it ran.
 
 With no viewer listening the publisher is null and the whole thing costs a few strings per test.
 
 ## The honest limits
 
-- **A comment-declared step has no duration.** Timing needs somewhere to intercept, and a comment
-  does not give one — only a decorated helper does. Comments give you the narrative and the
-  count; `[BobcatStep]` gives you the clock. The line numbers are carried for the per-step verdict
-  work still open on #110.
+- **A comment-declared step still has no clock of its own.** It reports the work observed *inside*
+  it (issue #304) — the decorated helpers that ran under it, their verdicts, and the sum of their
+  durations — and a region containing none of them says nothing at all. Timing needs somewhere to
+  intercept and a comment does not give one; what changed is that the work underneath it is now
+  attributed to it, exactly, from the call site's line.
 - **A step outside a scenario is silent.** Decorated helpers get called from plenty of places that
   are not specifications, and reporting from them would be noise.
 - **Test methods are matched by attribute name** — `Fact`, `Theory`, `Test`, `TestCase` — so the

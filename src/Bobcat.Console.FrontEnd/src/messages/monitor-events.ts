@@ -80,6 +80,12 @@ export interface ScenarioStarted extends MonitorEvent {
   attempt: number
   at: string
   totalSteps?: number | null
+  declaredSteps?: DeclaredStepInfo[] | null
+}
+
+export interface DeclaredStepInfo {
+  keyword: string
+  text: string
 }
 
 /** Envelope type: 'scenario_finished' */
@@ -116,6 +122,7 @@ export interface StepStarted extends MonitorEvent {
   stepNumber?: number | null
   totalSteps?: number | null
   scenarioElapsedMs?: number | null
+  declaredStepNumber?: number | null
 }
 
 /** Envelope type: 'step_finished' */
