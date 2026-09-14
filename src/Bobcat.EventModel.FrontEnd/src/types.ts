@@ -177,11 +177,51 @@ export interface EventModelSliceDescriptor {
   externalSystems?: ExternalSystemDescriptor[]
 }
 
+/**
+ * Kind of a cross-slice link (jasperfx#823). One member per join rule, so a viewer can draw a
+ * consumed event differently from a triggering one without re-deriving why they differ.
+ *
+ * `EventConsumed` and `ReadModelRead` are reserved upstream — the roles they need do not exist
+ * yet (jasperfx#824) — so a producer emits nothing for them today. They are mirrored here anyway
+ * for the same reason upstream declares them: the wire enum should not move twice.
+ */
+export type EventModelLinkKind =
+  | 'EventTriggers'
+  | 'MessageTriggers'
+  | 'EventConsumed'
+  | 'ReadModelRead'
+
+/**
+ * A cause→effect relationship between two SLICES — the one relationship the descriptor's
+ * slice-local `elements`/`edges` cannot express (jasperfx#823).
+ *
+ * Computed upstream on read from the roles each slice already stamps, never accepted as input, so
+ * no viewer derives its own opinion about what connects to what.
+ *
+ * ⚠️ Optional, and absent from every descriptor a producer on JasperFx.Events < 2.69 can emit —
+ * which includes the version this repo pins today. Everything in this package that reads `links`
+ * therefore has to work without them; focus (#296) degrades to the selected slice alone.
+ *
+ * Drawing them is bobcat#295's job. This type is here because focus needs to know a slice's
+ * neighbours, which is a question about the model rather than about the picture.
+ */
+export interface EventModelLink {
+  fromSlice: string
+  fromElementId: string
+  toSlice: string
+  toElementId: string
+  kind: EventModelLinkKind
+  /** The type identity the join matched on. */
+  via?: TypeDescriptor | null
+}
+
 /** Wire descriptor for an entire Event Model. */
 export interface EventModelDescriptor {
   name: string
   slices?: EventModelSliceDescriptor[]
   aggregates?: EventModelElement[]
+  /** Cross-slice links, computed upstream. Absent on any producer below JasperFx.Events 2.69. */
+  links?: EventModelLink[]
 }
 
 /** Lanes in canonical top-to-bottom order. Rendering order is part of the contract. */

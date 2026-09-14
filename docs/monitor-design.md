@@ -449,6 +449,29 @@ convention:
   cards (#184), and a source disagreement that renders as a structured finding — role, kept claim,
   struck-through dropped claim — rather than as the clipped sentence that got read as a malformed
   events list (#178).
+- **Navigation, not magnification (issue #296, 0.9.0).** Zoom stops and a filter bar both landed,
+  and the measured 106-slice model was *still* ~10,000px wide at the 25% floor. Four features, all
+  in the shared package on the same transform wrapper, none of them touching `layoutEventModel`:
+  **focus** fits a slice's neighbourhood — the slice plus every slice one cross-slice `link` away —
+  and dims the rest, with a `Fleet › Reporting › Slice079` breadcrumb whose crumbs step out and an
+  Esc that restores the zoom and scroll the reader had; **level of detail** is a `data-lod`
+  attribute set from the scale that CSS switches on (`detail` ≥ 0.7, `compact` 0.4–0.7, `overview`
+  below), so 700 cards do not re-render when someone nudges the wheel and the two consoles cannot
+  disagree about what "less" means; a **minimap** of the same graph as bare rects; and continuous
+  cursor-anchored wheel zoom, with the nine stops kept as the button ladder.
+  - `links` is computed upstream (jasperfx#823) and absent from every descriptor this repo's pinned
+    JasperFx 2.67.1 can produce, so **the degraded path — neighbourhood = the slice alone — is the
+    one that runs today**, and it is the one the specs exercise. Nothing is derived client-side.
+  - The **page** owns where a viewport is kept and mirrors `viewport-change` into the route query
+    (`z`/`x`/`y`/`focus`/`sel`) with `replace`, so a link to part of a big model pastes into a PR
+    and Back does not walk every notch of a zoom. The *encoding* stays in the package
+    (`viewportToQuery`/`viewportFromQuery`) so a Bobcat link and a CritterWatch link agree.
+  - Three things only the real 106-slice canvas found, all fixed: a uniformly-scaled minimap of a
+    100:1 canvas measured **222 × 3.6px**, so its axes scale independently and it is not drawn at
+    all below ~2,500px of canvas; the viewport has no height of its own, so `min(vw/w, vh/h)`
+    reduced to the zoom the reader already had and focus "fitted" 46% to 48%; and the toolbar
+    Focus button is unreachable once a selection opens the modal drill-down drawer over it, which
+    is why each slice header carries its own ⌖.
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in

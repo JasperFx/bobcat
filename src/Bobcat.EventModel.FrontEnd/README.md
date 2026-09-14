@@ -170,6 +170,80 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Navigating a big model: focus, level of detail, minimap, place (0.9.0, bobcat#296)
+
+0.7.0 gave the canvas nine zoom stops and 0.8.0 gave it a filter bar, and a 106-slice model is
+*still* ~10,000px wide at the 25% floor. What was missing was never magnification. It was being
+able to say **look at this part**, see less when far out, know where you are, and send someone the
+view. All four ride the same `transform: scale()` wrapper #182 built, and none of them reaches into
+`layoutEventModel` — the decisions live in `focus.ts` as pure functions over the laid-out graph.
+
+**Focus.** Pick a slice (the ⌖ in its header, or select a card and press **Focus**) and the canvas
+fits that slice's **neighbourhood** — the slice plus every slice one `link` away — and dims the
+rest. The breadcrumb reads `Fleet › Reporting › Slice079`; each crumb is a step out, and Esc does
+the whole journey at once, back to the zoom and scroll the reader had before they focused.
+
+⚠️ **The neighbourhood degrades to the slice alone when the descriptor carries no `links`**, which
+is every descriptor a producer below JasperFx.Events 2.69 can emit — including the version this
+repo pins today. Nothing here derives a link client-side: two viewers inventing their own joins is
+exactly what the upstream computation (jasperfx#823) exists to prevent. Drawing the links is #295.
+
+Two ways in rather than one, and the second is not a convenience: the slice name opens the host's
+drill-down, and in the Bobcat console that is a **modal drawer whose overlay then covers the
+toolbar** — "select, then press Focus" is unreachable the moment the host reacts to the selection.
+Found by driving the real 106-slice canvas, not by reading the code.
+
+**Level of detail.** A `data-lod` attribute on the viewport, set from the scale, that CSS switches
+on. No re-layout, no `v-if`, and identical in both consoles by construction — a canvas of 700 cards
+must not re-render because someone nudged the wheel, and two hosts must not each decide for
+themselves what "less" means.
+
+| level | scale | what it draws |
+|-------|-------|---------------|
+| `detail` | ≥ 0.7 | today's rendering, defined by having no rules at all |
+| `compact` | 0.4–0.7 | kind colour, one-line label, spec badge; glyphs, verb badges and hotspot text drop |
+| `overview` | < 0.4 | cards are colour blocks with no text; each column paints its own name and pattern, counter-scaled to survive the transform; lane captions stay |
+
+The overview label sits *over* the top of its column rather than above it: there is only
+`CANVAS_PADDING` of room above the plot — three pixels at the 25% floor — and a label hoisted into
+it is simply clipped, which is what the first cut of this did.
+
+**Minimap.** The same `EventModelGraph` again as bare `<rect>`s, below the canvas and right-aligned.
+Rects only — no text, no edges — so it costs nothing to repaint on every scroll frame, and it
+tracks the filter bar for free because it is handed the graph the canvas drew rather than the
+descriptor.
+
+Two things it does that the issue did not ask for, both because the real model demanded them:
+
+- **x and y scale independently.** A uniform "~1/40" is right for ordinary proportions and wrong for
+  this canvas: 106 slices is ~53,000 × 550px, near 100:1, and scaled faithfully into a corner it
+  measured **222 × 3.6px** — not a map of anything. x keeps the 1/40 ceiling; y fills its box. The
+  cost is card *shape*; what survives is how far along the model you are and which lanes carry
+  anything, which is all a minimap is ever asked.
+- **It is not drawn at all below ~2,500px of canvas** (about six slices). A canvas that fits on two
+  screens has nothing for a map to answer, and a map of a two-slice model is a 30px smudge.
+
+It is also **in flow rather than floated over a corner**: the viewport has no height of its own —
+it grows to whatever the scaled canvas needs — so at the 25% floor a 106-slice model is ~140px tall
+and a 72px overlay covers half the plot.
+
+**Place.** Continuous, cursor-anchored wheel zoom (the nine stops stay as the button ladder, which
+is what they were good at; a pinch is an analogue gesture and snapping it feels broken). The
+component emits `viewport-change` with `{ zoom, x, y, focus, selection }` and accepts an
+`initialViewport` back; `viewportToQuery` / `viewportFromQuery` are exported so a Bobcat link and a
+CritterWatch link to "CreditWallet, focused" mean the same thing. **Where** that state is kept is
+the host's call — the Bobcat console mirrors it into the route query with `replace`, so a URL to a
+part of a 106-slice model can be pasted into a PR and Back does not walk every notch of a zoom.
+
+A restored *focus* is re-fitted rather than restored from its offsets: a link opened on a narrower
+window should still frame the neighbourhood, not land on coordinates measured somewhere else.
+
+One non-obvious rule in the fit. `scale = clamp(min(vw/w, vh/h))` is the issue's formula, but the
+scroller's height is *about the canvas height* — it grows to its content — so `vh/h` reduces to the
+zoom the reader already had, and on the real model focus "fitted" 46% to 48%. `fitToRect` therefore
+takes `viewport.height <= 0` to mean "the height is not constraining" and fits on width alone, and
+the component decides which case it is by asking whether the scroller actually scrolls vertically.
+
 ## Card sizing: wrap, widen, then clamp (0.5.0, bobcat#180)
 
 Cards were absolutely sized at 180px with `overflow: hidden`, so a long command name — and worse,

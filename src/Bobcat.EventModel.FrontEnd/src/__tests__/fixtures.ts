@@ -104,3 +104,100 @@ export function fourSourceModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * jasperfx#823 — the same two slices, plus the cross-slice `links` the descriptor computes on read
+ * and a third slice linked to neither.
+ *
+ * `WithdrawFunds` emits `FundsWithdrawn`; `AccountBalance` folds it. That is one `EventTriggers`
+ * link and therefore a neighbourhood of two, which is what focus (#296) has to fit. `SendWelcome`
+ * is the control: it must stay outside the neighbourhood and get dimmed.
+ *
+ * ⚠️ No producer on the JasperFx this repo pins can emit this document — `Links` arrives in 2.69.
+ * It exists so focus-with-neighbourhood is covered at all; `withdrawFundsModel()` is the shape the
+ * pin can actually produce, and the degraded path is tested against that.
+ */
+export function linkedModel(): EventModelDescriptor {
+  const model = withdrawFundsModel()
+  model.slices!.push({
+    name: 'SendWelcome',
+    domain: 'Onboarding',
+    pattern: 'Automation',
+    elements: [
+      {
+        id: 'SendWelcome/Message/Bank.WelcomeEmail',
+        kind: 'Message',
+        lane: 'Command',
+        label: 'WelcomeEmail',
+        type: { name: 'WelcomeEmail', fullName: 'Bank.WelcomeEmail' }
+      }
+    ],
+    edges: []
+  })
+  model.links = [
+    {
+      fromSlice: 'WithdrawFunds',
+      fromElementId: 'WithdrawFunds/Event/Bank.FundsWithdrawn',
+      toSlice: 'AccountBalance',
+      toElementId: 'AccountBalance/Event/Bank.FundsWithdrawn',
+      kind: 'EventTriggers',
+      via: { name: 'FundsWithdrawn', fullName: 'Bank.FundsWithdrawn' }
+    }
+  ]
+  return model
+}
+
+/**
+ * A model the size of the one that made #296 necessary.
+ *
+ * The 2026-08-31 review measured CritterWatch's merged fleet model at 106 slices and ~10,000px at
+ * the 25% zoom floor. A fixture of the same order is the only honest way to test a feature whose
+ * whole justification is that size — `withdrawFundsModel()` fits on a laptop screen at 100%, so it
+ * cannot fail any of these cases.
+ *
+ * Six elements a slice, cycling through four domains, and a chain of links down the declaration
+ * order so every slice but the ends has exactly two neighbours.
+ */
+export function largeModel(sliceCount = 106): EventModelDescriptor {
+  const domains = ['Accounts', 'Payments', 'Onboarding', 'Reporting']
+  const slices: EventModelDescriptor['slices'] = []
+  const links: NonNullable<EventModelDescriptor['links']> = []
+
+  for (let index = 0; index < sliceCount; index++) {
+    const name = `Slice${String(index).padStart(3, '0')}`
+    slices.push({
+      name,
+      domain: domains[index % domains.length],
+      pattern: index % 3 === 0 ? 'View' : 'Command',
+      triggerKind: 'Http',
+      elements: [
+        { id: `${name}/Trigger/screen`, kind: 'Trigger', lane: 'Wireframe', label: `${name}Screen` },
+        { id: `${name}/Command/Bank.${name}`, kind: 'Command', lane: 'Command', label: name, type: { name, fullName: `Bank.${name}` } },
+        { id: `${name}/Handler/Bank.${name}Handler`, kind: 'Handler', lane: 'Command', label: `${name}Handler` },
+        { id: `${name}/Event/Bank.${name}Happened`, kind: 'Event', lane: 'EventStream', label: `${name}Happened` },
+        { id: `${name}/Projection/Bank.${name}Projection`, kind: 'Projection', lane: 'ReadModel', label: `${name}Projection` },
+        { id: `${name}/ReadModel/Bank.${name}View`, kind: 'ReadModel', lane: 'ReadModel', label: `${name}View` }
+      ],
+      edges: [
+        { fromId: `${name}/Trigger/screen`, toId: `${name}/Command/Bank.${name}` },
+        { fromId: `${name}/Command/Bank.${name}`, toId: `${name}/Handler/Bank.${name}Handler` },
+        { fromId: `${name}/Handler/Bank.${name}Handler`, toId: `${name}/Event/Bank.${name}Happened` }
+      ],
+      specifications: index % 5 === 0 ? [{ identity: `${name}/happy path` }] : []
+    })
+
+    if (index > 0) {
+      const previous = `Slice${String(index - 1).padStart(3, '0')}`
+      links.push({
+        fromSlice: previous,
+        fromElementId: `${previous}/Event/Bank.${previous}Happened`,
+        toSlice: name,
+        toElementId: `${name}/Command/Bank.${name}`,
+        kind: 'EventTriggers',
+        via: { name: `${previous}Happened`, fullName: `Bank.${previous}Happened` }
+      })
+    }
+  }
+
+  return { name: 'Fleet', slices, links }
+}

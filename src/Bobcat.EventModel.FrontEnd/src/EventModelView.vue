@@ -11,7 +11,7 @@
  *
  * Layout is the pure grid from `layout.ts` — synchronous, no elk, no measurement pass.
  */
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CANVAS_PADDING,
   CARD_PADDING_X,
@@ -24,6 +24,23 @@ import {
   layoutEventModel,
   type LayoutOptions
 } from './layout'
+import EventModelMinimap from './EventModelMinimap.vue'
+import {
+  breadcrumbFor,
+  fitToRect,
+  focusedSliceNames,
+  lodFor,
+  minimapScale,
+  rectForSlices,
+  scrollForMinimapPoint,
+  selectionFromKey,
+  selectionToKey,
+  sliceOfSelection,
+  worthMapping,
+  type FocusTarget,
+  type Selection,
+  type ViewportState
+} from './focus'
 import { segmentLabel } from './text'
 import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
@@ -52,13 +69,28 @@ const props = withDefaults(
      * has won every other time on this canvas.
      */
     filterable?: boolean
+    /**
+     * Show the minimap (issue #296). On by default; a host embedding the canvas in a thumbnail
+     * has nowhere to put it.
+     */
+    minimap?: boolean
+    /**
+     * Where to land on mount — zoom, scroll offsets, focus and selection (issue #296).
+     *
+     * The package REPORTS the viewport and ACCEPTS one; it never decides where to keep it. The
+     * Bobcat console mirrors it into the route query so "CreditWallet, focused" can be pasted into
+     * a PR; a host that wants none of that ignores `viewport-change` and passes nothing here.
+     */
+    initialViewport?: Partial<ViewportState> | null
   }>(),
   {
     descriptor: null,
     collapsedSlices: undefined,
     sliceOutcomes: undefined,
     layout: undefined,
-    filterable: true
+    filterable: true,
+    minimap: true,
+    initialViewport: null
   }
 )
 
@@ -68,6 +100,8 @@ const emit = defineEmits<{
   'slice-click': [slice: EventModelSliceDescriptor]
   /** The reader narrowed the canvas. Hosts that want to persist the view can listen. */
   'filter-change': [filter: SliceFilter]
+  /** The reader moved, zoomed, focused or selected. The host decides whether to persist it (#296). */
+  'viewport-change': [viewport: ViewportState]
 }>()
 
 // ------------------------------------------------------------------ filter & collapse (#194)
@@ -192,6 +226,7 @@ function applyZoom(next: number) {
   void nextTick(() => {
     element.scrollLeft = Math.max(0, centreX * next - element.clientWidth / 2)
     element.scrollTop = Math.max(0, centreY * next - element.clientHeight / 2)
+    trackScroll()
   })
 }
 
@@ -240,6 +275,7 @@ function onPan(event: MouseEvent) {
   if (!element || !panning.value) return
   element.scrollLeft = panFrom.left - (event.clientX - panFrom.x)
   element.scrollTop = panFrom.top - (event.clientY - panFrom.y)
+  trackScroll()
 }
 
 function endPan() {
@@ -251,13 +287,263 @@ function endPan() {
 // A drag that outlived the component would keep scrolling a detached element for ever.
 onBeforeUnmount(endPan)
 
-/** Ctrl/⌘ + wheel is the pinch gesture a trackpad sends; a plain wheel stays scrolling. */
+/**
+ * Ctrl/⌘ + wheel is the pinch gesture a trackpad sends; a plain wheel stays scrolling.
+ *
+ * Continuous and anchored at the CURSOR rather than stepped and anchored at the middle (#296).
+ * A pinch is an analogue gesture and snapping it to nine stops feels broken, and the point a
+ * reader means by "closer" during a pinch is the one under their fingers — the middle of the
+ * viewport is where the old stepped zoom put them instead, which on a 41,000px canvas is a
+ * different slice. The stops stay as the button ladder, which is what they were good at.
+ */
 function onWheel(event: WheelEvent) {
   if (!event.ctrlKey && !event.metaKey) return
   event.preventDefault()
-  if (event.deltaY < 0) zoomIn()
-  else zoomOut()
+
+  const element = viewport.value
+  const previous = zoom.value
+  // Exponential in the delta, so a fast scroll and a slow one covering the same distance land in
+  // the same place, and the step is proportional at every scale.
+  const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, previous * Math.exp(-event.deltaY / 400)))
+  if (!element || next === previous) {
+    zoom.value = next
+    return
+  }
+
+  const bounds = element.getBoundingClientRect()
+  // Where the cursor is, in unscaled canvas coordinates.
+  const anchorX = (element.scrollLeft + event.clientX - bounds.left) / previous
+  const anchorY = (element.scrollTop + event.clientY - bounds.top) / previous
+
+  zoom.value = next
+  void nextTick(() => {
+    element.scrollLeft = Math.max(0, anchorX * next - (event.clientX - bounds.left))
+    element.scrollTop = Math.max(0, anchorY * next - (event.clientY - bounds.top))
+    trackScroll()
+  })
 }
+
+// ------------------------------------------------------------- focus, LOD, minimap, place (#296)
+//
+// Zoom answers "bigger"; none of this does. #182 gave nine stops and #194 gave a filter bar, and a
+// 106-slice model is still ~10,000px wide at the 25% floor. What was missing was navigation: look
+// at a region, see less when far out, know where you are, and be able to send someone the view.
+//
+// All four ride the transform wrapper #182 already built, and none of them reaches into
+// `layoutEventModel` — the decisions live in `focus.ts` as pure functions over the laid-out graph,
+// so the two viewers' agreement survives.
+
+/** What the reader picked. Separate from focus: a click must not be able to move the viewport. */
+const selection = ref<Selection | null>(null)
+
+/** What the reader is looking at, if anything. */
+const focus = ref<FocusTarget | null>(null)
+
+/**
+ * Where the reader was before they focused, so the way out is the way back.
+ *
+ * Captured once on entering a focus rather than on every step within one: a reader who walks
+ * model → domain → slice and presses Esc means "put me back where I started", not "undo one rung".
+ */
+const beforeFocus = ref<{ zoom: number; x: number; y: number } | null>(null)
+
+const focusedSlices = computed(() => focusedSliceNames(props.descriptor, focus.value))
+const crumbs = computed(() => breadcrumbFor(props.descriptor, focus.value))
+
+/** The attribute the stylesheet switches on — no re-layout, identical in both consoles. */
+const lod = computed(() => lodFor(zoom.value))
+
+/** The scroller's live box, mirrored into reactive state for the minimap's window. */
+const scrollState = ref({ x: 0, y: 0, width: 0, height: 0 })
+
+function trackScroll() {
+  const element = viewport.value
+  if (!element) return
+  scrollState.value = {
+    x: element.scrollLeft,
+    y: element.scrollTop,
+    width: element.clientWidth,
+    height: element.clientHeight
+  }
+  reportViewport()
+}
+
+function reportViewport() {
+  emit('viewport-change', {
+    zoom: zoom.value,
+    x: scrollState.value.x,
+    y: scrollState.value.y,
+    focus: focus.value,
+    selection: selectionToKey(selection.value)
+  })
+}
+
+function applyViewport(next: { zoom: number; x: number; y: number }) {
+  const element = viewport.value
+  zoom.value = next.zoom
+  if (!element) return
+  void nextTick(() => {
+    element.scrollLeft = next.x
+    element.scrollTop = next.y
+    trackScroll()
+  })
+}
+
+/**
+ * Fit a focus target's neighbourhood into the viewport and dim everything else.
+ *
+ * `scale = clamp(min(vw/w, vh/h))`, then scroll to centre — the arithmetic is in `fitToRect` so it
+ * is testable without a DOM. A target that resolves to nothing on the canvas (a slice the filter
+ * bar hid) still becomes the focus but leaves the viewport alone: moving someone to an empty
+ * rectangle is worse than not moving them.
+ */
+function focusOn(target: FocusTarget) {
+  const element = viewport.value
+  if (!beforeFocus.value && element) {
+    beforeFocus.value = { zoom: zoom.value, x: element.scrollLeft, y: element.scrollTop }
+  }
+  focus.value = target
+
+  const rect = rectForSlices(graph.value, focusedSliceNames(props.descriptor, target))
+  if (!rect || !element || element.clientWidth <= 0) {
+    reportViewport()
+    return
+  }
+
+  // The scroller only constrains vertically when it actually scrolls vertically. Left unasked,
+  // `vh/h` is the zoom the reader already had and the fit does nothing — see `fitToRect`.
+  const verticallyBound = element.scrollHeight > element.clientHeight + 1
+
+  applyViewport(
+    fitToRect(
+      rect,
+      { width: element.clientWidth, height: verticallyBound ? element.clientHeight : 0 },
+      { min: MIN_ZOOM, max: MAX_ZOOM }
+    )
+  )
+}
+
+/** Focus what is selected. A card focuses the slice that owns it — a card is not a neighbourhood. */
+function focusSelection() {
+  const name = sliceOfSelection(selection.value)
+  if (name) focusOn({ kind: 'slice', name })
+}
+
+function clearFocus() {
+  const previous = beforeFocus.value
+  focus.value = null
+  beforeFocus.value = null
+  if (previous) applyViewport(previous)
+  else reportViewport()
+}
+
+/** A crumb is a step out: the model clears the focus, a domain focuses its band. */
+function goToCrumb(target: FocusTarget | null) {
+  if (target) focusOn(target)
+  else clearFocus()
+}
+
+function selectElement(node: { id: string; element: EventModelElement; sliceName: string }) {
+  selection.value = { kind: 'element', id: node.id, sliceName: node.sliceName }
+  reportViewport()
+  emit('element-click', node.element)
+}
+
+function selectSlice(slice: EventModelSliceDescriptor) {
+  selection.value = { kind: 'slice', name: slice.name }
+  reportViewport()
+  emit('slice-click', slice)
+}
+
+/** Dim everything outside the focus. Empty when nothing is focused — never dim the whole model. */
+function dimmed(sliceName: string): boolean {
+  return focusedSlices.value.size > 0 && !focusedSlices.value.has(sliceName)
+}
+
+/**
+ * Esc steps out — the focus first, then the selection.
+ *
+ * On `window` rather than on the viewport: the canvas is a scroller nobody clicks into, so keying
+ * it would mean Esc worked only after a click that was already ambiguous. Ignored while a text
+ * field has the keyboard, so Esc in the filter search clears the search rather than the focus.
+ */
+function onKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  const active = (event.target as HTMLElement | null)?.tagName
+  if (active === 'INPUT' || active === 'TEXTAREA') return
+  if (focus.value) {
+    event.preventDefault()
+    clearFocus()
+  } else if (selection.value) {
+    selection.value = null
+    reportViewport()
+  }
+}
+
+const minimapZoom = computed(() => minimapScale(graph.value))
+
+/**
+ * A map of a canvas that fits on two screens answers a question nobody asked, and draws a 30px
+ * smudge doing it. Measured on the graph rather than on the viewport, so it does not appear and
+ * vanish as someone resizes their window.
+ */
+const showMinimap = computed(() => props.minimap && worthMapping(graph.value))
+
+function onMinimapGoto(point: { x: number; y: number }) {
+  const element = viewport.value
+  if (!element) return
+  const next = scrollForMinimapPoint(
+    point,
+    { width: element.clientWidth, height: element.clientHeight },
+    zoom.value,
+    minimapZoom.value
+  )
+  element.scrollLeft = next.x
+  element.scrollTop = next.y
+  trackScroll()
+}
+
+/**
+ * Land on the host's viewport once the canvas exists.
+ *
+ * A focus is applied by *re-fitting* rather than by restoring the stored offsets, so a link opened
+ * on a narrower window still frames the neighbourhood instead of landing on coordinates measured
+ * somewhere else. A plain zoom/scroll link restores exactly, because there nothing was fitted.
+ */
+function restore(state: Partial<ViewportState> | null | undefined) {
+  if (!state) return
+  selection.value = selectionFromKey(props.descriptor, state.selection)
+
+  if (state.focus) {
+    focusOn(state.focus)
+    return
+  }
+  if (state.zoom === undefined && state.x === undefined && state.y === undefined) return
+  applyViewport({
+    zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.zoom ?? zoom.value)),
+    x: state.x ?? 0,
+    y: state.y ?? 0
+  })
+}
+
+onMounted(() => {
+  globalThis.window.addEventListener('keydown', onKeydown)
+  trackScroll()
+  restore(props.initialViewport)
+})
+
+onBeforeUnmount(() => globalThis.window.removeEventListener('keydown', onKeydown))
+
+// A descriptor swap is a different model: a focus on a slice it does not contain would dim the
+// whole canvas with no way to see why.
+watch(
+  () => props.descriptor,
+  () => {
+    focus.value = null
+    beforeFocus.value = null
+    selection.value = null
+  }
+)
 
 function styleFor(element: EventModelElement) {
   const fill = colorFor(element.kind)
@@ -446,6 +732,48 @@ function outcomeFor(sliceName: string): string | null {
       <!-- bobcat#182 — 36 slices do not fit at 100%, and 121 (CritterWatch's merged fleet model)
            are not close. Stops rather than a continuous ramp, plus a measured fit-to-width. -->
       <div class="em-toolbar">
+        <!-- issue #296 — the breadcrumb IS the way out: each crumb is a step up the focus ladder
+             (model → domain → slice), and Esc does the whole journey at once. -->
+        <nav v-if="crumbs.length > 0" class="em-crumbs" data-testid="event-model-crumbs">
+          <template v-for="(crumb, index) in crumbs" :key="`${index}-${crumb.label}`">
+            <span v-if="index > 0" class="em-crumb-sep" aria-hidden="true">›</span>
+            <button
+              type="button"
+              class="em-crumb"
+              :data-current="index === crumbs.length - 1 ? 'true' : undefined"
+              :disabled="index === crumbs.length - 1"
+              @click="goToCrumb(crumb.target)"
+            >
+              {{ crumb.label }}
+            </button>
+          </template>
+          <button
+            type="button"
+            class="em-zoom em-focus-clear"
+            title="Clear the focus (Esc)"
+            data-testid="focus-clear"
+            @click="clearFocus"
+          >
+            ✕
+          </button>
+        </nav>
+
+        <!-- Select a slice or a card, then focus its neighbourhood. Two controls rather than one
+             because a click that moved the viewport would be a click that lost your place. -->
+        <button
+          type="button"
+          class="em-zoom em-focus"
+          data-testid="focus-selection"
+          :disabled="selection === null"
+          :title="
+            selection === null
+              ? 'Select a slice or a card first'
+              : `Focus ${sliceOfSelection(selection)} and its neighbours`
+          "
+          @click="focusSelection"
+        >
+          Focus
+        </button>
         <button
           type="button"
           class="em-zoom em-zoom-out"
@@ -556,8 +884,11 @@ function outcomeFor(sliceName: string): string | null {
         ref="viewport"
         class="em-viewport"
         :data-panning="panning ? 'true' : undefined"
+        :data-lod="lod"
+        :data-focused="focus ? 'true' : undefined"
         @mousedown="startPan"
         @wheel="onWheel"
+        @scroll="trackScroll"
       >
         <div
           class="em-zoomed"
@@ -593,6 +924,8 @@ function outcomeFor(sliceName: string): string | null {
               class="em-slice"
               :data-slice="slice.name"
               :data-outcome="outcomeFor(slice.name) ?? undefined"
+              :data-dimmed="dimmed(slice.name) ? 'true' : undefined"
+              :data-selected="selection?.kind === 'slice' && selection.name === slice.name ? 'true' : undefined"
               :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
             >
               <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
@@ -608,6 +941,22 @@ function outcomeFor(sliceName: string): string | null {
                   @click.stop="toggleCollapsed(slice.name)"
                 >
                   {{ slice.collapsed ? '›' : '‹' }}
+                </button>
+                <!-- #296 — focus THIS slice, without going via the toolbar.
+                     Not a convenience: the slice name opens the host's drill-down, and in the
+                     Bobcat console that is a MODAL drawer whose overlay then covers the toolbar.
+                     "Select, then press Focus" is unreachable the moment the host reacts to the
+                     selection, which was found by driving the real 106-slice canvas. Its own
+                     control also makes the feature discoverable, which "select something first"
+                     never was. -->
+                <button
+                  type="button"
+                  class="em-slice-focus"
+                  :data-focused="focus?.kind === 'slice' && focus.name === slice.name ? 'true' : undefined"
+                  :title="`Focus ${slice.name} and its neighbours`"
+                  @click.stop="focusOn({ kind: 'slice', name: slice.name })"
+                >
+                  ⌖
                 </button>
                 <!-- bobcat#184 — what kind of thing triggers this slice, legible without reading. -->
                 <svg
@@ -625,7 +974,7 @@ function outcomeFor(sliceName: string): string | null {
                   class="em-slice-name"
                   type="button"
                   :title="slice.name"
-                  @click="emit('slice-click', slice.descriptor)"
+                  @click="selectSlice(slice.descriptor)"
                 >
                   <template v-if="sliceRouteFor(slice.descriptor)"
                     ><span class="em-route-method">{{
@@ -646,10 +995,17 @@ function outcomeFor(sliceName: string): string | null {
                   :data-outcome="outcomeFor(slice.name) ?? (specCountFor(slice.descriptor) === 0 ? 'none' : undefined)"
                   :data-count="specCountFor(slice.descriptor)"
                   :title="specTitleFor(slice.descriptor)"
-                  @click="emit('slice-click', slice.descriptor)"
+                  @click="selectSlice(slice.descriptor)"
                 >
                   {{ specLabelFor(slice.descriptor) }}
                 </button>
+                <!-- #296 — at `overview` the cards have no text at all, so the column's own name
+                     and pattern are the only thing left saying what it is. Rendered always and
+                     revealed by CSS, because a `v-if` on the level of detail would re-render the
+                     graph on every notch of a pinch. -->
+                <span v-if="slice.descriptor.pattern" class="em-slice-pattern">{{
+                  slice.descriptor.pattern
+                }}</span>
               </div>
             </div>
 
@@ -696,6 +1052,8 @@ function outcomeFor(sliceName: string): string | null {
               :data-lane="node.element.lane"
               :data-provenance="node.element.provenance ?? undefined"
               :data-hotspot-origin="hotspotFor(node)?.origin ?? undefined"
+              :data-dimmed="dimmed(node.sliceName) ? 'true' : undefined"
+              :data-selected="selection?.kind === 'element' && selection.id === node.id ? 'true' : undefined"
               :title="titleFor(node)"
               :style="{
                 left: `${node.x}px`,
@@ -708,7 +1066,7 @@ function outcomeFor(sliceName: string): string | null {
                 '--em-label-lines': MAX_LABEL_LINES,
                 ...styleFor(node.element)
               }"
-              @click="emit('element-click', node.element)"
+              @click="selectElement(node)"
             >
               <span v-if="hotspotFor(node)" class="em-hotspot">
                 <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
@@ -744,6 +1102,19 @@ function outcomeFor(sliceName: string): string | null {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- issue #296 — the same graph again, as rects, so a reader can see where they are on a
+           canvas several screens wide. Outside the scroller deliberately: it is chrome over the
+           canvas, not part of the thing being scrolled. -->
+      <div v-if="showMinimap" class="em-minimap-holder">
+        <EventModelMinimap
+          :graph="graph"
+          :zoom="zoom"
+          :scroll="scrollState"
+          :focused="focusedSlices"
+          @goto="onMinimapGoto"
+        />
       </div>
     </template>
   </div>
@@ -856,6 +1227,29 @@ function outcomeFor(sliceName: string): string | null {
 }
 .em-filter-clear:hover {
   opacity: 1;
+}
+
+.em-slice-focus {
+  flex: 0 0 auto;
+  padding: 0 3px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.35;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.em-slice-focus:hover,
+.em-slice-focus[data-focused='true'] {
+  opacity: 1;
+}
+/* At `overview` the header is the slice's whole identity and the controls are three unreadable
+   pixels each, so they go with the rest of the chrome. */
+.em-viewport[data-lod='overview'] .em-slice-focus {
+  display: none;
 }
 
 .em-slice-collapse {
@@ -1161,5 +1555,150 @@ function outcomeFor(sliceName: string): string | null {
 .em-empty {
   padding: 24px;
   opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------ #296: focus, LOD, minimap */
+
+/* The breadcrumb sits at the LEFT of the toolbar and pushes the zoom controls right, because it
+   is the answer to "where am I" and that question is read before any control is reached for. */
+.em-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+  font-size: 11px;
+  line-height: 16px;
+}
+.em-crumb {
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.em-crumb:hover:not(:disabled) {
+  opacity: 1;
+}
+/* The last crumb is where you already are — stated, not offered. */
+.em-crumb[data-current='true'] {
+  opacity: 1;
+  font-weight: 600;
+  cursor: default;
+}
+.em-crumb-sep {
+  opacity: 0.4;
+}
+.em-focus-clear {
+  min-width: 22px;
+}
+
+/* Under the canvas, right-aligned, in normal flow — deliberately NOT floated over a corner of it.
+   The viewport has no height of its own: it grows to whatever the scaled canvas needs, and at the
+   25% floor a 106-slice model is only ~140px tall. A 72px overlay in that corner covers half the
+   plot, which is what the first cut of this did. A strip below it can never hide a card. */
+.em-minimap-holder {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 0;
+  opacity: 0.8;
+}
+.em-minimap-holder:hover {
+  opacity: 1;
+}
+
+/* Dimming, not hiding. A focused neighbourhood only means something against the rest of the model
+   — hide the others and the reader has lost the very context the focus was supposed to give. The
+   dimmed slices keep their clicks, so stepping sideways is still one press away. */
+.em-card[data-dimmed='true'] {
+  opacity: 0.16;
+}
+.em-slice[data-dimmed='true'] {
+  opacity: 0.12;
+}
+.em-viewport[data-focused='true'] .em-edge {
+  opacity: 0.2;
+}
+.em-card[data-selected='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.em-slice[data-selected='true'] {
+  border-left-style: solid;
+  opacity: 1;
+}
+
+/* The pattern, said once per column. Invisible until `overview`, where the cards have no text. */
+.em-slice-pattern {
+  display: none;
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* --- Level of detail -----------------------------------------------------------------------
+   Everything below is CSS switching on one attribute, and that is the whole design (#296). A
+   `v-if` per level would re-render 600 cards on every notch of a pinch, and — the part that
+   actually matters — two consoles would each decide for themselves what "less" meant. An
+   attribute set from the scale means they cannot disagree.
+
+   `detail` (≥ 0.7) has no rules at all: it IS today's rendering, and saying so by omission is how
+   it stays that way. */
+
+/* compact (0.4–0.7): kind colour, short label, spec badge. The things that go are the ones a
+   reader cannot resolve at this size anyway — a 12px glyph is four pixels of nothing, and a
+   hotspot's sentence is a grey smear that still costs the card its whole box. */
+.em-viewport[data-lod='compact'] .em-trigger-icon,
+.em-viewport[data-lod='compact'] .em-route-method,
+.em-viewport[data-lod='compact'] .em-hotspot-claim,
+.em-viewport[data-lod='compact'] .em-hotspot-role,
+.em-viewport[data-lod='compact'] .em-hotspot-text {
+  display: none;
+}
+.em-viewport[data-lod='compact'] .em-card-label {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+/* overview (< 0.4): a card is a colour block. At 25% a 13px label renders at three pixels — it is
+   not small text, it is texture — so the kind colour is the only thing still carrying meaning, and
+   the slice's own name and pattern say what the column is. */
+.em-viewport[data-lod='overview'] .em-card-label,
+.em-viewport[data-lod='overview'] .em-hotspot,
+.em-viewport[data-lod='overview'] .em-trigger-icon,
+.em-viewport[data-lod='overview'] .em-slice-collapse,
+.em-viewport[data-lod='overview'] .em-slice-specs {
+  display: none;
+}
+.em-viewport[data-lod='overview'] .em-slice-pattern {
+  display: inline;
+}
+/* Counter-scaled, and laid over the top of its own column rather than above it.
+   The header is INSIDE the transform, so at the 25% floor an 11px name draws at under three
+   pixels — texture, not text. 40px survives the scale at ~10px on screen, which is the whole
+   point of the level: the column's name is the only thing left saying what it is.
+   Over the column and not above it because there is only `CANVAS_PADDING` (12px, three at this
+   scale) of room above the plot, and a label hoisted into it is simply clipped — which is what
+   the first cut of this did on the 106-slice model. */
+.em-viewport[data-lod='overview'] .em-slice-header {
+  top: 0;
+  left: 2px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.em-viewport[data-lod='overview'] .em-slice-name {
+  font-size: 40px;
+  line-height: 42px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.em-viewport[data-lod='overview'] .em-slice-pattern {
+  font-size: 28px;
+  line-height: 30px;
+  opacity: 0.55;
 }
 </style>
