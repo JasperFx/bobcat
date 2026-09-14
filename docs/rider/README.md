@@ -89,7 +89,10 @@ gh pr create --repo reqnroll/Reqnroll.Rider --head jeremydmiller:bobcat-attribut
   --body-file ~/code/bobcat/docs/rider/pr-body.md
 ```
 
-`pr-body.md` is a draft of the PR description, next to the patch. If the maintainers would rather
-not carry a third framework's names, option B in `docs/editor-integration.md` (a settings-backed
-name list) is the fallback offer; if the PR stalls, the issue's plan is to fork as "Bobcat for
-Rider".
+`pr-body.md` is a draft of the PR description, next to the patch.
+
+⚠️ **Nothing here is the plan any more** (bobcat#109, reframed 2026-09-14). Bobcat will have a
+**Rider plugin of its own**, unscheduled; there is no fallback offer to make and no stall to wait
+out. [#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) is open and left open — if it merges,
+Rider works for Bobcat users sooner. This directory stays because the patch, the build notes and
+the 2026.2 findings are the cheapest record of how that plugin is built and tested.
