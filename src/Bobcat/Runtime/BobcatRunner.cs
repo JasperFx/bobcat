@@ -517,6 +517,14 @@ public class BobcatRunner
     /// publishing observer beside whatever is already registered. Returns the observer so
     /// <see cref="RunAll"/> can flush and dispose it when the run closes out.
     /// </summary>
+    /// <remarks>
+    /// Attaching is also when this run's spec assemblies publish their half of the Event Model
+    /// (issue #294). It rides here rather than anywhere else for two reasons: the console has
+    /// just proved it is listening, so nothing is spent on an absent one; and the model is a
+    /// design-time fact that a consumer wants on the canvas from the first scenario, not after
+    /// the last. See <see cref="SpecEventModelPublisher"/> for the bounds it runs under — this
+    /// is the same await that already pays for the ping, and it cannot fail a run.
+    /// </remarks>
     private async Task<MonitorPublishingObserver?> tryAttachMonitor()
     {
         if (!PublishToMonitor) return null;
@@ -527,6 +535,15 @@ public class BobcatRunner
         var observer = new MonitorPublishingObserver(
             publisher, MonitorRunInfo.Discover(MonitorMode), ownedPublisher: publisher);
         AddObserver(observer);
+
+        await SpecEventModelPublisher.PublishAll(
+            publisher,
+            _features.Select(f => f.FixtureType.Assembly),
+            notice =>
+            {
+                if (!SuppressConsoleOutput) Console.WriteLine(notice);
+            });
+
         return observer;
     }
 

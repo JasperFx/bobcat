@@ -269,11 +269,14 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   merge end to end.
 - **The generated source is `internal`, and that has a consequence:** the app host cannot see the
   spec assembly's slices (the reference points the other way), so composing all three design-time
-  sources — chains + overlay + specs — currently only works in the spec-runner's process, where
+  sources — chains + overlay + specs — inside one process only works in the spec runner's, where
   `samples/BankAccountES/Tests/EventModelFixture.cs` does it. The host's own
   `event-model --url` export (and therefore `bobcat watch-event-model`) pushes a document
-  *without* the spec-declared slices or their `Specifications` bindings. Closing that gap is
-  follow-on work under issue #172.
+  *without* the spec-declared slices or their `Specifications` bindings. **The two halves meet on
+  the console instead:** #268 made `/api/event-model` merge per source and #294 made the runner
+  publish the spec half as it attaches, so each producer pushes what it can see and `GET` folds
+  them by slice name. That is the whole reason the `[EventModelName]` above is load-bearing rather
+  than cosmetic — the merge is keyed on the model name at both altitudes.
 - **An overlay's human trigger label on an HTTP slice works again as of WolverineFx 6.31.0**
   (wolverine#4181/#4182, both fixed by wolverine#4185). Before it, the HTTP-derived source
   claimed `TriggerLabel` with the verb+route, so the overlay's label lost the merge and minted a
@@ -1299,8 +1302,16 @@ The viewer's **Event Model page** (issue #108) renders a JasperFx `EventModelDes
 through `@jasperfx/event-model-vue` (`src/Bobcat.EventModel.FrontEnd/`, own gate
 `event-model-frontend.yml`, consumed by CritterWatch too — the shared component is what makes
 "renders identically in both viewers" true by construction). `PUT/GET /api/event-model` is a
-**public wire contract** like `GET /api/runs`: one document, latest wins, persisted beside the
-run archives, normalized through the typed descriptor on push (`EventModelStore`). Slices are
+**public wire contract** like `GET /api/runs`, persisted beside the run archives and normalized
+through the typed descriptor on push (`EventModelStore`). **A push names its SOURCE and replaces
+only that source; `GET` serves the merge** (issue #268) — a model has two producers compiled into
+different assemblies, and latest-wins erased one of them every time. **The spec half's producer is
+the runner** (issue #294, `SpecEventModelPublisher`): a run that attaches to a console PUTs its
+spec assemblies' generated descriptors under a source named for the assembly, under the same
+never-slow-never-fail invariant as the event pump, and *refuses* when the console is serving a
+differently-named model, because `GET` merges only the sources naming the current one and
+publishing anyway would hide the other half rather than join it. The host half stays a separate
+step (`event-model --url` / `bobcat watch-event-model`). Slices are
 coloured from #107's run evidence by spec identity; the drill-down drawer shows each bound
 spec's step results and flags touched types the model does not declare. Wiring gotchas: the SPA
 consumes the package as a `file:` dependency whose gitignored `dist/` must be built first —

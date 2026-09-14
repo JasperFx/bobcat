@@ -8,11 +8,17 @@ namespace Bobcat.Console.EventModel;
 /// <summary>
 /// The Event Model wire (issue #108): a producer pushes the current descriptor —
 /// <c>curl -X PUT --data @event-model.json http://localhost:5525/api/event-model</c> with the
-/// file Wolverine's <c>event-model</c> export writes, or a CI step posting what a spec
-/// assembly's generated <c>IEventModelDefinitionSource</c> reported — and the SPA's Event
-/// Model page reads it back. Like <c>GET /api/runs</c>, this is a public wire contract: the
-/// body is a JasperFx <c>EventModelDescriptor</c> in the camelCase/PascalCase-enum shape the
-/// shared <c>@jasperfx/event-model-vue</c> renderer types.
+/// file Wolverine's <c>event-model</c> export writes — and the SPA's Event Model page reads it
+/// back. Like <c>GET /api/runs</c>, this is a public wire contract: the body is a JasperFx
+/// <c>EventModelDescriptor</c> in the camelCase/PascalCase-enum shape the shared
+/// <c>@jasperfx/event-model-vue</c> renderer types.
+/// <para>
+/// The other producer needs no step from anyone: since issue #294 a Bobcat run publishes its
+/// spec assembly's half here as it attaches to a console, under a source named for the assembly
+/// (<c>Bobcat.Monitoring.SpecEventModelPublisher</c>). Before that this comment named "a CI step"
+/// as the alternative, and no such step existed anywhere — which is why a real console served a
+/// model with no <c>Specifications</c> in it and coloured every slice "no specification bound".
+/// </para>
 /// </summary>
 public static class EventModelEndpoints
 {

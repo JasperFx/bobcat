@@ -405,14 +405,32 @@ convention:
   target build the package before the SPA, and the workflow's path filter includes the package
   so a package change re-gates the SPA.
 - **`PUT /api/event-model` / `GET /api/event-model`** is a public wire contract like
-  `GET /api/runs`: one descriptor document, latest push wins, persisted as `event-model.json`
-  beside the run archives (`EventModelStore`). The producer is whoever has the descriptor —
-  Wolverine's `event-model` export file curl'd up, or a CI step posting what a spec assembly's
-  generated `IEventModelDefinitionSource` (#106) reported. The store round-trips the document
-  through the typed descriptor, so a bad push 400s at the push (not as a blank canvas later),
-  the stored copy is normalized to the shape the renderer's TS mirror types (camelCase members,
-  PascalCase enum values — enum reads are case-insensitive so camelCase producers normalize),
-  and the computed `elements`/`edges` are always present however sparse the pushed roles were.
+  `GET /api/runs`, persisted beside the run archives (`EventModelStore`). **A push names its
+  SOURCE and replaces only that source's contribution; `GET` serves the merge** (issue #268,
+  CritterWatch#1212) — `PUT /api/event-model/{source}` for one producer, the bare `PUT` for the
+  source `default`, which is what keeps an existing console working across the upgrade. One model
+  has two producers compiled into *different assemblies*: Wolverine's `event-model` export runs
+  against the host and carries slices with no `Specifications`, while a spec assembly's generated
+  `IEventModelDefinitionSource` (#106) carries the spec identities run evidence joins on and is
+  invisible to the host. Latest-wins erased one of them every time, which is why every slice on a
+  real console read "no specification bound".
+  The store round-trips every document through the typed descriptor, so a bad push 400s at the
+  push (not as a blank canvas later), the stored copy is normalized to the shape the renderer's
+  TS mirror types (camelCase members, PascalCase enum values — enum reads are case-insensitive so
+  camelCase producers normalize), and the computed `elements`/`edges` are always present however
+  sparse the pushed roles were.
+  - **The spec half's producer is the runner** (issue #294, `SpecEventModelPublisher`). When a
+    run attaches to a console, it PUTs its spec assemblies' descriptors under a source named for
+    the assembly (dots and anything else a file name will not take become `-`, because the source
+    becomes `event-model.{source}.json` and the store refuses the rest). Under the same invariant
+    as the event pump — probe first, bounded, never retried, never surfaced to the run.
+  - **Both halves must name the same model, and the runner checks.** `GET` merges only the
+    sources carrying the *current* name, so a spec half naming `BankAccountES.Tests` at a console
+    serving `BankAccountES` would hide the other half rather than join it. On a disagreement the
+    runner publishes nothing and prints the one-line fix: `[assembly: EventModelName("…")]`
+    (#172). The **host half stays a separate step** — `event-model --url`, wrapped by
+    `bobcat watch-event-model` — because a runner cannot export the host's chains without
+    referencing Wolverine.
   - **Consequence pinned in the csproj:** `Bobcat.Console` references `JasperFx.Events`
     directly, because at 2.54.0 the descriptor lives there (it moves to JasperFx only in
     2.55.0, jasperfx#693) and CPM pins only direct references — without it the transitive
