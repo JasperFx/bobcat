@@ -158,16 +158,24 @@ export function linkedModel(): EventModelDescriptor {
  * Six elements a slice, cycling through four domains, and a chain of links down the declaration
  * order so every slice but the ends has exactly two neighbours.
  */
-export function largeModel(sliceCount = 106): EventModelDescriptor {
+export function largeModel(sliceCount = 106, aggregateCount = 0): EventModelDescriptor {
   const domains = ['Accounts', 'Payments', 'Onboarding', 'Reporting']
   const slices: EventModelDescriptor['slices'] = []
   const links: NonNullable<EventModelDescriptor['links']> = []
+  // #299 — a fleet-sized model whose slices are spread across a handful of streams, which is the
+  // only shape that says anything about what the split costs at 106 slices.
+  const aggregates = Array.from({ length: aggregateCount }, (_, index) => ({
+    name: `Aggregate${index}`,
+    fullName: `Bank.Aggregate${index}`
+  }))
 
   for (let index = 0; index < sliceCount; index++) {
     const name = `Slice${String(index).padStart(3, '0')}`
+    const aggregate = aggregates.length > 0 ? aggregates[index % aggregates.length] : null
     slices.push({
       name,
       domain: domains[index % domains.length],
+      aggregateTypes: aggregate ? [aggregate] : undefined,
       pattern: index % 3 === 0 ? 'View' : 'Command',
       triggerKind: 'Http',
       elements: [
@@ -199,5 +207,99 @@ export function largeModel(sliceCount = 106): EventModelDescriptor {
     }
   }
 
-  return { name: 'Fleet', slices, links }
+  return {
+    name: 'Fleet',
+    slices,
+    links,
+    aggregates: aggregates.map((type) => ({ type, kind: 'WriteAggregate' as const, appliedEvents: [] }))
+  }
+}
+
+/**
+ * bobcat#299 — a model with two aggregate streams, which is the smallest model the stream-row
+ * split has anything to say about.
+ *
+ * Every rule of `streamRowPlan` has a slice here: `WithdrawFunds` and `TopUpWallet` each name one
+ * aggregate, `SettleTransfer` names both (and one of its events is in neither aggregate's
+ * `appliedEvents`, so it falls back to the first), and `AccountBalance` names none. The published
+ * message is the other half of the unlabelled row.
+ *
+ * `aggregates` carries `appliedEvents` deliberately: without it a multi-aggregate slice can only
+ * fall back, and the fallback is exactly the path that must not be the only one tested.
+ */
+export function twoAggregateModel(): EventModelDescriptor {
+  const account = { name: 'Account', fullName: 'Bank.Account' }
+  const wallet = { name: 'Wallet', fullName: 'Bank.Wallet' }
+
+  return {
+    name: 'Banking',
+    aggregates: [
+      {
+        type: account,
+        kind: 'WriteAggregate',
+        appliedEvents: [
+          { name: 'FundsWithdrawn', fullName: 'Bank.FundsWithdrawn' },
+          { name: 'AccountOverdrawn', fullName: 'Bank.AccountOverdrawn' }
+        ]
+      },
+      {
+        type: wallet,
+        kind: 'WriteAggregate',
+        appliedEvents: [{ name: 'WalletToppedUp', fullName: 'Bank.WalletToppedUp' }]
+      }
+    ],
+    slices: [
+      {
+        name: 'WithdrawFunds',
+        domain: 'Accounts',
+        pattern: 'Command',
+        aggregateTypes: [account],
+        elements: [
+          { id: 'WithdrawFunds/Command/Bank.WithdrawFunds', kind: 'Command', lane: 'Command', label: 'WithdrawFunds', type: { name: 'WithdrawFunds', fullName: 'Bank.WithdrawFunds' } },
+          { id: 'WithdrawFunds/Aggregate/Bank.Account', kind: 'Aggregate', lane: 'Command', label: 'Account', type: account },
+          { id: 'WithdrawFunds/Event/Bank.FundsWithdrawn', kind: 'Event', lane: 'EventStream', label: 'FundsWithdrawn', type: { name: 'FundsWithdrawn', fullName: 'Bank.FundsWithdrawn' } },
+          { id: 'WithdrawFunds/Event/Bank.AccountOverdrawn', kind: 'Event', lane: 'EventStream', label: 'AccountOverdrawn', type: { name: 'AccountOverdrawn', fullName: 'Bank.AccountOverdrawn' } }
+        ],
+        edges: [
+          { fromId: 'WithdrawFunds/Command/Bank.WithdrawFunds', toId: 'WithdrawFunds/Event/Bank.FundsWithdrawn' }
+        ]
+      },
+      {
+        name: 'TopUpWallet',
+        domain: 'Wallets',
+        pattern: 'Command',
+        aggregateTypes: [wallet],
+        elements: [
+          { id: 'TopUpWallet/Command/Bank.TopUpWallet', kind: 'Command', lane: 'Command', label: 'TopUpWallet', type: { name: 'TopUpWallet', fullName: 'Bank.TopUpWallet' } },
+          { id: 'TopUpWallet/Aggregate/Bank.Wallet', kind: 'Aggregate', lane: 'Command', label: 'Wallet', type: wallet },
+          { id: 'TopUpWallet/Event/Bank.WalletToppedUp', kind: 'Event', lane: 'EventStream', label: 'WalletToppedUp', type: { name: 'WalletToppedUp', fullName: 'Bank.WalletToppedUp' } },
+          { id: 'TopUpWallet/Message/Bank.WalletTopUpNotified', kind: 'Message', lane: 'EventStream', label: 'WalletTopUpNotified', type: { name: 'WalletTopUpNotified', fullName: 'Bank.WalletTopUpNotified' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'SettleTransfer',
+        domain: 'Accounts',
+        pattern: 'Command',
+        aggregateTypes: [account, wallet],
+        elements: [
+          { id: 'SettleTransfer/Event/Bank.WalletToppedUp', kind: 'Event', lane: 'EventStream', label: 'WalletToppedUp', type: { name: 'WalletToppedUp', fullName: 'Bank.WalletToppedUp' } },
+          { id: 'SettleTransfer/Event/Bank.TransferSettled', kind: 'Event', lane: 'EventStream', label: 'TransferSettled', type: { name: 'TransferSettled', fullName: 'Bank.TransferSettled' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'AccountBalance',
+        domain: 'Accounts',
+        pattern: 'View',
+        elements: [
+          { id: 'AccountBalance/Event/Bank.FundsWithdrawn', kind: 'Event', lane: 'EventStream', label: 'FundsWithdrawn', type: { name: 'FundsWithdrawn', fullName: 'Bank.FundsWithdrawn' } },
+          { id: 'AccountBalance/ReadModel/Bank.Balance', kind: 'ReadModel', lane: 'ReadModel', label: 'Balance', type: { name: 'Balance', fullName: 'Bank.Balance' } }
+        ],
+        edges: [
+          { fromId: 'AccountBalance/Event/Bank.FundsWithdrawn', toId: 'AccountBalance/ReadModel/Bank.Balance' }
+        ]
+      }
+    ]
+  }
 }

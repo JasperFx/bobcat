@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import EventModelView from '../EventModelView.vue'
-import { fourSourceModel, withdrawFundsModel } from './fixtures'
+import { fourSourceModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
 
 describe('EventModelView', () => {
   it('renders one card per element with its canonical colour', () => {
@@ -457,5 +457,30 @@ describe('EventModelView — provenance and source disagreement', () => {
         .filter((c) => c.attributes('data-kind') !== 'Hotspot')
         .every((c) => c.attributes('data-hotspot-origin') === undefined)
     ).toBe(true)
+  })
+})
+
+describe('EventModelView stream rows (#299)', () => {
+  it('captions each stream in the gutter and tints alternate rows', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: twoAggregateModel() } })
+    const captions = wrapper.findAll('.em-stream-row-label')
+    expect(captions.map((c) => c.text())).toEqual(['Account', 'Wallet', '—'])
+    // The unlabelled row says what it is on hover rather than in the gutter, where a phrase would
+    // be wider than the two type names it sits under.
+    expect(captions[2].attributes('title')).toContain('On no aggregate stream')
+    expect(wrapper.findAll('.em-stream-band')).toHaveLength(3)
+    expect(wrapper.findAll('.em-stream-band[data-alt]')).toHaveLength(1)
+  })
+
+  it('draws no row chrome at all for a model the layout did not split', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: withdrawFundsModel() } })
+    expect(wrapper.findAll('.em-stream-row-label')).toHaveLength(0)
+    expect(wrapper.findAll('.em-stream-band')).toHaveLength(0)
+  })
+
+  it('marks the split lane so its own caption moves to the top of the band', () => {
+    const wrapper = mount(EventModelView, { props: { descriptor: twoAggregateModel() } })
+    const split = wrapper.findAll('.em-lane-label').filter((l) => l.attributes('data-split'))
+    expect(split.map((l) => l.text())).toEqual(['Event Stream'])
   })
 })

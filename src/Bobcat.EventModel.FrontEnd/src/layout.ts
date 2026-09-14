@@ -5,7 +5,8 @@ import {
   type EventModelEdge,
   type EventModelElement,
   type EventModelLane,
-  type EventModelSliceDescriptor
+  type EventModelSliceDescriptor,
+  type TypeDescriptor
 } from './types'
 
 /**
@@ -59,6 +60,19 @@ export interface LayoutOptions {
    * for something the reader filtered out would put back the width they asked to remove.
    */
   hiddenSlices?: ReadonlySet<string>
+
+  /**
+   * Draw the `EventStream` lane as one row per aggregate stream (issue #299). Default **true**.
+   *
+   * Canonical Event Modeling puts a stream on a line: two slices that write `Account` put their
+   * events on the same horizontal row, and that they share a stream is then visible with no arrow
+   * at all — which is the point, because a shared aggregate is not a cause→effect link and drawing
+   * it as one would fan every event of an aggregate out to every slice on it.
+   *
+   * Set `false` to keep the single flat lane. A consumer that does that gets the pre-#299 picture
+   * exactly; so does any model the split has nothing to say about (see {@link streamRowPlan}).
+   */
+  streamRows?: boolean
 }
 
 export interface LaidOutNode {
@@ -72,10 +86,32 @@ export interface LaidOutNode {
   height: number
 }
 
+/**
+ * One row inside a lane band — an aggregate's stream, or the row for stream elements that are on
+ * no stream at all (issue #299).
+ *
+ * Every lane has at least one, so a viewer never branches on whether rows exist; a lane that was
+ * not split has exactly one unlabelled row spanning the whole band.
+ */
+export interface LaidOutLaneRow {
+  /** Type identity of the aggregate whose stream this row is. `null` for the unlabelled row. */
+  key: string | null
+  /** Caption for the gutter — the aggregate's short name. `null` for the unlabelled row. */
+  label: string | null
+  /** Absolute plot-space top of the row. */
+  y: number
+  height: number
+}
+
 export interface LaidOutLane {
   lane: EventModelLane
   y: number
   height: number
+  /**
+   * The rows this band is divided into, top to bottom. Length 1 for every lane but a split
+   * `EventStream` — and for that one too, whenever the split has nothing to say.
+   */
+  rows: LaidOutLaneRow[]
 }
 
 export interface LaidOutSlice {
@@ -223,6 +259,141 @@ function routeEdge(from: LaidOutNode, to: LaidOutNode): { x: number; y: number }
   return [start, { x: fromMidX, y: gapMidY }, { x: toMidX, y: gapMidY }, end]
 }
 
+/** The lane the stream rows divide. Named because three separate decisions below key on it. */
+const STREAM_LANE: EventModelLane = 'EventStream'
+
+/** Wire identity of a type: the full name when the producer sent one, else the short name. */
+function typeKey(type: TypeDescriptor | null | undefined): string | null {
+  return type?.fullName ?? type?.name ?? null
+}
+
+/** The aggregates a slice writes through, in declaration order, as `{ key, label }`. */
+function aggregatesOf(slice: EventModelSliceDescriptor): { key: string; label: string }[] {
+  const found: { key: string; label: string }[] = []
+
+  // `aggregateTypes` is the producer's own statement and is preferred; the Aggregate elements are
+  // the same claim projected into cards, and are all a descriptor below JasperFx.Events 2.60 has.
+  for (const type of slice.aggregateTypes ?? []) {
+    const key = typeKey(type)
+    if (key) found.push({ key, label: type.name ?? key })
+  }
+  if (found.length > 0) return found
+
+  for (const element of slice.elements ?? []) {
+    if (element.kind !== 'Aggregate') continue
+    const key = typeKey(element.type) ?? element.label
+    if (key) found.push({ key, label: element.type?.name ?? element.label })
+  }
+  return found
+}
+
+/**
+ * The rows the `EventStream` lane is divided into, and which row each element of it belongs on.
+ *
+ * Pure and exported because it is a claim about the MODEL, not about the picture: a host that draws
+ * its own legend, and a test that wants to say "these two slices are on one stream", should ask the
+ * same function the layout asks rather than re-deriving the rule.
+ *
+ * Three rules, and the first is the one that keeps every existing canvas where it was:
+ *
+ * 1. **Fewer than two aggregates in view ⇒ one flat row.** A row is a comparison; with one stream
+ *    there is nothing to compare and the split would only cost height. This is also why filtering
+ *    a 106-slice model down to one aggregate collapses the lane back — rows are computed over the
+ *    slices actually being drawn, not over the whole descriptor.
+ * 2. **An event sits on its slice's aggregate.** With several, the aggregate whose `appliedEvents`
+ *    name it wins; with no answer there (a producer that could not resolve the apply set statically
+ *    emits none) it falls back to the slice's first aggregate, which is the claim the slice made
+ *    first.
+ * 3. **A `Message` is on no stream, and neither is an event whose slice names no aggregate.** They
+ *    share the trailing unlabelled row. One row, one meaning — "in the stream lane, on no stream" —
+ *    rather than two rows that would both be captioned by their absence.
+ */
+export interface StreamRowPlan {
+  /** Rows top to bottom. Always at least one. */
+  rows: { key: string | null; label: string | null }[]
+  /** Row index by element id. Anything absent belongs to row 0, which is the flat-lane case. */
+  rowByElementId: Map<string, number>
+}
+
+export function streamRowPlan(
+  descriptor: EventModelDescriptor | null | undefined,
+  options: { collapsedSlices?: ReadonlySet<string>; hiddenSlices?: ReadonlySet<string> } = {}
+): StreamRowPlan {
+  const flat: StreamRowPlan = { rows: [{ key: null, label: null }], rowByElementId: new Map() }
+
+  const collapsed = options.collapsedSlices ?? new Set<string>()
+  const hidden = options.hiddenSlices ?? new Set<string>()
+  const drawn = (descriptor?.slices ?? []).filter((s) => !hidden.has(s.name) && !collapsed.has(s.name))
+
+  const perSlice = drawn.map((slice) => ({ slice, aggregates: aggregatesOf(slice) }))
+  const used = new Set<string>()
+  for (const entry of perSlice) for (const aggregate of entry.aggregates) used.add(aggregate.key)
+  if (used.size < 2) return flat
+
+  // Model order first — `aggregates` is the model's own list, and first appearance there is the
+  // order a reader of the document would expect — then anything only a slice mentioned.
+  const labels = new Map<string, string>()
+  const order: string[] = []
+  const take = (key: string, label: string) => {
+    if (!used.has(key) || labels.has(key)) return
+    labels.set(key, label)
+    order.push(key)
+  }
+  for (const aggregate of descriptor?.aggregates ?? []) {
+    const key = typeKey(aggregate.type)
+    if (key) take(key, aggregate.type?.name ?? key)
+  }
+  for (const entry of perSlice) for (const aggregate of entry.aggregates) take(aggregate.key, aggregate.label)
+
+  const applied = new Map<string, Set<string>>()
+  for (const aggregate of descriptor?.aggregates ?? []) {
+    const key = typeKey(aggregate.type)
+    if (!key) continue
+    const names = applied.get(key) ?? new Set<string>()
+    for (const event of aggregate.appliedEvents ?? []) {
+      if (event?.fullName) names.add(event.fullName)
+      if (event?.name) names.add(event.name)
+    }
+    applied.set(key, names)
+  }
+
+  // Assign by KEY first and resolve to indices afterwards: whether the unlabelled row exists at all
+  // is only known once every element has been asked.
+  const assigned = new Map<string, string | null>()
+  let unlabelled = false
+  for (const { slice, aggregates } of perSlice) {
+    for (const element of slice.elements ?? []) {
+      if (element.lane !== STREAM_LANE) continue
+
+      let key: string | null = null
+      if (element.kind !== 'Message' && aggregates.length > 0) {
+        key = aggregates[0].key
+        if (aggregates.length > 1) {
+          // `label` is the last candidate on purpose: a producer that omits `type` still labels an
+          // event card with its short type name, and largeModel-shaped descriptors do exactly that.
+          const candidates = [element.type?.fullName, element.type?.name, element.label]
+          const match = aggregates.find((aggregate) =>
+            candidates.some((name) => !!name && applied.get(aggregate.key)?.has(name))
+          )
+          if (match) key = match.key
+        }
+      }
+
+      if (key === null) unlabelled = true
+      assigned.set(element.id, key)
+    }
+  }
+
+  const rows: StreamRowPlan['rows'] = order.map((key) => ({ key, label: labels.get(key) ?? key }))
+  if (unlabelled) rows.push({ key: null, label: null })
+
+  const indexOf = new Map<string | null, number>(rows.map((row, index) => [row.key, index]))
+  const rowByElementId = new Map<string, number>()
+  for (const [id, key] of assigned) rowByElementId.set(id, indexOf.get(key) ?? 0)
+
+  return { rows, rowByElementId }
+}
+
 export function layoutEventModel(
   descriptor: EventModelDescriptor | null | undefined,
   options: LayoutOptions = {}
@@ -236,12 +407,32 @@ export function layoutEventModel(
   const collapsed = options.collapsedSlices ?? new Set<string>()
   const hidden = options.hiddenSlices ?? new Set<string>()
 
-  const laneHeight = cardHeight + gapY
-  const lanes: LaidOutLane[] = LANE_ORDER.map((lane, index) => ({
-    lane,
-    y: index * laneHeight,
-    height: laneHeight
-  }))
+  // A row, not a lane, is now the unit of vertical space: every lane is one row tall except an
+  // EventStream lane the plan split, and the flat plan makes that case identical to the old one.
+  const rowHeight = cardHeight + gapY
+  const plan =
+    options.streamRows === false
+      ? ({ rows: [{ key: null, label: null }], rowByElementId: new Map<string, number>() } as StreamRowPlan)
+      : streamRowPlan(descriptor, { collapsedSlices: collapsed, hiddenSlices: hidden })
+
+  const lanes: LaidOutLane[] = []
+  let laneY = 0
+  for (const lane of LANE_ORDER) {
+    const rows = lane === STREAM_LANE ? plan.rows : [{ key: null, label: null }]
+    const height = rows.length * rowHeight
+    lanes.push({
+      lane,
+      y: laneY,
+      height,
+      rows: rows.map((row, index) => ({
+        key: row.key,
+        label: row.label,
+        y: laneY + index * rowHeight,
+        height: rowHeight
+      }))
+    })
+    laneY += height
+  }
   const laneTop = new Map(lanes.map((l) => [l.lane, l.y]))
 
   const nodes: LaidOutNode[] = []
@@ -265,11 +456,15 @@ export function layoutEventModel(
     // against. Per slice because ids are unique per slice and an edge never crosses one.
     const placed = new Map<string, LaidOutNode>()
 
-    const byLane = new Map<EventModelLane, EventModelElement[]>()
+    // Cells, not lanes: two events of one slice on different streams are in different cells and
+    // each starts again at the column's left edge, which is what puts them under each other.
+    const byCell = new Map<string, { lane: EventModelLane; row: number; elements: EventModelElement[] }>()
     for (const element of elements) {
-      const bucket = byLane.get(element.lane)
-      if (bucket) bucket.push(element)
-      else byLane.set(element.lane, [element])
+      const row = element.lane === STREAM_LANE ? (plan.rowByElementId.get(element.id) ?? 0) : 0
+      const key = `${element.lane}#${row}`
+      const cell = byCell.get(key)
+      if (cell) cell.elements.push(element)
+      else byCell.set(key, { lane: element.lane, row, elements: [element] })
     }
 
     // One card width per slice column, sized to that column's own labels (#180). Per column and
@@ -278,25 +473,25 @@ export function layoutEventModel(
     // they are separated by a slice divider, which is where a width change is legible.
     const cardWidth = isCollapsed ? minCardWidth : cardWidthFor(elements, minCardWidth, maxCardWidth)
 
-    const widest = Math.max(1, ...[...byLane.values()].map((b) => b.length))
+    const widest = Math.max(1, ...[...byCell.values()].map((c) => c.elements.length))
     const sliceWidth = isCollapsed
       ? COLLAPSED_WIDTH
       : widest * cardWidth + (widest - 1) * gapX
 
-    for (const [lane, bucket] of byLane) {
-      const top = laneTop.get(lane)
+    for (const cell of byCell.values()) {
+      const top = laneTop.get(cell.lane)
       // A lane the contract does not know about is dropped rather than stacked at y=0, where it
       // would silently overlap the wireframe lane and read as a rendering bug rather than as
       // "this descriptor came from a newer JasperFx than this package".
       if (top === undefined) continue
 
-      bucket.forEach((element, index) => {
+      cell.elements.forEach((element, index) => {
         const node: LaidOutNode = {
           id: element.id,
           element,
           sliceName: slice.name,
           x: cursorX + index * (cardWidth + gapX),
-          y: top + gapY / 2,
+          y: top + cell.row * rowHeight + gapY / 2,
           width: cardWidth,
           height: cardHeight
         }
@@ -336,6 +531,6 @@ export function layoutEventModel(
     lanes,
     slices,
     width: Math.max(0, cursorX - sliceGap),
-    height: lanes.length * laneHeight
+    height: laneY
   }
 }
