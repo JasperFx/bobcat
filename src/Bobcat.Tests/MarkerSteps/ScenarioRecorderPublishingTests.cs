@@ -112,6 +112,85 @@ public class ScenarioRecorderPublishingTests : IDisposable
         _sink.Events.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// Issue #304 — the narrative reaches the viewer, and what ran says which sentence it ran
+    /// under. Both halves matter: before this, a marker-comment test announced "3 steps" and then
+    /// published nothing that named any of them.
+    /// </summary>
+    [Fact]
+    public void the_declared_narrative_travels_with_the_announcement_and_not_as_steps()
+    {
+        DeclaredSteps.Register(Uid,
+            new DeclaredStep("Given", "the events are published", 11),
+            new DeclaredStep("When", "the daemon is started", 14),
+            new DeclaredStep("Then", "every aggregate matches", 17));
+
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        var started = _sink.Events.OfType<ScenarioStarted>().ShouldHaveSingleItem();
+        started.DeclaredSteps.ShouldNotBeNull();
+        started.DeclaredSteps.Select(x => $"{x.Keyword} {x.Text}").ShouldBe(
+            ["Given the events are published", "When the daemon is started", "Then every aggregate matches"]);
+
+        // Declared is not executed: announcing the narrative must not look like three steps having
+        // run, so nothing here publishes a StepStarted.
+        _sink.Events.OfType<StepStarted>().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_scenario_that_declares_nothing_carries_no_narrative()
+    {
+        // Null rather than an empty list — the field is additive, and "this publisher has nothing
+        // to say" and "this scenario declared nothing" should read the same to a consumer.
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        _sink.Events.OfType<ScenarioStarted>().ShouldHaveSingleItem().DeclaredSteps.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_step_reports_the_declared_sentence_it_ran_under()
+    {
+        DeclaredSteps.Register(Uid,
+            new DeclaredStep("Given", "the events are published", 11),
+            new DeclaredStep("When", "the daemon is started", 14));
+
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        // The index the generator computed from the call site's line, 0-based; the wire carries it
+        // 1-based so it indexes DeclaredSteps the way a reader counts.
+        ScenarioRecorder.Step("When", "the daemon is started", 1).Dispose();
+
+        _sink.Events.OfType<StepStarted>().ShouldHaveSingleItem().DeclaredStepNumber.ShouldBe(2);
+        recording.Steps.ShouldHaveSingleItem().DeclaredStepNumber.ShouldBe(2);
+    }
+
+    [Fact]
+    public void a_step_under_no_declared_region_attributes_to_nothing()
+    {
+        DeclaredSteps.Register(Uid, new DeclaredStep("Given", "the events are published", 11));
+
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        ScenarioRecorder.Step("Given", "something before the narrative starts", -1).Dispose();
+
+        _sink.Events.OfType<StepStarted>().ShouldHaveSingleItem().DeclaredStepNumber.ShouldBeNull();
+    }
+
+    [Fact]
+    public void an_index_past_what_was_registered_attributes_to_nothing_rather_than_guessing()
+    {
+        // A stale obj/ from before a comment was deleted, or a helper whose class the feature
+        // attribute never marked. Attributing work to a sentence that is not there would be a
+        // confident lie; the bounds check makes it silence instead.
+        DeclaredSteps.Register(Uid, new DeclaredStep("Given", "the events are published", 11));
+
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        ScenarioRecorder.Step("Then", "a step the narrative no longer has", 4).Dispose();
+
+        _sink.Events.OfType<StepStarted>().ShouldHaveSingleItem().DeclaredStepNumber.ShouldBeNull();
+    }
+
     private sealed class RecordingSink : IMonitorEventSink
     {
         private readonly List<MonitorEvent> _events = new();

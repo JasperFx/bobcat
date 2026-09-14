@@ -41,8 +41,20 @@ public static class ScenarioRecorder
     /// Record a step. Returns a handle whose disposal ends it — so an interceptor can wrap the
     /// call it replaced and the step's duration is the helper's real duration.
     /// </summary>
-    public static IDisposable Step(string keyword, string text)
-        => _current.Value?.BeginStep(keyword, text) ?? NoStep.Instance;
+    public static IDisposable Step(string keyword, string text) => Step(keyword, text, -1);
+
+    /// <summary>
+    /// Record a step that ran inside the <paramref name="declaredIndex"/>'th marker comment of
+    /// the test (issue #304), 0-based, or <c>-1</c> for a call outside every declared region.
+    /// </summary>
+    /// <remarks>
+    /// The index is decided by the generator from the call site's line against the comments in
+    /// the same method — at compile time, where both facts are exact. Nothing here walks a stack
+    /// or guesses from timing: <b>declared is not executed</b> survives only because the join
+    /// between the two is a compile-time fact rather than a runtime inference.
+    /// </remarks>
+    public static IDisposable Step(string keyword, string text, int declaredIndex)
+        => _current.Value?.BeginStep(keyword, text, declaredIndex) ?? NoStep.Instance;
 
     /// <summary>A step with no keyword — a marker comment supplies its own.</summary>
     public static IDisposable Step(string text) => Step("", text);
@@ -67,7 +79,12 @@ public static class ScenarioRecorder
 
             publisher?.Post(new ScenarioStarted(
                 runId, Uid, feature, scenario, 1, DateTimeOffset.UtcNow,
-                TotalSteps: Declared.Count > 0 ? Declared.Count : null));
+                TotalSteps: Declared.Count > 0 ? Declared.Count : null,
+                // The narrative travels with the announcement rather than as steps: a declared
+                // step has not run, and StepStarted is the event that says something did.
+                DeclaredSteps: Declared.Count > 0
+                    ? Declared.Select(x => new DeclaredStepInfo(x.Keyword, x.Text)).ToList()
+                    : null));
         }
 
         public string Feature { get; }
@@ -94,11 +111,22 @@ public static class ScenarioRecorder
 
         private bool _cancelled;
 
-        internal IDisposable BeginStep(string keyword, string text)
+        internal IDisposable BeginStep(string keyword, string text) => BeginStep(keyword, text, -1);
+
+        internal IDisposable BeginStep(string keyword, string text, int declaredIndex)
         {
+            // An index the generator computed against a DIFFERENT set of comments than the one
+            // registered here — a stale obj/ from before a comment was deleted, or a helper whose
+            // enclosing class is not marked — attributes to nothing rather than to the wrong
+            // sentence. The guard is cheap and the alternative is a confident lie.
+            var declaredNumber = declaredIndex >= 0 && declaredIndex < Declared.Count
+                ? declaredIndex + 1
+                : (int?)null;
+
             var step = new RecordedStep(keyword, text, _clock.ElapsedMilliseconds)
             {
-                StepId = "s" + (_steps.Count + 1)
+                StepId = "s" + (_steps.Count + 1),
+                DeclaredStepNumber = declaredNumber
             };
             _steps.Add(step);
 
@@ -109,7 +137,8 @@ public static class ScenarioRecorder
                 _runId, Uid, step.StepId, keyword, text,
                 StepNumber: _steps.Count,
                 TotalSteps: Declared.Count > 0 ? Declared.Count : null,
-                ScenarioElapsedMs: step.StartedAtMs));
+                ScenarioElapsedMs: step.StartedAtMs,
+                DeclaredStepNumber: declaredNumber));
 
             return new StepHandle(this, step, _clock);
         }
@@ -185,6 +214,12 @@ public static class ScenarioRecorder
 
         /// <summary>Unique within the scenario; the id the wire events key on.</summary>
         public string StepId { get; internal set; } = "";
+
+        /// <summary>
+        /// 1-based position in <see cref="Recording.Declared"/> of the marker comment this step
+        /// ran inside (issue #304), or null for a step outside every declared region.
+        /// </summary>
+        public int? DeclaredStepNumber { get; internal set; }
 
         /// <summary>What the helper threw, when it threw. Null on a step that passed.</summary>
         public Exception? Failure { get; internal set; }

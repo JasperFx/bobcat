@@ -146,6 +146,14 @@ public record ScenarioResult(
     public DateTimeOffset? FinishedAt { get; init; }
 
     /// <summary>
+    /// What the scenario DECLARED it does, in order (issue #304): the marker comments of a test,
+    /// known at compile time and announced before it ran. Carries no verdict and never gains one —
+    /// <see cref="StepResult.DeclaredStepNumber"/> is how a step says which sentence it ran under.
+    /// Empty for every other authoring style. Additive.
+    /// </summary>
+    public Contracts.DeclaredStepInfo[] DeclaredSteps { get; init; } = [];
+
+    /// <summary>
     /// The worker framework's own word for the verdict — Passed / Failed / Error / Skipped /
     /// Timeout / Cancelled — for a test the supervisor forwarded rather than a Bobcat worker
     /// published (issue #195). Null for a Bobcat scenario, whose vocabulary is
@@ -154,7 +162,15 @@ public record ScenarioResult(
     public string? State { get; init; }
 }
 
-public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage);
+public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage)
+{
+    /// <summary>
+    /// 1-based index into <see cref="ScenarioResult.DeclaredSteps"/> of the marker comment this
+    /// step ran inside (issue #304). Null for a step under no declared region — which is every
+    /// step of every authoring style but marker comments. Additive.
+    /// </summary>
+    public int? DeclaredStepNumber { get; init; }
+}
 
 /// <summary>
 /// What a bulk eject took (issue #197). The ids are returned, not just the count, so a caller
@@ -195,12 +211,16 @@ public static class RunEndpoints
                     s.RetryReasons.ToArray(),
                     s.Steps
                         .Select(step => new StepResult(
-                            step.StepId, step.Kind, step.Text, step.Status, step.DurationMs, step.ErrorMessage))
+                            step.StepId, step.Kind, step.Text, step.Status, step.DurationMs, step.ErrorMessage)
+                        {
+                            DeclaredStepNumber = step.DeclaredStepNumber
+                        })
                         .ToArray())
                 {
                     TouchedTypes = s.TouchedTypes.ToArray(),
                     FinishedAt = s.FinishedAt,
-                    State = s.State
+                    State = s.State,
+                    DeclaredSteps = s.DeclaredSteps.ToArray()
                 })
                 .ToArray())
         {

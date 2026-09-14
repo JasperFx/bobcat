@@ -40,8 +40,15 @@ internal static class StepInterceptors
         public string Keyword = "";
         public string StepText = "";
         public bool ReturnsTask;
+        public bool ReturnsVoid;
         public List<string> ParameterTypes = new();
         public List<string> ParameterNames = new();
+
+        /// <summary>
+        /// 0-based index of the marker comment this call sits under, within its own test method,
+        /// or -1 when it sits under none (issue #304).
+        /// </summary>
+        public int DeclaredIndex = -1;
     }
 
     public static InterceptedCall? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
@@ -75,8 +82,10 @@ internal static class StepInterceptors
             MethodName = method.Name,
             ReturnType = method.ReturnType.ToDisplayString(),
             ReturnsTask = method.ReturnType.Name is "Task" or "ValueTask",
+            ReturnsVoid = method.ReturnsVoid,
             Keyword = keyword,
-            StepText = Render(template, method, invocation)
+            StepText = Render(template, method, invocation),
+            DeclaredIndex = DeclaredIndexOf(invocation)
         };
 
         foreach (var parameter in method.Parameters)
@@ -118,6 +127,44 @@ internal static class StepInterceptors
     }
 
     /// <summary>
+    /// Which marker comment of the enclosing test this call runs under (issue #304) — the last
+    /// one declared at or above the call's own line, 0-based, or -1 when the call is under none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Decided here because here is the only place both facts are exact.</b> A comment is
+    /// erased by the compiler and an interceptor is generated per call site, so at build time the
+    /// generator knows precisely which sentence a call falls under; at runtime it would have to
+    /// read a stack trace and hope. That is the difference between attribution and inference, and
+    /// <c>docs/marker-steps.md</c>'s "declared is not executed" rests on it.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to the enclosing METHOD, and only if that method is a test.</b> A decorated helper
+    /// called from another helper is under no narrative of its own — the comments that would be in
+    /// scope belong to a different method — so it reports -1 and attaches to nothing. The same
+    /// answer covers a call from a fixture, a constructor, or a class the feature attribute never
+    /// marked, and the runtime bounds-checks the index against what was actually registered.
+    /// </para>
+    /// </remarks>
+    internal static int DeclaredIndexOf(InvocationExpressionSyntax invocation)
+    {
+        var method = invocation.FirstAncestorOrSelf<MethodDeclarationSyntax>();
+        if (method is null || !MarkerCommentSpecs.IsTestMethod(method)) return -1;
+
+        var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+
+        var index = -1;
+        var found = 0;
+        foreach (var step in MarkerCommentSpecs.StepsIn(method))
+        {
+            if (step.Line <= line) index = found;
+            found++;
+        }
+
+        return index;
+    }
+
+    /// <summary>
     /// Interceptors are opted into per namespace, so the emitted namespace is a CONSTANT rather
     /// than derived from the assembly: a project enables the feature with one predictable line,
     /// identical everywhere, instead of a name that changes per project (and that an assembly name
@@ -156,12 +203,21 @@ internal static class StepInterceptors
             sb.AppendLine($"        internal static {call.ReturnType} __BobcatStep{index}(");
             sb.AppendLine($"            this global::{call.DeclaringType} receiver{parameters})");
             sb.AppendLine("        {");
-            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)});");
+            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)}, {call.DeclaredIndex});");
 
             if (call.ReturnsTask)
             {
                 // End the step when the helper's work ends, not when it hands back a Task.
                 sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}({arguments}), step);");
+            }
+            else if (call.ReturnsVoid)
+            {
+                // `return receiver.M();` is CS0127 on a void helper, in the CONSUMER's build and in
+                // a file they cannot edit. It went unnoticed until #304's end-to-end test compiled
+                // the first interceptor inside this repository: every earlier check read the
+                // generated text, and Marten's helpers all return Task.
+                sb.AppendLine("            using (step)");
+                sb.AppendLine($"                receiver.{call.MethodName}({arguments});");
             }
             else
             {

@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import { useRunsStore } from '@/stores/runs-store'
+import type { ScenarioState } from '@/stores/runs-store'
+import { narrativeFor } from '@/composables/narrative'
 import SupervisorTopology from '@/components/SupervisorTopology.vue'
 
 const props = defineProps<{ runId: string }>()
@@ -9,6 +11,13 @@ const props = defineProps<{ runId: string }>()
 const runs = useRunsStore()
 const run = computed(() => runs.runById(props.runId))
 const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios) : []))
+
+// #304 — a marker-comment scenario renders as its narrative, with what ran under each sentence.
+// Everything else keeps the flat list it has always had; `outside` carries the steps that
+// belong to no sentence, which for those scenarios is all of them.
+function narrative(scenario: ScenarioState) {
+  return narrativeFor(scenario)
+}
 </script>
 
 <template>
@@ -42,8 +51,36 @@ const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios)
         </el-tag>
       </div>
       <ScenarioProgress :scenario="scenario" />
-      <ul class="bm-steps">
-        <li v-for="step in scenario.steps" :key="step.stepId" :data-status="step.status">
+      <ul class="bm-steps" data-testid="declared-narrative">
+        <!-- #304 — the sentences the test declared, each with the work that ran under it. A row
+             with no work reports NOTHING rather than a borrowed number: nothing observed it. -->
+        <li
+          v-for="row in narrative(scenario).rows"
+          :key="`declared-${row.number}`"
+          class="bm-declared"
+          :data-status="row.status"
+          :data-declared="row.number"
+        >
+          <strong>{{ row.keyword }}</strong> {{ row.text }}
+          <span v-if="row.observedMs !== null" class="bm-duration">{{ row.observedMs }}ms</span>
+          <span v-else-if="row.status === 'declared'" class="bm-unobserved" title="Declared by a
+marker comment; no [BobcatStep] helper ran inside it, so nothing observed how long it took">
+            declared
+          </span>
+          <ul v-if="row.steps.length" class="bm-steps bm-recorded">
+            <li v-for="step in row.steps" :key="step.stepId" :data-status="step.status">
+              <strong>{{ step.kind }}</strong> {{ step.text }}
+              <span v-if="step.durationMs !== null" class="bm-duration">{{ step.durationMs }}ms</span>
+              <div v-if="step.errorMessage" class="bm-error">{{ step.errorMessage }}</div>
+            </li>
+          </ul>
+        </li>
+
+        <li
+          v-for="step in narrative(scenario).outside"
+          :key="step.stepId"
+          :data-status="step.status"
+        >
           <strong>{{ step.kind }}</strong> {{ step.text }}
           <span v-if="step.durationMs !== null" class="bm-duration">{{ step.durationMs }}ms</span>
           <div v-if="step.errorMessage" class="bm-error">{{ step.errorMessage }}</div>
@@ -93,6 +130,23 @@ const scenarios = computed(() => (run.value ? Object.values(run.value.scenarios)
 
 .bm-steps li[data-status='failed'] {
   color: var(--bm-state-failed);
+}
+
+/* A declared row nothing ran under is neither passing nor failing — it is a sentence with no
+   evidence, and it has to look like one rather than like a step that quietly passed. */
+.bm-declared[data-status='declared'] {
+  color: var(--bm-menu-text);
+}
+
+.bm-unobserved {
+  font-size: 12px;
+  margin-left: 8px;
+  opacity: 0.6;
+}
+
+.bm-recorded {
+  padding-left: 16px;
+  font-size: 13px;
 }
 
 .bm-duration {

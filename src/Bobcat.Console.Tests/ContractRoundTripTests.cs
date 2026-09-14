@@ -88,6 +88,54 @@ public class ContractRoundTripTests
     }
 
     [Fact]
+    public void the_declared_narrative_round_trips_with_the_announcement()
+    {
+        // Issue #304. The narrative is the one thing a marker-comment spec knows that nothing
+        // else does, and it crosses the wire on ScenarioStarted rather than as steps.
+        var wire = roundTrip(new Client.ScenarioStarted(
+                runId, "F/s", "F", "s", 1, DateTimeOffset.UtcNow,
+                TotalSteps: 2,
+                DeclaredSteps:
+                [
+                    new Client.DeclaredStepInfo("Given", "the events are published"),
+                    new Client.DeclaredStepInfo("Then", "every aggregate matches")
+                ]))
+            .ShouldBeOfType<Wire.ScenarioStarted>();
+
+        wire.TotalSteps.ShouldBe(2);
+        wire.DeclaredSteps.ShouldNotBeNull();
+        wire.DeclaredSteps.Select(x => $"{x.Keyword} {x.Text}").ShouldBe(
+            ["Given the events are published", "Then every aggregate matches"]);
+    }
+
+    [Fact]
+    public void a_scenario_started_without_a_narrative_still_round_trips()
+    {
+        // An older publisher's JSON has no member at all — additive means additive, and every
+        // other authoring style declares nothing.
+        roundTrip(new Client.ScenarioStarted(runId, "F/s", "F", "s", 1, DateTimeOffset.UtcNow))
+            .ShouldBeOfType<Wire.ScenarioStarted>().DeclaredSteps.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_step_carries_the_declared_sentence_it_ran_under()
+    {
+        var wire = roundTrip(new Client.StepStarted(
+                runId, "F/s", "step-1", "Given", "the events are published",
+                StepNumber: 1, TotalSteps: 2, ScenarioElapsedMs: 4, DeclaredStepNumber: 2))
+            .ShouldBeOfType<Wire.StepStarted>();
+
+        wire.DeclaredStepNumber.ShouldBe(2);
+    }
+
+    [Fact]
+    public void a_step_under_no_declared_region_round_trips_as_null()
+    {
+        roundTrip(new Client.StepStarted(runId, "F/s", "step-1", "Given", "a calculator"))
+            .ShouldBeOfType<Wire.StepStarted>().DeclaredStepNumber.ShouldBeNull();
+    }
+
+    [Fact]
     public void scenario_finished_round_trips()
     {
         var at = DateTimeOffset.UtcNow;

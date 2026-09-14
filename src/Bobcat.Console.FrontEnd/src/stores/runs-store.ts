@@ -10,6 +10,7 @@ import type {
   RunProgress,
   RunStarted,
   ScenarioFinished,
+  DeclaredStepInfo,
   ScenarioStarted,
   StepFinished,
   StepProgress,
@@ -48,6 +49,12 @@ export interface StepState {
   /** Milliseconds into the scenario's wall clock when the step started; null if unknown. */
   scenarioElapsedMs: number | null
   progress: StepProgressState | null
+  /**
+   * 1-based index into `ScenarioState.declaredSteps` of the marker comment this step ran under
+   * (issue #304), decided by the generator from the call site. Null for a step under no declared
+   * region — which is every step of every authoring style but marker comments.
+   */
+  declaredStepNumber: number | null
 }
 
 export type ScenarioStatus = 'running' | 'passed' | 'passed-on-retry' | 'failed' | 'retry-scheduled' | 'aborted'
@@ -79,6 +86,14 @@ export interface ScenarioState {
    * first step_started that names it). Null until a publisher says — older publishers never do.
    */
   totalSteps: number | null
+  /**
+   * What the scenario DECLARED it does, in order (issue #304): a marker-comment test's narrative,
+   * known at compile time and announced before it ran. Empty for every other authoring style.
+   *
+   * These are not steps and never gain a verdict of their own — what ran points back at them
+   * through `StepState.declaredStepNumber`, and a declared step nothing ran under stays blank.
+   */
+  declaredSteps: DeclaredStepInfo[]
   /**
    * Run evidence (issue #107): CLR types the scenario observably touched, from the terminal
    * scenario_finished — first-touch order, deduplicated by the publisher. Empty when the
@@ -299,6 +314,7 @@ export const useRunsStore = defineStore('runs', () => {
         retryReason: null,
         steps: [],
         totalSteps: null,
+        declaredSteps: [],
         touchedTypes: [],
         finishedAt: null,
         state: null,
@@ -355,6 +371,9 @@ export const useRunsStore = defineStore('runs', () => {
     scenario.steps = []
     scenario.errorMessage = null
     scenario.totalSteps = e.totalSteps ?? null
+    // Assign, never clear — mirrors the touchedTypes fold and the C# one: a publisher that says
+    // nothing about the narrative is not saying there isn't one.
+    if (e.declaredSteps) scenario.declaredSteps = e.declaredSteps
   }
 
   function handleScenarioFinished(e: ScenarioFinished) {
@@ -403,6 +422,7 @@ export const useRunsStore = defineStore('runs', () => {
       stepNumber: e.stepNumber ?? null,
       scenarioElapsedMs: e.scenarioElapsedMs ?? null,
       progress: null,
+      declaredStepNumber: e.declaredStepNumber ?? null,
     }
     // A publisher that announced the count on the step rather than the scenario (or whose
     // scenario_started was dropped on backpressure) still tells us how many there are.
@@ -448,6 +468,7 @@ export const useRunsStore = defineStore('runs', () => {
         stepNumber: null,
         scenarioElapsedMs: null,
         progress: null,
+        declaredStepNumber: null,
       }
       scenario.steps.push(step)
     }
