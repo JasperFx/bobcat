@@ -170,6 +170,59 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## A stream is a row (0.10.0, bobcat#299)
+
+Two slices that write `Account` put their events on the same horizontal line inside the Event
+Stream lane, and that they are on one stream is then visible **with no arrow at all**. That is
+decision 2 of the canvas design and the reason this is a layout change rather than a new link kind:
+a shared aggregate is not a cause→effect relationship, and fanning every event of an aggregate out
+to every slice that touches it draws noise where the canvas should be making a statement.
+
+The lane becomes one row per aggregate, in the model's `aggregates` order (first appearance),
+captioned in the gutter under the lane's own caption. `layoutEventModel` does it; `streamRowPlan`
+is the same decision exported on its own, because *which slices share a stream* is a question about
+the model rather than about the picture, and a host drawing its own legend should ask the function
+the layout asks.
+
+**Three rules, and the first is why no canvas you have already drawn moved.**
+
+1. **Fewer than two aggregates in view ⇒ one flat row.** A row is a comparison; with one stream
+   there is nothing to compare and the split would only cost height. Rows are computed over the
+   slices actually *drawn*, not over the descriptor, so filtering a 106-slice model down to one
+   aggregate collapses the lane back rather than leaving a stack of empty rows behind.
+2. **An event sits on the aggregate whose `appliedEvents` names it**, and when a slice names
+   several aggregates but no applied-event list answers, on the slice's first aggregate. The
+   fallback is not a formality: a producer that cannot resolve an apply set statically emits an
+   empty list, so no layout decision may *require* one.
+3. **A published message is on no stream, and neither is an event whose slice writes no
+   aggregate.** They share the trailing unlabelled row. The design left the messages row
+   "above/below the stream rows"; one row that means *in this lane, on no stream* says more than
+   two rows both captioned by their absence, and it is one row of height rather than two.
+
+**What it costs.** 0.04ms: a 106-slice model across four streams lays out in 0.60ms against 0.56ms
+flat, both sub-millisecond, both one synchronous pass, measured over 50 runs. Set
+`LayoutOptions.streamRows: false` to keep the flat lane exactly as it was.
+
+**Rendering.** `LaidOutLane` gains `rows` — always at least one, so a viewer never branches on
+whether a lane was split — each with its absolute `y`, its `height`, the aggregate's type identity
+as `key`, and the gutter caption as `label` (`null` on the unlabelled row, which says what it is on
+hover instead). Alternate rows carry a 3.5% tint, which is deliberately the thing that still
+separates them at `overview`: the captions are hidden there, and they cannot be counter-scaled the
+way a column name is — the gutter is 132px wide, 33px at the 25% floor, and a caption drawn big
+enough to read there would spill across the plot.
+
+⚠️ **This release corrects a wire mirror that was wrong, not merely incomplete.** `aggregates` was
+typed here as `EventModelElement[]` — which is what a slice's Aggregate *cards* are, not what the
+model document carries. The real shape is `AggregateDescriptor` (`type`, `kind`, `appliedEvents`),
+and `EventModelSliceDescriptor` grows the `aggregateTypes` it always had on the wire. Nothing in
+this package had ever read either member, so the error was invisible until a row needed
+`appliedEvents` to decide where an event goes. A consumer that read `descriptor.aggregates` as
+elements was reading a member no producer fills that way.
+
+A descriptor from a producer below JasperFx.Events 2.60 carries no `aggregateTypes`; the plan falls
+back to the slice's `Aggregate` cards, which is the same claim projected into the rendering
+contract.
+
 ## Navigating a big model: focus, level of detail, minimap, place (0.9.0, bobcat#296)
 
 0.7.0 gave the canvas nine zoom stops and 0.8.0 gave it a filter bar, and a 106-slice model is

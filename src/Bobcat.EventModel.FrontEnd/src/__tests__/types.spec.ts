@@ -3,6 +3,7 @@ import {
   LANE_ORDER,
   PROVENANCE_ORDER,
   PROVENANCE_LABEL,
+  type AggregateKind,
   type EventModelElementKind,
   type EventModelLane,
   type EventModelProvenance,
@@ -27,6 +28,16 @@ function members<T extends string>(record: Record<T, true>): string[] {
 }
 
 describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
+  it('pins AggregateKind', () => {
+    // Stream rows (#299) key on these; a rename upstream would silently put every event of a
+    // renamed aggregate on the unlabelled row rather than fail.
+    expect(
+      members<AggregateKind>({
+        WriteAggregate: true, ReadAggregate: true, ConsistentAggregate: true, BoundaryModel: true
+      })
+    ).toEqual(['BoundaryModel', 'ConsistentAggregate', 'ReadAggregate', 'WriteAggregate'])
+  })
+
   it('pins EventModelElementKind', () => {
     expect(
       members<EventModelElementKind>({

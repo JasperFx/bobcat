@@ -168,6 +168,16 @@ const graph = computed(() =>
 )
 
 /**
+ * The stream rows to caption and tint (#299): every row of every lane the layout actually split.
+ *
+ * Flattened across lanes rather than nested under one, because only the `EventStream` lane splits
+ * today and a viewer that hard-codes that would have to be edited the day a second lane does.
+ */
+const streamRows = computed(() =>
+  graph.value.lanes.flatMap((lane) => (lane.rows.length > 1 ? lane.rows : []))
+)
+
+/**
  * Empty means there is no SLICE to draw, not no card.
  *
  * Node count was the same thing until slices could be collapsed by the reader (issue #194):
@@ -904,9 +914,23 @@ function outcomeFor(sliceName: string): string | null {
               v-for="lane in graph.lanes"
               :key="lane.lane"
               class="em-lane-label"
+              :data-split="lane.rows.length > 1 ? 'true' : undefined"
               :style="{ top: `${lane.y}px`, height: `${lane.height}px` }"
             >
               {{ LANE_LABEL[lane.lane] }}
+            </div>
+            <!-- #299 — one caption per stream row, in the gutter under the lane's own caption.
+                 Only ever rendered for a lane the layout actually split, so a model with one
+                 aggregate has no second column of text to explain. -->
+            <div
+              v-for="row in streamRows"
+              :key="`row-label-${row.key ?? 'unassigned'}`"
+              class="em-stream-row-label"
+              :data-unassigned="row.key === null ? 'true' : undefined"
+              :title="row.label ?? 'On no aggregate stream — published messages, and events of a slice that writes no aggregate'"
+              :style="{ top: `${row.y}px`, height: `${row.height}px` }"
+            >
+              {{ row.label ?? '—' }}
             </div>
           </div>
 
@@ -916,6 +940,18 @@ function outcomeFor(sliceName: string): string | null {
               :key="`band-${lane.lane}`"
               class="em-lane-band"
               :style="{ top: `${lane.y}px`, height: `${lane.height}px`, width: `${graph.width}px` }"
+            />
+
+            <!-- #299 — the rows' own banding. It alternates rather than drawing a rule per row:
+                 the lane band already owns the rules, and a second set of hairlines inside it reads
+                 as four lanes rather than as one lane of streams. This is also what still separates
+                 the rows at `overview`, where the captions are gone. -->
+            <div
+              v-for="(row, index) in streamRows"
+              :key="`row-band-${row.key ?? 'unassigned'}`"
+              class="em-stream-band"
+              :data-alt="index % 2 === 1 ? 'true' : undefined"
+              :style="{ top: `${row.y}px`, height: `${row.height}px`, width: `${graph.width}px` }"
             />
 
             <div
@@ -1307,6 +1343,23 @@ function outcomeFor(sliceName: string): string | null {
   font-weight: 600;
   opacity: 0.7;
 }
+/* #299 — a stream's caption, under its lane's. Smaller and indented: it names a row inside a
+   band, and a caption at the lane's own weight would read as a fifth lane. */
+.em-stream-row-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+.em-stream-row-label[data-unassigned] {
+  opacity: 0.35;
+}
+.em-lane-label[data-split] {
+  align-items: flex-start;
+}
 .em-plot {
   position: relative;
   flex: 0 0 auto;
@@ -1316,6 +1369,15 @@ function outcomeFor(sliceName: string): string | null {
   left: 0;
   border-top: 1px solid currentColor;
   opacity: 0.12;
+}
+.em-stream-band {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+}
+.em-stream-band[data-alt] {
+  background: currentColor;
+  opacity: 0.035;
 }
 .em-slice {
   position: absolute;
@@ -1666,6 +1728,12 @@ function outcomeFor(sliceName: string): string | null {
 /* overview (< 0.4): a card is a colour block. At 25% a 13px label renders at three pixels — it is
    not small text, it is texture — so the kind colour is the only thing still carrying meaning, and
    the slice's own name and pattern say what the column is. */
+/* #299 — the stream captions go at `overview`, and only the tint separates the rows. They cannot
+   be counter-scaled the way a column name is: the gutter is 132px wide, which is 33px at the 25%
+   floor, and a caption drawn big enough to read there would spill across the plot. */
+.em-viewport[data-lod='overview'] .em-stream-row-label {
+  display: none;
+}
 .em-viewport[data-lod='overview'] .em-card-label,
 .em-viewport[data-lod='overview'] .em-hotspot,
 .em-viewport[data-lod='overview'] .em-trigger-icon,

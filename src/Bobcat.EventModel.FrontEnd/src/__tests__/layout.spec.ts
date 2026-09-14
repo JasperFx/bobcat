@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { COLLAPSED_WIDTH, layoutEventModel } from '../layout'
+import { COLLAPSED_WIDTH, layoutEventModel, streamRowPlan } from '../layout'
 import { LANE_ORDER } from '../types'
-import { withdrawFundsModel } from './fixtures'
+import { largeModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
 
 /** The withdrawal model with one label replaced — the #180 sizing cases in one place. */
 function longLabelModel(label: string) {
@@ -212,5 +212,137 @@ describe('layoutEventModel', () => {
       expect(graph.width).toBe(0)
       expect(graph.lanes).toHaveLength(4)
     }
+  })
+})
+
+/**
+ * bobcat#299 — the EventStream lane as one row per aggregate stream.
+ *
+ * Coordinates rather than structure, for the same reason the rest of this file asserts them: a
+ * stream row is only worth anything if the Bobcat console and CritterWatch put the same event on
+ * the same line, and "the same line" is a number.
+ */
+describe('stream rows', () => {
+  it('splits the event stream lane into one row per aggregate, plus one for what is on no stream', () => {
+    const plan = streamRowPlan(twoAggregateModel())
+    expect(plan.rows.map((r) => r.label)).toEqual(['Account', 'Wallet', null])
+  })
+
+  it('grows the lane band by its rows and pushes the lanes below it down', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const lane = (name: string) => graph.lanes.find((l) => l.lane === name)!
+    // Three rows of (72 + 48).
+    expect(lane('EventStream').height).toBe(360)
+    expect(lane('EventStream').rows.map((r) => r.y)).toEqual([240, 360, 480])
+    expect(lane('ReadModel').y).toBe(600)
+    expect(graph.height).toBe(720)
+    // Every other lane is still exactly one row, so a viewer never branches on whether rows exist.
+    expect(lane('Command').rows).toHaveLength(1)
+    expect(lane('Command').rows[0]).toEqual({ key: null, label: null, y: 120, height: 120 })
+  })
+
+  it('puts each slice’s events on the row of the aggregate it writes', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const y = (id: string) => graph.nodes.find((n) => n.id === id)!.y
+    expect(y('WithdrawFunds/Event/Bank.FundsWithdrawn')).toBe(264)
+    expect(y('WithdrawFunds/Event/Bank.AccountOverdrawn')).toBe(264)
+    expect(y('TopUpWallet/Event/Bank.WalletToppedUp')).toBe(384)
+  })
+
+  it('routes a multi-aggregate slice’s event by appliedEvents, and falls back to its first aggregate', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const y = (id: string) => graph.nodes.find((n) => n.id === id)!.y
+    // Wallet applies WalletToppedUp, so it lands on the Wallet row even though Account is declared
+    // first on the slice.
+    expect(y('SettleTransfer/Event/Bank.WalletToppedUp')).toBe(384)
+    // Neither aggregate applies TransferSettled — the slice's first claim wins rather than the
+    // event falling off the streams altogether.
+    expect(y('SettleTransfer/Event/Bank.TransferSettled')).toBe(264)
+  })
+
+  it('puts a published message and an event whose slice names no aggregate on the unlabelled row', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const y = (id: string) => graph.nodes.find((n) => n.id === id)!.y
+    expect(y('TopUpWallet/Message/Bank.WalletTopUpNotified')).toBe(504)
+    expect(y('AccountBalance/Event/Bank.FundsWithdrawn')).toBe(504)
+  })
+
+  it('starts each row at the column’s left edge rather than running the lane’s cards along one line', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const node = (id: string) => graph.nodes.find((n) => n.id === id)!
+    const slice = graph.slices.find((s) => s.name === 'TopUpWallet')!
+    // The event and the message are in the same lane and different rows, so both start at x0.
+    expect(node('TopUpWallet/Event/Bank.WalletToppedUp').x).toBe(slice.x)
+    expect(node('TopUpWallet/Message/Bank.WalletTopUpNotified').x).toBe(slice.x)
+    // …and the column is therefore one card wide, not two.
+    expect(slice.width).toBe(slice.cardWidth * 2 + 24) // its Command lane still holds two cards
+  })
+
+  it('still terminates an edge on the card faces when the rows moved them apart', () => {
+    const graph = layoutEventModel(twoAggregateModel())
+    const edge = graph.edges.find(
+      (e) => e.toId === 'WithdrawFunds/Event/Bank.FundsWithdrawn'
+    )!
+    const to = graph.nodes.find((n) => n.id === edge.toId)!
+    expect(edge.points.at(-1)).toEqual({ x: to.x + to.width / 2, y: to.y })
+  })
+
+  it('leaves a model with fewer than two aggregates exactly where it was', () => {
+    // The acceptance criterion of #299: one stream is not a comparison, so the split must cost a
+    // one-aggregate canvas nothing at all — not a row, not a pixel.
+    const split = layoutEventModel(withdrawFundsModel())
+    const flat = layoutEventModel(withdrawFundsModel(), { streamRows: false })
+    expect(split).toEqual(flat)
+    expect(split.height).toBe(480)
+  })
+
+  it('honours streamRows: false on a model that would otherwise split', () => {
+    const flat = layoutEventModel(twoAggregateModel(), { streamRows: false })
+    expect(flat.lanes.every((l) => l.rows.length === 1)).toBe(true)
+    expect(flat.height).toBe(480)
+    expect(flat.nodes.find((n) => n.id === 'TopUpWallet/Event/Bank.WalletToppedUp')!.y).toBe(264)
+  })
+
+  it('collapses the lane back when the slices in view are down to one stream', () => {
+    // Rows are computed over the slices actually drawn, so filtering a model to one aggregate does
+    // not leave a lane of empty rows behind — which is the state a reader reaches by filtering.
+    const graph = layoutEventModel(twoAggregateModel(), {
+      hiddenSlices: new Set(['TopUpWallet', 'SettleTransfer'])
+    })
+    expect(graph.lanes.find((l) => l.lane === 'EventStream')!.rows).toHaveLength(1)
+    expect(graph.height).toBe(480)
+  })
+
+  it('reads a slice’s aggregates off its Aggregate cards when the producer sends no aggregateTypes', () => {
+    // Everything below JasperFx.Events 2.60 is this case, including descriptors already persisted.
+    const model = twoAggregateModel()
+    for (const slice of model.slices!) delete slice.aggregateTypes
+    const plan = streamRowPlan(model)
+    // SettleTransfer declared its two aggregates only through aggregateTypes and so drops to the
+    // unlabelled row; the two slices that draw Aggregate cards still get their own.
+    expect(plan.rows.map((r) => r.label)).toEqual(['Account', 'Wallet', null])
+    expect(plan.rowByElementId.get('WithdrawFunds/Event/Bank.FundsWithdrawn')).toBe(0)
+    expect(plan.rowByElementId.get('SettleTransfer/Event/Bank.TransferSettled')).toBe(2)
+  })
+})
+
+describe('stream rows at fleet size', () => {
+  it('splits a 106-slice model across its streams in one synchronous pass', () => {
+    const graph = layoutEventModel(largeModel(106, 4))
+    const stream = graph.lanes.find((l) => l.lane === 'EventStream')!
+    expect(stream.rows.map((r) => r.label)).toEqual([
+      'Aggregate0',
+      'Aggregate1',
+      'Aggregate2',
+      'Aggregate3'
+    ])
+    // Four rows in the stream lane and one in each of the other three.
+    expect(graph.height).toBe(840)
+    // Every event landed on the row of the aggregate its slice writes — nothing fell through to an
+    // unlabelled row, which is what an `appliedEvents` list this fixture leaves empty would cause
+    // if the fallback were not "the slice's first aggregate".
+    const events = graph.nodes.filter((n) => n.element.kind === 'Event')
+    expect(events).toHaveLength(106)
+    expect(new Set(events.map((n) => n.y))).toEqual(new Set([264, 384, 504, 624]))
   })
 })

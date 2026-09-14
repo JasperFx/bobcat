@@ -490,6 +490,28 @@ convention:
     reduced to the zoom the reader already had and focus "fitted" 46% to 48%; and the toolbar
     Focus button is unreachable once a selection opens the modal drill-down drawer over it, which
     is why each slice header carries its own ⌖.
+- **A stream is a row (issue #299, 0.10.0).** Two slices that write `Account` now put their events
+  on the same horizontal line inside the Event Stream lane, and that they share a stream is visible
+  with no arrow at all — which is the point, and is decision 2 of the canvas design: a shared
+  aggregate is not a cause→effect link, and fanning every event of an aggregate out to every slice
+  on it is noise rather than a statement. The lane becomes one row per aggregate in the model's
+  `aggregates` order, captioned in the gutter under the lane's own caption, with alternate rows
+  tinted so the bands still separate at `overview`, where the captions are too small to draw.
+  - **Three rules, and the first is why no existing canvas moved.** Fewer than two aggregates in
+    view means one flat row — a row is a comparison, and with one stream there is nothing to
+    compare. Rows are computed over the slices actually *drawn*, so filtering a 106-slice model
+    down to one aggregate collapses the lane back rather than leaving empty rows behind. An event
+    sits on the aggregate whose `appliedEvents` names it, falling back to its slice's first
+    aggregate, because a producer that cannot resolve an apply set statically emits none.
+  - **A published message is on no stream, and neither is an event of a slice that writes no
+    aggregate.** They share one trailing unlabelled row rather than getting a row each: the design
+    left the messages row "above/below", and two rows both captioned by their absence say less than
+    one row that means "in this lane, on no stream".
+  - It costs nothing measurable — a 106-slice model across four streams lays out in 0.60ms against
+    0.56ms flat, both sub-millisecond and in one synchronous pass, and `LayoutOptions.streamRows:
+    false` keeps the old lane exactly. The layout mirrors `AggregateDescriptor` properly to do it:
+    `aggregates` had been typed in this package as the slices' Aggregate *cards*, which is not what
+    the model document carries, and nothing had ever read the member to notice.
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in

@@ -167,6 +167,16 @@ export interface EventModelSliceDescriptor {
   name: string
   domain?: string | null
   pattern?: SlicePattern | null
+  /**
+   * Aggregate-shaped types this slice writes through, in declaration order.
+   *
+   * The same types the producer projects into the slice's `Aggregate` elements, carried separately
+   * because a *row* is a statement about the model rather than about a card: stream rows (#299) ask
+   * which stream a slice is on, which is a question the elements answer only by accident of how
+   * they were built. A producer below JasperFx.Events 2.60 omits it, so the layout falls back to
+   * the `Aggregate` elements.
+   */
+  aggregateTypes?: TypeDescriptor[]
   triggerKind?: TriggerKind | null
   triggerLabel?: string | null
   triggerOrigin?: string | null
@@ -175,6 +185,30 @@ export interface EventModelSliceDescriptor {
   specifications?: SpecificationDescriptor[]
   hotspots?: HotspotDescriptor[]
   externalSystems?: ExternalSystemDescriptor[]
+}
+
+/**
+ * Which aggregate-marker attribute a type carries. String members on the wire, not ordinals.
+ */
+export type AggregateKind = 'WriteAggregate' | 'ReadAggregate' | 'ConsistentAggregate' | 'BoundaryModel'
+
+/**
+ * One aggregate-shaped type of the model, with the events it applies.
+ *
+ * ⚠️ This corrects a mirror that was wrong rather than merely incomplete: `aggregates` was typed
+ * here as `EventModelElement[]`, which is what a slice's Aggregate *cards* are, not what the model
+ * document carries. Nothing in this package had ever read the member, so the error was invisible
+ * until stream rows (#299) needed `appliedEvents` to decide which row an event belongs on.
+ */
+export interface AggregateDescriptor {
+  type: TypeDescriptor
+  kind?: AggregateKind
+  /**
+   * Event types the aggregate applies, in declaration order. Empty when the producer could not
+   * resolve the apply set statically — which is a real case, so no layout decision may *require*
+   * it (#299 falls back to the slice's first aggregate).
+   */
+  appliedEvents?: TypeDescriptor[]
 }
 
 /**
@@ -219,7 +253,8 @@ export interface EventModelLink {
 export interface EventModelDescriptor {
   name: string
   slices?: EventModelSliceDescriptor[]
-  aggregates?: EventModelElement[]
+  /** The model's aggregate-shaped types, in first-appearance order. Slices point at these by type. */
+  aggregates?: AggregateDescriptor[]
   /** Cross-slice links, computed upstream. Absent on any producer below JasperFx.Events 2.69. */
   links?: EventModelLink[]
 }
