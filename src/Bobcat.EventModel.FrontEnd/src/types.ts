@@ -166,6 +166,13 @@ export interface ExternalSystemDescriptor {
 export interface EventModelSliceDescriptor {
   name: string
   domain?: string | null
+  /**
+   * The chapter — the span of the timeline this slice belongs to (jasperfx#824, bobcat#298). The
+   * grouping every Event Modeling tool zooms into; eventmodelers.ai draws it as a wide arrow over
+   * several slices. Independent of `domain`: a bounded context has many chapters. Absent from any
+   * producer below JasperFx.Events 2.69, and from every slice a producer never chaptered.
+   */
+  chapter?: string | null
   pattern?: SlicePattern | null
   /**
    * Aggregate-shaped types this slice writes through, in declaration order.

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import EventModelView from '../EventModelView.vue'
 import { layoutEventModel } from '../layout'
 import { minimapScale } from '../focus'
-import { largeModel, linkedModel, withdrawFundsModel } from './fixtures'
+import { chapteredModel, largeModel, linkedModel, withdrawFundsModel } from './fixtures'
 import type { EventModelDescriptor } from '../types'
 
 /**
@@ -38,6 +38,57 @@ afterEach(() => {
 
 const zoomOf = (wrapper: VueWrapper) => wrapper.find('.em-zoom-level').text()
 const lodOf = (wrapper: VueWrapper) => wrapper.find('.em-viewport').attributes('data-lod')
+
+describe('chapter bands (#298)', () => {
+  it('draws one band per contiguous run, spanning its slices', () => {
+    const { wrapper } = canvas(chapteredModel())
+    const bands = wrapper.findAll('.em-chapter-band')
+
+    expect(bands.map((b) => b.text())).toEqual(['Onboarding', 'Swiping', 'Onboarding'])
+
+    const graph = layoutEventModel(chapteredModel())
+    expect(bands[0].attributes('style')).toContain(`width: ${graph.chapters[0].width}px`)
+  })
+
+  it('draws no bands, and no strip, for a model without chapters', () => {
+    const { wrapper } = canvas(withdrawFundsModel())
+    expect(wrapper.findAll('.em-chapter-band')).toHaveLength(0)
+    expect(wrapper.find('[data-slice="WithdrawFunds"]').attributes('style')).toContain('top: 0px')
+  })
+
+  it('clicking a band focuses the whole chapter — every run of it — and dims the rest', async () => {
+    const { wrapper } = canvas(chapteredModel())
+
+    await wrapper.findAll('.em-chapter-band')[0].trigger('click')
+    await wrapper.vm.$nextTick()
+
+    // All three Onboarding slices are in focus, including Verify in the second run.
+    for (const name of ['Enroll', 'AddDog', 'Verify']) {
+      expect(wrapper.find(`[data-slice="${name}"]`).attributes('data-dimmed')).toBeUndefined()
+    }
+    expect(wrapper.find('[data-slice="SwipeOnDog"]').attributes('data-dimmed')).toBe('true')
+    expect(wrapper.find('[data-slice="Loose"]').attributes('data-dimmed')).toBe('true')
+
+    // Both Onboarding bands light up; the Swiping band dims.
+    const bands = wrapper.findAll('.em-chapter-band')
+    expect(bands[0].attributes('data-focused')).toBe('true')
+    expect(bands[2].attributes('data-focused')).toBe('true')
+    expect(bands[1].attributes('data-dimmed')).toBe('true')
+
+    // The breadcrumb is model › chapter.
+    const crumbs = wrapper.findAll('.em-crumb').map((c) => c.text())
+    expect(crumbs).toEqual(['K9Crush', 'Onboarding'])
+  })
+
+  it('a focused slice in a chapter steps out through its chapter, not its domain', async () => {
+    const { wrapper } = canvas(chapteredModel())
+
+    await wrapper.findAll('.em-slice-focus')[1].trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAll('.em-crumb').map((c) => c.text())).toEqual(['K9Crush', 'Onboarding', 'AddDog'])
+  })
+})
 
 describe('focus (#296)', () => {
   it('needs a selection before it will move anything', async () => {

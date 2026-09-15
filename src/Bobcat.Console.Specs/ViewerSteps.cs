@@ -252,6 +252,36 @@ public class ViewerSteps : Fixture
             }
             """, source);
 
+    /// <summary>bobcat#298 — a slice with a chapter, the way the emlang import or a `@chapter:` tag produces one.</summary>
+    [When("the event model {string} is published with slice {string} in chapter {string}")]
+    public Task EventModelPublishedWithChapter(string name, string slice, string chapter)
+        => putEventModel($$"""
+            {
+              "name": "{{name}}",
+              "slices": [
+                {
+                  "name": "{{slice}}",
+                  "pattern": "Command",
+                  "chapter": "{{chapter}}",
+                  "commandType": { "name": "{{slice}}", "fullName": "Specs.{{slice}}", "assemblyName": "Specs" },
+                  "emittedEvents": [],
+                  "projectionTypes": [],
+                  "readModelTypes": []
+                }
+              ]
+            }
+            """);
+
+    [Check("the slice {string} of the event model is in chapter {string}")]
+    public async Task<bool> SliceIsInChapter(string slice, string chapter)
+    {
+        await fetchRaw("/api/event-model");
+        return JsonDocument.Parse(_lastBody).RootElement.GetProperty("slices").EnumerateArray()
+            .Any(s => s.GetProperty("name").GetString() == slice
+                      && s.TryGetProperty("chapter", out var c)
+                      && c.GetString() == chapter);
+    }
+
     /// <summary>The merge must keep the other source's contribution, not just accept the newer one.</summary>
     [Check("the slice {string} of the event model still carries its command type")]
     public async Task<bool> SliceStillCarriesCommandType(string slice)

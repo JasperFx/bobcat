@@ -365,3 +365,38 @@ export function linkedThreeSliceModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * Four slices in two chapters, with the second chapter INTERLEAVED (#298): Onboarding, Onboarding,
+ * Swiping, Onboarding. Declaration order is the producer's statement about sequence and the canvas
+ * never reorders, so this draws three bands — two of them named Onboarding — rather than two.
+ * `Loose` declares no chapter and sits under no band.
+ */
+export function chapteredModel(): EventModelDescriptor {
+  const command = (slice: string, chapter: string | null) => ({
+    name: slice,
+    domain: 'Dating',
+    chapter,
+    pattern: 'Command' as const,
+    elements: [
+      {
+        id: `${slice}/Command/App.${slice}`,
+        kind: 'Command' as const,
+        lane: 'Command' as const,
+        label: slice,
+        type: { name: slice, fullName: `App.${slice}` }
+      }
+    ],
+    edges: []
+  })
+  return {
+    name: 'K9Crush',
+    slices: [
+      command('Enroll', 'Onboarding'),
+      command('AddDog', 'Onboarding'),
+      command('SwipeOnDog', 'Swiping'),
+      command('Verify', 'Onboarding'),
+      command('Loose', null)
+    ]
+  }
+}

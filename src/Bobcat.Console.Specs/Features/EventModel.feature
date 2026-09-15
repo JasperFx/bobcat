@@ -31,6 +31,12 @@ Feature: Event Model
     Then the slice "CreditWallet" of the event model carries the spec identity "Wallet/Second"
     And the slice "CreditWallet" of the event model does not carry the spec identity "Wallet/First"
 
+  # bobcat#298 — the chapter is a role of the slice (jasperfx#824), so a pushed document keeps it
+  # through the store's normalization and GET serves it back, ready for the canvas's chapter bands.
+  Scenario: A pushed descriptor keeps its chapters
+    When the event model "Wallets" is published with slice "CreditWallet" in chapter "Everyday banking"
+    Then the slice "CreditWallet" of the event model is in chapter "Everyday banking"
+
   Scenario: A successful push is broadcast so an open page redraws without an F5
     When the event model "Wallets" is published with slice "CreditWallet" bound to spec "Wallet/Crediting a wallet"
     Then the event model change is broadcast for "Wallets"

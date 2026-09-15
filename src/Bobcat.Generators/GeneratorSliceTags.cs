@@ -30,11 +30,14 @@ internal static class GeneratorSliceTags
 {
     public const string SlicePrefix = "slice:";
     public const string DomainPrefix = "domain:";
+    public const string ChapterPrefix = "chapter:";
     public const string TriggeredByPrefix = "Triggered by";
 
     public static string? Slice(IEnumerable<string> tags) => valueOf(tags, SlicePrefix);
 
     public static string? Domain(IEnumerable<string> tags) => valueOf(tags, DomainPrefix);
+
+    public static string? Chapter(IEnumerable<string> tags) => valueOf(tags, ChapterPrefix);
 
     public static string? TriggeredBy(string? description)
     {

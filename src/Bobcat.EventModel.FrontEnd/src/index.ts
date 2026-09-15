@@ -3,6 +3,7 @@ export {
   layoutEventModel,
   streamRowPlan,
   canvasSize,
+  CHAPTER_BAND_HEIGHT,
   COLLAPSED_WIDTH,
   CANVAS_PADDING,
   GUTTER_GAP,
@@ -14,6 +15,7 @@ export {
   MAX_LABEL_LINES
 } from './layout'
 export {
+  chaptersOf,
   domainsOf,
   hiddenSliceNames,
   isEmptyFilter,
@@ -35,6 +37,7 @@ export {
   selectionFromKey,
   selectionToKey,
   sliceOfSelection,
+  slicesInChapter,
   slicesInDomain,
   viewportFromQuery,
   viewportToQuery,
@@ -57,6 +60,7 @@ export { estimateTextWidth, requiredContentWidth, segmentLabel } from './text'
 export { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 export type {
   EventModelGraph,
+  LaidOutChapterBand,
   LaidOutEdge,
   LaidOutLane,
   LaidOutLaneRow,

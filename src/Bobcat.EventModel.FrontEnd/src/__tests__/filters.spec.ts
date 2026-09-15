@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { domainsOf, hiddenSliceNames, isEmptyFilter, matchesFilter } from '../filters'
+import { chaptersOf, domainsOf, hiddenSliceNames, isEmptyFilter, matchesFilter } from '../filters'
 import { layoutEventModel, COLLAPSED_WIDTH } from '../layout'
 import type { EventModelDescriptor, EventModelSliceDescriptor } from '../types'
 import { withdrawFundsModel } from './fixtures'
@@ -27,6 +27,27 @@ describe('slice filter', () => {
       slice({ name: 'C', domain: 'Accounts' }),
       slice({ name: 'D' })
     ))).toEqual(['Accounts', 'Payments'])
+  })
+
+  it('lists the chapters a model declares in the order they first appear — a sequence, not a set', () => {
+    // #298: a chapter is a span of the timeline. Alphabetising them would shuffle the story.
+    expect(chaptersOf(model(
+      slice({ name: 'A', chapter: 'Swiping' }),
+      slice({ name: 'B', chapter: 'Onboarding' }),
+      slice({ name: 'C', chapter: 'Swiping' }),
+      slice({ name: 'D' })
+    ))).toEqual(['Swiping', 'Onboarding'])
+  })
+
+  it('filters by chapter, excluding a slice that declares none', () => {
+    const chaptered = slice({ name: 'A', chapter: 'Swiping' })
+    const loose = slice({ name: 'B' })
+    const filter = { chapters: new Set(['Swiping']) }
+
+    expect(matchesFilter(chaptered, filter)).toBe(true)
+    expect(matchesFilter(loose, filter)).toBe(false)
+    expect(isEmptyFilter(filter)).toBe(false)
+    expect(isEmptyFilter({ chapters: new Set() })).toBe(true)
   })
 
   it('excludes a slice with no domain when a domain filter is on', () => {

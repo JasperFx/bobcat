@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import EventModelView from '../EventModelView.vue'
-import { withdrawFundsModel } from './fixtures'
+import { chapteredModel, withdrawFundsModel } from './fixtures'
 import type { EventModelDescriptor } from '../types'
 
 // Both fixture slices carry a specification, so the drift split needs a model that has one of
@@ -96,6 +96,27 @@ describe('EventModelView filter bar', () => {
     expect(wrapper.find('[data-slice="Bound"]').exists()).toBe(true)
     expect(wrapper.find('[data-slice="Unbound"]').exists()).toBe(false)
     expect(chips[0].attributes('aria-pressed')).toBe('true')
+  })
+
+  it('offers one chip per declared chapter, in the model\'s order, and filters by it (#298)', async () => {
+    const wrapper = mountView({ descriptor: chapteredModel() })
+    const chips = wrapper.findAll('[data-chapter][class*="em-filter-chip"]')
+
+    // Declaration order, not alphabetical — Onboarding comes before Swiping in the story.
+    expect(chips.map((c) => c.text())).toEqual(['Onboarding', 'Swiping'])
+
+    await chips[1].trigger('click')
+
+    expect(wrapper.find('[data-testid="filter-count"]').text()).toBe('1 of 5')
+    expect(wrapper.find('[data-slice="SwipeOnDog"]').exists()).toBe(true)
+    expect(wrapper.find('[data-slice="Enroll"]').exists()).toBe(false)
+    // A chapterless slice is not in any chapter, so a chapter filter excludes it.
+    expect(wrapper.find('[data-slice="Loose"]').exists()).toBe(false)
+    expect(chips[1].attributes('aria-pressed')).toBe('true')
+  })
+
+  it('offers no chapter chips for a model with no chapters', () => {
+    expect(mountView().findAll('[data-chapter]')).toHaveLength(0)
   })
 
   it('searches by slice name', async () => {

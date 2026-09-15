@@ -39,6 +39,9 @@ public class FeatureDefinition
     /// <summary>The domain this feature declares (<c>@domain:&lt;name&gt;</c>), or null.</summary>
     public string? Domain => SliceTags.Domain(Tags);
 
+    /// <summary>The chapter this feature declares (<c>@chapter:&lt;name&gt;</c>, issue #298), or null.</summary>
+    public string? Chapter => SliceTags.Chapter(Tags);
+
     /// <summary>The trigger named by a <c>Triggered by …</c> description line, or null.</summary>
     public string? TriggeredBy => SliceTags.TriggeredBy(Description);
 

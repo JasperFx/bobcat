@@ -11,7 +11,7 @@ namespace Bobcat.EventModel.Scaffolding.Tests;
 /// </summary>
 public class ScenarioTriggerTests
 {
-    private static string featureFor(string firstLabel, string secondLabel)
+    private static string featureFor(string firstLabel, string secondLabel, string? firstChapter = null, string? secondChapter = null)
     {
         var reading = CuratedModelReader.Read($$"""
             schema: 1
@@ -20,6 +20,7 @@ public class ScenarioTriggerTests
             slices:
               - name: ProposeAppointment
                 pattern: Command
+                {{(firstChapter is null ? "" : $"chapter: {firstChapter}")}}
                 trigger: { kind: Http, label: {{firstLabel}} }
                 command: ProposeAppointment
                 aggregates: [Appointment]
@@ -32,6 +33,7 @@ public class ScenarioTriggerTests
                       then: [{ event: AppointmentProposed }]
               - name: ConfirmAppointment
                 pattern: Command
+                {{(secondChapter is null ? "" : $"chapter: {secondChapter}")}}
                 trigger: { kind: Http, label: {{secondLabel}} }
                 command: ConfirmAppointment
                 aggregates: [Appointment]
@@ -60,6 +62,33 @@ public class ScenarioTriggerTests
 
         // No feature-level line: whichever label it carried would be wrong for the other slice.
         lines.ShouldNotContain(x => x.StartsWith("  Triggered by"));
+    }
+
+    // ---- issue #298: the chapter follows the trigger's rule -------------------------------------
+
+    [Fact]
+    public void slices_that_share_a_chapter_get_one_feature_level_tag()
+    {
+        var lines = linesOf(featureFor("Q", "Q", "Appointments", "Appointments"));
+
+        lines.Count(x => x == "@chapter:Appointments").ShouldBe(1);
+        lines.ShouldNotContain(x => x.Contains("@slice:") && x.Contains("@chapter:"));
+    }
+
+    [Fact]
+    public void slices_in_different_chapters_each_tag_their_own_scenarios()
+    {
+        var lines = linesOf(featureFor("Q", "Q", "Proposals", "Confirmations"));
+
+        lines.ShouldNotContain(x => x.StartsWith("@chapter:"));
+        lines.ShouldContain("  @slice:ProposeAppointment @chapter:Proposals");
+        lines.ShouldContain("  @slice:ConfirmAppointment @chapter:Confirmations");
+    }
+
+    [Fact]
+    public void a_model_with_no_chapters_writes_no_chapter_tag_at_all()
+    {
+        linesOf(featureFor("Q", "Q")).ShouldNotContain(x => x.Contains("@chapter:"));
     }
 
     [Fact]

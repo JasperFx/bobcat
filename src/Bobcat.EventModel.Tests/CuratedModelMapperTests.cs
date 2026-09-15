@@ -80,6 +80,39 @@ public class CuratedModelMapperTests
     }
 
     [Fact]
+    public void a_chapter_is_a_declared_role_carried_beside_the_domain()
+    {
+        // Issue #298: the board's chapter used to die at the descriptor boundary. It is a role of
+        // its own upstream (jasperfx#824), merged like Domain — per claim, first wins on a tie, a
+        // genuine disagreement a hotspot — and independent of the domain.
+        var file = parse(
+            """
+            schema: 1
+            model: CritterCrush
+            slices:
+              - name: SwipeOnDog
+                pattern: Command
+                domain: Discovery
+                chapter: The Swiper
+                command: SwipeOnDog
+              - name: MatchList
+                pattern: View
+                readModels: [MatchList]
+            """);
+
+        var descriptor = CuratedModelMapper.ToDescriptor(file);
+        var swipe = descriptor.Slices.Single(x => x.Name == "SwipeOnDog");
+        swipe.Chapter.ShouldBe("The Swiper");
+        swipe.Domain.ShouldBe("Discovery");
+        swipe.Claims(EventModelRole.Chapter).ShouldBeTrue();
+        descriptor.Slices.Single(x => x.Name == "MatchList").Chapter.ShouldBeNull();
+
+        var written = CuratedModelWriter.Write(file);
+        written.ShouldContain("chapter: The Swiper");
+        CuratedModelWriter.Write(parse(written)).ShouldBe(written);
+    }
+
+    [Fact]
     public void consumed_events_and_reads_from_round_trip_through_the_writer_byte_for_byte()
     {
         var once = CuratedModelWriter.Write(parse(ViewWithInputs));

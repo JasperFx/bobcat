@@ -27,6 +27,18 @@ public class SliceTagsTests
         SliceTags.Domain([]).ShouldBeNull();
     }
 
+    [Fact]
+    public void reads_the_chapter_from_its_tag_independently_of_the_domain()
+    {
+        // Issue #298: a chapter is a span of the timeline, a domain a partition of the system —
+        // both on the slice, neither implying the other.
+        var tags = new[] { "slice:WithdrawFunds", "domain:BankAccount", "chapter:Everyday banking" };
+
+        SliceTags.Chapter(tags).ShouldBe("Everyday banking");
+        SliceTags.Chapter(["slice:WithdrawFunds"]).ShouldBeNull();
+        ResilienceTags.ToTraits(tags)["Chapter"].ShouldBe("Everyday banking");
+    }
+
     [Theory]
     [InlineData("Triggered by the account holder", "the account holder")]
     [InlineData("Triggered by: a scheduled job", "a scheduled job")]

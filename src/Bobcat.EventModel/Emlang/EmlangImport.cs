@@ -115,7 +115,8 @@ public static class EmlangImport
         var name = PascalName(step.Label);
         if (byName.TryGetValue(name, out var existing))
         {
-            report.Add($"chapter '{chapter.Name}': command '{step.Label}' folded into existing slice '{name}'.");
+            report.Add($"chapter '{chapter.Name}': command '{step.Label}' folded into existing slice '{name}'."
+                       + keptChapter(existing, chapter));
             return existing;
         }
 
@@ -129,6 +130,7 @@ public static class EmlangImport
             Command = name,
             Pattern = isAutomation ? "Automation" : "Command",
             Domain = step.Props.GetValueOrDefault("module"),
+            Chapter = chapter.Name,
             Trigger = isAutomation
                 ? new CuratedTrigger { Kind = "MessageHandler", Label = triggeredBy }
                 : pendingScreen is null
@@ -165,6 +167,8 @@ public static class EmlangImport
             }
 
             hints(existing, readModel, step, description: null);
+            report.Add($"chapter '{chapter.Name}': view '{step.Label}' folded into existing slice '{readModel}'."
+                       + keptChapter(existing, chapter));
             reportConsumed(chapter, existing, report);
             return;
         }
@@ -174,6 +178,7 @@ public static class EmlangImport
             Name = readModel,
             Pattern = "View",
             Domain = step.Props.GetValueOrDefault("module"),
+            Chapter = chapter.Name,
             ReadModels = [readModel],
             ConsumedEvents = [.. consumed],
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
@@ -185,6 +190,17 @@ public static class EmlangImport
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
         reportConsumed(chapter, slice, report);
     }
+
+    /// <summary>
+    /// Issue #298: a slice folded from a second chapter keeps the FIRST chapter — the descriptor
+    /// carries one chapter per slice, and the first chapter to name the slice is where the board
+    /// introduces it. Said in the report rather than done silently, because a reader of the board
+    /// sees the slice in both chapters and the canvas will show it under one band.
+    /// </summary>
+    private static string keptChapter(CuratedSlice existing, EmlangChapter chapter)
+        => existing.Chapter is { } kept && !string.Equals(kept, chapter.Name, StringComparison.Ordinal)
+            ? $" Kept chapter '{kept}'; the descriptor carries one chapter per slice."
+            : string.Empty;
 
     private static void reportConsumed(EmlangChapter chapter, CuratedSlice slice, List<string> report)
     {

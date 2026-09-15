@@ -217,7 +217,7 @@ describe('EventModelPage — viewport in the URL (#296)', () => {
 
   it('ignores a hand-edited URL rather than landing on a canvas scrolled to NaN', async () => {
     seedStores()
-    const wrapper = await mountPage({ z: 'banana', focus: 'chapter:Nope' })
+    const wrapper = await mountPage({ z: 'banana', focus: 'lane:Nope' })
     await flushPromises()
 
     expect(wrapper.find('[data-testid="event-model-crumbs"]').exists()).toBe(false)

@@ -24,6 +24,13 @@ public static class SliceTags
     /// <summary>Tag prefix naming the domain/bounded context: <c>@domain:BankAccount</c>.</summary>
     public const string DomainPrefix = "domain:";
 
+    /// <summary>
+    /// Tag prefix naming the chapter — the span of the timeline this slice belongs to:
+    /// <c>@chapter:Onboarding</c> (issue #298). Independent of the domain: a bounded context has
+    /// many chapters, and a chapter is a stretch of the story rather than a partition of the system.
+    /// </summary>
+    public const string ChapterPrefix = "chapter:";
+
     /// <summary>Description-line prefix naming the trigger: <c>Triggered by the account holder</c>.</summary>
     public const string TriggeredByPrefix = "Triggered by";
 
@@ -32,6 +39,9 @@ public static class SliceTags
 
     /// <summary>The domain name from a <c>domain:&lt;name&gt;</c> tag, or null.</summary>
     public static string? Domain(IEnumerable<string> tags) => valueOf(tags, DomainPrefix);
+
+    /// <summary>The chapter name from a <c>chapter:&lt;name&gt;</c> tag, or null.</summary>
+    public static string? Chapter(IEnumerable<string> tags) => valueOf(tags, ChapterPrefix);
 
     /// <summary>
     /// The trigger from a feature description line starting <c>Triggered by</c> — the remainder of
