@@ -5,6 +5,7 @@ import {
   type EventModelEdge,
   type EventModelElement,
   type EventModelLane,
+  type EventModelLink,
   type EventModelSliceDescriptor,
   type TypeDescriptor
 } from './types'
@@ -136,9 +137,26 @@ export interface LaidOutEdge extends EventModelEdge {
   points: ReadonlyArray<{ x: number; y: number }>
 }
 
+/**
+ * A cross-slice link with the corridor route a viewer draws it as (issue #295).
+ *
+ * Routed here for the same reason an edge is: two viewers drawing one descriptor differently is
+ * what this package exists to prevent, and a route is a rendering claim. `points` is plot-space,
+ * always four entries (or two when the ends share an x), and the last is where the arrowhead goes.
+ */
+export interface LaidOutLink extends EventModelLink {
+  points: ReadonlyArray<{ x: number; y: number }>
+  /** Which horizontal lane-gap track this link runs along. Links sharing a source share a track. */
+  track: number
+  /** Plot-space y of that track — the horizontal run's own line. */
+  trackY: number
+}
+
 export interface EventModelGraph {
   nodes: LaidOutNode[]
   edges: LaidOutEdge[]
+  /** Cross-slice links, routed through the lane gaps. Empty unless the descriptor carries them. */
+  links: LaidOutLink[]
   lanes: LaidOutLane[]
   slices: LaidOutSlice[]
   width: number
@@ -394,6 +412,115 @@ export function streamRowPlan(
   return { rows, rowByElementId }
 }
 
+/**
+ * How far inside a lane gap the first corridor track sits, and how far apart tracks are.
+ *
+ * Both are small enough that several tracks fit in one `gapY`, and the router clamps rather than
+ * overflowing into a card row: a corridor that leaves its gap would cross the thing the whole
+ * design is built to avoid.
+ */
+export const TRACK_INSET = 10
+export const TRACK_SPACING = 7
+
+/**
+ * Route the cross-slice links through the lane gaps (issue #295, design §2).
+ *
+ * <b>Why a corridor at all.</b> The grid gives empty horizontal bands between card rows for free.
+ * A link that leaves its source vertically, runs horizontally inside one of those bands, and rises
+ * or drops into its target never crosses a card on the way — which a straight line between two
+ * cards 3,000px apart cannot promise.
+ *
+ * <b>Bundled by source, which is the single biggest clutter reduction.</b> Every link leaving one
+ * element shares one track, so four consumers of an event are four branches off one line rather
+ * than four lines. The trunk *is* the event stream leaving the fact, which is also how a reader
+ * already thinks about it.
+ *
+ * <b>Tracks are first-fit over x-intervals, left to right.</b> Two bundles whose horizontal runs
+ * overlap get different tracks and cannot overprint; two that do not overlap share one, so a wide
+ * model does not accumulate a track per link.
+ *
+ * ⚠️ <b>The honest limit.</b> A link between lanes that are not adjacent runs its corridor in the
+ * gap beside the SOURCE, so its far vertical leg passes the rows in between at the target's x. The
+ * corridor never crosses a card; that one leg may. Fixing it properly means routing through every
+ * intervening gap, which is a materially bigger router for a case that is rare on a real board.
+ */
+function routeLinks(
+  links: readonly EventModelLink[],
+  placed: Map<string, LaidOutNode>,
+  gapY: number
+): LaidOutLink[] {
+  // Group by source element: one trunk, N branches. Insertion order is the descriptor's, which is
+  // deterministic upstream, so the tracks a model gets are stable between runs.
+  const bundles = new Map<string, EventModelLink[]>();
+  for (const link of links) {
+    // A link whose ends are not both drawn is dropped rather than pointed at the origin — the same
+    // rule a dangling edge gets, and the case a hidden or collapsed slice produces constantly.
+    if (!placed.has(link.fromElementId) || !placed.has(link.toElementId)) continue;
+
+    const bundle = bundles.get(link.fromElementId);
+    if (bundle) bundle.push(link);
+    else bundles.set(link.fromElementId, [link]);
+  }
+
+  // Allocated x-intervals per gap, so first-fit can ask "does this bundle overlap anything already
+  // on that track". Keyed by the gap's top y, which identifies it uniquely.
+  const taken = new Map<number, { from: number; to: number }[][]>();
+  const routed: LaidOutLink[] = [];
+
+  for (const [fromId, bundle] of bundles) {
+    const source = placed.get(fromId)!;
+    const targets = bundle.map((link) => placed.get(link.toElementId)!);
+
+    // The corridor sits on the side of the source the targets are on. Ties and same-row targets
+    // use the gap below, which is the design's default.
+    const sourceMid = source.y + source.height / 2;
+    const below = targets.some((target) => target.y + target.height / 2 >= sourceMid);
+    const gapTop = below ? source.y + source.height : source.y - gapY;
+
+    const sourceX = source.x + source.width / 2;
+    const xs = [sourceX, ...targets.map((target) => target.x + target.width / 2)];
+    const span = { from: Math.min(...xs), to: Math.max(...xs) };
+
+    const lanesInGap = taken.get(gapTop) ?? [];
+    let track = lanesInGap.findIndex(
+      (occupants) => !occupants.some((other) => other.from <= span.to && span.from <= other.to)
+    );
+    if (track < 0) {
+      track = lanesInGap.length;
+      lanesInGap.push([]);
+    }
+    lanesInGap[track].push(span);
+    taken.set(gapTop, lanesInGap);
+
+    // Clamp inside the gap: a track that escaped it would run across a card row.
+    const offset = Math.min(TRACK_INSET + track * TRACK_SPACING, gapY - TRACK_INSET);
+    const trackY = below ? gapTop + offset : gapTop + gapY - offset;
+
+    for (let i = 0; i < bundle.length; i++) {
+      const link = bundle[i];
+      const target = targets[i];
+      const targetX = target.x + target.width / 2;
+      const start = { x: sourceX, y: below ? source.y + source.height : source.y };
+      const end = {
+        x: targetX,
+        y: target.y + target.height / 2 >= trackY ? target.y : target.y + target.height
+      };
+
+      routed.push({
+        ...link,
+        track,
+        trackY,
+        points:
+          sourceX === targetX
+            ? [start, end]
+            : [start, { x: sourceX, y: trackY }, { x: targetX, y: trackY }, end]
+      });
+    }
+  }
+
+  return routed;
+}
+
 export function layoutEventModel(
   descriptor: EventModelDescriptor | null | undefined,
   options: LayoutOptions = {}
@@ -438,6 +565,9 @@ export function layoutEventModel(
   const nodes: LaidOutNode[] = []
   const slices: LaidOutSlice[] = []
   const edges: LaidOutEdge[] = []
+  // Model-wide, unlike the per-slice map the edges use: a link is the one relationship that
+  // crosses slices, which is the whole reason it is computed upstream rather than here (#295).
+  const placedAcross = new Map<string, LaidOutNode>()
 
   let cursorX = 0
 
@@ -497,6 +627,7 @@ export function layoutEventModel(
         }
         nodes.push(node)
         placed.set(node.id, node)
+        placedAcross.set(node.id, node)
       })
     }
 
@@ -528,6 +659,7 @@ export function layoutEventModel(
   return {
     nodes,
     edges,
+    links: routeLinks(descriptor?.links ?? [], placedAcross, gapY),
     lanes,
     slices,
     width: Math.max(0, cursorX - sliceGap),

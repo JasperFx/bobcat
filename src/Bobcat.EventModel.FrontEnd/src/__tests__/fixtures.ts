@@ -303,3 +303,65 @@ export function twoAggregateModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * bobcat#295 — the three-slice model the link router is pinned against: one event with two
+ * consumers, which is the case bundling exists for.
+ *
+ * `OpenAccount` emits `AccountOpened`; `AccountBalance` folds it into a view and `SendWelcome`
+ * reacts to it. Both links leave the SAME element, so they share one trunk and one track.
+ */
+export function linkedThreeSliceModel(): EventModelDescriptor {
+  return {
+    name: 'Banking',
+    slices: [
+      {
+        name: 'OpenAccount',
+        domain: 'Accounts',
+        pattern: 'Command',
+        elements: [
+          { id: 'OpenAccount/Command/Bank.OpenAccount', kind: 'Command', lane: 'Command', label: 'OpenAccount', type: { name: 'OpenAccount', fullName: 'Bank.OpenAccount' } },
+          { id: 'OpenAccount/Event/Bank.AccountOpened', kind: 'Event', lane: 'EventStream', label: 'AccountOpened', type: { name: 'AccountOpened', fullName: 'Bank.AccountOpened' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'AccountBalance',
+        domain: 'Accounts',
+        pattern: 'View',
+        elements: [
+          { id: 'AccountBalance/Event/Bank.AccountOpened', kind: 'Event', lane: 'EventStream', label: 'AccountOpened', type: { name: 'AccountOpened', fullName: 'Bank.AccountOpened' } },
+          { id: 'AccountBalance/ReadModel/Bank.Balance', kind: 'ReadModel', lane: 'ReadModel', label: 'Balance', type: { name: 'Balance', fullName: 'Bank.Balance' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'SendWelcome',
+        domain: 'Onboarding',
+        pattern: 'Automation',
+        elements: [
+          { id: 'SendWelcome/Command/Bank.SendWelcome', kind: 'Command', lane: 'Command', label: 'SendWelcome', type: { name: 'SendWelcome', fullName: 'Bank.SendWelcome' } }
+        ],
+        edges: []
+      }
+    ],
+    links: [
+      {
+        fromSlice: 'OpenAccount',
+        fromElementId: 'OpenAccount/Event/Bank.AccountOpened',
+        toSlice: 'AccountBalance',
+        toElementId: 'AccountBalance/Event/Bank.AccountOpened',
+        kind: 'EventTriggers',
+        via: { name: 'AccountOpened', fullName: 'Bank.AccountOpened' }
+      },
+      {
+        fromSlice: 'OpenAccount',
+        fromElementId: 'OpenAccount/Event/Bank.AccountOpened',
+        toSlice: 'SendWelcome',
+        toElementId: 'SendWelcome/Command/Bank.SendWelcome',
+        kind: 'EventTriggers',
+        via: { name: 'AccountOpened', fullName: 'Bank.AccountOpened' }
+      }
+    ]
+  }
+}

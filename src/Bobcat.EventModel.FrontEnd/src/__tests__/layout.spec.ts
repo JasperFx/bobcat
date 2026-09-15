@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { COLLAPSED_WIDTH, layoutEventModel, streamRowPlan } from '../layout'
+import { COLLAPSED_WIDTH, TRACK_INSET, TRACK_SPACING, layoutEventModel, streamRowPlan } from '../layout'
 import { LANE_ORDER } from '../types'
-import { largeModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
+import { largeModel, linkedThreeSliceModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
 
 /** The withdrawal model with one label replaced — the #180 sizing cases in one place. */
 function longLabelModel(label: string) {
@@ -344,5 +344,146 @@ describe('stream rows at fleet size', () => {
     const events = graph.nodes.filter((n) => n.element.kind === 'Event')
     expect(events).toHaveLength(106)
     expect(new Set(events.map((n) => n.y))).toEqual(new Set([264, 384, 504, 624]))
+  })
+})
+
+/**
+ * bobcat#295 — the corridor router. Exact points, like every other coordinate here: a link is a
+ * rendering claim, and "identical in both viewers" has to cover where it runs.
+ */
+describe('cross-slice links', () => {
+  it('routes a link out of its source, along a gap track, and into its target', () => {
+    const graph = layoutEventModel(linkedThreeSliceModel())
+    const node = (id: string) => graph.nodes.find((n) => n.id === id)!
+
+    const link = graph.links.find((l) => l.toSlice === 'AccountBalance')!
+    const source = node('OpenAccount/Event/Bank.AccountOpened')
+    const target = node('AccountBalance/Event/Bank.AccountOpened')
+
+    // Four points: down out of the source, along the track, across, into the target.
+    expect(link.points).toHaveLength(4)
+    expect(link.points[0]).toEqual({ x: source.x + source.width / 2, y: source.y + source.height })
+    expect(link.points[1]!.y).toBe(link.trackY)
+    expect(link.points[2]!.y).toBe(link.trackY)
+    expect(link.points[3]).toEqual({ x: target.x + target.width / 2, y: target.y + target.height })
+  })
+
+  it('runs the corridor INSIDE the lane gap, never across a card row', () => {
+    // The property the whole design rests on: a link that left its gap would cross the cards the
+    // corridor exists to avoid.
+    const graph = layoutEventModel(linkedThreeSliceModel())
+    const source = graph.nodes.find((n) => n.id === 'OpenAccount/Event/Bank.AccountOpened')!
+    const gapTop = source.y + source.height
+
+    for (const link of graph.links) {
+      expect(link.trackY).toBeGreaterThanOrEqual(gapTop)
+      expect(link.trackY).toBeLessThanOrEqual(gapTop + 48) // gapY
+    }
+  })
+
+  it('bundles every link leaving one element onto one trunk and one track', () => {
+    // Four consumers of an event are four branches off one line, not four lines — the biggest
+    // clutter reduction in the design, and the thing a reader already believes about a stream.
+    const graph = layoutEventModel(linkedThreeSliceModel())
+
+    expect(graph.links).toHaveLength(2)
+    expect(new Set(graph.links.map((l) => l.track))).toEqual(new Set([0]))
+    expect(new Set(graph.links.map((l) => l.trackY)).size).toBe(1)
+    // One trunk: both leave the same point.
+    expect(graph.links[0]!.points[0]).toEqual(graph.links[1]!.points[0])
+  })
+
+  it('gives two bundles sharing a gap different tracks when their runs overlap', () => {
+    const model = linkedThreeSliceModel()
+    // A second source in the same row, routing DOWNWARD like the first so both land in the gap
+    // below the event row. Its span sits inside the first bundle's, so they cannot share a track.
+    model.links!.push({
+      fromSlice: 'AccountBalance',
+      fromElementId: 'AccountBalance/Event/Bank.AccountOpened',
+      toSlice: 'AccountBalance',
+      toElementId: 'AccountBalance/ReadModel/Bank.Balance',
+      kind: 'ReadModelRead'
+    })
+
+    const graph = layoutEventModel(model)
+    const bySource = new Map(graph.links.map((l) => [l.fromElementId, l]))
+    const first = bySource.get('OpenAccount/Event/Bank.AccountOpened')!
+    const second = bySource.get('AccountBalance/Event/Bank.AccountOpened')!
+
+    // Same gap — so the tracks have to differ, and by exactly one spacing.
+    expect(second.track).toBe(first.track + 1)
+    expect(second.trackY - first.trackY).toBe(TRACK_SPACING)
+  })
+
+  it('lets two bundles share one track when their runs do not overlap', () => {
+    // First-fit is what keeps a wide model from accumulating a track per link: two runs that
+    // cannot collide belong on the same line. Both bundles below are in the SAME gap — each drops
+    // from an event to a read model inside its own slice — so sharing is a real decision here
+    // rather than an artefact of them being in different gaps.
+    const model = linkedThreeSliceModel()
+    model.slices![0]!.elements!.push({
+      id: 'OpenAccount/ReadModel/Bank.AccountList',
+      kind: 'ReadModel',
+      lane: 'ReadModel',
+      label: 'AccountList'
+    })
+    model.links = [
+      {
+        fromSlice: 'OpenAccount',
+        fromElementId: 'OpenAccount/Event/Bank.AccountOpened',
+        toSlice: 'OpenAccount',
+        toElementId: 'OpenAccount/ReadModel/Bank.AccountList',
+        kind: 'ReadModelRead'
+      },
+      {
+        fromSlice: 'AccountBalance',
+        fromElementId: 'AccountBalance/Event/Bank.AccountOpened',
+        toSlice: 'AccountBalance',
+        toElementId: 'AccountBalance/ReadModel/Bank.Balance',
+        kind: 'ReadModelRead'
+      }
+    ]
+
+    const graph = layoutEventModel(model)
+    expect(graph.links).toHaveLength(2)
+
+    // One gap, one track, two bundles — and their horizontal runs really are disjoint.
+    expect(new Set(graph.links.map((l) => l.trackY)).size).toBe(1)
+    expect(graph.links.every((l) => l.track === 0)).toBe(true)
+
+    const spans = graph.links.map((l) => [
+      Math.min(...l.points.map((p) => p.x)),
+      Math.max(...l.points.map((p) => p.x))
+    ])
+    expect(spans[0]![1]).toBeLessThan(spans[1]![0])
+  })
+
+  it('drops a link whose end is hidden, leaving nothing dangling', () => {
+    const graph = layoutEventModel(linkedThreeSliceModel(), {
+      hiddenSlices: new Set(['SendWelcome'])
+    })
+
+    expect(graph.links).toHaveLength(1)
+    expect(graph.links[0]!.toSlice).toBe('AccountBalance')
+  })
+
+  it('drops a collapsed slice’s links too, since a collapsed slice draws no cards', () => {
+    const graph = layoutEventModel(linkedThreeSliceModel(), {
+      collapsedSlices: new Set(['AccountBalance'])
+    })
+
+    expect(graph.links.map((l) => l.toSlice)).toEqual(['SendWelcome'])
+  })
+
+  it('carries no links at all for a descriptor that has none', () => {
+    // Every producer below JasperFx.Events 2.69 — the field is absent, not empty.
+    expect(layoutEventModel(withdrawFundsModel()).links).toEqual([])
+  })
+
+  it('starts the first track a fixed inset into the gap', () => {
+    const graph = layoutEventModel(linkedThreeSliceModel())
+    const source = graph.nodes.find((n) => n.id === 'OpenAccount/Event/Bank.AccountOpened')!
+
+    expect(graph.links[0]!.trackY).toBe(source.y + source.height + TRACK_INSET)
   })
 })
