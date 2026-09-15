@@ -48,8 +48,8 @@ public class GrammarSpecTests
         // The vocabulary is entirely the shipped grammar, discovered from the referenced assembly.
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
-        // Eleven, not thirteen: the two @arrangement scenarios are inlined, never run (issue #259).
-        feature.Scenarios.Count.ShouldBe(11);
+        // Twelve, not fourteen: the two @arrangement scenarios are inlined, never run (issue #259).
+        feature.Scenarios.Count.ShouldBe(12);
 
         foreach (var scenario in feature.Scenarios)
         {
