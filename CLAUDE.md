@@ -268,9 +268,20 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   model. `samples/BankAccountES` is the worked example and its `EventModel.feature` pins the
   merge end to end.
 - **The generated source is `internal`, and that has a consequence:** the app host cannot see the
-  spec assembly's slices (the reference points the other way), so composing all three design-time
-  sources — chains + overlay + specs — inside one process only works in the spec runner's, where
-  `samples/BankAccountES/Tests/EventModelFixture.cs` does it. The host's own
+  spec assembly's slices (the reference points the other way), so composing all four design-time
+  sources — chains + store + overlay + specs — inside one process only works in the spec runner's,
+  where `samples/BankAccountES/Tests/EventModelFixture.cs` does it. **The store rung** (issue
+  #300, jasperfx#825): since JasperFx.Events 2.69 every Critter Stack store registers a
+  `ProjectionEventModelSource` from `AddMarten`/`AddFisher`/`AddPolecat` — one `View` slice per
+  registered projection, named after the **document type**, carrying `ProjectionTypes`,
+  `ReadModelTypes` and `ConsumedEvents` from the projection's real apply set. Slices merge by
+  name, so a spec-declared View slice folds into it only if `@slice:` names the document type
+  exactly; `AccountView.feature` + `EventModel.feature` in the sample pin "one slice, not two",
+  and the falsification (mis-tag it) shows as the `Specifications`/`Domain` roles going unclaimed
+  on the store's slice, not as a second slice appearing. A handler that starts a stream through
+  `Storage.StartStream` needs Wolverine's `[Emits(typeof(…))]` before any source knows what it
+  appends — the event is built in the body, so nothing on the signature says it (wolverine
+  GH-4386) — and without it the store's view has no `EventConsumed` link back to that slice. The host's own
   `event-model --url` export (and therefore `bobcat watch-event-model`) pushes a document
   *without* the spec-declared slices or their `Specifications` bindings. **The two halves meet on
   the console instead:** #268 made `/api/event-model` merge per source and #294 made the runner

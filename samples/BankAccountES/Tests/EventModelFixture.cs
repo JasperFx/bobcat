@@ -7,10 +7,11 @@ using JasperFx.Events.EventModeling;
 namespace BankAccountES.Tests;
 
 /// <summary>
-/// The Bobcat-side half of the four-source event-model vehicle (bobcat#172). Assembles one
-/// provenance-stamped <see cref="EventModelDescriptor"/> from the three design-time sources —
-/// the running host's Wolverine/HTTP chains (Derived), the C# overlay in Program.cs (Declared),
-/// and this assembly's generated <c>BobcatEventModelSource</c> (Declared) — exactly the way
+/// The Bobcat-side half of the multi-source event-model vehicle (bobcat#172). Assembles one
+/// provenance-stamped <see cref="EventModelDescriptor"/> from the four design-time sources —
+/// the running host's Wolverine/HTTP chains (Derived), the store's projection registry (Derived,
+/// jasperfx#825 / bobcat#300), the C# overlay in Program.cs (Declared), and this assembly's
+/// generated <c>BobcatEventModelSource</c> (Declared) — exactly the way
 /// <c>EventModelDiscovery</c> would, and lets Features/EventModel.feature assert that the merge
 /// attributes every role, keeps declarations where nothing outranks them, and surfaces the
 /// planted disagreement (FreezeAccount.cs) as a hotspot instead of swallowing it.
@@ -37,13 +38,16 @@ public class EventModelFixture : Fixture
            ?? throw new SpecAssertionException(
                $"No slice named '{name}'. Slices: {string.Join(", ", Model.Slices.Select(s => s.Name))}");
 
-    [When("the event model is assembled from the chains, the overlay and this assembly's specs")]
+    [When("the event model is assembled from the chains, the overlay, the store and this assembly's specs")]
     public async Task AssembleEventModel()
     {
         var host = Context!.GetResource<AlbaResource<Program>>();
 
         // What EventModelDiscovery.AssembleAsync(services) would do, plus this assembly's
         // generated source — which the host's container cannot see (see the class remarks).
+        // DiscoverAsync finds every IEventModelDefinitionSource the host registered: Wolverine's
+        // chains, the overlay, and — since JasperFx.Events 2.69 (jasperfx#825, bobcat#300) — the
+        // store's projection registry, which AddMarten / AddFisher register unasked.
         var discovered = (await EventModelDiscovery.DiscoverAsync(host.RootServices, Context.Cancellation)).ToList();
 
         // Provenance is a default interface member, so it is only reachable through the interface.
@@ -179,6 +183,57 @@ public class EventModelFixture : Fixture
         if (!names.Contains(readModel))
             throw new SpecAssertionException(
                 $"{slice} reads [{string.Join(", ", names)}], expected '{readModel}'.");
+    }
+
+    /// <summary>
+    /// bobcat#300. Slices merge by name, and the store-derived View slice is named after its
+    /// document type — the same name AccountView.feature declares. Two slices here means the
+    /// convention broke and the canvas shows two stickies for one projection.
+    /// </summary>
+    [Then("there is exactly one slice named {string}")]
+    public void ThenExactlyOneSliceNamed(string name)
+    {
+        var matches = Model.Slices.Where(s => s.Name == name).ToList();
+        if (matches.Count != 1)
+            throw new SpecAssertionException(
+                $"Expected exactly one slice named '{name}', found {matches.Count}. Slices: {string.Join(", ", Model.Slices.Select(s => s.Name))}");
+    }
+
+    [Then("the {string} slice has pattern {word}")]
+    public void ThenSliceHasPattern(string slice, string pattern)
+    {
+        var actual = SliceNamed(slice).Pattern;
+        if (actual != Enum.Parse<SlicePattern>(pattern))
+            throw new SpecAssertionException($"{slice}.Pattern is {actual?.ToString() ?? "null"}, expected {pattern}.");
+    }
+
+    /// <summary>
+    /// Identity, not provenance, for the same reason as the read-model step: a consumed-events
+    /// list could be present, attributed, and wrong. <c>{word}</c> rather than <c>{event}</c> so
+    /// the vehicle does not stamp a role on itself.
+    /// </summary>
+    [Then("the {string} slice consumes the {word} event")]
+    public void ThenSliceConsumesEvent(string slice, string @event)
+    {
+        var names = SliceNamed(slice).ConsumedEvents.Select(t => t.Name).ToList();
+        if (!names.Contains(@event))
+            throw new SpecAssertionException(
+                $"{slice} consumes [{string.Join(", ", names)}], expected '{@event}'.");
+    }
+
+    /// <summary>
+    /// The cross-slice join computed upstream on read (jasperfx#823): nobody declares a link, it
+    /// falls out of one slice's EmittedEvents meeting another's ConsumedEvents.
+    /// </summary>
+    [Then("there is an {word} link from the {string} slice to the {string} slice via {word}")]
+    public void ThenLinkExists(string kind, string from, string to, string via)
+    {
+        var parsedKind = Enum.Parse<EventModelLinkKind>(kind);
+        var links = Model.Links;
+        if (!links.Any(l => l.Kind == parsedKind && l.FromSlice == from && l.ToSlice == to && l.Via.Name == via))
+            throw new SpecAssertionException(
+                $"No {kind} link {from} → {to} via {via}. Links: " +
+                string.Join(" | ", links.Select(l => $"{l.Kind} {l.FromSlice} → {l.ToSlice} via {l.Via.Name}")));
     }
 
     [Then("the {string} slice binds the specification {string}")]
