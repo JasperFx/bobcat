@@ -124,8 +124,10 @@ public static class SliceScaffolder
 
     /// <summary>
     /// The events a View slice's projection folds, each with the Guid field a fan-out can route
-    /// it by. The slice's own <c>events:</c> when it declares them, otherwise the events of the
-    /// slices sharing its aggregate, otherwise its domain's, otherwise the model's.
+    /// it by. The slice's own <c>consumedEvents:</c> when it declares them (issue #297 — what a
+    /// view applies, which the emlang import now records and the curated file can say outright),
+    /// else its <c>events:</c>, otherwise the events of the slices sharing its aggregate,
+    /// otherwise its domain's, otherwise the model's.
     /// </summary>
     /// <remarks>
     /// A projection needs at least one, and not for style: Marten validates at registration that
@@ -135,7 +137,9 @@ public static class SliceScaffolder
     /// </remarks>
     public static IReadOnlyList<ViewSource> ViewSourcesFor(CuratedModelFile model, CuratedSlice slice)
     {
-        var events = slice.Events.Count > 0
+        var events = slice.ConsumedEvents.Count > 0
+            ? slice.ConsumedEvents
+            : slice.Events.Count > 0
             ? slice.Events
             : eventsOf(model, x => slice.Aggregates.Count > 0 && x.Aggregates.Intersect(slice.Aggregates).Any())
               ?? eventsOf(model, x => slice.Domain is not null && x.Domain == slice.Domain)

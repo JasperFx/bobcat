@@ -128,9 +128,10 @@ Gherkin, no new keyword.
 
 - **Expansion is before step matching**, so inlined steps bind, resolve captures (a misspelled
   event is still BOBCAT011) and stamp Event Modeling roles **exactly as if written longhand** —
-  which is why arranged `{event}`s stamp no role (the Given demotion) and an arrangement never has
-  a spec identity (it is not in `FeatureInfo.Scenarios`). The report shows the inlined steps, not
-  the name.
+  which is why arranged `{event}`s are never *emitted* events (the Given demotion; on a View slice
+  they are `ConsumedEvents`, issue #297 — see the slice-tags section) and an arrangement never
+  has a spec identity (it is not in `FeatureInfo.Scenarios`). The report shows the inlined steps,
+  not the name.
 - **Given only, referenced only from a Given**: an arrangement is history, so it can never supply
   a scenario's act or the `When` the Event Model reads as the slice's command. Composition (one
   arrangement referencing another) is allowed; cycles, duplicate names, a Scenario Outline, and a
@@ -309,6 +310,32 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   *computed upstream* from the typed roles on every read. Building the element graph in the
   generator would be a second opinion about the same slice, which is what "computed on read"
   exists to prevent.
+- **An arranged `{event}` is what a View slice consumes, and nothing on a Command slice (issue
+  #297, canvas design decision 3).** `Given AccountOpened occurred … Then the Account read model
+  contains` is the best evidence there is that the projection applies `AccountOpened`, and
+  *consumed* is a different claim from *emitted* — JasperFx 2.69's `ConsumedEvents` role, the
+  `EventConsumed` link, the State View arrow. The #259 demotion still stands for Command slices:
+  there the same Given is the aggregate's own stream, and stamping it would draw an arrow from
+  `OpenWallet` into every slice that merely starts from an open wallet. Mechanics: `roleOf` maps
+  a Given `{event}` to the internal `consumed` role, `SliceModel.ArrangedEvents` collects it, and
+  `emitSlice` writes `ConsumedEvents` only when `patternOf` is `View` — so the decision is per
+  *slice*, after every scenario has folded in (one acting scenario makes the whole slice Command).
+  Code-first mirrors it: `GivenEvents<T>(id, …)` argument types are consumed on a View spec.
+  **Not stamped: the `Event` column of `Given events for {aggregate}`** — a table cell is a
+  runtime lookup, not a capture, and resolving cells at compile time would give that step a
+  second, softer type-checking rule; write `Given {event} occurred` when the model should see it.
+  The curated file declares `consumedEvents:` / `readsFrom:`, the emlang import fills a `v:`'s
+  `consumedEvents` from the `e:` steps since the chapter start or the previous `v:` (and reports
+  a view with none), and `SliceScaffolder.ViewSourcesFor` prefers `consumedEvents:` over every
+  inference. `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
+  acting — so it is curated-only. Pinned by `EventModelDescriptorTests` (both halves, plus the
+  arrangement-inlined and code-first twins) and by `EventModel.feature` in the sample. **Type
+  lists merge by equality, not union**: a View slice whose scenarios between them arrange fewer
+  events than the store's projection applies is a `SourceDisagreement` hotspot — the same finding
+  `FreezeAccount.feature` plants on purpose for emitted events, and the right reading (the view is
+  under-specified). The sample's two `AccountView.feature` scenarios arrange all four of the
+  Account projection's events so the store rung and the spec rung agree; drop one and the sample
+  goes red.
 - **The command is the act — the last `{command}` on a `When`, not the first one named.** Specs
   routinely arrange by issuing earlier commands (`When OpenWallet is received` before the
   `When CreditWallet is received` the scenario is about), so first-wins mislabelled the slice.
@@ -1136,7 +1163,8 @@ discovers through its base).
   {event} occurred` (issue #259 — one event per step, type in the step text so a misspelling is
   BOBCAT011 at build; optional table of only that event's fields, one horizontal row *or* a
   vertical `| field | value |` table, orientation detected per step from the header; an arranged
-  `{event}` stamps **no** role — it is history, not an output of the slice) · `When
+  `{event}` is never an *emitted* event — on a Command slice it stamps no role, on a View slice it
+  is `ConsumedEvents`, issue #297) · `When
   {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
   table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
   is refused` · `Then the {readmodel} read model contains` + table · `Then {message} is sent`.

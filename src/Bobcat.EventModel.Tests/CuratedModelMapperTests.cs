@@ -38,6 +38,58 @@ public class CuratedModelMapperTests
                   then: [{ event: DogLiked }]
         """;
 
+    private const string ViewWithInputs =
+        """
+        schema: 1
+        model: CritterCrush
+        namespace: CritterCrush
+        slices:
+          - name: MatchList
+            pattern: View
+            domain: Discovery
+            readModels: [MatchList]
+            consumedEvents: [DogLiked, MutualMatchDetected]
+          - name: NotifyMatch
+            pattern: Automation
+            command: NotifyMatch
+            readsFrom: [MatchList]
+            messages: [MatchNotification]
+        """;
+
+    [Fact]
+    public void consumed_events_and_reads_from_are_declared_roles_of_their_own()
+    {
+        // Issue #297 / jasperfx#824: what a slice READS is a role, distinct from what it emits or
+        // produces. A View's inputs and an Automation's read-before-deciding both had nowhere to
+        // live in the curated file, so the State View and Automation-input arrows could not be
+        // declared before code existed.
+        var descriptor = CuratedModelMapper.ToDescriptor(parse(ViewWithInputs));
+
+        var view = descriptor.Slices.Single(x => x.Name == "MatchList");
+        view.ConsumedEvents.Select(t => t.Name).ShouldBe(["DogLiked", "MutualMatchDetected"]);
+        view.EmittedEvents.ShouldBeEmpty();
+        view.ReadModelTypes.Select(t => t.Name).ShouldBe(["MatchList"]);
+
+        var automation = descriptor.Slices.Single(x => x.Name == "NotifyMatch");
+        automation.ReadsFrom.Select(t => t.Name).ShouldBe(["MatchList"]);
+        automation.ReadModelTypes.ShouldBeEmpty();
+
+        // The pair is the cross-slice link upstream computes on read — nobody declares it.
+        descriptor.Links.ShouldContain(l => l.Kind == EventModelLinkKind.ReadModelRead
+                                            && l.FromSlice == "MatchList" && l.ToSlice == "NotifyMatch");
+    }
+
+    [Fact]
+    public void consumed_events_and_reads_from_round_trip_through_the_writer_byte_for_byte()
+    {
+        var once = CuratedModelWriter.Write(parse(ViewWithInputs));
+        once.ShouldContain("consumedEvents:");
+        once.ShouldContain("readsFrom:");
+
+        var twice = CuratedModelWriter.Write(parse(once));
+        twice.ShouldBe(once);
+    }
+
     [Fact]
     public void every_declared_role_is_stamped()
     {

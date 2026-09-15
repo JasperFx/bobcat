@@ -48,4 +48,15 @@ public class WalletAuditSpecification : Specification
         When("the credit lands", () => wallet.WhenCommand<Wallet>(new CreditWallet(id, 5m)));
         Then("it is emitted", () => wallet.ThenEvents(new WalletCredited(id, 5m)));
     }
+
+    // Issue #297, the code-first twin of WalletSummary.feature: no WhenCommand, so the slice is a
+    // View and the GivenEvents arguments are what it CONSUMES. Folds into the Gherkin-declared
+    // WalletSummary slice, so the union of both authoring styles' consumed events is asserted.
+    [Scenario(Tags = ["slice:WalletSummary"])]
+    public void a_code_first_summary_of_a_debited_wallet()
+    {
+        var wallet = Host<WalletFixture>();
+        Given("an opened, debited wallet", () => wallet.GivenEvents<Wallet>(id, new WalletOpened(id, "Fay"), new WalletDebited(id, 1m)));
+        Then("the summary folded both", () => wallet.ThenDocument<WalletSummary>(id, _ => { }));
+    }
 }

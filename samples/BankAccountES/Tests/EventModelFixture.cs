@@ -222,6 +222,22 @@ public class EventModelFixture : Fixture
     }
 
     /// <summary>
+    /// bobcat#297: what this assembly's specs say on their own, before the merge — the generated
+    /// source read directly. A View scenario's arranged events are its ConsumedEvents; the store
+    /// says the same thing from the projection's real apply set, and the merge is a union with no
+    /// disagreement, which the store-rung scenario asserts separately.
+    /// </summary>
+    [Then("this assembly's specs alone say the {string} slice consumes the {word} event")]
+    public void ThenSpecsAloneConsume(string slice, string @event)
+    {
+        var declared = BobcatEventModelSource.Describe().Slices.FirstOrDefault(s => s.Name == slice)
+            ?? throw new SpecAssertionException($"The specs declare no slice named '{slice}'.");
+        var names = declared.ConsumedEvents.Select(t => t.Name).ToList();
+        if (!names.Contains(@event))
+            throw new SpecAssertionException($"The specs say {slice} consumes [{string.Join(", ", names)}], expected '{@event}'.");
+    }
+
+    /// <summary>
     /// The cross-slice join computed upstream on read (jasperfx#823): nobody declares a link, it
     /// falls out of one slice's EmittedEvents meeting another's ConsumedEvents.
     /// </summary>

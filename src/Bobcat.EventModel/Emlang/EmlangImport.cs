@@ -58,6 +58,11 @@ public static class EmlangImport
         string? pendingScreen = null;
         CuratedSlice? current = null;
 
+        // Issue #297: the events a view folds are the `e:` steps since the chapter start or the
+        // last `v:`. The segmentation already used that run to decide a `v:` opens a View slice;
+        // now the run is recorded on the slice as ConsumedEvents rather than discarded.
+        var pendingViewInputs = new List<string>();
+
         foreach (var step in chapter.Steps)
         {
             switch (step.Kind)
@@ -73,6 +78,9 @@ public static class EmlangImport
                     break;
 
                 case EmlangElementKind.Event:
+                    var eventName = PascalName(step.Label);
+                    if (!pendingViewInputs.Contains(eventName)) pendingViewInputs.Add(eventName);
+
                     if (current is null)
                     {
                         report.Add($"⚠ chapter '{chapter.Name}': event '{step.Label}' precedes any command — not attached to a slice.");
@@ -83,7 +91,8 @@ public static class EmlangImport
                     break;
 
                 case EmlangElementKind.View:
-                    viewSlice(chapter, step, model, byName, report);
+                    viewSlice(chapter, step, pendingViewInputs, model, byName, report);
+                    pendingViewInputs = new List<string>();
                     current = null;
                     break;
 
@@ -143,14 +152,20 @@ public static class EmlangImport
         hints(slice, name, step, description: null);
     }
 
-    private static void viewSlice(EmlangChapter chapter, EmlangStep step, CuratedModelFile model,
-        Dictionary<string, CuratedSlice> byName, List<string> report)
+    private static void viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
+        CuratedModelFile model, Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         var readModel = PascalName(step.Label);
         if (byName.TryGetValue(readModel, out var existing))
         {
             if (!existing.ReadModels.Contains(readModel)) existing.ReadModels.Add(readModel);
+            foreach (var name in consumed.Where(x => !existing.ConsumedEvents.Contains(x)))
+            {
+                existing.ConsumedEvents.Add(name);
+            }
+
             hints(existing, readModel, step, description: null);
+            reportConsumed(chapter, existing, report);
             return;
         }
 
@@ -160,6 +175,7 @@ public static class EmlangImport
             Pattern = "View",
             Domain = step.Props.GetValueOrDefault("module"),
             ReadModels = [readModel],
+            ConsumedEvents = [.. consumed],
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
@@ -167,6 +183,18 @@ public static class EmlangImport
         model.Slices.Add(slice);
         byName[readModel] = slice;
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
+        reportConsumed(chapter, slice, report);
+    }
+
+    private static void reportConsumed(EmlangChapter chapter, CuratedSlice slice, List<string> report)
+    {
+        if (slice.ConsumedEvents.Count == 0)
+        {
+            report.Add($"⚠ chapter '{chapter.Name}': View slice '{slice.Name}' consumes no event — no `e:` precedes it since the chapter start or the last `v:`.");
+            return;
+        }
+
+        report.Add($"chapter '{chapter.Name}': View slice '{slice.Name}' consumes {slice.ConsumedEvents.Count} event(s): {string.Join(", ", slice.ConsumedEvents)}.");
     }
 
     /// <summary>Non-special props are field/sample hints for the scaffolding layer, never roles.</summary>

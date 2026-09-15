@@ -165,6 +165,22 @@ public class ViewSliceRegistrationTests
     }
 
     [Fact]
+    public void a_declared_consumed_events_list_is_the_projections_source_set_over_any_inference()
+    {
+        // Issue #297: `consumedEvents:` says outright what the view applies — the emlang import
+        // writes it and a curated file may declare it — so the aggregate/domain/model inference
+        // is only for a slice that says nothing.
+        var model = parse(ModelYaml);
+        var slice = model.Slices.Single(x => x.Name == "AppointmentsQueue");
+        slice.ConsumedEvents.Add("AppointmentConfirmed");
+
+        var sources = SliceScaffolder.ViewSourcesFor(model, slice);
+
+        sources.Select(x => x.Event).ShouldBe(["AppointmentConfirmed"]);
+        sources.Single().IdentityField.ShouldBe("AppointmentId");
+    }
+
+    [Fact]
     public void a_model_with_no_events_emits_no_projection_at_all()
     {
         // The one case where there is genuinely nothing to fold. A projection class here could

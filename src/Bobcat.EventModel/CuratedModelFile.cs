@@ -67,6 +67,20 @@ public sealed class CuratedSlice
 
     public List<string> ReadModels { get; set; } = [];
 
+    /// <summary>
+    /// The events this slice <em>applies</em> — a View slice's projection inputs (issue #297,
+    /// jasperfx#824). Distinct from <see cref="Events"/>, which the slice emits: a consumed event
+    /// is drawn where it is consumed and linked back to the slice that emitted it, never as an
+    /// output. The emlang import fills it from the <c>e:</c> steps preceding a <c>v:</c>.
+    /// </summary>
+    public List<string> ConsumedEvents { get; set; } = [];
+
+    /// <summary>
+    /// Read models this slice reads <em>before deciding</em> — the Automation pattern's input
+    /// (issue #297, jasperfx#824). <see cref="ReadModels"/> stays what the slice produces.
+    /// </summary>
+    public List<string> ReadsFrom { get; set; } = [];
+
     public List<CuratedExternalSystem> ExternalSystems { get; set; } = [];
 
     /// <summary>Prose hotspots — open questions without a specification behind them yet.</summary>

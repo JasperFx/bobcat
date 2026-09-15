@@ -147,3 +147,11 @@ public class DebitWalletHandler
 /// </summary>
 [FixtureTitle("Wallet")]
 public class WalletFixture : CritterStackFixture;
+
+/// <summary>
+/// The View slice's fixture (issue #297): <c>WalletSummary.feature</c> arranges history and
+/// asserts the read model with no act, so the generator derives <c>View</c> and stamps the
+/// arranged events as <c>ConsumedEvents</c>. Same base class, no steps of its own.
+/// </summary>
+[FixtureTitle("Wallet Summary")]
+public class WalletSummaryFixture : CritterStackFixture;
