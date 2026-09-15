@@ -4,10 +4,11 @@
 Open issues: **109, 257, 295, 297, 298, 300**. Continues
 [`2026-09-14-bobcat-event-model-wave.md`](2026-09-14-bobcat-event-model-wave.md) from the same day.
 
-⚠️ **Four merges sit above v0.19.0 and none of them is released on NuGet.** `src/Directory.Build.props`
-still says `0.19.0`, so #304, #305 and #308 are in `main` and in nobody's package. The npm half *is*
-released — see below — which makes this the one moment where the two halves of the repo are at
-different versions, and a reader could reasonably think #304 shipped because 0.10.0 did.
+**0.20.0 shipped** after this note was first written — tag `v0.20.0` at `e417df5`, run
+34915043649 green, all **14** packages verified restorable on the flat container within ~4 minutes
+(no wave lag). It carries more than the merges listed below: `v0.19.0` predates the whole of
+2026-09-14, so #294 and #296 are in it too. CritterWatch was deliberately **not** released in the
+same pass.
 
 ## What shipped
 
@@ -77,10 +78,22 @@ you have seen the check fail.
 
 ## Ready to pick up
 
-- **Cut a release.** Four merges above v0.19.0, none on NuGet.
-- **#295 / #297 / #298 / #300** — all four still wait on the aligned-set bump
-  (`bump-aligned-set-2.69.3`), which waits on a Marten release carrying marten#5411. Nothing about
-  that changed today.
+- **#295 / #297 / #298 / #300** — the event-modeling notation work, and the next session's
+  intended focus. All four are recorded as waiting on the aligned-set bump
+  (`bump-aligned-set-2.69.3`), which is recorded as waiting on a Marten release carrying
+  marten#5411.
+
+  ⚠️ **That second wait looks stale. Re-test before believing it.** The morning handoff says the
+  fix is "**Not in 9.36.0**, the newest release". Git says otherwise: `34bd13dcd` (#5411, 2026-09-13
+  13:52) is an ancestor of `baf1fc3f4` ("Release 9.36.0"), six commits back, and is contained in tag
+  `V9.35.0`. Marten 9.36.0 — the version the bump branch already pins — therefore **has** the fix.
+
+  What that does *not* settle is the symptom. `samples/BankAccountES` really did go 16/16 → 10/16
+  on the bump with `Expected exactly one assembled model, but got [BankAccount, BankAccountES]`, and
+  the same note records one already-corrected wrong mechanism for it. So the honest state is: the
+  cause was misattributed to an unreleased fix, the failure may still be real, and the cheap first
+  move is to re-run that sample on `bump-aligned-set-2.69.3` (Postgres 5433, database
+  `bank_account`) rather than to assume either answer.
 - **CritterStackSamples#19** (gap 9) — and it is not the one-scenario job #258's closing summary
   implied: `MyAppointmentsProjection` is a scaffold with nine `Apply` methods all throwing.
 - **#109** — unscheduled by decision, not by neglect.
