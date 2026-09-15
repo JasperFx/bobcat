@@ -83,12 +83,12 @@
 
   <ItemGroup>
     <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx" Version="6.35.0" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.35.0" />
-    <PackageVersion Include="WolverineFx.Marten" Version="6.35.0" />
-    <PackageVersion Include="WolverineFx.Fisher" Version="6.35.0" />
-    <PackageVersion Include="Marten" Version="9.33.0" />
-    <PackageVersion Include="JasperFx" Version="2.67.1" />
+    <PackageVersion Include="WolverineFx" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.38.0" />
+    <PackageVersion Include="Marten" Version="9.36.0" />
+    <PackageVersion Include="JasperFx" Version="2.69.3" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
       IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
@@ -100,12 +100,12 @@
       acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
       documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
-    <PackageVersion Include="JasperFx.Events" Version="2.67.1" />
+    <PackageVersion Include="JasperFx.Events" Version="2.69.3" />
     <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
          with the store-bundled copies dropped — see the dual-store note in the header. -->
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.67.1" />
-    <PackageVersion Include="Fisher" Version="1.3.0" />
-    <PackageVersion Include="Polecat" Version="5.25.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.69.3" />
+    <PackageVersion Include="Fisher" Version="1.10.0" />
+    <PackageVersion Include="Polecat" Version="5.29.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
@@ -117,11 +117,11 @@
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
       collapsed when the alignment caught up.
     -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.35.0" />
-    <PackageVersion Include="WolverineFx.SignalR" Version="6.35.0" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.38.0" />
     <!-- Test-only: the real broker issue #282's transport-isolation tests need. No Bobcat.* library
          references it — the reset seam is transport-agnostic; only the proof is RabbitMQ-shaped. -->
-    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.35.0" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.38.0" />
     <!-- MCP server for Bobcat.Console — same package + version CritterWatch's *.Mcp family uses. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
     <!--
