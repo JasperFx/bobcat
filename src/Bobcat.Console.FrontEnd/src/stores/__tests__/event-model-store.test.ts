@@ -51,6 +51,7 @@ function scenario(overrides: Partial<ScenarioState> & { uid: string }): Scenario
     retryReason: null,
     steps: [],
     totalSteps: null,
+    declaredSteps: [],
     touchedTypes: [],
     finishedAt: null,
     state: null,

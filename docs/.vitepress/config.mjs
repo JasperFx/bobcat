@@ -39,7 +39,8 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Parallel-Ready Suites', link: '/parallel-ready-suites' },
-          { text: 'Test-Run Viewer', link: '/monitor-design' }
+          { text: 'Test-Run Viewer', link: '/monitor-design' },
+          { text: 'Event Model Canvas', link: '/event-model-canvas-design' }
         ]
       },
       {

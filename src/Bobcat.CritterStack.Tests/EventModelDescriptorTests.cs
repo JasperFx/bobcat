@@ -142,6 +142,33 @@ public class EventModelDescriptorTests
     }
 
     [Fact]
+    public void an_http_act_settles_the_trigger_kind_and_its_route()
+    {
+        // Issue #258 gap 4. `is posted to` is HttpGrammars' own sentence, so a scenario that uses
+        // it IS reached over HTTP — known at compile time, which is the bar every other role on
+        // this descriptor is held to. WalletHttp.feature posts to "/credit" and the fixture
+        // composes the module with "/wallets", so the route the app serves is the two together.
+        var credit = slice("CreditWallet");
+        credit.TriggerKind.ShouldBe(JasperFx.Events.EventModeling.TriggerKind.Http);
+        credit.TriggerOrigin.ShouldNotBeNull();
+        credit.TriggerOrigin.HttpRoute.ShouldBe("/wallets/credit");
+        credit.TriggerOrigin.HttpMethod.ShouldBe("POST");
+        credit.TriggerOrigin.Label.ShouldBe("POST /wallets/credit");
+    }
+
+    [Fact]
+    public void a_slice_with_no_http_act_claims_no_trigger_kind_at_all()
+    {
+        // The other half of the same rule, and the reason MessageHandler is not derived:
+        // `When OpenWallet is received` dispatches an ordinary command as readily as it does a
+        // message a handler subscribes to, so a kind read off it would be a guess. Null leaves the
+        // slot for a source that knows — Wolverine's derived one does.
+        slice("OpenWallet").TriggerKind.ShouldBeNull();
+        slice("OpenWallet").TriggerOrigin.ShouldBeNull();
+        slice("DebitWallet").TriggerKind.ShouldBeNull();
+    }
+
+    [Fact]
     public void the_command_is_the_act_not_the_first_command_the_scenario_names()
     {
         // The CreditWallet scenarios arrange by issuing `When OpenWallet is received` first. The

@@ -5,7 +5,7 @@ Status, 2026-08-28:
 | Editor | Status | What it costs |
 |---|---|---|
 | **VS Code** | Works today, zero Bobcat code | Install the official Cucumber extension, commit three settings (`.vscode/settings.json` in this repo is the sample) |
-| **Rider** | **PR submitted upstream: [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92)** | The `docs/rider/0001-bobcat-attributes.patch` change, pushed as `jeremydmiller:bobcat-attributes`. Before submitting, the 2026.2 gap was closed: the full plugin **and** its test project compile clean with `dotnet build` against the real `JetBrains.Rider.SDK` 2026.2.0 (the `./gradlew :prepare` guard only wants `build/DotNetSdkPath.Generated.props`, satisfiable by hand — see `docs/rider/README.md`). Still not run in a `:runIde` sandbox (that and the net472 test suite are Windows/CI territory). If the PR stalls, the issue's plan is to fork as "Bobcat for Rider". Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
+| **Rider** | **A Bobcat plugin of our own, not scheduled** (bobcat#109, reframed 2026-09-14) | Nothing today. [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) — the `docs/rider/0001-bobcat-attributes.patch` change, pushed as `jeremydmiller:bobcat-attributes` — is open upstream and nothing waits on it: if it merges, Rider works for Bobcat users sooner. Before submitting it the 2026.2 gap was closed: the full plugin **and** its test project compile clean with `dotnet build` against the real `JetBrains.Rider.SDK` 2026.2.0 (the `./gradlew :prepare` guard only wants `build/DotNetSdkPath.Generated.props`, satisfiable by hand — see `docs/rider/README.md`), though it was never run in a `:runIde` sandbox. Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
 
 Decision of record from the issue still stands: no Reqnroll package dependency (there is no
 attributes-only package) and no namespace-squatting of `Reqnroll.GivenAttribute`. Everything
@@ -404,12 +404,18 @@ settings need a `SettingsKey` class on the .NET side and an options page in the 
 and `VersionInt` must fold the setting into the cache key. Estimate **150–300 lines across
 .NET and Kotlin, plus UI**; two to three days including the plugin build loop.
 
-Recommendation: **submit A** — it is written (`docs/rider/`), general enough ("admit any class
-that declares steps" helps every wrapper library, and the `Bobcat.*` names are four entries), and
-its PR body already offers B if the maintainers would rather not carry a third framework's names.
-Fork as "Bobcat for Rider" only if the PR stalls — per the issue's own plan. What remains before
-submitting is the 2026.2 build and a look in the sandbox; what remains after is `[TableGrammar]`
-and the quick fix, both follow-ons.
+A was submitted as [#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) and is still open.
+
+**The plan is no longer either of these options** (bobcat#109, reframed 2026-09-14): Bobcat will
+have **a Rider plugin of its own**, unscheduled, rather than a change admitted into somebody else's.
+Everything above stays as prior art — the attribute helper, the two step caches, the PSI types and
+what each one indexes are the same problems any plugin has to solve, and this is a reading of one
+working answer to them. What a plugin of our own buys that option A never could is
+`[TableGrammar]`, whose expression is class-level: Reqnroll.Rider reads method attributes only, so
+that is invisible to it by construction.
+
+Nothing is waiting on #92. If a maintainer merges it, Rider works for Bobcat users sooner and the
+issue gets *less* urgent, not more.
 
 ## How this was verified
 

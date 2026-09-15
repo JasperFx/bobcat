@@ -5,6 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive. A
+         ProjectReference analyzer brings the generator but not its props, so in-repo the one
+         project that exercises [BobcatStep] at runtime has to say it itself (issue #304). -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
   <ItemGroup>

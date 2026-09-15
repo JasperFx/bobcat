@@ -6,11 +6,15 @@
  * colours slices from a run's evidence (issue #107), and drills down from a clicked slice to
  * its bound scenarios with their step results.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   EventModelView,
+  viewportFromQuery,
+  viewportToQuery,
   type EventModelElement,
-  type EventModelSliceDescriptor
+  type EventModelSliceDescriptor,
+  type ViewportState
 } from '@jasperfx/event-model-vue'
 import '@jasperfx/event-model-vue/style.css'
 import { outcomesFor, undeclaredTouches, useEventModelStore } from '@/stores/event-model-store'
@@ -79,6 +83,74 @@ function verdictType(scenario: ScenarioState | undefined): 'success' | 'danger' 
 function verdictLabel(scenario: ScenarioState | undefined): string {
   return scenario?.outcome ?? 'not run'
 }
+
+// ---------------------------------------------------------------- viewport in the URL (#296)
+//
+// The renderer reports where the reader is; the PAGE decides that "where" belongs in the route
+// query. That split is deliberate — a host embedding the canvas in a dashboard tile wants none of
+// this, and a URL is the console's own idea of persistence — but the *encoding* comes from the
+// package (`viewportToQuery`/`viewportFromQuery`) so a Bobcat link and a CritterWatch link to
+// "CreditWallet, focused" mean the same thing.
+//
+// The payoff is the one the issue names: a link to a part of a 106-slice model can be pasted into
+// a PR, and the reader lands on the same view rather than on the far left of a 10,000px canvas.
+
+const route = useRoute()
+const router = useRouter()
+
+/**
+ * Read once, on mount. Not a `watch` on the query: the canvas writes the query as the reader moves,
+ * and a watch that fed it back would fight the reader for the scroll position.
+ */
+const initialViewport = computed(() => viewportFromQuery(route?.query as Record<string, unknown>))
+
+/**
+ * Leading-edge, then at most one write per {@link URL_COOLDOWN_MS}.
+ *
+ * The canvas reports every scroll frame, honestly — it does not get to decide what a host finds
+ * expensive. A URL write per frame is expensive: `history.replaceState` is rate-limited by the
+ * browser (Safari drops calls past ~100 in 30 seconds), and a single drag across a 106-slice model
+ * is several hundred. Leading edge so a discrete action — focus, a zoom button, Esc — still lands
+ * in the URL immediately; trailing so a drag ends up at the place it finished.
+ */
+const URL_COOLDOWN_MS = 100
+let cooling: ReturnType<typeof setTimeout> | null = null
+let pending: ViewportState | null = null
+
+function writeViewport(viewport: ViewportState) {
+  const query = { ...route.query, ...viewportToQuery(viewport) }
+  // The package omits an absent focus/selection rather than writing empty keys, so they are cleared
+  // here instead — otherwise clearing a focus would leave its crumb in the URL for ever.
+  if (!viewport.focus) delete (query as Record<string, unknown>).focus
+  if (!viewport.selection) delete (query as Record<string, unknown>).sel
+
+  // `replace`, never `push`: a wheel zoom is not a navigation, and pushing one would make Back
+  // walk the reader through every notch of it.
+  void router.replace({ query }).catch(() => {
+    // A navigation cancelled by a newer one is the normal case while someone is dragging.
+  })
+}
+
+function onViewportChange(viewport: ViewportState) {
+  if (!router || !route) return
+
+  if (cooling) {
+    pending = viewport
+    return
+  }
+
+  writeViewport(viewport)
+  cooling = setTimeout(() => {
+    cooling = null
+    const last = pending
+    pending = null
+    if (last) onViewportChange(last)
+  }, URL_COOLDOWN_MS)
+}
+
+onBeforeUnmount(() => {
+  if (cooling) clearTimeout(cooling)
+})
 </script>
 
 <template>
@@ -127,8 +199,10 @@ function verdictLabel(scenario: ScenarioState | undefined): string {
       v-else-if="model.descriptor"
       :descriptor="model.descriptor"
       :slice-outcomes="sliceOutcomes"
+      :initial-viewport="initialViewport"
       @slice-click="openSlice"
       @element-click="openElement"
+      @viewport-change="onViewportChange"
     />
 
     <el-drawer

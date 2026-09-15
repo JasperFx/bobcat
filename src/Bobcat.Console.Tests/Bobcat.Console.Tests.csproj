@@ -29,6 +29,20 @@
   <ItemGroup>
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
     <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj" />
+    <!--
+      Issue #294. This project is the only one in the tree that can see BOTH ends of the sentence
+      "a spec assembly's Event Model half reaches the console and comes back in the merge": it
+      references Bobcat (so a real BobcatRunner can publish) and Bobcat.Console (so a real
+      EventModelStore can do the merging). Running the generator here gives it the third piece —
+      a real generated BobcatEventModelSource, from Features/Wallet.feature — so nothing in
+      SpecEventModelPublishingTests is a stand-in for the artefact under test.
+    -->
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Features\**\*.feature" />
   </ItemGroup>
 
 </Project>

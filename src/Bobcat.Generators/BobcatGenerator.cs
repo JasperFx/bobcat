@@ -167,7 +167,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     var fileName = CodeEmitter.SanitizeIdentifier(feature.Title) + "_Feature.g.cs";
                     spc.AddSource(fileName, source);
 
-                    if (canEmitEventModel) EventModelEmitter.Collect(feature, matched, slices);
+                    if (canEmitEventModel) EventModelEmitter.Collect(feature, matched, slices, fixture);
                 }
                 catch (Exception ex)
                 {

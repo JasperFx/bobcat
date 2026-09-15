@@ -64,7 +64,22 @@ public record ScenarioStarted(
     DateTimeOffset At,
     // How many steps this attempt will run — known up front because the plan is built before
     // the scenario is announced. Null from a publisher that predates it. Optional and additive.
-    int? TotalSteps = null) : MonitorEvent(RunId);
+    int? TotalSteps = null,
+    // What the scenario SAYS it does, in order, before a line of it has run (issue #304): a
+    // marker-comment test's narrative, which is known at compile time and reaches the viewer
+    // here rather than as steps, because publishing it as StepStarted would be claiming it ran.
+    // Null from a publisher that predates it, and from a scenario that declares nothing.
+    IReadOnlyList<DeclaredStepInfo>? DeclaredSteps = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// One step a scenario declared — a marker comment, on the wire (issue #304).
+/// </summary>
+/// <remarks>
+/// Deliberately carries no status, duration or id. A declared step is a claim about the test's
+/// narrative, not a report of anything that happened; what ran attaches to it through
+/// <see cref="StepStarted.DeclaredStepNumber"/>.
+/// </remarks>
+public record DeclaredStepInfo(string Keyword, string Text);
 
 public record ScenarioFinished(
     Guid RunId,
@@ -112,7 +127,12 @@ public record StepStarted(
     int? StepNumber = null,
     int? TotalSteps = null,
     // Milliseconds into the scenario's wall clock when this step started.
-    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
+    long? ScenarioElapsedMs = null,
+    // 1-based index into ScenarioStarted.DeclaredSteps of the marker comment this step ran
+    // inside (issue #304), decided by the generator from the call site's line — never inferred
+    // at runtime. Null when the call sits outside every declared region, which includes every
+    // test that declares nothing at all.
+    int? DeclaredStepNumber = null) : MonitorEvent(RunId);
 
 public record StepFinished(
     Guid RunId,

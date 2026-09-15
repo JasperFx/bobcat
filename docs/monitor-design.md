@@ -405,14 +405,32 @@ convention:
   target build the package before the SPA, and the workflow's path filter includes the package
   so a package change re-gates the SPA.
 - **`PUT /api/event-model` / `GET /api/event-model`** is a public wire contract like
-  `GET /api/runs`: one descriptor document, latest push wins, persisted as `event-model.json`
-  beside the run archives (`EventModelStore`). The producer is whoever has the descriptor —
-  Wolverine's `event-model` export file curl'd up, or a CI step posting what a spec assembly's
-  generated `IEventModelDefinitionSource` (#106) reported. The store round-trips the document
-  through the typed descriptor, so a bad push 400s at the push (not as a blank canvas later),
-  the stored copy is normalized to the shape the renderer's TS mirror types (camelCase members,
-  PascalCase enum values — enum reads are case-insensitive so camelCase producers normalize),
-  and the computed `elements`/`edges` are always present however sparse the pushed roles were.
+  `GET /api/runs`, persisted beside the run archives (`EventModelStore`). **A push names its
+  SOURCE and replaces only that source's contribution; `GET` serves the merge** (issue #268,
+  CritterWatch#1212) — `PUT /api/event-model/{source}` for one producer, the bare `PUT` for the
+  source `default`, which is what keeps an existing console working across the upgrade. One model
+  has two producers compiled into *different assemblies*: Wolverine's `event-model` export runs
+  against the host and carries slices with no `Specifications`, while a spec assembly's generated
+  `IEventModelDefinitionSource` (#106) carries the spec identities run evidence joins on and is
+  invisible to the host. Latest-wins erased one of them every time, which is why every slice on a
+  real console read "no specification bound".
+  The store round-trips every document through the typed descriptor, so a bad push 400s at the
+  push (not as a blank canvas later), the stored copy is normalized to the shape the renderer's
+  TS mirror types (camelCase members, PascalCase enum values — enum reads are case-insensitive so
+  camelCase producers normalize), and the computed `elements`/`edges` are always present however
+  sparse the pushed roles were.
+  - **The spec half's producer is the runner** (issue #294, `SpecEventModelPublisher`). When a
+    run attaches to a console, it PUTs its spec assemblies' descriptors under a source named for
+    the assembly (dots and anything else a file name will not take become `-`, because the source
+    becomes `event-model.{source}.json` and the store refuses the rest). Under the same invariant
+    as the event pump — probe first, bounded, never retried, never surfaced to the run.
+  - **Both halves must name the same model, and the runner checks.** `GET` merges only the
+    sources carrying the *current* name, so a spec half naming `BankAccountES.Tests` at a console
+    serving `BankAccountES` would hide the other half rather than join it. On a disagreement the
+    runner publishes nothing and prints the one-line fix: `[assembly: EventModelName("…")]`
+    (#172). The **host half stays a separate step** — `event-model --url`, wrapped by
+    `bobcat watch-event-model` — because a runner cannot export the host's chains without
+    referencing Wolverine.
   - **Consequence pinned in the csproj:** `Bobcat.Console` references `JasperFx.Events`
     directly, because at 2.54.0 the descriptor lives there (it moves to JasperFx only in
     2.55.0, jasperfx#693) and CPM pins only direct references — without it the transitive
@@ -449,6 +467,51 @@ convention:
   cards (#184), and a source disagreement that renders as a structured finding — role, kept claim,
   struck-through dropped claim — rather than as the clipped sentence that got read as a malformed
   events list (#178).
+- **Navigation, not magnification (issue #296, 0.9.0).** Zoom stops and a filter bar both landed,
+  and the measured 106-slice model was *still* ~10,000px wide at the 25% floor. Four features, all
+  in the shared package on the same transform wrapper, none of them touching `layoutEventModel`:
+  **focus** fits a slice's neighbourhood — the slice plus every slice one cross-slice `link` away —
+  and dims the rest, with a `Fleet › Reporting › Slice079` breadcrumb whose crumbs step out and an
+  Esc that restores the zoom and scroll the reader had; **level of detail** is a `data-lod`
+  attribute set from the scale that CSS switches on (`detail` ≥ 0.7, `compact` 0.4–0.7, `overview`
+  below), so 700 cards do not re-render when someone nudges the wheel and the two consoles cannot
+  disagree about what "less" means; a **minimap** of the same graph as bare rects; and continuous
+  cursor-anchored wheel zoom, with the nine stops kept as the button ladder.
+  - `links` is computed upstream (jasperfx#823) and absent from every descriptor this repo's pinned
+    JasperFx 2.67.1 can produce, so **the degraded path — neighbourhood = the slice alone — is the
+    one that runs today**, and it is the one the specs exercise. Nothing is derived client-side.
+  - The **page** owns where a viewport is kept and mirrors `viewport-change` into the route query
+    (`z`/`x`/`y`/`focus`/`sel`) with `replace`, so a link to part of a big model pastes into a PR
+    and Back does not walk every notch of a zoom. The *encoding* stays in the package
+    (`viewportToQuery`/`viewportFromQuery`) so a Bobcat link and a CritterWatch link agree.
+  - Three things only the real 106-slice canvas found, all fixed: a uniformly-scaled minimap of a
+    100:1 canvas measured **222 × 3.6px**, so its axes scale independently and it is not drawn at
+    all below ~2,500px of canvas; the viewport has no height of its own, so `min(vw/w, vh/h)`
+    reduced to the zoom the reader already had and focus "fitted" 46% to 48%; and the toolbar
+    Focus button is unreachable once a selection opens the modal drill-down drawer over it, which
+    is why each slice header carries its own ⌖.
+- **A stream is a row (issue #299, 0.10.0).** Two slices that write `Account` now put their events
+  on the same horizontal line inside the Event Stream lane, and that they share a stream is visible
+  with no arrow at all — which is the point, and is decision 2 of the canvas design: a shared
+  aggregate is not a cause→effect link, and fanning every event of an aggregate out to every slice
+  on it is noise rather than a statement. The lane becomes one row per aggregate in the model's
+  `aggregates` order, captioned in the gutter under the lane's own caption, with alternate rows
+  tinted so the bands still separate at `overview`, where the captions are too small to draw.
+  - **Three rules, and the first is why no existing canvas moved.** Fewer than two aggregates in
+    view means one flat row — a row is a comparison, and with one stream there is nothing to
+    compare. Rows are computed over the slices actually *drawn*, so filtering a 106-slice model
+    down to one aggregate collapses the lane back rather than leaving empty rows behind. An event
+    sits on the aggregate whose `appliedEvents` names it, falling back to its slice's first
+    aggregate, because a producer that cannot resolve an apply set statically emits none.
+  - **A published message is on no stream, and neither is an event of a slice that writes no
+    aggregate.** They share one trailing unlabelled row rather than getting a row each: the design
+    left the messages row "above/below", and two rows both captioned by their absence say less than
+    one row that means "in this lane, on no stream".
+  - It costs nothing measurable — a 106-slice model across four streams lays out in 0.60ms against
+    0.56ms flat, both sub-millisecond and in one synchronous pass, and `LayoutOptions.streamRows:
+    false` keeps the old lane exactly. The layout mirrors `AggregateDescriptor` properly to do it:
+    `aggregates` had been typed in this package as the slices' Aggregate *cards*, which is not what
+    the model document carries, and nothing had ever read the member to notice.
 - Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
   (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
   the normalization; the page and store folds are Vitest-covered; and the flow was verified in

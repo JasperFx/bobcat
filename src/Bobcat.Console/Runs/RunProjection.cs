@@ -155,6 +155,10 @@ public class RunProjection
                 // retryAttempts[] is rendered from.
                 scenario.Steps.Clear();
                 scenario.ErrorMessage = null;
+                // Assign, never append, for the same reason TouchedTypes does: Apply runs on live
+                // ingest and on archive replay. Null leaves what stands — an older publisher
+                // omitting the narrative is not a statement that there isn't one.
+                if (e.DeclaredSteps != null) scenario.DeclaredSteps = e.DeclaredSteps;
                 break;
             }
 
@@ -192,7 +196,10 @@ public class RunProjection
             {
                 var scenario = ensureScenario(e.Uid);
                 scenario.WorkerPublished = true;
-                scenario.Steps.Add(new StepProjection(e.StepId, e.Kind, e.Text));
+                scenario.Steps.Add(new StepProjection(e.StepId, e.Kind, e.Text)
+                {
+                    DeclaredStepNumber = e.DeclaredStepNumber
+                });
                 break;
             }
 
@@ -416,6 +423,20 @@ public class ScenarioProjection
     public List<StepProjection> Steps { get; } = new();
 
     /// <summary>
+    /// What the scenario declared it does, in order (issue #304) — the marker-comment narrative,
+    /// announced before the test ran a line. Empty for every other authoring style, and for a
+    /// publisher that predates the field.
+    /// </summary>
+    /// <remarks>
+    /// These are NOT steps and are deliberately not folded into <see cref="Steps"/>: a declared
+    /// step carries no verdict of its own and never gains one. What ran points back at it through
+    /// <see cref="StepProjection.DeclaredStepNumber"/>, so a reader sees the sentence the test
+    /// wrote with the work that happened underneath it — and a declared step with nothing under it
+    /// stays blank, which is the honest rendering of "nothing observed this".
+    /// </remarks>
+    public IReadOnlyList<DeclaredStepInfo> DeclaredSteps { get; set; } = [];
+
+    /// <summary>
     /// Full step history of every attempt that was retried away, in attempt order — the
     /// source for CTRF's retryAttempts[]. The current/final attempt lives in
     /// <see cref="Steps"/>, not here.
@@ -482,6 +503,12 @@ public class StepProjection
 
     /// <summary>Mirrors ResultStatus; "running" until StepFinished arrives.</summary>
     public string Status { get; set; } = "running";
+
+    /// <summary>
+    /// 1-based index into <see cref="ScenarioProjection.DeclaredSteps"/> of the marker comment
+    /// this step ran inside (issue #304), or null for a step that belongs to no declared region.
+    /// </summary>
+    public int? DeclaredStepNumber { get; set; }
 
     public long? DurationMs { get; set; }
     public string? ErrorMessage { get; set; }

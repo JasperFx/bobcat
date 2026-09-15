@@ -17,6 +17,7 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
     stepNumber: null,
     scenarioElapsedMs: null,
     progress: null,
+    declaredStepNumber: null,
     ...overrides,
   }
 }
@@ -36,6 +37,7 @@ function scenario(overrides: Partial<ScenarioState> = {}): ScenarioState {
     retryReason: null,
     steps: [],
     totalSteps: null,
+    declaredSteps: [],
     touchedTypes: [],
     finishedAt: null,
     state: null,

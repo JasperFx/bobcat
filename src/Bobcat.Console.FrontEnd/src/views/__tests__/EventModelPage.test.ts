@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import type { EventModelDescriptor } from '@jasperfx/event-model-vue'
 import EventModelPage from '../EventModelPage.vue'
 import { useEventModelStore } from '@/stores/event-model-store'
@@ -95,17 +96,35 @@ function seedStores() {
 // content inside the wrapper, so assertions never need DOM globals (the vitest tsconfig
 // deliberately clears "lib"). ElSelect's popper cannot survive that stubbing (it recursively
 // re-renders), and the run picker is not what these cases assert — so it is stubbed out.
-const mountPage = () =>
-  mount(EventModelPage, { global: { stubs: { teleport: true, ElSelect: true, ElOption: true } } })
+//
+// A real (memory) router, not a stub: #296 has the page mirror the canvas viewport into the route
+// query, and a stubbed `$route` could not tell us whether a link actually round-trips.
+let router: Router
+
+async function mountPage(query: Record<string, string> = {}) {
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/event-model', name: 'event-model', component: EventModelPage }],
+  })
+  await router.push({ path: '/event-model', query })
+  await router.isReady()
+
+  return mount(EventModelPage, {
+    global: {
+      plugins: [router],
+      stubs: { teleport: true, ElSelect: true, ElOption: true },
+    },
+  })
+}
 
 beforeEach(() => {
   setActivePinia(createPinia())
 })
 
 describe('EventModelPage', () => {
-  it('renders the descriptor through the shared renderer, coloured by run evidence', () => {
+  it('renders the descriptor through the shared renderer, coloured by run evidence', async () => {
     seedStores()
-    const wrapper = mountPage()
+    const wrapper = await mountPage()
 
     const slice = wrapper.find('[data-slice="CreditWallet"]')
     expect(slice.exists()).toBe(true)
@@ -115,7 +134,7 @@ describe('EventModelPage', () => {
 
   it('clicking the slice opens its bound scenarios with step results and drift', async () => {
     seedStores()
-    const wrapper = mountPage()
+    const wrapper = await mountPage()
 
     await wrapper.find('.em-slice-name').trigger('click')
 
@@ -128,9 +147,80 @@ describe('EventModelPage', () => {
     expect(wrapper.find('[data-testid="undeclared-touches"]').text()).toContain('1 touched type(s)')
   })
 
-  it('says so when nothing has been published', () => {
+  it('says so when nothing has been published', async () => {
     const model = useEventModelStore()
     model.status = 'absent'
-    expect(mountPage().find('[data-testid="event-model-absent"]').exists()).toBe(true)
+    expect((await mountPage()).find('[data-testid="event-model-absent"]').exists()).toBe(true)
+  })
+})
+
+/**
+ * Issue #296 — the viewport in the URL. The renderer reports where the reader is; this page is
+ * what decides that "where" belongs in the route query, so a link to a part of a 106-slice model
+ * can be pasted into a PR.
+ */
+// The page coalesces URL writes to one per 100ms (`history.replaceState` is rate-limited by
+// browsers and a drag reports every scroll frame), so a discrete action after the canvas's
+// mount-time report lands on the trailing edge rather than immediately.
+async function settleUrl() {
+  await new Promise((resolve) => setTimeout(resolve, 160))
+  await flushPromises()
+}
+
+describe('EventModelPage — viewport in the URL (#296)', () => {
+  it('mirrors zoom, offsets, focus and selection into the route query', async () => {
+    seedStores()
+    const wrapper = await mountPage()
+
+    // Select the slice, then focus it — the two controls the canvas exposes.
+    await wrapper.find('.em-slice-name').trigger('click')
+    await wrapper.find('[data-testid="focus-selection"]').trigger('click')
+    await settleUrl()
+
+    expect(router.currentRoute.value.query.focus).toBe('slice:CreditWallet')
+    expect(router.currentRoute.value.query.sel).toBe('slice:CreditWallet')
+    expect(router.currentRoute.value.query.z).toBeDefined()
+  })
+
+  it('lands on the same view when that URL is reloaded', async () => {
+    seedStores()
+    const wrapper = await mountPage({ z: '0.55', x: '400', y: '0', focus: 'slice:CreditWallet' })
+    await flushPromises()
+
+    // The focus survived the round trip and is on the canvas, not merely in the query bag.
+    expect(wrapper.find('[data-testid="event-model-crumbs"]').text()).toContain('CreditWallet')
+    expect(wrapper.find('[data-slice="CreditWallet"]').attributes('data-dimmed')).toBeUndefined()
+  })
+
+  it('clears a focus out of the URL rather than leaving its crumb there for ever', async () => {
+    seedStores()
+    const wrapper = await mountPage({ focus: 'slice:CreditWallet' })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="focus-clear"]').trigger('click')
+    await settleUrl()
+
+    expect(router.currentRoute.value.query.focus).toBeUndefined()
+  })
+
+  it('replaces rather than pushes, so Back does not walk every notch of a zoom', async () => {
+    seedStores()
+    const wrapper = await mountPage()
+    const push = vi.spyOn(router, 'push')
+
+    await wrapper.find('.em-zoom-out').trigger('click')
+    await settleUrl()
+
+    expect(router.currentRoute.value.query.z).toBe('0.85')
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('ignores a hand-edited URL rather than landing on a canvas scrolled to NaN', async () => {
+    seedStores()
+    const wrapper = await mountPage({ z: 'banana', focus: 'chapter:Nope' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="event-model-crumbs"]').exists()).toBe(false)
+    expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
   })
 })

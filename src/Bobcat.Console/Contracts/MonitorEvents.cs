@@ -88,7 +88,18 @@ public record ScenarioStarted(
     string Scenario,
     int Attempt,
     DateTimeOffset At,
-    int? TotalSteps = null) : MonitorEvent(RunId);
+    int? TotalSteps = null,
+    // What the scenario SAYS it does, in order (issue #304) — a marker-comment test's narrative,
+    // known at compile time. It arrives with the announcement rather than as steps because a
+    // declared step has not run, and StepStarted is the event that says something did. Null from
+    // an older publisher and from a scenario that declares nothing.
+    IReadOnlyList<DeclaredStepInfo>? DeclaredSteps = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// One declared step on the wire (issue #304): a marker comment's keyword and sentence, with no
+/// status, duration or id — what ran attaches to it through StepStarted.DeclaredStepNumber.
+/// </summary>
+public record DeclaredStepInfo(string Keyword, string Text);
 
 /// <summary>
 /// Outcome mirrors RunOutcome: CleanPass / PassOnRetry / Failed / Aborted. Uid is the spec
@@ -139,7 +150,11 @@ public record StepStarted(
     string Text,
     int? StepNumber = null,
     int? TotalSteps = null,
-    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
+    long? ScenarioElapsedMs = null,
+    // 1-based index into ScenarioStarted.DeclaredSteps of the marker comment this step ran
+    // inside (issue #304), decided by the generator from the call site's line. Null when the
+    // step belongs to no declared region.
+    int? DeclaredStepNumber = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Status mirrors ResultStatus (ok/success/failed/error/missing/invalid). ScenarioElapsedMs is

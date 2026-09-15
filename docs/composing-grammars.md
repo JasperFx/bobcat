@@ -238,3 +238,23 @@ HTTP dependencies. Any other way of reaching the application — a real socket, 
 The `{command}` capture still resolves at compile time and still stamps the Event Modeling slice
 — an HTTP-driven scenario and a bus-driven one tagged with the same `@slice:` fold into one
 slice descriptor, because a slice is a behaviour, not a transport.
+
+### The slice learns it is reached over HTTP (issue #258)
+
+A scenario that acts through `is posted to` stamps its slice with **`TriggerKind.Http`** and a
+`TriggerOrigin` carrying the route, the verb and a `POST /wallets/credit` label — so the canvas
+draws the HTTP glyph and the route on a slice nobody annotated. The route is the module's
+`routePrefix` plus the one in the step, because that is the route the application actually serves.
+
+This is the only trigger kind Gherkin settles on its own, and the reason is worth stating: `is
+posted to` is the HTTP grammar's own sentence, so a scenario using it *is* reached over HTTP —
+a compile-time fact, which is the bar every other role on the descriptor is held to. `When
+{command} is received` is not the equivalent for `MessageHandler`: it dispatches an ordinary
+command as readily as it does a message a handler subscribes to, so a kind read off it would be a
+guess. That slot stays null for a source that knows — Wolverine's derived one does.
+
+Two honest limits. A `routePrefix` resolved from the scenario rather than from an
+`[IncludeGrammars]` literal has no compile-time route, so the *kind* is still stamped and the
+route is left off — a route missing its prefix is a wrong route, which is worse on a canvas than
+no route. And the code-first `Specification` twin stamps no trigger kind: it records the roles a
+scenario resolved, not the grammar step that resolved them.

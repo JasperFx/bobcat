@@ -167,6 +167,16 @@ export interface EventModelSliceDescriptor {
   name: string
   domain?: string | null
   pattern?: SlicePattern | null
+  /**
+   * Aggregate-shaped types this slice writes through, in declaration order.
+   *
+   * The same types the producer projects into the slice's `Aggregate` elements, carried separately
+   * because a *row* is a statement about the model rather than about a card: stream rows (#299) ask
+   * which stream a slice is on, which is a question the elements answer only by accident of how
+   * they were built. A producer below JasperFx.Events 2.60 omits it, so the layout falls back to
+   * the `Aggregate` elements.
+   */
+  aggregateTypes?: TypeDescriptor[]
   triggerKind?: TriggerKind | null
   triggerLabel?: string | null
   triggerOrigin?: string | null
@@ -177,11 +187,76 @@ export interface EventModelSliceDescriptor {
   externalSystems?: ExternalSystemDescriptor[]
 }
 
+/**
+ * Which aggregate-marker attribute a type carries. String members on the wire, not ordinals.
+ */
+export type AggregateKind = 'WriteAggregate' | 'ReadAggregate' | 'ConsistentAggregate' | 'BoundaryModel'
+
+/**
+ * One aggregate-shaped type of the model, with the events it applies.
+ *
+ * ⚠️ This corrects a mirror that was wrong rather than merely incomplete: `aggregates` was typed
+ * here as `EventModelElement[]`, which is what a slice's Aggregate *cards* are, not what the model
+ * document carries. Nothing in this package had ever read the member, so the error was invisible
+ * until stream rows (#299) needed `appliedEvents` to decide which row an event belongs on.
+ */
+export interface AggregateDescriptor {
+  type: TypeDescriptor
+  kind?: AggregateKind
+  /**
+   * Event types the aggregate applies, in declaration order. Empty when the producer could not
+   * resolve the apply set statically — which is a real case, so no layout decision may *require*
+   * it (#299 falls back to the slice's first aggregate).
+   */
+  appliedEvents?: TypeDescriptor[]
+}
+
+/**
+ * Kind of a cross-slice link (jasperfx#823). One member per join rule, so a viewer can draw a
+ * consumed event differently from a triggering one without re-deriving why they differ.
+ *
+ * `EventConsumed` and `ReadModelRead` are reserved upstream — the roles they need do not exist
+ * yet (jasperfx#824) — so a producer emits nothing for them today. They are mirrored here anyway
+ * for the same reason upstream declares them: the wire enum should not move twice.
+ */
+export type EventModelLinkKind =
+  | 'EventTriggers'
+  | 'MessageTriggers'
+  | 'EventConsumed'
+  | 'ReadModelRead'
+
+/**
+ * A cause→effect relationship between two SLICES — the one relationship the descriptor's
+ * slice-local `elements`/`edges` cannot express (jasperfx#823).
+ *
+ * Computed upstream on read from the roles each slice already stamps, never accepted as input, so
+ * no viewer derives its own opinion about what connects to what.
+ *
+ * ⚠️ Optional, and absent from every descriptor a producer on JasperFx.Events < 2.69 can emit —
+ * which includes the version this repo pins today. Everything in this package that reads `links`
+ * therefore has to work without them; focus (#296) degrades to the selected slice alone.
+ *
+ * Drawing them is bobcat#295's job. This type is here because focus needs to know a slice's
+ * neighbours, which is a question about the model rather than about the picture.
+ */
+export interface EventModelLink {
+  fromSlice: string
+  fromElementId: string
+  toSlice: string
+  toElementId: string
+  kind: EventModelLinkKind
+  /** The type identity the join matched on. */
+  via?: TypeDescriptor | null
+}
+
 /** Wire descriptor for an entire Event Model. */
 export interface EventModelDescriptor {
   name: string
   slices?: EventModelSliceDescriptor[]
-  aggregates?: EventModelElement[]
+  /** The model's aggregate-shaped types, in first-appearance order. Slices point at these by type. */
+  aggregates?: AggregateDescriptor[]
+  /** Cross-slice links, computed upstream. Absent on any producer below JasperFx.Events 2.69. */
+  links?: EventModelLink[]
 }
 
 /** Lanes in canonical top-to-bottom order. Rendering order is part of the contract. */

@@ -105,4 +105,124 @@ public class StepInterceptorTests
 
         Should.Throw<InvalidOperationException>(() => outcome.GeneratedSource("BobcatStepInterceptors"));
     }
+
+    /// <summary>
+    /// Issue #304 — a decorated call reports WHICH marker comment it ran under, decided here at
+    /// compile time from the call site's line, because that is the only place the two facts (a
+    /// comment that the compiler erases, a call site an interceptor is generated for) are both
+    /// exact.
+    /// </summary>
+    private const string MarkedSource =
+        """
+        using System;
+        using System.Threading.Tasks;
+        using Bobcat;
+
+        namespace Specs;
+
+        // Declared here rather than referenced: the generator matches a test method on the
+        // attribute's NAME so it needs no runner reference, and neither should this fixture.
+        [AttributeUsage(AttributeTargets.Method)]
+        public sealed class FactAttribute : Attribute;
+
+        public abstract class ContextBase
+        {
+            [BobcatStep("the events are published", Keyword = "Given")]
+            internal Task Publish() => Task.CompletedTask;
+
+            [BobcatStep("the daemon starts", Keyword = "When")]
+            internal Task StartDaemon() => Task.CompletedTask;
+
+            [BobcatStep("the aggregates match", Keyword = "Then")]
+            internal Task CheckAggregates() => Task.CompletedTask;
+        }
+
+        [BobcatFeature("Async daemon")]
+        public class daemon_specs : ContextBase
+        {
+            [Fact]
+            public async Task the_projection_catches_up()
+            {
+                await Publish();
+
+                // Given the events are published
+                await Publish();
+
+                // When the projection daemon is running
+                await StartDaemon();
+
+                // Then every expected aggregate matches
+                await CheckAggregates();
+            }
+
+            private async Task a_helper_that_is_not_a_test()
+            {
+                // Given something that is not this test's narrative
+                await Publish();
+            }
+        }
+        """;
+
+    private static string[] declaredIndexArguments(string code)
+        => code.Split('\n')
+            .Where(line => line.Contains("ScenarioRecorder.Step("))
+            .Select(line => line.Trim().TrimEnd(';', ')').Split(',').Last().Trim())
+            .ToArray();
+
+    [Fact]
+    public void a_call_reports_the_marker_comment_it_runs_under()
+    {
+        // Four calls in source order: one above every comment, then one under each of the three.
+        // The first is -1 rather than 0 — a call before the narrative starts is under nothing, and
+        // rounding it into the first step would put work under a sentence that had not been
+        // written yet.
+        var arguments = declaredIndexArguments(GeneratorHarness.Run(MarkedSource).GeneratedSource("BobcatStepInterceptors"));
+
+        arguments.ShouldBe(["-1", "0", "1", "2", "-1"]);
+    }
+
+    [Fact]
+    public void a_call_from_a_method_that_is_not_a_test_is_under_no_narrative()
+    {
+        // The last entry above. A comment in a helper method looks exactly like a marker comment,
+        // but the steps in scope belong to whichever TEST is running, not to the helper — so the
+        // honest answer is "nothing", and the runtime bounds-checks the index anyway.
+        declaredIndexArguments(GeneratorHarness.Run(MarkedSource).GeneratedSource("BobcatStepInterceptors"))
+            .Last().ShouldBe("-1");
+    }
+
+    [Fact]
+    public void an_unmarked_test_class_still_emits_interceptors_with_no_attribution()
+    {
+        // The original Source has no [Fact] and no comments: every call reports -1, and the step
+        // still records itself. Attribution is additive to a feature that works without it.
+        declaredIndexArguments(Generated()).ShouldAllBe(x => x == "-1");
+    }
+
+    [Fact]
+    public void a_void_helper_is_invoked_rather_than_returned()
+    {
+        // `return receiver.M();` is CS0127 on a void helper — in the CONSUMER's build, in a file
+        // they cannot open. It survived to 0.19.0 because every check here read the generated TEXT
+        // and no project in the repository compiled an interceptor until #304's end-to-end test.
+        const string source =
+            """
+            using Bobcat;
+
+            namespace Specs;
+
+            public class steps
+            {
+                [BobcatStep("the cache is cleared")]
+                internal void ClearCache() { }
+
+                public void a_test() => ClearCache();
+            }
+            """;
+
+        var code = GeneratorHarness.Run(source).GeneratedSource("BobcatStepInterceptors");
+
+        code.ShouldContain("                receiver.ClearCache();");
+        code.ShouldNotContain("return receiver.ClearCache();");
+    }
 }

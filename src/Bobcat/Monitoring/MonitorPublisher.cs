@@ -91,6 +91,90 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
 
     public void Post(MonitorEvent @event) => _channel.Writer.TryWrite(@event);
 
+    /// <summary>Where this publisher is pointed — for a message that has to name the console.</summary>
+    internal string Url => _client.BaseAddress?.ToString().TrimEnd('/') ?? ResolveUrl();
+
+    /// <summary>
+    /// The name of the Event Model the console currently serves, or null when it serves none and
+    /// when anything at all goes wrong reading it. Issue #294 — <c>GET /api/event-model</c> merges
+    /// only the sources naming the current model, so a producer has to know that name before it
+    /// can tell "joining the other half" from "hiding it".
+    /// </summary>
+    /// <remarks>
+    /// Deliberately reads only the name out of the document rather than deserializing the whole
+    /// descriptor: the merge is a moving shape upstream, and a producer that cannot answer one
+    /// string because a slice grew a field is a producer that stops publishing for no reason.
+    /// </remarks>
+    internal async Task<string?> CurrentEventModelName(CancellationToken token)
+    {
+        try
+        {
+            using var response = await _client.GetAsync(SpecEventModelPublisher.Route, token);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var body = await response.Content.ReadAsStringAsync(token);
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+
+            // The console serializes camelCase; "Name" is here for a producer that pushed
+            // PascalCase before the store normalized it, which costs one dictionary probe.
+            foreach (var property in new[] { "name", "Name" })
+            {
+                if (document.RootElement.TryGetProperty(property, out var value)
+                    && value.ValueKind == JsonValueKind.String)
+                {
+                    return value.GetString();
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            // No model, no console, no answer — all the same thing to a caller that only wants
+            // to know whether it is about to collide with a name someone else published.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What became of one <see cref="PublishEventModel"/>. Three outcomes, not two, and the
+    /// distinction is load-bearing: a <b>dropped</b> push (the console went away, the ceiling
+    /// expired) is silent by the invariant at the top of this file, while a <b>refused</b> one —
+    /// the console answered, and said no — is the single case a human can fix. Collapsing the
+    /// two, which an earlier draft of this did by returning just a nullable reason, made a
+    /// dropped push read as a published one.
+    /// </summary>
+    internal readonly record struct EventModelPush(bool Published, string? Refusal);
+
+    /// <summary>
+    /// <c>PUT /api/event-model/{source}</c> — publish one producer's half of the model, replacing
+    /// whatever that source published before. Issue #294. Never throws.
+    /// </summary>
+    internal async Task<EventModelPush> PublishEventModel(string source, string json, CancellationToken token)
+    {
+        try
+        {
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await _client.PutAsync(
+                $"{SpecEventModelPublisher.Route}/{Uri.EscapeDataString(source)}", content, token);
+
+            if (response.IsSuccessStatusCode) return new EventModelPush(Published: true, Refusal: null);
+
+            var detail = await response.Content.ReadAsStringAsync(token);
+            return new EventModelPush(
+                Published: false,
+                Refusal: $"the console at {Url} answered {(int)response.StatusCode} — {detail}");
+        }
+        catch
+        {
+            // Same rule as the event pump: a monitor that will not take a push is never a run's
+            // problem. Nothing is retried and nothing surfaces.
+            return new EventModelPush(Published: false, Refusal: null);
+        }
+    }
+
     private async Task pump()
     {
         var batch = new List<MonitorEvent>();
