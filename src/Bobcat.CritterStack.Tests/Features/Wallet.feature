@@ -198,3 +198,23 @@ Feature: Wallet
     Then the OwnerWallets read model with id "Fay" contains
       | Wallets |
       | 2       |
+
+  # Issue #311: the same fold, arranged rather than acted. The scenario above opens two wallets
+  # with two acts, which was the only way a fan-out could be set up; this one ARRANGES history on
+  # two streams, which is the form the scaffolder emits from a `stream:` on a curated given. It
+  # works because `Given no events for …` re-points the stream and deletes nothing — a fact the
+  # generated Gherkin depends on, so it is pinned by a scenario that actually runs rather than by
+  # a reading of the fixture.
+  @slice:OwnerWallets
+  Scenario: Two wallets arranged on different streams fold into one owner's read model
+    Given no events for Wallet "88888888-8888-8888-8888-888888888888"
+    And WalletOpened occurred
+      | WalletId                             | Owner |
+      | 88888888-8888-8888-8888-888888888888 | Gus   |
+    And no events for Wallet "99999999-9999-9999-9999-999999999999"
+    And WalletOpened occurred
+      | WalletId                             | Owner |
+      | 99999999-9999-9999-9999-999999999999 | Gus   |
+    Then the OwnerWallets read model with id "Gus" contains
+      | Wallets |
+      | 2       |

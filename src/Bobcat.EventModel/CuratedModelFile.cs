@@ -146,6 +146,30 @@ public sealed class CuratedGiven
 
     /// <inheritdoc cref="CuratedWhen.With"/>
     public Dictionary<string, string> With { get; set; } = [];
+
+    /// <summary>
+    /// A name for the stream this event belongs to, when it is not the scenario's own (issue
+    /// #311). Omit for the ordinary case: every event arranged on the one stream the scenario
+    /// acts against.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A name, not an id.</b> Two givens carrying the same name land on the same stream, and
+    /// the scaffolder mints the id from the scenario and the name together — ids stay its
+    /// business, exactly as they are for the scenario's own stream.
+    /// </para>
+    /// <para>
+    /// <b>What it is for: a fan-out read model.</b> A multi-stream projection folds many streams
+    /// into one document keyed by something else — an owner, a tenant, a day — and the fold is
+    /// the thing worth specifying. Without this a curated scenario is single-stream by
+    /// construction, so the one behaviour that makes the projection multi-stream cannot be asked
+    /// for. Pair it with <see cref="CuratedThen.Id"/>, which is the assertion half (issue #236).
+    /// </para>
+    /// <para>
+    /// The act still runs against the scenario's own stream, and so does <c>{streamId}</c>.
+    /// </para>
+    /// </remarks>
+    public string? Stream { get; set; }
 }
 
 public sealed class CuratedWhen

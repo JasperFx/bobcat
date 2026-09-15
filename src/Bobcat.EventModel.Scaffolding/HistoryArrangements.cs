@@ -162,9 +162,17 @@ public static class HistoryArrangements
         }
     }
 
+    /// <summary>
+    /// The leading history a scenario can share. Two things end it, both because an arrangement is
+    /// INLINED into whatever scenario references it and therefore cannot carry anything that only
+    /// makes sense in one: a <c>{streamId}</c> value, which expands per scenario, and an event on a
+    /// named stream (issue #311), which would need the arrangement to re-point the stream and then
+    /// put it back.
+    /// </summary>
     private static IEnumerable<CuratedGiven> shareable(CuratedScenario scenario)
         => scenario.Given.TakeWhile(given =>
-            !given.With.Values.Any(x => x.Contains(SliceScaffolder.StreamIdToken, StringComparison.OrdinalIgnoreCase)));
+            given.Stream is null
+            && !given.With.Values.Any(x => x.Contains(SliceScaffolder.StreamIdToken, StringComparison.OrdinalIgnoreCase)));
 
     private static string keyOf(CuratedGiven given)
         => given.Event + "|" + string.Join(";", given.With.OrderBy(x => x.Key, StringComparer.Ordinal)

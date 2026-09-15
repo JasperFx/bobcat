@@ -650,13 +650,37 @@ public static class SliceScaffolder
                 var (shared, consumed) = history.For(scenario);
                 if (shared is not null) writer.WriteLine($"    And the arrangement \"{shared.Name}\"");
 
+                // Which stream the arrange steps are currently pointed at. Null is the scenario's
+                // own, established by the Given above; a name is another stream of the same
+                // aggregate (issue #311), which a fan-out read model needs because the fold across
+                // streams is the whole reason its projection is multi-stream.
+                string? current = null;
+
                 foreach (var given in scenario.Given.Skip(consumed))
                 {
+                    if (given.Stream != current)
+                    {
+                        current = given.Stream;
+                        // `Given no events for …` re-points the stream; it deletes nothing, so
+                        // coming back to a stream already arranged above loses none of it.
+                        writer.WriteLine(
+                            $"    And no events for {aggregate} \"{streamIdFor(scenario.Name, current)}\"");
+                    }
+
                     writer.WriteLine($"    And {given.Event} occurred");
                     if (given.With.Count > 0)
                     {
                         table(writer, "      ", given.With.Keys, expand(given.With.Values, streamId));
                     }
+                }
+
+                // The act runs against the scenario's OWN stream, and so does every {streamId}
+                // below. Leaving the arrange pointed at the last named stream would run it against
+                // the wrong one — silently, since both are streams of the same aggregate and the
+                // act would simply start a new one.
+                if (current is not null && scenario.When is not null)
+                {
+                    writer.WriteLine($"    And no events for {aggregate} \"{streamId}\"");
                 }
             }
 
@@ -758,11 +782,22 @@ public static class SliceScaffolder
     /// indistinguishable from a bug in this one. Derived from the scenario name so it is stable
     /// across regenerations and readable in a failure message.
     /// </summary>
-    private static string streamIdFor(string scenarioName)
+    private static string streamIdFor(string scenarioName) => streamIdFor(scenarioName, null);
+
+    /// <summary>
+    /// The id for a scenario's stream — its own when <paramref name="streamName"/> is null, or a
+    /// named second stream (issue #311). Derived from the two together, so a name means the same
+    /// stream everywhere in one scenario and a different one in the next.
+    /// </summary>
+    private static string streamIdFor(string scenarioName, string? streamName)
     {
         // A small stable hash — no dependency, and the digits stay readable in a failure message.
         uint hash = 2166136261;
-        foreach (var c in scenarioName) hash = (hash ^ c) * 16777619;
+        foreach (var c in streamName is null ? scenarioName : $"{scenarioName}/{streamName}")
+        {
+            hash = (hash ^ c) * 16777619;
+        }
+
         var block = (hash % 8999 + 1000).ToString();
         return $"{block}{block}-{block}-{block}-{block}-{block}{block}{block}";
     }
