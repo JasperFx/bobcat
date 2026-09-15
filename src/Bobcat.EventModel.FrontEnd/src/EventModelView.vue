@@ -168,6 +168,91 @@ const graph = computed(() =>
 )
 
 /**
+ * #295 — how much of the cross-slice link layer to draw: everything, only what touches the
+ * selection, or nothing.
+ *
+ * Three states rather than a checkbox because the honest answer depends on what the reader is
+ * doing. `all` is the board; `selected` is following one thread; `none` is reading the slices
+ * themselves, which is what the canvas was before links existed and is still a legitimate view of
+ * it.
+ */
+export type LinkMode = 'all' | 'selected' | 'none'
+
+const linkMode = ref<LinkMode>('all')
+
+/** The links to draw: every one, or only those touching the current selection. */
+const visibleLinks = computed(() => {
+  if (linkMode.value === 'none') return []
+  if (linkMode.value !== 'selected') return graph.value.links
+
+  const slice = sliceOfSelection(selection.value)
+  if (!slice) return []
+  return graph.value.links.filter((link) => link.fromSlice === slice || link.toSlice === slice)
+})
+
+/**
+ * Links the selection lights up. Computed from selection rather than from hover: selection changes
+ * are rare, so this can ride reactive state, where a hover over one of 400 cards could not.
+ */
+const litLinks = computed(() => {
+  const slice = sliceOfSelection(selection.value)
+  if (!slice) return new Set<string>()
+
+  const lit = new Set<string>()
+  for (const link of graph.value.links) {
+    if (link.fromSlice === slice || link.toSlice === slice) {
+      lit.add(`${link.fromElementId}=>${link.toElementId}`)
+    }
+  }
+  return lit
+})
+
+/**
+ * The origin chevron an element carries when it is the far end of a link (#295).
+ *
+ * Event Modeling's own convention is to REPEAT the sticky where it is consumed rather than draw a
+ * connector back to where it was produced — and the descriptor already repeats. So the chevron is
+ * the local half of the picture: this card says where its input came from, in a slice name, which
+ * stays readable at a zoom where a 3,000px arrow does not.
+ */
+function originOf(nodeId: string): { slice: string; elementId: string } | null {
+  for (const link of graph.value.links) {
+    if (link.toElementId === nodeId) return { slice: link.fromSlice, elementId: link.fromElementId }
+  }
+  return null
+}
+
+/** all → selected → none → all. One button rather than three, in a toolbar already dense. */
+function cycleLinkMode() {
+  linkMode.value = linkMode.value === 'all' ? 'selected' : linkMode.value === 'selected' ? 'none' : 'all'
+}
+
+/** Pan the origin of a link into view and flash it — what makes cause→effect navigable at 106 slices. */
+function jumpToOrigin(nodeId: string) {
+  const origin = originOf(nodeId)
+  const node = origin ? graph.value.nodes.find((n) => n.id === origin.elementId) : null
+  if (!node) return
+
+  selectElement(node)
+  scrollNodeIntoView(node)
+}
+
+function scrollNodeIntoView(node: { x: number; y: number; width: number; height: number }) {
+  const element = viewport.value
+  if (!element) return
+
+  const centreX = (node.x + node.width / 2) * zoom.value + CANVAS_PADDING + GUTTER_WIDTH + GUTTER_GAP
+  const centreY = (node.y + node.height / 2) * zoom.value + CANVAS_PADDING
+
+  // Assigned, not `scrollTo({ behavior: 'smooth' })`. Smooth scrolling is a no-op wherever the
+  // reader has asked for reduced motion — found by driving this in a browser, where the jump
+  // selected the origin and then did not move at all — and every other scroll in this component
+  // (zoom, pan, focus) already assigns directly for the same reason.
+  element.scrollLeft = Math.max(0, centreX - element.clientWidth / 2)
+  element.scrollTop = Math.max(0, centreY - element.clientHeight / 2)
+}
+
+/**
  * The stream rows to caption and tint (#299): every row of every lane the layout actually split.
  *
  * Flattened across lanes rather than nested under one, because only the `EventStream` lane splits
@@ -784,6 +869,19 @@ function outcomeFor(sliceName: string): string | null {
         >
           Focus
         </button>
+        <!-- #295 — links: all / selected / none. Three states because the honest answer depends on
+             what the reader is doing, and "none" is the canvas as it was before links existed,
+             which is still a legitimate way to read the slices themselves. -->
+        <button
+          type="button"
+          class="em-zoom em-links-mode"
+          :data-mode="linkMode"
+          :title="`Links: ${linkMode} — click to cycle`"
+          data-testid="link-mode"
+          @click="cycleLinkMode"
+        >
+          ⇢ {{ linkMode }}
+        </button>
         <button
           type="button"
           class="em-zoom em-zoom-out"
@@ -1077,6 +1175,26 @@ function outcomeFor(sliceName: string): string | null {
                 :points="pointsFor(edge)"
                 marker-end="url(#em-arrow)"
               />
+
+              <!-- #295 — the cross-slice links, in their own <g> so the toolbar can hide the lot
+                   without touching the intra-slice edges, which are a different kind of claim.
+                   Thinner and fainter than an edge at rest: at 106 slices these are the lines that
+                   would otherwise dominate a picture whose subject is the slices. -->
+              <g v-if="linkMode !== 'none'" class="em-links" :data-mode="linkMode">
+                <polyline
+                  v-for="link in visibleLinks"
+                  :key="`${link.fromElementId}=>${link.toElementId}`"
+                  class="em-link"
+                  :data-lit="litLinks.has(`${link.fromElementId}=>${link.toElementId}`) ? 'true' : undefined"
+                  :data-kind="link.kind"
+                  :data-from="link.fromElementId"
+                  :data-to="link.toElementId"
+                  :data-from-slice="link.fromSlice"
+                  :data-to-slice="link.toSlice"
+                  :points="pointsFor(link)"
+                  marker-end="url(#em-arrow)"
+                />
+              </g>
             </svg>
 
             <button
@@ -1104,6 +1222,19 @@ function outcomeFor(sliceName: string): string | null {
               }"
               @click="selectElement(node)"
             >
+              <!-- #295 — the origin chevron. A span rather than a nested <button>, which is
+                   invalid inside one: the card's own click selects, and this one's stopPropagation
+                   makes it jump instead. -->
+              <span
+                v-if="originOf(node.id)"
+                class="em-origin"
+                role="button"
+                tabindex="0"
+                :title="`From ${originOf(node.id)!.slice} — click to jump there`"
+                @click.stop="jumpToOrigin(node.id)"
+                @keydown.enter.stop.prevent="jumpToOrigin(node.id)"
+                >◂ {{ originOf(node.id)!.slice }}</span
+              >
               <span v-if="hotspotFor(node)" class="em-hotspot">
                 <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
                 <template v-if="claimsFor(hotspotFor(node)!)">
@@ -1513,6 +1644,57 @@ function outcomeFor(sliceName: string): string | null {
   stroke-width: 1.5;
   stroke-linejoin: round;
   opacity: 0.45;
+}
+
+/* #295 — cross-slice links. Thinner and fainter than an edge at rest: an edge is a statement
+   about ONE slice's internals and belongs with its cards, while these cross the whole board, and
+   at 106 slices they would otherwise become the picture. */
+.em-link {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linejoin: round;
+  opacity: 0.28;
+}
+/* One glyph per kind, no labels — the far end's own label already says what travelled. */
+.em-link[data-kind='EventConsumed'] {
+  stroke-dasharray: 1 3;
+}
+.em-link[data-kind='ReadModelRead'] {
+  stroke-dasharray: 6 3;
+}
+/* Lit by the selection: its links and their far ends come up, the rest stays where it was. */
+.em-link[data-lit] {
+  opacity: 0.9;
+  stroke-width: 1.75;
+}
+.em-links[data-mode='selected'] .em-link {
+  opacity: 0.9;
+}
+
+/* The origin chevron. Top-left of the card, small, and quiet until hovered — it is a navigation
+   affordance on a card whose subject is its own label. */
+.em-origin {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.1;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.em-origin:hover,
+.em-origin:focus-visible {
+  opacity: 1;
+  text-decoration: underline;
+}
+.em-viewport[data-lod='compact'] .em-origin,
+.em-viewport[data-lod='overview'] .em-origin {
+  display: none;
 }
 
 .em-card {

@@ -170,6 +170,52 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Cause and effect, drawn (0.11.0, bobcat#295)
+
+`EventModelDescriptor.links` has been computed upstream since JasperFx.Events 2.69 — one entry per
+cross-slice cause→effect relationship, joined from the roles every slice already stamps. The canvas
+laid them out and drew nothing. Now it draws them, and the *how* is most of the design.
+
+**Corridor routing.** The grid leaves an empty horizontal band between card rows. A link drops out
+of its source into the band, runs along a **track** inside it, and rises or drops into its target —
+so it never crosses a card on the way. Tracks are allocated per band, **first-fit over x-intervals,
+left to right**: two runs that overlap get different tracks and cannot overprint, two that cannot
+collide share one, so a wide model does not accumulate a track per link.
+
+**Bundled by source.** Every link leaving one element shares one trunk and one track. Four
+consumers of an event are four branches off one line, not four lines — the trunk *is* the stream
+leaving the fact, which is how a reader already thinks about it, and it is the single biggest
+clutter reduction in the feature.
+
+⚠️ **The honest limit.** A link between lanes that are not adjacent runs its corridor in the band
+beside the *source*, so its far vertical leg passes the rows in between at the target's x. The
+corridor never crosses a card; that one leg may. Routing through every intervening band is a much
+bigger router for a case that is rare on a real board.
+
+**The chevron is the other half, and at 106 slices it is the important one.** Event Modeling's own
+convention is to repeat a sticky where it is consumed rather than draw a connector back — and the
+descriptor already repeats. So an element that is the far end of a link carries `◂ OpenAccount` in
+its corner, naming where its input came from. Clicking it selects that origin and scrolls to it. A
+slice name stays readable at a zoom where a 3,000px arrow does not.
+
+**Faint at rest, lit by selection.** Links draw thinner and fainter than intra-slice edges — an
+edge is a statement about one slice's internals, these cross the whole board, and at fleet size
+they would otherwise become the picture. Selecting a card or slice lights its links; the toolbar's
+**⇢ all / selected / none** cycles how much of the layer is drawn at all, and `none` is the canvas
+exactly as it was before this shipped.
+
+**One glyph per kind, no labels:** `EventTriggers` and `MessageTriggers` solid, `EventConsumed`
+dotted, `ReadModelRead` dashed. The far end's own label already says what travelled.
+
+`layoutEventModel` gains a fourth output beside `edges`: `links: LaidOutLink[]`, each with its
+`points`, its `track` and the `trackY` it runs along — pure and synchronous like everything else
+here, and pinned to exact coordinates in `layout.spec.ts`, because where a link runs is as much a
+rendering claim as where a card sits.
+
+⚠️ **Not in this release:** hover-driven highlighting (selection-driven is in) and the off-screen
+`⇢ N` partner badge. Both are about a reader's pointer and viewport rather than about the
+descriptor, and both are additive.
+
 ## A stream is a row (0.10.0, bobcat#299)
 
 Two slices that write `Account` put their events on the same horizontal line inside the Event

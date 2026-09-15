@@ -490,6 +490,20 @@ convention:
     reduced to the zoom the reader already had and focus "fitted" 46% to 48%; and the toolbar
     Focus button is unreachable once a selection opens the modal drill-down drawer over it, which
     is why each slice header carries its own ⌖.
+- **Cause and effect is drawn (issue #295, 0.11.0).** `EventModelDescriptor.links` has been computed
+  upstream since JasperFx.Events 2.69 and the canvas drew nothing with it. Links now route through
+  the **lane gaps**: out of the source, along a track inside the band, into the target — so a link
+  never crosses a card. Tracks are first-fit over x-intervals per band, and every link leaving one
+  element shares one trunk, so four consumers of an event are four branches off one line.
+  - **The chevron is the half that scales.** An element at the far end of a link carries
+    `◂ OpenAccount` in its corner and clicking it jumps to the origin. Event Modeling repeats a
+    sticky where it is consumed rather than connecting back, the descriptor already repeats, and a
+    slice name stays readable at a zoom where a 3,000px arrow does not.
+  - Faint at rest, lit by selection, with a toolbar **⇢ all / selected / none** whose `none` is the
+    canvas exactly as it was before. One glyph per kind — solid, dotted, dashed — and no labels.
+  - ⚠️ Two honest limits, both stated in the package README: a link between non-adjacent lanes has
+    one vertical leg that may pass the rows between them, and hover-driven highlighting plus the
+    off-screen `⇢ N` badge are not in this release.
 - **A stream is a row (issue #299, 0.10.0).** Two slices that write `Account` now put their events
   on the same horizontal line inside the Event Stream lane, and that they share a stream is visible
   with no arrow at all — which is the point, and is decision 2 of the canvas design: a shared
