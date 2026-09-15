@@ -10,6 +10,7 @@ namespace Bobcat.Tests.Monitoring;
 /// <c>BOBCAT_MONITOR=0</c> so the spec hosts it collects never publish, and two of these tests
 /// quietly asserted a publisher that the switch had already refused to build.
 /// </summary>
+[Collection("monitor-kill-switch")]
 public class MonitorPublisherTests : IDisposable
 {
     private readonly string? _previousKillSwitch;

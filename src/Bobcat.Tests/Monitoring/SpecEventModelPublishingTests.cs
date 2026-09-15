@@ -17,6 +17,7 @@ namespace Bobcat.Tests.Monitoring;
 /// <see cref="MonitorPublisherTests"/> does: CI sets <c>BOBCAT_MONITOR=0</c>, and without
 /// clearing it these would assert against a publisher the switch refused to build.
 /// </remarks>
+[Collection("monitor-kill-switch")]
 public class SpecEventModelPublishingTests : IDisposable
 {
     private readonly string? _previousKillSwitch;
