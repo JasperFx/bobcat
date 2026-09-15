@@ -34,9 +34,10 @@ namespace Bobcat.Generators;
 /// bodies count — that is where <c>Host&lt;TFixture&gt;()</c>-borrowed steps live.
 /// </para>
 /// <para>
-/// Arrange-event arguments to <c>GivenEvents</c> are deliberately not stamped: the Gherkin
-/// path's <c>Given events for {aggregate}</c> resolves only the aggregate (its event rows are a
-/// runtime lookup), and the two authoring styles must produce the same shape from the same spec.
+/// Arrange-event arguments to <c>GivenEvents</c> are never stamped as <em>emitted</em>: they are
+/// collected as consumed (issue #297) and <see cref="EventModelEmitter"/> keeps them only on a
+/// View slice, exactly as it treats the Gherkin path's <c>Given {event} occurred</c> — the two
+/// authoring styles must produce the same shape from the same spec.
 /// </para>
 /// </remarks>
 internal static class CodeFirstSpecs
@@ -153,6 +154,18 @@ internal static class CodeFirstSpecs
             switch (target.Name)
             {
                 case "GivenEvents":
+                    addTypeArgument(info, "aggregate", target);
+                    // Issue #297: the arranged events are what a View spec's projection consumes.
+                    // Collected as "consumed" and decided per slice at emit time — a Command slice
+                    // drops them, exactly as the Gherkin path treats `Given {event} occurred`.
+                    for (var i = 1; i < invocation.ArgumentList.Arguments.Count; i++)
+                    {
+                        var arranged = argumentType(ctx, invocation, i, ct);
+                        if (arranged != null) info.Roles.Add(("consumed", arranged));
+                    }
+
+                    break;
+
                 case "GivenNoEvents":
                     addTypeArgument(info, "aggregate", target);
                     break;

@@ -48,6 +48,13 @@ internal static class EventModelEmitter
     private const string ReadModel = "readmodel";
     private const string Message = "message";
 
+    /// <summary>
+    /// Not a capture word: the role an arranged <c>{event}</c> plays (issue #297). It reaches the
+    /// descriptor as <c>ConsumedEvents</c> on a View slice and is dropped on a Command slice — see
+    /// <c>roleOf</c> and <c>emitSlice</c>.
+    /// </summary>
+    private const string Consumed = "consumed";
+
     /// <summary>One slice of the model, accumulated across every scenario that declares it.</summary>
     internal sealed class SliceModel
     {
@@ -81,6 +88,13 @@ internal static class EventModelEmitter
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
         public readonly List<string> Messages = new();
+
+        /// <summary>
+        /// Every <c>{event}</c> the slice's scenarios <em>arranged</em> (issue #297). Emitted as
+        /// <c>ConsumedEvents</c> only when the slice comes out a View — on a Command slice arranged
+        /// history is the aggregate's stream, and the list is discarded at emit time.
+        /// </summary>
+        public readonly List<string> ArrangedEvents = new();
         public readonly List<(string Identity, List<string> Types)> Specifications = new();
         public readonly List<string> PendingSpecifications = new();
     }
@@ -180,6 +194,7 @@ internal static class EventModelEmitter
                     case Aggregate: addDistinct(slice.Aggregates, type); break;
                     case ReadModel: addDistinct(slice.ReadModels, type); break;
                     case Message: addDistinct(slice.Messages, type); break;
+                    case Consumed: addDistinct(slice.ArrangedEvents, type); break;
                     // {type} is the general form and carries no Event Modeling role, so it reaches
                     // the specification's resolved types but never a slice slot.
                 }
@@ -230,6 +245,7 @@ internal static class EventModelEmitter
                     case Aggregate: addDistinct(slice.Aggregates, type); break;
                     case ReadModel: addDistinct(slice.ReadModels, type); break;
                     case Message: addDistinct(slice.Messages, type); break;
+                    case Consumed: addDistinct(slice.ArrangedEvents, type); break;
                 }
             }
 
@@ -373,8 +389,6 @@ internal static class EventModelEmitter
     /// joins on — but it describes no element of the slice, so the stamping switch has no case for
     /// it and it falls through.
     /// </summary>
-    private const string Unstamped = "(unstamped)";
-
     /// <summary>Every (role word, qualified type) a matched step resolved.</summary>
     private static IEnumerable<(string Role, string Type)> rolesOf(MatchedStep step)
     {
@@ -407,6 +421,16 @@ internal static class EventModelEmitter
     /// on the canvas, which is worse than a missing one.
     /// </para>
     /// <para>
+    /// <b>But in a View slice, arranged history is what the slice <em>consumes</em></b> (issue
+    /// #297, canvas design decision 3). <c>Given AccountOpened occurred … Then the AccountBalance
+    /// read model contains</c> is the best evidence there is that the projection applies
+    /// AccountOpened, and <em>consumed</em> is a different claim from <em>emitted</em> — upstream
+    /// gives it its own role, <c>ConsumedEvents</c>, which becomes the State View arrow. So the
+    /// arranged event is collected under <see cref="Consumed"/> here and the decision is made per
+    /// slice at emit time: a View slice emits the list as <c>ConsumedEvents</c>, a Command slice
+    /// drops it (there the history is the aggregate's stream, and the #259 demotion stands).
+    /// </para>
+    /// <para>
     /// The rule is not new; it is newly <em>expressible</em>. <c>Given events for {aggregate}</c>
     /// names its event types in a table cell, so they were never captures and never reached this
     /// method — the exemption came free from the shape. The per-event <c>Given {event} occurred</c>
@@ -420,7 +444,7 @@ internal static class EventModelEmitter
     /// </para>
     /// </remarks>
     private static string roleOf(string parameterName, MatchedStep step)
-        => parameterName == Event && isArrange(step) ? Unstamped : parameterName;
+        => parameterName == Event && isArrange(step) ? Consumed : parameterName;
 
     private static bool isArrange(MatchedStep step)
         => string.Equals(step.Step.ResolvedKeyword, "Given", StringComparison.OrdinalIgnoreCase);
@@ -531,6 +555,11 @@ internal static class EventModelEmitter
             }
         }
         sb.AppendLine($"            AggregateTypes = {typeDescriptorList(slice.Aggregates)},");
+        // Issue #297: only a View slice consumes what its scenarios arranged. On a Command slice
+        // the same Givens are the aggregate's own stream, and stamping them would draw an arrow
+        // from every slice that emits WalletOpened into every slice that merely starts from it.
+        if (pattern == "View" && slice.ArrangedEvents.Count > 0)
+            sb.AppendLine($"            ConsumedEvents = {typeDescriptorList(slice.ArrangedEvents)},");
         sb.AppendLine($"            PublishedMessages = {typeDescriptorList(slice.Messages)},");
         sb.AppendLine($"            Specifications = {specifications(slice)},");
         sb.AppendLine($"            Hotspots = {hotspots(slice)}");

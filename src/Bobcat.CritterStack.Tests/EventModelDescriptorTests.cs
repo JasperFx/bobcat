@@ -28,7 +28,7 @@ public class EventModelDescriptorTests
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
         model.Slices.Select(s => s.Name).ShouldBe(
             ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets", "OwnerWallets",
-             "Shipments", "Deliveries"],
+             "Shipments", "Deliveries", "WalletSummary"],
             ignoreOrder: true);
     }
 
@@ -239,7 +239,7 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(8);
+        descriptor.Slices.Count.ShouldBe(9);
     }
 
     [Fact]
@@ -279,6 +279,63 @@ public class EventModelDescriptorTests
         var perEvent = credit.Specifications
             .Single(s => s.Identity == "Wallet/A wallet with prior events keeps accumulating, arranged per event");
         perEvent.ResolvedTypes.Select(t => t.Name).ShouldContain("WalletOpened");
+    }
+
+    // ---- issue #297: what a slice READS ------------------------------------------------------
+
+    [Fact]
+    public void a_view_slice_consumes_the_events_its_scenarios_arranged()
+    {
+        // WalletSummary.feature has no When, so the slice is a View — and there, arranged history
+        // is the projection's input. `Given WalletOpened occurred … Then the WalletSummary read
+        // model contains` is the best evidence a spec can give that the summary applies
+        // WalletOpened; consumed is a different claim from emitted, and upstream gives it its own
+        // role so the canvas can draw the State View arrow from the slice that emits it.
+        var summary = slice("WalletSummary");
+
+        summary.Pattern.ShouldBe(SlicePattern.View);
+        summary.CommandType.ShouldBeNull();
+        summary.EmittedEvents.ShouldBeEmpty();
+        summary.ReadModelTypes.Select(t => t.Name).ShouldBe(["WalletSummary"]);
+        summary.ConsumedEvents.Select(t => t.Name).ShouldContain("WalletOpened");
+        summary.ConsumedEvents.Select(t => t.Name).ShouldContain("WalletCredited");
+    }
+
+    [Fact]
+    public void an_arrangement_inlined_into_a_view_slice_is_consumed_as_if_written_longhand()
+    {
+        // "The summary folds history arranged by name" references an @arrangement; expansion is
+        // before matching, so its WalletCredited is consumed exactly as the longhand scenario's.
+        var byName = slice("WalletSummary").Specifications
+            .Single(s => s.Identity == "Wallet Summary/The summary folds history arranged by name");
+        byName.ResolvedTypes.Select(t => t.Name).ShouldContain("WalletCredited");
+        slice("WalletSummary").ConsumedEvents.Select(t => t.Name).ShouldContain("WalletCredited");
+    }
+
+    [Fact]
+    public void a_code_first_view_specification_consumes_its_given_events()
+    {
+        // The twin: GivenEvents(id, new WalletOpened(…), new WalletDebited(…)) with no WhenCommand.
+        // The argument types are consumed — and because it folds into the same slice as the
+        // Gherkin feature, WalletDebited (which no .feature arranges on this slice) proves the
+        // code-first path contributed rather than riding on the Gherkin one.
+        slice("WalletSummary").ConsumedEvents.Select(t => t.Name).ShouldContain("WalletDebited");
+        slice("WalletSummary").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet Audit/a code first summary of a debited wallet");
+    }
+
+    [Fact]
+    public void a_command_slice_consumes_nothing_however_much_it_arranges()
+    {
+        // The other half of decision 3: the same `Given WalletOpened occurred` on CreditWallet is
+        // the aggregate's own stream, not something the slice consumes. Stamping it would draw an
+        // arrow from OpenWallet into every slice that merely starts from an open wallet.
+        slice("CreditWallet").ConsumedEvents.ShouldBeEmpty();
+        slice("OwnerWallets").ConsumedEvents.ShouldBeEmpty();
+
+        // …and the code-first AuditWallet arranges with GivenEvents(WalletOpened) but acts, so the
+        // same rule holds across authoring styles.
+        slice("AuditWallet").ConsumedEvents.ShouldBeEmpty();
     }
 
     [Fact]

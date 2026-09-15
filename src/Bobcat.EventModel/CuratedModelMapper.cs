@@ -50,6 +50,8 @@ public static class CuratedModelMapper
             Domain = slice.Domain,
             AggregateTypes = types(slice.Aggregates),
             PublishedMessages = types(slice.Messages),
+            ConsumedEvents = types(slice.ConsumedEvents),
+            ReadsFrom = types(slice.ReadsFrom),
             ExternalSystems = slice.ExternalSystems
                 .Select(x => new ExternalSystemDescriptor(x.Name, parse<ExternalSystemDirection>(x.Direction) ?? ExternalSystemDirection.Inbound))
                 .ToList(),

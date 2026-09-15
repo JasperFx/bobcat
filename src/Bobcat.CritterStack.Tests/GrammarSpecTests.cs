@@ -98,6 +98,35 @@ public class GrammarSpecTests
         }
     }
 
+    [PostgresFact]
+    public async Task the_view_slice_feature_runs_on_marten()
+    {
+        // Issue #297: WalletSummary.feature exists to declare a View slice, but a scenario that is
+        // never run is the spec-that-cannot-fail #273 was about — so it runs, both the longhand
+        // arrange and the one inlined from a named arrangement.
+        await cleanSchema();
+
+        await using var resource = hostResource();
+        await resource.Start();
+
+        var suite = new TestSuite();
+        suite.AddResource(resource);
+
+        var feature = Wallet_Summary_Feature.Define();
+        // Two, not three: the @arrangement scenario is inlined, never run (issue #259).
+        feature.Scenarios.Count.ShouldBe(2);
+
+        foreach (var scenario in feature.Scenarios)
+        {
+            var results = await run(feature, scenario, suite);
+            foreach (var step in results.Steps)
+            {
+                step.StepStatus.ShouldBeOneOf([ResultStatus.success, ResultStatus.ok],
+                    $"{scenario.Title} / {step.StepText}: {step.DescribeFailure()}");
+            }
+        }
+    }
+
     private static async Task<ExecutionResults> run(FeatureDefinition feature, ScenarioDefinition scenario, TestSuite suite)
     {
         var fixture = (Fixture)Activator.CreateInstance(feature.FixtureType)!;

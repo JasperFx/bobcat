@@ -80,6 +80,10 @@ Feature: Event Model
     And the "Account" slice consumes the FundsDeposited event
     And the "Account" slice consumes the FundsWithdrawn event
     And the "Account" slice consumes the AccountFrozen event
+    And this assembly's specs alone say the "Account" slice consumes the AccountOpened event
+    And this assembly's specs alone say the "Account" slice consumes the FundsDeposited event
+    And this assembly's specs alone say the "Account" slice consumes the FundsWithdrawn event
+    And this assembly's specs alone say the "Account" slice consumes the AccountFrozen event
     And the "Account" slice's Specifications role is claimed by Declared
     And the "Account" slice's Domain role is claimed by Declared
     And the "Account" slice binds the specification "Account View/The account read model folds the stream's history"

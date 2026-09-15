@@ -13,6 +13,12 @@ Feature: Account View
   # events the projection folds, which is why the generator stamps them as what the slice
   # CONSUMES (bobcat#297) rather than what it emits — a Command slice's arranged history stays
   # unstamped, because there it is the aggregate's stream.
+  #
+  # The store says the Account projection applies FOUR events, and lists merge by equality, not
+  # union: a spec-declared list that names fewer is a SourceDisagreement hotspot on the slice —
+  # the same finding FreezeAccount.feature plants on purpose for emitted events. So between them
+  # these two scenarios arrange all four. Drop one and EventModel.feature's "no source
+  # disagreement" goes red, which is the right reading: the view is under-specified.
 
   @slice:Account
   Scenario: The account read model folds the stream's history
@@ -26,3 +32,22 @@ Feature: Account View
     Then the Account read model contains
       | Balance | Currency | IsFrozen |
       | 250     | EUR      | false    |
+
+  @slice:Account
+  Scenario: The account read model folds a withdrawal and a freeze
+    Given no events for Account "88888888-8888-8888-8888-888888888888"
+    And AccountOpened occurred
+      | AccountId                            | ClientId                             | Currency |
+      | 88888888-8888-8888-8888-888888888888 | aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa | USD      |
+    And FundsDeposited occurred
+      | AccountId                            | Amount | NewBalance |
+      | 88888888-8888-8888-8888-888888888888 | 100    | 100        |
+    And FundsWithdrawn occurred
+      | AccountId                            | Amount | NewBalance |
+      | 88888888-8888-8888-8888-888888888888 | 40     | 60         |
+    And AccountFrozen occurred
+      | AccountId                            | Reason          |
+      | 88888888-8888-8888-8888-888888888888 | Suspected fraud |
+    Then the Account read model contains
+      | Balance | IsFrozen |
+      | 60      | true     |

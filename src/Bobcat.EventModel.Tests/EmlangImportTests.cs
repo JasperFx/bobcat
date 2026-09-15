@@ -180,6 +180,81 @@ public class EmlangImportTests
     }
 
     [Fact]
+    public void a_view_consumes_the_events_since_the_chapter_start_or_the_last_view()
+    {
+        // Issue #297: the `e:` steps before a `v:` are its inputs. The segmentation already used
+        // that run to decide a `v:` opens a View slice; now it is recorded instead of discarded.
+        const string chapter =
+            """
+            slices:
+              Feeds:
+                steps:
+                  - c: Member/Do A
+                  - e: Member/A Happened
+                  - e: Member/B Happened
+                  - v: Member/V List
+                  - c: Member/Do C
+                  - e: Member/C Happened
+                  - v: Member/W List
+            """;
+
+        var model = import(chapter, out var report);
+
+        model.Slices.Single(x => x.Name == "VList").ConsumedEvents.ShouldBe(["AHappened", "BHappened"]);
+        model.Slices.Single(x => x.Name == "WList").ConsumedEvents.ShouldBe(["CHappened"]);
+        report.ShouldContain("chapter 'Feeds': View slice 'VList' consumes 2 event(s): AHappened, BHappened.");
+        report.ShouldContain("chapter 'Feeds': View slice 'WList' consumes 1 event(s): CHappened.");
+    }
+
+    [Fact]
+    public void the_swipe_chapters_match_list_consumes_every_event_that_precedes_it()
+    {
+        var slice = import(SwipeChapter).Slices.Single(x => x.Name == "MatchList");
+
+        slice.ConsumedEvents.ShouldBe(["DogLiked", "DogPassed", "MutualMatchDetected"]);
+        // Consumed is not emitted: the view's own `events:` stays empty.
+        slice.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_view_with_no_preceding_event_is_reported_rather_than_left_silently_empty()
+    {
+        const string chapter =
+            """
+            slices:
+              Bare:
+                steps:
+                  - v: Member/Lonely List
+            """;
+
+        import(chapter, out var report);
+
+        report.ShouldContain(x => x.Contains("View slice 'LonelyList' consumes no event"));
+    }
+
+    [Fact]
+    public void a_view_folded_from_a_second_chapter_unions_its_consumed_events()
+    {
+        const string board =
+            """
+            slices:
+              One:
+                steps:
+                  - c: Member/Do A
+                  - e: Member/A Happened
+                  - v: Member/Shared List
+              Two:
+                steps:
+                  - c: Member/Do B
+                  - e: Member/B Happened
+                  - v: Member/Shared List
+            """;
+
+        var slice = import(board).Slices.Single(x => x.Name == "SharedList");
+        slice.ConsumedEvents.ShouldBe(["AHappened", "BHappened"]);
+    }
+
+    [Fact]
     public void the_boards_naming_rule_is_pascal_runs_of_alphanumerics()
     {
         EmlangImport.PascalName("RSVP Blocked: Event Full").ShouldBe("RSVPBlockedEventFull");
