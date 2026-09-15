@@ -170,6 +170,43 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Chapters: the band above the slices (0.12.0, bobcat#298)
+
+Every Event Modeling tool surveyed uses **chapters** as the answer to "zoom into a part":
+eventmodelers.ai draws "a wide blue arrow spanning several slices … useful once a model grows past
+a single screen's width and needs a table of contents"; Miro uses frames; emlang documents are per
+chapter. The descriptor now carries `chapter` on a slice (jasperfx#824) — Bobcat's emlang import
+keeps the board's chapter, a curated file declares `chapter:`, a `.feature` tags `@chapter:` — and
+the canvas draws it.
+
+**Bands.** `layoutEventModel` emits `graph.chapters`: one `LaidOutChapterBand` per **contiguous
+run** of drawn slices sharing a chapter, spanning exactly their columns, in a strip
+`CHAPTER_BAND_HEIGHT` (28px) tall above the first lane. The strip exists only when a drawn slice
+has a chapter — `graph.chapterBandHeight` is 0 otherwise and an unchaptered model is
+coordinate-identical to 0.11.0. A band is the wide arrow: `currentColor` at low alpha, clipped to an
+arrowhead on the right, the chapter's name once, and at `overview` the name grows to 24px because
+the bands are what a reader navigates a 106-slice model by when the cards are colour blocks.
+
+**The canvas never reorders.** Declaration order is the producer's statement about sequence, so a
+chapter whose slices are interleaved with another's draws one band per run, each with the same
+name, rather than being pulled together. Slices with no chapter sit under no band. Hidden slices
+are not drawn and so are in no band: filter a chapter's middle slice away and its neighbours become
+one run. Nothing orders chapters relative to each other — upstream carries the name and nothing
+else — so the order on the canvas is the order the producer declared its slices in.
+
+**Focus hierarchy.** A band is a button: click it and the whole chapter — every run of it — fits the
+viewport and the rest dims, the same way a slice's ⌖ does. The ladder is now model → **chapter** →
+slice → bound spec. The breadcrumb's middle rung is the slice's chapter when it has one and its
+domain otherwise, never both: the two are orthogonal (a bounded context has many chapters), and a
+trail showing both would be two axes pretending to be one hierarchy. `focus=chapter:<name>` is a
+legal URL focus, `slicesInChapter` is exported beside `slicesInDomain`, and `FocusTarget.kind`
+gains `'chapter'`.
+
+**Filter.** The filter bar gains one chip per chapter, in the model's order rather than
+alphabetical (a chapter is a sequence, not a set), beside the domain chips. `SliceFilter.chapters`
+narrows like `domains`, and a chapterless slice is excluded by a chapter filter for the same
+reason an undomained one is by a domain filter. `chaptersOf(descriptor)` lists them.
+
 ## Cause and effect, drawn (0.11.0, bobcat#295)
 
 `EventModelDescriptor.links` has been computed upstream since JasperFx.Events 2.69 — one entry per

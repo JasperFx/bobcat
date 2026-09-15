@@ -48,6 +48,7 @@ public static class CuratedModelMapper
             Pattern = parse<SlicePattern>(slice.Pattern),
             TriggerKind = parse<TriggerKind>(slice.Trigger?.Kind),
             Domain = slice.Domain,
+            Chapter = slice.Chapter,
             AggregateTypes = types(slice.Aggregates),
             PublishedMessages = types(slice.Messages),
             ConsumedEvents = types(slice.ConsumedEvents),

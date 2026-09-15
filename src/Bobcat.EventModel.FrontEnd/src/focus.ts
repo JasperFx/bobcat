@@ -13,14 +13,17 @@ import type { EventModelDescriptor } from './types'
  */
 
 /**
- * What the reader is looking at. A `slice` focus is the common case; a `domain` focus is the band
- * above it, and both step out to the whole model.
+ * What the reader is looking at. A `slice` focus is the common case; a `chapter` focus is the band
+ * above it (#298) and a `domain` focus the grouping a chapterless model still has; all step out to
+ * the whole model.
  *
- * Deliberately a hierarchy of two rather than of one: the focus ladder today is model → domain →
- * slice → bound spec (the drawer), and a chapter rung slots in above slice when #298 lands.
+ * The focus ladder is model → chapter → slice → bound spec (the drawer), with domain standing in
+ * for chapter on a slice that declares none — the two are orthogonal (a bounded context has many
+ * chapters), so a crumb trail never shows both: it shows the grouping the canvas actually draws as
+ * a band above the slice.
  */
 export interface FocusTarget {
-  kind: 'slice' | 'domain'
+  kind: 'slice' | 'domain' | 'chapter'
   name: string
 }
 
@@ -97,12 +100,28 @@ export function slicesInDomain(
   return names
 }
 
-/** The slice names a focus target resolves to — its neighbourhood for a slice, its band for a domain. */
+/** Every slice in a chapter (#298). A chapter nobody declares is an empty focus, never the whole model. */
+export function slicesInChapter(
+  descriptor: EventModelDescriptor | null | undefined,
+  chapter: string
+): Set<string> {
+  const names = new Set<string>()
+  for (const slice of descriptor?.slices ?? []) {
+    if (slice.chapter === chapter) names.add(slice.name)
+  }
+  return names
+}
+
+/**
+ * The slice names a focus target resolves to — its neighbourhood for a slice, its band for a
+ * chapter or a domain.
+ */
 export function focusedSliceNames(
   descriptor: EventModelDescriptor | null | undefined,
   target: FocusTarget | null | undefined
 ): Set<string> {
   if (!target) return new Set<string>()
+  if (target.kind === 'chapter') return slicesInChapter(descriptor, target.name)
   return target.kind === 'domain'
     ? slicesInDomain(descriptor, target.name)
     : neighbourhoodOf(descriptor, target.name)
@@ -229,12 +248,13 @@ export function fitToRect(
 }
 
 /**
- * The breadcrumb for a focus: `Banking › Accounts › WithdrawFunds`.
+ * The breadcrumb for a focus: `Banking › Onboarding › WithdrawFunds`.
  *
- * Each crumb is a step out — the model clears the focus, the domain focuses the band — so the way
- * back is the same control that says where you are. The domain rung is omitted when the slice
- * declares none rather than being filled with a placeholder; an invented "(no domain)" crumb would
- * be a step *into* a grouping the model never claimed.
+ * Each crumb is a step out — the model clears the focus, the middle rung focuses its band — so the
+ * way back is the same control that says where you are. The middle rung is the slice's **chapter**
+ * when it has one (#298: the grouping the canvas draws as a band above the slice), its domain
+ * otherwise, and nothing when it has neither: an invented "(no chapter)" crumb would be a step
+ * *into* a grouping the model never claimed.
  */
 export interface Crumb {
   label: string
@@ -248,13 +268,17 @@ export function breadcrumbFor(
   if (!target) return []
   const crumbs: Crumb[] = [{ label: descriptor?.name ?? 'Model', target: null }]
 
-  if (target.kind === 'domain') {
+  if (target.kind === 'domain' || target.kind === 'chapter') {
     crumbs.push({ label: target.name, target })
     return crumbs
   }
 
   const slice = (descriptor?.slices ?? []).find((s) => s.name === target.name)
-  if (slice?.domain) crumbs.push({ label: slice.domain, target: { kind: 'domain', name: slice.domain } })
+  if (slice?.chapter) {
+    crumbs.push({ label: slice.chapter, target: { kind: 'chapter', name: slice.chapter } })
+  } else if (slice?.domain) {
+    crumbs.push({ label: slice.domain, target: { kind: 'domain', name: slice.domain } })
+  }
   crumbs.push({ label: target.name, target })
   return crumbs
 }
@@ -317,7 +341,7 @@ export function viewportFromQuery(
     const name = separator > 0 ? focus.slice(separator + 1) : ''
     // A slice name may contain a colon — `GET /api/x:y` is a legal Wolverine slice name — so the
     // split is on the FIRST one only, and an unknown kind is dropped rather than guessed at.
-    if ((kind === 'slice' || kind === 'domain') && name.length > 0) {
+    if ((kind === 'slice' || kind === 'domain' || kind === 'chapter') && name.length > 0) {
       state.focus = { kind, name }
     }
   }

@@ -152,6 +152,25 @@ export interface LaidOutLink extends EventModelLink {
   trackY: number
 }
 
+/**
+ * A chapter band — the wide arrow eventmodelers.ai draws over the slices of one chapter (issue
+ * #298). One per CONTIGUOUS run of drawn slices sharing a chapter, in declaration order.
+ *
+ * The canvas never reorders slices: declaration order is the producer's statement about sequence,
+ * so a chapter whose slices are interleaved with another's draws one band per run, each with the
+ * same name. Slices with no chapter sit under no band. Hidden slices are not drawn, so they are not
+ * in any band either — filter a chapter's middle slice away and its two neighbours become one run.
+ */
+export interface LaidOutChapterBand {
+  name: string
+  x: number
+  width: number
+  y: number
+  height: number
+  /** The drawn slices under this band, left to right. */
+  slices: string[]
+}
+
 export interface EventModelGraph {
   nodes: LaidOutNode[]
   edges: LaidOutEdge[]
@@ -159,6 +178,13 @@ export interface EventModelGraph {
   links: LaidOutLink[]
   lanes: LaidOutLane[]
   slices: LaidOutSlice[]
+  /** Chapter bands above the slice columns (#298). Empty when no drawn slice declares a chapter. */
+  chapters: LaidOutChapterBand[]
+  /**
+   * Vertical room the chapter bands take above the first lane: {@link CHAPTER_BAND_HEIGHT} when any
+   * drawn slice has a chapter, else 0 — so an unchaptered model is coordinate-identical to before.
+   */
+  chapterBandHeight: number
   width: number
   height: number
 }
@@ -198,6 +224,13 @@ export const MAX_LABEL_LINES = 3
 export const GUTTER_WIDTH = 132
 export const GUTTER_GAP = 12
 export const CANVAS_PADDING = 12
+
+/**
+ * Height of the chapter band strip above the lanes (issue #298). Tall enough for one line of the
+ * chapter's name at `detail`; at `overview` the stylesheet lets the name run larger, because a band
+ * is the one thing still legible when the cards are colour blocks.
+ */
+export const CHAPTER_BAND_HEIGHT = 28
 
 /** Overall size of the drawn canvas, chrome included — what a zoom wrapper scales. */
 export function canvasSize(graph: EventModelGraph): { width: number; height: number } {
@@ -542,8 +575,14 @@ export function layoutEventModel(
       ? ({ rows: [{ key: null, label: null }], rowByElementId: new Map<string, number>() } as StreamRowPlan)
       : streamRowPlan(descriptor, { collapsedSlices: collapsed, hiddenSlices: hidden })
 
+  // Chapters (#298): the bands need a strip above the first lane, and only when a drawn slice has
+  // a chapter — otherwise every y is exactly what it was, which is what keeps `layout.spec.ts`'s
+  // coordinate pins for unchaptered models honest.
+  const drawnSlices = (descriptor?.slices ?? []).filter((s) => !hidden.has(s.name))
+  const chapterBandHeight = drawnSlices.some((s) => !!s.chapter) ? CHAPTER_BAND_HEIGHT : 0
+
   const lanes: LaidOutLane[] = []
-  let laneY = 0
+  let laneY = chapterBandHeight
   for (const lane of LANE_ORDER) {
     const rows = lane === STREAM_LANE ? plan.rows : [{ key: null, label: null }]
     const height = rows.length * rowHeight
@@ -662,7 +701,37 @@ export function layoutEventModel(
     links: routeLinks(descriptor?.links ?? [], placedAcross, gapY),
     lanes,
     slices,
+    chapters: chapterBands(slices, chapterBandHeight),
+    chapterBandHeight,
     width: Math.max(0, cursorX - sliceGap),
     height: laneY
   }
+}
+
+/**
+ * One band per contiguous run of drawn slices sharing a chapter (#298). Over the laid-out slices
+ * rather than the descriptor, so a hidden slice neither breaks a run nor stretches a band over the
+ * gap where it would have been.
+ */
+function chapterBands(slices: readonly LaidOutSlice[], height: number): LaidOutChapterBand[] {
+  if (height <= 0) return []
+  const bands: LaidOutChapterBand[] = []
+  let open: LaidOutChapterBand | null = null
+
+  for (const slice of slices) {
+    const chapter = slice.descriptor.chapter ?? null
+    if (chapter === null) {
+      open = null
+      continue
+    }
+    if (open && open.name === chapter) {
+      open.width = slice.x + slice.width - open.x
+      open.slices.push(slice.name)
+      continue
+    }
+    open = { name: chapter, x: slice.x, width: slice.width, y: 0, height, slices: [slice.name] }
+    bands.push(open)
+  }
+
+  return bands
 }

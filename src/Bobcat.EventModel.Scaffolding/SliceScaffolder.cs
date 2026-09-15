@@ -538,6 +538,14 @@ public static class SliceScaffolder
         var first = plans[0].Slice;
 
         if (first.Domain is not null) writer.WriteLine($"@domain:{first.Domain}");
+
+        // Issue #298: the chapter follows the same rule as the trigger below — one feature-level tag
+        // when every slice in the feature agrees, otherwise each scenario tags its own slice's. A
+        // feature-level tag is inherited by every scenario, so a wrong one is wrong for every slice.
+        var chapters = plans.Select(x => x.Slice.Chapter).Distinct().ToList();
+        var sharedChapter = chapters.Count == 1 ? chapters[0] : null;
+        var chapterPerScenario = sharedChapter is null && chapters.Any(x => x is not null);
+        if (sharedChapter is not null) writer.WriteLine($"@chapter:{sharedChapter}");
         writer.WriteLine($"Feature: {featureName}");
 
         // A slice is scenario-level, and so is its trigger (issue #258). Writing the FIRST slice's
@@ -571,7 +579,7 @@ public static class SliceScaffolder
 
         foreach (var plan in plans)
         {
-            writeScenarios(writer, plan, history, triggerPerScenario: labels.Count > 1);
+            writeScenarios(writer, plan, history, triggerPerScenario: labels.Count > 1, chapterPerScenario);
         }
 
         return writer.Code();
@@ -604,7 +612,8 @@ public static class SliceScaffolder
         }
     }
 
-    private static void writeScenarios(ISourceWriter writer, SlicePlan plan, HistoryArrangementPlan history, bool triggerPerScenario)
+    private static void writeScenarios(ISourceWriter writer, SlicePlan plan, HistoryArrangementPlan history,
+        bool triggerPerScenario, bool chapterPerScenario = false)
     {
         var slice = plan.Slice;
         var specs = slice.Specifications!;
@@ -620,7 +629,9 @@ public static class SliceScaffolder
             var streamId = streamIdFor(scenario.Name);
 
             writer.BlankLine();
-            writer.WriteLine($"  @slice:{slice.Name}");
+            writer.WriteLine(chapterPerScenario && slice.Chapter is { } chapter
+                ? $"  @slice:{slice.Name} @chapter:{chapter}"
+                : $"  @slice:{slice.Name}");
             writer.WriteLine($"  Scenario: {scenario.Name}");
             if (triggerPerScenario && slice.Trigger?.Label is { } label) writer.WriteLine($"    Triggered by {label}");
 

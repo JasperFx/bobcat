@@ -19,6 +19,15 @@ export interface SliceFilter {
   domains?: ReadonlySet<string>
 
   /**
+   * Chapters to keep (issue #298). Empty means every chapter, including slices that declare none.
+   *
+   * The other partitioning axis, and the one every Event Modeling tool zooms by: a chapter is a
+   * span of the timeline where a domain is a partition of the system. A slice with no chapter is
+   * excluded by a chapter filter for the same reason an undomained one is by a domain filter.
+   */
+  chapters?: ReadonlySet<string>
+
+  /**
    * Narrow by whether a slice has a bound specification — the drift view.
    *
    * `unbound` is the one worth having: on the measured CritterWatch model 125 of 125 slices had
@@ -46,12 +55,25 @@ export function domainsOf(descriptor: EventModelDescriptor | null | undefined): 
   return [...domains].sort((a, b) => a.localeCompare(b))
 }
 
+/** The chapters a model declares, in first-appearance order — a chapter is a sequence, not a set. */
+export function chaptersOf(descriptor: EventModelDescriptor | null | undefined): string[] {
+  const chapters: string[] = []
+  for (const slice of descriptor?.slices ?? []) {
+    if (slice.chapter && !chapters.includes(slice.chapter)) chapters.push(slice.chapter)
+  }
+  return chapters
+}
+
 /** Does this slice survive the filter? */
 export function matchesFilter(slice: EventModelSliceDescriptor, filter: SliceFilter): boolean {
   if (filter.domains && filter.domains.size > 0) {
     // A slice with no domain is not in any domain, so a domain filter excludes it. Treating an
     // absent domain as "matches everything" would make the filter grow the canvas.
     if (!slice.domain || !filter.domains.has(slice.domain)) return false
+  }
+
+  if (filter.chapters && filter.chapters.size > 0) {
+    if (!slice.chapter || !filter.chapters.has(slice.chapter)) return false
   }
 
   if (filter.specs === 'bound' && (slice.specifications ?? []).length === 0) return false
@@ -89,6 +111,7 @@ export function hiddenSliceNames(
 export function isEmptyFilter(filter: SliceFilter): boolean {
   return (
     (!filter.domains || filter.domains.size === 0) &&
+    (!filter.chapters || filter.chapters.size === 0) &&
     (filter.specs === undefined || filter.specs === 'any') &&
     !filter.hotspotsOnly &&
     (filter.search === undefined || filter.search.trim().length === 0)

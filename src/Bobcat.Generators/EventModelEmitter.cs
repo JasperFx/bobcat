@@ -60,6 +60,12 @@ internal static class EventModelEmitter
     {
         public string Name = "";
         public string? Domain;
+
+        /// <summary>
+        /// The <c>@chapter:</c> tag (issue #298) — the span of the timeline the slice sits in, the
+        /// grouping every Event Modeling tool zooms into. Orthogonal to <see cref="Domain"/>.
+        /// </summary>
+        public string? Chapter;
         public string? TriggerLabel;
         public string ClassName = "";
         public readonly List<string> Commands = new();
@@ -155,6 +161,7 @@ internal static class EventModelEmitter
             }
 
             slice.Domain ??= GeneratorSliceTags.Domain(tags);
+            slice.Chapter ??= GeneratorSliceTags.Chapter(tags);
             // A slice is scenario-level, and so is its trigger (issue #258). A feature-level
             // "Triggered by" used to be stamped on every slice the feature held, which put nine
             // wrong labels on the CritterCrush canvas from one line. A scenario's own line wins,
@@ -232,6 +239,7 @@ internal static class EventModelEmitter
             }
 
             slice.Domain ??= GeneratorSliceTags.Domain(scenario.Tags);
+            slice.Chapter ??= GeneratorSliceTags.Chapter(scenario.Tags);
             slice.ActCommand ??= scenario.ActCommand;
 
             var resolved = new List<string>();
@@ -537,6 +545,7 @@ internal static class EventModelEmitter
         sb.AppendLine($"            {typeDescriptorList(slice.ReadModels)})");
         sb.AppendLine("        {");
         if (slice.Domain != null) sb.AppendLine($"            Domain = {literal(slice.Domain)},");
+        if (slice.Chapter != null) sb.AppendLine($"            Chapter = {literal(slice.Chapter)},");
         var pattern = patternOf(slice);
         if (pattern != null) sb.AppendLine($"            Pattern = global::{Ns}.SlicePattern.{pattern},");
         if (slice.TriggerKind != null)

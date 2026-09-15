@@ -17,7 +17,7 @@ import {
   worthMapping
 } from '../focus'
 import { canvasSize, layoutEventModel, CANVAS_PADDING, GUTTER_GAP, GUTTER_WIDTH } from '../layout'
-import { largeModel, linkedModel, withdrawFundsModel } from './fixtures'
+import { chapteredModel, largeModel, linkedModel, withdrawFundsModel } from './fixtures'
 
 /**
  * Issue #296's arithmetic, tested where it lives — as pure functions over a laid-out graph rather
@@ -69,6 +69,17 @@ describe('neighbourhood', () => {
 
   it('resolves a domain nobody declares to nothing, never to the whole model', () => {
     expect(focusedSliceNames(largeModel(4), { kind: 'domain', name: 'Nope' }).size).toBe(0)
+  })
+
+  it('resolves a chapter focus to every slice in the chapter, across its runs (#298)', () => {
+    // Onboarding is interleaved by Swiping on the canvas, but a focus is about the model, and the
+    // model has one Onboarding chapter with three slices in it.
+    expect([...focusedSliceNames(chapteredModel(), { kind: 'chapter', name: 'Onboarding' })].sort()).toEqual([
+      'AddDog',
+      'Enroll',
+      'Verify'
+    ])
+    expect(focusedSliceNames(chapteredModel(), { kind: 'chapter', name: 'Nope' }).size).toBe(0)
   })
 })
 
@@ -185,6 +196,29 @@ describe('breadcrumb', () => {
   it('is empty when nothing is focused', () => {
     expect(breadcrumbFor(withdrawFundsModel(), null)).toEqual([])
   })
+
+  it('reads model › chapter › slice when the slice has a chapter, and the chapter crumb focuses the chapter (#298)', () => {
+    const crumbs = breadcrumbFor(chapteredModel(), { kind: 'slice', name: 'AddDog' })
+
+    // The chapter, not the domain: the band above the slice is the grouping the canvas draws, and
+    // a trail showing both would be two orthogonal axes pretending to be one hierarchy.
+    expect(crumbs.map((c) => c.label)).toEqual(['K9Crush', 'Onboarding', 'AddDog'])
+    expect(crumbs[1].target).toEqual({ kind: 'chapter', name: 'Onboarding' })
+  })
+
+  it('falls back to the domain rung for a slice in no chapter', () => {
+    expect(breadcrumbFor(chapteredModel(), { kind: 'slice', name: 'Loose' }).map((c) => c.label)).toEqual([
+      'K9Crush',
+      'Dating',
+      'Loose'
+    ])
+  })
+
+  it('reads model › chapter for a chapter focus', () => {
+    const crumbs = breadcrumbFor(chapteredModel(), { kind: 'chapter', name: 'Swiping' })
+    expect(crumbs.map((c) => c.label)).toEqual(['K9Crush', 'Swiping'])
+    expect(crumbs[1].target).toEqual({ kind: 'chapter', name: 'Swiping' })
+  })
 })
 
 describe('viewport in the URL', () => {
@@ -222,8 +256,14 @@ describe('viewport in the URL', () => {
     expect(state.focus).toEqual({ kind: 'slice', name: 'GET /api/a:b' })
   })
 
+  it('round-trips a chapter focus (#298)', () => {
+    const query = viewportToQuery({ zoom: 1, x: 0, y: 0, focus: { kind: 'chapter', name: 'Onboarding' } })
+    expect(query.focus).toBe('chapter:Onboarding')
+    expect(viewportFromQuery(query).focus).toEqual({ kind: 'chapter', name: 'Onboarding' })
+  })
+
   it('drops junk rather than landing on a canvas scrolled to NaN', () => {
-    expect(viewportFromQuery({ z: 'banana', x: 'nope', focus: 'chapter:Onboarding' })).toEqual({})
+    expect(viewportFromQuery({ z: 'banana', x: 'nope', focus: 'lane:Onboarding' })).toEqual({})
     expect(viewportFromQuery(null)).toEqual({})
     expect(viewportFromQuery({})).toEqual({})
   })

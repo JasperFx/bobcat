@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { COLLAPSED_WIDTH, TRACK_INSET, TRACK_SPACING, layoutEventModel, streamRowPlan } from '../layout'
+import { CHAPTER_BAND_HEIGHT, COLLAPSED_WIDTH, TRACK_INSET, TRACK_SPACING, layoutEventModel, streamRowPlan } from '../layout'
 import { LANE_ORDER } from '../types'
-import { largeModel, linkedThreeSliceModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
+import { chapteredModel, largeModel, linkedThreeSliceModel, twoAggregateModel, withdrawFundsModel } from './fixtures'
 
 /** The withdrawal model with one label replaced — the #180 sizing cases in one place. */
 function longLabelModel(label: string) {
@@ -485,5 +485,68 @@ describe('cross-slice links', () => {
     const source = graph.nodes.find((n) => n.id === 'OpenAccount/Event/Bank.AccountOpened')!
 
     expect(graph.links[0]!.trackY).toBe(source.y + source.height + TRACK_INSET)
+  })
+})
+
+/**
+ * Issue #298 — chapter bands. Over the LAID-OUT slices rather than the descriptor, one per
+ * contiguous run, and only when a drawn slice actually declares a chapter.
+ */
+describe('chapter bands (#298)', () => {
+  it('draws one band per contiguous run of one chapter, in declaration order, never reordering', () => {
+    const graph = layoutEventModel(chapteredModel())
+
+    // Onboarding, Onboarding, Swiping, Onboarding, (none): three bands, two of them Onboarding.
+    expect(graph.chapters.map((b) => b.name)).toEqual(['Onboarding', 'Swiping', 'Onboarding'])
+    expect(graph.chapters.map((b) => b.slices)).toEqual([['Enroll', 'AddDog'], ['SwipeOnDog'], ['Verify']])
+  })
+
+  it('spans exactly its slices\' columns', () => {
+    const graph = layoutEventModel(chapteredModel())
+    const [enroll, addDog] = graph.slices
+    const onboarding = graph.chapters[0]
+
+    expect(onboarding.x).toBe(enroll.x)
+    expect(onboarding.width).toBe(addDog.x + addDog.width - enroll.x)
+    expect(onboarding.y).toBe(0)
+    expect(onboarding.height).toBe(CHAPTER_BAND_HEIGHT)
+  })
+
+  it('pushes the lanes down by the band height so the strip is real room, not an overlay', () => {
+    const graph = layoutEventModel(chapteredModel())
+
+    expect(graph.chapterBandHeight).toBe(CHAPTER_BAND_HEIGHT)
+    expect(graph.lanes[0].y).toBe(CHAPTER_BAND_HEIGHT)
+    expect(graph.height).toBe(CHAPTER_BAND_HEIGHT + 4 * 120)
+  })
+
+  it('leaves an unchaptered model coordinate-identical to before', () => {
+    const graph = layoutEventModel(withdrawFundsModel())
+
+    expect(graph.chapters).toEqual([])
+    expect(graph.chapterBandHeight).toBe(0)
+    expect(graph.lanes.map((l) => l.y)).toEqual([0, 120, 240, 360])
+  })
+
+  it('does not put a chapterless slice under any band', () => {
+    const graph = layoutEventModel(chapteredModel())
+    expect(graph.chapters.flatMap((b) => b.slices)).not.toContain('Loose')
+  })
+
+  it('follows the filter: hiding the interleaving slice joins the two Onboarding runs into one band', () => {
+    const graph = layoutEventModel(chapteredModel(), { hiddenSlices: new Set(['SwipeOnDog']) })
+
+    expect(graph.chapters.map((b) => b.name)).toEqual(['Onboarding'])
+    expect(graph.chapters[0].slices).toEqual(['Enroll', 'AddDog', 'Verify'])
+  })
+
+  it('drops the strip entirely when every chaptered slice is hidden', () => {
+    const graph = layoutEventModel(chapteredModel(), {
+      hiddenSlices: new Set(['Enroll', 'AddDog', 'SwipeOnDog', 'Verify'])
+    })
+
+    expect(graph.chapters).toEqual([])
+    expect(graph.chapterBandHeight).toBe(0)
+    expect(graph.lanes[0].y).toBe(0)
   })
 })

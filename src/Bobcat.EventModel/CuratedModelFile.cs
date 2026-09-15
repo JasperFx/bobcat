@@ -41,6 +41,13 @@ public sealed class CuratedSlice
 
     public string? Domain { get; set; }
 
+    /// <summary>
+    /// The chapter — the span of the timeline this slice belongs to (issue #298, jasperfx#824).
+    /// The emlang import carries the board's chapter name here; a curated file may say it outright.
+    /// Independent of <see cref="Domain"/>: a bounded context has many chapters.
+    /// </summary>
+    public string? Chapter { get; set; }
+
     public CuratedTrigger? Trigger { get; set; }
 
     /// <summary>Bare type name of the inbound command, when the slice has one.</summary>

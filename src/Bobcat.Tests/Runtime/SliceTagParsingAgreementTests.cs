@@ -28,6 +28,7 @@ public class SliceTagParsingAgreementTests
     {
         GeneratorSliceTags.SlicePrefix.ShouldBe(SliceTags.SlicePrefix);
         GeneratorSliceTags.DomainPrefix.ShouldBe(SliceTags.DomainPrefix);
+        GeneratorSliceTags.ChapterPrefix.ShouldBe(SliceTags.ChapterPrefix);
         GeneratorSliceTags.TriggeredByPrefix.ShouldBe(SliceTags.TriggeredByPrefix);
     }
 
@@ -40,6 +41,9 @@ public class SliceTagParsingAgreementTests
             data.Add(["slice:WithdrawFunds"]);
             data.Add(["domain:Banking"]);
             data.Add(["slice:WithdrawFunds", "domain:Banking"]);
+            data.Add(["slice:WithdrawFunds", "domain:Banking", "chapter:Onboarding"]);
+            data.Add(["CHAPTER:  Shouty  "]);
+            data.Add(["chapter:"]);
             // Case, whitespace and empty values are where two hand-written parsers drift.
             data.Add(["SLICE:Shouty"]);
             data.Add(["slice:  padded  "]);
@@ -58,6 +62,7 @@ public class SliceTagParsingAgreementTests
     {
         GeneratorSliceTags.Slice(tags).ShouldBe(SliceTags.Slice(tags));
         GeneratorSliceTags.Domain(tags).ShouldBe(SliceTags.Domain(tags));
+        GeneratorSliceTags.Chapter(tags).ShouldBe(SliceTags.Chapter(tags));
     }
 
     public static TheoryData<string?> Descriptions

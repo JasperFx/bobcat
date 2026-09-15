@@ -302,6 +302,17 @@ public class EventModelDescriptorTests
     }
 
     [Fact]
+    public void the_chapter_comes_from_its_own_tag_and_is_independent_of_the_domain()
+    {
+        // Issue #298: `@chapter:` is the third slice tag. WalletSummary.feature declares both a
+        // domain and a chapter on the Feature line; Wallet.feature declares only a domain, so its
+        // slices sit under no chapter band rather than under an invented one.
+        slice("WalletSummary").Chapter.ShouldBe("Balances");
+        slice("WalletSummary").Domain.ShouldBe("Wallets");
+        slice("CreditWallet").Chapter.ShouldBeNull();
+    }
+
+    [Fact]
     public void an_arrangement_inlined_into_a_view_slice_is_consumed_as_if_written_longhand()
     {
         // "The summary folds history arranged by name" references an @arrangement; expansion is

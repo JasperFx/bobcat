@@ -117,6 +117,44 @@ public class EmlangImportTests
         var slice = model.Slices.Single(x => x.Name == "SwipeOnDog");
         slice.Events.ShouldBe(["DogLiked", "DogPassed"]);
         report.ShouldContain(x => x.Contains("folded into existing slice 'SwipeOnDog'"));
+
+        // Issue #298: one chapter per slice, so the fold keeps the first and the report says so.
+        slice.Chapter.ShouldBe("ChapterOne");
+        report.ShouldContain(x => x.Contains("Kept chapter 'ChapterOne'"));
+    }
+
+    [Fact]
+    public void every_slice_carries_the_chapter_it_was_segmented_from()
+    {
+        // Issue #298: EmlangImport used to keep the chapter only as prose in Notes. Every tool in
+        // the space uses chapters as the answer to "zoom into a part", so the name now survives as
+        // the slice's Chapter, and the curated file writes it.
+        var model = import(SwipeChapter, out _);
+
+        model.Slices.Select(x => x.Chapter).Distinct().ShouldBe(["TheSwiper"]);
+        CuratedModelWriter.Write(model).ShouldContain("chapter: TheSwiper");
+    }
+
+    [Fact]
+    public void two_chapters_give_their_own_slices_their_own_chapter()
+    {
+        var model = import(
+            """
+            slices:
+              Onboarding:
+                steps:
+                  - c: Member/Enroll
+                  - e: Member/Enrolled
+              Swiping:
+                steps:
+                  - c: Member/Swipe On Dog
+                  - e: Member/Dog Liked
+                  - v: Member/Match List
+            """);
+
+        model.Slices.Single(x => x.Name == "Enroll").Chapter.ShouldBe("Onboarding");
+        model.Slices.Single(x => x.Name == "SwipeOnDog").Chapter.ShouldBe("Swiping");
+        model.Slices.Single(x => x.Name == "MatchList").Chapter.ShouldBe("Swiping");
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-@domain:Wallets
+@domain:Wallets @chapter:Balances
 Feature: Wallet Summary
 
   # Issue #297: the View slice. Written only in shipped grammar and named after the DOCUMENT type

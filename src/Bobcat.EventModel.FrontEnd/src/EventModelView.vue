@@ -44,7 +44,7 @@ import {
 import { segmentLabel } from './text'
 import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
-import { domainsOf, hiddenSliceNames, isEmptyFilter, type SliceFilter } from './filters'
+import { chaptersOf, domainsOf, hiddenSliceNames, isEmptyFilter, type SliceFilter } from './filters'
 import {
   LANE_LABEL,
   PROVENANCE_LABEL,
@@ -117,6 +117,7 @@ const emit = defineEmits<{
 const filter = ref<SliceFilter>({})
 
 const availableDomains = computed(() => domainsOf(props.descriptor))
+const availableChapters = computed(() => chaptersOf(props.descriptor))
 
 const hidden = computed(() => hiddenSliceNames(props.descriptor, filter.value))
 
@@ -134,6 +135,13 @@ function toggleDomain(domain: string) {
   if (next.has(domain)) next.delete(domain)
   else next.add(domain)
   updateFilter({ domains: next })
+}
+
+function toggleChapter(chapter: string) {
+  const next = new Set(filter.value.chapters ?? [])
+  if (next.has(chapter)) next.delete(chapter)
+  else next.add(chapter)
+  updateFilter({ chapters: next })
 }
 
 function clearFilter() {
@@ -936,6 +944,23 @@ function outcomeFor(sliceName: string): string | null {
           </button>
         </div>
 
+        <!-- #298 — chapter chips beside the domain chips, in the model's own order: a chapter is
+             a span of the timeline, so alphabetising them would shuffle the story. -->
+        <div v-if="availableChapters.length > 0" class="em-filter-domains em-filter-chapters">
+          <button
+            v-for="chapter in availableChapters"
+            :key="chapter"
+            type="button"
+            class="em-filter-chip em-filter-chip-chapter"
+            :data-chapter="chapter"
+            :data-on="filter.chapters?.has(chapter) ? 'true' : undefined"
+            :aria-pressed="filter.chapters?.has(chapter) ? 'true' : 'false'"
+            @click="toggleChapter(chapter)"
+          >
+            {{ chapter }}
+          </button>
+        </div>
+
         <!-- The drift view. `unbound` is the one that earns its place: on the measured model 125
              of 125 slices had no spec, and "which ones do" is the whole question. -->
         <button
@@ -1052,6 +1077,25 @@ function outcomeFor(sliceName: string): string | null {
               :style="{ top: `${row.y}px`, height: `${row.height}px`, width: `${graph.width}px` }"
             />
 
+            <!-- #298 — chapter bands: the wide arrow eventmodelers.ai draws over a chapter's slices,
+                 one per contiguous run in declaration order (the canvas never reorders). A band is
+                 a button because it is the focus rung above slice: click it and the chapter fits the
+                 viewport, the same way a slice's ⌖ does. -->
+            <button
+              v-for="(band, index) in graph.chapters"
+              :key="`chapter-${index}-${band.name}`"
+              type="button"
+              class="em-chapter-band"
+              :data-chapter="band.name"
+              :data-focused="focus?.kind === 'chapter' && focus.name === band.name ? 'true' : undefined"
+              :data-dimmed="focusedSlices.size > 0 && !band.slices.some((s) => focusedSlices.has(s)) ? 'true' : undefined"
+              :title="`Focus the ${band.name} chapter (${band.slices.length} slice${band.slices.length === 1 ? '' : 's'})`"
+              :style="{ left: `${band.x}px`, top: `${band.y}px`, width: `${band.width}px`, height: `${band.height}px` }"
+              @click.stop="focusOn({ kind: 'chapter', name: band.name })"
+            >
+              <span class="em-chapter-name">{{ band.name }}</span>
+            </button>
+
             <div
               v-for="slice in graph.slices"
               :key="`slice-${slice.name}`"
@@ -1060,7 +1104,12 @@ function outcomeFor(sliceName: string): string | null {
               :data-outcome="outcomeFor(slice.name) ?? undefined"
               :data-dimmed="dimmed(slice.name) ? 'true' : undefined"
               :data-selected="selection?.kind === 'slice' && selection.name === slice.name ? 'true' : undefined"
-              :style="{ left: `${slice.x}px`, width: `${slice.width}px`, height: `${graph.height}px` }"
+              :style="{
+                left: `${slice.x}px`,
+                top: `${graph.chapterBandHeight}px`,
+                width: `${slice.width}px`,
+                height: `${graph.height - graph.chapterBandHeight}px`
+              }"
             >
               <div class="em-slice-header" :style="{ maxWidth: `${slice.width - 8}px` }">
                 <!-- issue #194 — collapse THIS slice. A chevron rather than a click on the header,
@@ -1509,6 +1558,49 @@ function outcomeFor(sliceName: string): string | null {
 .em-stream-band[data-alt] {
   background: currentColor;
   opacity: 0.035;
+}
+/* #298 — the wide arrow over a chapter's slices. Clipped to an arrowhead on the right because the
+   timeline runs left to right and the band is a span of it, not a box around it. `currentColor` at
+   low alpha so it reads in both consoles' palettes without a colour of its own. */
+.em-chapter-band {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 10px 2px 10px;
+  border: none;
+  background: currentColor;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+  opacity: 0.1;
+  pointer-events: auto;
+}
+.em-chapter-band:hover,
+.em-chapter-band[data-focused='true'] {
+  opacity: 0.22;
+}
+.em-chapter-band[data-dimmed='true'] {
+  opacity: 0.05;
+}
+.em-chapter-name {
+  /* The band's fill is `currentColor` at low alpha, so the name has to be painted at full
+     strength on its own: a child element with its own opacity, not the parent's. */
+  position: relative;
+  color: inherit;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A band is a table-of-contents entry, so it is the one label that grows as everything else
+   shrinks — at `overview` the chapter names are what the reader navigates by. */
+.em-viewport[data-lod='overview'] .em-chapter-band {
+  font-size: 24px;
 }
 .em-slice {
   position: absolute;

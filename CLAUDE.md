@@ -310,6 +310,24 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   *computed upstream* from the typed roles on every read. Building the element graph in the
   generator would be a second opinion about the same slice, which is what "computed on read"
   exists to prevent.
+- **`@chapter:<name>` is the third slice tag (issue #298, canvas design decision 5).** A chapter
+  is the span of the timeline a slice belongs to — the grouping every Event Modeling tool zooms
+  into (eventmodelers.ai's wide arrow, Miro's frames, emlang's per-chapter documents) — and it is
+  **independent of `@domain:`**: a bounded context has many chapters. Parsed by both `SliceTags`
+  and `GeneratorSliceTags` (agreement test extended), exposed as `FeatureDefinition.Chapter` and
+  the `Chapter` trait, stamped by `EventModelEmitter` onto JasperFx 2.69's `Chapter` role (which
+  merges like `Domain`: per claim, first wins on a tie, a genuine disagreement is a
+  `SourceDisagreement` hotspot). The curated file declares `chapter:`; `EmlangImport` stops
+  discarding the board's chapter name — every slice carries the chapter it was segmented from,
+  and a slice folded from a second chapter **keeps the first** with a report line saying so, since
+  the descriptor carries one chapter per slice. The scaffolder follows the trigger's rule: one
+  feature-level `@chapter:` when every slice in the feature agrees, otherwise `@slice:X @chapter:Y`
+  on each scenario. The console round-trips it (`Bobcat.Console.Specs`), and `@jasperfx/event-model-vue`
+  0.12.0 draws **one band per contiguous run** of same-chapter slices above the lanes, focuses a
+  chapter from its band, filters by chapter chips, and puts the chapter (not the domain) in the
+  breadcrumb of a slice that has one. **The canvas never reorders slices**, so an interleaved
+  chapter draws one band per run with the same name — nothing upstream orders chapters, and
+  whether it should is an open decision (2026-09-15), not a gap the import papers over.
 - **An arranged `{event}` is what a View slice consumes, and nothing on a Command slice (issue
   #297, canvas design decision 3).** `Given AccountOpened occurred … Then the Account read model
   contains` is the best evidence there is that the projection applies `AccountOpened`, and
