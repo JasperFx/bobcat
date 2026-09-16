@@ -54,6 +54,34 @@ public static class CritterStackStepContextExtensions
         this IStepContext context, string streamKey, string? hostResource = null, string? storeName = null)
         => EventStores.FetchStreamAsync(context.EventStore(hostResource, storeName), streamKey, context.Cancellation);
 
+    /// <summary>Every event in the store at or after <paramref name="sequenceFloor"/> (issue #319).</summary>
+    public static Task<IReadOnlyList<IEvent>> QueryEventsSinceAsync(
+        this IStepContext context, long sequenceFloor, string? hostResource = null, string? storeName = null)
+        => EventStores.QueryEventsSinceAsync(context.EventStore(hostResource, storeName), sequenceFloor, context.Cancellation);
+
+    /// <summary>The highest sequence the store has issued, or 0 when it is empty (issue #319).</summary>
+    public static Task<long> HighWaterSequenceAsync(
+        this IStepContext context, string? hostResource = null, string? storeName = null)
+        => EventStores.HighWaterSequenceAsync(context.EventStore(hostResource, storeName), context.Cancellation);
+
+    /// <summary>
+    /// <see cref="HighWaterSequenceAsync"/> when the host has an event store, else null.
+    /// </summary>
+    /// <remarks>
+    /// Plenty of suites have no event store at all — the message-only and HTTP lanes never touch
+    /// one, and asking for it throws by design. So the #319 floor has to be optional: null here
+    /// means "nothing to measure against", and the act's appended-event list stays empty exactly
+    /// as it did before.
+    /// </remarks>
+    public static async Task<long?> TryHighWaterSequenceAsync(
+        this IStepContext context, string? hostResource = null, string? storeName = null)
+    {
+        var services = context.GetResource<IHostResource>(hostResource).RootServices;
+        if (services.EventStores().Count == 0) return null;
+
+        return await context.HighWaterSequenceAsync(hostResource, storeName).ConfigureAwait(false);
+    }
+
     /// <summary>Rebuild a stream's aggregate from its events, the way the application's own read path would.</summary>
     public static Task<T?> AggregateEventStreamAsync<T>(
         this IStepContext context, Guid streamId, string? hostResource = null, string? storeName = null) where T : class

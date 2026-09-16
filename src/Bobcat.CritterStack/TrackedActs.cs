@@ -38,14 +38,36 @@ public static class TrackedActs
     {
         streamIdentity ??= context.TryGetState<ScenarioStream>(out var stream) ? stream.Identity : null;
 
+        // Issue #319. With a stream bracketed, "what the act appended" is that stream's delta. With
+        // NONE bracketed it used to be the empty list — so a slice whose act CREATES a stream could
+        // not be specified at all: the id is the handler's to mint, so the scenario has nothing to
+        // name, and `Then {event} is emitted` reported "the emitted events were: []" while the store
+        // held a complete stream. That message reads as "the handler did nothing", which is the
+        // most misleading thing it could have said.
+        //
+        // A sequence floor answers it instead: whatever the store issued after this mark is what
+        // the act appended, wherever it put it. Two whole-store reads, paid only by the case whose
+        // alternative was an assertion that could not fail.
+        // Optional, because plenty of suites have no event store at all — the message-only and
+        // HTTP lanes never touch one. Null means "nothing to measure against", and the appended
+        // list stays empty exactly as it did before.
+        var floor = streamIdentity is null
+            ? await context.TryHighWaterSequenceAsync(hostResource, storeName)
+            : null;
+
         var before = await fetchStreamAsync(context, streamIdentity, hostResource, storeName);
 
         TrackedExecution execution;
         try
         {
             var session = await dispatch();
-            var after = await fetchStreamAsync(context, streamIdentity, hostResource, storeName);
-            execution = new TrackedExecution(session, after.Skip(before.Count).ToList(), null);
+            var appended = streamIdentity is null
+                ? floor is null
+                    ? []
+                    : await context.QueryEventsSinceAsync(floor.Value + 1, hostResource, storeName)
+                : (IReadOnlyList<IEvent>)(await fetchStreamAsync(context, streamIdentity, hostResource, storeName))
+                    .Skip(before.Count).ToList();
+            execution = new TrackedExecution(session, appended, null);
 
             // Observed run evidence (issue #107): the events the act actually appended and the
             // messages the tracked session actually sent — never what a Then merely names.

@@ -49,7 +49,7 @@ public class GrammarSpecTests
         feature.Domain.ShouldBe("Wallets");
         feature.TriggeredBy.ShouldBe("the wallet holder");
         // Twelve, not fourteen: the two @arrangement scenarios are inlined, never run (issue #259).
-        feature.Scenarios.Count.ShouldBe(12);
+        feature.Scenarios.Count.ShouldBe(13);
 
         foreach (var scenario in feature.Scenarios)
         {
@@ -165,7 +165,8 @@ public class GrammarSpecTests
             {
                 opts.Discovery.DisableConventionalDiscovery()
                     .IncludeType<WalletHandler>()
-                    .IncludeType<DebitWalletHandler>();
+                    .IncludeType<DebitWalletHandler>()
+                    .IncludeType<RegisterLedgerHandler>();
             });
             return builder.Build();
         });

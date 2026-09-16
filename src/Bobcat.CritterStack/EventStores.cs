@@ -66,6 +66,45 @@ public static class EventStores
     public static Task<IReadOnlyList<IEvent>> FetchStreamAsync(IEventStore store, string streamKey, CancellationToken token = default)
         => fetchStreamAsync(store, reader => reader.FetchStreamAsync(streamKey, token: token));
 
+    /// <summary>
+    /// Every event in the store at or after <paramref name="sequenceFloor"/>, across all streams
+    /// (issue #319).
+    /// </summary>
+    /// <remarks>
+    /// The escape for a slice whose act CREATES a stream. Every other assertion reads one stream,
+    /// because the scenario named it — but a creating slice's stream id is the handler's to mint,
+    /// so there is nothing to name and nothing to read. A sequence floor taken before the act and
+    /// queried after is what the store can answer instead.
+    ///
+    /// Whole-store rather than per-stream, so it is only ever used where the alternative is
+    /// nothing at all: <see cref="TrackedActs"/> reaches for it exactly when no stream was
+    /// bracketed, which today yields an empty list and an assertion that cannot fail.
+    /// </remarks>
+    public static Task<IReadOnlyList<IEvent>> QueryEventsSinceAsync(
+        IEventStore store, long sequenceFloor, CancellationToken token = default)
+        => fetchStreamAsync(store, async reader =>
+        {
+            // PageSize is deliberately large rather than paged: this only ever runs against a
+            // scenario's own store, whose contents are what that scenario arranged. A silent
+            // truncation here would read as "the slice emitted nothing", which is the failure this
+            // whole method exists to stop telling.
+            var page = await reader
+                .QueryEventsAsync(new EventQuery { SequenceFloor = sequenceFloor, PageSize = int.MaxValue }, token)
+                .ConfigureAwait(false);
+
+            return (IReadOnlyList<IEvent>)page.Events.ToList();
+        });
+
+    /// <summary>
+    /// The highest sequence the store has issued, or 0 for an empty store — the mark
+    /// <see cref="QueryEventsSinceAsync"/> counts from.
+    /// </summary>
+    public static async Task<long> HighWaterSequenceAsync(IEventStore store, CancellationToken token = default)
+    {
+        var all = await QueryEventsSinceAsync(store, 0, token).ConfigureAwait(false);
+        return all.Count == 0 ? 0 : all.Max(x => x.Sequence);
+    }
+
     /// <summary>Rebuild the aggregate of a <see cref="Guid"/>-identified stream from its events.</summary>
     public static Task<T?> AggregateStreamAsync<T>(IEventStore store, Guid streamId, CancellationToken token = default) where T : class
         => aggregateStreamAsync(store, events => events.AggregateStreamAsync<T>(streamId, token: token));
