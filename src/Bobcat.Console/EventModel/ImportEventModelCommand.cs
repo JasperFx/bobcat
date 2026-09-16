@@ -73,6 +73,12 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     private static CuratedModelFile? readCurated(string yaml)
     {
         var reading = CuratedModelReader.Read(yaml);
+
+        // Warnings print whether or not the file validated (issue #318). Printing them only on
+        // failure would hide every one of them, since a file carrying nothing but warnings
+        // validates — which is exactly the silence the warning exists to break.
+        foreach (var warning in reading.Warnings) System.Console.WriteLine($"⚠ {warning}");
+
         if (reading.Succeeded) return reading.File;
 
         System.Console.Error.WriteLine("The curated file did not validate:");

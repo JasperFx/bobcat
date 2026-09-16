@@ -764,7 +764,7 @@ public static class SliceScaffolder
     /// token entirely inside <see cref="writeScenarios"/> keeps the emitted <c>.feature</c> literal
     /// and readable, and needs no grammar change at all.
     /// </remarks>
-    public const string StreamIdToken = "{streamId}";
+    public const string StreamIdToken = CuratedFieldTypes.StreamIdToken;
 
     private static bool isStreamIdToken(string value)
         => value.Trim().Equals(StreamIdToken, StringComparison.OrdinalIgnoreCase);
@@ -924,21 +924,10 @@ public static class SliceScaffolder
         return fields.Select(x => (x.Value, char.ToUpperInvariant(x.Key[0]) + x.Key[1..])).ToList();
     }
 
-    private static readonly HashSet<string> KnownTypes = new(StringComparer.OrdinalIgnoreCase)
-        { "Guid", "int", "long", "bool", "string", "decimal", "double", "DateTimeOffset", "DateOnly", "TimeSpan" };
-
-    private static string inferType(string sketch)
-    {
-        // The scenario's own stream id, expanded by the feature writer (issue #235). It is always
-        // a Guid, and it must never fall through to the sample-value inference below — a literal
-        // "{streamId}" parses as nothing and would type the identity field as a string.
-        if (isStreamIdToken(sketch)) return "Guid";
-        if (KnownTypes.Contains(sketch)) return sketch is "guid" or "Guid" ? "Guid" : sketch;
-        if (Guid.TryParse(sketch, out _)) return "Guid";
-        if (bool.TryParse(sketch, out _)) return "bool";
-        if (int.TryParse(sketch, out _)) return "int";
-        if (decimal.TryParse(sketch, out _)) return "decimal";
-        if (DateTimeOffset.TryParse(sketch, out _)) return "DateTimeOffset";
-        return "string";
-    }
+    /// <summary>
+    /// The format's own vocabulary decides this, not the scaffolder (issue #318) — the reader
+    /// warns about an unrecognised declared type using the same list, and two copies of it would
+    /// be two opinions about one file.
+    /// </summary>
+    private static string inferType(string sketch) => CuratedFieldTypes.Infer(sketch);
 }

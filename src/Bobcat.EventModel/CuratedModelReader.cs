@@ -11,8 +11,18 @@ namespace Bobcat.EventModel;
 /// parsed AND validated — mirroring <c>EventModelStore.TryStore</c>'s stance that a bad push
 /// should fail loudly at the door rather than draw a blank canvas later.
 /// </summary>
-public sealed record CuratedModelReading(CuratedModelFile? File, IReadOnlyList<string> Problems)
+public sealed record CuratedModelReading(
+    CuratedModelFile? File,
+    IReadOnlyList<string> Problems,
+    IReadOnlyList<string> Warnings = null!)
 {
+    /// <summary>
+    /// Findings that do not invalidate the file. Separate from <see cref="Problems"/> on purpose:
+    /// a problem means the model cannot be used, and existing models would break if a warning
+    /// counted as one. A caller that prints only problems is silently dropping these (issue #318).
+    /// </summary>
+    public IReadOnlyList<string> Warnings { get; init; } = Warnings ?? [];
+
     public bool Succeeded => File is not null && Problems.Count == 0;
 }
 
@@ -42,7 +52,45 @@ public static class CuratedModelReader
 
         if (file is null) return new CuratedModelReading(null, ["the file was empty"]);
 
-        return new CuratedModelReading(file, Validate(file));
+        return new CuratedModelReading(file, Validate(file), Warn(file));
+    }
+
+    /// <summary>
+    /// Findings worth reporting that do not invalidate the file (issue #318).
+    /// </summary>
+    /// <remarks>
+    /// An unrecognised <c>fields:</c> type is the motivating case. A declaration names a type, and
+    /// an unknown one is silently emitted as <c>string</c> — so <c>statuses: Dictionary&lt;Guid,
+    /// string&gt;</c> became <c>public string Statuses</c>, the model saying one thing and the code
+    /// another with nothing in between saying so. A warning rather than a problem because models
+    /// relying on the fallback exist and must keep loading.
+    ///
+    /// Scenario values are deliberately not checked: there the sketch IS a sample and
+    /// <c>string</c> is the right answer.
+    /// </remarks>
+    public static IReadOnlyList<string> Warn(CuratedModelFile file)
+    {
+        var warnings = new List<string>();
+
+        foreach (var slice in file.Slices)
+        {
+            foreach (var (typeName, element) in slice.Elements)
+            {
+                foreach (var (fieldName, sketch) in element.Fields)
+                {
+                    if (CuratedFieldTypes.TryInfer(sketch, out _)) continue;
+
+                    warnings.Add(
+                        $"slice '{slice.Name}', element '{typeName}', field '{fieldName}': "
+                        + $"'{sketch}' is not a type this format knows, so it will be emitted as `string`. "
+                        + $"Known types: {string.Join(" | ", CuratedFieldTypes.Known)}. "
+                        + "There is no collection field — if a projection needs per-item state, put what "
+                        + "it needs on the event instead.");
+                }
+            }
+        }
+
+        return warnings;
     }
 
     public static IReadOnlyList<string> Validate(CuratedModelFile file)

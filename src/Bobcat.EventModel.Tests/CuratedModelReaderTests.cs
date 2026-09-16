@@ -158,3 +158,87 @@ public class CuratedModelReaderTests
         reading.Problems.Single().ShouldContain("not parseable");
     }
 }
+
+/// <summary>
+/// Issue #318: an unrecognised <c>fields:</c> type is reported, not silently turned into a string.
+/// </summary>
+/// <remarks>
+/// A declaration names a type; a scenario value is a sample. The <c>string</c> fallback is right
+/// for the second and wrong for the first, and the silence was the bug —
+/// <c>statuses: Dictionary&lt;Guid, string&gt;</c> came out as <c>public string Statuses</c> with
+/// nothing anywhere saying the model and the code had parted company.
+/// </remarks>
+public class UnrecognizedFieldTypeTests
+{
+    private const string Yaml =
+        """
+        schema: 1
+        model: CritterCrush
+        slices:
+          - name: AppointmentsQueue
+            pattern: View
+            readModels: [AppointmentsQueue]
+            elements:
+              AppointmentsQueue:
+                fields:
+                  shelterId: Guid
+                  statuses: Dictionary<Guid, string>
+                  awaitingConfirmation: int
+            specifications:
+              feature: AppointmentsQueue
+              scenarios:
+                - name: The queue counts what is waiting
+                  then:
+                    - readModel: AppointmentsQueue
+                      contains: { AwaitingConfirmation: "1", Kind: HomeCheck }
+        """;
+
+    private static CuratedModelReading reading() => CuratedModelReader.Read(Yaml);
+
+    [Fact]
+    public void an_unrecognized_declared_type_is_warned_about_but_still_loads()
+    {
+        var read = reading();
+
+        // A warning, not a problem: models relying on the fallback exist and must keep loading.
+        read.Succeeded.ShouldBeTrue();
+        read.Problems.ShouldBeEmpty();
+
+        var warning = read.Warnings.ShouldHaveSingleItem();
+        warning.ShouldContain("slice 'AppointmentsQueue'");
+        warning.ShouldContain("field 'statuses'");
+        warning.ShouldContain("Dictionary<Guid, string>");
+        warning.ShouldContain("emitted as `string`");
+    }
+
+    [Fact]
+    public void a_scenario_value_is_a_sample_and_is_never_warned_about()
+    {
+        // `Kind: HomeCheck` is a sample value that infers as string, which is correct. Only the
+        // ONE declared field is warned about — if scenario values were checked too, this model
+        // would report several and the signal would be worthless.
+        reading().Warnings.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void every_known_type_is_recognized_in_any_casing()
+    {
+        foreach (var known in CuratedFieldTypes.Known)
+        {
+            CuratedFieldTypes.TryInfer(known, out var same).ShouldBeTrue(known);
+            same.ShouldBe(known);
+
+            // Canonicalised rather than echoed: a field declared `GUID` used to be emitted
+            // verbatim as `public GUID Foo`, which does not compile.
+            CuratedFieldTypes.TryInfer(known.ToUpperInvariant(), out var shouted).ShouldBeTrue(known);
+            shouted.ShouldBe(known);
+        }
+    }
+
+    [Fact]
+    public void the_stream_id_token_is_a_guid_and_not_a_sample_string()
+    {
+        CuratedFieldTypes.TryInfer(CuratedFieldTypes.StreamIdToken, out var type).ShouldBeTrue();
+        type.ShouldBe("Guid");
+    }
+}
