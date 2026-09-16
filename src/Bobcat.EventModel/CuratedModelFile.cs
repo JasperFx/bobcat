@@ -191,6 +191,33 @@ public sealed class CuratedGiven
     /// </para>
     /// </remarks>
     public string? Stream { get; set; }
+
+    /// <summary>
+    /// The aggregate this event belongs to, when it is not the slice's own (issue #320). Omit for
+    /// the ordinary case.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The shipped Gherkin has always been able to say this — the aggregate is in the step text,
+    /// so <c>And no events for VolunteerApplication "…"</c> re-points to another aggregate as
+    /// easily as <see cref="Stream"/> re-points to another stream of the same one. The curated
+    /// format could not, so a scenario the board drew was unsayable here.
+    /// </para>
+    /// <para>
+    /// <b>Why that mattered.</b> A rule spanning two aggregates — "only an approved volunteer may
+    /// accept an assignment" — needs both arranged in one scenario. Without this every arranged
+    /// event landed on the acting slice's own aggregate, which for a multi-stream projection
+    /// happens to WORK, because a projection routes by its identity rule and does not care what
+    /// the stream is typed as. Worse than failing: the model then says something untrue and the
+    /// specs pass.
+    /// </para>
+    /// <para>
+    /// Composes with <see cref="Stream"/> — this says which type, that says which instance of it.
+    /// Both together is a named second stream of another aggregate. The act still runs against the
+    /// scenario's own stream, and so does <c>{streamId}</c>.
+    /// </para>
+    /// </remarks>
+    public string? Aggregate { get; set; }
 }
 
 public sealed class CuratedWhen

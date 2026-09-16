@@ -90,6 +90,27 @@ public static class CuratedModelReader
             }
         }
 
+        // An arranged event pointed at an aggregate no slice declares (issue #320). A warning and
+        // not a problem: the step it scaffolds is still valid Gherkin and the type may exist in
+        // code the model has not caught up with — but far more often it is a typo, and the
+        // scaffolded arrange then silently addresses a stream of a type nothing else mentions.
+        var declared = file.Slices.SelectMany(x => x.Aggregates).ToHashSet(StringComparer.Ordinal);
+        foreach (var slice in file.Slices)
+        {
+            foreach (var scenario in slice.Specifications?.Scenarios ?? [])
+            {
+                foreach (var given in scenario.Given)
+                {
+                    if (given.Aggregate is null || declared.Contains(given.Aggregate)) continue;
+
+                    warnings.Add(
+                        $"slice '{slice.Name}', scenario '{scenario.Name}': arranged event "
+                        + $"'{given.Event}' names aggregate '{given.Aggregate}', which no slice in "
+                        + "this model declares in `aggregates:`.");
+                }
+            }
+        }
+
         return warnings;
     }
 
