@@ -473,13 +473,24 @@ public static class SliceScaffolder
     /// skips one produces a dangling type, and a dangling type fails the whole project (issue #226).
     /// </summary>
     public static IReadOnlyDictionary<string, string> ScaffoldAll(CuratedModelFile model)
+        => ScaffoldAll(model, SpecOwnershipPlan.None);
+
+    /// <summary>
+    /// Every file a model scaffolds into, with the spec-ownership manifest deciding what each
+    /// slice's specification looks like (issue #324 part 4). A slice the manifest takes out of the
+    /// Gherkin lane contributes no scenarios to a <c>.feature</c> and gets a skeleton instead — or,
+    /// for an existing suite adopting the slice, nothing at all.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ScaffoldAll(
+        CuratedModelFile model, SpecOwnershipPlan ownership)
     {
         var files = new Dictionary<string, string>();
 
         foreach (var pair in model.Slices.SelectMany(slice => Scaffold(model, slice))
                      .Concat(ScaffoldAggregates(model))
                      .Concat(ScaffoldTriggerContracts(model))
-                     .Concat(ScaffoldFeatures(model)))
+                     .Concat(ScaffoldFeatures(model, arrangements: false, ownership))
+                     .Concat(SpecSkeletons.Scaffold(model, ownership)))
         {
             files[pair.Key] = pair.Value;
         }
@@ -498,8 +509,22 @@ public static class SliceScaffolder
     /// <see cref="FindRepeatedHistory"/>.
     /// </summary>
     public static IReadOnlyDictionary<string, string> ScaffoldFeatures(CuratedModelFile model, bool arrangements)
+        => ScaffoldFeatures(model, arrangements, SpecOwnershipPlan.None);
+
+    /// <summary>
+    /// The features, with the spec-ownership manifest removing the slices specified somewhere else
+    /// (issue #324 part 4).
+    /// </summary>
+    /// <remarks>
+    /// The filter is per SLICE and not per feature, which matters because a feature legally spans
+    /// slices: dropping the whole file would take a sibling slice's scenarios with it, and dropping
+    /// nothing would leave two specs claiming one identity. A group left with no slices writes no
+    /// file, which is how a single-slice feature disappears cleanly.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> ScaffoldFeatures(
+        CuratedModelFile model, bool arrangements, SpecOwnershipPlan ownership)
     {
-        return featureGroups(model).ToDictionary(
+        return featureGroups(model, ownership).ToDictionary(
             group => $"Features/{group.Name}.feature",
             group => feature(group.Name, group.Plans, arrangements ? historyFor(group.Plans) : HistoryArrangementPlan.None));
     }
@@ -510,19 +535,26 @@ public static class SliceScaffolder
     /// feature does — in which case there is nothing to ask the user.
     /// </summary>
     public static IReadOnlyList<RepeatedHistory> FindRepeatedHistory(CuratedModelFile model)
-        => featureGroups(model)
+        => FindRepeatedHistory(model, SpecOwnershipPlan.None);
+
+    /// <inheritdoc cref="FindRepeatedHistory(CuratedModelFile)"/>
+    public static IReadOnlyList<RepeatedHistory> FindRepeatedHistory(
+        CuratedModelFile model, SpecOwnershipPlan ownership)
+        => featureGroups(model, ownership)
             .Select(group => (group.Name, History: historyFor(group.Plans)))
             .Where(x => x.History.Arrangements.Count > 0)
             .Select(x => new RepeatedHistory(x.Name, x.History.Arrangements.Select(a => a.Name).ToList(), x.History.ScenariosUsing))
             .ToList();
 
-    private static IEnumerable<(string Name, IReadOnlyList<SlicePlan> Plans)> featureGroups(CuratedModelFile model)
+    private static IEnumerable<(string Name, IReadOnlyList<SlicePlan> Plans)> featureGroups(
+        CuratedModelFile model, SpecOwnershipPlan ownership)
     {
         // A feature legally spans slices (and a slice can span features) — group scenarios by
         // the feature half of their identity, or the last slice to write wins and scenarios
         // silently vanish. Found the hard way on the CritterCrush corpus.
         return model.Slices
             .Where(x => x.Specifications is { Scenarios.Count: > 0 })
+            .Where(x => ownership.ScaffoldsFeature(x.Name))
             .GroupBy(x => x.Specifications!.Feature ?? x.Name)
             .Select(group => (group.Key, (IReadOnlyList<SlicePlan>)group.Select(slice => PlanFor(model, slice)).ToList()));
     }
