@@ -49,7 +49,10 @@ public class SpecOwnershipScaffoldingTests
                 Domain = "Scheduling",
                 Aggregates = ["Appointment"],
                 Events = ["HomeCheckAppointmentProposed"],
-                Trigger = new CuratedTrigger { Kind = "MessageHandler", Label = "an assignment is accepted" },
+                // The label IS the event type, which is what CritterCrush's real model does and what
+                // SliceScaffolder.TriggerFor reads. Prose here would silently make the act a type
+                // named after the sentence.
+                Trigger = new CuratedTrigger { Kind = "MessageHandler", Label = "HomeCheckAssignmentAccepted" },
                 Specifications = new CuratedSpecifications
                 {
                     Feature = "BookingAppointments",
@@ -256,6 +259,53 @@ public class SpecOwnershipScaffoldingTests
 
         skeleton.ShouldContain("publishes a DIFFERENT identity");
         skeleton.ShouldContain("public void an_assignment_once_accepted_books_a_visit()");
+    }
+
+    [Fact]
+    public void the_skeleton_names_the_act_the_code_actually_takes_not_the_one_the_model_writes()
+    {
+        // An automation's curated `when:` names the SLICE, but the handler takes the trigger event
+        // off the bus. Reading the model raw made the projected lane describe the act differently
+        // from the .feature the Gherkin lane writes for the same scenario — issue #231's defect
+        // (two halves deriving one decision separately) in a new place. Found by running the real
+        // CritterCrush model through the scaffolder.
+        var files = SpecSkeletons.Scaffold(
+            model(), projected("ProposeHomeCheckAppointment", "CritterCrush.Specs.ProposalSpecs"));
+
+        var skeleton = files["Specs/ProposalSpecs.cs"];
+
+        skeleton.ShouldContain("// When HomeCheckAssignmentAccepted is received");
+        skeleton.ShouldNotContain("// When ProposeHomeCheckAppointment");
+    }
+
+    [Fact]
+    public void an_http_slice_names_its_route_because_that_is_what_the_emitted_code_answers_on()
+    {
+        var files = SpecSkeletons.Scaffold(
+            model(), projected("ConfirmAppointment", "CritterCrush.Specs.BookingSpecs"));
+
+        files["Specs/BookingSpecs.cs"].ShouldContain("is posted to \"/");
+    }
+
+    [Fact]
+    public void a_collapsed_endpoint_refuses_with_a_400_and_not_with_a_thrown_validation_failure()
+    {
+        // The two refusal forms are not interchangeable, and emitting the wrong one is not a
+        // compile error — it costs a permanently red scenario instead.
+        var refusing = model();
+        refusing.Slices[0].Specifications!.Scenarios.Add(new CuratedScenario
+        {
+            Name = "a cancelled appointment is not confirmed",
+            When = new CuratedWhen { Command = "ConfirmAppointment" },
+            Then = [new CuratedThen { ValidationFails = "the appointment was cancelled" }]
+        });
+
+        var skeleton = SpecSkeletons.Scaffold(
+            refusing, projected("ConfirmAppointment", "CritterCrush.Specs.BookingSpecs"))
+            ["Specs/BookingSpecs.cs"];
+
+        skeleton.ShouldContain("// Then the response is 400");
+        skeleton.ShouldNotContain("// Then validation fails with");
     }
 
     [Fact]

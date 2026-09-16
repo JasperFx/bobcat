@@ -46,9 +46,11 @@ public static class SpecSkeletons
             var typeName = TypeNameOf(group.Key);
             var ns = NamespaceOf(group.Key) ?? $"{model.Namespace ?? model.Model}.Specs";
 
+            var plans = slices.Select(x => SliceScaffolder.PlanFor(model, x)).ToList();
+
             files[$"Specs/{typeName}.cs"] = authoring == SpecAuthoring.CodeFirst
-                ? codeFirst(ns, typeName, entries, slices)
-                : projected(ns, typeName, entries, slices);
+                ? codeFirst(ns, typeName, entries, slices, plans)
+                : projected(ns, typeName, entries, slices, plans);
         }
 
         return files;
@@ -84,7 +86,8 @@ public static class SpecSkeletons
             : $"SliceName = \"{slice.Name}\"";
 
     private static string projected(
-        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices)
+        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices,
+        IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();
         var single = entries.Count == 1;
@@ -128,7 +131,7 @@ public static class SpecSkeletons
 
                 writer.AppendLine($"    public void {MethodNameFor(scenario.Name)}()");
                 writer.AppendLine("    {");
-                foreach (var line in StepSentences(slice, scenario)) writer.AppendLine($"        // {line}");
+                foreach (var line in StepSentences(plans[i], scenario)) writer.AppendLine($"        // {line}");
                 writer.AppendLine();
                 writer.AppendLine($"        throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
                 writer.AppendLine("    }");
@@ -140,7 +143,8 @@ public static class SpecSkeletons
     }
 
     private static string codeFirst(
-        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices)
+        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices,
+        IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();
 
@@ -177,7 +181,7 @@ public static class SpecSkeletons
                 writer.AppendLine($"    public void {MethodNameFor(scenario.Name)}()");
                 writer.AppendLine("    {");
                 writer.AppendLine("        // Declare the steps below and delete the throw — the shape is:");
-                foreach (var line in StepSentences(slice, scenario)) writer.AppendLine($"        //   {line}");
+                foreach (var line in StepSentences(plans[i], scenario)) writer.AppendLine($"        //   {line}");
                 writer.AppendLine($"        throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
                 writer.AppendLine("    }");
             }
@@ -195,7 +199,7 @@ public static class SpecSkeletons
     /// them in — and a table flattened into prose across several comment lines would read as
     /// several steps.
     /// </summary>
-    public static IEnumerable<string> StepSentences(CuratedSlice slice, CuratedScenario scenario)
+    public static IEnumerable<string> StepSentences(SlicePlan plan, CuratedScenario scenario)
     {
         foreach (var given in scenario.Given)
         {
@@ -203,13 +207,23 @@ public static class SpecSkeletons
             yield return $"Given {given.Event}{where}{values(given.With)}";
         }
 
-        if (scenario.When is { } when) yield return $"When {when.Command}{values(when.With)}";
+        // Through the PLAN, never off the curated `when:` directly. An automation's curated act
+        // names the slice, but the code it describes takes the TRIGGER EVENT off the bus — and a
+        // collapsed endpoint takes a POST at a route. Reading the model raw here made the projected
+        // lane describe the same act differently from the .feature the Gherkin lane writes for it,
+        // which is issue #231's defect in a new place: two halves deriving one decision separately.
+        if (scenario.When is { } when) yield return $"{plan.ActStep}{values(when.With)}";
 
         foreach (var then in scenario.Then)
         {
             if (then.Event is { } emitted) yield return $"Then {emitted} is emitted{values(then.With)}";
             else if (then.ReadModel is { } readModel) yield return $"Then the {readModel} read model contains{values(then.Contains)}";
-            else if (then.ValidationFails is { } reason) yield return $"Then validation fails with \"{reason}\"";
+            else if (then.ValidationFails is { } reason)
+            {
+                // Same rule, and not interchangeable: a bus-dispatched command refuses by throwing,
+                // a collapsed endpoint refuses with ProblemDetails and a 400.
+                foreach (var step in plan.RefusalSteps(reason)) yield return step;
+            }
         }
     }
 
