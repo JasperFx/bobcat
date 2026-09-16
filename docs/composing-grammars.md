@@ -75,6 +75,33 @@ steps publish the `ScenarioStream` being arranged, and every store assertion rea
 capture — which is what lets a *different* grammar's act feed `Then {event} is emitted`
 unchanged.
 
+### What "the events the act appended" means when no stream was arranged (issue #319)
+
+With a `ScenarioStream` published, it is that stream's delta across the act: fetch before, fetch
+after, take the tail. That is the right answer whenever the scenario named a stream.
+
+A slice whose act **creates** a stream has no name to give — the id is the handler's to mint, which
+is the ordinary shape for an automation triggered by an upstream flow. That case used to yield the
+empty list, so `Then {event} is emitted` reported
+
+```
+Expected a LedgerRegistered event, but the emitted events were: []
+```
+
+while the store held a complete stream. The message reads as "the handler did nothing", which is
+the most misleading thing it could have said, and it made a whole slice shape unspecifiable: the
+only way through was to make the handler derive its stream id from the act's payload so the
+scenario could name it in advance — a *test harness* dictating a *design* decision.
+
+So with no stream bracketed, the appended events are whatever the store issued during the act,
+wherever it put them: a sequence floor taken before, queried after. Two whole-store reads, paid
+only by the case whose alternative was an assertion that could not fail. Suites with no event
+store at all — the message-only and HTTP lanes — take neither, and still see the empty list.
+
+One consequence worth knowing: `Then no events are emitted` in a scenario that arranges no stream
+used to be vacuously true. It now means what it says.
+
+
 ## The document lane: `DocumentGrammars`
 
 The shipped Critter Stack vocabulary assumed event sourcing. Measured on a real document-backed

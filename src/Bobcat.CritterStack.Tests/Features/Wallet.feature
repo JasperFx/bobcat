@@ -5,6 +5,20 @@ Feature: Wallet
   # Written ONLY in shipped Critter Stack grammar — no fixture-specific steps exist.
   # {aggregate}/{command}/{event}/{readmodel}/{message} resolve to the domain types by simple name.
 
+  # Issue #319: no `Given no events for …` anywhere, because the handler mints the stream id and
+  # the scenario has nothing to name. Before #319 this could not be written: with no stream
+  # bracketed, "the events the act appended" was the empty list, so `Then … is emitted` reported
+  # "the emitted events were: []" while the store held a complete stream — a message that reads as
+  # "the handler did nothing". A sequence floor taken before the act answers it instead.
+  @slice:RegisterLedger @pattern:Automation
+  Scenario: A slice that mints its own stream id can still assert what it emitted
+    When RegisterLedger is received
+      | Owner |
+      | Ada   |
+    Then LedgerRegistered is emitted
+      | Owner |
+      | Ada   |
+
   @slice:OpenWallet
   Scenario: Opening a wallet emits the opened event and starts an empty balance
     Given no events for Wallet "11111111-1111-1111-1111-111111111111"

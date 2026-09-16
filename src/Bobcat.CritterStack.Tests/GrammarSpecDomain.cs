@@ -145,6 +145,36 @@ public class DebitWalletHandler
 /// steps of its own: every step in <c>Wallet.feature</c> is the shipped grammar inherited from
 /// <see cref="CritterStackFixture"/>, discovered from the referenced assembly's metadata (issue #104).
 /// </summary>
+/// <summary>
+/// Issue #319: a slice whose act CREATES a stream whose id the scenario cannot know. The handler
+/// mints it, which is the ordinary shape for an automation triggered by an upstream flow — and
+/// until #319 it could not be specified at all, because every assertion read the one stream the
+/// scenario had named and there was no name to give.
+/// </summary>
+public record RegisterLedger(string Owner);
+
+public record LedgerRegistered(Guid LedgerId, string Owner);
+
+public class Ledger
+{
+    public Guid Id { get; set; }
+    public string Owner { get; set; } = string.Empty;
+}
+
+public class RegisterLedgerHandler
+{
+    public static async Task Handle(RegisterLedger command, IDocumentStore store)
+    {
+        // The id is the handler's, deliberately. A caller-supplied one (see OpenWallet) is the
+        // easy case and proves nothing about #319.
+        var id = Guid.NewGuid();
+
+        await using var session = store.LightweightSession();
+        session.Events.StartStream<Ledger>(id, new LedgerRegistered(id, command.Owner));
+        await session.SaveChangesAsync();
+    }
+}
+
 [FixtureTitle("Wallet")]
 public class WalletFixture : CritterStackFixture;
 
