@@ -81,8 +81,8 @@ public class ScenarioTriggerTests
         var lines = linesOf(featureFor("Q", "Q", "Proposals", "Confirmations"));
 
         lines.ShouldNotContain(x => x.StartsWith("@chapter:"));
-        lines.ShouldContain("  @slice:ProposeAppointment @chapter:Proposals");
-        lines.ShouldContain("  @slice:ConfirmAppointment @chapter:Confirmations");
+        lines.ShouldContain("  @slice:ProposeAppointment @pattern:Command @chapter:Proposals");
+        lines.ShouldContain("  @slice:ConfirmAppointment @pattern:Command @chapter:Confirmations");
     }
 
     [Fact]

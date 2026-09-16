@@ -629,9 +629,15 @@ public static class SliceScaffolder
             var streamId = streamIdFor(scenario.Name);
 
             writer.BlankLine();
-            writer.WriteLine(chapterPerScenario && slice.Chapter is { } chapter
-                ? $"  @slice:{slice.Name} @chapter:{chapter}"
-                : $"  @slice:{slice.Name}");
+
+            // The model's pattern travels with the slice (issue #323). Step text cannot express
+            // Automation or Translation — a bus command and an automation's trigger event are the
+            // same sentence — so without this the spec source inferred Command for every
+            // automation and disagreed with this very file, permanently and unresolvably.
+            var tags = $"  @slice:{slice.Name}";
+            if (slice.Pattern is { } declaredPattern) tags += $" @pattern:{declaredPattern}";
+            if (chapterPerScenario && slice.Chapter is { } chapter) tags += $" @chapter:{chapter}";
+            writer.WriteLine(tags);
             writer.WriteLine($"  Scenario: {scenario.Name}");
             if (triggerPerScenario && slice.Trigger?.Label is { } label) writer.WriteLine($"    Triggered by {label}");
 

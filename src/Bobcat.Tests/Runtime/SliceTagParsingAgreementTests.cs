@@ -29,6 +29,7 @@ public class SliceTagParsingAgreementTests
         GeneratorSliceTags.SlicePrefix.ShouldBe(SliceTags.SlicePrefix);
         GeneratorSliceTags.DomainPrefix.ShouldBe(SliceTags.DomainPrefix);
         GeneratorSliceTags.ChapterPrefix.ShouldBe(SliceTags.ChapterPrefix);
+        GeneratorSliceTags.PatternPrefix.ShouldBe(SliceTags.PatternPrefix);
         GeneratorSliceTags.TriggeredByPrefix.ShouldBe(SliceTags.TriggeredByPrefix);
     }
 
@@ -52,6 +53,11 @@ public class SliceTagParsingAgreementTests
             data.Add(["retry(2)", "isolated", "slice:Tagged"]);
             // First wins when a tag is repeated.
             data.Add(["slice:First", "slice:Second"]);
+            // Issue #323's tag, through the same drift-prone shapes as the others.
+            data.Add(["pattern:Automation"]);
+            data.Add(["PATTERN:  Translation  "]);
+            data.Add(["pattern:"]);
+            data.Add(["slice:ProposeHomeCheckAppointment", "pattern:Automation", "domain:Scheduling"]);
             return data;
         }
     }
@@ -63,6 +69,7 @@ public class SliceTagParsingAgreementTests
         GeneratorSliceTags.Slice(tags).ShouldBe(SliceTags.Slice(tags));
         GeneratorSliceTags.Domain(tags).ShouldBe(SliceTags.Domain(tags));
         GeneratorSliceTags.Chapter(tags).ShouldBe(SliceTags.Chapter(tags));
+        GeneratorSliceTags.Pattern(tags).ShouldBe(SliceTags.Pattern(tags));
     }
 
     public static TheoryData<string?> Descriptions

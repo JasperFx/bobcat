@@ -66,6 +66,12 @@ internal static class EventModelEmitter
         /// grouping every Event Modeling tool zooms into. Orthogonal to <see cref="Domain"/>.
         /// </summary>
         public string? Chapter;
+
+        /// <summary>
+        /// The pattern the model stated via <c>@pattern:</c> (issue #323), or null when the feature
+        /// was hand-written and only inference is available.
+        /// </summary>
+        public string? DeclaredPattern;
         public string? TriggerLabel;
         public string ClassName = "";
         public readonly List<string> Commands = new();
@@ -162,6 +168,7 @@ internal static class EventModelEmitter
 
             slice.Domain ??= GeneratorSliceTags.Domain(tags);
             slice.Chapter ??= GeneratorSliceTags.Chapter(tags);
+            slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(tags);
             // A slice is scenario-level, and so is its trigger (issue #258). A feature-level
             // "Triggered by" used to be stamped on every slice the feature held, which put nine
             // wrong labels on the CritterCrush canvas from one line. A scenario's own line wins,
@@ -240,6 +247,7 @@ internal static class EventModelEmitter
 
             slice.Domain ??= GeneratorSliceTags.Domain(scenario.Tags);
             slice.Chapter ??= GeneratorSliceTags.Chapter(scenario.Tags);
+            slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(scenario.Tags);
             slice.ActCommand ??= scenario.ActCommand;
 
             var resolved = new List<string>();
@@ -579,13 +587,21 @@ internal static class EventModelEmitter
     private static readonly List<string> EmptyTypes = new();
 
     /// <summary>
-    /// Which of the four canonical patterns this is, when Gherkin alone can tell. A slice that
-    /// receives a command is a Command slice; one that only asserts on a read model is a View.
-    /// Automation and Translation need a trigger Gherkin does not express, so they stay null
-    /// rather than being guessed — a wrong pattern miscolours the canvas, a null one does not.
+    /// Which of the four canonical patterns this is. A <c>@pattern:</c> tag settles it outright,
+    /// which is how a scaffolded feature carries the curated model's answer through.
+    ///
+    /// Failing that, inference: a slice that receives a command is a Command slice; one that only
+    /// asserts on a read model is a View. Automation and Translation need a trigger step text does
+    /// not express, so they stay null rather than being guessed — a wrong pattern miscolours the
+    /// canvas, a null one does not.
     /// </summary>
     private static string? patternOf(SliceModel slice)
     {
+        // The model's own word, when it gave one (issue #323). Inference below cannot reach
+        // Automation or Translation, and guessing Command for an automation produced a
+        // SourceDisagreement against the curated file that no change to either could resolve.
+        if (slice.DeclaredPattern is { } declared) return declared;
+
         if (slice.Commands.Count > 0) return "Command";
         if (slice.ReadModels.Count > 0) return "View";
         return null;
