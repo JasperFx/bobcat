@@ -50,6 +50,13 @@ public class SliceScaffolderTests
               feature: Swiping
               scenarios:
                 - name: A mutual like produces a match
+                  # The first like, which a MUTUAL like requires. Before issue #321 this fixture
+                  # got away without it: DogLiked's fields are declared on SwipeOnDog, so the
+                  # empty-field-list arm of CreatesTheStream fired and returned the right verdict
+                  # for the wrong reason. With the fields visible, "no history arranged and no
+                  # identifying field" correctly reads as a CREATING slice — so the arrangement
+                  # this scenario always needed is now what makes it a computed identity.
+                  given: [{ event: DogLiked }]
                   then: [{ event: MutualMatchDetected }]
           - name: MatchList
             pattern: View

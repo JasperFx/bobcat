@@ -102,7 +102,7 @@ public static class SliceScaffolder
         // nothing about the slice, where every other unfilled slice fails on its own named TODO.
         var aggregate = AggregateFor(slice);
         var actType = slice.Pattern == "Automation" ? TriggerFor(slice) : slice.Command ?? slice.Name;
-        var actFields = fieldsFor(slice, actType);
+        var actFields = fieldsFor(model, slice, actType);
 
         // Positive evidence only. A model that says nothing about the act's fields says nothing
         // about this either, and "we do not know" must not become "it creates a stream": a wrongly
@@ -170,7 +170,7 @@ public static class SliceScaffolder
         var declaring = model.Slices.FirstOrDefault(x => x.Events.Contains(eventName));
         if (declaring is null) return null;
 
-        var guids = fieldsFor(declaring, eventName).Where(x => x.Type == "Guid").ToList();
+        var guids = fieldsFor(model, declaring, eventName).Where(x => x.Type == "Guid").ToList();
         return (guids.FirstOrDefault(x => x.Name.EndsWith("Id", StringComparison.Ordinal)) is { Name: { } named }
             ? named
             : guids.Select(x => x.Name).FirstOrDefault());
@@ -226,7 +226,7 @@ public static class SliceScaffolder
             case "View":
                 files[$"{domain}/{slice.Name}.cs"] =
                     withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice),
-                        fieldsFor(slice, ReadModelFor(slice)))));
+                        fieldsFor(model, slice, ReadModelFor(slice)))));
                 break;
         }
 
@@ -316,27 +316,27 @@ public static class SliceScaffolder
         // first slice to declare an event emits its record — see declaresEventRecord.
         foreach (var @event in slice.Events.Where(x => declaresEventRecord(model, slice, x)))
         {
-            frames.Add(new RecordFrame(@event, fieldsFor(slice, @event),
+            frames.Add(new RecordFrame(@event, fieldsFor(model, slice, @event),
                 slice.Elements.GetValueOrDefault(@event)?.Description));
         }
 
         if (collapsed)
         {
-            frames.Add(new RecordFrame(command, fieldsFor(slice, command)));
+            frames.Add(new RecordFrame(command, fieldsFor(model, slice, command)));
             if (!translation) frames.Add(new RecordFrame($"{slice.Name}Response", []));
         }
         else if (slice.Pattern == "Command")
         {
             // The handler's parameter type, whether the model named the command or the slice
             // name stood in for it — either way the record has to exist.
-            frames.Add(new RecordFrame(command, fieldsFor(slice, command)));
+            frames.Add(new RecordFrame(command, fieldsFor(model, slice, command)));
         }
 
         // A cascaded message another slice handles is that slice's record; one leaving the
         // system belongs to nobody else, so the publisher's scaffold owns the contract.
         foreach (var message in visibility.Cascaded.Where(x => x.LeavesTheSystem))
         {
-            frames.Add(new RecordFrame(message.Name, fieldsFor(slice, message.Name),
+            frames.Add(new RecordFrame(message.Name, fieldsFor(model, slice, message.Name),
                 slice.Elements.GetValueOrDefault(message.Name)?.Description));
         }
 
@@ -407,7 +407,7 @@ public static class SliceScaffolder
             // Every event any declaring slice emits, in model order, once.
             var events = slices.SelectMany(x => x.Events).Distinct(StringComparer.Ordinal).ToList();
             var fields = slices
-                .SelectMany(x => fieldsFor(x, group.Key))
+                .SelectMany(x => fieldsFor(model, x, group.Key))
                 .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(x => x.First())
                 .ToList();
@@ -451,7 +451,7 @@ public static class SliceScaffolder
                          ?? declaring[0].Origin!;
 
             var fields = declaring
-                .SelectMany(x => fieldsFor(x.Slice, group.Key))
+                .SelectMany(x => fieldsFor(model, x.Slice, group.Key))
                 .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(x => x.First())
                 .ToList();
@@ -863,11 +863,27 @@ public static class SliceScaffolder
     /// Field synthesis from the model's hints: element field sketches first, then columns the
     /// scenarios exercise. Values that name a type are taken as one; sample values are inferred.
     /// </summary>
-    private static List<(string Type, string Name)> fieldsFor(CuratedSlice slice, string typeName)
+    /// <remarks>
+    /// The slice's own declaration wins, and then the model is asked (issue #321). Per-slice
+    /// resolution alone is right for generating a <em>record</em> — the emitting slice owns its
+    /// events' shapes — but wrong for a decision about a type the slice does not own. An
+    /// Automation's trigger is declared elsewhere by definition: either by the slice that emits it
+    /// or, when it arrives from outside, by the automation's own inbound contract. So the moment a
+    /// trigger becomes an in-model emission, a slice-local lookup goes empty and
+    /// <see cref="CreatesTheStream"/> reads that silence as an answer.
+    ///
+    /// Finding another slice's fields is not declaring them: record ownership is decided by
+    /// <c>events:</c> and by <see cref="ScaffoldTriggerContracts"/>, neither of which this touches.
+    /// </remarks>
+    private static List<(string Type, string Name)> fieldsFor(CuratedModelFile model, CuratedSlice slice, string typeName)
     {
         var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        if (slice.Elements.TryGetValue(typeName, out var element))
+        var element = slice.Elements.TryGetValue(typeName, out var own)
+            ? own
+            : model.Slices.FirstOrDefault(x => x.Elements.ContainsKey(typeName))?.Elements[typeName];
+
+        if (element is not null)
         {
             foreach (var (name, sketch) in element.Fields)
             {
