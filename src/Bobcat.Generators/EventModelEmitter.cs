@@ -272,6 +272,56 @@ internal static class EventModelEmitter
     }
 
     /// <summary>
+    /// Fold a projected test's <c>[BobcatSlice]</c> bindings into <paramref name="slices"/>
+    /// (issue #324) — the xUnit / TUnit lane reaching the Event Model at last.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Binding only, and deliberately no roles.</b> The other two overloads read roles from type
+    /// captures in step text; a marker-comment step is free prose with none to read, and that is
+    /// the right outcome rather than a limitation. The curated model states the roles on the
+    /// Declared rung and the code states them on Derived — a third opinion from a test could only
+    /// manufacture a <c>SourceDisagreement</c> nobody can act on (issue #323 is what that costs).
+    /// What a projected test contributes is EVIDENCE: a bound <c>{Feature}/{Scenario}</c> identity,
+    /// which is what turns the slice from unbound to observed and lets a spec-identity gate join.
+    /// </para>
+    /// <para>
+    /// A method-level binding REPLACES the class's, which is how one test class covers several
+    /// slices — a rebinding is a whole binding, so a test wanting the class's domain as well says
+    /// so. An unbound test contributes nothing at all; it still renders, exactly as before.
+    /// </para>
+    /// </remarks>
+    public static void Collect(MarkerCommentSpecs.MarkedSpec spec, Dictionary<string, SliceModel> slices)
+    {
+        foreach (var scenario in spec.Scenarios)
+        {
+            // A method-level binding REPLACES the class's rather than overriding part of it. The
+            // first cut concatenated them, so a method rebinding to another slice dragged the
+            // class's Domain/Chapter/Pattern along and stamped them on a slice that already had
+            // its own answers — CreditWallet came out of Wallet.feature as a Command slice with no
+            // chapter and was relabelled an Automation in "Operations". A rebinding is a whole
+            // binding: if a test wants the class's domain too, it says so.
+            var tags = scenario.Tags.Count > 0 ? scenario.Tags : spec.Tags;
+
+            var declared = GeneratorSliceTags.Slice(tags);
+            if (declared == null) continue;
+
+            if (!slices.TryGetValue(declared, out var slice))
+            {
+                slice = new SliceModel { Name = declared, ClassName = CodeEmitter.SanitizeIdentifier(declared) };
+                slices[declared] = slice;
+            }
+
+            slice.Domain ??= GeneratorSliceTags.Domain(tags);
+            slice.Chapter ??= GeneratorSliceTags.Chapter(tags);
+            slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(tags);
+
+            // No roles: the identity is the whole contribution.
+            slice.Specifications.Add(($"{spec.FeatureTitle}/{scenario.Title}", new List<string>()));
+        }
+    }
+
+    /// <summary>
     /// The command this scenario is actually specifying: the <em>last</em> <c>{command}</c>
     /// captured on a <c>When</c> step.
     /// </summary>

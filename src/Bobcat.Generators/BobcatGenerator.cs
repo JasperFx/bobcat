@@ -84,19 +84,24 @@ public class BobcatGenerator : IIncrementalGenerator
         // 4. Combine features + fixtures + table grammars + code-first specs + the compilation
         //    (type-name captures such as {aggregate} are resolved against it — see
         //    resolveTypeCaptures).
+        //    Marker-comment specs join it too (issue #324): they are emitted on their own branch
+        //    above for the runtime narrative, but their [BobcatSlice] binding has to reach the
+        //    Event Model, and that is assembled here.
         var combined = featureFiles.Collect()
             .Combine(fixtureClasses.Collect())
             .Combine(tableGrammars.Collect())
             .Combine(specifications.Collect())
+            .Combine(markedSpecs.Collect())
             .Combine(context.CompilationProvider);
 
         // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left.Left.Left.Left;
-            var fixtures = pair.Left.Left.Left.Right;
-            var grammars = pair.Left.Left.Right;
-            var specs = pair.Left.Right;
+            var features = pair.Left.Left.Left.Left.Left;
+            var fixtures = pair.Left.Left.Left.Left.Right;
+            var grammars = pair.Left.Left.Left.Right;
+            var specs = pair.Left.Left.Right;
+            var marked = pair.Left.Right;
             var resolver = new TypeNameResolver(pair.Right);
 
             // Issue #106. Only emit Event Modeling descriptors where the consuming compilation can
@@ -105,6 +110,20 @@ public class BobcatGenerator : IIncrementalGenerator
             // referenced" and "the shape emitted against exists" are different questions.
             var canEmitEventModel = pair.Right.GetTypeByMetadataName(EventModelEmitter.GateTypeName) != null;
             var slices = new Dictionary<string, EventModelEmitter.SliceModel>();
+
+            // Reported whether or not this compilation can host an Event Model descriptor: a
+            // [BobcatSlice] that names two slices, or names one as a string where a type exists, is
+            // wrong either way (issue #324).
+            foreach (var spec in marked)
+            {
+                foreach (var problem in spec.Problems)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType,
+                        problem.Where ?? Microsoft.CodeAnalysis.Location.None,
+                        problem.Message));
+                }
+            }
 
             foreach (var fixture in fixtures)
             {
@@ -184,6 +203,7 @@ public class BobcatGenerator : IIncrementalGenerator
             if (canEmitEventModel)
             {
                 foreach (var spec in specs) EventModelEmitter.Collect(spec, slices);
+                foreach (var spec in marked) EventModelEmitter.Collect(spec, slices);
             }
 
             // One IEventModelDefinitionSource per assembly, after every feature has contributed.
@@ -1738,6 +1758,22 @@ internal static class Diagnostics
         "Given step says 'the arrangement \"<name>\"'; it never runs as a test of its own.",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor SliceBindingConflict = new(
+        "BOBCAT023",
+        "[BobcatSlice] names two different slices",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor PreferSliceType = new(
+        "BOBCAT024",
+        "Prefer SliceType over a literal SliceName",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor HookMustBeInstance = new(

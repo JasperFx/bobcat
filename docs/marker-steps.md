@@ -181,6 +181,70 @@ announcing that it ran.
 
 With no viewer listening the publisher is null and the whole thing costs a few strings per test.
 
+## Binding a projected test to a slice — `[BobcatSlice]` (issue #324)
+
+`[BobcatFeature]` makes a projected test *readable*. It said nothing about **which slice the test is
+evidence for**, so the slice stayed unbound on the Event Model however green the test was, and no
+spec-identity gate could join it. `[BobcatSlice]` closes that:
+
+```csharp
+[BobcatFeature("Booking appointments")]
+[BobcatSlice(SliceType = typeof(ConfirmAppointment), Domain = "Scheduling", Chapter = "BookingAppointments")]
+public class BookingSpecs
+{
+    [Fact, BobcatScenario]
+    public async Task a_proposed_appointment_is_confirmed() { /* … */ }
+
+    // One class, several slices: a method-level binding REPLACES the class's.
+    [Fact, BobcatScenario]
+    [BobcatSlice(SliceName = "ProposeHomeCheckAppointment", Pattern = "Automation")]
+    public async Task an_accepted_assignment_proposes_a_visit() { /* … */ }
+}
+```
+
+### Binding only — never roles
+
+This says *which* slice. It never says what the slice's command, events or read models are. The
+curated model states those on the **Declared** rung and the code states them on **Derived**; a third
+opinion from a test can only manufacture a `SourceDisagreement` nobody can act on — see issue #323
+for what that costs when it happens. A projected test's contribution is **evidence**: a bound
+`{Feature}/{Scenario}` identity, which is what turns the slice from unbound to observed.
+
+So a projected test's slice shows the roles the model and the code agree on, and the test's identity
+alongside them. It merges by name with every other authoring style — a slice can carry Gherkin, HTTP,
+code-first and projected specifications at once, because a slice is a vertical behaviour and not an
+authoring style.
+
+### Two spellings, and why `SliceType` is preferred
+
+`SliceType` means **exactly** `SliceName = type.Name`. No suffix stripping, nothing inferred — which
+is what makes it safe, because passing `typeof(ConfirmAppointmentHandler)` plainly would not produce
+the slice name rather than being quietly "corrected".
+
+Prefer it for two reasons. It is rename-safe, and — the one that matters more — **a type survives to
+the generator where a string does not**, so only `SliceType` can later be cross-checked against what
+the model declares.
+
+Reach for `SliceName` where no type bears the slice's name. That is not an edge case: measured across
+CritterCrush's nineteen slices, Command slices matched a type 13/13 and View slices 3/3, while
+**Automation slices matched 0/3** — an automation's only type is `{Slice}Handler`, and it has no
+command type at all, by design.
+
+### Three diagnostics, so the preference is enforced rather than remembered
+
+| | |
+|---|---|
+| **BOBCAT023** (error) | Both spellings set, naming *different* slices. One of them is wrong and no silent winner is the right answer. Setting both to the *same* slice is redundant, not wrong, and is allowed |
+| **BOBCAT024** (warning) | `SliceName` is a literal string and a type of that name exists in this compilation — use `SliceType`. Silent where no such type exists, which is every Automation |
+| *(not a generator diagnostic)* | "`SliceType.Name` matches no slice in the model" cannot live here: the generator has no curated model to check against. It belongs to the model merge, where a binding naming nothing shows up as an unmatched slice |
+
+### A method-level binding replaces, it does not override
+
+A rebinding is a *whole* binding. An earlier cut merged the method's tags over the class's, and a
+method rebinding to another slice dragged the class's `Domain` / `Chapter` / `Pattern` with it —
+stamping them on a slice that already had its own answers. So a test that wants the class's domain as
+well restates it.
+
 ## The honest limits
 
 - **A comment-declared step still has no clock of its own.** It reports the work observed *inside*
