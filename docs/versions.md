@@ -10,13 +10,14 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.35.0` |
-| Document/event store (Postgres) | `Marten`, `Marten.AspNetCore` | `9.33.0` |
-| Event store (SQLite, inner loop) | `Fisher` | `1.3.0` |
-| Event store (SQL Server) | `Polecat` | `5.25.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.67.1` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.38.0` |
+| Document/event store (Postgres) | `Marten` | `9.36.0` |
+| Event store (SQLite, inner loop) | `Fisher` | `1.10.0` |
+| Event store (SQL Server) | `Polecat` | `5.29.0` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.69.3` |
 | HTTP testing | `Alba` | `8.5.2` |
-| Test stack | `Microsoft.NET.Test.Sdk` / `xunit` / `xunit.runner.visualstudio` / `Shouldly` / `NSubstitute` / `coverlet.collector` | `18.4.0` / `2.9.3` / `3.1.5` / `4.3.0` / `5.3.0` / `3.1.2` |
+| Test stack | `xunit.v3` / `Microsoft.Testing.Platform` / `Shouldly` / `NSubstitute` | `3.2.2` / `1.9.1` / `4.3.0` / `5.3.0` |
+| Second runner (adapter surface) | `TUnit.Core` | `1.66.27` |
 
 ## The samples now target the canonical set
 
@@ -24,7 +25,8 @@ The standing exception — `samples/BankAccountES` on WolverineFx 6.31.0 while `
 6.30.1 — is **gone**. It existed because `Wolverine.CritterWatch 1.0.2-vehicle.1` floors at
 6.31.0, and following it in `src/` would have forced JasperFx above 2.56.0. JasperFx has now
 moved to 2.67.1 for its own reason (below), so the whole set re-aligned above the client's floor
-and the gap closed with it. That was issue **#191**.
+and the gap closed with it. That was issue **#191**, against the 6.35.0/2.67.1 set; the canonical
+set has moved on twice since and the exception has not come back.
 
 The other samples still pin WolverineFx 6.29.1 and resolve their own stores. They are standalone
 consumers with no `ProjectReference` to Bobcat, so they never see this repo's JasperFx and the
@@ -36,16 +38,22 @@ against the Bobcat projects, which is exactly why it is the one that must track 
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.35.0  →  Marten 9.32.1+   →  JasperFx(.Events) 2.67.0  (Marten 9.33.0's floor)
-WolverineFx.Fisher 6.35.0  →  Fisher 1.2.0+    →  JasperFx(.Events) 2.67.0  (Fisher 1.3.0's floor)
-WolverineFx 6.35.0         →  JasperFx(.Events) 2.66.1
-Polecat 5.25.0             →  JasperFx(.Events) 2.67.0
+WolverineFx.Marten 6.38.0  →  Marten 9.35.0+   →  JasperFx(.Events) 2.69.3  (Marten 9.36.0's floor)
+WolverineFx.Fisher 6.38.0  →  Fisher 1.10.0+   →  JasperFx(.Events) 2.69.3  (Fisher 1.10.0's floor)
+WolverineFx 6.38.0         →  JasperFx(.Events) 2.69.3
+Polecat 5.29.0             →  JasperFx(.Events) 2.69.3
 ```
 
 Every floor is at or below the pin, so taking the newest of each still lands on a single
-`JasperFx.Events` (2.67.1) — the property that matters, because the event types (`IEvent`, etc.)
-only unify when every package resolves the same one. Mixing (e.g. WolverineFx 5.30.x with
-Marten 9.x) splits `JasperFx`/`JasperFx.Events` across major lines and they no longer unify.
+`JasperFx.Events` — the property that matters, because the event types (`IEvent`, etc.) only unify
+when every package resolves the same one. Mixing (e.g. WolverineFx 5.30.x with Marten 9.x) splits
+`JasperFx`/`JasperFx.Events` across major lines and they no longer unify.
+
+As of this set the alignment is **exact rather than merely compatible**: WolverineFx, Marten, Fisher
+and Polecat all floor at `JasperFx(.Events) 2.69.3`, which is also the pin. There is no headroom
+between any floor and the pinned version, so nothing in the set can be moved on its own without
+first moving JasperFx — which is the safer arrangement, given the vtable rule below is what a floor
+cannot express.
 
 ### ⚠️ A floor constrains resolution, not the vtable
 
