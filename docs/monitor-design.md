@@ -769,6 +769,43 @@ not mistaken for a collision. Report, never act: naming the holder is the whole 
 killing somebody else's process for being in our way is not a decision a test harness gets to
 make, and the holder is as likely to be a development server somebody is using as an orphan.
 
+## A repeated step is its own row (issue #322, built 2026-09-16)
+
+`StepId` is a step **template** id — the step method's name — and was being used as a
+within-scenario identity on both sides of the wire. It is not one, and the two step shapes the
+grammar most recently encouraged both repeat: `Given {event} occurred` once per arranged event
+(#259) and `And no events for {aggregate} "…"` once per re-pointed stream (#311, #320). So the
+viewer under-reported exactly the arrangements the grammar recommends.
+
+Two failures, one cause:
+
+- **The projection left later occurrences running.** `StepFinished` resolved its step with
+  `FirstOrDefault(s => s.StepId == e.StepId)`, so the first occurrence absorbed every finish. On a
+  real 37-scenario suite: **33 of 182 steps stuck at `running`, across 21 scenarios, every one of
+  them a `CleanPass`.** Nothing contradicted anything a reader was looking at, because a scenario's
+  own outcome is computed elsewhere — which is why it went unnoticed.
+- **The store collapsed them.** `handleStepStarted` upserted by `stepId`, so repeats became one row
+  carrying the **last** occurrence's text and the **first** one's duration, welded together with
+  nothing saying so.
+
+Resolved without a protocol change, because the wire already carried enough:
+
+- **Starts key on `stepNumber`**, which the publisher increments per scenario. That is
+  occurrence-correct *and* stable across a replay — and hydration idempotency was the reason the
+  old code keyed on `stepId` at all, so it had to survive.
+- **Finishes and progress pair with the first occurrence still running.** `StepFinished` carries no
+  `stepNumber`, but steps are appended in order and finish in order, so "first still running" is
+  exact. Both the projection and the store use that same rule, and both keep a fallback so a late
+  or replayed event lands somewhere rather than vanishing.
+
+The alternative was adding an ordinal to `StepFinished` and `StepProgress`. Not needed, and a wire
+change is a compatibility question where this is not.
+
+Step results are the natural place for **cells** — `label / expected / actual / comparison /
+verdict` — so a table step's failure renders as a marked-up table instead of the sentence it is
+flattened into today. That is issue #324 and shares this record; it was left out of this change
+deliberately rather than bundled in.
+
 ## Not built yet
 
 - Gherkin-runner dogfood e2e against this UI (#86).
