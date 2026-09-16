@@ -37,8 +37,9 @@ internal static class MarkerCommentSpecs
 {
     internal const string AttributeName = "BobcatFeature";
 
-    /// <summary>The step keywords a marker comment may open with, longest first so "And" inside
-    /// a sentence cannot be mistaken for a keyword.</summary>
+    /// <summary>The step keywords a marker comment MAY open with, longest first so "And" inside
+    /// a sentence cannot be mistaken for a keyword. A comment may also open with <c>*</c> and carry
+    /// no keyword at all (issue #324).</summary>
     private static readonly string[] Keywords = { "Given", "When", "Then", "And", "But" };
 
     internal sealed class MarkedSpec
@@ -275,6 +276,20 @@ internal static class MarkerCommentSpecs
         // from trivia carries its indentation, so trimming slashes first strips nothing at all.
         var text = comment.Trim().TrimStart('/').Trim();
         if (text.Length == 0) return null;
+
+        // A bullet is a step with NO keyword (issue #324). Bobcat's rendering does not depend on
+        // Given/When/Then and should not — the inspiration here is Gauge, whose specs are bulleted
+        // sentences, and Storyteller, whose specifications read as prose rather than as a keyword
+        // table. Plenty of steps are simply not one of five words.
+        //
+        // It has to be marked, though: an ordinary comment in a test body is overwhelmingly NOT a
+        // step, so treating every comment as one would bury the real steps in noise. `*` is one
+        // character of opt-in, unmistakably deliberate, and the same character Gauge uses.
+        if (text[0] == '*')
+        {
+            var bulleted = text.Substring(1).Trim();
+            return bulleted.Length == 0 ? null : new MarkedStep { Keyword = "", Text = bulleted };
+        }
 
         foreach (var keyword in Keywords)
         {

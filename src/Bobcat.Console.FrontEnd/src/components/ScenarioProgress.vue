@@ -89,7 +89,7 @@ const elapsedLabel = computed(() => {
     <div class="bm-progress-line">
       <span v-if="stepLabel" class="bm-progress-step" data-testid="step-label">{{ stepLabel }}</span>
       <span class="bm-progress-text">
-        <strong>{{ current.kind }}</strong> {{ current.text }}
+        <strong v-if="current.kind">{{ current.kind }} </strong>{{ current.text }}
       </span>
     </div>
     <el-progress

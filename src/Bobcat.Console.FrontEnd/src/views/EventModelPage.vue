@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
               :data-status="step.status"
               class="bm-em-step"
             >
-              <span class="bm-em-step-kind">{{ step.kind }}</span>
+              <span v-if="step.kind" class="bm-em-step-kind">{{ step.kind }}</span>
               {{ step.text }}
               <span v-if="step.durationMs != null" class="bm-em-step-ms">{{ step.durationMs }}ms</span>
               <div v-if="step.errorMessage" class="bm-em-step-error">{{ step.errorMessage }}</div>
