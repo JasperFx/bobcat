@@ -278,6 +278,104 @@ method rebinding to another slice dragged the class's `Domain` / `Chapter` / `Pa
 stamping them on a slice that already had its own answers. So a test that wants the class's domain as
 well restates it.
 
+## Saying a slice is specified here — the spec-ownership manifest (issue #324)
+
+`[BobcatSlice]` binds a test that already exists. The manifest is the other half: it says, **before
+any code exists**, that a slice is going to be specified as a projected test, so the scaffolder
+writes a skeleton for it instead of a `.feature`.
+
+It is a separate file from the event model, and deliberately so. Moving a test is a change to where
+work lives, not to the design record — putting it on the slice would churn the model, and its
+byte-for-byte regeneration claim, every time a suite is reorganized. The two files join on `model:`,
+the same merge key everything else folds by.
+
+```yaml
+schema: 1
+model: CritterCrush                      # must match the event model's `model:`
+slices:
+  - slice: ProposeHomeCheckAppointment
+    kind: unit
+    authoring: projected
+    owner: CritterCrush.Specs.ProposalSpecs
+    coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
+```
+
+Name it `*.spec-ownership.yaml` and add it to the spec project's `AdditionalFiles` — that is the file
+name the generator looks for, and the diagnostics below are silent without it.
+
+### Absent means Gherkin
+
+A slice the manifest does not list keeps today's behaviour exactly. So the file is purely additive —
+CritterCrush needs **three entries, not nineteen** — and adopting it cannot silently change what an
+existing repo scaffolds.
+
+### `kind` and `authoring` are orthogonal
+
+`kind` says whether the specs go through the database. `authoring` says how they are written. They
+are independent, and the counter-example to collapsing them already ships: **Marten's `DaemonTests`
+are `integration` + `projected`** — real database tests, rendered through marker steps.
+
+| `kind` | `authoring` | what the scaffolder emits |
+|---|---|---|
+| `integration` | `gherkin` | a `.feature` — the default, and what every unlisted slice gets |
+| `integration` | `code-first` | a `Specification` skeleton |
+| `integration` | `projected` | **nothing** — an existing hand-written suite adopts the slice |
+| `unit` | `projected` | a projected test skeleton |
+| `unit` | `gherkin` *or* `code-first` | **invalid** — both run through the fixture, and so through the store |
+
+That last row is a validation rule rather than a note: honouring the authoring would hand a
+`.feature` back to an author who asked for a unit test. `kind: unit` on its own resolves to
+`projected`, since that is the only pairing the format permits.
+
+### `coveredBy`, because the rule would otherwise rot
+
+"A unit-tested slice is fine as long as something runs the command end to end later" is a good rule
+that dies the first time somebody deletes that scenario. Naming the cover makes it checkable, and it
+is required exactly when `kind: unit`.
+
+Inferring it is not realistic — the chain from `AcceptHomeCheckAssignment` through the bus into
+`ProposeHomeCheckAppointment` is not expressible in the model, which is precisely why the declaration
+is the honest mechanism. Scenario names themselves stay in the model: the manifest says only *where*
+a slice is specified and *in what kind*, so a spec-identity gate reads identities from one file and
+location from the other.
+
+### It cannot be derived, so it is validated
+
+A manifest keyed on slice names is exposed to the rot CritterCrush already paid for once: its
+hand-written Stoat plan carried **eleven spec identities matching no scenario**, silently, because
+nothing joined them. That plan could be fixed by deriving it. This file records a human choice and
+cannot be, so validation is the only defence:
+
+- `model:` matches the event model, every `slice:` exists in it, and no slice is listed twice.
+- `coveredBy` names a `{Feature}/{Scenario}` the model actually declares.
+- One `owner:` is one authoring style and one feature — `[BobcatFeature]` and `[FixtureTitle]` are
+  both class-level, so a type cannot publish two of them.
+
+### The join, checked in both directions
+
+The manifest is the **forward** declaration; a slice tag in the code is the **backward** binding.
+Checking only forward leaves a manifest quietly disagreeing with the suite; checking only backward
+leaves a slice declared unit-tested that nobody ever wrote a test for.
+
+| | |
+|---|---|
+| **BOBCAT025** (error) | Some spec source in this compilation specifies a slice in a different lane than the manifest declares. Two lanes means two specs claiming one `{Feature}/{Scenario}` identity |
+| **BOBCAT026** (warning) | The manifest takes a slice out of the Gherkin lane and nothing in this compilation binds it. A warning rather than an error, because the owner may legitimately live in a sibling assembly |
+
+BOBCAT025 is the duplicate-identity guard, and the route into it is not exotic: switch a slice to
+`projected`, forget to delete the `.feature` the scaffolder wrote for it last time, and without this
+nothing says a word.
+
+### One thing the projected lane cannot spell
+
+A projected test's scenario title **is its method name**, with underscores read as spaces — there is
+no title attribute in that lane. So a scenario name with punctuation in it cannot round-trip: "an
+assignment, once accepted, books a visit" becomes `an_assignment_once_accepted_books_a_visit`, which
+publishes a *different* identity and joins nothing.
+
+Reading the manifest warns about it, and the scaffolded skeleton says so in a comment above the
+method. The fix is to rename the scenario in the model to something a method name can spell.
+
 ## The honest limits
 
 - **A comment-declared step still has no clock of its own.** It reports the work observed *inside*

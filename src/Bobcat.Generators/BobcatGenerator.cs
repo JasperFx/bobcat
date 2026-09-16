@@ -87,21 +87,30 @@ public class BobcatGenerator : IIncrementalGenerator
         //    Marker-comment specs join it too (issue #324): they are emitted on their own branch
         //    above for the runtime narrative, but their [BobcatSlice] binding has to reach the
         //    Event Model, and that is assembled here.
+        // 3e. Collect the spec-ownership manifest (issue #324 part 4). The manifest is the FORWARD
+        //     declaration of where a slice is specified, and the slice tags in this compilation are
+        //     the BACKWARD binding; only here are both in hand, so only here can they be joined.
+        var manifests = context.AdditionalTextsProvider
+            .Where(file => SpecOwnershipManifest.IsManifestFile(file.Path))
+            .Select((file, ct) => SpecOwnershipManifest.Read(file.GetText(ct)?.ToString() ?? ""));
+
         var combined = featureFiles.Collect()
             .Combine(fixtureClasses.Collect())
             .Combine(tableGrammars.Collect())
             .Combine(specifications.Collect())
             .Combine(markedSpecs.Collect())
+            .Combine(manifests.Collect())
             .Combine(context.CompilationProvider);
 
         // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left.Left.Left.Left.Left;
-            var fixtures = pair.Left.Left.Left.Left.Right;
-            var grammars = pair.Left.Left.Left.Right;
-            var specs = pair.Left.Left.Right;
-            var marked = pair.Left.Right;
+            var features = pair.Left.Left.Left.Left.Left.Left;
+            var fixtures = pair.Left.Left.Left.Left.Left.Right;
+            var grammars = pair.Left.Left.Left.Left.Right;
+            var specs = pair.Left.Left.Left.Right;
+            var marked = pair.Left.Left.Right;
+            var ownership = pair.Left.Right;
             var resolver = new TypeNameResolver(pair.Right);
 
             // Issue #106. Only emit Event Modeling descriptors where the consuming compilation can
@@ -122,6 +131,23 @@ public class BobcatGenerator : IIncrementalGenerator
                         problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType,
                         problem.Where ?? Microsoft.CodeAnalysis.Location.None,
                         problem.Message));
+                }
+            }
+
+            // The spec-ownership join, in both directions (issue #324 part 4). Nothing at all when
+            // no manifest is in AdditionalFiles, which is what makes adopting it the opt-in.
+            if (ownership.Length > 0)
+            {
+                var bindings = SpecOwnershipDiagnostics.BindingsIn(features, specs, marked);
+                foreach (var manifest in ownership)
+                {
+                    foreach (var finding in SpecOwnershipDiagnostics.Check(manifest, bindings))
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            finding.IsError ? Diagnostics.SpecOwnershipLaneConflict : Diagnostics.SpecOwnershipUnbound,
+                            Microsoft.CodeAnalysis.Location.None,
+                            finding.Message));
+                    }
                 }
             }
 
@@ -1766,6 +1792,22 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor SpecOwnershipLaneConflict = new(
+        "BOBCAT025",
+        "A slice is specified in two lanes",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    public static readonly DiagnosticDescriptor SpecOwnershipUnbound = new(
+        "BOBCAT026",
+        "The spec-ownership manifest names a slice nothing binds",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor PreferSliceType = new(

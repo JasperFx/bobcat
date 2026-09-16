@@ -17,4 +17,17 @@
     <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      Issue #324 part 4. Bobcat.Generators is netstandard2.0 and references nothing, so it carries
+      its own reader for the spec-ownership manifest rather than shipping YamlDotNet inside an
+      analyzer. Linking the source (not the analyzer assembly, which would drag Roslyn in here)
+      lets SpecOwnershipParsingAgreementTests compare the two readers directly — the same
+      arrangement SliceTagParsingAgreementTests and CodeFirstNamingAgreementTests already use, and
+      for the same reason: a silent divergence would put a slice in one lane here and the other
+      there, with nothing anywhere reporting it.
+    -->
+    <Compile Include="..\Bobcat.Generators\SpecOwnershipManifest.cs" Link="Generators\SpecOwnershipManifest.cs" />
+  </ItemGroup>
+
 </Project>
