@@ -205,7 +205,19 @@ public class RunProjection
 
             case StepFinished e:
             {
-                var step = ensureScenario(e.Uid).Steps.FirstOrDefault(s => s.StepId == e.StepId);
+                // StepId is a step TEMPLATE id — the step method's name — not an identity, and
+                // steps repeat within one scenario: `Given {event} occurred` once per arranged
+                // event (#259), `And no events for {aggregate} "…"` once per re-pointed stream
+                // (#311, #320). Matching on it alone handed every finish to the FIRST occurrence,
+                // so the rest stayed "running" forever inside a scenario the runner had already
+                // passed — 33 of 182 steps across a 37-scenario CleanPass run (issue #322).
+                //
+                // The first occurrence still running is the right one: steps are appended in
+                // order and finish in order. The fallback keeps the old behaviour for a finish
+                // that arrives with nothing left running, rather than dropping it silently.
+                var steps = ensureScenario(e.Uid).Steps;
+                var step = steps.FirstOrDefault(s => s.StepId == e.StepId && s.Status == StepProjection.Running)
+                           ?? steps.LastOrDefault(s => s.StepId == e.StepId);
                 if (step != null)
                 {
                     step.Status = e.Status;
@@ -501,8 +513,11 @@ public class StepProjection
     public string Kind { get; }
     public string Text { get; }
 
-    /// <summary>Mirrors ResultStatus; "running" until StepFinished arrives.</summary>
-    public string Status { get; set; } = "running";
+    /// <summary>The status a step carries until its StepFinished arrives.</summary>
+    public const string Running = "running";
+
+    /// <summary>Mirrors ResultStatus; <see cref="Running"/> until StepFinished arrives.</summary>
+    public string Status { get; set; } = Running;
 
     /// <summary>
     /// 1-based index into <see cref="ScenarioProjection.DeclaredSteps"/> of the marker comment

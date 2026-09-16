@@ -427,18 +427,41 @@ export const useRunsStore = defineStore('runs', () => {
     // A publisher that announced the count on the step rather than the scenario (or whose
     // scenario_started was dropped on backpressure) still tells us how many there are.
     if (e.totalSteps != null && scenario.totalSteps == null) scenario.totalSteps = e.totalSteps
-    // Upsert by stepId rather than blind push: hydration replays the archived stream over
-    // whatever live events already arrived, and a duplicated step_started must not render
-    // the step twice.
-    const existing = scenario.steps.findIndex((s) => s.stepId === e.stepId)
+    // Upsert rather than blind push: hydration replays the archived stream over whatever live
+    // events already arrived, and a duplicated step_started must not render the step twice.
+    //
+    // Keyed on stepNumber, NOT stepId (issue #322). stepId is a step TEMPLATE id — the step
+    // method's name — and steps repeat within one scenario: `Given {event} occurred` once per
+    // arranged event (#259), `And no events for {aggregate} "…"` once per re-pointed stream
+    // (#311, #320). Keying on it collapsed every repeat into one row carrying the LAST
+    // occurrence's text and the FIRST one's duration, which is not a view of anything. The
+    // publisher numbers steps per scenario, so stepNumber is both occurrence-correct and stable
+    // across a replay. Fall back to stepId only for a publisher old enough not to send one.
+    const existing =
+      step.stepNumber != null
+        ? scenario.steps.findIndex((s) => s.stepNumber === step.stepNumber)
+        : scenario.steps.findIndex((s) => s.stepId === e.stepId)
     if (existing >= 0) scenario.steps[existing] = step
     else scenario.steps.push(step)
+  }
+
+  /**
+   * The step a finish or a progress belongs to. step_finished carries no stepNumber, so the
+   * occurrence is resolved the same way the server's projection resolves it: the first one of
+   * that stepId still running, since steps are appended in order and finish in order. The
+   * fallback keeps a late or replayed event landing somewhere rather than vanishing.
+   */
+  function occurrenceOf(scenario: ScenarioState, stepId: string): StepState | undefined {
+    const running = scenario.steps.find((s) => s.stepId === stepId && s.status === 'running')
+    if (running) return running
+    const matches = scenario.steps.filter((s) => s.stepId === stepId)
+    return matches.length > 0 ? matches[matches.length - 1] : undefined
   }
 
   function handleStepFinished(e: StepFinished) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
-    const step = scenario.steps.find((s) => s.stepId === e.stepId)
+    const step = occurrenceOf(scenario, e.stepId)
     if (!step) return
     step.status = e.status === 'ok' || e.status === 'success' ? 'passed' : 'failed'
     step.durationMs = e.durationMs
@@ -456,7 +479,7 @@ export const useRunsStore = defineStore('runs', () => {
   function handleStepProgress(e: StepProgress) {
     const run = ensureRun(e.runId)
     const scenario = ensureScenario(run, e.uid)
-    let step = scenario.steps.find((s) => s.stepId === e.stepId)
+    let step = occurrenceOf(scenario, e.stepId)
     if (!step) {
       step = {
         stepId: e.stepId,
