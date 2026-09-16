@@ -181,6 +181,39 @@ announcing that it ran.
 
 With no viewer listening the publisher is null and the whole thing costs a few strings per test.
 
+## A step need not be a keyword — `// *` (issue #324)
+
+Bobcat's rendering does not depend on Given / When / Then, and should not. The inspiration is
+ThoughtWorks' **Gauge**, whose specifications are bulleted sentences with no keyword vocabulary at
+all, and **Storyteller**, whose specs read as prose rather than as a keyword table. Plenty of steps
+are simply not one of five words:
+
+```csharp
+[Fact, BobcatScenario]
+public async Task the_overnight_sweep_reconciles_every_wallet()
+{
+    // * two wallets, one of them credited twice
+    await Seed();
+
+    // * the overnight reconciliation runs
+    await Sweep();
+
+    // Then every balance agrees with its events
+    await AssertBalances();
+}
+```
+
+Renders as three steps, the first two carrying no keyword at all. Keywords still work and still
+mean what they did — this is an addition, not a replacement, and the two mix freely in one test.
+
+**Why the bullet is required.** Most comments in a test body are not steps, so treating every comment
+as one would bury the real steps in noise. `*` is one character of opt-in, unmistakably deliberate,
+and the same character Gauge uses. `// just explaining the next line` stays a comment.
+
+The runtime needed no change for this: `DeclaredStep.ToString()` already omitted an empty keyword
+rather than emitting a leading space. What was missing was any way to *write* one — and four
+rendering sites that would have shown an empty `<strong>`.
+
 ## Binding a projected test to a slice — `[BobcatSlice]` (issue #324)
 
 `[BobcatFeature]` makes a projected test *readable*. It said nothing about **which slice the test is

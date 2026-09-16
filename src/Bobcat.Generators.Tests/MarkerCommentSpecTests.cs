@@ -123,3 +123,57 @@ public class MarkerCommentSpecTests
     public void is_not_a_marker(string comment)
         => MarkerCommentSpecs.Parse(comment).ShouldBeNull();
 }
+
+/// <summary>
+/// Issue #324: a marker comment may carry no keyword at all. Bobcat's rendering does not depend on
+/// Given/When/Then and should not — the inspiration is Gauge, whose specs are bulleted sentences.
+/// </summary>
+public class BulletedStepTests
+{
+    [Theory]
+    [InlineData("// * the household is already set up", "the household is already set up")]
+    [InlineData("//* no space after the bullet", "no space after the bullet")]
+    [InlineData("    //   *   padded all round   ", "padded all round")]
+    public void a_bulleted_comment_is_a_step_with_no_keyword(string comment, string expected)
+    {
+        var step = MarkerCommentSpecs.Parse(comment).ShouldNotBeNull();
+
+        step.Keyword.ShouldBe("");
+        step.Text.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void an_ordinary_comment_is_still_not_a_step()
+    {
+        // The bullet has to be marked precisely because most comments in a test body are not steps.
+        // Treating every comment as one would bury the real steps in noise.
+        MarkerCommentSpecs.Parse("// just explaining the next line").ShouldBeNull();
+        MarkerCommentSpecs.Parse("// TODO: come back to this").ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_bullet_with_nothing_after_it_is_not_a_step()
+    {
+        MarkerCommentSpecs.Parse("// *").ShouldBeNull();
+        MarkerCommentSpecs.Parse("// *   ").ShouldBeNull();
+    }
+
+    [Fact]
+    public void keywords_still_work_exactly_as_before()
+    {
+        var step = MarkerCommentSpecs.Parse("// Given a proposed appointment").ShouldNotBeNull();
+        step.Keyword.ShouldBe("Given");
+        step.Text.ShouldBe("a proposed appointment");
+    }
+
+    [Fact]
+    public void a_keyword_free_step_renders_as_its_sentence_alone()
+    {
+        // The runtime already had this: DeclaredStep.ToString() omits an empty keyword rather than
+        // emitting a leading space. What was missing was any way to WRITE one.
+        new DeclaredStep("", "the household is already set up", 12).ToString()
+            .ShouldBe("the household is already set up");
+        new DeclaredStep("Given", "a proposed appointment", 12).ToString()
+            .ShouldBe("Given a proposed appointment");
+    }
+}

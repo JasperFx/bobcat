@@ -69,7 +69,7 @@ marker comment; no [BobcatStep] helper ran inside it, so nothing observed how lo
           </span>
           <ul v-if="row.steps.length" class="bm-steps bm-recorded">
             <li v-for="step in row.steps" :key="step.stepId" :data-status="step.status">
-              <strong>{{ step.kind }}</strong> {{ step.text }}
+              <strong v-if="step.kind">{{ step.kind }} </strong>{{ step.text }}
               <span v-if="step.durationMs !== null" class="bm-duration">{{ step.durationMs }}ms</span>
               <div v-if="step.errorMessage" class="bm-error">{{ step.errorMessage }}</div>
             </li>
@@ -81,7 +81,7 @@ marker comment; no [BobcatStep] helper ran inside it, so nothing observed how lo
           :key="step.stepId"
           :data-status="step.status"
         >
-          <strong>{{ step.kind }}</strong> {{ step.text }}
+          <strong v-if="step.kind">{{ step.kind }} </strong>{{ step.text }}
           <span v-if="step.durationMs !== null" class="bm-duration">{{ step.durationMs }}ms</span>
           <div v-if="step.errorMessage" class="bm-error">{{ step.errorMessage }}</div>
         </li>
