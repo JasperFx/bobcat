@@ -28,7 +28,7 @@ public class EventModelDescriptorTests
         model.Name.ShouldBe("Bobcat.CritterStack.Tests");
         model.Slices.Select(s => s.Name).ShouldBe(
             ["OpenWallet", "CreditWallet", "DebitWallet", "AuditWallet", "SweepWallets", "OwnerWallets",
-             "Shipments", "Deliveries", "WalletSummary", "RegisterLedger"],
+             "Shipments", "Deliveries", "WalletSummary", "RegisterLedger", "ReconcileWallets"],
             ignoreOrder: true);
     }
 
@@ -54,14 +54,17 @@ public class EventModelDescriptorTests
     {
         // Wallet.feature tags seven scenarios @slice:CreditWallet (two are #259's per-event twins
         // and two arrange by name), WalletHttp.feature tags two more (the HTTP lane of the same
-        // behaviour, issue #210), and WalletAuditSpecification tags a code-first tenth (issue
-        // #170). A slice is a vertical behaviour, not a document — and not an authoring style or a
-        // transport either — so they are one descriptor with ten specifications.
-        slice("CreditWallet").Specifications.Count.ShouldBe(10);
+        // behaviour, issue #210), WalletAuditSpecification tags a code-first tenth (issue #170),
+        // and WalletReconciliationSpecs binds a PROJECTED xUnit eleventh (issue #324). A slice is a
+        // vertical behaviour, not a document — and not an authoring style or a transport either —
+        // so all four lanes are one descriptor with eleven specifications.
+        slice("CreditWallet").Specifications.Count.ShouldBe(11);
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet Audit/a code first credit");
         slice("CreditWallet").Specifications.Select(s => s.Identity)
             .ShouldContain("Wallet over HTTP/Crediting a wallet over HTTP emits the credited event");
+        slice("CreditWallet").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet reconciliation/a reconciliation leaves a credited wallet alone");
         slice("OpenWallet").Specifications.Count.ShouldBe(1);
     }
 
@@ -256,7 +259,7 @@ public class EventModelDescriptorTests
 
         var descriptor = await source.TryCreateAsync(null!, TestContext.Current.CancellationToken);
         descriptor.ShouldNotBeNull();
-        descriptor.Slices.Count.ShouldBe(10);
+        descriptor.Slices.Count.ShouldBe(11);
     }
 
     [Fact]

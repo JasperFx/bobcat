@@ -45,12 +45,36 @@ internal static class MarkerCommentSpecs
     {
         public string FeatureTitle = "";
         public readonly List<MarkedScenario> Scenarios = new();
+
+        /// <summary>
+        /// The class-level <c>[BobcatSlice]</c>, rendered as the same tag strings the Gherkin and
+        /// code-first lanes use (issue #324) — so <c>GeneratorSliceTags</c> stays the one parser
+        /// and the attribute is a typed front end over it rather than a second vocabulary.
+        /// </summary>
+        public readonly List<string> Tags = new();
+
+        /// <summary>What was wrong with a <c>[BobcatSlice]</c>, reported by the generator.</summary>
+        public readonly List<MarkedProblem> Problems = new();
+    }
+
+    /// <summary>A diagnostic the extractor found. Reported where the generator has a
+    /// <c>SourceProductionContext</c>; carried here because the extractor does not.</summary>
+    internal sealed class MarkedProblem
+    {
+        public string Id = "";
+        public string Message = "";
+        public bool IsError;
+        public Location? Where;
     }
 
     internal sealed class MarkedScenario
     {
         public string Title = "";
         public readonly List<MarkedStep> Steps = new();
+
+        /// <summary>The method-level <c>[BobcatSlice]</c>, which wins over the class's for this
+        /// test — how one class covers several slices.</summary>
+        public readonly List<string> Tags = new();
 
         /// <summary>A test with no marker comments at all: it runs, but it renders as nothing.</summary>
         public bool IsUnmarked => Steps.Count == 0;
@@ -77,6 +101,8 @@ internal static class MarkerCommentSpecs
             FeatureTitle = CodeFirstNaming.FeatureTitle(declaration.Identifier.Text, title)
         };
 
+        spec.Tags.AddRange(sliceTags(declaration, ctx.SemanticModel, spec.Problems));
+
         foreach (var method in declaration.Members.OfType<MethodDeclarationSyntax>())
         {
             ct.ThrowIfCancellationRequested();
@@ -88,11 +114,118 @@ internal static class MarkerCommentSpecs
             };
 
             foreach (var step in StepsIn(method)) scenario.Steps.Add(step);
+            scenario.Tags.AddRange(sliceTags(method, ctx.SemanticModel, spec.Problems));
 
             spec.Scenarios.Add(scenario);
         }
 
         return spec.Scenarios.Count == 0 ? null : spec;
+    }
+
+    /// <summary>
+    /// <c>[BobcatSlice]</c> on a class or a method, rendered as tag strings (issue #324).
+    /// </summary>
+    /// <remarks>
+    /// Rendered as tags rather than carried as its own shape so <see cref="GeneratorSliceTags"/>
+    /// keeps being the single parser: the attribute is a typed front end over the vocabulary the
+    /// Gherkin and code-first lanes already speak, not a third one to keep in step.
+    /// </remarks>
+    private static IEnumerable<string> sliceTags(
+        MemberDeclarationSyntax node, SemanticModel model, List<MarkedProblem> problems)
+    {
+        var attribute = node.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .FirstOrDefault(a => shortName(a.Name.ToString()) == "BobcatSlice");
+
+        if (attribute?.ArgumentList is null) yield break;
+
+        string? fromName = null, fromType = null;
+        var tags = new List<string>();
+
+        foreach (var argument in attribute.ArgumentList.Arguments)
+        {
+            var member = argument.NameEquals?.Name.Identifier.Text;
+            if (member is null) continue;
+
+            switch (member)
+            {
+                case "SliceName":
+                    fromName = literalOf(argument.Expression);
+                    break;
+                case "SliceType":
+                    fromType = typeNameOf(argument.Expression, model);
+                    break;
+                case "Domain":
+                case "Chapter":
+                case "Pattern":
+                    if (literalOf(argument.Expression) is { Length: > 0 } value)
+                        tags.Add($"{member.ToLowerInvariant()}:{value}");
+                    break;
+            }
+        }
+
+        // Both set and disagreeing is an error rather than a precedence rule: one of the two is
+        // wrong and no silent winner is the right answer.
+        if (fromName is { Length: > 0 } && fromType is { Length: > 0 } && fromName != fromType)
+        {
+            problems.Add(new MarkedProblem
+            {
+                Id = "BOBCAT023",
+                IsError = true,
+                Where = attribute.GetLocation(),
+                Message =
+                    $"[BobcatSlice] sets SliceName = \"{fromName}\" and SliceType = typeof({fromType}), which name "
+                    + "different slices. SliceType means exactly SliceName = type.Name — set one of them."
+            });
+        }
+
+        var slice = fromType ?? fromName;
+        if (slice is { Length: > 0 })
+        {
+            // Nudge a literal string toward the type when one of that name exists: a type survives
+            // to the generator where a string does not, so only SliceType can be cross-checked
+            // against the model later.
+            if (fromType is null && model.Compilation.GetSymbolsWithName(slice, SymbolFilter.Type).Any())
+            {
+                problems.Add(new MarkedProblem
+                {
+                    Id = "BOBCAT024",
+                    IsError = false,
+                    Where = attribute.GetLocation(),
+                    Message =
+                        $"[BobcatSlice(SliceName = \"{slice}\")] names a slice that IS a type in this compilation. "
+                        + $"Prefer SliceType = typeof({slice}): it is rename-safe the same way and the type survives "
+                        + "to the generator, where a string cannot be checked against the model."
+                });
+            }
+
+            yield return $"{GeneratorSliceTags.SlicePrefix}{slice}";
+        }
+
+        foreach (var tag in tags) yield return tag;
+    }
+
+    private static string? literalOf(ExpressionSyntax expression)
+        => expression is LiteralExpressionSyntax { Token.Value: string text } ? text : null;
+
+    /// <summary>
+    /// <c>typeof(X)</c> → <c>"X"</c>. The symbol when the model can bind it, else the right-most
+    /// identifier written — the generator recognizes things by name and must not fail on a type it
+    /// cannot resolve.
+    /// </summary>
+    private static string? typeNameOf(ExpressionSyntax expression, SemanticModel model)
+    {
+        if (expression is not TypeOfExpressionSyntax typeOf) return null;
+
+        if (model.GetSymbolInfo(typeOf.Type).Symbol is INamedTypeSymbol symbol) return symbol.Name;
+
+        return typeOf.Type switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.Text,
+            QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+            GenericNameSyntax generic => generic.Identifier.Text,
+            _ => null,
+        };
     }
 
     /// <summary>
