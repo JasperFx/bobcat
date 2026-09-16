@@ -49,8 +49,8 @@ public static class SpecSkeletons
             var plans = slices.Select(x => SliceScaffolder.PlanFor(model, x)).ToList();
 
             files[$"Specs/{typeName}.cs"] = authoring == SpecAuthoring.CodeFirst
-                ? codeFirst(ns, typeName, entries, slices, plans)
-                : projected(ns, typeName, entries, slices, plans);
+                ? codeFirst(model, ns, typeName, entries, slices, plans)
+                : projected(model, ns, typeName, entries, slices, plans);
         }
 
         return files;
@@ -86,14 +86,15 @@ public static class SpecSkeletons
             : $"SliceName = \"{slice.Name}\"";
 
     private static string projected(
-        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices,
-        IReadOnlyList<SlicePlan> plans)
+        CuratedModelFile model, string ns, string typeName, IReadOnlyList<SpecOwnership> entries,
+        IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();
         var single = entries.Count == 1;
 
         writer.AppendLine("using Bobcat;");
         writer.AppendLine("using Xunit;");
+        foreach (var each in usingsFor(model, slices)) writer.AppendLine($"using {each};");
         writer.AppendLine();
         writer.AppendLine($"namespace {ns};");
         writer.AppendLine();
@@ -143,13 +144,14 @@ public static class SpecSkeletons
     }
 
     private static string codeFirst(
-        string ns, string typeName, IReadOnlyList<SpecOwnership> entries, IReadOnlyList<CuratedSlice> slices,
-        IReadOnlyList<SlicePlan> plans)
+        CuratedModelFile model, string ns, string typeName, IReadOnlyList<SpecOwnership> entries,
+        IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();
 
         writer.AppendLine("using Bobcat;");
         writer.AppendLine("using Bobcat.CodeFirst;");
+        foreach (var each in usingsFor(model, slices)) writer.AppendLine($"using {each};");
         writer.AppendLine();
         writer.AppendLine($"namespace {ns};");
         writer.AppendLine();
@@ -192,6 +194,23 @@ public static class SpecSkeletons
     }
 
     private static string featureOf(CuratedSlice slice) => slice.Specifications?.Feature ?? slice.Name;
+
+    /// <summary>
+    /// The <c>using</c>s a skeleton needs for the types it names.
+    /// </summary>
+    /// <remarks>
+    /// <c>SliceType = typeof(ConfirmAppointment)</c> is a type reference, and the slice's code is
+    /// emitted into <c>{namespace}.{domain}</c> — a different namespace from the specs' own. Without
+    /// the using the skeleton does not compile, which breaks the rule that a scaffold always
+    /// compiles (issue #226): one unresolvable binding fails the whole spec project, so no slice's
+    /// specs can run until every one of them is fixed by hand.
+    /// </remarks>
+    private static IEnumerable<string> usingsFor(CuratedModelFile model, IReadOnlyList<CuratedSlice> slices)
+        => slices
+            .Where(x => BindingFor(x).StartsWith("SliceType", StringComparison.Ordinal))
+            .Select(x => $"{model.Namespace ?? model.Model}.{x.Domain ?? "Shared"}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.Ordinal);
 
     /// <summary>
     /// A scenario's given/when/then as one sentence each. Values ride inline rather than in a

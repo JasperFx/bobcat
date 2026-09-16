@@ -309,6 +309,38 @@ public class SpecOwnershipScaffoldingTests
     }
 
     [Fact]
+    public void a_skeleton_imports_the_namespace_of_every_type_it_binds()
+    {
+        // A scaffold always compiles (issue #226). `SliceType = typeof(ConfirmAppointment)` is a
+        // type reference, and the slice's code lands in {namespace}.{domain} — a different
+        // namespace from the specs' own — so without the using the file does not build, and one
+        // unresolvable binding fails the whole spec project.
+        //
+        // Found by building the real CritterCrush against 0.25.0: CS0246 on AppointmentsQueue,
+        // MyAppointments and VolunteerApplicationsQueue, every one of them a View slice bound by
+        // type.
+        var skeleton = SpecSkeletons.Scaffold(
+            model(), projected("ConfirmAppointment", "CritterCrush.Specs.BookingSpecs"))
+            ["Specs/BookingSpecs.cs"];
+
+        skeleton.ShouldContain("using CritterCrush.Scheduling;");
+        skeleton.ShouldContain("[BobcatSlice(SliceType = typeof(ConfirmAppointment))]");
+    }
+
+    [Fact]
+    public void a_skeleton_binding_only_by_NAME_needs_no_import()
+    {
+        // An Automation binds by string, so there is no type reference to resolve and an unused
+        // using would just be noise the author has to delete.
+        var skeleton = SpecSkeletons.Scaffold(
+            model(), projected("ProposeHomeCheckAppointment", "CritterCrush.Specs.ProposalSpecs"))
+            ["Specs/ProposalSpecs.cs"];
+
+        skeleton.ShouldContain("[BobcatSlice(SliceName = \"ProposeHomeCheckAppointment\")]");
+        skeleton.ShouldNotContain("using CritterCrush.Scheduling;");
+    }
+
+    [Fact]
     public void a_method_name_round_trips_only_when_the_scenario_name_is_spellable()
     {
         ProjectedSpecNaming.RoundTrips("a proposal is confirmed").ShouldBeTrue();
