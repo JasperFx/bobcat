@@ -172,6 +172,7 @@ public static class HistoryArrangements
     private static IEnumerable<CuratedGiven> shareable(CuratedScenario scenario)
         => scenario.Given.TakeWhile(given =>
             given.Stream is null
+            && given.Aggregate is null
             && !given.With.Values.Any(x => x.Contains(SliceScaffolder.StreamIdToken, StringComparison.OrdinalIgnoreCase)));
 
     private static string keyOf(CuratedGiven given)

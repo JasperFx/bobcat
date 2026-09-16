@@ -284,7 +284,8 @@ public static class SliceScaffolder
             return
             [
                 $"WARNING: the events this slice arranges belong to several aggregates ({string.Join(", ", resolved)});",
-                $"the steps below use {resolved[0]}. Declare `aggregates:` on the slice to say which stream it means."
+                $"the steps below use {resolved[0]}. Declare `aggregates:` on the slice to say which stream it",
+                "means, or `aggregate:` on the givens that belong to another one (issue #320)."
             ];
         }
 
@@ -671,21 +672,26 @@ public static class SliceScaffolder
                 var (shared, consumed) = history.For(scenario);
                 if (shared is not null) writer.WriteLine($"    And the arrangement \"{shared.Name}\"");
 
-                // Which stream the arrange steps are currently pointed at. Null is the scenario's
-                // own, established by the Given above; a name is another stream of the same
-                // aggregate (issue #311), which a fan-out read model needs because the fold across
-                // streams is the whole reason its projection is multi-stream.
+                // Which (aggregate, stream) the arrange steps are currently pointed at. Both null
+                // is the scenario's own, established by the Given above. A stream name is another
+                // stream of the same aggregate (issue #311), which a fan-out read model needs
+                // because the fold across streams is the whole reason its projection is
+                // multi-stream. An aggregate name is another aggregate entirely (issue #320),
+                // which a rule spanning two of them needs.
                 string? current = null;
+                string? currentAggregate = null;
 
                 foreach (var given in scenario.Given.Skip(consumed))
                 {
-                    if (given.Stream != current)
+                    if (given.Stream != current || given.Aggregate != currentAggregate)
                     {
                         current = given.Stream;
+                        currentAggregate = given.Aggregate;
                         // `Given no events for …` re-points the stream; it deletes nothing, so
                         // coming back to a stream already arranged above loses none of it.
                         writer.WriteLine(
-                            $"    And no events for {aggregate} \"{streamIdFor(scenario.Name, current)}\"");
+                            $"    And no events for {currentAggregate ?? aggregate} "
+                            + $"\"{streamIdFor(scenario.Name, current, currentAggregate)}\"");
                     }
 
                     writer.WriteLine($"    And {given.Event} occurred");
@@ -699,7 +705,7 @@ public static class SliceScaffolder
                 // below. Leaving the arrange pointed at the last named stream would run it against
                 // the wrong one — silently, since both are streams of the same aggregate and the
                 // act would simply start a new one.
-                if (current is not null && scenario.When is not null)
+                if ((current is not null || currentAggregate is not null) && scenario.When is not null)
                 {
                     writer.WriteLine($"    And no events for {aggregate} \"{streamId}\"");
                 }
@@ -806,15 +812,25 @@ public static class SliceScaffolder
     private static string streamIdFor(string scenarioName) => streamIdFor(scenarioName, null);
 
     /// <summary>
-    /// The id for a scenario's stream — its own when <paramref name="streamName"/> is null, or a
-    /// named second stream (issue #311). Derived from the two together, so a name means the same
-    /// stream everywhere in one scenario and a different one in the next.
+    /// The id for a scenario's stream — its own when both names are null, a named second stream of
+    /// the same aggregate (issue #311), or a stream of another aggregate entirely (issue #320).
+    /// Derived from all three together, so a name means the same stream everywhere in one scenario
+    /// and a different one in the next.
     /// </summary>
-    private static string streamIdFor(string scenarioName, string? streamName)
+    /// <remarks>
+    /// The key shape is chosen so the two older cases hash exactly as they did: adding an
+    /// aggregate appends, it does not re-shape. A scaffolded feature's stream ids are therefore
+    /// unchanged wherever no aggregate is named, which is what keeps a re-scaffold a no-op.
+    /// </remarks>
+    private static string streamIdFor(string scenarioName, string? streamName, string? aggregate = null)
     {
+        var key = scenarioName
+                  + (streamName is null ? "" : $"/{streamName}")
+                  + (aggregate is null ? "" : $"@{aggregate}");
+
         // A small stable hash — no dependency, and the digits stay readable in a failure message.
         uint hash = 2166136261;
-        foreach (var c in streamName is null ? scenarioName : $"{scenarioName}/{streamName}")
+        foreach (var c in key)
         {
             hash = (hash ^ c) * 16777619;
         }
