@@ -249,6 +249,41 @@ Phases 0–2 stand alone and deliver the ask. Phase 3 is where the *State View* 
 read model across slices, the arrow people most expect — becomes derivable, and it is honestly
 the expensive one because the vocabulary has never recorded what a slice reads.
 
+## Decision (2026-09-16): `@pattern:` — a spec states its pattern rather than guessing it
+
+Issue #323. Every Automation slice carried a `SourceDisagreement` it had no way to resolve:
+
+```
+Pattern: Declared claims Automation; Declared claims Command
+```
+
+The curated model says `Automation`. The spec source inferred `Command`, because a slice that
+receives a command is a Command slice — and `When X is received` is the same sentence for a bus
+command and for an automation's trigger event. Both claims sit on the **Declared** rung, so the
+merge picks one and leaves a hotspot that no change to the model *or* the code can clear. Three of
+CritterCrush's ten hotspots were this, and they were the only three nobody could act on.
+
+**Rejected: abstain on bus acts.** Returning null whenever the act is `is received` would have
+removed the wrong guess and the right ones with it — this repo's own `Deliveries.feature` is the
+saga lane, and its acts are real commands received off the bus. Inference is correct there and
+should stay.
+
+**Decided: a tag, because a tag can say what a sentence cannot.** `@pattern:Automation` sits beside
+`@slice:`, `@domain:` and `@chapter:`, is parsed by both tag parsers (pinned by
+`SliceTagParsingAgreementTests`), and the scaffolder writes it from the curated model's `pattern:`.
+Inference is untouched and still runs when no tag is present, so a hand-written feature behaves
+exactly as before.
+
+The wider point, which generalises past Pattern: **when a `.feature` is generated from a curated
+model, the two are one design intent registered twice.** Anywhere the spec can only infer what the
+model states outright, that arrangement manufactures disagreements. Carrying the model's answer
+through in a tag is the general fix, and Pattern is the first case of it.
+
+Not fixed here, because it is not ours: the hotspot text names both sides `Declared` and neither
+source, so the message reads as one source contradicting itself. Two sources sharing a rung is the
+normal case for spec-first work, and a claim needs a source identity alongside its rung —
+JasperFx.Events owns that. Filed upstream.
+
 ## Decisions (2026-09-12)
 
 The five questions this draft left open were decided the same day.

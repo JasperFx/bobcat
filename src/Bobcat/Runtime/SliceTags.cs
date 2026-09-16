@@ -32,6 +32,15 @@ public static class SliceTags
     public const string ChapterPrefix = "chapter:";
 
     /// <summary>Description-line prefix naming the trigger: <c>Triggered by the account holder</c>.</summary>
+    /// <summary>
+    /// The slice's Event Modeling pattern, when the model states it (issue #323). Gherkin cannot
+    /// derive Automation or Translation from step text — a bus command and an automation's trigger
+    /// event are the same sentence, `When X is received` — so without this tag the spec source
+    /// guessed Command for every automation and disagreed with the curated model that knew better,
+    /// permanently and unresolvably. A tag can say what a sentence cannot.
+    /// </summary>
+    public const string PatternPrefix = "pattern:";
+
     public const string TriggeredByPrefix = "Triggered by";
 
     /// <summary>The slice name from a <c>slice:&lt;name&gt;</c> tag, or null.</summary>
@@ -42,6 +51,8 @@ public static class SliceTags
 
     /// <summary>The chapter name from a <c>chapter:&lt;name&gt;</c> tag, or null.</summary>
     public static string? Chapter(IEnumerable<string> tags) => valueOf(tags, ChapterPrefix);
+
+    public static string? Pattern(IEnumerable<string> tags) => valueOf(tags, PatternPrefix);
 
     /// <summary>
     /// The trigger from a feature description line starting <c>Triggered by</c> — the remainder of

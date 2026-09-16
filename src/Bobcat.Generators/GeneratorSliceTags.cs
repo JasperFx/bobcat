@@ -5,7 +5,8 @@ namespace Bobcat.Generators;
 
 /// <summary>
 /// The generator's copy of <c>Bobcat.Runtime.SliceTags</c> — the feature-level vocabulary that
-/// declares an Event Modeling slice (<c>@slice:</c>, <c>@domain:</c>, <c>Triggered by …</c>).
+/// declares an Event Modeling slice (<c>@slice:</c>, <c>@domain:</c>, <c>@chapter:</c>,
+/// <c>@pattern:</c>, <c>Triggered by …</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,6 +32,15 @@ internal static class GeneratorSliceTags
     public const string SlicePrefix = "slice:";
     public const string DomainPrefix = "domain:";
     public const string ChapterPrefix = "chapter:";
+    /// <summary>
+    /// The slice's Event Modeling pattern, when the model states it (issue #323). Gherkin cannot
+    /// derive Automation or Translation from step text — a bus command and an automation's trigger
+    /// event are the same sentence, `When X is received` — so without this tag the spec source
+    /// guessed Command for every automation and disagreed with the curated model that knew better,
+    /// permanently and unresolvably. A tag can say what a sentence cannot.
+    /// </summary>
+    public const string PatternPrefix = "pattern:";
+
     public const string TriggeredByPrefix = "Triggered by";
 
     public static string? Slice(IEnumerable<string> tags) => valueOf(tags, SlicePrefix);
@@ -38,6 +48,8 @@ internal static class GeneratorSliceTags
     public static string? Domain(IEnumerable<string> tags) => valueOf(tags, DomainPrefix);
 
     public static string? Chapter(IEnumerable<string> tags) => valueOf(tags, ChapterPrefix);
+
+    public static string? Pattern(IEnumerable<string> tags) => valueOf(tags, PatternPrefix);
 
     public static string? TriggeredBy(string? description)
     {

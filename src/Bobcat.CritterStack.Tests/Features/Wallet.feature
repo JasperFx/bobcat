@@ -177,7 +177,11 @@ Feature: Wallet
   # with no table handed the fixture null and it dereferenced it — a bare NRE whose stack was
   # Bobcat's, not the spec's. A field-less command is a perfectly good act, so the table is
   # optional now (and BOBCAT020 catches the steps that genuinely do need one, at build time).
-  @slice:SweepWallets
+  # @pattern: says what the step text cannot (issue #323). A sweep is triggered by a schedule,
+  # not by a person or a route, and `When X is received` reads identically for a bus command and
+  # for an automation's trigger — so inference guesses Command and the tag is the only way a
+  # spec can state the truth.
+  @slice:SweepWallets @pattern:Automation
   Scenario: A field-less command needs no table
     Given no events for Wallet "88888888-8888-8888-8888-888888888888"
     When SweepWallets is received

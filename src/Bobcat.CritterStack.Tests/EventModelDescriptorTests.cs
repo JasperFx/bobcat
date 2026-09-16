@@ -33,6 +33,23 @@ public class EventModelDescriptorTests
     }
 
     [Fact]
+    public void a_declared_pattern_beats_inference_so_an_automation_can_say_so()
+    {
+        // Issue #323. SweepWallets is received off the bus with no fields, which is textually
+        // indistinguishable from a bus command — `When X is received` either way. Inference
+        // therefore returns Command, and against a curated model that declared Automation it
+        // produced a SourceDisagreement no change to either side could resolve, because both
+        // claims sit on the Declared rung.
+        slice("SweepWallets").Pattern.ShouldBe(SlicePattern.Automation);
+
+        // And inference is untouched where it can actually tell: an HTTP act is a Command slice,
+        // a read-model-only slice is a View. Abstaining everywhere would have been the cheap fix
+        // and would have cost both of these.
+        slice("CreditWallet").Pattern.ShouldBe(SlicePattern.Command);
+        slice("WalletSummary").Pattern.ShouldBe(SlicePattern.View);
+    }
+
+    [Fact]
     public void a_slice_is_a_scenario_level_grouping_so_several_scenarios_fold_into_one()
     {
         // Wallet.feature tags seven scenarios @slice:CreditWallet (two are #259's per-event twins
