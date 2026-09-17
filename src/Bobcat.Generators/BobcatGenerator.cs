@@ -61,6 +61,28 @@ public class BobcatGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(stepCalls.Collect(), (spc, calls) =>
         {
             if (calls.Length == 0) return;
+
+            // Reported once per (method, placeholder) rather than once per call site: the mistake
+            // is in the attribute, and a helper called from forty tests would otherwise bury the
+            // build in forty copies of one warning.
+            var reported = new HashSet<string>();
+            foreach (var call in calls)
+            {
+                foreach (var placeholder in call.UnknownPlaceholders)
+                {
+                    if (!reported.Add(call.DeclaringType + "." + call.MethodName + "/" + placeholder)) continue;
+
+                    var parameters = call.ParameterNames.Count == 0
+                        ? " (it takes none)"
+                        : " (it takes " + string.Join(", ", call.ParameterNames) + ")";
+
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.UnknownStepPlaceholder,
+                        call.Location ?? Microsoft.CodeAnalysis.Location.None,
+                        call.MethodName, placeholder, parameters));
+                }
+            }
+
             spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));
         });
 
@@ -1775,6 +1797,27 @@ internal static class Diagnostics
         "(the name case-insensitive), from the same feature file.",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// A <c>[BobcatStep]</c> template placeholder that names no parameter of the method
+    /// (issue #339). Numbered from 027 deliberately: 023–026 belong to issue #324's
+    /// spec-ownership manifest, which is in flight.
+    /// </summary>
+    /// <remarks>
+    /// Before #339 a placeholder survived for two different reasons — the argument was not a
+    /// literal, or the name was wrong — and both looked identical on the canvas. Now the first
+    /// binds at run time, so a surviving placeholder can only be the second, and it is worth
+    /// saying out loud: nothing will ever fill it, and the step renders as a template forever.
+    /// A warning rather than an error, because the step still records and the text still reads.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnknownStepPlaceholder = new(
+        "BOBCAT027",
+        "Step template names no parameter",
+        "[BobcatStep] on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
+        "'{1}'{2}. Nothing can fill it, so the step renders as '{{{1}}}'.",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor InvalidArrangement = new(
