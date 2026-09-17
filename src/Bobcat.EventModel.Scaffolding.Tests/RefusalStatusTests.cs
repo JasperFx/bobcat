@@ -100,7 +100,7 @@ public class RefusalStatusTests
 
         // The signature is the behaviour: Wolverine's own not-found guard answers the 404.
         code.ShouldContain("Post(ConfirmAppointment command, [WriteModel] Appointment appointment)");
-        code.ShouldContain("Validate(ConfirmAppointment command, [ReadModel] Appointment appointment)");
+        code.ShouldContain("Validate(ConfirmAppointment command, Appointment appointment)");
         code.ShouldNotContain("Appointment? appointment");
 
         // And the dead guard is refused by name, because eleven copies of it shipped once.

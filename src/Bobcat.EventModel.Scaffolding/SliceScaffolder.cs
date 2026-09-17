@@ -149,6 +149,54 @@ public static class SliceScaffolder
         return events.Select(name => new ViewSource(name, identityFieldFor(model, name))).ToList();
     }
 
+    /// <summary>
+    /// Every marker interface a multi-stream view in this model routes by (issue #347), keyed by
+    /// marker name, with the source events each one covers.
+    /// </summary>
+    /// <remarks>
+    /// Model-wide rather than per slice, because the two halves live in different files: a view
+    /// declares the routing question, and the event records it marks belong to whichever slice
+    /// EMITS them — usually not the view's. Computing this per slice would stamp only the events a
+    /// view happens to emit itself, which for a multi-stream view is generally none.
+    /// </remarks>
+    public static IReadOnlyDictionary<string, MarkerView> MarkersIn(CuratedModelFile model)
+    {
+        var markers = new Dictionary<string, MarkerView>(StringComparer.Ordinal);
+
+        foreach (var slice in model.Slices.Where(x => x.Pattern == "View" && x.FanOut))
+        {
+            var sources = ViewSourcesFor(model, slice).Where(x => x.IdentityField is not null).ToList();
+            if (MarkerInterface.For(sources) is not { } marker) continue;
+
+            if (markers.TryGetValue(marker.Name, out var existing))
+            {
+                // Two views asking the same routing question share one interface rather than
+                // declaring two that differ only in spelling. The union is what the interface must
+                // cover; the declaring slice stays the first by name so the output is stable.
+                markers[marker.Name] = existing with
+                {
+                    Events = existing.Events.Union(sources.Select(x => x.Event), StringComparer.Ordinal)
+                        .OrderBy(x => x, StringComparer.Ordinal).ToList()
+                };
+                continue;
+            }
+
+            markers[marker.Name] = new MarkerView(marker,
+                sources.Select(x => x.Event).OrderBy(x => x, StringComparer.Ordinal).ToList(),
+                DeclaredBy: slice.Name);
+        }
+
+        return markers;
+    }
+
+    /// <summary>The markers an event record carries — it may route for several views.</summary>
+    public static IReadOnlyList<string> MarkersOn(CuratedModelFile model, string @event)
+        => MarkersIn(model).Values
+            .Where(x => x.Events.Contains(@event, StringComparer.Ordinal))
+            .Select(x => x.Marker.Name)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
     private static List<string>? eventsOf(CuratedModelFile model, Func<CuratedSlice, bool> predicate)
     {
         var events = model.Slices.Where(predicate)
@@ -286,10 +334,19 @@ public static class SliceScaffolder
                 break;
 
             case "View":
+            {
+                var view = new ViewSliceFrame(slice, ViewSourcesFor(model, slice),
+                    fieldsFor(model, slice, ReadModelFor(slice)));
+
+                var declares = MarkersIn(model).Values
+                    .Where(x => x.DeclaredBy == slice.Name)
+                    .OrderBy(x => x.Marker.Name, StringComparer.Ordinal)
+                    .Select(x => (ScaffoldFrame)new MarkerInterfaceFrame(x));
+
                 files[$"{domain}/{slice.Name}.cs"] =
-                    withHeader(ScaffoldFrame.Render(new ViewSliceFrame(slice, ViewSourcesFor(model, slice),
-                        fieldsFor(model, slice, ReadModelFor(slice)))));
+                    withHeader(ScaffoldFrame.Render([.. declares, view]));
                 break;
+            }
         }
 
         return files;
@@ -380,13 +437,18 @@ public static class SliceScaffolder
         foreach (var @event in slice.Events.Where(x => declaresEventRecord(model, slice, x)))
         {
             frames.Add(new RecordFrame(@event, fieldsFor(model, slice, @event),
-                slice.Elements.GetValueOrDefault(@event)?.Description));
+                slice.Elements.GetValueOrDefault(@event)?.Description,
+                interfaces: MarkersOn(model, @event)));
         }
 
         if (collapsed)
         {
             frames.Add(new RecordFrame(command, fieldsFor(model, slice, command)));
-            if (!translation) frames.Add(new RecordFrame($"{slice.Name}Response", []));
+            // No response record (issue #346): it was always declared with NO fields, because the
+            // curated format has no way to state a response shape. A type that cannot carry
+            // anything is not a hook, it is thirteen empty records and thirteen 200s that should
+            // have been 204s. The endpoint frame writes [EmptyResponse] and says in a comment how
+            // to answer with a body.
         }
         else if (slice.Pattern == "Command")
         {

@@ -99,9 +99,9 @@ public class BusVisibilityTests
         var code = scaffold("RemoveListing");
 
         // The model selected the cascading shape — no busVisible flag, no by-hand opt-in.
-        code.ShouldContain("public static (RemoveListingResponse, EventsToAppend, ReviewListing) Post(RemoveListing command, [WriteModel] Listing? listing)");
+        code.ShouldContain("public static (EventsToAppend, ReviewListing) Post(RemoveListing command, [WriteModel] Listing? listing)");
         code.ShouldContain("slice 'ReviewListing' handles it; the cascade rides the transactional outbox");
-        code.ShouldContain("//     return (new RemoveListingResponse(/* … */), [new ListingRemoved(/* … */)], new ReviewListing(/* … */));");
+        code.ShouldContain("//     return ([new ListingRemoved(/* … */)], new ReviewListing(/* … */));");
         // The handling slice owns the command record; the publisher never re-declares it.
         code.ShouldNotContain("public record ReviewListing(");
         code.ShouldNotContain("WARNING");
@@ -130,7 +130,7 @@ public class BusVisibilityTests
         // Design point 1: an unhandled published command is usually a modeling gap — warn, and
         // keep the collapsed shape untouched rather than cascading into the void.
         code.ShouldContain("// WARNING (from the model): slice 'ArchiveListing' publishes 'PurgeListingMedia', but no slice declares it as its command");
-        code.ShouldContain("public static (ArchiveListingResponse, EventsToAppend) Post(");
+        code.ShouldContain("public static EventsToAppend Post(");
         code.ShouldNotContain("new PurgeListingMedia(");
 
         BusVisibility.Warnings(parse(ModelYaml)).ShouldContain(x => x.Contains("PurgeListingMedia"));
@@ -144,7 +144,7 @@ public class BusVisibilityTests
         // SuspendSeller exists — but it takes its command at a route. Published, it would go
         // unhandled: the inference requires a non-HTTP trigger on the handling slice.
         code.ShouldContain("// WARNING (from the model): slice 'ReportSeller' publishes 'SuspendSeller', but slice 'SuspendSeller' takes it at a route (Http trigger), not off the bus");
-        code.ShouldContain("public static (ReportSellerResponse, EventsToAppend) Post(");
+        code.ShouldContain("public static EventsToAppend Post(");
         code.ShouldNotContain("new SuspendSeller(");
     }
 

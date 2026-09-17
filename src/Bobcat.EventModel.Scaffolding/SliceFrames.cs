@@ -3,20 +3,50 @@ using JasperFx.CodeGeneration;
 namespace Bobcat.EventModel.Scaffolding;
 
 /// <summary>A positional record declaration, fields synthesized from the model's hints.</summary>
+/// <summary>
+/// Declares the marker interface a multi-stream view routes by (issue #347).
+/// </summary>
+/// <remarks>
+/// It lives in the VIEW's file, not with the events: the interface answers the view's routing
+/// question, and the events it marks are spread across the slices that emit them — there is no one
+/// event file it would belong in. Where two views ask the same question they share one interface,
+/// declared by whichever view sorts first, so the output does not move when a slice is renamed.
+/// </remarks>
+public class MarkerInterfaceFrame : ScaffoldFrame
+{
+    private readonly MarkerView _marker;
+
+    public MarkerInterfaceFrame(MarkerView marker) => _marker = marker;
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine($"/// Routes by {_marker.Marker.Field}: {string.Join(", ", _marker.Events)}.");
+        writer.WriteLine("/// </summary>");
+        writer.Write($"BLOCK:public interface {_marker.Marker.Name}");
+        writer.WriteLine($"Guid {_marker.Marker.Field} {{ get; }}");
+        writer.FinishBlock();
+        writer.BlankLine();
+        Next?.GenerateCode(method, writer);
+    }
+}
+
 public class RecordFrame : ScaffoldFrame
 {
     private readonly string _name;
     private readonly IReadOnlyList<(string Type, string Name)> _fields;
     private readonly string? _docComment;
     private readonly IReadOnlyList<string> _warnings;
+    private readonly IReadOnlyList<string> _interfaces;
 
     public RecordFrame(string name, IReadOnlyList<(string Type, string Name)> fields, string? docComment = null,
-        IReadOnlyList<string>? warnings = null)
+        IReadOnlyList<string>? warnings = null, IReadOnlyList<string>? interfaces = null)
     {
         _name = name;
         _fields = fields;
         _docComment = docComment;
         _warnings = warnings ?? [];
+        _interfaces = interfaces ?? [];
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -46,7 +76,11 @@ public class RecordFrame : ScaffoldFrame
         }
 
         var fields = string.Join(", ", _fields.Select(x => $"{x.Type} {x.Name}"));
-        writer.WriteLine($"public record {_name}({fields});");
+        // The marker interfaces a multi-stream view routes by (issue #347). An event may carry
+        // several: AppointmentsQueue keys by shelter and MyAppointments by owner, over the same
+        // events, so one record implements both.
+        var markers = _interfaces.Count == 0 ? "" : $" : {string.Join(", ", _interfaces)}";
+        writer.WriteLine($"public record {_name}({fields}){markers};");
         writer.BlankLine();
         Next?.GenerateCode(method, writer);
     }
@@ -307,11 +341,11 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         // A refusal the model states over arranged history is about the aggregate's STATE, and
         // `request` cannot answer that (issue #238) — so the guard binds the aggregate too.
         //
-        // [ReadModel] rather than Marten's [ReadAggregate]: it is the store-agnostic twin of the
-        // [WriteModel] this frame already emits below, and it infers requiredness from the
-        // annotation — so `{aggregate}?` really means "may not exist" and the guard gets to decide,
-        // where [ReadAggregate] keeps its original unconditional not-found guard (wolverine#3929)
-        // and would 404 before the refusal ran.
+        // NO attribute on it (issue #345). The [WriteModel] this frame emits below is the load:
+        // codegen-preview shows one FetchForWriting and `Validate(stream_x.Aggregate)` with or
+        // without a [ReadModel] here, so the attribute is not a second load — it is a second
+        // CONCEPT where there is only one, leaving a reader to work out which model the guard ran
+        // against. Requiredness still reads off `{optional}`, which is the same on both signatures.
         var onState = SliceScaffolder.RefusesOnState(_slice);
 
         // The model declaring a 404 over an unarranged stream says the write model is REQUIRED
@@ -326,7 +360,7 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         var optional = required ? "" : "?";
 
         writer.Write(onState
-            ? $"BLOCK:public static ProblemDetails Validate({command} command, [ReadModel] {aggregate}{optional} {argument})"
+            ? $"BLOCK:public static ProblemDetails Validate({command} command, {aggregate}{optional} {argument})"
             : $"BLOCK:public static ProblemDetails Validate({command} command)");
 
         var refusals = SliceScaffolder.RefusalsOf(_slice);
@@ -360,7 +394,16 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.BlankLine();
 
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
-        var returnType = $"({_slice.Name}Response, EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
+
+        // [EmptyResponse], not an empty response record (issue #346). The record this used to
+        // declare carried nothing and could carry nothing — the scaffolder had no shape to put in
+        // it — so it bought a type name that names nothing, a tuple return, and a 200 where the
+        // honest answer is 204. A slice that really does answer with data says so by hand; that is
+        // one edit against thirteen deletions.
+        writer.WriteLine("[EmptyResponse]");
+        var returnType = _cascaded.Count == 0
+            ? "EventsToAppend"
+            : $"(EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
         writer.Write(
             $"BLOCK:public static {returnType} Post({command} command, [WriteModel] {aggregate}{optional} {argument})");
 
@@ -381,7 +424,9 @@ public class CollapsedEndpointFrame : ScaffoldFrame
             writer.WriteLine("// stream. Both cannot be true; the parameter is left nullable. Fix the model.");
         }
 
-        writer.WriteLine("// The decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");
+        writer.WriteLine(_cascaded.Count == 0
+            ? "// The decision. Nothing to append is `return [];` — never a nullable event (wolverine#4309)."
+            : "// The decision. Nothing to append is `return ([], ...);` — never a nullable event (wolverine#4309).");
         writer.WriteLine("// A computed stream id belongs on the request record: [Identity] public Guid ...Id => ...;");
         foreach (var message in _cascaded)
         {
@@ -390,11 +435,15 @@ public class CollapsedEndpointFrame : ScaffoldFrame
                 : $"// The model designates {message.Name} as bus-visible — slice '{message.HandledBy}' handles it; the cascade rides the transactional outbox.");
         }
 
+        writer.WriteLine("// Answering with a body instead of 204: drop [EmptyResponse], declare the response");
+        writer.WriteLine("// record, and return it beside the events as a tuple.");
         var events = string.Join(", ", _slice.Events.Select(x => $"new {x}(/* … */)"));
         var cascades = string.Concat(_cascaded.Select(x => $", new {x.Name}(/* … */)"));
         writeUnfilledDecision(writer,
-            $"{_slice.Name} — decide which events this slice appends, and what to answer with",
-            $"return (new {_slice.Name}Response(/* … */), [{events}]{cascades});");
+            $"{_slice.Name} — decide which events this slice appends",
+            _cascaded.Count == 0
+                ? $"return [{events}];"
+                : $"return ([{events}]{cascades});");
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
@@ -581,15 +630,29 @@ public class ViewSliceFrame : ScaffoldFrame
             writer.WriteLine("// Identity<T>(x => x.SomeId) / Identities<T>(x => [x.OneId, x.OtherId]) routing.");
         }
 
+        // Every routed event keyed the same way is one rule, not N (issue #347): a marker interface
+        // carries the identity, so the constructor states the rule once and the fold is a single
+        // Evolve. Deriving the marker needs every source to agree on the field — two keys cannot be
+        // one interface — so a mixed view keeps the per-event shape, which is the honest answer
+        // rather than a half-applied one.
+        var marker = fanOut ? MarkerInterface.For(sources) : null;
+
         if (fanOut)
         {
             writer.Write($"BLOCK:public class {projection} : MultiStreamProjection<{readModel}, Guid>");
             writer.Write($"BLOCK:public {projection}()");
             writer.WriteLine("// The slicing rule, without which this projection cannot be registered. One document");
             writer.WriteLine("// per key; Identities<T>(x => [x.OneId, x.OtherId]) where one event updates several.");
-            foreach (var source in sources)
+            if (marker is not null)
             {
-                writer.WriteLine($"Identity<{source.Event}>(x => x.{source.IdentityField});");
+                writer.WriteLine($"Identity<{marker.Name}>(x => x.{marker.Field});");
+            }
+            else
+            {
+                foreach (var source in sources)
+                {
+                    writer.WriteLine($"Identity<{source.Event}>(x => x.{source.IdentityField});");
+                }
             }
 
             writer.FinishBlock();
@@ -608,16 +671,37 @@ public class ViewSliceFrame : ScaffoldFrame
             writer.Write($"BLOCK:public class {projection} : SingleStreamProjection<{readModel}, Guid>");
         }
 
-        foreach (var source in sources)
+        if (marker is not null)
         {
-            var argument = char.ToLowerInvariant(source.Event[0]) + source.Event[1..];
             writer.BlankLine();
-            writer.Write($"BLOCK:public void Apply({source.Event} {argument}, {readModel} view)");
-            writer.WriteLine("// Fill this in and delete the throw — the model's scenarios say what the view holds.");
-            writer.WriteLine("// Until then the projection stops on this event, so a scenario asserting the read model");
-            writer.WriteLine("// fails on its projection wait rather than on a value.");
-            writer.WriteLine($"throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\");");
+            writer.Write($"BLOCK:public static {readModel} Evolve({readModel} view, {marker.Name} e)");
+            writer.WriteLine("// One fold, one switch — the event types inside it are NOT hidden from the store:");
+            writer.WriteLine("// JasperFx.Events.SourceGenerator reads this signature and emits the evolver mapping,");
+            writer.WriteLine("// so no IncludeType<T>() calls are needed.");
+            writer.WriteLine("// Fill each arm in and delete the throw — the model's scenarios say what the view holds.");
+            writer.Write("BLOCK:return e switch");
+            foreach (var source in sources)
+            {
+                writer.WriteLine($"{source.Event} => throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\"),");
+            }
+
+            writer.WriteLine("_ => view");
+            writer.FinishBlock(";");
             writer.FinishBlock();
+        }
+        else
+        {
+            foreach (var source in sources)
+            {
+                var argument = char.ToLowerInvariant(source.Event[0]) + source.Event[1..];
+                writer.BlankLine();
+                writer.Write($"BLOCK:public void Apply({source.Event} {argument}, {readModel} view)");
+                writer.WriteLine("// Fill this in and delete the throw — the model's scenarios say what the view holds.");
+                writer.WriteLine("// Until then the projection stops on this event, so a scenario asserting the read model");
+                writer.WriteLine("// fails on its projection wait rather than on a value.");
+                writer.WriteLine($"throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\");");
+                writer.FinishBlock();
+            }
         }
 
         writer.FinishBlock();

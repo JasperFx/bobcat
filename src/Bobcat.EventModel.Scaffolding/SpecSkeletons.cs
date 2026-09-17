@@ -254,6 +254,17 @@ public static class SpecSkeletons
                 // a collapsed endpoint refuses with ProblemDetails and a 400.
                 foreach (var step in plan.RefusalSteps(reason)) yield return step;
             }
+            else if (then.RefusedWith is { } refusal)
+            {
+                // The status the model stated (issue #337). Missing this arm did not degrade the
+                // step — it removed the whole `then:`, leaving a skeleton whose only step is the
+                // act. In THIS lane the marker comments are the specification, so that reads as a
+                // finished scenario rather than a missing one (issue #344).
+                foreach (var step in plan.RefusalSteps(refusal.Reason ?? "refused", refusal.Status))
+                {
+                    yield return step;
+                }
+            }
         }
     }
 

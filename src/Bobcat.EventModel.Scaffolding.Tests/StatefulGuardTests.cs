@@ -76,7 +76,7 @@ public class StatefulGuardTests
         var code = codeFor("ConfirmAppointment");
 
         code.ShouldContain(
-            "public static ProblemDetails Validate(ConfirmAppointment command, [ReadModel] Appointment? appointment)");
+            "public static ProblemDetails Validate(ConfirmAppointment command, Appointment? appointment)");
 
         // And the TODO it must fill says which question it is answering.
         code.ShouldContain("// TODO guard: return new ProblemDetails { Detail = \"This appointment was cancelled\", Status = 400 };");
@@ -91,7 +91,9 @@ public class StatefulGuardTests
         var code = codeFor("ProposeAppointment");
 
         code.ShouldContain("public static ProblemDetails Validate(ProposeAppointment command)");
-        code.ShouldNotContain("[ReadModel]");
+        // The parameter IS the discriminator now that #345 dropped the attribute — asserting the
+        // absence of [ReadModel] would pass for a bound aggregate too.
+        code.ShouldNotContain("Validate(ProposeAppointment command, Appointment");
     }
 
     [Fact]
