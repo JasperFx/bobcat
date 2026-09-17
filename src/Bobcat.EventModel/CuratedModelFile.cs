@@ -234,7 +234,10 @@ public sealed class CuratedWhen
     public Dictionary<string, string> With { get; set; } = [];
 }
 
-/// <summary>Exactly one of <see cref="Event"/>, <see cref="ReadModel"/>, or <see cref="ValidationFails"/> is set.</summary>
+/// <summary>
+/// Exactly one of <see cref="Event"/>, <see cref="ReadModel"/>, <see cref="ValidationFails"/> or
+/// <see cref="RefusedWith"/> is set.
+/// </summary>
 public sealed class CuratedThen
 {
     public string? Event { get; set; }
@@ -255,5 +258,64 @@ public sealed class CuratedThen
     /// <inheritdoc cref="CuratedWhen.With"/>
     public Dictionary<string, string> Contains { get; set; } = [];
 
+    /// <summary>
+    /// A refusal that <b>throws</b>, carrying the message the exception reads — the bus lane's
+    /// form, which <c>Then validation fails with "…"</c> asserts. On an HTTP slice it still means
+    /// "refused", and the scaffolder writes it as a 400: the status a <c>Validate</c> railway
+    /// stub returns when nothing says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Use <see cref="RefusedWith"/> when the status is anything but 400. The two are separate
+    /// spellings because they are separate claims: this one names a message and says nothing
+    /// about a transport, and a bus-dispatched refusal has no status to name.
+    /// </remarks>
     public string? ValidationFails { get; set; }
+
+    /// <summary>
+    /// A refusal over HTTP that answers with a <b>stated status</b> (issue #337) — a 403, a 409,
+    /// a 404 for a stream that does not exist. Only for a slice that answers over HTTP; a
+    /// bus-dispatched slice refuses by throwing, which is <see cref="ValidationFails"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Before this the format could only say <c>validationFails:</c>, and the scaffolder turned
+    /// every modelled HTTP refusal into <c>Then the response is 400</c> and a
+    /// <c>ProblemDetails { Status = 400 }</c> guard TODO. A slice refusing with anything else got
+    /// a confidently wrong spec and a confidently wrong stub — and a 404 for a missing stream,
+    /// which every endpoint binding a non-nullable write model answers, could not be modelled at
+    /// all. That left a real spec identity the model could not declare.
+    /// </para>
+    /// <para>
+    /// <b>404 is a claim about the signature, not about a guard.</b> Declaring one is how the
+    /// scaffolder learns the endpoint's write model is required: Wolverine emits the not-found
+    /// guard itself for a non-nullable <c>[WriteModel]</c>, before <c>Validate</c> runs, so the
+    /// scaffold binds the parameter non-nullable and writes NO guard TODO for that refusal. A
+    /// hand-written null check there is unreachable code that looks load-bearing.
+    /// </para>
+    /// </remarks>
+    public CuratedRefusal? RefusedWith { get; set; }
+}
+
+/// <summary>
+/// An HTTP refusal: the status the endpoint answers with, and the human sentence saying why
+/// (issue #337).
+/// </summary>
+/// <remarks>
+/// <b>Both halves are required.</b> The status without a reason cannot scaffold a guard TODO or
+/// a comment anyone can act on, and the reason without a status is exactly what
+/// <see cref="CuratedThen.ValidationFails"/> already says.
+/// </remarks>
+public sealed class CuratedRefusal
+{
+    /// <summary>The HTTP status, 4xx or 5xx. There is no default: 400 is what omitting the whole
+    /// node means, by writing <c>validationFails:</c> instead.</summary>
+    public int Status { get; set; }
+
+    /// <summary>
+    /// Why the request was refused, in the model's own words. Reaches the scaffolded feature as a
+    /// comment beside the status assertion — an HTTP refusal has nowhere to assert prose, since a
+    /// ProblemDetails body is the endpoint's business — and the emitted guard TODO as its
+    /// <c>Detail</c>.
+    /// </summary>
+    public string? Reason { get; set; }
 }

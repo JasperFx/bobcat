@@ -181,10 +181,11 @@ public static class CuratedModelReader
             {
                 var set = (then.Event is not null ? 1 : 0)
                           + (then.ReadModel is not null ? 1 : 0)
-                          + (then.ValidationFails is not null ? 1 : 0);
+                          + (then.ValidationFails is not null ? 1 : 0)
+                          + (then.RefusedWith is not null ? 1 : 0);
                 if (set != 1)
                 {
-                    problems.Add($"{where}: each `then` entry needs exactly one of event / readModel / validationFails.");
+                    problems.Add($"{where}: each `then` entry needs exactly one of event / readModel / validationFails / refusedWith.");
                 }
                 else
                 {
@@ -195,6 +196,8 @@ public static class CuratedModelReader
                 {
                     problems.Add($"{where}: `id:` names the read-model document to assert on, so it only belongs on a `readModel:` entry.");
                 }
+
+                validateRefusal(slice, then.RefusedWith, where, problems);
             }
 
             // The grammar's shape rules, applied over the well-formed entries only so a
@@ -210,6 +213,41 @@ public static class CuratedModelReader
             {
                 problems.Add($"{where}: a scenario asserts events or a read model, never both.");
             }
+        }
+    }
+
+    /// <summary>
+    /// The rules on a stated HTTP refusal (issue #337). All three are refusals of the FILE rather
+    /// than of the design: a status off the HTTP lane has nowhere to be asserted, a status outside
+    /// 4xx/5xx is not a refusal, and a reason-less one scaffolds a guard TODO nobody can act on.
+    /// </summary>
+    private static void validateRefusal(
+        CuratedSlice slice, CuratedRefusal? refusal, string where, List<string> problems)
+    {
+        if (refusal is null) return;
+
+        if (!CuratedSliceShape.AnswersOverHttp(slice))
+        {
+            problems.Add(
+                $"{where}: `refusedWith:` states an HTTP status, and this slice does not answer over HTTP "
+                + "— it refuses by throwing, which `Then validation fails with \"…\"` asserts. "
+                + "Use `validationFails:` here, or declare the slice as a Command slice with an "
+                + "Http or Human trigger.");
+        }
+
+        if (refusal.Status is < 400 or > 599)
+        {
+            problems.Add(
+                $"{where}: `refusedWith.status:` is {refusal.Status}; a refusal answers with a 4xx or a 5xx. "
+                + "A missing `status:` reads as 0.");
+        }
+
+        if (string.IsNullOrWhiteSpace(refusal.Reason))
+        {
+            problems.Add(
+                $"{where}: `refusedWith.reason:` is required — it is the sentence the scaffolded guard's "
+                + "`Detail` and the feature's comment beside the status both carry. A status alone says "
+                + "what the endpoint answers and nothing about why.");
         }
     }
 

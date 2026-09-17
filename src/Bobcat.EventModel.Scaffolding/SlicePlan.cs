@@ -98,14 +98,30 @@ public sealed record SlicePlan(
     /// caught-exception step can ever see. Emitting the wrong one is not a compile error, so it
     /// costs a permanently red scenario rather than a build; same disagreement, quieter bill.
     /// </summary>
-    public IEnumerable<string> RefusalSteps(string reason)
+    public IEnumerable<string> RefusalSteps(string reason) => RefusalSteps(reason, null);
+
+    /// <inheritdoc cref="RefusalSteps(string)"/>
+    /// <param name="reason">Why the request was refused, in the model's own words.</param>
+    /// <param name="status">
+    /// The status the endpoint answers with, from <c>refusedWith:</c> (issue #337), or null for a
+    /// <c>validationFails:</c> refusal — which is a 400 on the HTTP lane, because a 400 is what
+    /// the <c>Validate</c> railway stub this plan emits returns.
+    /// </param>
+    /// <remarks>
+    /// The status is the model's to state and was the scaffolder's to assume: every modelled HTTP
+    /// refusal scaffolded as <c>Then the response is 400</c>, so a slice refusing with a 403, a
+    /// 409 or a 404 got a spec that was wrong the moment it was written. Same silent degradation
+    /// as the shape disagreement above, and the same fix — read it off the model once, in one
+    /// place, so the feature and the guard cannot answer differently.
+    /// </remarks>
+    public IEnumerable<string> RefusalSteps(string reason, int? status)
     {
         if (OverHttp)
         {
             // The reason survives as a comment: the HTTP form has nowhere to assert it, and the
             // guard that produces it is a TODO in the emitted Validate stub.
             yield return $"# refused with: \"{reason}\"";
-            yield return "Then the response is 400";
+            yield return $"Then the response is {status ?? 400}";
         }
         else
         {
@@ -122,3 +138,21 @@ public sealed record SlicePlan(
 /// registers and one that cannot (issue #232).
 /// </summary>
 public sealed record ViewSource(string Event, string? IdentityField);
+
+/// <summary>
+/// One refusal the model states, as both scaffolding halves need it (issue #337).
+/// </summary>
+/// <param name="Reason">Why the request was refused, in the model's own words.</param>
+/// <param name="Status">The status an HTTP slice answers with, or null for a thrown refusal —
+/// which is a 400 on the HTTP lane, because a 400 is what the emitted <c>Validate</c> returns.</param>
+/// <param name="FromTheFramework">
+/// True when the framework already produces this refusal and the scaffold must NOT write a guard
+/// for it: a 404 over a stream the scenario never arranged is Wolverine's own not-found guard on
+/// a required <c>[WriteModel]</c>, running before <c>Validate</c> is called. What the scaffold
+/// owes that case is the required parameter and a comment saying where the status comes from.
+/// </param>
+public sealed record ScaffoldedRefusal(string Reason, int? Status, bool FromTheFramework)
+{
+    /// <summary>The status this refusal answers with on the HTTP lane.</summary>
+    public int HttpStatus => Status ?? 400;
+}

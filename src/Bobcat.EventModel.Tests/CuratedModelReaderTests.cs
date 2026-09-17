@@ -126,7 +126,7 @@ public class CuratedModelReaderTests
                           readModel: R
             """);
 
-        reading.Problems.Single().ShouldContain("exactly one of event / readModel / validationFails");
+        reading.Problems.Single().ShouldContain("exactly one of event / readModel / validationFails / refusedWith");
     }
 
     [Fact]
@@ -147,6 +147,126 @@ public class CuratedModelReaderTests
             """);
 
         reading.Problems.ShouldContain(x => x.Contains("never both"));
+    }
+
+    // --- Issue #337: a refusal that states the status it answers with ---
+
+    private const string HttpSlice =
+        """
+        schema: 1
+        model: X
+        slices:
+          - name: A
+            pattern: Command
+            trigger: { kind: Http }
+            specifications:
+              scenarios:
+                - name: S
+                  then:
+                    - refusedWith: { status: STATUS, reason: REASON }
+        """;
+
+    private static CuratedModelReading readRefusal(string status, string reason)
+        => CuratedModelReader.Read(HttpSlice.Replace("STATUS", status).Replace("REASON", reason));
+
+    [Fact]
+    public void a_stated_refusal_on_an_http_slice_is_well_formed()
+    {
+        var reading = readRefusal("409", "\"already cancelled\"");
+
+        reading.Problems.ShouldBeEmpty();
+        var refusal = reading.File!.Slices.Single().Specifications!.Scenarios.Single().Then.Single().RefusedWith;
+        refusal!.Status.ShouldBe(409);
+        refusal.Reason.ShouldBe("already cancelled");
+    }
+
+    [Fact]
+    public void a_status_outside_4xx_and_5xx_is_not_a_refusal()
+    {
+        readRefusal("204", "\"fine\"").Problems.ShouldContain(x => x.Contains("a 4xx or a 5xx"));
+
+        // A missing `status:` deserializes as 0, and reads as the same problem rather than as 400:
+        // omitting the whole node is how a file says 400, by writing validationFails: instead.
+        CuratedModelReader.Read(
+            """
+            schema: 1
+            model: X
+            slices:
+              - name: A
+                pattern: Command
+                trigger: { kind: Http }
+                specifications:
+                  scenarios:
+                    - name: S
+                      then:
+                        - refusedWith: { reason: "no status" }
+            """).Problems.ShouldContain(x => x.Contains("reads as 0"));
+    }
+
+    [Fact]
+    public void a_refusal_with_no_reason_scaffolds_nothing_anyone_can_act_on()
+    {
+        CuratedModelReader.Read(
+            """
+            schema: 1
+            model: X
+            slices:
+              - name: A
+                pattern: Command
+                trigger: { kind: Http }
+                specifications:
+                  scenarios:
+                    - name: S
+                      then:
+                        - refusedWith: { status: 403 }
+            """).Problems.ShouldContain(x => x.Contains("`refusedWith.reason:` is required"));
+    }
+
+    [Fact]
+    public void a_status_has_nowhere_to_be_asserted_off_the_http_lane()
+    {
+        // A bus-dispatched slice refuses by THROWING, which `Then validation fails with "…"`
+        // asserts. Accepting a status there and dropping it is the silent degradation #337 is
+        // about; the file is named as wrong instead.
+        var reading = CuratedModelReader.Read(
+            """
+            schema: 1
+            model: X
+            slices:
+              - name: A
+                pattern: Command
+                trigger: { kind: Scheduled }
+                specifications:
+                  scenarios:
+                    - name: S
+                      then:
+                        - refusedWith: { status: 409, reason: "already cancelled" }
+            """);
+
+        reading.Problems.ShouldContain(x => x.Contains("does not answer over HTTP"));
+        reading.Problems.ShouldContain(x => x.Contains("validationFails"));
+    }
+
+    [Fact]
+    public void the_http_lane_is_case_insensitive_like_every_other_enum_field()
+    {
+        // `pattern: command` maps to a Command slice and validates; the predicate this shares
+        // with the scaffolder used to compare ordinally, so the same file scaffolded as a bus
+        // handler. A refusal must not be refused for the file's capitalization.
+        CuratedModelReader.Read(
+            """
+            schema: 1
+            model: X
+            slices:
+              - name: A
+                pattern: command
+                trigger: { kind: http }
+                specifications:
+                  scenarios:
+                    - name: S
+                      then:
+                        - refusedWith: { status: 404, reason: "no such thing" }
+            """).Problems.ShouldBeEmpty();
     }
 
     [Fact]
