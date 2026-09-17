@@ -113,7 +113,7 @@ evaluates before the Vite build runs and silently embeds nothing on a clean buil
 
 ## Palette — the docs site's, not CritterWatch's (2026-09-02)
 
-The console wears **"Ember on Ink"**, the palette of https://jasperfx.github.io/bobcat: rust and
+The console wears **"Ember on Ink"**, the palette of https://bobcat.jasperfx.net: rust and
 ember accents on paper, ink for text. `docs/.vitepress/theme/style.css` is the source of truth —
 `src/styles/variables.css` copies its `--bc-*` ramp verbatim and derives every `--bm-*` and
 `--el-*` value from those, so the two files can be diffed rather than compared by eye.

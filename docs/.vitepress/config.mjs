@@ -3,12 +3,12 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Bobcat',
   description: 'Author, supervise, and run integration tests in .NET',
-  base: '/bobcat/',
+  base: '/',
   cleanUrls: true,
   head: [
-    ['link', { rel: 'icon', type: 'image/png', sizes: '64x64', href: '/bobcat/bobcat-favicon-64.png' }],
-    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/bobcat/bobcat-favicon-32.png' }],
-    ['meta', { property: 'og:image', content: 'https://jasperfx.github.io/bobcat/bobcat-social-dark-1280x640.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '64x64', href: '/bobcat-favicon-64.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/bobcat-favicon-32.png' }],
+    ['meta', { property: 'og:image', content: 'https://bobcat.jasperfx.net/bobcat-social-dark-1280x640.png' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }]
   ],
   themeConfig: {
