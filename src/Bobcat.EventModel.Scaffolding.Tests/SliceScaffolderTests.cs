@@ -85,9 +85,11 @@ public class SliceScaffolderTests
         // The collapsed default (CritterStackSamples#13): one transaction, honest status codes.
         code.ShouldContain("public record DogLiked(Guid SwiperDogId, DateTimeOffset LikedAt");
         code.ShouldContain("public record SwipeOnDog(Guid SwiperDogId, bool Liked);");
-        code.ShouldContain("public record SwipeOnDogResponse();");
+        // No empty response record, and 204 rather than a 200 carrying `{}` (#346).
+        code.ShouldNotContain("SwipeOnDogResponse");
         code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
-        code.ShouldContain("public static (SwipeOnDogResponse, EventsToAppend) Post(SwipeOnDog command, [WriteModel] SwipePair? swipePair)");
+        code.ShouldContain("[EmptyResponse]");
+        code.ShouldContain("public static EventsToAppend Post(SwipeOnDog command, [WriteModel] SwipePair? swipePair)");
         // The aggregate is NOT here — it is a model-level artifact now (see below).
         code.ShouldNotContain("public class SwipePair");
         code.ShouldContain("wolverine#4309");

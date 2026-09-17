@@ -21,6 +21,42 @@ namespace Bobcat.EventModel.Scaffolding.Tests;
 /// </remarks>
 public class ViewSliceRegistrationTests
 {
+    /// <summary>Two source events keying by different fields — no one interface can say that.</summary>
+    internal const string MixedKeyYaml =
+        """
+        schema: 1
+        model: Mixed
+        namespace: Mixed
+        slices:
+          - name: DoThing
+            pattern: Command
+            domain: Things
+            trigger: { kind: MessageHandler }
+            command: DoThing
+            aggregates: [Thing]
+            events: [ThingHappened]
+            elements:
+              ThingHappened:
+                fields: { thingId: Guid }
+          - name: DoOther
+            pattern: Command
+            domain: Things
+            trigger: { kind: MessageHandler }
+            command: DoOther
+            aggregates: [Thing]
+            events: [OtherHappened]
+            elements:
+              OtherHappened:
+                fields: { otherId: Guid }
+          - name: MixedQueue
+            pattern: View
+            domain: Things
+            projections: [MixedQueueProjection]
+            fanOut: true
+            readModels: [MixedQueue]
+            consumes: [ThingHappened, OtherHappened]
+        """;
+
     internal const string ModelYaml =
         """
         schema: 1
@@ -118,12 +154,51 @@ public class ViewSliceRegistrationTests
 
         // Both halves, because Marten refuses the projection for a different reason without each.
         code.ShouldContain("public class AppointmentsQueueProjection : MultiStreamProjection<AppointmentsQueue, Guid>");
-        code.ShouldContain("Identity<HomeCheckAppointmentProposed>(x => x.AppointmentId);");
-        code.ShouldContain("public void Apply(HomeCheckAppointmentProposed homeCheckAppointmentProposed, AppointmentsQueue view)");
-        code.ShouldContain("throw new NotImplementedException(\"TODO: AppointmentsQueue — project HomeCheckAppointmentProposed\");");
 
-        // Its sources are the domain's events, because the View slice declares none of its own.
-        code.ShouldContain("Identity<AppointmentConfirmed>(x => x.AppointmentId);");
+        // One slicing rule and one fold, not one of each per event (issue #347): every source keys
+        // by AppointmentId, so that agreement IS the interface.
+        code.ShouldContain("public interface IAppointmentEvent");
+        code.ShouldContain("Guid AppointmentId { get; }");
+        code.ShouldContain("Identity<IAppointmentEvent>(x => x.AppointmentId);");
+        code.ShouldContain("public static AppointmentsQueue Evolve(AppointmentsQueue view, IAppointmentEvent e)");
+        code.ShouldContain("HomeCheckAppointmentProposed => throw new NotImplementedException(\"TODO: AppointmentsQueue — project HomeCheckAppointmentProposed\"),");
+
+        // Its sources are the domain's events, because the View slice declares none of its own —
+        // so the fold covers them too.
+        code.ShouldContain("AppointmentConfirmed => throw new NotImplementedException(");
+
+        // And the shape it replaced is gone, rather than emitted beside it.
+        code.ShouldNotContain("Identity<HomeCheckAppointmentProposed>");
+        code.ShouldNotContain("public void Apply(HomeCheckAppointmentProposed");
+    }
+
+    [Fact]
+    public void the_marker_is_declared_once_and_stamped_on_the_records_that_carry_it()
+    {
+        // The two halves live in different files: the interface with the view that asks the
+        // routing question, the marker on records owned by the slices that EMIT them.
+        var model = parse(ModelYaml);
+        var emitter = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "ConfirmAppointment"))
+            .Single().Value;
+
+        emitter.ShouldContain(") : IAppointmentEvent;");
+        emitter.ShouldNotContain("public interface IAppointmentEvent");
+    }
+
+    [Fact]
+    public void sources_that_key_differently_keep_the_per_event_shape()
+    {
+        // Two keys cannot be one interface, and a marker over the majority would leave a reader
+        // unable to tell from the constructor which events it covers. So: no marker at all.
+        var model = parse(MixedKeyYaml);
+        var code = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "MixedQueue"))
+            .Single().Value;
+
+        code.ShouldNotContain("public interface I");
+        code.ShouldNotContain("Evolve(");
+        code.ShouldContain("Identity<ThingHappened>(x => x.ThingId);");
+        code.ShouldContain("Identity<OtherHappened>(x => x.OtherId);");
+        code.ShouldContain("public void Apply(ThingHappened thingHappened, MixedQueue view)");
     }
 
     [Fact]

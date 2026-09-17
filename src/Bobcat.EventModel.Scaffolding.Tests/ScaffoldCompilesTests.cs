@@ -132,11 +132,11 @@ public class ScaffoldCompilesTests
         // What an agent reads when its own slice is the unfilled one — rather than a compile
         // error in a file belonging to a slice it was never handed.
         code.ShouldContain(
-            "throw new NotImplementedException(\"TODO: ConfirmAppointment — decide which events this slice appends, and what to answer with\");");
+            "throw new NotImplementedException(\"TODO: ConfirmAppointment — decide which events this slice appends\");");
 
         // The deterministic 80% still travels: the shape it replaced is right above it.
         code.ShouldContain(
-            "//     return (new ConfirmAppointmentResponse(/* … */), [new AppointmentConfirmed(/* … */)]);");
+            "//     return [new AppointmentConfirmed(/* … */)];");
     }
 
     [Fact]
