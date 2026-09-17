@@ -58,17 +58,10 @@ namespace Bobcat.Monitoring;
 internal static class SpecEventModelPublisher
 {
     /// <summary>
-    /// The one type the generator emits per spec assembly — see
-    /// <c>EventModelEmitter.EmitSource</c>, which writes this namespace and class name.
+    /// The one type the generator emits per spec assembly. The lookup itself is
+    /// <see cref="GeneratedEventModel"/>, shared with issue #338's identity audit.
     /// </summary>
-    /// <remarks>
-    /// Looked up by name rather than by scanning for implementations of
-    /// <see cref="IEventModelDefinitionSource"/>, and that is deliberate: scanning would mean
-    /// CONSTRUCTING arbitrary user types in the middle of a test run, on the off chance one of
-    /// them is a model source. The generated type is the one thing here that is ours, and the
-    /// one thing guaranteed to need no services to describe itself.
-    /// </remarks>
-    internal const string GeneratedSourceTypeName = "Bobcat.Generated.EventModel.BobcatEventModelSource";
+    internal const string GeneratedSourceTypeName = GeneratedEventModel.GeneratedSourceTypeName;
 
     /// <summary>The route both halves of the Event Model wire are published on (issue #268).</summary>
     internal const string Route = "/api/event-model";
@@ -199,38 +192,20 @@ internal static class SpecEventModelPublisher
     }
 
     /// <summary>
-    /// The assembly's generated descriptor, provenance-stamped the way
-    /// <c>EventModelDiscovery</c> would stamp it — a spec assembly's slices are Declared, and the
-    /// merge upstream decides winning claims by provenance, so pushing an unstamped half would
-    /// let it lose to itself.
+    /// The assembly's generated descriptor, or null when it has none — or when reading it
+    /// failed, because a spec assembly that will not give up its model is not a reason to disturb
+    /// a run. That swallow is this caller's, not <see cref="GeneratedEventModel"/>'s: the same
+    /// failure has to be loud for an audit, which would otherwise report every declared scenario
+    /// as uncovered.
     /// </summary>
     private static EventModelDescriptor? describe(Assembly assembly)
     {
         try
         {
-            var type = assembly.GetType(GeneratedSourceTypeName, throwOnError: false);
-            if (type is null) return null;
-
-            // The generated type and its Instance field are internal to the spec assembly — the
-            // whole reason the host cannot see this half — so the field read is non-public.
-            var instance = type
-                .GetField("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.GetValue(null) as IEventModelDefinitionSource;
-
-            instance ??= Activator.CreateInstance(type, nonPublic: true) as IEventModelDefinitionSource;
-            if (instance is null) return null;
-
-            // The generated implementation ignores the service provider entirely — it is all
-            // compile-time fact — and the runner has no container to offer one.
-            var descriptor = instance
-                .TryCreateAsync(EmptyServiceProvider.Instance, CancellationToken.None)
-                .GetAwaiter().GetResult();
-
-            return descriptor?.WithProvenance(instance.Provenance);
+            return GeneratedEventModel.For(assembly);
         }
         catch
         {
-            // A spec assembly that will not give up its model is not a reason to disturb a run.
             return null;
         }
     }
@@ -252,13 +227,5 @@ internal static class SpecEventModelPublisher
 
         var source = new string(chars).Trim('-');
         return source.Length == 0 ? "specs" : source;
-    }
-
-    /// <summary>Stands in for the container the runner does not have.</summary>
-    private sealed class EmptyServiceProvider : IServiceProvider
-    {
-        public static readonly EmptyServiceProvider Instance = new();
-
-        public object? GetService(Type serviceType) => null;
     }
 }
