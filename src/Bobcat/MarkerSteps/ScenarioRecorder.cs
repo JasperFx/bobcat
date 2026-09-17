@@ -56,6 +56,28 @@ public static class ScenarioRecorder
     public static IDisposable Step(string keyword, string text, int declaredIndex)
         => _current.Value?.BeginStep(keyword, text, declaredIndex) ?? NoStep.Instance;
 
+    /// <summary>
+    /// Record a step whose text is a <c>[BobcatStep]</c> template, rendered against the values
+    /// the helper was actually called with (issue #339).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The generated interceptor substitutes what it can see at compile time — a literal
+    /// argument — and hands the rest here, because a type, a minted id or a constructed command
+    /// object has no rendering until it exists. That is the whole of a typed store vocabulary, and
+    /// without this its steps reached the canvas as <c>{event} is emitted</c>.
+    /// </para>
+    /// <para>
+    /// Rendered even when no scenario is open is deliberately NOT done: with nothing recording
+    /// there is nothing to render for, and a decorated helper is called from plenty of places
+    /// that are not specifications.
+    /// </para>
+    /// </remarks>
+    public static IDisposable Step(
+        string keyword, string text, int declaredIndex, IReadOnlyList<StepArgument> arguments)
+        => _current.Value?.BeginStep(keyword, StepText.Render(text, arguments), declaredIndex)
+           ?? NoStep.Instance;
+
     /// <summary>A step with no keyword — a marker comment supplies its own.</summary>
     public static IDisposable Step(string text) => Step("", text);
 

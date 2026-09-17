@@ -42,7 +42,34 @@ internal static class StepInterceptors
         public bool ReturnsTask;
         public bool ReturnsVoid;
         public List<string> ParameterTypes = new();
+
+        /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
         public List<string> ParameterNames = new();
+
+        /// <summary>
+        /// The same names as C# IDENTIFIERS, keyword-escaped. A helper taking a parameter named
+        /// <c>event</c> — which the Event Modeling vocabulary reaches for immediately — emitted
+        /// <c>Type event</c> into the consumer's build and would not compile. The distinction is
+        /// load-bearing rather than cosmetic: the placeholder is <c>{event}</c> and the expression
+        /// is <c>@event</c>.
+        /// </summary>
+        public List<string> ParameterIdentifiers = new();
+
+        /// <summary>
+        /// Parameters whose <c>{placeholder}</c> the call site could not resolve at compile time,
+        /// in template order — handed to the recorder so the RUNTIME value renders them
+        /// (issue #339).
+        /// </summary>
+        public List<string> RuntimeArguments = new();
+
+        /// <summary>
+        /// Placeholders in the template that name no parameter at all. Nothing can ever fill one,
+        /// so each is a BOBCAT027 warning rather than a silent <c>{typo}</c> on the canvas.
+        /// </summary>
+        public List<string> UnknownPlaceholders = new();
+
+        /// <summary>The call site, for the diagnostic above.</summary>
+        public Location? Location;
 
         /// <summary>
         /// 0-based index of the marker comment this call sits under, within its own test method,
@@ -84,15 +111,18 @@ internal static class StepInterceptors
             ReturnsTask = method.ReturnType.Name is "Task" or "ValueTask",
             ReturnsVoid = method.ReturnsVoid,
             Keyword = keyword,
-            StepText = Render(template, method, invocation),
-            DeclaredIndex = DeclaredIndexOf(invocation)
+            DeclaredIndex = DeclaredIndexOf(invocation),
+            Location = invocation.GetLocation()
         };
 
         foreach (var parameter in method.Parameters)
         {
             call.ParameterTypes.Add(parameter.Type.ToDisplayString());
             call.ParameterNames.Add(parameter.Name);
+            call.ParameterIdentifiers.Add(Identifier(parameter.Name));
         }
+
+        call.StepText = Render(template, method, invocation, call.RuntimeArguments, call.UnknownPlaceholders);
 
         return call;
     }
@@ -102,28 +132,98 @@ internal static class StepInterceptors
     /// becomes <c>"the events are published on 3 threads"</c>.
     /// </summary>
     /// <remarks>
-    /// Only a literal argument is substituted. An expression could be rendered as its source text,
-    /// but a step reading "published on threadCount threads" is worse than one that still shows the
-    /// placeholder — the reader can see that something was not resolved, rather than being told a
-    /// variable name and believing it.
+    /// <para>
+    /// A literal argument is substituted here, at compile time, because it is the same string on
+    /// every run. Everything else is deferred: the parameter's name goes into
+    /// <paramref name="runtimeArguments"/> and the generated interceptor hands the VALUE to
+    /// <c>ScenarioRecorder.Step</c>, which renders it (issue #339).
+    /// </para>
+    /// <para>
+    /// That is the whole of a typed store vocabulary — types, minted ids, constructed command
+    /// objects — and until #339 none of it could bind: only the syntax was available here, and a
+    /// step reading "published on threadCount threads" is worse than one showing the placeholder.
+    /// The value is available at execution time, which is also when a step's real data is worth
+    /// showing, so the choice was never between a variable NAME and a placeholder.
+    /// </para>
+    /// <para>
+    /// <b>An <c>out</c> or <c>ref</c> parameter is not deferred.</b> Its value does not exist
+    /// until the helper has run, and the step text is reported before the call.
+    /// </para>
     /// </remarks>
-    internal static string Render(string template, IMethodSymbol method, InvocationExpressionSyntax invocation)
+    internal static string Render(
+        string template,
+        IMethodSymbol method,
+        InvocationExpressionSyntax invocation,
+        List<string>? runtimeArguments = null,
+        List<string>? unknownPlaceholders = null)
     {
         var arguments = invocation.ArgumentList.Arguments;
 
-        for (var i = 0; i < method.Parameters.Length && i < arguments.Count; i++)
+        for (var i = 0; i < method.Parameters.Length; i++)
         {
-            var placeholder = "{" + method.Parameters[i].Name + "}";
+            var parameter = method.Parameters[i];
+            var placeholder = "{" + parameter.Name + "}";
             if (!template.Contains(placeholder)) continue;
 
-            var expression = arguments[i].Expression;
-            if (expression is LiteralExpressionSyntax literal)
+            // Positional only, which is what the literal shortcut can honestly see: a named or
+            // omitted argument has no expression at this index, and the runtime binding below
+            // covers it anyway — the interceptor receives every parameter by definition.
+            var positional = i < arguments.Count && arguments[i].NameColon == null;
+
+            if (positional && arguments[i].Expression is LiteralExpressionSyntax literal)
             {
                 template = template.Replace(placeholder, literal.Token.ValueText);
+                continue;
+            }
+
+            if (parameter.RefKind is RefKind.Out or RefKind.Ref) continue;
+
+            runtimeArguments?.Add(parameter.Name);
+        }
+
+        if (unknownPlaceholders != null)
+        {
+            var names = new HashSet<string>(method.Parameters.Select(x => x.Name));
+            foreach (var placeholder in PlaceholdersIn(template))
+            {
+                if (!names.Contains(placeholder)) unknownPlaceholders.Add(placeholder);
             }
         }
 
         return template;
+    }
+
+    /// <summary>
+    /// The <c>{name}</c> placeholders left in a template, in order. Deliberately narrow — letters,
+    /// digits and underscore — so prose in a step's text cannot be mistaken for one.
+    /// </summary>
+    internal static IEnumerable<string> PlaceholdersIn(string template)
+    {
+        for (var i = 0; i < template.Length; i++)
+        {
+            if (template[i] != '{') continue;
+
+            var close = template.IndexOf('}', i + 1);
+            if (close < 0) break;
+
+            var name = template.Substring(i + 1, close - i - 1);
+            i = close;
+
+            if (name.Length == 0) continue;
+            if (!IsIdentifier(name)) continue;
+
+            yield return name;
+        }
+    }
+
+    private static bool IsIdentifier(string name)
+    {
+        foreach (var c in name)
+        {
+            if (!char.IsLetterOrDigit(c) && c != '_') return false;
+        }
+
+        return !char.IsDigit(name[0]);
     }
 
     /// <summary>
@@ -196,14 +296,22 @@ internal static class StepInterceptors
         foreach (var call in calls)
         {
             var parameters = string.Join("", call.ParameterTypes
-                .Select((t, i) => $", {t} {call.ParameterNames[i]}"));
-            var arguments = string.Join(", ", call.ParameterNames);
+                .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
+            var arguments = string.Join(", ", call.ParameterIdentifiers);
 
             sb.AppendLine($"        {call.InterceptsLocation}");
             sb.AppendLine($"        internal static {call.ReturnType} __BobcatStep{index}(");
             sb.AppendLine($"            this global::{call.DeclaringType} receiver{parameters})");
             sb.AppendLine("        {");
-            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)}, {call.DeclaredIndex});");
+            // The values, not the syntax (issue #339). Only the placeholders that survived
+            // compile-time substitution are passed — a step with none allocates nothing.
+            var values = call.RuntimeArguments.Count == 0
+                ? ""
+                : ", new global::Bobcat.StepArgument[] { "
+                  + string.Join(", ", call.RuntimeArguments.Select(name => $"new({Quote(name)}, {Identifier(name)})"))
+                  + " }";
+
+            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)}, {call.DeclaredIndex}{values});");
 
             if (call.ReturnsTask)
             {
@@ -234,6 +342,10 @@ internal static class StepInterceptors
         sb.AppendLine("}");
         return sb.ToString();
     }
+
+    /// <summary>The name as it can be written in generated code.</summary>
+    internal static string Identifier(string name)
+        => SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None ? name : "@" + name;
 
     private static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

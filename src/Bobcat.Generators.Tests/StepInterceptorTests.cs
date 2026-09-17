@@ -163,10 +163,16 @@ public class StepInterceptorTests
         }
         """;
 
+    /// <summary>
+    /// The third argument of each emitted <c>ScenarioRecorder.Step(...)</c> call, in source order.
+    /// Read positionally rather than as "the last argument", because since issue #339 a call may
+    /// carry the runtime arguments after the index.
+    /// </summary>
     private static string[] declaredIndexArguments(string code)
         => code.Split('\n')
             .Where(line => line.Contains("ScenarioRecorder.Step("))
-            .Select(line => line.Trim().TrimEnd(';', ')').Split(',').Last().Trim())
+            .Select(line => line.Substring(line.IndexOf("Step(", StringComparison.Ordinal) + 5)
+                .Split(',')[2].Trim().TrimEnd(';', ')').Trim())
             .ToArray();
 
     [Fact]
@@ -189,6 +195,129 @@ public class StepInterceptorTests
         // honest answer is "nothing", and the runtime bounds-checks the index anyway.
         declaredIndexArguments(GeneratorHarness.Run(MarkedSource).GeneratedSource("BobcatStepInterceptors"))
             .Last().ShouldBe("-1");
+    }
+
+    // --- Issue #339: an argument that is not a literal binds from its runtime VALUE ---
+
+    /// <summary>
+    /// The store-vocabulary shape, which is where the literal-only substitution failed: a type,
+    /// a minted id and a constructed command object, and not one literal among them.
+    /// </summary>
+    private const string StoreVocabulary =
+        """
+        using System;
+        using System.Threading.Tasks;
+        using Bobcat;
+
+        namespace Specs;
+
+        public record ConfirmAppointment(Guid Id);
+        public class Appointment;
+        public class AppointmentConfirmed;
+
+        public abstract class StoreContext
+        {
+            [BobcatStep("{aggregate} \"{id}\" has already recorded these events", Keyword = "Given")]
+            internal Task GivenEvents(Type aggregate, Guid id) => Task.CompletedTask;
+
+            [BobcatStep("{command} is posted to \"{route}\"", Keyword = "When")]
+            internal Task WhenPosted(object command, string route) => Task.CompletedTask;
+
+            [BobcatStep("{event} is emitted", Keyword = "Then")]
+            internal Task ThenEmitted(Type @event) => Task.CompletedTask;
+
+            [BobcatStep("the response is {status}", Keyword = "Then")]
+            internal Task ThenResponseIs(int status) => Task.CompletedTask;
+        }
+
+        [BobcatFeature("Booking appointments")]
+        public class booking_specs : StoreContext
+        {
+            public async Task a_test()
+            {
+                var id = Guid.NewGuid();
+
+                await GivenEvents(typeof(Appointment), id);
+                await WhenPosted(new ConfirmAppointment(id), "/api/scheduling/confirmappointment");
+                await ThenEmitted(typeof(AppointmentConfirmed));
+                await ThenResponseIs(400);
+            }
+        }
+        """;
+
+    [Fact]
+    public void a_placeholder_no_literal_can_fill_is_handed_to_the_recorder_as_a_value()
+    {
+        var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
+
+        // The template survives as written — substitution has moved to execution time, where the
+        // value exists — and the ARGUMENTS now travel with it.
+        // Raw string literals: the expected text contains the same \" escapes the generated
+        // file does, and doubling them here would only hide what is being asserted.
+        code.ShouldContain(
+            """Step("Given", "{aggregate} \"{id}\" has already recorded these events", -1, new global::Bobcat.StepArgument[] { new("aggregate", aggregate), new("id", id) })""");
+
+        code.ShouldContain(
+            """Step("Then", "{event} is emitted", -1, new global::Bobcat.StepArgument[] { new("event", @event) })""");
+    }
+
+    [Fact]
+    public void a_literal_still_binds_at_compile_time_and_carries_nothing()
+    {
+        var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
+
+        // `the response is 400` was one of the 22 that already worked. It is the same string on
+        // every run, so it stays a compile-time fact and the call allocates no array.
+        code.ShouldContain("""Step("Then", "the response is 400", -1);""");
+    }
+
+    [Fact]
+    public void a_step_mixing_a_literal_and_a_value_binds_each_where_it_can()
+    {
+        // The measured half-bound case: the route bound because it is a literal, {command} did
+        // not because the argument is `new ConfirmAppointment(id)`.
+        var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
+
+        code.ShouldContain(
+            """Step("When", "{command} is posted to \"/api/scheduling/confirmappointment\"", -1, new global::Bobcat.StepArgument[] { new("command", command) })""");
+    }
+
+    [Fact]
+    public void a_placeholder_naming_no_parameter_is_reported_rather_than_left_on_the_canvas()
+    {
+        // Since #339 a surviving placeholder can only mean the name is wrong — the one case
+        // nothing can ever fill. It used to look identical to the 73 that were simply deferred.
+        var outcome = GeneratorHarness.Run(
+            """
+            using System.Threading.Tasks;
+            using Bobcat;
+
+            namespace Specs;
+
+            public abstract class ContextBase
+            {
+                [BobcatStep("the events are published on {thread} threads", Keyword = "Given")]
+                internal Task PublishMultiThreaded(int threads) => Task.CompletedTask;
+            }
+
+            [BobcatFeature("Rebuilding")]
+            public class rebuilding_specs : ContextBase
+            {
+                public async Task a_test() => await PublishMultiThreaded(3);
+            }
+            """);
+
+        var diagnostic = outcome.WithId("BOBCAT027").ShouldHaveSingleItem();
+        diagnostic.Severity.ShouldBe(Microsoft.CodeAnalysis.DiagnosticSeverity.Warning);
+        diagnostic.GetMessage().ShouldContain("{thread}");
+        diagnostic.GetMessage().ShouldContain("it takes threads");
+    }
+
+    [Fact]
+    public void a_template_whose_placeholders_all_bind_reports_nothing()
+    {
+        GeneratorHarness.Run(StoreVocabulary).WithId("BOBCAT027").ShouldBeEmpty();
+        GeneratorHarness.Run(Source).WithId("BOBCAT027").ShouldBeEmpty();
     }
 
     [Fact]

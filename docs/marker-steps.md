@@ -52,11 +52,58 @@ internal Task PublishMultiThreaded(int threads) => …
 ```
 
 `{threads}` is filled in from the call site, so one attribute renders `PublishMultiThreaded(3)` as
-"Given the events are published on 3 threads". Only literal arguments are substituted — a step
-reading "published on threadCount threads" would be worse than one that visibly did not resolve.
+"Given the events are published on 3 threads".
 
 The two compose. Comments give a test its narrative; decorated helpers give real per-step timing
 across every test in the suite that touches them.
+
+### A placeholder binds from the value, not from the syntax (issue #339)
+
+A literal argument is substituted at build time. Everything else binds **at execution time**, from
+the value the helper was actually called with — which matters because a typed vocabulary has
+almost no literals in it:
+
+```csharp
+[BobcatStep("{aggregate} \"{id}\" has already recorded these events", Keyword = "Given")]
+internal Task GivenEvents(Type aggregate, Guid id) => …
+
+[BobcatStep("{command} is posted to \"{route}\"", Keyword = "When")]
+internal Task WhenPosted(object command, string route) => …
+```
+
+```
+Given Appointment "8f1c…" has already recorded these events
+When ConfirmAppointment is posted to "/api/scheduling/confirmappointment"
+Then AppointmentConfirmed is emitted
+Then the response is 404
+```
+
+Before this, only the literals bound: the route rendered and `{command}` did not, because the
+argument is `new ConfirmAppointment(id)`. Measured on a real projected suite, **73 of 95** step
+texts carried a raw placeholder and the canvas showed `{event} is emitted` sixteen times — the
+more faithfully the vocabulary was built, the less of it rendered. It also closed a loop: a generic
+helper cannot be intercepted at all, so `GivenEvents<Appointment>(id)` has to become
+`GivenEvents(typeof(Appointment), id)`, and `typeof(Appointment)` was precisely the argument shape
+that could not bind.
+
+How a value reads:
+
+| value | renders as |
+|---|---|
+| `Type` | its short name — `Appointment` |
+| `string`, number, `bool`, `Guid`, enum, date/time | the value, culture-invariant |
+| a sequence | its items, comma-joined, capped at five |
+| anything else | its **type** name — `new ConfirmAppointment(id)` is `ConfirmAppointment` |
+| `null`, an empty string, an empty sequence | nothing: `{name}` stays as written |
+
+A step's text is a sentence on a canvas, which is why an object renders as its type rather than its
+`ToString()` — the data belongs in a table, not in the prose. And a value with nothing to say
+leaves the placeholder standing, because a reader can see that something did not resolve, where a
+blank or the word "null" would be believed.
+
+**A placeholder that names no parameter is now a warning** — `BOBCAT027`, once per helper. It used
+to look identical to the placeholders that were merely deferred, so a template typo rendered as
+`{thread}` forever with nothing reported.
 
 ### They are different steps, and they nest (issue #305)
 
