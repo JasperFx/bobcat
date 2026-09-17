@@ -213,10 +213,10 @@ public class WriteModelHandlerFrame : ScaffoldFrame
             writer.WriteLine($"// WARNING (from the model): {warning}");
         }
 
-        foreach (var refusal in refusals())
+        foreach (var refusal in SliceScaffolder.RefusalsOf(_slice))
         {
             writer.WriteLine(
-                $"// TODO guard: throw new InvalidOperationException(\"{refusal}\"); (asserted by `validation fails with`)");
+                $"// TODO guard: throw new InvalidOperationException(\"{refusal.Reason}\"); (asserted by `validation fails with`)");
         }
 
         writer.WriteLine(creates
@@ -258,13 +258,6 @@ public class WriteModelHandlerFrame : ScaffoldFrame
         Next?.GenerateCode(method, writer);
     }
 
-    private IEnumerable<string> refusals()
-        => _slice.Specifications?.Scenarios
-               .SelectMany(x => x.Then)
-               .Select(x => x.ValidationFails)
-               .OfType<string>()
-               .Distinct()
-           ?? [];
 }
 
 /// <summary>
@@ -280,14 +273,17 @@ public class CollapsedEndpointFrame : ScaffoldFrame
     private readonly string _route;
     private readonly IReadOnlyList<CascadedMessage> _cascaded;
     private readonly IReadOnlyList<string> _warnings;
+    private readonly bool _startsStream;
 
     public CollapsedEndpointFrame(CuratedSlice slice, string route,
-        IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null)
+        IReadOnlyList<CascadedMessage>? cascaded = null, IReadOnlyList<string>? warnings = null,
+        bool startsStream = false)
     {
         _slice = slice;
         _route = route;
         _cascaded = cascaded ?? [];
         _warnings = warnings ?? [];
+        _startsStream = startsStream;
     }
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
@@ -317,21 +313,46 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         // where [ReadAggregate] keeps its original unconditional not-found guard (wolverine#3929)
         // and would 404 before the refusal ran.
         var onState = SliceScaffolder.RefusesOnState(_slice);
+
+        // The model declaring a 404 over an unarranged stream says the write model is REQUIRED
+        // (issue #337): Wolverine's own not-found guard answers it, before Validate runs. Binding
+        // it nullable and scaffolding a TODO would invite the unreachable `if (x is null)` that
+        // CritterCrush carried eleven copies of.
+        // A slice that STARTS its stream cannot also refuse because the stream is missing. The
+        // model saying both is a contradiction, and the creating path is the one that must keep
+        // working — so the parameter stays nullable and the scaffold says why out loud.
+        var contradiction = SliceScaffolder.RefusesMissingStream(_slice) && _startsStream;
+        var required = SliceScaffolder.RefusesMissingStream(_slice) && !_startsStream;
+        var optional = required ? "" : "?";
+
         writer.Write(onState
-            ? $"BLOCK:public static ProblemDetails Validate({command} command, [ReadModel] {aggregate}? {argument})"
+            ? $"BLOCK:public static ProblemDetails Validate({command} command, [ReadModel] {aggregate}{optional} {argument})"
             : $"BLOCK:public static ProblemDetails Validate({command} command)");
 
-        var refusals = _slice.Specifications?.Scenarios
-            .SelectMany(x => x.Then).Select(x => x.ValidationFails).OfType<string>().Distinct().ToList() ?? [];
+        var refusals = SliceScaffolder.RefusalsOf(_slice);
         if (onState)
         {
             writer.WriteLine($"// The model's refusing scenarios arrange prior events, so these refusals are about");
-            writer.WriteLine($"// {argument}'s state, not the request's shape. Null means the stream does not exist yet.");
+            writer.WriteLine(required
+                ? $"// {argument}'s state, not the request's shape. It is never null — see the 404 below."
+                : $"// {argument}'s state, not the request's shape. Null means the stream does not exist yet.");
         }
 
         foreach (var refusal in refusals)
         {
-            writer.WriteLine($"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal}\", Status = 400 }};");
+            if (refusal.FromTheFramework)
+            {
+                writer.WriteLine(
+                    $"// 404 (\"{refusal.Reason}\") is Wolverine's own guard on the required {aggregate} below:");
+                writer.WriteLine(
+                    "// it answers before this method runs, so there is no guard to write here. A null");
+                writer.WriteLine(
+                    $"// check on {argument} would be unreachable code that looks load-bearing.");
+                continue;
+            }
+
+            writer.WriteLine(
+                $"// TODO guard: return new ProblemDetails {{ Detail = \"{refusal.Reason}\", Status = {refusal.HttpStatus} }};");
         }
 
         writer.WriteLine("return WolverineContinue.NoProblems;");
@@ -341,7 +362,7 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         writer.WriteLine($"[WolverinePost(\"{_route}\")]");
         var returnType = $"({_slice.Name}Response, EventsToAppend{string.Concat(_cascaded.Select(x => $", {x.Name}"))})";
         writer.Write(
-            $"BLOCK:public static {returnType} Post({command} command, [WriteModel] {aggregate}? {argument})");
+            $"BLOCK:public static {returnType} Post({command} command, [WriteModel] {aggregate}{optional} {argument})");
 
         foreach (var hotspot in _slice.Hotspots)
         {
@@ -351,6 +372,13 @@ public class CollapsedEndpointFrame : ScaffoldFrame
         foreach (var warning in _warnings)
         {
             writer.WriteLine($"// WARNING (from the model): {warning}");
+        }
+
+        if (contradiction)
+        {
+            writer.WriteLine("// WARNING (from the model): a scenario refuses with 404 for a stream that does not");
+            writer.WriteLine($"// exist, but every scenario here arranges none, so this slice STARTS the {aggregate}'s");
+            writer.WriteLine("// stream. Both cannot be true; the parameter is left nullable. Fix the model.");
         }
 
         writer.WriteLine("// The decision. Nothing to append is `return (..., []);` — never a nullable event (wolverine#4309).");

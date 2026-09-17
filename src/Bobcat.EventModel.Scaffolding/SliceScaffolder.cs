@@ -195,7 +195,69 @@ public static class SliceScaffolder
     /// </remarks>
     public static bool RefusesOnState(CuratedSlice slice)
         => slice.Specifications?.Scenarios.Any(x =>
-               x.Given.Count > 0 && x.Then.Any(t => t.ValidationFails is not null)) ?? false;
+               x.Given.Count > 0 && x.Then.Any(IsARefusal)) ?? false;
+
+    /// <summary>
+    /// Every refusal this slice's scenarios state, as the code generator needs them: the reason,
+    /// the status the endpoint answers with, and whether the framework already produces it
+    /// (issue #337).
+    /// </summary>
+    /// <remarks>
+    /// Derived once, here, for the same reason <see cref="PlanFor"/> is: the feature writer and
+    /// the guard stub both read a refusal, and a status they worked out separately is a
+    /// disagreement waiting to happen. Distinct by reason, in model order — two scenarios
+    /// refusing for the same stated reason are one guard.
+    /// </remarks>
+    public static IReadOnlyList<ScaffoldedRefusal> RefusalsOf(CuratedSlice slice)
+    {
+        var refusals = new List<ScaffoldedRefusal>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var scenario in slice.Specifications?.Scenarios ?? [])
+        {
+            foreach (var then in scenario.Then)
+            {
+                var reason = then.ValidationFails ?? then.RefusedWith?.Reason;
+                if (reason is null || !seen.Add(reason)) continue;
+
+                refusals.Add(new ScaffoldedRefusal(
+                    reason,
+                    then.RefusedWith?.Status,
+                    // A 404 over a stream the scenario never arranged is Wolverine's own guard on
+                    // a required write model, not a decision this slice takes.
+                    FromTheFramework: then.RefusedWith?.Status == 404 && scenario.Given.Count == 0));
+            }
+        }
+
+        return refusals;
+    }
+
+    /// <summary>Either spelling of a refusal (issue #337): thrown, or answered with a status.</summary>
+    public static bool IsARefusal(CuratedThen then)
+        => then.ValidationFails is not null || then.RefusedWith is not null;
+
+    /// <summary>
+    /// Whether the model says this slice answers <b>404</b> — and therefore that its endpoint's
+    /// write model is REQUIRED (issue #337).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wolverine emits the not-found guard itself for a non-nullable <c>[WriteModel]</c>, before
+    /// <c>Validate</c> is ever called. So a declared 404 is not a guard to scaffold, it is a
+    /// claim about the signature: bind the parameter non-nullable and the behaviour is the
+    /// framework's. Scaffolding a nullable parameter plus a TODO returning 404 invites a hand-
+    /// written <c>if (x is null)</c> that is unreachable — CritterCrush carried eleven of those
+    /// plus two helper types, all dead, and nothing noticed because nothing asserted the 404.
+    /// </para>
+    /// <para>
+    /// A scenario declaring a 404 <em>with</em> arranged history is left alone: a stream that
+    /// exists cannot be missing, so that 404 is the slice's own decision and scaffolds as an
+    /// ordinary guard TODO.
+    /// </para>
+    /// </remarks>
+    public static bool RefusesMissingStream(CuratedSlice slice)
+        => slice.Specifications?.Scenarios.Any(x =>
+               x.Given.Count == 0 && x.Then.Any(t => t.RefusedWith?.Status == 404)) ?? false;
 
     /// <summary>
     /// Whether this slice's file is the one that declares an event's record. Two slices may
@@ -251,7 +313,7 @@ public static class SliceScaffolder
         // The pure translation front (#218): every consequence of this slice is a bus-visible
         // command and it appends nothing itself, so the endpoint is exactly the opt-in two-hop
         // shape — selected by the model rather than by hand.
-        var shape = slice.Pattern != "Command" || slice.Trigger?.Kind is not ("Http" or "Human")
+        var shape = !CuratedSliceShape.AnswersOverHttp(slice)
             ? SliceShape.WriteModelHandler
             : slice.Events.Count == 0 && visibility.Cascaded.Count == 1
                 ? SliceShape.Translation
@@ -349,7 +411,8 @@ public static class SliceScaffolder
         else if (collapsed)
         {
             frames.Add(new CollapsedEndpointFrame(slice, route,
-                cascaded: visibility.Cascaded, warnings: visibility.Warnings));
+                cascaded: visibility.Cascaded, warnings: visibility.Warnings,
+                startsStream: plan.StartsStream));
         }
         else
         {
@@ -737,6 +800,16 @@ public static class SliceScaffolder
                 else if (then.ValidationFails is not null)
                 {
                     foreach (var step in plan.RefusalSteps(then.ValidationFails))
+                    {
+                        writer.WriteLine($"    {step}");
+                    }
+                }
+                else if (then.RefusedWith is { } refusal)
+                {
+                    // The status the model stated, not the 400 the scaffolder used to assume
+                    // (issue #337). The reader has already refused a `refusedWith:` on a slice
+                    // that does not answer over HTTP, so this is always the HTTP form.
+                    foreach (var step in plan.RefusalSteps(refusal.Reason ?? "refused", refusal.Status))
                     {
                         writer.WriteLine($"    {step}");
                     }
