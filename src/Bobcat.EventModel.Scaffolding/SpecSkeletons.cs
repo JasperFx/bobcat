@@ -28,20 +28,19 @@ public static class SpecSkeletons
         var files = new Dictionary<string, string>();
         var bySlice = model.Slices.ToDictionary(x => x.Name, StringComparer.Ordinal);
 
-        foreach (var group in ownership.ByOwner())
+        // Whether a slice is written at all is `scaffold:` — a declaration, resolved once in
+        // SpecOwnershipPlan (issue #334). The filter here used to be "unit or code-first", which
+        // is the Marten DaemonTests row read as a rule: a projected integration slice was never
+        // written, because that row assumed an existing suite was adopting the slice. For a repo
+        // being built it is the opposite, and the two intents are not derivable from anything the
+        // scaffolder can see — so the manifest says which.
+        foreach (var group in ownership.OwnersIn(model))
         {
-            // `integration` + `projected` is the Marten DaemonTests row: an existing hand-written
-            // suite adopts the slice, so there is nothing to write. Skipping the .feature IS the
-            // whole behaviour there.
-            var entries = group
-                .Where(x => x.ResolvedKind == SpecKind.Unit || x.ResolvedAuthoring == SpecAuthoring.CodeFirst)
-                .Where(x => bySlice.ContainsKey(x.Slice))
-                .ToList();
-
+            var entries = group.Where(x => bySlice.ContainsKey(x.Slice)).ToList();
             if (entries.Count == 0) continue;
 
             var slices = entries.Select(x => bySlice[x.Slice]).ToList();
-            var authoring = entries[0].ResolvedAuthoring;
+            var authoring = entries[0].Authoring;
 
             var typeName = TypeNameOf(group.Key);
             var ns = NamespaceOf(group.Key) ?? $"{model.Namespace ?? model.Model}.Specs";
@@ -86,7 +85,7 @@ public static class SpecSkeletons
             : $"SliceName = \"{slice.Name}\"";
 
     private static string projected(
-        CuratedModelFile model, string ns, string typeName, IReadOnlyList<SpecOwnership> entries,
+        CuratedModelFile model, string ns, string typeName, IReadOnlyList<ResolvedSpecOwnership> entries,
         IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();
@@ -107,6 +106,18 @@ public static class SpecSkeletons
         writer.AppendLine("/// are stated once, on the event model, and merge in by slice name.");
         writer.AppendLine("/// </remarks>");
         writer.AppendLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
+
+        // An integration slice's specs go through the store, and nothing here can know what this
+        // repository boots one with — the same refusal to guess a base class that the code-first
+        // skeleton makes. What the scaffolder owes is everything it DOES know: the binding, the
+        // exact method names, and the steps.
+        if (entries.Any(x => x.Kind == SpecKind.Integration))
+        {
+            writer.AppendLine("// TODO — these are integration slices: give this class the store. Derive from (or");
+            writer.AppendLine("// inject) this repository's host/store fixture; the arrange/act/assert helpers are in");
+            writer.AppendLine("// Bobcat.CritterStack. A unit-tested slice needs none of that — see the model's");
+            writer.AppendLine("// spec-ownership manifest for which slices are which.");
+        }
         if (single) writer.AppendLine($"[BobcatSlice({BindingFor(slices[0])})]");
         writer.AppendLine($"public class {typeName}");
         writer.AppendLine("{");
@@ -144,7 +155,7 @@ public static class SpecSkeletons
     }
 
     private static string codeFirst(
-        CuratedModelFile model, string ns, string typeName, IReadOnlyList<SpecOwnership> entries,
+        CuratedModelFile model, string ns, string typeName, IReadOnlyList<ResolvedSpecOwnership> entries,
         IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
     {
         var writer = new StringBuilder();

@@ -84,6 +84,8 @@ public static class SpecOwnershipReader
             problems.Add("`model:` is required — it is how this manifest joins the event model it describes.");
         }
 
+        validateDefaults(file, problems);
+
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in file.Slices)
         {
@@ -112,22 +114,36 @@ public static class SpecOwnershipReader
 
             if (!kindKnown || !authoringKnown) continue;
 
+            var resolved = file.Resolve(entry.Slice);
+
             // The one impossible corner of two otherwise orthogonal axes. A rule and not a
             // comment: both Gherkin and code-first run through the fixture and therefore the
             // store, so `unit` with either is a contradiction, and silently honouring the
             // authoring would hand back a `.feature` to an author who asked for a unit test.
-            if (entry.ResolvedKind == SpecKind.Unit && entry.ResolvedAuthoring != SpecAuthoring.Projected)
+            if (resolved.Kind == SpecKind.Unit && resolved.Authoring != SpecAuthoring.Projected)
             {
                 problems.Add(
-                    $"slice '{entry.Slice}': kind 'unit' cannot be authored as '{entry.Authoring}' — both gherkin and "
+                    $"slice '{entry.Slice}': kind 'unit' cannot be authored as '{resolved.Authoring.ToString().ToLowerInvariant()}' — both gherkin and "
                     + "code-first run through the fixture and so through the store. A unit-tested slice is `authoring: projected`.");
             }
 
-            if (entry.ResolvedKind == SpecKind.Unit && string.IsNullOrWhiteSpace(entry.CoveredBy))
+            if (resolved.Kind == SpecKind.Unit && string.IsNullOrWhiteSpace(resolved.CoveredBy))
             {
                 problems.Add(
                     $"slice '{entry.Slice}': `coveredBy:` is required for a unit-tested slice — name the "
                     + "{Feature}/{Scenario} that runs this slice's command end to end.");
+            }
+
+            // Issue #334: the corner the format refuses to guess in. Reported per slice, because
+            // the answer is per slice — one repo legitimately has both an adopted suite and slices
+            // it is still building.
+            if (resolved.NeedsScaffoldStated && entry.Scaffold is null && file.Defaults?.Scaffold is null)
+            {
+                problems.Add(
+                    $"slice '{entry.Slice}': a projected integration slice must say `scaffold:`. `true` writes the "
+                    + "skeleton — the class, the [BobcatSlice] binding and one method per scenario, named exactly as "
+                    + "the model names them; `false` means an existing suite already covers this slice and nothing is "
+                    + "generated. Nothing can tell those apart: the scaffolder sees neither the compilation nor the disk.");
             }
         }
 
@@ -135,7 +151,7 @@ public static class SpecOwnershipReader
                      .Where(x => !string.IsNullOrWhiteSpace(x.Owner))
                      .GroupBy(x => x.Owner!, StringComparer.Ordinal))
         {
-            var styles = group.Select(x => x.ResolvedAuthoring).Distinct().ToList();
+            var styles = group.Select(x => file.Resolve(x.Slice).Authoring).Distinct().ToList();
             if (styles.Count > 1)
             {
                 problems.Add(
@@ -145,6 +161,57 @@ public static class SpecOwnershipReader
         }
 
         return problems;
+    }
+
+    /// <summary>
+    /// The file-level <c>defaults:</c> block (issue #334). Judged on its own terms, plus the one
+    /// question it can answer for every slice at once: whether it puts unlisted slices in the
+    /// corner where <c>scaffold:</c> has to be stated.
+    /// </summary>
+    private static void validateDefaults(SpecOwnershipFile file, List<string> problems)
+    {
+        if (file.Defaults is not { } defaults) return;
+
+        validateEnumValue<SpecKind>(defaults.Kind, "defaults kind", SpecOwnershipVocabulary.KindNames, problems);
+        validateEnumValue<SpecAuthoring>(defaults.Authoring, "defaults authoring", SpecOwnershipVocabulary.AuthoringNames, problems);
+
+        foreach (var token in SpecOwnershipDefaults.UnknownOwnerTokens(defaults.Owner))
+        {
+            problems.Add(
+                $"`defaults.owner:` uses the token '{{{token}}}', which is not one of: "
+                + $"{string.Join(" | ", SpecOwnershipDefaults.OwnerTokens.Select(x => $"{{{x}}}"))}. "
+                + "An unrecognized token would be left in a type name.");
+        }
+
+        if (defaults.StatedKind == SpecKind.Unit)
+        {
+            problems.Add(
+                "`defaults.kind: unit` is not allowed — a unit-tested slice must name the `coveredBy:` scenario that "
+                + "runs its command end to end, which is per slice by nature. State `kind: unit` on the slices that are.");
+        }
+
+        // An all-projected repo's whole point is that most slices have no entry at all, so the
+        // defaults themselves land in the ambiguous corner and have to answer for them.
+        var unlisted = file.Resolve("\u0000not-a-slice");
+        if (unlisted.NeedsScaffoldStated && defaults.Scaffold is null)
+        {
+            problems.Add(
+                "`defaults:` make every slice a projected integration slice, so `defaults.scaffold:` must say whether "
+                + "the scaffolder writes them. `true` for a repo being built; `false` when existing suites adopt the "
+                + "slices. Slices that differ say so on their own entry.");
+        }
+    }
+
+    private static void validateEnumValue<TEnum>(
+        string? value, string where, IReadOnlyList<string> names, List<string> problems) where TEnum : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var known = typeof(TEnum) == typeof(SpecKind)
+            ? SpecOwnershipVocabulary.TryParseKind(value, out _)
+            : SpecOwnershipVocabulary.TryParseAuthoring(value, out _);
+
+        if (!known) problems.Add($"{where} '{value}' is not one of: {string.Join(" | ", names)}.");
     }
 
     /// <summary>
@@ -198,16 +265,27 @@ public static class SpecOwnershipReader
         // for — but [BobcatFeature] and [FixtureTitle] are both CLASS-level, so the feature half of
         // every identity in that file is one string. Slices disagreeing about it cannot be written
         // into one type at all.
-        var features = model.Slices.ToDictionary(x => x.Name, x => x.Specifications?.Feature ?? x.Name, StringComparer.Ordinal);
-        foreach (var group in file.Slices
-                     .Where(x => !string.IsNullOrWhiteSpace(x.Owner) && features.ContainsKey(x.Slice))
-                     .GroupBy(x => x.Owner!, StringComparer.Ordinal))
+        //
+        // Checked over the MODEL's slices and their RESOLVED owners since #334, because that is
+        // where a default owner template can go wrong: `defaults.owner: X.Specs.AllSpecs` — a
+        // literal, with no {feature} token — quietly points nineteen slices across six features at
+        // one type, which is the same collision a hand-written owner would be caught for.
+        foreach (var group in model.Slices
+                     .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                     .Select(x => (Slice: x, Feature: x.Specifications?.Feature ?? x.Name))
+                     .Select(x => (x.Slice, x.Feature, Resolved: file.Resolve(x.Slice.Name, x.Feature)))
+                     .Where(x => x.Resolved.Owner is { Length: > 0 })
+                     .GroupBy(x => x.Resolved.Owner!, StringComparer.Ordinal))
         {
-            var named = group.Select(x => features[x.Slice]).Distinct(StringComparer.Ordinal).ToList();
+            var named = group.Select(x => x.Feature).Distinct(StringComparer.Ordinal).ToList();
             if (named.Count > 1)
             {
+                var how = group.Any(x => x.Resolved.Listed && file.EntryFor(x.Slice.Name)?.Owner is { Length: > 0 })
+                    ? ""
+                    : " (from `defaults.owner:`)";
+
                 problems.Add(
-                    $"owner '{group.Key}' covers slices in more than one feature ({string.Join(", ", named.Select(x => $"'{x}'"))}). "
+                    $"owner '{group.Key}'{how} covers slices in more than one feature ({string.Join(", ", named.Select(x => $"'{x}'"))}). "
                     + "The feature is class-level in both authoring styles, so one type cannot publish two of them — "
                     + "split the owner, or give the slices one `specifications.feature:`.");
             }
@@ -217,50 +295,63 @@ public static class SpecOwnershipReader
     }
 
     /// <summary>Findings that do not invalidate the manifest.</summary>
+    /// <remarks>
+    /// Walks the MODEL's slices rather than this file's entries (issue #334): with a
+    /// <c>defaults:</c> block most slices have no entry at all, and the warnings worth having —
+    /// above all the projected method-name check — are about exactly those.
+    /// </remarks>
     public static IReadOnlyList<string> Warn(SpecOwnershipFile file, CuratedModelFile model)
     {
         var warnings = new List<string>();
-        var bySlice = model.Slices.ToDictionary(x => x.Name, StringComparer.Ordinal);
 
-        foreach (var entry in file.Slices)
+        foreach (var slice in model.Slices)
         {
-            if (string.IsNullOrWhiteSpace(entry.Slice)) continue;
-            if (!bySlice.TryGetValue(entry.Slice, out var slice)) continue;
+            if (string.IsNullOrWhiteSpace(slice.Name)) continue;
 
-            // A slice taken out of the Gherkin lane whose scenarios the model still carries: the
-            // bodies are now dead weight, since nothing will scaffold them and the projected test
-            // states its own arrange/act/assert. Worth saying, because the model is still where
-            // the IDENTITIES live and deleting the scenarios outright would break `coveredBy`
+            var feature = slice.Specifications?.Feature ?? slice.Name;
+            var resolved = file.Resolve(slice.Name, feature);
+
+            // A slice taken out of the Gherkin lane that nothing will scaffold, whose scenarios
+            // the model still carries: the bodies are dead weight, since the adopting suite states
+            // its own arrange/act/assert. Worth saying, because the model is still where the
+            // IDENTITIES live and deleting the scenarios outright would break `coveredBy`
             // elsewhere — so the right answer is a judgement call, not a fix this can make.
-            if (entry.SuppressesFeature && slice.Specifications is { Scenarios.Count: > 0 })
+            //
+            // Since #334 this fires only for a slice nothing is generated for. A projected slice
+            // the scaffolder DOES write turns those same scenarios into method names and step
+            // comments, so warning about them was the finding that produced 19 near-identical
+            // lines on an all-projected repo.
+            if (resolved.SuppressesFeature && !resolved.Scaffold
+                && slice.Specifications is { Scenarios.Count: > 0 })
             {
                 warnings.Add(
-                    $"slice '{entry.Slice}' is authored as '{entry.ResolvedAuthoring.ToString().ToLowerInvariant()}', so its "
-                    + $"{slice.Specifications.Scenarios.Count} scenario body/bodies in the model will not be scaffolded. "
-                    + "Their identities still count — keep them if something names them in `coveredBy:`.");
+                    $"slice '{slice.Name}' is authored as '{resolved.Authoring.ToString().ToLowerInvariant()}' with "
+                    + $"`scaffold: false`, so its {slice.Specifications.Scenarios.Count} scenario body/bodies in the "
+                    + "model will not be scaffolded. Their identities still count — keep them if something names them "
+                    + "in `coveredBy:`.");
             }
 
             // A projected test's identity IS its method name (see ProjectedSpecNaming), so a
             // scenario name with punctuation in it silently publishes a different identity.
-            if (entry.ResolvedAuthoring == SpecAuthoring.Projected)
+            if (resolved.Authoring == SpecAuthoring.Projected)
             {
                 foreach (var scenario in slice.Specifications?.Scenarios ?? [])
                 {
                     if (ProjectedSpecNaming.RoundTrips(scenario.Name)) continue;
 
                     warnings.Add(
-                        $"slice '{entry.Slice}', scenario '{scenario.Name}': a projected test's scenario title is its "
+                        $"slice '{slice.Name}', scenario '{scenario.Name}': a projected test's scenario title is its "
                         + $"METHOD NAME with underscores read as spaces, so this one will publish "
                         + $"'{ProjectedSpecNaming.MethodNameFor(scenario.Name).Replace('_', ' ')}' instead and join nothing. "
                         + "Rename it to something a C# method name can spell.");
                 }
             }
 
-            if (entry.ResolvedAuthoring == SpecAuthoring.Projected && string.IsNullOrWhiteSpace(entry.Owner))
+            if (resolved.Authoring == SpecAuthoring.Projected && string.IsNullOrWhiteSpace(resolved.Owner))
             {
                 warnings.Add(
-                    $"slice '{entry.Slice}' is projected but names no `owner:`. Nothing will scaffold it and nothing can "
-                    + "check that a test binds it, so the slice is on its own.");
+                    $"slice '{slice.Name}' is projected but names no `owner:`, and `defaults.owner:` gives it none. "
+                    + "Nothing will scaffold it and nothing can check that a test binds it, so the slice is on its own.");
             }
         }
 

@@ -20,44 +20,60 @@ namespace Bobcat.EventModel.Scaffolding;
 /// </remarks>
 public sealed class SpecOwnershipPlan
 {
-    private readonly Dictionary<string, SpecOwnership> _entries;
+    private readonly SpecOwnershipFile? _manifest;
 
-    private SpecOwnershipPlan(Dictionary<string, SpecOwnership> entries) => _entries = entries;
+    private SpecOwnershipPlan(SpecOwnershipFile? manifest) => _manifest = manifest;
 
     /// <summary>No manifest: every slice is an integration slice specified in Gherkin.</summary>
-    public static SpecOwnershipPlan None { get; } = new([]);
+    public static SpecOwnershipPlan None { get; } = new(null);
 
     public static SpecOwnershipPlan For(SpecOwnershipFile? manifest)
-    {
-        if (manifest is null || manifest.Slices.Count == 0) return None;
+        => manifest is null || (manifest.Slices.Count == 0 && manifest.Defaults is null)
+            ? None
+            : new SpecOwnershipPlan(manifest);
 
-        var entries = new Dictionary<string, SpecOwnership>(StringComparer.Ordinal);
-        foreach (var entry in manifest.Slices)
-        {
-            if (string.IsNullOrWhiteSpace(entry.Slice)) continue;
+    /// <summary>
+    /// What the manifest says about one slice, defaults applied (issue #334). Resolution lives on
+    /// <see cref="SpecOwnershipFile.Resolve"/> so the analyzer's copy has one shape to agree with,
+    /// and this type stays the scaffolder's door onto it.
+    /// </summary>
+    /// <param name="feature">
+    /// The slice's feature, for a <c>{feature}</c> token in <c>defaults.owner:</c>. Pass it
+    /// wherever the model is in hand; the slice name is the fallback, which is what the model's
+    /// own <c>specifications.feature:</c> defaults to.
+    /// </param>
+    public ResolvedSpecOwnership Resolve(string sliceName, string? feature = null)
+        => _manifest?.Resolve(sliceName, feature) ?? ResolvedSpecOwnership.Default(sliceName);
 
-            // First wins. A duplicate is already a validation problem; silently taking the last
-            // would make a rejected file still change the output if someone scaffolded anyway.
-            if (!entries.ContainsKey(entry.Slice)) entries[entry.Slice] = entry;
-        }
+    /// <summary>The entry for a slice, or null when the manifest does not list it.</summary>
+    public SpecOwnership? EntryFor(string sliceName) => _manifest?.EntryFor(sliceName);
 
-        return new SpecOwnershipPlan(entries);
-    }
+    public SpecKind KindFor(string sliceName) => Resolve(sliceName).Kind;
 
-    public SpecOwnership? EntryFor(string sliceName)
-        => _entries.TryGetValue(sliceName, out var entry) ? entry : null;
-
-    public SpecKind KindFor(string sliceName) => EntryFor(sliceName)?.ResolvedKind ?? SpecKind.Integration;
-
-    public SpecAuthoring AuthoringFor(string sliceName)
-        => EntryFor(sliceName)?.ResolvedAuthoring ?? SpecAuthoring.Gherkin;
+    public SpecAuthoring AuthoringFor(string sliceName) => Resolve(sliceName).Authoring;
 
     /// <summary>Whether this slice's scenarios belong in a <c>.feature</c> file.</summary>
-    public bool ScaffoldsFeature(string sliceName) => AuthoringFor(sliceName) == SpecAuthoring.Gherkin;
+    public bool ScaffoldsFeature(string sliceName) => Resolve(sliceName).Authoring == SpecAuthoring.Gherkin;
 
-    /// <summary>The slices this manifest takes out of the Gherkin lane, grouped by the type that owns them.</summary>
-    public IEnumerable<IGrouping<string, SpecOwnership>> ByOwner()
-        => _entries.Values
-            .Where(x => x.SuppressesFeature && !string.IsNullOrWhiteSpace(x.Owner))
+    /// <summary>
+    /// The slices to write a spec skeleton for, grouped by the type that owns them (issue #334).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Driven by the MODEL's slices rather than the manifest's entries, which is the change #334
+    /// needed: with a <c>defaults:</c> block the slices to scaffold are mostly the ones with no
+    /// entry at all, so walking the entries found one of nineteen.
+    /// </para>
+    /// <para>
+    /// A slice is here when it is out of the Gherkin lane, <c>scaffold:</c> resolves true, and
+    /// something names an owner to write it into. Ordered by the model, so a regenerated skeleton
+    /// is byte-identical.
+    /// </para>
+    /// </remarks>
+    public IEnumerable<IGrouping<string, ResolvedSpecOwnership>> OwnersIn(CuratedModelFile model)
+        => model.Slices
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .Select(x => Resolve(x.Name, x.Specifications?.Feature ?? x.Name))
+            .Where(x => x.SuppressesFeature && x.Scaffold && x.Owner is { Length: > 0 })
             .GroupBy(x => x.Owner!, StringComparer.Ordinal);
 }

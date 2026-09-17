@@ -80,6 +80,44 @@ public class SpecOwnershipParsingAgreementTests
         schema: 1
         model: CritterCrush
         """,
+
+        // Issue #334: the all-projected repo — a defaults block and one exception.
+        """
+        schema: 1
+        model: CritterCrush
+        defaults:
+          kind: integration
+          authoring: projected
+          scaffold: true
+          owner: CritterCrush.Specs.{feature}Specs
+        slices:
+          - slice: ProposeHomeCheckAppointment
+            kind: unit
+            coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
+        """,
+
+        // A defaults block alone, hyphenated, with a comment and a literal owner.
+        """
+        schema: 1
+        model: CritterCrush
+        defaults:
+          authoring: code-first     # every slice, unless it says otherwise
+          owner: CritterCrush.Specs.AllSpecs
+        """,
+
+        // Defaults followed by an entry that overrides every one of them.
+        """
+        schema: 1
+        model: CritterCrush
+        defaults:
+          authoring: projected
+          scaffold: false
+        slices:
+          - slice: A
+            authoring: gherkin
+          - slice: B
+            scaffold: true
+        """,
     ];
 
     [Theory]
@@ -94,28 +132,31 @@ public class SpecOwnershipParsingAgreementTests
         generator.Slices.Select(x => x.Slice)
             .ShouldBe(real.Slices.Select(x => x.Slice), ignoreOrder: false);
 
+        // The defaults block both readers now have to understand (issue #334).
+        generator.Defaults?.Kind.ShouldBe(real.Defaults?.Kind);
+        generator.Defaults?.Authoring.ShouldBe(real.Defaults?.Authoring);
+        generator.Defaults?.Owner.ShouldBe(real.Defaults?.Owner);
+        (generator.Defaults is null).ShouldBe(real.Defaults is null);
+
         foreach (var entry in real.Slices)
         {
-            generator.AuthoringFor(entry.Slice).ShouldBe(lane(entry.ResolvedAuthoring), $"slice '{entry.Slice}'");
+            generator.AuthoringFor(entry.Slice).ShouldBe(lane(real.Resolve(entry.Slice).Authoring), $"slice '{entry.Slice}'");
             generator.For(entry.Slice)!.Owner.ShouldBe(entry.Owner, $"slice '{entry.Slice}'");
         }
     }
 
     [Theory]
     [MemberData(nameof(Corpus))]
-    public void both_readers_call_an_unlisted_slice_gherkin(string yaml)
+    public void both_readers_agree_about_a_slice_nobody_listed(string yaml)
     {
+        // Gherkin when the file has no `defaults:` — "absent means Gherkin", the promise that
+        // makes the manifest additive. With a defaults block the answer is the defaults', and the
+        // two readers have to reach it the same way or BOBCAT025 fires on every projected test in
+        // an all-projected repo (issue #334).
         var real = SpecOwnershipReader.Read(yaml).File.ShouldNotBeNull();
         var generator = Bobcat.Generators.SpecOwnershipManifest.Read(yaml);
 
-        SpecOwnershipPlanAuthoring(real, "NeverMentioned").ShouldBe("gherkin");
-        generator.AuthoringFor("NeverMentioned").ShouldBe("gherkin");
-    }
-
-    private static string SpecOwnershipPlanAuthoring(SpecOwnershipFile file, string slice)
-    {
-        var entry = file.Slices.FirstOrDefault(x => x.Slice == slice);
-        return entry is null ? "gherkin" : lane(entry.ResolvedAuthoring);
+        generator.AuthoringFor("NeverMentioned").ShouldBe(lane(real.Resolve("NeverMentioned").Authoring));
     }
 
     private static string lane(SpecAuthoring authoring) => authoring.ToString().ToLowerInvariant();

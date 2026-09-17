@@ -366,13 +366,91 @@ are `integration` + `projected`** — real database tests, rendered through mark
 |---|---|---|
 | `integration` | `gherkin` | a `.feature` — the default, and what every unlisted slice gets |
 | `integration` | `code-first` | a `Specification` skeleton |
-| `integration` | `projected` | **nothing** — an existing hand-written suite adopts the slice |
+| `integration` | `projected` | a projected test skeleton, or **nothing** — say which with `scaffold:` |
 | `unit` | `projected` | a projected test skeleton |
 | `unit` | `gherkin` *or* `code-first` | **invalid** — both run through the fixture, and so through the store |
 
 That last row is a validation rule rather than a note: honouring the authoring would hand a
 `.feature` back to an author who asked for a unit test. `kind: unit` on its own resolves to
 `projected`, since that is the only pairing the format permits.
+
+### `scaffold:` — the one corner the format will not guess (issue #334)
+
+`integration` + `projected` means two different things, and they are not distinguishable:
+
+- **an existing suite already covers this slice** — Marten's `DaemonTests`, where the tests predate
+  the model and generating over them would overwrite a hand-written suite;
+- **generate me an integration test, authored as a projected test** — every slice of a repo being
+  built model-first.
+
+So that pairing must say `scaffold: true` or `scaffold: false`, and a missing one is a validation
+problem naming both choices. Nothing can derive it: the scaffolder is a CLI with no compilation and
+no view of the disk, so it can see neither whether a type binds the slice nor whether a file already
+exists. Defaulting either way fails silently in the case it is wrong — dropping a suite's worth of
+tests, or offering to overwrite one. Every other combination answers itself and needs no flag.
+
+A scaffolded projected skeleton is worth more than it looks. It is not boilerplate — it is **one
+method per scenario, named exactly as the model names it**, and a projected test's identity *is* its
+method name, so a hand-typed name that drifts publishes an identity that joins nothing, silently.
+The skeleton also carries the `[BobcatSlice]` binding (`SliceType` where a type bears the slice's
+name, `SliceName` where none does) and the derived step comments.
+
+What it does **not** carry is the store. An integration skeleton says so:
+
+```csharp
+[BobcatFeature("BookingAppointments")]
+// TODO — these are integration slices: give this class the store. Derive from (or
+// inject) this repository's host/store fixture; the arrange/act/assert helpers are in
+// Bobcat.CritterStack. A unit-tested slice needs none of that — see the model's
+// spec-ownership manifest for which slices are which.
+public class BookingAppointmentsSpecs
+```
+
+The same refusal to guess a base class that the code-first skeleton already makes, for the same
+reason: the scaffolder does not know what this repository boots a store with.
+
+### `defaults:` — for a repo that is projected unless stated otherwise (issue #334)
+
+"Absent means Gherkin" makes the manifest cheap when the projected lane is the exception. A repo
+built model-first inverts that — 19 slices, 18 of them projected integration tests — and without a
+file-level default the exception is written nineteen times:
+
+```yaml
+schema: 1
+model: CritterCrush
+defaults:
+  kind: integration
+  authoring: projected
+  scaffold: true
+  owner: CritterCrush.Specs.{feature}Specs
+slices:
+  # the one exception in the whole file
+  - slice: ProposeHomeCheckAppointment
+    kind: unit
+    coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
+```
+
+An entry overrides whatever it states and inherits the rest. Three rules worth knowing:
+
+- **`owner:` is a template**, because it is the one field that is genuinely per slice — a literal
+  default would leave the file listing nineteen slices anyway. `{feature}` is the slice's feature
+  (the slice name when the model states none) and `{slice}` is the slice name; an unknown token is a
+  validation problem, never a literal left in a type name. A literal default that points slices from
+  several features at one type is refused, because `[BobcatFeature]` is class-level.
+- **An entry's own `kind: unit` implies `projected`** whatever the defaults say — unit is the one
+  kind the other styles cannot express — so a terse unit entry under `authoring: gherkin` defaults
+  is not made invalid for saying nothing.
+- **`defaults.kind: unit` is refused.** A unit slice must name the `coveredBy:` scenario that runs
+  its command end to end, and that is per slice by nature.
+
+Absent, the block changes nothing: a manifest with no `defaults:` resolves exactly as it did before
+the block existed.
+
+> [!NOTE]
+> With `defaults:`, most slices have no entry — so `BOBCAT026` ("the manifest names a slice nothing
+> binds") no longer has an entry to fire from for them. The stronger check for that repo is the
+> spec-identity audit, which compares *identities* rather than slice names and reports a model
+> scenario nothing covers as a hole: see [Checking Spec Identities](/spec-identities).
 
 ### `coveredBy`, because the rule would otherwise rot
 
