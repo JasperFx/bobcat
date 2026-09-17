@@ -21,6 +21,59 @@ namespace Bobcat.EventModel.Scaffolding.Tests;
 /// </remarks>
 public class ViewSliceRegistrationTests
 {
+    /// <summary>
+    /// Two views over ONE set of events, keyed differently — the shape that exposed issue #349.
+    /// </summary>
+    internal const string TwoViewsYaml =
+        """
+        schema: 1
+        model: Booking
+        namespace: Booking
+        slices:
+          - name: ProposeAppointment
+            pattern: Command
+            domain: Appointments
+            trigger: { kind: MessageHandler }
+            command: ProposeAppointment
+            aggregates: [Appointment]
+            events: [AppointmentProposed]
+            elements:
+              AppointmentProposed:
+                fields: { ownerId: Guid, shelterId: Guid, kennel: string }
+          - name: ConfirmAppointment
+            pattern: Command
+            domain: Appointments
+            trigger: { kind: MessageHandler }
+            command: ConfirmAppointment
+            aggregates: [Appointment]
+            events: [AppointmentConfirmed]
+            elements:
+              AppointmentConfirmed:
+                fields: { ownerId: Guid, shelterId: Guid }
+          # One document per SHELTER. Its first Guid field says so; the events lead with ownerId.
+          - name: AppointmentsQueue
+            pattern: View
+            domain: Appointments
+            projections: [AppointmentsQueueProjection]
+            fanOut: true
+            readModels: [AppointmentsQueue]
+            consumes: [AppointmentProposed, AppointmentConfirmed]
+            elements:
+              AppointmentsQueue:
+                fields: { shelterId: Guid, waiting: int }
+          # One document per OWNER, over exactly the same events.
+          - name: MyAppointments
+            pattern: View
+            domain: Appointments
+            projections: [MyAppointmentsProjection]
+            fanOut: true
+            readModels: [MyAppointments]
+            consumes: [AppointmentProposed, AppointmentConfirmed]
+            elements:
+              MyAppointments:
+                fields: { ownerId: Guid, waiting: int }
+        """;
+
     /// <summary>Two source events keying by different fields — no one interface can say that.</summary>
     internal const string MixedKeyYaml =
         """
@@ -286,5 +339,37 @@ public class ViewSliceRegistrationTests
         var files = SliceScaffolder.ScaffoldAll(parse(yaml)).Where(x => x.Key.EndsWith(".cs"));
 
         files.Count(x => x.Value.Contains("public record HomeCheckAppointmentProposed(")).ShouldBe(1);
+    }
+
+    [Fact]
+    public void a_view_is_keyed_by_the_identity_it_declares_not_by_its_events()
+    {
+        // #349: the derivation read the EVENTS only, so both views came out keyed by ownerId — the
+        // first Guid ending in Id on AppointmentProposed. The shelter queue counting per owner
+        // compiles, registers and runs, so nothing but this catches it.
+        var model = parse(TwoViewsYaml);
+
+        var queue = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "AppointmentsQueue"))
+            .Single().Value;
+        queue.ShouldContain("Identity<IShelterEvent>(x => x.ShelterId);");
+        queue.ShouldNotContain("x.OwnerId");
+
+        var mine = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "MyAppointments"))
+            .Single().Value;
+        mine.ShouldContain("Identity<IOwnerEvent>(x => x.OwnerId);");
+        mine.ShouldNotContain("x.ShelterId");
+    }
+
+    [Fact]
+    public void two_views_over_one_event_set_get_their_own_markers()
+    {
+        // And the records carry both, because one appointment appears on a shelter's queue and on
+        // its owner's page. Before #349 they shared a single IOwnerEvent, which made the collision
+        // read as deliberate.
+        var model = parse(TwoViewsYaml);
+        var emitter = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "ConfirmAppointment"))
+            .Single().Value;
+
+        emitter.ShouldContain(") : IOwnerEvent, IShelterEvent;");
     }
 }

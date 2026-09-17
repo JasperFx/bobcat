@@ -146,7 +146,43 @@ public static class SliceScaffolder
               ?? eventsOf(model, _ => true)
               ?? [];
 
-        return events.Select(name => new ViewSource(name, identityFieldFor(model, name))).ToList();
+        // The VIEW's own key first (issue #349). The read model declares it — CritterCrush's
+        // AppointmentsQueue leads with `shelterId: Guid` and its notes say "one document per
+        // SHELTER" — and deriving from the events instead keys every view over one set of events
+        // identically. Two views then share one key and at most one of them is right, in a way
+        // that compiles, registers and runs: the shelter queue counts per owner.
+        var declared = declaredIdentityFor(model, slice, events);
+
+        return events
+            .Select(name => new ViewSource(name, declared ?? identityFieldFor(model, name)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The identity field the VIEW declares, when every source event carries a <c>Guid</c> of that
+    /// name. Null when it does not — then the event-side guess below is all there is.
+    /// </summary>
+    /// <remarks>
+    /// The read model's own first <c>Guid</c> field is the routing question stated where it
+    /// belongs. Requiring every source to carry it is what keeps this from producing a rule that
+    /// does not compile: a view may declare a key some of its events do not know about, and a
+    /// partial answer would be worse than the guess.
+    /// </remarks>
+    private static string? declaredIdentityFor(CuratedModelFile model, CuratedSlice slice, IReadOnlyList<string> events)
+    {
+        var readModel = ReadModelFor(slice);
+        var candidate = fieldsFor(model, slice, readModel)
+            .Where(x => x.Type == "Guid")
+            .Select(x => x.Name)
+            .FirstOrDefault(x => !string.Equals(x, "Id", StringComparison.Ordinal));
+
+        if (candidate is null) return null;
+
+        var carriedByEvery = events.All(name =>
+            model.Slices.FirstOrDefault(x => x.Events.Contains(name)) is { } declaring
+            && fieldsFor(model, declaring, name).Any(f => f.Type == "Guid" && f.Name == candidate));
+
+        return carriedByEvery ? candidate : null;
     }
 
     /// <summary>
