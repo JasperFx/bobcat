@@ -160,12 +160,19 @@ public class ViewSliceRegistrationTests
         code.ShouldContain("public interface IAppointmentEvent");
         code.ShouldContain("Guid AppointmentId { get; }");
         code.ShouldContain("Identity<IAppointmentEvent>(x => x.AppointmentId);");
-        code.ShouldContain("public static AppointmentsQueue Evolve(AppointmentsQueue view, IAppointmentEvent e)");
-        code.ShouldContain("HomeCheckAppointmentProposed => throw new NotImplementedException(\"TODO: AppointmentsQueue — project HomeCheckAppointmentProposed\"),");
+        // The BASE CLASS's virtual taking IEvent. A static Evolve(view, IMarker) compiles and does
+        // NOT register — "No matching conventional Apply/Create/ShouldDelete methods" at startup,
+        // which is this fixture's whole subject. 0.26.1 shipped that shape (#351); asserting the
+        // signature is how this file stops it coming back.
+        code.ShouldContain("public override AppointmentsQueue Evolve(AppointmentsQueue snapshot, Guid id, IEvent e)");
+        code.ShouldContain("snapshot ??= new AppointmentsQueue { Id = id };");
+        code.ShouldContain("if (e.Data is IAppointmentEvent routed) snapshot.AppointmentId = routed.AppointmentId;");
+        code.ShouldContain("case HomeCheckAppointmentProposed:");
+        code.ShouldNotContain("public static AppointmentsQueue Evolve");
 
         // Its sources are the domain's events, because the View slice declares none of its own —
         // so the fold covers them too.
-        code.ShouldContain("AppointmentConfirmed => throw new NotImplementedException(");
+        code.ShouldContain("case AppointmentConfirmed:");
 
         // And the shape it replaced is gone, rather than emitted beside it.
         code.ShouldNotContain("Identity<HomeCheckAppointmentProposed>");
@@ -196,6 +203,7 @@ public class ViewSliceRegistrationTests
 
         code.ShouldNotContain("public interface I");
         code.ShouldNotContain("Evolve(");
+        code.ShouldNotContain("e.Data is");
         code.ShouldContain("Identity<ThingHappened>(x => x.ThingId);");
         code.ShouldContain("Identity<OtherHappened>(x => x.OtherId);");
         code.ShouldContain("public void Apply(ThingHappened thingHappened, MixedQueue view)");
