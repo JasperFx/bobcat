@@ -67,7 +67,209 @@ public sealed class SpecOwnershipFile
     /// </summary>
     public string Model { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What every slice this file does not state otherwise looks like (issue #334). Absent, the
+    /// built-in defaults apply and an unlisted slice is a Gherkin integration slice — exactly
+    /// today's behaviour.
+    /// </summary>
+    public SpecOwnershipDefaults? Defaults { get; set; }
+
     public List<SpecOwnership> Slices { get; set; } = [];
+
+    /// <summary>The entry for a slice, or null when this file does not list it.</summary>
+    public SpecOwnership? EntryFor(string slice)
+        => Slices.FirstOrDefault(x => string.Equals(x.Slice, slice, StringComparison.Ordinal));
+
+    /// <summary>
+    /// What this file says about one slice, entry over defaults over built-in — the ONE way to
+    /// ask (issue #334).
+    /// </summary>
+    /// <param name="slice">The slice name, listed here or not.</param>
+    /// <param name="feature">
+    /// The slice's feature, for a <c>{feature}</c> token in a default owner. The slice name when
+    /// null, which is what the curated model's <c>specifications.feature:</c> defaults to.
+    /// </param>
+    /// <remarks>
+    /// The entry's own <see cref="SpecOwnership.StatedKind"/> and
+    /// <see cref="SpecOwnership.StatedAuthoring"/> are nullable and mean only what the entry says,
+    /// so nothing can answer this question while ignoring <see cref="Defaults"/>. That is the
+    /// point: a resolved answer computed in two places is how a slice ends up in one lane for the
+    /// scaffolder and another for the analyzer.
+    /// </remarks>
+    public ResolvedSpecOwnership Resolve(string slice, string? feature = null)
+    {
+        var entry = EntryFor(slice);
+
+        var kind = entry?.StatedKind ?? Defaults?.StatedKind ?? SpecKind.Integration;
+
+        // An entry's own `kind: unit` implies projected whatever the defaults say, because unit is
+        // the one kind the other authoring styles cannot express — both run through the fixture,
+        // and so through the store. Without this, `defaults: { authoring: gherkin }` would turn
+        // every terse unit entry into a validation problem for saying nothing.
+        var authoring = entry?.StatedAuthoring
+                        ?? (entry?.StatedKind == SpecKind.Unit ? SpecAuthoring.Projected : (SpecAuthoring?)null)
+                        ?? Defaults?.StatedAuthoring
+                        ?? (kind == SpecKind.Unit ? SpecAuthoring.Projected : SpecAuthoring.Gherkin);
+
+        var owner = entry?.Owner is { Length: > 0 } stated
+            ? stated
+            : SpecOwnershipDefaults.ExpandOwner(Defaults?.Owner, slice, feature ?? slice);
+
+        return new ResolvedSpecOwnership(
+            slice,
+            kind,
+            authoring,
+            Scaffold: scaffolds(entry, kind, authoring),
+            Owner: owner,
+            CoveredBy: entry?.CoveredBy,
+            Listed: entry is not null);
+    }
+
+    /// <summary>
+    /// Whether the scaffolder writes this slice's specification. Stated wins; otherwise everything
+    /// is scaffolded EXCEPT the one corner where the format refuses to guess — see
+    /// <see cref="ResolvedSpecOwnership.NeedsScaffoldStated"/>, which the reader reports as a
+    /// problem. Falling back to false there keeps the pre-#334 behaviour for a file that ignores
+    /// the problem, rather than offering to overwrite a suite that may already exist.
+    /// </summary>
+    private bool scaffolds(SpecOwnership? entry, SpecKind kind, SpecAuthoring authoring)
+    {
+        if (entry?.Scaffold is { } stated) return stated;
+        if (Defaults?.Scaffold is { } inherited) return inherited;
+
+        return !(authoring == SpecAuthoring.Projected && kind == SpecKind.Integration);
+    }
+}
+
+/// <summary>
+/// The manifest's file-level defaults (issue #334) — what a slice looks like unless its own entry
+/// says otherwise.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Why it exists.</b> The manifest was designed around "three entries, not nineteen": absent
+/// means Gherkin, so listing the exceptions is cheap. A repo built model-first inverts that —
+/// CritterCrush's Lane A is 19 slices, 18 of them projected integration tests — and without a
+/// file-level default the exception has to be written nineteen times, with nineteen
+/// near-identical warnings to match.
+/// </para>
+/// <para>
+/// <b>Absent still means Gherkin.</b> A manifest with no <c>defaults:</c> resolves exactly as it
+/// did before this existed, so nothing an existing repo scaffolds changes.
+/// </para>
+/// <para>
+/// <b>What it deliberately does NOT default.</b> <c>coveredBy:</c> is per slice by nature — it
+/// names one scenario — and a defaulted one would claim the same cover for every unit slice in the
+/// file.
+/// </para>
+/// </remarks>
+public sealed class SpecOwnershipDefaults
+{
+    /// <inheritdoc cref="SpecOwnership.Kind"/>
+    public string? Kind { get; set; }
+
+    /// <inheritdoc cref="SpecOwnership.Authoring"/>
+    public string? Authoring { get; set; }
+
+    /// <inheritdoc cref="SpecOwnership.Scaffold"/>
+    public bool? Scaffold { get; set; }
+
+    /// <summary>
+    /// A template for the type that owns each slice's specs, expanded per slice:
+    /// <c>{feature}</c> is the slice's feature (the slice name when the model states none) and
+    /// <c>{slice}</c> is the slice name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A template rather than a literal because <c>owner:</c> is the one field that is genuinely
+    /// per slice, so a literal default would leave an all-projected repo writing nineteen entries
+    /// anyway — the verbosity this block exists to remove. <c>{feature}</c> is the useful token:
+    /// it groups slices exactly as the scaffolder already groups skeletons, which is what
+    /// CritterCrush wrote by hand.
+    /// </para>
+    /// <para>
+    /// The same token convention the curated format already uses for <c>{streamId}</c>. An unknown
+    /// token is a validation problem, never a literal left in a type name.
+    /// </para>
+    /// </remarks>
+    public string? Owner { get; set; }
+
+    /// <inheritdoc cref="SpecOwnership.StatedKind"/>
+    public SpecKind? StatedKind
+        => SpecOwnershipVocabulary.TryParseKind(Kind, out var kind) ? kind : null;
+
+    /// <inheritdoc cref="SpecOwnership.StatedAuthoring"/>
+    public SpecAuthoring? StatedAuthoring
+        => SpecOwnershipVocabulary.TryParseAuthoring(Authoring, out var authoring) ? authoring : null;
+
+    /// <summary>The tokens an owner template may use.</summary>
+    public static IReadOnlyList<string> OwnerTokens { get; } = ["feature", "slice"];
+
+    /// <summary>
+    /// A default owner template expanded for one slice, or null when there is no template.
+    /// </summary>
+    public static string? ExpandOwner(string? template, string slice, string feature)
+        => template is not { Length: > 0 }
+            ? null
+            : template.Replace("{feature}", feature).Replace("{slice}", slice);
+
+    /// <summary>The <c>{tokens}</c> in a template that are not <see cref="OwnerTokens"/>.</summary>
+    public static IEnumerable<string> UnknownOwnerTokens(string? template)
+    {
+        if (template is not { Length: > 0 }) yield break;
+
+        for (var i = 0; i < template.Length; i++)
+        {
+            if (template[i] != '{') continue;
+
+            var close = template.IndexOf('}', i + 1);
+            if (close < 0) break;
+
+            var token = template.Substring(i + 1, close - i - 1);
+            i = close;
+
+            if (!OwnerTokens.Contains(token)) yield return token;
+        }
+    }
+}
+
+/// <summary>
+/// What the manifest says about one slice, with <see cref="SpecOwnershipDefaults"/> already
+/// applied (issue #334).
+/// </summary>
+/// <param name="Scaffold">Whether the scaffolder writes this slice's specification at all.</param>
+/// <param name="Listed">Whether the manifest names this slice explicitly.</param>
+public sealed record ResolvedSpecOwnership(
+    string Slice,
+    SpecKind Kind,
+    SpecAuthoring Authoring,
+    bool Scaffold,
+    string? Owner,
+    string? CoveredBy,
+    bool Listed)
+{
+    /// <summary>The built-in answer for a manifest that says nothing: a Gherkin integration slice.</summary>
+    public static ResolvedSpecOwnership Default(string slice)
+        => new(slice, SpecKind.Integration, SpecAuthoring.Gherkin, Scaffold: true, null, null, Listed: false);
+
+    /// <summary>True when the scaffolder should NOT write this slice's scenarios into a <c>.feature</c>.</summary>
+    public bool SuppressesFeature => Authoring != SpecAuthoring.Gherkin;
+
+    /// <summary>
+    /// The one corner where <c>scaffold:</c> has to be stated (issue #334): a projected
+    /// integration slice.
+    /// </summary>
+    /// <remarks>
+    /// The row conflated two intents. "An existing hand-written suite adopts this slice" — Marten's
+    /// DaemonTests, where the tests predate the model and generating would overwrite them — and
+    /// "generate me an integration test, authored as a projected test", which is every slice of a
+    /// repo being built. Both spell themselves <c>projected</c> + <c>integration</c>, and the
+    /// difference is not derivable: the scaffolder is a CLI with no compilation and no view of the
+    /// disk, so it can see neither whether a type binds the slice nor whether a file exists.
+    /// Defaulting either way fails silently in the case it is wrong — dropping a suite's worth of
+    /// tests, or offering to overwrite one — so the format asks.
+    /// </remarks>
+    public bool NeedsScaffoldStated => Authoring == SpecAuthoring.Projected && Kind == SpecKind.Integration;
 }
 
 /// <summary>One slice's declared spec ownership. Keyed by slice name, the pipeline's merge key.</summary>
@@ -105,28 +307,25 @@ public sealed class SpecOwnership
     public string? CoveredBy { get; set; }
 
     /// <summary>
-    /// The resolved kind — <see cref="SpecKind.Integration"/> when unstated, which is today's
-    /// behaviour for every unlisted slice.
+    /// Whether the scaffolder writes this slice's specification (issue #334) — the difference
+    /// between "generate me a test" and "an existing suite already covers this". Required for a
+    /// projected integration slice, where the two are otherwise indistinguishable; inherited from
+    /// <see cref="SpecOwnershipDefaults.Scaffold"/> or assumed elsewhere.
     /// </summary>
-    public SpecKind ResolvedKind => SpecOwnershipVocabulary.TryParseKind(Kind, out var kind) ? kind : SpecKind.Integration;
+    public bool? Scaffold { get; set; }
 
     /// <summary>
-    /// The resolved authoring style. Unstated means <see cref="SpecAuthoring.Gherkin"/> — except
-    /// under <c>kind: unit</c>, where <see cref="SpecAuthoring.Projected"/> is the only pairing the
-    /// format permits, so defaulting to Gherkin would make every terse unit entry invalid for
-    /// saying nothing.
+    /// The kind this ENTRY states, or null when it says nothing. Nullable on purpose: the answer
+    /// that matters is <see cref="SpecOwnershipFile.Resolve"/>'s, and a property here that quietly
+    /// substituted a built-in default would be a second answer that ignores the file's
+    /// <c>defaults:</c>.
     /// </summary>
-    public SpecAuthoring ResolvedAuthoring
-    {
-        get
-        {
-            if (SpecOwnershipVocabulary.TryParseAuthoring(Authoring, out var authoring)) return authoring;
-            return ResolvedKind == SpecKind.Unit ? SpecAuthoring.Projected : SpecAuthoring.Gherkin;
-        }
-    }
+    public SpecKind? StatedKind
+        => SpecOwnershipVocabulary.TryParseKind(Kind, out var kind) ? kind : null;
 
-    /// <summary>True when the scaffolder should NOT write this slice's scenarios into a <c>.feature</c>.</summary>
-    public bool SuppressesFeature => ResolvedAuthoring != SpecAuthoring.Gherkin;
+    /// <inheritdoc cref="StatedKind"/>
+    public SpecAuthoring? StatedAuthoring
+        => SpecOwnershipVocabulary.TryParseAuthoring(Authoring, out var authoring) ? authoring : null;
 }
 
 /// <summary>

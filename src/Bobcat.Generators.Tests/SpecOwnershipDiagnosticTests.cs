@@ -212,7 +212,7 @@ public class GeneratorManifestReaderTests
         var entry = manifest.Slices.ShouldHaveSingleItem();
         entry.Slice.ShouldBe("ProposeHomeCheckAppointment");
         entry.Owner.ShouldBe("CritterCrush.Specs.ProposalSpecs");
-        entry.ResolvedAuthoring.ShouldBe("projected");
+        manifest.AuthoringFor(entry.Slice).ShouldBe("projected");
     }
 
     [Fact]

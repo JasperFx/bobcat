@@ -54,10 +54,13 @@ public class SpecOwnershipReaderTests
 
         var entry = reading.File!.Slices.ShouldHaveSingleItem();
         entry.Slice.ShouldBe("ProposeHomeCheckAppointment");
-        entry.ResolvedKind.ShouldBe(SpecKind.Unit);
-        entry.ResolvedAuthoring.ShouldBe(SpecAuthoring.Projected);
         entry.Owner.ShouldBe("CritterCrush.Specs.ProposalSpecs");
-        entry.SuppressesFeature.ShouldBeTrue();
+
+        var resolved = reading.File!.Resolve("ProposeHomeCheckAppointment");
+        resolved.Kind.ShouldBe(SpecKind.Unit);
+        resolved.Authoring.ShouldBe(SpecAuthoring.Projected);
+        resolved.SuppressesFeature.ShouldBeTrue();
+        resolved.Scaffold.ShouldBeTrue();
     }
 
     [Fact]
@@ -83,18 +86,22 @@ public class SpecOwnershipReaderTests
               - slice: ProposeHomeCheckAppointment
                 kind: integration
                 authoring: projected
+                scaffold: true
                 owner: CritterCrush.Specs.ProposalSpecs
             """,
             model());
 
         reading.Problems.ShouldBeEmpty();
 
-        var entry = reading.File!.Slices.ShouldHaveSingleItem();
-        entry.ResolvedKind.ShouldBe(SpecKind.Integration);
-        entry.ResolvedAuthoring.ShouldBe(SpecAuthoring.Projected);
+        var resolved = reading.File!.Resolve(reading.File!.Slices.ShouldHaveSingleItem().Slice);
+        resolved.Kind.ShouldBe(SpecKind.Integration);
+        resolved.Authoring.ShouldBe(SpecAuthoring.Projected);
 
         // And no coveredBy is demanded: an integration spec IS the end-to-end cover.
-        entry.CoveredBy.ShouldBeNull();
+        resolved.CoveredBy.ShouldBeNull();
+
+        // Issue #334: and it is scaffolded, which the row this pairing came from never was.
+        resolved.Scaffold.ShouldBeTrue();
     }
 
     [Fact]
@@ -115,16 +122,22 @@ public class SpecOwnershipReaderTests
     {
         // `unit` names the only pairing the format permits, so defaulting authoring to gherkin
         // would make every entry that says nothing invalid for saying nothing.
-        var entry = new SpecOwnership { Slice = "X", Kind = "unit" };
+        var file = new SpecOwnershipFile
+        {
+            Schema = 1, Model = "M", Slices = [new SpecOwnership { Slice = "X", Kind = "unit" }]
+        };
 
-        entry.ResolvedAuthoring.ShouldBe(SpecAuthoring.Projected);
+        file.Resolve("X").Authoring.ShouldBe(SpecAuthoring.Projected);
     }
 
     [Fact]
     public void code_first_spells_with_a_hyphen_and_the_enum_does_not()
     {
-        new SpecOwnership { Slice = "X", Authoring = "code-first" }
-            .ResolvedAuthoring.ShouldBe(SpecAuthoring.CodeFirst);
+        new SpecOwnershipFile
+            {
+                Schema = 1, Model = "M", Slices = [new SpecOwnership { Slice = "X", Authoring = "code-first" }]
+            }
+            .Resolve("X").Authoring.ShouldBe(SpecAuthoring.CodeFirst);
     }
 
     [Fact]
@@ -321,6 +334,7 @@ public class SpecOwnershipReaderTests
             slices:
               - slice: ProposeHomeCheckAppointment
                 authoring: projected
+                scaffold: true
             """,
             model());
 
@@ -329,8 +343,10 @@ public class SpecOwnershipReaderTests
     }
 
     [Fact]
-    public void scenario_bodies_left_in_the_model_for_a_non_gherkin_slice_are_warned_about()
+    public void scenario_bodies_left_in_the_model_for_an_adopted_slice_are_warned_about()
     {
+        // `scaffold: false` — an existing suite covers the slice, so the model's scenario bodies
+        // are dead weight nothing will read.
         var withBodies = model();
         withBodies.Slices[0].Specifications = new CuratedSpecifications
         {
@@ -338,9 +354,243 @@ public class SpecOwnershipReaderTests
         };
 
         var warnings = SpecOwnershipReader.Warn(
-            SpecOwnershipReader.Read(Manifest).File!, withBodies);
+            SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                slices:
+                  - slice: ProposeHomeCheckAppointment
+                    authoring: projected
+                    scaffold: false
+                    owner: Existing.Suite.ProposalTests
+                """).File!,
+            withBodies);
 
         warnings.ShouldContain(x => x.Contains("will not be scaffolded"));
+    }
+
+    // --- Issue #334 ---
+
+    [Fact]
+    public void a_projected_integration_slice_must_say_whether_it_is_scaffolded()
+    {
+        // The row conflated "an existing suite covers this" with "generate me one", and nothing
+        // the scaffolder can see tells them apart — so the format asks rather than guessing.
+        var reading = SpecOwnershipReader.Read(
+            """
+            schema: 1
+            model: CritterCrush
+            slices:
+              - slice: ProposeHomeCheckAppointment
+                kind: integration
+                authoring: projected
+                owner: CritterCrush.Specs.ProposalSpecs
+            """,
+            model());
+
+        reading.Problems.ShouldContain(x => x.Contains("must say `scaffold:`"));
+    }
+
+    [Fact]
+    public void every_other_combination_answers_itself()
+    {
+        // The requirement is narrow on purpose: it applies to the one corner where both readings
+        // are plausible. A unit slice is always scaffolded, and so is a code-first one.
+        var file = SpecOwnershipReader.Read(
+            """
+            schema: 1
+            model: CritterCrush
+            slices:
+              - slice: A
+                kind: unit
+                coveredBy: F/S
+              - slice: B
+                authoring: code-first
+              - slice: C
+            """).File!;
+
+        file.Resolve("A").Scaffold.ShouldBeTrue();
+        file.Resolve("B").Scaffold.ShouldBeTrue();
+        file.Resolve("C").Scaffold.ShouldBeTrue();
+        SpecOwnershipReader.Validate(file).ShouldNotContain(x => x.Contains("must say `scaffold:`"));
+    }
+
+    [Fact]
+    public void a_scaffolded_projected_slice_is_not_warned_about_for_having_scenario_bodies()
+    {
+        // The second finding on #334: an all-projected repo produced 19 near-identical warnings
+        // saying the bodies would not be scaffolded. With `scaffold: true` they ARE — as method
+        // names and step comments — so the warning dissolves rather than needing a cap.
+        var withBodies = model();
+        withBodies.Slices[0].Specifications = new CuratedSpecifications
+        {
+            Scenarios = [new CuratedScenario { Name = "a proposal is made" }]
+        };
+
+        var warnings = SpecOwnershipReader.Warn(
+            SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                defaults:
+                  authoring: projected
+                  scaffold: true
+                  owner: CritterCrush.Specs.{feature}Specs
+                """).File!,
+            withBodies);
+
+        warnings.ShouldNotContain(x => x.Contains("will not be scaffolded"));
+        warnings.ShouldNotContain(x => x.Contains("names no `owner:`"));
+    }
+
+    [Fact]
+    public void defaults_decide_a_slice_the_file_never_lists()
+    {
+        var file = SpecOwnershipReader.Read(
+            """
+            schema: 1
+            model: CritterCrush
+            defaults:
+              kind: integration
+              authoring: projected
+              scaffold: true
+              owner: CritterCrush.Specs.{feature}Specs
+            """).File!;
+
+        var resolved = file.Resolve("ConfirmAppointment", "BookingAppointments");
+        resolved.Authoring.ShouldBe(SpecAuthoring.Projected);
+        resolved.Kind.ShouldBe(SpecKind.Integration);
+        resolved.Scaffold.ShouldBeTrue();
+        resolved.Owner.ShouldBe("CritterCrush.Specs.BookingAppointmentsSpecs");
+        resolved.Listed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void an_entry_overrides_every_default_it_states()
+    {
+        var file = SpecOwnershipReader.Read(
+            """
+            schema: 1
+            model: CritterCrush
+            defaults:
+              authoring: projected
+              scaffold: true
+              owner: CritterCrush.Specs.{feature}Specs
+            slices:
+              - slice: A
+                authoring: gherkin
+              - slice: B
+                scaffold: false
+              - slice: C
+                owner: Existing.Suite.Tests
+            """).File!;
+
+        file.Resolve("A").Authoring.ShouldBe(SpecAuthoring.Gherkin);
+        file.Resolve("B").Scaffold.ShouldBeFalse();
+        file.Resolve("C").Owner.ShouldBe("Existing.Suite.Tests");
+
+        // And what it does not state still comes from the defaults.
+        file.Resolve("C").Authoring.ShouldBe(SpecAuthoring.Projected);
+    }
+
+    [Fact]
+    public void an_entrys_own_unit_kind_beats_a_gherkin_default()
+    {
+        // Unit is the one kind the other styles cannot express, so `kind: unit` implies projected
+        // whatever the defaults say — otherwise a terse unit entry would be invalid for saying
+        // nothing, which is the trap the pre-#334 default already avoided per entry.
+        var file = SpecOwnershipReader.Read(
+            """
+            schema: 1
+            model: CritterCrush
+            defaults:
+              authoring: gherkin
+            slices:
+              - slice: A
+                kind: unit
+                coveredBy: F/S
+            """).File!;
+
+        file.Resolve("A").Authoring.ShouldBe(SpecAuthoring.Projected);
+        SpecOwnershipReader.Validate(file).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void defaults_that_land_in_the_ambiguous_corner_must_answer_for_every_unlisted_slice()
+    {
+        SpecOwnershipReader.Validate(SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                defaults:
+                  authoring: projected
+                """).File!)
+            .ShouldContain(x => x.Contains("`defaults.scaffold:` must say"));
+    }
+
+    [Fact]
+    public void an_unknown_owner_token_is_refused_rather_than_left_in_a_type_name()
+    {
+        SpecOwnershipReader.Validate(SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                defaults:
+                  authoring: projected
+                  scaffold: true
+                  owner: CritterCrush.Specs.{domain}Specs
+                """).File!)
+            .ShouldContain(x => x.Contains("{domain}"));
+    }
+
+    [Fact]
+    public void a_literal_default_owner_pointing_several_features_at_one_type_is_refused()
+    {
+        // The failure mode a template exists to avoid: one type cannot publish two features,
+        // because [BobcatFeature] is class-level. Caught for a defaulted owner exactly as it is
+        // for a hand-written one.
+        var twoFeatures = model();
+        twoFeatures.Slices =
+        [
+            new CuratedSlice
+            {
+                Name = "A", Specifications = new CuratedSpecifications { Feature = "One" }
+            },
+            new CuratedSlice
+            {
+                Name = "B", Specifications = new CuratedSpecifications { Feature = "Two" }
+            }
+        ];
+
+        var problems = SpecOwnershipReader.Validate(
+            SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                defaults:
+                  authoring: projected
+                  scaffold: true
+                  owner: CritterCrush.Specs.AllSpecs
+                """).File!,
+            twoFeatures);
+
+        problems.ShouldContain(x => x.Contains("covers slices in more than one feature")
+                                    && x.Contains("from `defaults.owner:`"));
+    }
+
+    [Fact]
+    public void defaults_cannot_make_every_slice_unit_tested()
+    {
+        // `coveredBy:` names one scenario, so it is per slice by nature — a defaulted unit kind
+        // would claim one cover for the whole file.
+        SpecOwnershipReader.Validate(SpecOwnershipReader.Read(
+                """
+                schema: 1
+                model: CritterCrush
+                defaults:
+                  kind: unit
+                """).File!)
+            .ShouldContain(x => x.Contains("`defaults.kind: unit` is not allowed"));
     }
 }
 

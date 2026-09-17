@@ -17,10 +17,18 @@ namespace Bobcat.Generators;
 /// other two duplicated parsers are pinned.
 /// </para>
 /// <para>
-/// <b>Deliberately narrow.</b> It understands one flat shape — top-level scalars plus a
-/// <c>slices:</c> list of scalar-only entries — and it recognises only the four keys the
-/// diagnostics need. Anything nested is skipped rather than guessed at, because a reader that
+/// <b>Deliberately narrow.</b> It understands top-level scalars, a <c>defaults:</c> block of
+/// scalars, and a <c>slices:</c> list of scalar-only entries — and it recognises only the keys the
+/// diagnostics need. Anything else nested is skipped rather than guessed at, because a reader that
 /// quietly half-understands a richer file is #318's failure mode in a new place.
+/// </para>
+/// <para>
+/// <b><c>defaults:</c> is not optional for this reader (issue #334).</b> Skipping it would have
+/// been the narrow choice, and it would have been wrong in precisely the file the block exists
+/// for: with <c>defaults: { authoring: projected }</c> and no entry per slice, a reader that sees
+/// only <c>slices:</c> calls every slice gherkin — so BOBCAT025 would report a lane disagreement
+/// against every projected test in the repo. <c>scaffold:</c> IS skipped, because nothing here
+/// acts on it: whether the scaffolder writes a file is not a question about the compilation.
 /// </para>
 /// </remarks>
 internal static class SpecOwnershipManifest
@@ -45,25 +53,44 @@ internal static class SpecOwnershipManifest
         public string? Authoring;
         public string? Owner;
 
-        /// <summary>
-        /// <c>gherkin</c> | <c>codefirst</c> | <c>projected</c>, normalized. Unstated means
-        /// <c>gherkin</c> — except under <c>kind: unit</c>, where projected is the only pairing the
-        /// format permits.
-        /// </summary>
-        public string ResolvedAuthoring
+        /// <summary>The authoring style this ENTRY states, normalized, or "" when it says nothing.</summary>
+        /// <remarks>
+        /// Stated rather than resolved, mirroring <c>SpecOwnership.StatedAuthoring</c>: the answer
+        /// that matters needs the file's <c>defaults:</c>, so it lives on
+        /// <see cref="Manifest.AuthoringFor"/> and cannot be asked here by accident.
+        /// </remarks>
+        public string StatedAuthoring
         {
             get
             {
                 var stated = Normalize(Authoring);
-                if (stated == "gherkin" || stated == "codefirst" || stated == "projected") return stated;
-                return Normalize(Kind) == "unit" ? "projected" : "gherkin";
+                return stated == "gherkin" || stated == "codefirst" || stated == "projected" ? stated : "";
             }
         }
+
+        /// <summary>The kind this entry states, normalized, or "" when it says nothing.</summary>
+        public string StatedKind
+        {
+            get
+            {
+                var stated = Normalize(Kind);
+                return stated == "unit" || stated == "integration" ? stated : "";
+            }
+        }
+    }
+
+    /// <summary>The <c>defaults:</c> block (issue #334) — the keys this reader acts on.</summary>
+    internal sealed class Defaults
+    {
+        public string? Kind;
+        public string? Authoring;
+        public string? Owner;
     }
 
     internal sealed class Manifest
     {
         public string Model = "";
+        public Defaults? Defaults;
         public readonly List<Entry> Slices = new();
 
         public Entry? For(string slice)
@@ -76,8 +103,40 @@ internal static class SpecOwnershipManifest
             return null;
         }
 
-        /// <summary>The lane this manifest puts a slice in — <c>gherkin</c> for one it does not list.</summary>
-        public string AuthoringFor(string slice) => For(slice)?.ResolvedAuthoring ?? "gherkin";
+        /// <summary>
+        /// The lane this manifest puts a slice in — entry over defaults over <c>gherkin</c>, which
+        /// is still what a slice gets from a manifest that says nothing (issue #334).
+        /// </summary>
+        public string AuthoringFor(string slice)
+        {
+            var entry = For(slice);
+
+            var stated = entry?.StatedAuthoring ?? "";
+            if (stated.Length > 0) return stated;
+
+            // An entry's own `kind: unit` implies projected whatever the defaults say — unit is the
+            // one kind the other styles cannot express. Same precedence as SpecOwnershipFile.Resolve.
+            if (entry?.StatedKind == "unit") return "projected";
+
+            var inherited = Normalize(Defaults?.Authoring);
+            if (inherited == "gherkin" || inherited == "codefirst" || inherited == "projected") return inherited;
+
+            return Normalize(Defaults?.Kind) == "unit" ? "projected" : "gherkin";
+        }
+
+        /// <summary>
+        /// The owner to NAME in a message, or null. A <c>defaults.owner:</c> template is not
+        /// expanded: <c>{feature}</c> comes from the curated model, which this reader never sees,
+        /// and an unexpanded template in a diagnostic is worse than saying nothing.
+        /// </summary>
+        public string? OwnerFor(string slice)
+        {
+            var owner = For(slice)?.Owner;
+            if (owner is { Length: > 0 }) return owner;
+
+            var template = Defaults?.Owner;
+            return template is { Length: > 0 } && template.IndexOf('{') < 0 ? template : null;
+        }
     }
 
     public static string Normalize(string? value)
@@ -88,6 +147,7 @@ internal static class SpecOwnershipManifest
         var manifest = new Manifest();
         Entry? current = null;
         var inSlices = false;
+        var inDefaults = false;
 
         foreach (var raw in yaml.Replace("\r\n", "\n").Split('\n'))
         {
@@ -97,17 +157,25 @@ internal static class SpecOwnershipManifest
             var indent = line.Length - line.TrimStart(' ').Length;
             var text = line.Trim();
 
-            // A top-level key closes any list that was open.
+            // A top-level key closes any block that was open.
             if (indent == 0 && !text.StartsWith("-", StringComparison.Ordinal))
             {
                 current = null;
                 inSlices = false;
+                inDefaults = false;
 
                 if (!split(text, out var key, out var value)) continue;
 
                 if (key == "slices") inSlices = true;
+                else if (key == "defaults") { inDefaults = true; manifest.Defaults = new Defaults(); }
                 else if (key == "model") manifest.Model = value;
 
+                continue;
+            }
+
+            if (inDefaults)
+            {
+                applyDefault(manifest.Defaults!, text);
                 continue;
             }
 
@@ -140,6 +208,20 @@ internal static class SpecOwnershipManifest
             case "kind": entry.Kind = value; break;
             case "authoring": entry.Authoring = value; break;
             case "owner": entry.Owner = value; break;
+        }
+    }
+
+    private static void applyDefault(Defaults defaults, string text)
+    {
+        if (!split(text, out var key, out var value)) return;
+
+        switch (key)
+        {
+            case "kind": defaults.Kind = value; break;
+            case "authoring": defaults.Authoring = value; break;
+            case "owner": defaults.Owner = value; break;
+
+            // `scaffold:` is read by the tool, not here — see the class remarks.
         }
     }
 

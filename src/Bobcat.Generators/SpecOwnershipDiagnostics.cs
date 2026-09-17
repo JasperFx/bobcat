@@ -59,9 +59,14 @@ internal static class SpecOwnershipDiagnostics
             var declared = manifest.AuthoringFor(binding.Slice);
             if (declared == binding.Lane) continue;
 
-            var unlisted = manifest.For(binding.Slice) is null
-                ? " (the manifest does not list it, and an unlisted slice is gherkin)"
-                : "";
+            // Why the manifest says what it says. With a `defaults:` block (issue #334) an
+            // unlisted slice is NOT gherkin, and the old wording would have sent a reader looking
+            // for an entry that was never supposed to exist.
+            var unlisted = manifest.For(binding.Slice) is not null
+                ? ""
+                : manifest.Defaults is null
+                    ? " (the manifest does not list it, and an unlisted slice is gherkin)"
+                    : " (the manifest does not list it, so `defaults:` decide)";
 
             findings.Add(new Finding
             {
@@ -77,10 +82,12 @@ internal static class SpecOwnershipDiagnostics
 
         foreach (var entry in manifest.Slices)
         {
-            if (entry.ResolvedAuthoring == "gherkin") continue;
+            var authoring = manifest.AuthoringFor(entry.Slice);
+            if (authoring == "gherkin") continue;
             if (bound.Contains(entry.Slice)) continue;
 
-            var owner = entry.Owner is { Length: > 0 } ? " by '" + entry.Owner + "'" : "";
+            var named = manifest.OwnerFor(entry.Slice);
+            var owner = named is { Length: > 0 } ? " by '" + named + "'" : "";
 
             findings.Add(new Finding
             {
@@ -88,7 +95,7 @@ internal static class SpecOwnershipDiagnostics
                 Slice = entry.Slice,
                 Message =
                     "the spec-ownership manifest says slice '" + entry.Slice + "' is specified as "
-                    + lane(entry.ResolvedAuthoring) + owner
+                    + lane(authoring) + owner
                     + ", but nothing in this compilation binds it. The manifest records a human choice and "
                     + "cannot be derived, so a renamed slice or a deleted test leaves it pointing at nothing."
             });
