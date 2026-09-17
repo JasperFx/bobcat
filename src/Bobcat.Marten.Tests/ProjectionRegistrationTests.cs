@@ -66,6 +66,37 @@ public class ProjectionRegistrationTests
             => throw new NotImplementedException("TODO: AppointmentsQueue — project AppointmentProposed");
     }
 
+    /// <summary>The marker a fan-out routes by (issue #347).</summary>
+    public interface IAppointmentEvent
+    {
+        Guid AppointmentId { get; }
+    }
+
+    public record MarkedAppointmentProposed(Guid AppointmentId, string Kennel) : IAppointmentEvent;
+
+    /// <summary>What <c>ViewSliceFrame</c> emits for a fan-out whose sources share one key.</summary>
+    public class EvolvingFanOutProjection : MultiStreamProjection<AppointmentsQueue, Guid>
+    {
+        public EvolvingFanOutProjection() => Identity<IAppointmentEvent>(x => x.AppointmentId);
+
+        public override AppointmentsQueue Evolve(AppointmentsQueue snapshot, Guid id, IEvent e)
+        {
+            snapshot ??= new AppointmentsQueue { Id = id };
+            return snapshot;
+        }
+    }
+
+    /// <summary>
+    /// The shape 0.26.1 shipped (#351): a STATIC Evolve taking the marker. It compiles, and it is
+    /// not a conventional method — which is the whole point of pinning it here.
+    /// </summary>
+    public class StaticEvolveFanOutProjection : MultiStreamProjection<AppointmentsQueue, Guid>
+    {
+        public StaticEvolveFanOutProjection() => Identity<IAppointmentEvent>(x => x.AppointmentId);
+
+        public static AppointmentsQueue Evolve(AppointmentsQueue view, IAppointmentEvent e) => view;
+    }
+
     /// <summary>Registers one projection the way the scaffold's own guidance says to, and boots.</summary>
     private static async Task<Exception?> boot<T>()
         where T : ProjectionBase, IProjectionSource<IDocumentOperations, IQuerySession>, new()
@@ -96,6 +127,19 @@ public class ProjectionRegistrationTests
     {
         (await boot<ScaffoldedSingleProjection>()).ShouldBeNull();
         (await boot<ScaffoldedFanOutProjection>()).ShouldBeNull();
+        (await boot<EvolvingFanOutProjection>()).ShouldBeNull();
+    }
+
+    [PostgresFact]
+    public async Task a_static_evolve_is_not_a_conventional_method()
+    {
+        // 0.26.1 scaffolded exactly this and shipped it. It compiles, the scaffolding suite's text
+        // assertions passed, and the host does not boot — so every scenario in a generated repo
+        // died before a step ran. Text tests cannot see this; only booting can.
+        var failure = await boot<StaticEvolveFanOutProjection>();
+
+        failure.ShouldNotBeNull();
+        failure.Message.ShouldContain("No matching conventional Apply/Create/ShouldDelete methods");
     }
 
     [PostgresFact]

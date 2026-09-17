@@ -674,19 +674,29 @@ public class ViewSliceFrame : ScaffoldFrame
         if (marker is not null)
         {
             writer.BlankLine();
-            writer.Write($"BLOCK:public static {readModel} Evolve({readModel} view, {marker.Name} e)");
-            writer.WriteLine("// One fold, one switch — the event types inside it are NOT hidden from the store:");
-            writer.WriteLine("// JasperFx.Events.SourceGenerator reads this signature and emits the evolver mapping,");
-            writer.WriteLine("// so no IncludeType<T>() calls are needed.");
+            // The BASE CLASS's virtual, taking IEvent — not a static convention method. A projection
+            // whose only fold is a static `Evolve(view, IMarker)` does not register: JasperFx
+            // reports "No matching conventional Apply/Create/ShouldDelete methods" at startup, so
+            // the host does not boot and every scenario in the suite dies before a step runs. That
+            // is issue #232's failure, and 0.26.1 shipped it (#351).
+            writer.Write($"BLOCK:public override {readModel} Evolve({readModel} snapshot, Guid id, IEvent e)");
+            writer.WriteLine($"snapshot ??= new {readModel} {{ Id = id }};");
+            writer.BlankLine();
+            writer.WriteLine($"// ONE place for anything derived from the identity — as Apply methods this was a line");
+            writer.WriteLine("// at the top of every one of them, which is exactly where it goes missing.");
+            writer.WriteLine($"if (e.Data is {marker.Name} routed) snapshot.{marker.Field} = routed.{marker.Field};");
+            writer.BlankLine();
             writer.WriteLine("// Fill each arm in and delete the throw — the model's scenarios say what the view holds.");
-            writer.Write("BLOCK:return e switch");
+            writer.Write("BLOCK:switch (e.Data)");
             foreach (var source in sources)
             {
-                writer.WriteLine($"{source.Event} => throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\"),");
+                writer.WriteLine($"case {source.Event}:");
+                writer.WriteLine($"    throw new NotImplementedException(\"TODO: {readModel} — project {source.Event}\");");
             }
 
-            writer.WriteLine("_ => view");
-            writer.FinishBlock(";");
+            writer.FinishBlock();
+            writer.BlankLine();
+            writer.WriteLine("return snapshot;");
             writer.FinishBlock();
         }
         else
