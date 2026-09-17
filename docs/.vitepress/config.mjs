@@ -31,6 +31,7 @@ export default defineConfig({
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
           { text: 'Specs From Existing Tests', link: '/marker-steps' },
+          { text: 'Checking Spec Identities', link: '/spec-identities' },
           { text: 'Editor Integration', link: '/editor-integration' }
         ]
       },
