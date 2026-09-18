@@ -238,11 +238,11 @@ public class ViewSliceRegistrationTests
         // The two halves live in different files: the interface with the view that asks the
         // routing question, the marker on records owned by the slices that EMIT them.
         var model = parse(ModelYaml);
-        var emitter = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "ConfirmAppointment"))
-            .Single().Value;
+        // The record lives in the chapter's Events.cs now, and the marker still travels with it.
+        var events = SliceScaffolder.ScaffoldAll(model)["Appointments/Events.cs"];
 
-        emitter.ShouldContain(") : IAppointmentEvent;");
-        emitter.ShouldNotContain("public interface IAppointmentEvent");
+        events.ShouldContain(") : IAppointmentEvent;");
+        events.ShouldNotContain("public interface IAppointmentEvent");
     }
 
     [Fact]
@@ -367,9 +367,53 @@ public class ViewSliceRegistrationTests
         // its owner's page. Before #349 they shared a single IOwnerEvent, which made the collision
         // read as deliberate.
         var model = parse(TwoViewsYaml);
-        var emitter = SliceScaffolder.Scaffold(model, model.Slices.Single(x => x.Name == "ConfirmAppointment"))
-            .Single().Value;
+        var events = SliceScaffolder.ScaffoldAll(model)["Appointments/Events.cs"];
 
-        emitter.ShouldContain(") : IOwnerEvent, IShelterEvent;");
+        events.ShouldContain(") : IOwnerEvent, IShelterEvent;");
+    }
+
+    [Fact]
+    public void a_chapters_events_are_gathered_into_one_file_that_says_so()
+    {
+        var files = SliceScaffolder.ScaffoldAll(parse(ModelYaml));
+        var events = files["Appointments/Events.cs"];
+
+        // The header names every event, so a reader does not have to trust the file is complete —
+        // and a name with no record under it is a bad regeneration, visible without a diff.
+        events.ShouldContain("// Every event the Appointments chapter emits");
+        events.ShouldContain("//   HomeCheckAppointmentProposed");
+        events.ShouldContain("//   AppointmentConfirmed");
+        events.ShouldContain("public record HomeCheckAppointmentProposed(");
+        events.ShouldContain("public record AppointmentConfirmed(");
+
+        // And the slice files are now the slice, not the slice plus a vocabulary.
+        files["Appointments/ConfirmAppointment.cs"].ShouldNotContain("public record AppointmentConfirmed(");
+        files["Appointments/ProposeHomeCheckAppointment.cs"].ShouldNotContain("public record HomeCheckAppointmentProposed(");
+    }
+
+    [Fact]
+    public void an_event_is_declared_exactly_once_across_every_scaffolded_file()
+    {
+        // The property that matters more than where they live: two declarations of one record do
+        // not compile, and zero is a vocabulary the chapter cannot use.
+        var files = SliceScaffolder.ScaffoldAll(parse(ModelYaml));
+
+        foreach (var name in new[] { "HomeCheckAppointmentProposed", "AppointmentConfirmed" })
+        {
+            files.Values.Count(x => x.Contains($"public record {name}(")).ShouldBe(1);
+        }
+    }
+
+    [Fact]
+    public void an_inbound_trigger_contract_keeps_its_own_file()
+    {
+        // Not the chapter's event — another boundary's shape, copied, carrying the instruction to
+        // version rather than edit it. Folding it into Events.cs would put two rules under one
+        // heading.
+        var files = SliceScaffolder.ScaffoldAll(parse(TriggerOriginTests.ModelYaml));
+
+        files.Keys.ShouldContain("Appointments/HomeCheckAssignmentAccepted.cs");
+        files["Appointments/HomeCheckAssignmentAccepted.cs"].ShouldContain("Version it");
+        files["Appointments/Events.cs"].ShouldNotContain("public record HomeCheckAssignmentAccepted(");
     }
 }
