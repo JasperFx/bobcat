@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The `bobcat` global tool. It carries the FREE, no-server half of the toolset: reading and
+    validating an event-model file, and converting an eventmodelers.ai board export into the
+    curated format.
+
+    It deliberately does NOT host a web console. The run board, the model store and the design-time
+    canvas moved to Stoat, because every one of them remembers something across a process and this
+    repository holds nothing that gates on a licence. What stays here is the FORMAT and the RUN.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Bobcat.Cli</RootNamespace>
+    <AssemblyName>bobcat</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>bobcat</ToolCommandName>
+    <PackageId>Bobcat.Cli</PackageId>
+    <Description>The bobcat command line tool: read, validate and convert Event Model files.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JasperFx" />
+    <PackageReference Include="JasperFx.Events" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
+  </ItemGroup>
+
+</Project>

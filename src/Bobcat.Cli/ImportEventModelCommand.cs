@@ -4,7 +4,7 @@ using Bobcat.EventModel;
 using Bobcat.EventModel.Emlang;
 using JasperFx.CommandLine;
 
-namespace Bobcat.Console.EventModel;
+namespace Bobcat.Cli;
 
 public class ImportEventModelInput
 {
@@ -118,7 +118,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         // The PUT goes to the full endpoint, not the console's base URL — the same trap
         // watch-event-model documents (base URL answers 404, endpoint answers 204).
         var url = $"{baseUrl.TrimEnd('/')}/api/event-model";
-        var json = JsonSerializer.Serialize(descriptor, EventModelStore.Wire);
+        var json = JsonSerializer.Serialize(descriptor, EventModelWire.Json);
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         try

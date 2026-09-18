@@ -76,14 +76,12 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build -c Release -o ${{ github.workspace }}/artifacts
 
-      # The bobcat dotnet tool packs separately: IsPackable is gated on EmbedFrontend
-      # in its csproj, so the solution-level pack above skips it and this is the only way the
-      # tool nupkg can exist — always with the Vite build embedded (npm ci + build run inside
-      # this pack via the BuildFrontend target).
-      - name: Pack bobcat (embedded frontend)
+      # The bobcat dotnet tool. It carries no frontend any more — the console moved to Stoat —
+      # so this is a plain pack with no EmbedFrontend gate and no npm step.
+      - name: Pack the bobcat tool
         run: >
-          dotnet pack src/Bobcat.Console/Bobcat.Console.csproj
-          -c Release -p:EmbedFrontend=true -o ${{ github.workspace }}/artifacts
+          dotnet pack src/Bobcat.Cli/Bobcat.Cli.csproj
+          -c Release -o ${{ github.workspace }}/artifacts
 
       - name: Push to NuGet
         run: >
@@ -94,7 +92,7 @@ jobs:
 
       # --skip-duplicate keeps the push idempotent for re-runs, but it also means a push
       # NuGet swallowed and a genuine duplicate look identical — both leave this job green.
-      # That is how Bobcat.Console 0.11.0 sat invisible in nuget.org's validation pipeline
+      # That is how a tool package once sat invisible in nuget.org's validation pipeline
       # until a downstream consumer hit "not found" (issue #224). So verify the outcome,
       # not the request: poll the flat container until every packed id/version is actually
       # downloadable, and fail the release if any is still missing after the grace period.
