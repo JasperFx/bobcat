@@ -66,6 +66,49 @@ The prompt requires a real terminal. Under redirected input or a non-interactive
 command **refuses with a clear message and exit code 1** rather than falling back silently — a
 misconfigured CI job should fail loudly, not hang or quietly do something else.
 
+## The `bobcat` tool
+
+Separate from everything above. `Bobcat.Cli` is a global tool — `dotnet tool install -g
+Bobcat.Cli` — and it is a **plain command host**: no web server, no store, nothing that outlives
+the process. It carries the free, no-server half of the toolset, which today is reading,
+validating and converting [Event Model](https://eventmodeling.org) files.
+
+> [!NOTE]
+> The `bobcat` tool used to host the live run console. It does not any more — the board, the
+> archive, the model store and the design-time canvas all moved to
+> [Stoat](https://github.com/JasperFx/stoat) on 2026-09-18, because every one of them remembers
+> something across a process and this repository holds nothing that gates on a licence. Bobcat is
+> the format and the run. Its runs still publish to that console exactly as before; see
+> [What a Run Publishes](monitor-design.md).
+
+### `import-event-model`
+
+```bash
+bobcat import-event-model Wallet.emodel.yaml
+```
+
+It sniffs the file and takes either shape:
+
+- **The curated format** (`schema` / `model` / `slices`) is read and validated. Warnings print
+  whether or not it validated — a file carrying nothing but warnings validates, which is exactly
+  the silence the warning exists to break. Validation problems go to stderr and the command fails.
+- **An [eventmodelers.ai](https://eventmodelers.ai) emlang board export** is segmented into slices
+  and **written out as a curated file to review** — `<Model>.emodel.yaml` beside the input by
+  default. The segmentation is a set of reported guesses, and a wrong guess should be a one-line
+  diff in that file rather than a re-import.
+
+Either way it prints the model name, the slice count, and how many specifications are bound.
+
+| Flag | What it does |
+|---|---|
+| `-m, --model <name>` | Model name for an emlang import; defaults to the file name. The curated format carries its own |
+| `--namespace <ns>` | Root namespace recorded for synthesized type names on an emlang import |
+| `-o, --out <path>` | Where an emlang import writes the reviewable curated file |
+| `-u, --url <base>` | Push the assembled model to a run console at this base URL, e.g. `http://localhost:5525` |
+
+`--url` takes the console's **base** URL and appends `/api/event-model` itself; pointing it at the
+endpoint directly is the documented trap (the base answers 404, the endpoint answers 204).
+
 ## Exit codes
 
 | Code | Meaning |

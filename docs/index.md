@@ -25,9 +25,9 @@ features:
     link: /parallel-ready-suites
     linkText: Parallel-ready suites
   - title: Execute
-    details: Real hosts through Alba, live progress in the `dotnet bobcat` console, CTRF and JUnit exports for CI.
+    details: Real hosts through Alba, every run publishing its progress over a documented wire, and a `bobcat` tool for Event Model files.
     link: /monitor-design
-    linkText: The test-run viewer
+    linkText: What a run publishes
 ---
 
 <img class="bc-banner bc-banner--light" src="/bobcat-social-light-1280x640.png" alt="Bobcat — author, supervise, and run integration tests in .NET" />

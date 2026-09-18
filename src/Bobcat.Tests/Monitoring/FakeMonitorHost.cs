@@ -4,7 +4,7 @@ using System.Net.Sockets;
 namespace Bobcat.Tests.Monitoring;
 
 /// <summary>
-/// A minimal stand-in for the Bobcat.Console host: answers /api/ping, captures /api/ingest
+/// A minimal stand-in for the run console host: answers /api/ping, captures /api/ingest
 /// bodies, and serves the Event Model wire (issue #268's <c>GET /api/event-model</c> and
 /// <c>PUT /api/event-model/{source}</c>), so both publishers are tested against real HTTP.
 /// </summary>

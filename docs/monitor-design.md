@@ -1,167 +1,40 @@
-# Bobcat.Console, the test-run viewer — design notes
+# What a run publishes — the monitor wire contract
 
-A deployable web console (`dotnet bobcat`) that shows live progress for every Bobcat test suite
-running on the box. Primary purpose: visualizing AI-agent-driven test runs — much of Critter
-Stack development is gated on testing time, and this makes that time observable.
+Bobcat runs announce themselves. This is the publisher's side of that: the events a run emits,
+the transport it emits them over, the seams that produce them, and the environment variables
+that steer or silence the whole thing.
 
 Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09) and by the
-rename to `Bobcat.Console` (2026-08-21, issue #100).
+console's move to Stoat (2026-09-18).
 
-## The name (2026-08-21)
+## The receiver is not in this repository
 
-The project is **`Bobcat.Console`** (`src/Bobcat.Console`, `Bobcat.Console.Tests`,
-`Bobcat.Console.Specs`, `Bobcat.Console.FrontEnd`; namespaces `Bobcat.Console.*`; NuGet package
-id `Bobcat.Console`, tool command still `bobcat`). It was `Bobcat.Monitor` from 2026-07-31.
-`Bobcat.Viewer` was the other candidate and lost because nobody calls it a viewer out loud —
-"console" is the word already in the tool's description, in this document, and in every
-handoff.
+The console that receives these events — the run board, the archive, the exports, the MCP tools
+over them, the Event Model canvas — **moved to [Stoat](https://github.com/JasperFx/stoat)**. Everything
+in Bobcat that remembered across a process went with it; what stays here is the format and the
+run. Bobcat has no web server, no store, no MCP surface and no frontend.
 
-Two things stay as they were, on purpose, and this file's name is the first of them:
+What did *not* move is the vocabulary a publisher speaks, and none of it is obsolete:
 
-- **`docs/monitor-design.md` keeps its filename.** It documents the monitor *protocol* — what a
-  run publishes, over which routes, with which env vars — at least as much as the viewer that
-  receives it, and issues, handoffs, and the CLAUDE.md seams all link to it by this name.
-- **The publisher side in core keeps the monitor vocabulary:** `Bobcat.Monitoring`,
-  `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, `BOBCAT_MONITOR*`, `BOBCAT_RUN_ID`,
-  `BOBCAT_RUN_TAG`, the `Monitor:*` config keys, the `/api/*` routes, the wire shapes and the
-  duplicated `MonitorEvents.cs` records. There "monitor" means *the thing a run publishes to*,
-  and every one of those is a user-facing or wire contract. Renaming them would be a breaking
-  change that #100 explicitly scoped out.
+- **`Bobcat.Monitoring`**, `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, the
+  `Monitor:*` config keys, and the mirror records in `src/Bobcat/Monitoring/MonitorEvents.cs`.
+- **`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`,
+  `BOBCAT_RUN_OWNER`** — every one a user-facing contract.
+- **Port 5525**, the address a publisher probes. It was deliberately kept rather than collapsed
+  into Stoat's coordination port, because every publisher already probes it; Stoat's single host
+  binds both.
+- **`docs/monitor-design.md` keeps its filename.** Issues, handoffs and the CLAUDE.md seams all
+  link to it by this name, and it documents the protocol at least as much as it ever documented
+  the viewer.
 
-Mentions of `Bobcat.Monitor` in dated history below were rewritten to the new name wholesale;
-read them as the same project.
+Here "monitor" means *the thing a run publishes to*. Renaming any of it would be a breaking
+change for consumers that have nothing to do with the split.
 
-## The split (2026-08-09)
-
-This document once described two futures for the tool. Both are now settled, and neither
-happened the way it was written:
-
-- **The AI agent coordination surface moved out** to [Stoat](https://github.com/JasperFx/stoat),
-  its own BSL repository. Bobcat stays MIT and stays about testing. Stoat observes this
-  viewer's runs over HTTP (`GET /api/runs`) exactly as it observes GitHub and nuget.org — it
-  holds no reference to any `Bobcat.*` assembly, and none of them reference it.
-- **The rename is dead.** The plan was for this tool to become "Bobcat" and the library to be
-  renamed. The split makes that unnecessary: Bobcat keeps its name and its meaning as the
-  testing framework, and the coordination half got a new name instead. Issue #87 closes
-  resolved-by-decision.
-
-What the split changed here, concretely:
-
-- `ToolCommandName` is **`bobcat`**, not `bobcat-monitor` — "monitor" turned ambiguous the
-  moment there were two consoles, and this is the only global tool Bobcat ships. Note that
-  `run` / `list` are *not* subcommands of it: those belong to `BobcatRunner` inside a
-  consumer's own test executable, because they need that project's compiled fixtures.
-- `BOBCAT_PLAN_NODE` became **`BOBCAT_RUN_TAG`**, an opaque correlation tag Bobcat stamps and
-  never interprets. Coordination vocabulary does not belong in the MIT repo, and a general tag
-  is more useful anyway (a ticket id, a build number, an external tool's node id).
-- **`GET /api/runs` is now a public wire contract**, not just the dashboard's list model. It
-  carries the tag, outcome counts, and scenario progress, and takes a `?tag=` filter — an
-  external consumer correlating its own work to a suite has no other way in. Reads go through
-  the registry's locked `ReadAll` so live ingestion can never hand a caller a torn scenario
-  collection.
-- **NDJSON stays.** The old plan demoted it to an export format once a shared event store
-  landed. That rationale was "one store, not two" for runs plus coordination; with coordination
-  gone there legitimately are two tools, and the run archive is fine as it is (issue #90).
-
-## Stack — CritterWatch's, on purpose
-
-Vue 3 + Pinia + Element Plus + `@microsoft/signalr` frontend, ASP.NET + Wolverine +
-Wolverine.SignalR backend, mirroring `~/code/critterwatch`:
-
-- One `HubConnection` owned by `useSignalR.ts`, retry-forever backoff, rAF-batched flush into
-  `relayToStore.ts`, which switches on snake_case envelope types and fans out to Pinia stores.
-  Stores never touch SignalR. The rAF flush has a plain-timer backstop because rAF never fires
-  in a hidden tab — without it a backgrounded (or headless) dashboard queues events until
-  refocus, which also breaks any headless e2e against the UI (found live 2026-07-31).
-- Color tokens in `src/styles/variables.css` — see "Palette" below. Everything else on this
-  list is still CritterWatch's; the palette is the one place the two consoles deliberately
-  parted company.
-- Backend flow (built 2026-07-31): the `[WolverinePost]` ingestion endpoint folds into the
-  registry, then queues events into `SignalRBatchAccumulator` — CritterWatch's 100ms
-  accumulator, lifted but simplified: ingestion is the only producer, so the endpoint feeds it
-  directly (no per-type relay handlers, no static-instance hack). Each flush publishes one
-  `BatchedWebSocketPayload : WebSocketMessage` (so the existing publish rule routes it and
-  Wolverine's WebSocketMessage naming yields `batched_web_socket_payload` with no attribute;
-  no loop risk because no publish rule feeds the accumulator). `relayToStore` unwraps the
-  `{type, data}` items recursively; wire names are pinned to the STJ discriminators by
-  `SignalRBatchingTests`.
-- TS mirrors of the contracts are **generated** (issue #85, built 2026-08-21): CritterWatch's
-  NJsonSchema `GenerateCommand` pattern, cut down. `TypeScriptContracts` in `Bobcat.Console`
-  reflects `MonitorEvents.cs` through the same STJ settings the wire uses and emits
-  `src/messages/monitor-events.ts` wholesale (interfaces `extends MonitorEvent`, a
-  `MonitorEventType` union, the batching envelope); `relayToStore.ts` is *patched*, not owned —
-  a missing `case` is inserted above the `*CASE ABOVE*` marker in the store's
-  `handle<Type>` convention and the import block is merged, while hand-written cases stay
-  verbatim. Regenerate with `dotnet run --project src/Bobcat.Console -- generate` (`--check`
-  verifies only). `TypeScriptContractTests` fails `dotnet test` when either committed file
-  differs from what the records generate, so drift is a red build. Two deliberate rules: a
-  record constructor parameter with a default (`RunStarted.Tag`) mirrors as an *optional*
-  member, because "additive" means an old publisher's JSON has no such member at all; and the
-  Bobcat-side publisher mirrors (`src/Bobcat/Monitoring/MonitorEvents.cs`) are NOT generated
-  or unified — that duplication is a decision of record kept honest by `ContractRoundTripTests`.
-- No Aspire. The Vite dev server proxies `/api` (ws included) to the host's fixed dev port
-  5525. Bobcat will eventually need an Aspire *resource recipe* as a testing feature; that is
-  unrelated to this tool's dev workflow.
-
-Packaging (built 2026-07-31): `dotnet tool` (`ToolCommandName: bobcat`, launched as `dotnet bobcat`) with the Vite
-build embedded as resources — CritterWatch's `EmbedFrontend` + `EmbeddedFileProvider` pattern
-(`Hosting/EmbeddedSpa.cs`, minus its sub-path mounting; this tool owns the root). Two rules of
-record: `IsPackable` is gated on `EmbedFrontend`, so the tool nupkg cannot exist hollow (a
-solution-level `dotnet pack` simply skips the project — publish.yml packs it explicitly); and
-the EmbeddedResource items are created INSIDE the BuildFrontend target, because a static glob
-evaluates before the Vite build runs and silently embeds nothing on a clean build.
-
-## Palette — the docs site's, not CritterWatch's (2026-09-02)
-
-The console wears **"Ember on Ink"**, the palette of https://bobcat.jasperfx.net: rust and
-ember accents on paper, ink for text. `docs/.vitepress/theme/style.css` is the source of truth —
-`src/styles/variables.css` copies its `--bc-*` ramp verbatim and derives every `--bm-*` and
-`--el-*` value from those, so the two files can be diffed rather than compared by eye.
-
-This **reverses** the earlier decision (2026-07-31) to mirror CritterWatch's JasperFx orange so
-the two consoles read as siblings. The reasoning that changed: the docs site and the console are
-the two surfaces a Bobcat *user* meets, and they were the pair that did not match. CritterWatch
-is a separate, paid product; looking like it is not a goal worth the console not looking like
-Bobcat. Nothing else about the CritterWatch lineage moved — the stack, the SignalR batching, the
-contract generation and the Event Modeling canvas are all still lifted from it.
-
-Three consequences worth knowing:
-
-- **The test-state grammar keeps its meaning and changes its pigments.** Running is still command
-  blue, passed read-model green, failed failure red, retrying/flaky event orange — now `--bc-sky-deep`,
-  `--bc-pass`, `--bc-fail` and a darkened `--bc-ember`. Retrying is the one value that is not a
-  straight lift: `--bc-ember` (`#f0a23b`) is a *dark-mode* accent in the docs and misses 4.5:1 as
-  text on paper, so the token darkens it and keeps the ember hue only in the row tint.
-- **Element Plus's neutrals are overridden too, not just its primary ramp.** Element's stock greys
-  are cool; against a warm paper background they read as a bug rather than a choice. `--el-text-color-*`,
-  `--el-bg-color*`, `--el-border-color*` and `--el-fill-color*` are all restated from the palette.
-- **The Event Model canvas is untouched.** Its blue/orange/green is the Event Modeling grammar
-  owned by `@jasperfx/event-model-vue` and shared with CritterWatch — "renders identically in both
-  viewers" is the point of that package, and re-tinting it here would break it.
-
-Not done, and not implied by this: **the console still has no dark mode.** Only the docs palette's
-light mode is expressed. The `--bc-ink-*` values are carried in `variables.css` anyway so a dark
-theme has them to hand. Typography was also left alone — the docs' Space Grotesk / JetBrains Mono
-would mean a webfont fetch from a tool that is often run offline, which is its own decision.
-
-## Branding (issue #179, 2026-08-31)
-
-The console had no favicon and no product mark at all — a browser tab of "localhost" beside
-CritterWatch's critter badge. Fixed, in the same family CritterWatch uses:
-
-- **`src/Bobcat.Console.FrontEnd/public/`** holds `favicon.png` (the docs site's own
-  `bobcat-favicon-64.png`), `bobcat-mark-128.png` (the framed lynx avatar, downscaled) and
-  `jasperfx-logo-128.png`. Copied into the SPA rather than referenced across projects: Vite only
-  serves what is under its own root, and the csproj embeds `dist/` verbatim, so a cross-project
-  path would work in `npm run dev` and 404 in the packaged tool.
-- **A title bar, which the console did not have before.** The product on the left (mark + word
-  mark), the company on the right (the JasperFx gear, linking to jasperfx.net). The sidebar's
-  plain-text brand *moved* here rather than being duplicated — and moving it is what gives the
-  company mark a right-hand edge to sit against, which a 220px rail does not have.
-- The #166 scroll invariant survives the extra row: the title bar is a fixed-height flex child
-  and the inner `el-container` takes `flex: 1; min-height: 0`, so `el-main` stays the one
-  scroller. Without the `min-height` the flex child refuses to shrink and `el-main` is pushed
-  off the bottom of the viewport.
+> [!NOTE]
+> Sections below describe how the receiving side folds these events — `RunProjection`, the Pinia
+> runs-store, `GET /api/runs/{id}`, the MCP `run_status` tool, the CTRF export. Those are Stoat's
+> now. They are kept because **the fold is half of the contract**: a publisher that does not know
+> how its events are read cannot tell an additive change from a breaking one.
 
 ## Transport: HTTP, fire-and-forget, never slows a run
 
@@ -175,18 +48,24 @@ no-op for the run if nothing answers; bounded channel, drop on backpressure; dis
 
 ## Event model
 
-`src/Bobcat.Console/Contracts/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
+`src/Bobcat/Monitoring/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
 type discriminator and the Wolverine message type name are pinned to the same snake_case
 string, so ingestion JSON and the SignalR envelope agree by construction. Identity: `RunId`
 (minted per run) + scenario uid `"{Feature}/{Scenario}"` — the string BobcatRunner,
 `RetryBudget`, `SpecNodeMapping`, and `WorkPlan` already share. `RunStarted` carries the root
-repository path + branch, the dashboard's grouping key for parallel suites on one box.
+repository path + branch, the board's grouping key for parallel suites on one box.
 `RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
 
-The publisher client lives in Bobcat as `Bobcat.Monitoring` (issue #65): mirror records of
-these contracts, DECIDED to stay deliberately unshared — Bobcat must not depend on the
-monitor's Wolverine stack, and the wire shape (not an assembly) is the contract. The
-round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
+**There are two copies of these records and that is a decision, not drift** (issue #65). The
+publisher's copy is the one above, in `Bobcat.Monitoring`; the receiver's lives in Stoat as
+`src/Stoat.Console/Contracts/MonitorEvents.cs`. They stay unshared deliberately — Bobcat must
+not depend on the console's Wolverine stack, and **the wire shape, not an assembly, is the
+contract**. That is also what let a BSL console absorb an MIT viewer without either side
+acquiring a reference to the other. Stoat's `ContractRoundTripTests` and
+`ProgressContractRoundTripTests` are what keep the two copies honest, so a change made here
+alone fails there; `Bobcat.Tests/Monitoring/FakeMonitorHost` is how this side is tested against
+real HTTP without one.
+
 
 ## Bobcat-side seams (issue #65 — built)
 
@@ -385,389 +264,6 @@ round-trip tests in `Bobcat.Console.Tests` are what keep the two sides honest.
    - Free consequence: a supervised xUnit run now has per-test rows in `GET /api/runs/{id}`
      and therefore a CTRF/JUnit eject, without a Bobcat reference anywhere in the suite.
 
-## Event Model page + /api/event-model (issue #108, built 2026-08-24)
-
-The design-time Event Modeling viewer with spec drill-down — free, MIT, in this repo by the
-2026-08-20 decision of record; CritterWatch is the production, paid surface. Both render the
-same JasperFx `EventModelDescriptor` through one shared component, which is what makes "the
-same descriptor renders identically in both viewers" true by construction rather than by
-convention:
-
-- **`@jasperfx/event-model-vue`** (now `jasperfx/src/event-model-vue`, landed with #143) renders
-  a descriptor with a pure synchronous layout — position is a function of the descriptor alone,
-  pinned on exact coordinates by its own Vitest gate (`event-model-frontend.yml`). #108's page
-  work added the `slice-click` emit (the slice header is the drill-down handle; the slice
-  overlay itself stays pointer-inert so cards keep their clicks) and dropped the vestigial
-  `@vue-flow/core` peer dependency — nothing in the package ever imported it, and npm 7+ would
-  have installed it into every consumer.
-- **The SPA consumes the package as a `file:` dependency**, and the package's `dist/` is
-  gitignored — so both `console-frontend.yml` and the csproj `BuildFrontend` (EmbedFrontend)
-  target build the package before the SPA, and the workflow's path filter includes the package
-  so a package change re-gates the SPA.
-- **`PUT /api/event-model` / `GET /api/event-model`** is a public wire contract like
-  `GET /api/runs`, persisted beside the run archives (`EventModelStore`). **A push names its
-  SOURCE and replaces only that source's contribution; `GET` serves the merge** (issue #268,
-  CritterWatch#1212) — `PUT /api/event-model/{source}` for one producer, the bare `PUT` for the
-  source `default`, which is what keeps an existing console working across the upgrade. One model
-  has two producers compiled into *different assemblies*: Wolverine's `event-model` export runs
-  against the host and carries slices with no `Specifications`, while a spec assembly's generated
-  `IEventModelDefinitionSource` (#106) carries the spec identities run evidence joins on and is
-  invisible to the host. Latest-wins erased one of them every time, which is why every slice on a
-  real console read "no specification bound".
-  The store round-trips every document through the typed descriptor, so a bad push 400s at the
-  push (not as a blank canvas later), the stored copy is normalized to the shape the renderer's
-  TS mirror types (camelCase members, PascalCase enum values — enum reads are case-insensitive so
-  camelCase producers normalize), and the computed `elements`/`edges` are always present however
-  sparse the pushed roles were.
-  - **The spec half's producer is the runner** (issue #294, `SpecEventModelPublisher`). When a
-    run attaches to a console, it PUTs its spec assemblies' descriptors under a source named for
-    the assembly (dots and anything else a file name will not take become `-`, because the source
-    becomes `event-model.{source}.json` and the store refuses the rest). Under the same invariant
-    as the event pump — probe first, bounded, never retried, never surfaced to the run.
-  - **Both halves must name the same model, and the runner checks.** `GET` merges only the
-    sources carrying the *current* name, so a spec half naming `BankAccountES.Tests` at a console
-    serving `BankAccountES` would hide the other half rather than join it. On a disagreement the
-    runner publishes nothing and prints the one-line fix: `[assembly: EventModelName("…")]`
-    (#172). The **host half stays a separate step** — `event-model --url`, wrapped by
-    `bobcat watch-event-model` — because a runner cannot export the host's chains without
-    referencing Wolverine.
-  - **Consequence pinned in the csproj:** `Bobcat.Console` references `JasperFx.Events`
-    directly, because at 2.54.0 the descriptor lives there (it moves to JasperFx only in
-    2.55.0, jasperfx#693) and CPM pins only direct references — without it the transitive
-    JasperFx.Events resolves to the pre-#687 sketch, which compiles and then silently drops
-    `pattern`/`specifications`/`elements` on the round trip. The `DispositionKind` trap again.
-- **The page** (`/event-model`, `EventModelPage.vue`): renders the descriptor, colours slices
-  from run evidence — `outcomesFor` folds a selected run's scenarios onto the descriptor's spec
-  identities (verdict → passed/failed; declared-but-unreached is stated as `notRun`, never
-  omitted, because that is the drift colour), newest run by default with a picker. Clicking a
-  slice header (or any card — ownership is an element-id lookup) opens the drawer: each bound
-  spec with its verdict tag, the scenario's step results, and its touched types (#107), with
-  `undeclaredTouches` flagging evidence the model does not declare — the "spec touching
-  undeclared types" yellow.
-- **Card sizing is decided in the package, not here (issue #180, 0.5.0).** Cards were absolutely
-  sized at 180px with `overflow: hidden`, so a long command name — and worse, a route trigger
-  label — was cut off mid-glyph. The order is now wrap (`<wbr>` at camel humps and after
-  `/ . _ - :`), then widen the column to fit its own labels in two lines up to a `maxCardWidth`
-  cap, then clamp to three lines with the full text on the tooltip. Widths are *estimated* from
-  the label text, never measured, because layout must stay a pure function of the descriptor.
-  One rule worth knowing: a `Hotspot` label is excluded from the width vote — the producer makes
-  the hotspot's *text* the label (jasperfx#704), and letting a sentence size a column of type
-  names widened every column on the real Stoat model to fit the finding rather than the model.
-  Full reasoning in the package README.
-- **The edges are drawn, and routed in the package (issue #181, 0.6.0).** `Edges` is computed
-  upstream from the typed roles on every read so no renderer invents its own opinion about what
-  connects to what — and the canvas laid them out and then drew nothing. Now one pointer-inert SVG
-  layer behind the cards: straight along a lane, an orthogonal elbow through the middle of the lane
-  gap across lanes. The polyline is computed in `layout.ts` beside the coordinates, because a route
-  is as much a rendering claim as a position and "identical in both viewers" has to cover it.
-- **The 2026-08-31 review batch, all in the shared package (0.7.0):** zoom/pan for a canvas that
-  is 106 slices wide (#182 — a CSS transform on a wrapper, never a scale factor threaded into the
-  pure layout), a bound-specification badge per slice carrying the run verdict where evidence
-  exists (#183), a trigger-kind glyph with the route on its tooltip plus a verb badge on route
-  cards (#184), and a source disagreement that renders as a structured finding — role, kept claim,
-  struck-through dropped claim — rather than as the clipped sentence that got read as a malformed
-  events list (#178).
-- **Navigation, not magnification (issue #296, 0.9.0).** Zoom stops and a filter bar both landed,
-  and the measured 106-slice model was *still* ~10,000px wide at the 25% floor. Four features, all
-  in the shared package on the same transform wrapper, none of them touching `layoutEventModel`:
-  **focus** fits a slice's neighbourhood — the slice plus every slice one cross-slice `link` away —
-  and dims the rest, with a `Fleet › Reporting › Slice079` breadcrumb whose crumbs step out and an
-  Esc that restores the zoom and scroll the reader had; **level of detail** is a `data-lod`
-  attribute set from the scale that CSS switches on (`detail` ≥ 0.7, `compact` 0.4–0.7, `overview`
-  below), so 700 cards do not re-render when someone nudges the wheel and the two consoles cannot
-  disagree about what "less" means; a **minimap** of the same graph as bare rects; and continuous
-  cursor-anchored wheel zoom, with the nine stops kept as the button ladder.
-  - `links` is computed upstream (jasperfx#823) and absent from every descriptor this repo's pinned
-    JasperFx 2.67.1 can produce, so **the degraded path — neighbourhood = the slice alone — is the
-    one that runs today**, and it is the one the specs exercise. Nothing is derived client-side.
-  - The **page** owns where a viewport is kept and mirrors `viewport-change` into the route query
-    (`z`/`x`/`y`/`focus`/`sel`) with `replace`, so a link to part of a big model pastes into a PR
-    and Back does not walk every notch of a zoom. The *encoding* stays in the package
-    (`viewportToQuery`/`viewportFromQuery`) so a Bobcat link and a CritterWatch link agree.
-  - Three things only the real 106-slice canvas found, all fixed: a uniformly-scaled minimap of a
-    100:1 canvas measured **222 × 3.6px**, so its axes scale independently and it is not drawn at
-    all below ~2,500px of canvas; the viewport has no height of its own, so `min(vw/w, vh/h)`
-    reduced to the zoom the reader already had and focus "fitted" 46% to 48%; and the toolbar
-    Focus button is unreachable once a selection opens the modal drill-down drawer over it, which
-    is why each slice header carries its own ⌖.
-- **Cause and effect is drawn (issue #295, 0.11.0).** `EventModelDescriptor.links` has been computed
-  upstream since JasperFx.Events 2.69 and the canvas drew nothing with it. Links now route through
-  the **lane gaps**: out of the source, along a track inside the band, into the target — so a link
-  never crosses a card. Tracks are first-fit over x-intervals per band, and every link leaving one
-  element shares one trunk, so four consumers of an event are four branches off one line.
-  - **The chevron is the half that scales.** An element at the far end of a link carries
-    `◂ OpenAccount` in its corner and clicking it jumps to the origin. Event Modeling repeats a
-    sticky where it is consumed rather than connecting back, the descriptor already repeats, and a
-    slice name stays readable at a zoom where a 3,000px arrow does not.
-  - Faint at rest, lit by selection, with a toolbar **⇢ all / selected / none** whose `none` is the
-    canvas exactly as it was before. One glyph per kind — solid, dotted, dashed — and no labels.
-  - ⚠️ Two honest limits, both stated in the package README: a link between non-adjacent lanes has
-    one vertical leg that may pass the rows between them, and hover-driven highlighting plus the
-    off-screen `⇢ N` badge are not in this release.
-- **A stream is a row (issue #299, 0.10.0).** Two slices that write `Account` now put their events
-  on the same horizontal line inside the Event Stream lane, and that they share a stream is visible
-  with no arrow at all — which is the point, and is decision 2 of the canvas design: a shared
-  aggregate is not a cause→effect link, and fanning every event of an aggregate out to every slice
-  on it is noise rather than a statement. The lane becomes one row per aggregate in the model's
-  `aggregates` order, captioned in the gutter under the lane's own caption, with alternate rows
-  tinted so the bands still separate at `overview`, where the captions are too small to draw.
-  - **Three rules, and the first is why no existing canvas moved.** Fewer than two aggregates in
-    view means one flat row — a row is a comparison, and with one stream there is nothing to
-    compare. Rows are computed over the slices actually *drawn*, so filtering a 106-slice model
-    down to one aggregate collapses the lane back rather than leaving empty rows behind. An event
-    sits on the aggregate whose `appliedEvents` names it, falling back to its slice's first
-    aggregate, because a producer that cannot resolve an apply set statically emits none.
-  - **A published message is on no stream, and neither is an event of a slice that writes no
-    aggregate.** They share one trailing unlabelled row rather than getting a row each: the design
-    left the messages row "above/below", and two rows both captioned by their absence say less than
-    one row that means "in this lane, on no stream".
-  - It costs nothing measurable — a 106-slice model across four streams lays out in 0.60ms against
-    0.56ms flat, both sub-millisecond and in one synchronous pass, and `LayoutOptions.streamRows:
-    false` keeps the old lane exactly. The layout mirrors `AggregateDescriptor` properly to do it:
-    `aggregates` had been typed in this package as the slices' Aggregate *cards*, which is not what
-    the model document carries, and nothing had ever read the member to notice.
-- Proven end to end: `EventModel.feature` in `Bobcat.Console.Specs` drives the wire
-  (404-before-publish, normalized read-back, slice↔spec binding); `EventModelStoreTests` pins
-  the normalization; the page and store folds are Vitest-covered; and the flow was verified in
-  the running app — descriptor PUT, run ingested with touched types, canvas coloured, drawer
-  drilled.
-
-## Ejecting results: CTRF primary, JUnit XML fallback
-
-Researched 2026-07-31 (GitHubActionsTestLogger, MTP-native reports, CTRF, JUnit):
-
-- **CTRF** (ctrf.io) is the primary export. It is the only CI format with first-class
-  `retries`, `retryAttempts[]`, `flaky`, and `steps[]` — Bobcat's attempt history,
-  `PassedOnRetry` ledger, and Gherkin steps map onto schema-blessed fields. Richer data
-  (Disposition reasons, recovery hints, worker/lane ids) rides the spec's `extra` object,
-  allowed at every level. Microsoft standardized on CTRF + JUnit + TRX for MTP 2.3's
-  first-party report extensions, and xunit.v3 ships `--report-ctrf` working today on the
-  MTP 1.9.1 pin (verified against the built `Bobcat.Tests` host), so the format is aligned
-  with where the platform is going *and* usable now. `ctrf-io/github-test-reporter` covers
-  GitHub PR reporting over it.
-- **JUnit XML** is the lossy compatibility floor: native ingestion in GitLab, Jenkins, Azure
-  DevOps, CircleCI. Accept the lossiness.
-- **Not**: TRX (only AzDO wants it, and AzDO eats JUnit); a bespoke JSON (CTRF `extra`
-  removes the justification); GitHubActionsTestLogger as a base (VSTest logger at the wrong
-  altitude; its MTP mode needs MTP 2.x + `xunit.v3.mtp-v2`, excluded by the 1.9.1 pin).
-- Persist each run's raw ingested event stream as NDJSON — export and replay-for-debugging
-  both fall out of it. "Eject" in the UI = export (CTRF/JUnit/NDJSON) + remove from dashboard.
-
-## MCP (built 2026-07-31)
-
-`src/Bobcat.Console/Mcp/MonitorTools.cs`, mounted at `/api/mcp` — streamable HTTP, stateless,
-via `ModelContextProtocol.AspNetCore` in the CritterWatch *.Mcp shape (static
-`[McpServerTool]` methods returning camelCase JSON). Six tools: `list_runs`, `run_status`
-(live steps for the executing scenario only), `failing_tests`, `flaky_ledger` (spans all
-known runs — the box's chronic-flakiness view), `export_run` (CTRF/JUnit as a tool result),
-and `await_run_completion` — the agent killer feature: block until the suite settles instead
-of polling, returning `finished`/`orphaned`/`timeout` with the final summary. All tool reads
-go through the registry's locked `Read`/`ReadAll` so live ingestion can never hand a tool a
-torn scenario collection (exports were moved onto the same locked reads).
-
-Live-verified: with several publishers active on the box, a no-runId await honestly latched
-the one in-flight run — which happened to be another session's supervisor worker. Agents on
-a busy box should pass the runId from `list_runs`.
-
-## Testing
-
-Vitest is the whole UI test story: store/dispatcher logic tested by feeding recorded
-event sequences at the Pinia stores (`src/stores/__tests__`, `src/messages/__tests__`),
-happy-dom for component mounts, CI gate in `.github/workflows/console-frontend.yml`
-(path-filtered: node 22, `npm ci` → `vue-tsc -b` → `vitest run`).
-
-End-to-end is **`src/Bobcat.Console.Specs/`** (issue #86, built 2026-08-21): the viewer's own
-`Program` booted in-process over Alba's TestServer by a `MonitorHost` resource, and Bobcat's
-Gherkin runner driving it as an MTP host that `dotnet test` collects. Four features — Live Runs,
-Retries, Ejection, Exports — ingest events over `POST /api/ingest` exactly as a publisher does and
-assert against `GET /api/runs`, `GET /api/runs/{id}` (added for this; same wire-contract status as
-the list), and the export endpoints. That replaces a Playwright layer, deliberately: the whole
-wire is verifiable without a browser, and the SignalR leg is pinned separately by
-`relayToStore.test.ts`. Archives go to a temp `Monitor:DataPath` per run, never `~/.bobcat`;
-`MonitorHost.Restart()` is how the hydration rules are exercised. The spec host publishes its own
-progress like any other (a `dotnet bobcat` on 5525 sees the suite run while it tests a second,
-in-memory viewer — no loop is possible, the instance under test has no address); CI sets
-`BOBCAT_MONITOR=0`. What the framework was missing to write it is recorded on issue #62.
-
-## Retention
-
-Two knobs that bound two different things, and the split is the design. **The board is not the
-archive**: a run evicted from the dashboard still has its NDJSON on disk, and only the age
-policy ever deletes a file. That is what makes an *automatic* eviction reasonable to ship at
-all, and it is the same promise the manual Eject button has always made.
-
-### Archive age (built 2026-07-31)
-
-The archive directory ages instead of growing forever. The NDJSON file's mtime is the aging
-clock — every ingested event (heartbeats included) appends, so a file untouched for the whole
-retention period has had a dead publisher exactly that long. A stale live archive is ejected
-exactly like a manual eject (off the dashboard, into `ejected/`); a stale ejected archive is
-deleted. Nothing is ever deleted straight out of the live folder, and a manual eject keeps its
-data for the rest of the retention window. One knob: `Monitor:RetentionDays` config →
-`BOBCAT_MONITOR_RETENTION_DAYS` env var → 14 days; zero or negative disables aging entirely.
-Swept at boot (before rehydration, so a long-dead archive is never loaded just to be swept)
-and hourly by `ArchiveRetentionService`.
-
-### Board size (built 2026-09-01, issue #198)
-
-Nothing evicted runs by count, so a board grew until someone cleared it by hand: 46 runs across
-four repositories and worktrees, several days old, accumulated purely by using the tool — a live
-dashboard retaining like an archive. `MonitorRunRegistry.SweepRetainedRuns` keeps the most
-recent N and ejects the rest. One knob: `Monitor:RetentionRuns` config →
-`BOBCAT_MONITOR_RETENTION_RUNS` env var → 10; zero or negative disables it. Swept inline when a
-`run_finished` lands (the only moment the finished pool can grow), at boot after rehydration
-(so a restart does not restore what the policy already evicted), and on the hourly service tick
-for the case with no such moment — an orphan that only *became* evictable because a restart
-declared it one.
-
-The three questions the issue asked to settle before coding, settled:
-
-- **N is per job — repository plus suite — not per box.** A shared console is genuinely
-  multi-repo, and a global cap lets the busiest repository evict every card the quiet ones
-  had, which is the opposite of what someone watching their own gate wants. Per job is also
-  the familiar shape ("the last N builds of this job") and the identity the card is already
-  named by. The same suite in two worktrees is two jobs, deliberately: that is how a comparison
-  between them stays possible.
-- **A live run is never evicted, and never counts against the cap.** Gate runs here are 20–50
-  minutes and must not vanish because the suite ran ten more times. An **orphan** is evictable
-  precisely because its publisher is gone. Being at capacity is a statement about history, not
-  about how many suites may run at once.
-- **Eviction is ejection.** Same code path as `Remove`, archive into `ejected/`, subject to the
-  age policy from there. An automatic policy that deleted archives would be a materially
-  different and much riskier feature.
-
-Nothing joining on run ids across time is disturbed: CritterWatch consumes `GET /api/runs?tag=`
-for spec evidence promptly, and the tag query is correlation, not history.
-
-## Bulk eject (built 2026-09-01, issue #197)
-
-Ejecting was one run at a time, so the only way back to a readable board was one click per
-card. `DELETE /api/runs` takes the whole set, narrowed by `?olderThan=<instant>` (strictly
-before, so the run you anchored on survives its own "eject all older") and `?exceptRunId=`,
-which compose. It returns `{count, runIds}` — the ids, not just the count, so the UI drops
-exactly what the server agreed to take rather than what it predicted.
-
-The verbs are the browser tab menu's, because that is the mental model people already have for
-this exact problem: **Eject all** / **Eject all older** / **Eject all but this**. "Older" rather
-than "to the right" because this board is time-ordered in a way tab position is not — which is
-also why #196 had to land first: a bulk control whose cards show no age is a button whose effect
-the user cannot predict.
-
-Two rules worth stating out loud, both in the UI text as well as here:
-
-- **Eject is not delete.** The confirm names the count and says the archives are kept on disk. A
-  control that reads as "delete 43 test runs" does not get used; the same control labelled as
-  clearing a board does. It is never the default-focused button (`autofocus: false`).
-- **A live run is never taken**, whatever the filter matched — not out of caution but because it
-  does not work: the publisher's next event recreates the entry, so ejecting a live run buys a
-  card that reappears and a count that lied. The confirm says how many are staying.
-
-## Run card timestamps (built 2026-09-01, issue #196)
-
-The card rendered suite, repository, branch, mode, counts and runId — and no time at all, on a
-board where age is the single most useful thing a card carries. Purely a display gap: `startedAt`
-and `finishedAt` were already on `RunSummary` and on the wire.
-
-- Relative by default (`4m ago`, `2d ago`), absolute in the `title`. Relative is what answers
-  "is this mine, from just now?" at a glance.
-- **Anchored on the finish for a finished run and the start for a live one, and the label says
-  which** — a card reading "6m ago" means two different things before and after it finishes, and
-  the reader cannot tell them apart. A live one reads "started 6m ago".
-- Duration for finished runs, from the same two stamps. Null while running, because a duration
-  derived from one stamp plus the current clock is the run's age, not its length.
-- A stamp from the near future reads "just now": that is clock skew between a publisher and the
-  browser, not a scheduled run, and a negative age is not the honest rendering of it.
-- The board is now sorted newest-first (`runsNewestFirst`), anchored on `startedAt` so a card
-  does not jump when its run finishes. Insertion order was no order at all once several
-  repositories' runs shared one board.
-
-## Hydration (built 2026-07-31)
-
-Both directions are archive replays — one fold, two transports, nothing to keep in sync:
-
-- **Monitor restart**: the registry replays every non-ejected NDJSON archive back into
-  projections on boot. A rehydrated run with no terminal `RunFinished` is **orphaned** (its
-  publisher is gone; rendering it "running" forever would lie) — any later event un-orphans
-  it. Eject moves the archive to `ejected/` (never deletes) precisely so an eject survives
-  restart. Torn tail lines (monitor killed mid-write) are skipped, not fatal.
-- **Browser load/reconnect**: `useSignalR` calls `hydrateFromServer()` after connect and on
-  every reconnect — `GET /api/runs`, then each run's NDJSON export replayed through
-  `relayToStore`, i.e. the store's own live-event fold. Store handlers upsert (stepId guard)
-  so replay over already-arrived live events cannot duplicate; local runs the server no
-  longer lists are pruned.
-
-Observed live: a supervisor test suite running in another checkout streamed dozens of
-one-scenario SampleWorker runs, each its own dashboard card — each worker minted its own
-RunId. Fixed 2026-07-31 by supervised-run grouping (see the Bobcat-side seams section):
-verified live, the same SampleWorker suite across 4 worker processes is now exactly one
-card — one `run_started` (`supervised`, total 7), all worker scenario/step streams, one
-`run_finished`. Note the grouping only applies when the run is driven through a
-`Supervisor` with `PublishToMonitor` on — workers launched by a supervisor that doesn't
-publish keep the old one-card-per-worker behavior on purpose (a grouped run with no bracket
-owner would render as an unnamed orphan).
-
-## CTRF retryAttempts (built 2026-07-31)
-
-`RunProjection` keeps every retried-away attempt's step history (`ScenarioProjection.
-PriorAttempts`, snapshotted when `RetryScheduled` arrives — with the policy's disposition and
-reason — or on the next attempt's start as fallback). The CTRF export renders the FULL attempt
-list including the final attempt, matching the spec's own with-retries example; attempt objects
-admit no extra members, so step detail and disposition/reason ride each attempt's `extra`.
-Exports are validated against the official `ctrf-io/ctrf` schema — which also caught that
-`suite` must be an ARRAY (hierarchy), fixed at the same time. Null-valued fields are omitted
-(CTRF's typed fields don't admit null).
-
-## The console's own port and lifetime (issue #200, built 2026-09-07)
-
-A `bobcat run` was found alive **20h52m** after the Claude session that started it had ended —
-its cwd a since-abandoned scratchpad for a different repository — wedged on `127.0.0.1:5000`.
-The next repository's gate then failed 15 tests across two suites with `AddressInUseException`,
-and the red read as a product regression until `lsof -iTCP:5000` named the squatter. Two
-independent defects, both fixed here.
-
-**The port was never applied server-side.** 5525 is the console's address everywhere a *client*
-looks — `MonitorPublisher.DefaultUrl`, `EventModelWatchPlan.DefaultConsoleUrl`, the Vite dev
-proxy, this document — but the only server-side declaration was `launchSettings.json`, a
-`dotnet run` file the packaged tool never sees. So `bobcat run` fell to Kestrel's bare `:5000`:
-unreachable by every publisher (they all probe 5525, so the console silently saw nothing) *and*
-squatting on the port every other ASP.NET default host on the box wants. `Program.cs` now applies
-`EventModelWatchPlan.DefaultConsoleUrl` when nothing else configured a URL. A **default**, so
-`ASPNETCORE_URLS` still wins — and it has to be one, because the command line cannot reach this:
-`RunJasperFxCommands` wraps an already-built `WebApplication` in a `PreBuiltHostBuilder`, and
-`NetCoreInput.ApplyHostBuilderInput` returns early for one, which makes `--config:urls=…`
-silently inert. The two constants are pinned to each other by `ConsoleUrlAgreementTests`, on
-opposite sides of the layering rule; a publisher probing an address the server does not bind is
-precisely how an orphan goes unnoticed for a day.
-
-**Nothing in the process could ever have ended it.** JasperFx's `run` blocks on an untimed
-`ManualResetEventSlim` whose only realistic release is a `Console.CancelKeyPress` that a process
-detached from a dead terminal never receives. `IdleShutdownService` gives it one: after a stretch
-with nothing connected and nothing publishing, it logs loudly and calls `StopApplication()`.
-
-- **Idleness rather than parent death.** A parent-death watchdog is the obvious answer and is not
-  portable — .NET has no cross-platform "who is my parent" — and watching for stdin to close
-  kills a legitimately backgrounded console the moment it starts. Idleness is a statement about
-  the process's *purpose*: a viewer with no browser attached and no run publishing to it is doing
-  nothing for anybody, and is only holding its port against whoever wants it next.
-- **In flight is half of "idle".** `ConsoleActivity` is fed by one middleware at the top of the
-  pipeline and counts requests *in flight* as well as the last one seen. A browser with the
-  dashboard open holds a SignalR connection, which is one request that never completes — so a
-  watched console never even starts the window, however long it sits between runs. That is the
-  case an idle ceiling must not break, and it cannot.
-- **On by default, unlike the retry and stall knobs.** Those are opt-in because they preserve a
-  behaviour someone may be relying on; this one preserves nothing. Two hours, reset by any
-  request at all: `Monitor:IdleMinutes` → `BOBCAT_MONITOR_IDLE_MINUTES` → 2h, zero or negative
-  runs until stopped — the same order as the retention knobs.
-
-**And the diagnosis is in the failure message now.** `PortHolder` (in core `Bobcat.Runtime`, not
-here) turns a resource's bind collision into the name of the process holding the port, appended
-to the `SpecCatastrophicException` `TestSuite.StartAll` already raises: *"Port 5000 is held by pid
-12345 (bobcat) — that process, not this suite, is what has to go."* It matches Kestrel's
-`AddressInUseException` by type name, because core must not reference ASP.NET, and the wrapped
-`SocketException` properly; both halves are required, so a message that merely mentions a port is
-not mistaken for a collision. Report, never act: naming the holder is the whole feature, because
-killing somebody else's process for being in our way is not a decision a test harness gets to
-make, and the holder is as likely to be a development server somebody is using as an orphan.
 
 ## A repeated step is its own row (issue #322, built 2026-09-16)
 
@@ -801,22 +297,18 @@ Resolved without a protocol change, because the wire already carried enough:
 The alternative was adding an ordinal to `StepFinished` and `StepProgress`. Not needed, and a wire
 change is a compatibility question where this is not.
 
-Step results are the natural place for **cells** — `label / expected / actual / comparison /
-verdict` — so a table step's failure renders as a marked-up table instead of the sentence it is
-flattened into today. That is issue #324 and shares this record; it was left out of this change
-deliberately rather than bundled in.
+Kept on the publisher's side of the record because **`stepNumber` is what makes it work**: it is
+published from here, one per scenario, and any consumer that keys step identity on `stepId`
+instead will collapse the same rows again.
 
 ## Not built yet
 
-- Gherkin-runner dogfood e2e against this UI (#86).
-- **Elapsed-vs-expected per step.** Step progress (#99, Bobcat-side seams item 5) carries
-  elapsed; "expected" needs a duration history across runs, which is the same committed
-  ledger #44 layer 2 and #56 layer 3 want — one store, not three.
-- ~~Supervisor-side test updates on the wire.~~ Built 2026-09-01 — see Bobcat-side seams item
-  7. The condition this bullet named ("it earns a wire event when a non-Bobcat worker is driven
-  under the viewer") arrived exactly as written.
-- **Telling a connected browser that a run was ejected.** Neither the manual eject, the bulk
-  eject (#197) nor the retention sweep (#198) puts anything on the SignalR stream, so another
-  open dashboard keeps its stale cards until it next hydrates. The acting browser drops its own
-  cards, and `hydrateFromServer`'s `pruneTo` reconciles on load and reconnect, so nothing is
-  wrong — just late. A `run_ejected` relay message is the fix when someone is bothered by it.
+- **Elapsed-vs-expected per step.** Step progress (Bobcat-side seams item 5) carries elapsed;
+  "expected" needs a duration history across runs, which is the same committed ledger #44 layer 2
+  and #56 layer 3 want — one store, not three. See [Test Ledger Design](ledger-design.md).
+- **Step result cells.** `label / expected / actual / comparison / verdict` on a step result, so a
+  table step's failure travels as a marked-up table instead of the sentence it is flattened into
+  today. That is issue #324, left out of #322 deliberately rather than bundled in.
+- **Supervisor-side test updates beyond progress.** `ISupervisorObserver.TestUpdated` (item 5's
+  tap) is supervisor-side only; item 7 forwards the part of it that a progress bar needs and no
+  more.
