@@ -1,3 +1,14 @@
+> ## ⚠️ This copy is frozen — the package moved
+>
+> `@jasperfx/event-model-vue` now lives in **`jasperfx/src/event-model-vue`**, beside the
+> `EventModelDescriptor` it renders. Make every change there.
+>
+> This directory is retained only until 0.13.0 is published from the new home, because
+> `Bobcat.Console.FrontEnd` still consumes it as a `file:` link and would not build without it.
+> Once 0.13.0 is on npm, that consumer repoints at the registry and this directory is deleted.
+>
+> Editing here is a silent fork: the published package will not carry your change.
+
 # @jasperfx/event-model-vue
 
 Vue renderer for a `JasperFx.Events.EventModeling.EventModelDescriptor`. Issue #108.
