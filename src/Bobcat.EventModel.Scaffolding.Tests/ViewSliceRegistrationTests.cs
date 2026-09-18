@@ -443,4 +443,118 @@ public class ViewSliceRegistrationTests
 
         aggregate.ShouldContain("public void Apply(AppointmentConfirmed appointmentConfirmed)");
     }
+
+    /// <summary>A manifest that tells the scaffolder how this repository boots a store (#356).</summary>
+    internal const string FixtureManifest =
+        """
+        schema: 1
+        model: CritterCrush
+        defaults:
+          authoring: projected
+          scaffold: true
+          owner: CritterCrush.Specs.{feature}Specs
+          fixture:
+            baseType: CritterCrushSpec
+            inject: CritterCrushHost
+            attribute: Collection(CritterCrushHost.CollectionName)
+        """;
+
+    [Fact]
+    public void a_declared_fixture_writes_the_whole_integration_class()
+    {
+        var model = parse(ModelYaml);
+        var manifest = SpecOwnershipReader.Read(FixtureManifest, model);
+        manifest.Succeeded.ShouldBeTrue(string.Join("; ", manifest.Problems));
+
+        var specs = SpecSkeletons.Scaffold(model, SpecOwnershipPlan.For(manifest.File)).Values.First();
+
+        specs.ShouldContain("[Collection(CritterCrushHost.CollectionName)]");
+        specs.ShouldContain("(CritterCrushHost fixture) : CritterCrushSpec(fixture)");
+
+        // And the TODO it replaces is gone — a stale instruction telling you to do what has been
+        // done is worse than no instruction.
+        specs.ShouldNotContain("TODO — these are integration slices");
+    }
+
+    [Fact]
+    public void without_a_declared_fixture_the_todo_stays_but_above_the_attributes()
+    {
+        // Projected, so skeletons ARE written — but with no fixture declared, which is the state
+        // every repo is in before it adopts #356. (SpecOwnershipPlan.None writes no skeletons at
+        // all: with no manifest every slice is Gherkin-authored.)
+        var model = parse(ModelYaml);
+        var manifest = SpecOwnershipReader.Read(
+            FixtureManifest[..FixtureManifest.IndexOf("  fixture:", StringComparison.Ordinal)], model);
+        manifest.Succeeded.ShouldBeTrue(string.Join("; ", manifest.Problems));
+
+        var specs = SpecSkeletons.Scaffold(model, SpecOwnershipPlan.For(manifest.File)).Values.First();
+
+        specs.ShouldContain("TODO — these are integration slices");
+
+        // #356's smaller half: the comment used to sit BETWEEN [BobcatFeature] and the class it
+        // attributes.
+        specs.IndexOf("TODO — these are integration slices", StringComparison.Ordinal)
+            .ShouldBeLessThan(specs.IndexOf("[BobcatFeature", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void a_fixture_block_without_a_base_type_is_a_problem()
+    {
+        var reading = SpecOwnershipReader.Read(
+            "schema: 1\nmodel: CritterCrush\ndefaults:\n  fixture:\n    inject: CritterCrushHost\n",
+            parse(ModelYaml));
+
+        reading.Succeeded.ShouldBeFalse();
+        reading.Problems.ShouldContain(x => x.Contains("baseType"));
+    }
+
+    /// <summary>A creating slice asserting the identity it minted (#360).</summary>
+    internal const string StartsStreamYaml =
+        """
+        schema: 1
+        model: Booking
+        namespace: Booking
+        slices:
+          - name: RequestHomeCheck
+            pattern: Command
+            domain: HomeChecks
+            trigger: { kind: Http }
+            command: RequestHomeCheck
+            aggregates: [HomeCheck]
+            events: [HomeCheckRequested]
+            elements:
+              RequestHomeCheck:
+                fields: { homeCheckId: Guid }
+              HomeCheckRequested:
+                fields: { applicationId: Guid }
+            specifications:
+              feature: HomeChecks
+              scenarios:
+                - name: An admin requests a home check
+                  when:
+                    command: RequestHomeCheck
+                    with: { homeCheckId: "{streamId}" }
+                  then:
+                    - startsStream: HomeCheck
+        """;
+
+    [Fact]
+    public void a_creating_slice_can_assert_the_stream_it_started_in_BOTH_lanes()
+    {
+        // Both, deliberately. #337 wired a `then:` into the Gherkin lane only, and the projected
+        // lane dropped it silently — a scenario whose one assertion vanished still read as
+        // finished (#344). A new `then:` gets checked in both lanes from the start.
+        var model = parse(StartsStreamYaml);
+
+        var gherkin = SliceScaffolder.ScaffoldFeatures(model)["Features/HomeChecks.feature"];
+        gherkin.ShouldContain("Then a HomeCheck stream is started with id");
+
+        var manifest = SpecOwnershipReader.Read(
+            "schema: 1\nmodel: Booking\ndefaults:\n  authoring: projected\n  scaffold: true\n  owner: Booking.Specs.{feature}Specs\n",
+            model);
+        manifest.Succeeded.ShouldBeTrue(string.Join("; ", manifest.Problems));
+
+        var projected = SpecSkeletons.Scaffold(model, SpecOwnershipPlan.For(manifest.File)).Values.First();
+        projected.ShouldContain("Then a HomeCheck stream is started with id");
+    }
 }

@@ -48,6 +48,12 @@ public sealed class SpecOwnershipPlan
     /// <summary>The entry for a slice, or null when the manifest does not list it.</summary>
     public SpecOwnership? EntryFor(string sliceName) => _manifest?.EntryFor(sliceName);
 
+    /// <summary>
+    /// How an integration spec class reaches the store (issue #356), or null when the manifest does
+    /// not say — in which case the skeleton keeps the TODO that asks for it.
+    /// </summary>
+    public SpecFixture? Fixture => _manifest?.Defaults?.Fixture;
+
     public SpecKind KindFor(string sliceName) => Resolve(sliceName).Kind;
 
     public SpecAuthoring AuthoringFor(string sliceName) => Resolve(sliceName).Authoring;
