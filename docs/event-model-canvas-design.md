@@ -18,7 +18,7 @@ Two facts change the shape of the work.
 
 **The canvas already draws edges.** Since 0.6.0 (#181) `layout.ts` routes every edge a slice
 carries — straight along a lane, an orthogonal elbow through the lane gap across lanes
-(`src/Bobcat.EventModel.FrontEnd/src/layout.ts:194-224`) — and `EventModelView.vue:659-688`
+(`jasperfx/src/event-model-vue/src/layout.ts:194-224`) — and `EventModelView.vue:659-688`
 draws them as one pointer-inert SVG polyline layer with a shared arrowhead marker. What it
 draws is exactly what the descriptor says, and **the descriptor only ever says something about
 one slice at a time**:

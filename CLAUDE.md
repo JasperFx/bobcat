@@ -1356,7 +1356,7 @@ side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
 `BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
 
 The viewer's **Event Model page** (issue #108) renders a JasperFx `EventModelDescriptor`
-through `@jasperfx/event-model-vue` (`src/Bobcat.EventModel.FrontEnd/`, own gate
+through `@jasperfx/event-model-vue` (now `jasperfx/src/event-model-vue`, own gate
 `event-model-frontend.yml`, consumed by CritterWatch too — the shared component is what makes
 "renders identically in both viewers" true by construction). `PUT/GET /api/event-model` is a
 **public wire contract** like `GET /api/runs`, persisted beside the run archives and normalized
