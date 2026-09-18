@@ -181,20 +181,26 @@ public static class CuratedModelReader
             {
                 var set = (then.Event is not null ? 1 : 0)
                           + (then.ReadModel is not null ? 1 : 0)
+                          + (then.StartsStream is not null ? 1 : 0)
                           + (then.ValidationFails is not null ? 1 : 0)
                           + (then.RefusedWith is not null ? 1 : 0);
                 if (set != 1)
                 {
-                    problems.Add($"{where}: each `then` entry needs exactly one of event / readModel / validationFails / refusedWith.");
+                    problems.Add($"{where}: each `then` entry needs exactly one of event / readModel / startsStream / validationFails / refusedWith.");
                 }
                 else
                 {
                     wellFormed.Add(then);
                 }
 
-                if (then.Id is not null && then.ReadModel is null)
+                // `id:` names the thing being addressed, which is now either a read-model document
+                // or the stream a creating slice started (issue #360). On a startsStream entry it
+                // is optional and defaults to {streamId}.
+                if (then.Id is not null && then.ReadModel is null && then.StartsStream is null)
                 {
-                    problems.Add($"{where}: `id:` names the read-model document to assert on, so it only belongs on a `readModel:` entry.");
+                    problems.Add(
+                        $"{where}: `id:` names the read-model document or the started stream to assert on, "
+                        + "so it only belongs on a `readModel:` or `startsStream:` entry.");
                 }
 
                 validateRefusal(slice, then.RefusedWith, where, problems);

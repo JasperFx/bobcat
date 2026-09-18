@@ -126,7 +126,7 @@ public class CuratedModelReaderTests
                           readModel: R
             """);
 
-        reading.Problems.Single().ShouldContain("exactly one of event / readModel / validationFails / refusedWith");
+        reading.Problems.Single().ShouldContain("exactly one of event / readModel / startsStream / validationFails / refusedWith");
     }
 
     [Fact]

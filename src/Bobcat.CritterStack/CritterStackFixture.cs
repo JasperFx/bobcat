@@ -696,6 +696,40 @@ public abstract class CritterStackFixture : Fixture
     /// <c>LoadAsync&lt;T&gt;</c> is picked by, and the reason a mistyped id names the type it
     /// could not convert to rather than failing inside the store.
     /// </remarks>
+    /// <summary>
+    /// A slice that MINTS an identity started the stream, and started it under the id the model
+    /// says (issue #360).
+    /// </summary>
+    /// <remarks>
+    /// <c>Then {event} is emitted</c> proves an event of that type was appended <b>somewhere</b>.
+    /// For a creating slice that is weaker than it looks — with no arranged stream the act has no
+    /// id to address, so the assertion reads whatever the store issued. The identity is usually the
+    /// whole decision: an appointment whose stream IS the assignment that asked for it collides on
+    /// a redelivered trigger instead of booking a second visit, and no <c>event:</c> assertion can
+    /// reach that.
+    /// </remarks>
+    [Then("a {aggregate} stream is started with id {string}")]
+    public async Task ThenStreamIsStarted(Type aggregate, string id)
+    {
+        var store = Ctx.EventStore(HostResource, StoreName);
+        var streamId = identityOf(aggregate, id);
+
+        var events = streamId is Guid guid
+            ? await EventStores.FetchStreamAsync(store, guid, Ctx.Cancellation)
+            : await EventStores.FetchStreamAsync(store, streamId.ToString()!, Ctx.Cancellation);
+
+        if (events.Count == 0)
+        {
+            throw new SpecAssertionException(
+                $"Expected a {aggregate.Name} stream with id '{id}', but no stream exists there. "
+                + "The slice appended its event somewhere else, or did not start a stream at all — "
+                + "which a `Then {event} is emitted` step cannot tell you, because it does not "
+                + "address the stream.");
+        }
+
+        Ctx.RecordTouchedType(aggregate);
+    }
+
     [Then("the {readmodel} read model with id {string} contains")]
     public Task ThenReadModelWithIdContains(Type readmodel, string id, StepTable expected)
         => assertReadModel(readmodel, identityOf(readmodel, id), expected,

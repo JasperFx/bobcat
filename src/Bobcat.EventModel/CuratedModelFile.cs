@@ -242,6 +242,26 @@ public sealed class CuratedThen
 {
     public string? Event { get; set; }
 
+    /// <summary>
+    /// The aggregate whose stream this slice STARTED, asserted with the identity it was started
+    /// under (issue #360).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>event:</c> proves an event of some type was appended <b>somewhere</b>. For a minting
+    /// slice that is weaker than it looks: with no arranged stream the act has no id to address, so
+    /// the assertion reads whatever the store issued, and the stream the event landed on is never
+    /// checked. Changing <c>Storage.StartStream&lt;T&gt;(id, e)</c> to a plain append fails nothing.
+    /// </para>
+    /// <para>
+    /// The identity is usually the whole decision. CritterCrush's ProposeHomeCheckAppointment uses
+    /// the assignment's id so a redelivered trigger collides on StartStream instead of booking a
+    /// second visit — an at-least-once guarantee that lives entirely in a stream id, and that no
+    /// <c>event:</c> assertion can reach.
+    /// </para>
+    /// </remarks>
+    public string? StartsStream { get; set; }
+
     /// <inheritdoc cref="CuratedWhen.With"/>
     public Dictionary<string, string> With { get; set; } = [];
 

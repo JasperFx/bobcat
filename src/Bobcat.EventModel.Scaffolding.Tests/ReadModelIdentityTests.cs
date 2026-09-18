@@ -116,6 +116,6 @@ public class ReadModelIdentityTests
             """;
 
         CuratedModelReader.Read(yaml).Problems
-            .ShouldContain(x => x.Contains("`id:` names the read-model document to assert on"));
+            .ShouldContain(x => x.Contains("`id:` names the read-model document or the started stream"));
     }
 }
