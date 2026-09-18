@@ -80,7 +80,7 @@ jobs:
       # so this is a plain pack with no EmbedFrontend gate and no npm step.
       - name: Pack the bobcat tool
         run: >
-          dotnet pack src/Bobcat.Cli/Bobcat.Cli.csproj
+          dotnet pack src/Bobcat.Console/Bobcat.Console.csproj
           -c Release -o ${{ github.workspace }}/artifacts
 
       - name: Push to NuGet

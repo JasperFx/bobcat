@@ -76,7 +76,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.TUnit", "src\Bobcat.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Xunit.Tests", "src\Bobcat.Xunit.Tests\Bobcat.Xunit.Tests.csproj", "{C2BDDC62-C875-4C24-BF56-FE7B0D4213DF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Cli", "src\Bobcat.Cli\Bobcat.Cli.csproj", "{B378BF7E-2E48-41B1-AC2D-D1DB0D588EA9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bobcat.Console", "src\Bobcat.Console\Bobcat.Console.csproj", "{B378BF7E-2E48-41B1-AC2D-D1DB0D588EA9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1350,7 +1350,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
 | **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
-| **Bobcat.Cli** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
+| **Bobcat.Console** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
 console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over
@@ -1386,7 +1386,7 @@ sweep:
 - `Bobcat.Runtime.PortHolder`, which names the process holding a port when a resource fails to
   bind (appended to `TestSuite.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
-**The `bobcat` tool is `src/Bobcat.Cli/`, and it has exactly one command: `import-event-model`.**
+**The `bobcat` tool is `src/Bobcat.Console/`, and it has exactly one command: `import-event-model`.**
 It carries the free, no-server half of the toolset — read and validate a curated event-model file,
 or convert an eventmodelers.ai board export into that format, optionally pushing the result at a
 console's `PUT /api/event-model`. It is a plain JasperFx command host and deliberately hosts

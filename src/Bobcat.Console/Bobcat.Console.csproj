@@ -15,11 +15,16 @@
     <OutputType>Exe</OutputType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>Bobcat.Cli</RootNamespace>
+    <RootNamespace>Bobcat.Console</RootNamespace>
     <AssemblyName>bobcat</AssemblyName>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>bobcat</ToolCommandName>
-    <PackageId>Bobcat.Cli</PackageId>
+    <PackageId>Bobcat.Console</PackageId>
+
+    <!-- src/Directory.Build.props defaults IsPackable to false and every shipping package opts
+         in. Without this the tool packs NOTHING and the release ships without `bobcat`, silently
+         — the pack succeeds and simply produces no nupkg. -->
+    <IsPackable>true</IsPackable>
     <Description>The bobcat command line tool: read, validate and convert Event Model files.</Description>
   </PropertyGroup>
 
