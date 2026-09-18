@@ -79,7 +79,9 @@ public class ProjectionRegistrationTests
     {
         public EvolvingFanOutProjection() => Identity<IAppointmentEvent>(x => x.AppointmentId);
 
-        public override AppointmentsQueue Evolve(AppointmentsQueue snapshot, Guid id, IEvent e)
+        // Nullable parameter, matching both the base and what ViewSliceFrame emits — this fixture
+        // is only worth anything while it stays a faithful copy of the scaffolded shape.
+        public override AppointmentsQueue Evolve(AppointmentsQueue? snapshot, Guid id, IEvent e)
         {
             snapshot ??= new AppointmentsQueue { Id = id };
             return snapshot;

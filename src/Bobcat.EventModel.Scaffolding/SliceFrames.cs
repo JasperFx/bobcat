@@ -719,7 +719,11 @@ public class ViewSliceFrame : ScaffoldFrame
             // reports "No matching conventional Apply/Create/ShouldDelete methods" at startup, so
             // the host does not boot and every scenario in the suite dies before a step runs. That
             // is issue #232's failure, and 0.26.1 shipped it (#351).
-            writer.Write($"BLOCK:public override {readModel} Evolve({readModel} snapshot, Guid id, IEvent e)");
+            // `{readModel}?` on the PARAMETER, because the base declares
+            // `TDoc? Evolve(TDoc? snapshot, TId id, IEvent e)` — a non-nullable one is CS8765, and
+            // the `??=` on the next line already admits it can be null. The RETURN stays
+            // non-nullable: narrowing a nullable return is safe, and by then it never is.
+            writer.Write($"BLOCK:public override {readModel} Evolve({readModel}? snapshot, Guid id, IEvent e)");
             writer.WriteLine($"snapshot ??= new {readModel} {{ Id = id }};");
             writer.BlankLine();
             writer.WriteLine($"// ONE place for anything derived from the identity — as Apply methods this was a line");
