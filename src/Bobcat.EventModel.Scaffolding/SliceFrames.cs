@@ -201,7 +201,15 @@ public class AggregateFrame : ScaffoldFrame
                 writer.WriteLine($"return new {_name}();");
                 writer.FinishBlock();
                 first = false;
-                writer.BlankLine();
+
+                // And NOT an Apply for the same event (issue #355). Create wins for the first
+                // event on a stream, so that Apply never runs — verified by making it throw and
+                // watching a full suite stay green. One dead method per aggregate would be
+                // tolerable; what is not is that it sits directly above live ones of identical
+                // shape, so deleting the dead one and deleting a load-bearing one look the same.
+                // An event with no Create still folds through Apply on a default-constructed
+                // aggregate, which is how the OTHER stream-starting events here already work.
+                continue;
             }
 
             writer.Write($"BLOCK:public void Apply({@event} {argument})");
@@ -629,12 +637,16 @@ public class ViewSliceFrame : ScaffoldFrame
 
         writeProjection(writer, readModel);
 
-        // Projector-built documents load as documents. [ReadAggregate] would be wrong here —
-        // it only applies to a single-stream aggregation, and a fan-out is not one.
+        // Projector-built documents load as documents. [ReadAggregate] would be wrong here — it
+        // only applies to a single-stream aggregation, and a fan-out is not one — but [Entity] is
+        // right, and it is what the rest of this file's shapes already are (issue #357). Injecting
+        // an IQuerySession put a MARTEN type in a file whose write side is deliberately
+        // store-neutral, and made the endpoint async and hand-loaded for no gain: Required = true
+        // answers the same 404 the manual null return did.
+        var loaded = char.ToLowerInvariant(readModel[0]) + readModel[1..];
         writer.Write($"BLOCK:public static class Get{readModel}Endpoint");
         writer.WriteLine($"[WolverineGet(\"/api/{readModel.ToLowerInvariant()}/{{id}}\")]");
-        writer.WriteLine($"public static Task<{readModel}?> Get(Guid id, IQuerySession session, CancellationToken ct)");
-        writer.WriteLine($"    => session.LoadAsync<{readModel}>(id, ct);");
+        writer.WriteLine($"public static {readModel} Get([Entity(Required = true)] {readModel} {loaded}) => {loaded};");
         writer.FinishBlock();
         writer.BlankLine();
         Next?.GenerateCode(method, writer);

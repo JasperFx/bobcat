@@ -419,4 +419,28 @@ public class ViewSliceRegistrationTests
         files["Appointments/HomeCheckAssignmentAccepted.cs"].ShouldContain("Version it");
         files["Appointments/Events.cs"].ShouldNotContain("public record HomeCheckAssignmentAccepted(");
     }
+
+    [Fact]
+    public void the_event_that_has_a_create_gets_no_apply()
+    {
+        // #355: Create wins for the first event on a stream, so an Apply for that same event never
+        // runs. One dead method per aggregate would be tolerable on its own; sitting directly above
+        // live ones of identical shape is not, because deleting the dead one and deleting a
+        // load-bearing one look the same.
+        var aggregate = SliceScaffolder.ScaffoldAggregates(parse(ModelYaml))["Appointments/Appointment.cs"];
+
+        aggregate.ShouldContain("public static Appointment Create(HomeCheckAppointmentProposed homeCheckAppointmentProposed)");
+        aggregate.ShouldNotContain("public void Apply(HomeCheckAppointmentProposed");
+    }
+
+    [Fact]
+    public void an_event_with_no_create_still_gets_its_apply()
+    {
+        // The other half, and the reason dropping the Apply is safe: a stream-starting event with
+        // no Create folds through Apply on a default-constructed aggregate, which is how every
+        // proposal event after the first already worked.
+        var aggregate = SliceScaffolder.ScaffoldAggregates(parse(ModelYaml))["Appointments/Appointment.cs"];
+
+        aggregate.ShouldContain("public void Apply(AppointmentConfirmed appointmentConfirmed)");
+    }
 }

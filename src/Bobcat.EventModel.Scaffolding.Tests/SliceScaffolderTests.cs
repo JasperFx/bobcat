@@ -132,7 +132,11 @@ public class SliceScaffolderTests
         code.ShouldContain("Identity<DogLiked>(x => x.SwiperDogId);");
         code.ShouldContain("public void Apply(DogLiked dogLiked, MatchList view)");
         code.ShouldContain("daemon RUNNING");
-        code.ShouldContain("session.LoadAsync<MatchList>(id, ct)");
+        // [Entity], not a hand-rolled session load (issue #357): same 404, synchronous, and no
+        // Marten type in a file whose write side is store-neutral.
+        code.ShouldContain("public static MatchList Get([Entity(Required = true)] MatchList matchList) => matchList;");
+        code.ShouldNotContain("IQuerySession");
+        code.ShouldNotContain("LoadAsync");
         // A fan-out is not a single-stream aggregation — [ReadAggregate] can never serve it.
         code.ShouldNotContain("[ReadAggregate]");
     }
