@@ -283,9 +283,9 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   `Storage.StartStream` needs Wolverine's `[Emits(typeof(…))]` before any source knows what it
   appends — the event is built in the body, so nothing on the signature says it (wolverine
   GH-4386) — and without it the store's view has no `EventConsumed` link back to that slice. The host's own
-  `event-model --url` export (and therefore `bobcat watch-event-model`) pushes a document
+  `event-model --url` export (and therefore Stoat's `watch-event-model`) pushes a document
   *without* the spec-declared slices or their `Specifications` bindings. **The two halves meet on
-  the console instead:** #268 made `/api/event-model` merge per source and #294 made the runner
+  the console — Stoat's — instead:** #268 made `/api/event-model` merge per source and #294 made the runner
   publish the spec half as it attaches, so each producer pushes what it can see and `GET` folds
   them by slice name. That is the whole reason the `[EventModelName]` above is load-bearing rather
   than cosmetic — the merge is keyed on the model name at both altitudes.
@@ -322,7 +322,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   and a slice folded from a second chapter **keeps the first** with a report line saying so, since
   the descriptor carries one chapter per slice. The scaffolder follows the trigger's rule: one
   feature-level `@chapter:` when every slice in the feature agrees, otherwise `@slice:X @chapter:Y`
-  on each scenario. The console round-trips it (`Bobcat.Console.Specs`), and `@jasperfx/event-model-vue`
+  on each scenario. The console round-trips it (Stoat's end-to-end specs), and `@jasperfx/event-model-vue`
   0.12.0 draws **one band per contiguous run** of same-chapter slices above the lanes, focuses a
   chapter from its band, filters by chapter chips, and puts the chapter (not the domain) in the
   breadcrumb of a slice that has one. **The canvas never reorders slices**, so an interleaved
@@ -486,7 +486,8 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   Observed, never asserted: `Bobcat.CritterStack`'s typed steps record the aggregate arranged,
   the command dispatched, the events the stream gained, the messages the tracked session sent,
   the read model loaded — never what a `Then` merely names. Nothing recorded is null, not an
-  empty list. Exposed per scenario by `GET /api/runs/{id}`; CTRF/JUnit untouched. Details in
+  empty list. Read back per scenario by the console (Stoat's); the CTRF/JUnit exports there are
+  untouched, since they project explicit shapes with no vocabulary for this. Details in
   `docs/monitor-design.md`, Bobcat-side seams item 6.
 - **Step timeline (issue #141):** one wall clock per attempt, owned by the runner and zeroed at
   the `ScenarioStarted` announcement — which now fires *before* `ResetAll` (the plan is built
@@ -674,7 +675,8 @@ public class OrderFixture : Fixture;
   Everything that *acts* on a hint stays here — `RecoveryHint`, `RecoveryHintSet.Best`,
   `HintedFailurePolicy`, the scope rule.
   - Consequence worth knowing: **a project using `DispositionKind` must reference `JasperFx`
-    directly.** `Bobcat.Console` did not, and picked up 2.36.1 transitively from `WolverineFx.Http`
+    directly.** The console project did not — before it moved to Stoat — and picked up 2.36.1
+    transitively from `WolverineFx.Http`
     — Central Package Management only pins what a project actually references, so the central
     2.37.0 did not apply and it compiled against a JasperFx nobody chose.
   - `ClearsOnRecycle` parses its resource list independently of `ResilienceTags.ParseResources`,
@@ -783,10 +785,11 @@ not consume another project's build assets, so in-repo projects must set
 Turning that entry point off also drops the generated `AddSelfRegisteredExtensions`, which is
 where the **MSBuild extension** (the thing `dotnet test` actually talks to, via
 `--internal-msbuild-node`) would have been registered. `BobcatTestApplication.Run` therefore
-registers it itself (`TestingPlatformBuilderHook.AddExtensions`). Until `Bobcat.Console.Specs`
-no Bobcat host in the repo had `IsTestProject=true`, so `dotnet test` had never actually
-collected one and the missing registration went unnoticed — running the executable directly
-never exercises that path.
+registers it itself (`TestingPlatformBuilderHook.AddExtensions`). For a long time no Bobcat host
+in the repo had `IsTestProject=true`, so `dotnet test` had never actually collected one and the
+missing registration went unnoticed — running the executable directly never exercises that path.
+`Bobcat.CodeFirst.Samples` and `Bobcat.Mtp.GeneratedHost` are the hosts that keep it exercised
+today.
 
 The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
 what `Bobcat.Mtp.Tests` exercises.
@@ -1002,9 +1005,10 @@ ones on upgrade. Same reasoning as retries being opt-in.
   (never for discovery — it launches before the run bracket opens, and `run_started` stays the
   stream's first event), `test_stalled`, and `run_progress` (the #148 heartbeat, carrying peak
   worker RSS when sampling is on — distinct from `run_heartbeat`, the bare liveness ping).
-  Posted by `SupervisorRunPublisher`, folded into `RunProjection` and the Pinia runs-store
-  under mirrored rules, read back via `GET /api/runs/{id}` and MCP `run_status`, rendered by
-  `SupervisorTopology`. Details in `docs/monitor-design.md` Bobcat-side seams item 4.
+  Posted by `SupervisorRunPublisher`; how the receiving side folds and renders them is Stoat's,
+  and kept in `docs/monitor-design.md` (Bobcat-side seams item 4) because the fold is half of
+  the contract — a publisher that does not know how its events are read cannot tell an
+  additive change from a breaking one.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
   before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
@@ -1346,153 +1350,108 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
 | **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
 | **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
-| **Bobcat.Console** | net10.0 | Scaffold | Live test-progress web console (`dotnet bobcat`); see `docs/monitor-design.md` |
+| **Bobcat.Cli** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
 
-`Bobcat.Console` + `src/Bobcat.Console.FrontEnd/` (Vue 3 + Pinia + Element Plus + SignalR,
-vitest-gated by `.github/workflows/console-frontend.yml`) deliberately mirror CritterWatch's
-stack and palette. The viewer is a *consumer* of test runs over plain HTTP — no Bobcat.*
-library may reference it. All decisions of record: `docs/monitor-design.md`. The publisher
-side lives in core as `Bobcat.Monitoring` — dependency-free HTTP, opt-in via
-`BobcatRunner.PublishToMonitor`, enabled by the real entry points only.
+**The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
+console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over
+them and the Event Model canvas — everything here that remembered something across a process —
+moved to [Stoat](https://github.com/JasperFx/stoat). Bobcat has no web server, no store, no MCP
+surface and no frontend: no `Bobcat.Console` project, no Vue SPA, no generated TypeScript
+contracts, no `console-frontend.yml` gate, no `Bobcat.Console.Specs`. Stoat's
+`ContractRoundTripTests` / `TypeScriptContractTests` keep *its* copy of the contracts honest, so a
+change made here alone fails there; `Bobcat.Tests/Monitoring/FakeMonitorHost` is how this side is
+tested against real HTTP without one. Decisions of record: `docs/monitor-design.md`, which keeps
+its filename because it documents the wire at least as much as it ever documented the viewer.
 
-The viewer's **Event Model page** (issue #108) renders a JasperFx `EventModelDescriptor`
-through `@jasperfx/event-model-vue` (now `jasperfx/src/event-model-vue`, own gate
-`event-model-frontend.yml`, consumed by CritterWatch too — the shared component is what makes
-"renders identically in both viewers" true by construction). `PUT/GET /api/event-model` is a
-**public wire contract** like `GET /api/runs`, persisted beside the run archives and normalized
-through the typed descriptor on push (`EventModelStore`). **A push names its SOURCE and replaces
-only that source; `GET` serves the merge** (issue #268) — a model has two producers compiled into
-different assemblies, and latest-wins erased one of them every time. **The spec half's producer is
-the runner** (issue #294, `SpecEventModelPublisher`): a run that attaches to a console PUTs its
-spec assemblies' generated descriptors under a source named for the assembly, under the same
-never-slow-never-fail invariant as the event pump, and *refuses* when the console is serving a
-differently-named model, because `GET` merges only the sources naming the current one and
-publishing anyway would hide the other half rather than join it. The host half stays a separate
-step (`event-model --url` / `bobcat watch-event-model`). Slices are
-coloured from #107's run evidence by spec identity; the drill-down drawer shows each bound
-spec's step results and flags touched types the model does not declare. Wiring gotchas: the SPA
-consumes the package as a `file:` dependency whose gitignored `dist/` must be built first —
-`console-frontend.yml` and the csproj `BuildFrontend` target both do, and the workflow's path
-filter includes the package; and `Bobcat.Console` references `JasperFx.Events` **directly**
-because at 2.54.0 the descriptor lives there and CPM pins only direct references (the
-`DispositionKind` trap — transitively you get the pre-#687 sketch, which compiles and silently
-drops `pattern`/`specifications`/`elements`).
+What stays here is **the format and the run**, and none of its vocabulary is obsolete. Here
+"monitor" means *the thing a run publishes to*, so renaming any of the following is a breaking
+change for consumers that have nothing to do with the split — it needs its own decision, not a
+sweep:
 
-The SPA's TypeScript mirrors of the event contracts are **generated, never hand-edited**:
-`dotnet run --project src/Bobcat.Console -- generate` (NJsonSchema over
-`Contracts/MonitorEvents.cs`, see `TypeScriptContracts`) rewrites `src/messages/monitor-events.ts`
-and inserts any missing `relayToStore` case above its `*CASE ABOVE*` marker; hand-written cases
-and the store handlers are left alone. `TypeScriptContractTests` fails the build when the
-committed files drift. After adding a record to `MonitorEvents.cs` (both copies — the
-`Bobcat.Monitoring` mirror stays deliberately separate, pinned by `ContractRoundTripTests`),
-regenerate, then write the store handler the inserted case names.
+- The `Bobcat.Monitoring` namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
+  `Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, and the
+  publisher's copy of the wire records in `src/Bobcat/Monitoring/MonitorEvents.cs`. **Two copies
+  of those records is a decision, not drift** (issue #65) — the receiver's lives in Stoat, and
+  the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
+  viewer without either side acquiring a reference to the other.
+- `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
+  and the reserved `Monitor:*` configuration keys. Every one is user-facing or on the wire. The
+  `Monitor:*` keys that were ever *read* (`DataPath`, `RetentionDays`, `RetentionRuns`,
+  `IdleMinutes`) belonged to the console and went with it, along with their
+  `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved rather
+  than reused.
+- **Port 5525**, the address a publisher probes (`MonitorPublisher.DefaultUrl`). Deliberately kept
+  rather than collapsed into Stoat's coordination port, because every publisher already probes it;
+  Stoat's single host binds both.
+- `Bobcat.Runtime.PortHolder`, which names the process holding a port when a resource fails to
+  bind (appended to `TestSuite.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
-**The project is `Bobcat.Console` — decided 2026-08-21, issue #100.** It was `Bobcat.Monitor`
-from 2026-07-31 until then; "monitor" became ambiguous the moment agent coordination moved out
-to Stoat, and `Bobcat.Viewer` lost to `Bobcat.Console` because "console" is what the tool is
-called everywhere a user meets it (`dotnet bobcat`, "the live test-progress console"). The
-rename covers the project, directory, assembly, NuGet package id, namespaces
-(`Bobcat.Console.*`), the test/spec/frontend projects beside it, and the CI workflow
-(`console-frontend.yml`). One C# consequence worth knowing: inside any `Bobcat.Console.*`
-namespace — the viewer, its tests, its specs — an unqualified `Console.WriteLine` binds to the
-*namespace* `Bobcat.Console`, so write `System.Console` there (`GenerateCommand.cs` does).
+**The `bobcat` tool is `src/Bobcat.Cli/`, and it has exactly one command: `import-event-model`.**
+It carries the free, no-server half of the toolset — read and validate a curated event-model file,
+or convert an eventmodelers.ai board export into that format, optionally pushing the result at a
+console's `PUT /api/event-model`. It is a plain JasperFx command host and deliberately hosts
+nothing that outlives the process. **`watch-event-model` is not a command of this tool**; it lives
+in Stoat's `Stoat.Console`.
 
-**What the rename deliberately did NOT touch, and must not be "finished" later:** the
-publisher-side contract in core keeps the monitor vocabulary, because "monitor" there means
-*the thing a run publishes to* and is user-facing or on the wire. That is the `Bobcat.Monitoring`
-namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
-`Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, the env vars
-`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_MONITOR_DATA`, `BOBCAT_MONITOR_RETENTION_DAYS`,
-`BOBCAT_MONITOR_RETENTION_RUNS`, `BOBCAT_MONITOR_IDLE_MINUTES`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, the `Monitor:*` configuration keys, the `/api/*` routes and
-SignalR/ingest wire shapes, the CTRF reporter name, the duplicated `MonitorEvents.cs` records on
-both sides, and `docs/monitor-design.md` (kept under its name because it documents that wire as
-much as the viewer). Changing any of those is a breaking change that issue #100 scoped out;
-it needs its own decision, not a sweep.
+**The runner publishes the spec half of the Event Model** (issue #294,
+`Monitoring/SpecEventModelPublisher.cs`). A model has two producers compiled into different
+assemblies: the host's `event-model --url` export carries the slices but no `Specifications`,
+while the generator's `BobcatEventModelSource` carries the spec identities a run outcome joins on
+and is invisible to the host. **A push names its SOURCE and replaces only that source; `GET`
+serves the merge** (issue #268) — latest-wins erased one producer every time. So a run that
+attaches to a console PUTs its spec assemblies' generated descriptors under a source named for the
+assembly, under the same never-slow-never-fail invariant as the event pump, and *refuses* when the
+console is serving a differently-named model: `GET` merges only the sources naming the current
+one, and publishing anyway would hide the other half rather than join it. Both halves of the merge
+are keyed on the model name, which is why setting it explicitly is load-bearing rather than
+cosmetic.
 
-**The console binds 5525 and stops itself when nobody is using it (issue #200).** A `bobcat run`
-was found alive 20h52m after its session had ended, wedged on `:5000` and failing the next
-repository's gate with `AddressInUseException`. Two defects. The port was never applied
-server-side — 5525 lived only in `launchSettings.json`, which the packaged tool never sees, so
-the tool fell to Kestrel's default and was both invisible to every publisher and squatting on a
-port everyone wants; `Program.cs` now applies it as a *default* (`ASPNETCORE_URLS` still wins,
-and must, because `--config:urls=` cannot reach a `PreBuiltHostBuilder`), pinned to
-`MonitorPublisher.DefaultUrl` by `ConsoleUrlAgreementTests` across the layering rule. And
-nothing in the process could ever have ended it, since JasperFx's `run` blocks on an untimed
-wait released only by a Ctrl-C a detached process never receives; `IdleShutdownService` stops
-the host after a stretch with nothing connected and nothing publishing
-(`Monitor:IdleMinutes` → `BOBCAT_MONITOR_IDLE_MINUTES` → 2h, 0 disables). Idleness rather than a
-parent-death watchdog because .NET has no portable "who is my parent", and *in flight* is half
-of idle: an open dashboard holds a SignalR connection, which is one request that never
-completes, so a watched console never starts the window. On by default unlike the retry/stall
-knobs — those preserve a behaviour someone relies on, this one preserves nothing. Separately,
-`Bobcat.Runtime.PortHolder` names the process holding a port when a resource fails to bind
-(appended to `TestSuite.StartAll`'s `SpecCatastrophicException`) — report, never act.
-
-**A supervised suite that is not Bobcat's now has live progress (issue #195).** Per-scenario
+**A supervised suite that is not Bobcat's still gets live progress (issue #195).** Per-scenario
 events come from each *worker's* `MonitorPublishingObserver`, so a plain xUnit worker published
-nothing and a supervised run's card sat at `0 / 1627` for its whole five minutes — the shape of
-a wedged run. `SupervisorRunPublisher` forwards `ISupervisorObserver.TestUpdated` as
-**`test_started` / `test_finished`**, a deliberately separate, lower-fidelity pair:
-`scenario_finished.Uid` keeps its documented meaning as spec identity (`{Feature}/{Scenario}`,
-what a `SpecificationDescriptor` joins on), while these carry the *worker's* test id. No spec
-semantics are implied — projecting foreign specs into the Bobcat model is #110, not this.
+nothing and a supervised run's card sat at `0 / 1627` for its whole five minutes — the shape of a
+wedged run. `SupervisorRunPublisher` forwards `ISupervisorObserver.TestUpdated` as **`test_started`
+/ `test_finished`**, a deliberately separate, lower-fidelity pair: `scenario_finished.Uid` keeps
+its documented meaning as spec identity (`{Feature}/{Scenario}`, what a `SpecificationDescriptor`
+joins on), while these carry the *worker's* test id. No spec semantics are implied — projecting
+foreign specs into the Bobcat model is #110, not this.
 
-- **The worker's own stream wins for any uid it touched.** The supervisor forwards for every
-  worker, Bobcat ones included, because it cannot tell which of them publishes without a marker
-  only new workers would carry. `ScenarioProjection.WorkerPublished` / the store's
-  `workerPublished` is the gate, and it lives on the *scenario*, so it holds in either arrival
-  order and one test is one card whichever stream arrives first.
+- **The supervisor forwards for every worker, Bobcat ones included**, because it cannot tell which
+  of them publishes without a marker only new workers would carry. The gate that makes one test
+  one card in either arrival order is a property of the *scenario* and lives on the receiving
+  side, which is Stoat's now — see `docs/monitor-design.md`, where the receiving-side folds are
+  kept deliberately, because a publisher that does not know how its events are read cannot tell an
+  additive change from a breaking one.
 - **`State` is the framework's own word** — Passed / Failed / Error / Skipped / Timeout /
-  Cancelled — never re-labelled by the publisher; `ForeignTestOutcome.From` and its Pinia mirror
-  map it in one place per side. Skipped counts as a clean pass **because
-  `WorkerOutcome.Succeeded` already does**, so the progress bar and the terminal counts cannot
-  disagree; an unrecognised state fails rather than being dropped, since not counting a finished
-  test stalls the bar this exists to unstick. Indeterminate never reaches the wire: silence is
-  not a verdict, so a crashed run cannot read as a complete one.
-
-**The board is not the archive (issues #196/#197/#198).** Run cards carry an age (relative,
-absolute in the tooltip, anchored on the finish for a finished run and the start for a live one
-— the label says which) and the board sorts newest-first. `DELETE /api/runs` takes a set,
-narrowed by `?olderThan=`/`?exceptRunId=` and returning the ids it actually took. And
-`Monitor:RetentionRuns` / `BOBCAT_MONITOR_RETENTION_RUNS` (default 10) bounds the board by
-count, **per job — repository plus suite** — because a global cap on a shared multi-repo console
-lets the busiest repository starve the quiet ones. Three invariants across all of it: eviction
-is *ejection* (archive into `ejected/`, only the separate age policy ever deletes), a **live run
-is never taken** — not caution, it does not work, since the publisher's next event recreates the
-entry — and an **orphan is fair game** because its publisher is gone by definition. Decisions of
-record in `docs/monitor-design.md`.
-
-**`Bobcat.Console.Specs` is the viewer's end-to-end suite, written in Bobcat itself** (issue
-#86). A spec project *may* reference `Bobcat.Console` — the no-reference rule is for libraries.
-It is an MTP host (`BobcatTestApplication.Run`) with `IsTestProject=true` and the MTP properties
-set by hand (the `*.Tests` convention in `Directory.Build.props` does not catch it), so `dotnet
-test` at the root collects it. `MonitorHost` boots the real `Program` over Alba's TestServer with
-a temp `Monitor:DataPath`; `ViewerSteps` is one shared `[IncludeGrammars]` module behind four shell
-fixtures. `GET /api/runs/{id}` (per-scenario detail) was added for it and is a public wire
-contract like `/api/runs`. A spec host publishes its own progress like any other; CI sets
-`BOBCAT_MONITOR=0`. The framework gaps found writing it are on issue #62.
+  Cancelled — and travels verbatim as a string, never re-labelled by the publisher: two enums
+  meaning the same thing is how a vocabulary drifts. **`Indeterminate` never reaches the wire**;
+  silence is not a verdict, so a crashed run cannot read as a complete one. `DurationMs` is
+  measured on the supervisor's own clock and is null when it never saw the start — unmeasured is
+  never zero. `Lane` is null for a one-test isolated or recycled process, and discovery is never
+  tapped.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 
-Split 2026-08-09. **Bobcat is the MIT integration testing framework** — Gherkin runner,
-supervisor, and the test-run viewer. **[Stoat](https://github.com/JasperFx/stoat) is the BSL
-AI agent coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims,
-MCP). Everything under the viewer's `Coordination/` folder (then `src/Bobcat.Monitor/Coordination/`,
-now `src/Bobcat.Console/`) moved there.
+Split 2026-08-09, finished 2026-09-18 when the console followed. **Bobcat is the MIT integration
+testing framework** — Gherkin runner, source generator, supervisor, MTP host, and the *publisher*
+side of the monitor wire. **[Stoat](https://github.com/JasperFx/stoat) is the BSL AI agent
+coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims, MCP), and it
+now hosts the run console as well. The viewer's `Coordination/` folder went first; the rest of the
+viewer went in 3ee3db9.
 
 Two rules this creates, both load-bearing:
 
-- **Nothing here may reference Stoat, and Stoat references nothing here.** Not one-way —
-  *zero*. Stoat observes this repo's viewer over HTTP (`GET /api/runs`) on the same terms it
-  observes GitHub and nuget.org. An MIT repo cannot depend on a BSL one, and keeping the
-  dependency at zero makes that impossible to get wrong by accident.
+- **Nothing here may reference Stoat, and Stoat references nothing here.** Not one-way — *zero*.
+  The two sides meet only on the wire: a run POSTs `/api/ingest` and PUTs `/api/event-model` at
+  whatever `BOBCAT_MONITOR_URL` names, on the same terms Stoat observes GitHub and nuget.org. An
+  MIT repo cannot depend on a BSL one, and keeping the dependency at zero makes that impossible to
+  get wrong by accident.
 - **No license gating in this repo.** Bobcat is free, entirely. If a feature seems to want a
-  gate, it belongs in Stoat.
+  gate — or needs to remember something across a process — it belongs in Stoat.
 
-`GET /api/runs` is therefore a **public wire contract**, not an internal list model: it carries
-`tag`, outcome counts, and scenario progress, and takes `?tag=`. Changing its shape breaks an
-external consumer that has no assembly reference to warn it. `BOBCAT_RUN_TAG` is the
-correlation hook — an opaque string Bobcat stamps on a run and never interprets (it was
+What a run publishes is therefore a **public wire contract**, not an internal detail: the events in
+`src/Bobcat/Monitoring/MonitorEvents.cs` are read by a console that has no assembly reference to
+warn it, so changing one of their shapes breaks an external consumer silently. `BOBCAT_RUN_TAG` is
+the correlation hook — an opaque string Bobcat stamps on a run and never interprets (it was
 `BOBCAT_PLAN_NODE`, renamed in the split because coordination vocabulary does not belong here).
 
 ## Key Dependencies
