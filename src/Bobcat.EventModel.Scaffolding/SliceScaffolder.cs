@@ -470,12 +470,9 @@ public static class SliceScaffolder
 
         // Event records, fields synthesized from element hints + scenario columns. Only the
         // first slice to declare an event emits its record — see declaresEventRecord.
-        foreach (var @event in slice.Events.Where(x => declaresEventRecord(model, slice, x)))
-        {
-            frames.Add(new RecordFrame(@event, fieldsFor(model, slice, @event),
-                slice.Elements.GetValueOrDefault(@event)?.Description,
-                interfaces: MarkersOn(model, @event)));
-        }
+        // Event records are NOT declared here — they are gathered per chapter by
+        // ScaffoldChapterEvents. A slice file holds the slice: its command, its guard, its
+        // endpoint. What the chapter can emit is a question about the chapter.
 
         if (collapsed)
         {
@@ -582,6 +579,83 @@ public static class SliceScaffolder
     }
 
     /// <summary>
+    /// One <c>Events.cs</c> per chapter, holding every event that chapter's slices emit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A slice file holds the slice — its command, its guard, its endpoint. Which events exist is a
+    /// question about the CHAPTER, and answering it used to mean opening thirteen slice files and
+    /// reading past the code in each. Gathering them is also the only place the chapter's whole
+    /// vocabulary is visible at once, which is what makes an event that does not belong obvious.
+    /// </para>
+    /// <para>
+    /// <b>Inbound trigger contracts stay in their own files</b> (see
+    /// <see cref="ScaffoldTriggerContracts"/>). They are not the chapter's events — they are
+    /// another boundary's shape, copied, and each carries the instruction to version rather than
+    /// edit it. Folding them in here would put two different rules under one heading.
+    /// </para>
+    /// <para>
+    /// The file is <c>Events.cs</c> where a domain holds one chapter, and
+    /// <c>&lt;Chapter&gt;Events.cs</c> where it holds several — so the per-chapter promise survives
+    /// a domain that grows a second one, without this emitter having to decide about sub-folders.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> ScaffoldChapterEvents(CuratedModelFile model)
+    {
+        var files = new Dictionary<string, string>();
+        var ns = model.Namespace ?? model.Model;
+
+        // Grouped by the pair, because a domain may hold several chapters and a chapter belongs to
+        // one domain — the file has to be per chapter and the folder is per domain.
+        var groups = model.Slices
+            .Where(x => x.Events.Count > 0)
+            .GroupBy(x => (Domain: x.Domain ?? "Shared", Chapter: x.Chapter ?? x.Domain ?? "Shared"))
+            .ToList();
+
+        var chaptersPerDomain = groups
+            .GroupBy(x => x.Key.Domain, StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
+
+        foreach (var group in groups)
+        {
+            var (domain, chapter) = group.Key;
+
+            // Model order, deduped, and owned by the slice that declares each event — the same
+            // rule the slice files used, so which record is emitted does not change, only where.
+            var events = new List<(string Name, CuratedSlice Slice)>();
+            foreach (var slice in model.Slices)
+            {
+                foreach (var @event in slice.Events)
+                {
+                    if (!declaresEventRecord(model, slice, @event)) continue;
+                    if ((slice.Domain ?? "Shared") != domain) continue;
+                    if ((slice.Chapter ?? slice.Domain ?? "Shared") != chapter) continue;
+                    events.Add((@event, slice));
+                }
+            }
+
+            if (events.Count == 0) continue;
+
+            var frames = new List<ScaffoldFrame>
+            {
+                new ChapterEventsHeaderFrame(chapter, events.Select(x => x.Name).ToList())
+            };
+
+            frames.AddRange(events.Select(x => (ScaffoldFrame)new RecordFrame(
+                x.Name,
+                fieldsFor(model, x.Slice, x.Name),
+                x.Slice.Elements.GetValueOrDefault(x.Name)?.Description,
+                interfaces: MarkersOn(model, x.Name))));
+
+            var name = chaptersPerDomain[domain] > 1 ? $"{chapter}Events" : "Events";
+
+            files[$"{domain}/{name}.cs"] = $"namespace {ns}.{domain};\n\n" + ScaffoldFrame.Render(frames.ToArray());
+        }
+
+        return files;
+    }
+
+    /// <summary>
     /// One file per trigger event that arrives from outside this model (issue #223): an
     /// automation whose trigger no slice here emits has nobody to declare its record, and the
     /// generated handler does not compile until somebody does.
@@ -649,6 +723,7 @@ public static class SliceScaffolder
 
         foreach (var pair in model.Slices.SelectMany(slice => Scaffold(model, slice))
                      .Concat(ScaffoldAggregates(model))
+                     .Concat(ScaffoldChapterEvents(model))
                      .Concat(ScaffoldTriggerContracts(model))
                      .Concat(ScaffoldFeatures(model, arrangements: false, ownership))
                      .Concat(SpecSkeletons.Scaffold(model, ownership)))

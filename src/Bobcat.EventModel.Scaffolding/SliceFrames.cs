@@ -31,6 +31,46 @@ public class MarkerInterfaceFrame : ScaffoldFrame
     }
 }
 
+/// <summary>
+/// The block comment at the top of a chapter's <c>Events.cs</c>, saying that this is all of them.
+/// </summary>
+/// <remarks>
+/// The list is the point. A reader who wants to know what a chapter can emit should not have to
+/// trust that the file is complete, and a name in this header with no record under it — or a record
+/// with no name in the header — is a regeneration that went wrong, visible without a diff.
+/// </remarks>
+public class ChapterEventsHeaderFrame : ScaffoldFrame
+{
+    private readonly string _chapter;
+    private readonly IReadOnlyList<string> _events;
+
+    public ChapterEventsHeaderFrame(string chapter, IReadOnlyList<string> events)
+    {
+        _chapter = chapter;
+        _events = events;
+    }
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteLine($"// Every event the {_chapter} chapter emits — all {_events.Count} of them, and nothing else.");
+        writer.WriteLine("//");
+        writer.WriteLine("// Gathered here rather than beside the commands that append them, because \"what can happen");
+        writer.WriteLine("// in this chapter\" is a question about the chapter. A slice file holds its own slice.");
+        writer.WriteLine("//");
+        writer.WriteLine("// Events that arrive from OUTSIDE this model are not here — they keep their own files, and");
+        writer.WriteLine("// each says to version rather than edit it.");
+        writer.WriteLine("//");
+
+        foreach (var @event in _events)
+        {
+            writer.WriteLine($"//   {@event}");
+        }
+
+        writer.BlankLine();
+        Next?.GenerateCode(method, writer);
+    }
+}
+
 public class RecordFrame : ScaffoldFrame
 {
     private readonly string _name;

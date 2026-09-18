@@ -83,8 +83,11 @@ public class SliceScaffolderTests
         var code = scaffold("SwipeOnDog");
 
         // The collapsed default (CritterStackSamples#13): one transaction, honest status codes.
-        code.ShouldContain("public record DogLiked(Guid SwiperDogId, DateTimeOffset LikedAt");
+        // The COMMAND belongs to the slice; the EVENT belongs to the chapter, so only one of
+        // these two records is in this file. Asserting both directions, because a regression
+        // either way — an event left behind, or a command wandering off — reads as "still fine".
         code.ShouldContain("public record SwipeOnDog(Guid SwiperDogId, bool Liked);");
+        code.ShouldNotContain("public record DogLiked(");
         // No empty response record, and 204 rather than a 200 carrying `{}` (#346).
         code.ShouldNotContain("SwipeOnDogResponse");
         code.ShouldContain("[WolverinePost(\"/api/discovery/swipeondog\")]");
