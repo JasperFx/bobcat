@@ -175,6 +175,27 @@ public sealed class SpecOwnershipDefaults
     public bool? Scaffold { get; set; }
 
     /// <summary>
+    /// What an INTEGRATION spec class needs in order to reach the store (issue #356): the base type,
+    /// optionally a fixture to inject, optionally an attribute.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The scaffolder already knows a class holds integration slices — the manifest told it — so the
+    /// only thing it could not write was which fixture THIS repository boots a store with. That is
+    /// one answer per repo, which is what makes it a default rather than a comment telling every
+    /// reader of every generated class to go and look it up.
+    /// </para>
+    /// <para>
+    /// Three literals rather than one convention. A single <c>fixture:</c> string would have to
+    /// assume how the base is constructed and how the test framework names collections, and
+    /// CritterCrush's shape — <c>[Collection(CritterCrushHost.CollectionName)]</c> with the host
+    /// injected and forwarded — is one of several an xUnit repo might reasonably use. Each field
+    /// here maps to exactly one piece of the declaration and none of them is guessed.
+    /// </para>
+    /// </remarks>
+    public SpecFixture? Fixture { get; set; }
+
+    /// <summary>
     /// A template for the type that owns each slice's specs, expanded per slice:
     /// <c>{feature}</c> is the slice's feature (the slice name when the model states none) and
     /// <c>{slice}</c> is the slice name.
@@ -356,4 +377,27 @@ public static class SpecOwnershipVocabulary
     public static readonly string[] KindNames = ["integration", "unit"];
 
     public static readonly string[] AuthoringNames = ["gherkin", "code-first", "projected"];
+}
+
+/// <summary>
+/// How an integration spec class is declared, so the scaffolder can write it instead of leaving a
+/// TODO (issue #356).
+/// </summary>
+public sealed class SpecFixture
+{
+    /// <summary>The base type an integration spec class derives from. Required when this block is present.</summary>
+    public string? BaseType { get; set; }
+
+    /// <summary>
+    /// A fixture type taken as a primary-constructor parameter and forwarded to the base — the
+    /// xUnit collection-fixture shape. Absent, the class simply derives.
+    /// </summary>
+    public string? Inject { get; set; }
+
+    /// <summary>
+    /// An attribute to put on the class, written out in full, e.g.
+    /// <c>Collection(CritterCrushHost.CollectionName)</c>. A literal because a test framework's
+    /// collection naming is not something this format should pretend to know.
+    /// </summary>
+    public string? Attribute { get; set; }
 }

@@ -49,7 +49,7 @@ public static class SpecSkeletons
 
             files[$"Specs/{typeName}.cs"] = authoring == SpecAuthoring.CodeFirst
                 ? codeFirst(model, ns, typeName, entries, slices, plans)
-                : projected(model, ns, typeName, entries, slices, plans);
+                : projected(model, ns, typeName, entries, slices, plans, ownership.Fixture);
         }
 
         return files;
@@ -79,6 +79,18 @@ public static class SpecSkeletons
     /// read model are named for the slice (16 of CritterCrush's 19), and an Automation's only type
     /// is <c>{Slice}Handler</c>, which is precisely the type <c>SliceType</c> must not be given.
     /// </summary>
+    /// <summary>
+    /// What follows the class name: nothing, a base type, or a fixture taken and forwarded to one.
+    /// </summary>
+    private static string declarationTail(SpecFixture? fixture)
+    {
+        if (fixture?.BaseType is not { Length: > 0 } baseType) return "";
+
+        return fixture.Inject is { Length: > 0 } inject
+            ? $"({inject} fixture) : {baseType}(fixture)"
+            : $" : {baseType}";
+    }
+
     public static string BindingFor(CuratedSlice slice)
         => slice.Command == slice.Name || slice.ReadModels.Contains(slice.Name)
             ? $"SliceType = typeof({slice.Name})"
@@ -86,7 +98,7 @@ public static class SpecSkeletons
 
     private static string projected(
         CuratedModelFile model, string ns, string typeName, IReadOnlyList<ResolvedSpecOwnership> entries,
-        IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
+        IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans, SpecFixture? repositoryFixture)
     {
         var writer = new StringBuilder();
         var single = entries.Count == 1;
@@ -105,21 +117,27 @@ public static class SpecSkeletons
         writer.AppendLine("/// runner. [BobcatSlice] carries the BINDING only — the slice's domain, chapter and pattern");
         writer.AppendLine("/// are stated once, on the event model, and merge in by slice name.");
         writer.AppendLine("/// </remarks>");
-        writer.AppendLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
+        var integration = entries.Any(x => x.Kind == SpecKind.Integration);
+        var fixture = integration ? repositoryFixture : null;
 
-        // An integration slice's specs go through the store, and nothing here can know what this
-        // repository boots one with — the same refusal to guess a base class that the code-first
-        // skeleton makes. What the scaffolder owes is everything it DOES know: the binding, the
-        // exact method names, and the steps.
-        if (entries.Any(x => x.Kind == SpecKind.Integration))
+        // An integration slice's specs go through the store. The manifest already said these ARE
+        // integration slices, so the only thing left to know is what this repository boots a store
+        // with — `defaults.fixture:` (issue #356). Stated, the class is written complete; unstated,
+        // the TODO asks for it, ABOVE the attributes rather than between an attribute and the thing
+        // it attributes.
+        if (integration && fixture is null)
         {
             writer.AppendLine("// TODO — these are integration slices: give this class the store. Derive from (or");
             writer.AppendLine("// inject) this repository's host/store fixture; the arrange/act/assert helpers are in");
-            writer.AppendLine("// Bobcat.CritterStack. A unit-tested slice needs none of that — see the model's");
-            writer.AppendLine("// spec-ownership manifest for which slices are which.");
+            writer.AppendLine("// Bobcat.CritterStack. Declaring `defaults.fixture:` on the spec-ownership manifest");
+            writer.AppendLine("// writes all of this instead, once for the repository.");
         }
+
+        writer.AppendLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
+
+        if (fixture?.Attribute is { Length: > 0 } attribute) writer.AppendLine($"[{attribute}]");
         if (single) writer.AppendLine($"[BobcatSlice({BindingFor(slices[0])})]");
-        writer.AppendLine($"public class {typeName}");
+        writer.AppendLine($"public class {typeName}{declarationTail(fixture)}");
         writer.AppendLine("{");
 
         var first = true;
@@ -246,7 +264,12 @@ public static class SpecSkeletons
 
         foreach (var then in scenario.Then)
         {
-            if (then.Event is { } emitted) yield return $"Then {emitted} is emitted{values(then.With)}";
+            if (then.StartsStream is { } started)
+            {
+                // The identity, not merely that an event landed somewhere (issue #360).
+                yield return $"Then a {started} stream is started with id \"{then.Id ?? "{streamId}"}\"";
+            }
+            else if (then.Event is { } emitted) yield return $"Then {emitted} is emitted{values(then.With)}";
             else if (then.ReadModel is { } readModel) yield return $"Then the {readModel} read model contains{values(then.Contains)}";
             else if (then.ValidationFails is { } reason)
             {

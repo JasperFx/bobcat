@@ -68,8 +68,8 @@ misconfigured CI job should fail loudly, not hang or quietly do something else.
 
 ## The `bobcat` tool
 
-Separate from everything above. `Bobcat.Cli` is a global tool — `dotnet tool install -g
-Bobcat.Cli` — and it is a **plain command host**: no web server, no store, nothing that outlives
+Separate from everything above. `Bobcat.Console` is a global tool — `dotnet tool install -g
+Bobcat.Console` — and it is a **plain command host**: no web server, no store, nothing that outlives
 the process. It carries the free, no-server half of the toolset, which today is reading,
 validating and converting [Event Model](https://eventmodeling.org) files.
 

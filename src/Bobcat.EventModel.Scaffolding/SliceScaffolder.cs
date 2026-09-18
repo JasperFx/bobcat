@@ -999,7 +999,14 @@ public static class SliceScaffolder
 
             foreach (var then in scenario.Then)
             {
-                if (then.Event is not null)
+                if (then.StartsStream is not null)
+                {
+                    // The identity a creating slice minted, which `Then {event} is emitted` cannot
+                    // reach: that step does not address a stream (issue #360).
+                    writer.WriteLine(
+                        $"    Then a {then.StartsStream} stream is started with id \"{expand(then.Id ?? "{streamId}", streamId)}\"");
+                }
+                else if (then.Event is not null)
                 {
                     writer.WriteLine($"    Then {then.Event} is emitted");
                     if (then.With.Count > 0) table(writer, "      ", then.With.Keys, expand(then.With.Values, streamId));

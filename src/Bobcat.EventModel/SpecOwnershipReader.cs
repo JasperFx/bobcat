@@ -183,6 +183,13 @@ public static class SpecOwnershipReader
                 + "An unrecognized token would be left in a type name.");
         }
 
+        if (defaults.Fixture is { } fixture && string.IsNullOrWhiteSpace(fixture.BaseType))
+        {
+            problems.Add(
+                "`defaults.fixture:` needs a `baseType:` — it is the one thing the scaffolder cannot "
+                + "derive, and a fixture block without it changes nothing while looking like it does.");
+        }
+
         if (defaults.StatedKind == SpecKind.Unit)
         {
             problems.Add(

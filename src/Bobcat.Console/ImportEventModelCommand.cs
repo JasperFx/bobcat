@@ -4,7 +4,7 @@ using Bobcat.EventModel;
 using Bobcat.EventModel.Emlang;
 using JasperFx.CommandLine;
 
-namespace Bobcat.Cli;
+namespace Bobcat.Console;
 
 public class ImportEventModelInput
 {
