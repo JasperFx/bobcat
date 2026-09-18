@@ -393,7 +393,7 @@ same JasperFx `EventModelDescriptor` through one shared component, which is what
 same descriptor renders identically in both viewers" true by construction rather than by
 convention:
 
-- **`@jasperfx/event-model-vue`** (`src/Bobcat.EventModel.FrontEnd/`, landed with #143) renders
+- **`@jasperfx/event-model-vue`** (now `jasperfx/src/event-model-vue`, landed with #143) renders
   a descriptor with a pure synchronous layout — position is a function of the descriptor alone,
   pinned on exact coordinates by its own Vitest gate (`event-model-frontend.yml`). #108's page
   work added the `slice-click` emit (the slice header is the drill-down handle; the slice
