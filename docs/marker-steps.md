@@ -4,7 +4,7 @@ Issue #110. The other two authoring styles ask you to write a specification: a `
 bound to a fixture, or a [code-first `Specification`](code-first-specs.md). This one asks for
 almost nothing. You point Bobcat at tests that already exist, in whatever runner they already use,
 and they start reporting themselves as specifications — ordered steps, a `{Feature}/{Scenario}`
-identity, and live progress in the [viewer](monitor-design.md).
+identity, and live progress [on the wire a run publishes](monitor-design.md).
 
 The constraint that shaped it: a large existing suite has to be able to adopt this **one class at
 a time**, without a base class, a signature change, or a rewrite. Anything more expensive than

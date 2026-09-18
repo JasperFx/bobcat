@@ -22,14 +22,15 @@ public class ImportEventModelInput
     [FlagAlias("out", 'o')]
     public string? OutFlag { get; set; }
 
-    [Description("Base URL of a Bobcat console to push the assembled model to (e.g. http://localhost:5525)")]
+    [Description("Base URL of a run console to push the assembled model to (e.g. http://localhost:5525)")]
     [FlagAlias("url", 'u')]
     public string? UrlFlag { get; set; }
 }
 
 /// <summary>
 /// Issue #202 — <c>bobcat import-event-model &lt;file&gt;</c>: load a declared event model from a
-/// file and optionally push it to a console's viewer. An emlang board export goes through
+/// file and optionally push it to a run console's viewer. That console lives in Stoat since the
+/// 2026-09-18 fold; this side is unchanged, because it was only ever an HTTP client of it. An emlang board export goes through
 /// segmentation first and lands as a curated file to review — the segmentation is a set of
 /// reported guesses, and a wrong guess should be a one-line diff in that file, not a re-import.
 /// Every decision lives in <c>Bobcat.EventModel</c> and is unit-tested; what remains here is

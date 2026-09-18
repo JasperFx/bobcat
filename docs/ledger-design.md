@@ -82,8 +82,8 @@ Two mechanisms, both explicit:
 
 \#142 flagged "how test results are collected in CI may need revisiting" as the same problem
 seen from the other end. The answer here: **the primary record of a run is its report
-artifact** — the supervisor's `RunReport.ToJson`, the runner's suite JSON, the monitor's
-NDJSON archives. The ledger is a *compaction* of runs, and advisory everywhere it is consumed:
+artifact** — the supervisor's `RunReport.ToJson`, the runner's suite JSON, and the NDJSON
+archive the run console keeps (in [Stoat](https://github.com/JasperFx/stoat) since the split). The ledger is a *compaction* of runs, and advisory everywhere it is consumed:
 a stale or absent ledger degrades lane balancing and trend fidelity, never correctness.
 
 That is what makes **any collection topology safe**, because the fold is total and
@@ -119,9 +119,11 @@ the fork reserves.
 
 ## Deliberately not built (yet)
 
-- **A `dotnet bobcat ledger` command** (fold a directory of artifacts / resolve a conflict /
-  print proposals and trends). The API is the design; the CLI is packaging, and it belongs in
-  the console tool once the artifact-directory convention settles.
+- **A `bobcat ledger` command** (fold a directory of artifacts / resolve a conflict / print
+  proposals and trends). The API is the design; the CLI is packaging, and it belongs in the
+  `bobcat` tool once the artifact-directory convention settles. Note the ledger is Bobcat's to
+  keep: it folds *artifacts on disk*, so it remembers nothing across a process and does not
+  follow the console to Stoat.
 - **Automatic wiring of `KnownTestDurations`** — the loop closes today in one line
   (`supervisor.KnownTestDurations = TestLedger.Load(path).KnownDurations()`), and implicit
   file reads from a library are the same kind of side effect as implicit writes.

@@ -41,5 +41,6 @@ decorated helpers, one class at a time.
 - [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Parallel-Ready Suites](parallel-ready-suites.md) — what a suite needs before the supervisor splits it
-- [Test-Run Viewer](monitor-design.md) — live progress in the `dotnet bobcat` console
+- [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
+- [The `bobcat` Tool](command-line.md#the-bobcat-tool) — reading, validating and importing Event Model files
 - [Version Matrix](versions.md) — the canonical, mutually-compatible dependency set
