@@ -217,7 +217,10 @@ public class ViewSliceRegistrationTests
         // NOT register — "No matching conventional Apply/Create/ShouldDelete methods" at startup,
         // which is this fixture's whole subject. 0.26.1 shipped that shape (#351); asserting the
         // signature is how this file stops it coming back.
-        code.ShouldContain("public override AppointmentsQueue Evolve(AppointmentsQueue snapshot, Guid id, IEvent e)");
+        // The parameter is nullable because the base is (`TDoc? Evolve(TDoc? snapshot, ...)`); a
+        // non-nullable one compiles with CS8765, and a scaffold's job is to hand back something
+        // that builds cleanly (issue #242).
+        code.ShouldContain("public override AppointmentsQueue Evolve(AppointmentsQueue? snapshot, Guid id, IEvent e)");
         code.ShouldContain("snapshot ??= new AppointmentsQueue { Id = id };");
         code.ShouldContain("if (e.Data is IAppointmentEvent routed) snapshot.AppointmentId = routed.AppointmentId;");
         code.ShouldContain("case HomeCheckAppointmentProposed:");
