@@ -35,21 +35,27 @@ because it asserts **text**.
 
 ## What needs a manual pass, and why each
 
-### 1. Bobcat docs — the highest-value read, and partly known-stale
+### 1. Bobcat docs — a real read, but NOT for the reasons first claimed
 
-17 files. Evidence they have drifted:
+> **CORRECTED 2026-09-19, same day.** The first version of this plan said four docs still described
+> the console as part of Bobcat, and that three releases of format change were undocumented. **Both
+> were wrong**, and both came from grepping for a WORD rather than checking a claim.
+>
+> - `command-line.md`, `monitor-design.md` and `ledger-design.md` were all updated during the split
+>   and say the console moved to Stoat — `command-line.md` carries an explicit note about it.
+>   `sample-wiring.md`'s hits are console *logging*, nothing to do with the run console.
+> - `refusedWith` / `startsStream` / `[EmptyResponse]` are absent from `docs/` **by design**: no
+>   Bobcat doc documents the curated `then:` vocabulary. That reference lives in `ai-skills`, which
+>   is where it was fixed. No Bobcat doc carries a canonical grammar step table either — steps
+>   appear only as prose examples — so there is no table owing the new `startsStream` step.
+>
+> The lesson is the one this plan is built on, turned on the plan itself: **a grep is not a read.**
+> Counting the word "console" across four files produced a confident, wrong finding in minutes;
+> opening the files disproved it in minutes too.
 
-- **Four docs still describe the console as part of Bobcat** (`command-line.md`, `monitor-design.md`,
-  `ledger-design.md`, `sample-wiring.md`) — it moved to Stoat in the split. These were touched on
-  9/18 by bulk edits, so their git dates look current and are not a signal.
-- **Nothing in `docs/` mentions `refusedWith`, `startsStream`, or `[EmptyResponse]`**; one file
-  mentions `defaults:`. Three releases of format and scaffolder change are undocumented.
-- The curated format is documented in **ai-skills**, not here — so the two can drift, and today they
-  had: the skill's `then:` table was missing two of five options for three weeks.
-
-**The read to do:** each doc, against the behaviour it claims, running the commands it gives.
-`getting-started.md` and `command-line.md` first — they are what a new user hits, and
-`command-line.md` is both console-stale and scaffolder-relevant.
+So: the docs are in better shape than claimed, and there is **no known-stale docs work**. A read is
+still worth doing — nobody has run `getting-started.md` as written against 0.26.3 — but it is
+speculative maintenance, not a known defect, and it should be ranked accordingly.
 
 ### 2. Bobcat public API — 75 public types across three packages
 
@@ -76,10 +82,16 @@ I corrected myself twice while measuring this — a bad glob said "no tests", a 
 "five". **The numbers above are from a complete `find`.** Worth saying because a plan built on the
 first impression would have been wrong in an expensive direction.
 
-The manual pass here is **not** "add view tests" — it is *look at the thing running*. Five open
-Stoat issues are UI/UX-shaped already (#22 wrong port, #20 silent color rewrite, #21 silent deletion
-of API-authored changes), and two of those are **silent data loss**, which is exactly what a human
-clicking around finds and a unit test does not.
+The manual pass here is **not** "add view tests" — it is *look at the thing running*.
+
+> **CORRECTED 2026-09-19.** This originally cited #20/#21/#22 as live UI hazards, two of them silent
+> data loss. **All three were already fixed** — #19/#20/#21 in `4a128b8` on 2026-09-04, #22 in the
+> console fold — and simply never closed. They are closed now, with the tests that pin them.
+> Stoat's open list went from 12 to 8 without a line of code being written, which is its own finding:
+> **the issue list was the stalest artifact in either repo.**
+
+That removes the concrete starting hypotheses this section had. A walk-through is still worth doing
+on a UI whose views are untested, but it starts from nothing known-broken.
 
 ### 4. The Event Model viewer specifically
 
