@@ -108,16 +108,9 @@ bobcat help                        # list the commands
 bobcat help import-event-model     # usage for one
 ```
 
-`import-event-model` is the command this tool exists for. `bobcat help` will also list a number of
-commands inherited from the JasperFx command family — `projections`, `event-query`, `codegen`,
-`describe`, `resources` and others — which are meaningful only inside a configured application and
-do nothing useful here.
-
-::: warning Always name a command
-`bobcat` with no arguments does not print help. It falls through to the inherited `run` command,
-which starts a host and blocks until interrupted — in a pipeline, that hangs the job rather than
-failing it. Use `bobcat help` to see the commands, and always pass one.
-:::
+`import-event-model` is the only command, and that is deliberate: the tool registers it explicitly
+rather than scanning, so nothing an assembly happens to carry can join this surface. A bare `bobcat`
+prints usage and exits 1.
 
 ## Where this fits
 

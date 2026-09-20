@@ -128,6 +128,92 @@ public class CommandLineTests
         log.ShouldBe(["slow one"]);
     }
 
+    /// <summary>
+    /// Issue #370. The '@' is stripped by the Gherkin parser, so a stored tag never carries one —
+    /// but the spelling a user copies out of their own .feature file always does. Both forms have
+    /// to select the same scenarios; `@slow` used to match nothing at all, and on `list` that
+    /// printed a feature header with no scenarios under it rather than an empty result.
+    /// </summary>
+    [Theory]
+    [InlineData("slow")]
+    [InlineData("@slow")]
+    [InlineData("SLOW")]
+    [InlineData("@SLOW")]
+    public async Task tag_filter_accepts_the_at_prefixed_spelling(string filter)
+    {
+        var tagged = new FeatureDefinition("Orders", typeof(CommandLineFixture),
+        [
+            new ScenarioDefinition("slow one", ["slow"], (_, plan) =>
+                plan.Add(new DelegateExecutionStep("step", StepKind.Then, "slow", (_, result, _) =>
+                {
+                    log.Add("slow one");
+                    result.MarkSuccess();
+                    return Task.CompletedTask;
+                }))),
+            new ScenarioDefinition("fast one", [], (_, plan) =>
+                plan.Add(new DelegateExecutionStep("step", StepKind.Then, "fast", (_, result, _) =>
+                {
+                    log.Add("fast one");
+                    result.MarkSuccess();
+                    return Task.CompletedTask;
+                })))
+        ]);
+
+        var code = await BobcatRunner.Run(["run", "--json", "--tag", filter], r => r.AddFeature(tagged));
+
+        code.ShouldBe(0);
+        log.ShouldBe(["slow one"]);
+    }
+
+    /// <summary>
+    /// Issue #369. `run` reported an undiscoverable suite loudly and exited 2 while `list` and
+    /// `preview` printed nothing at all and exited 0 — so the two commands a person reaches for
+    /// first when a project is misconfigured were the two that said nothing. They still exit 0;
+    /// they no longer do it in silence.
+    /// </summary>
+    [Theory]
+    [InlineData("list")]
+    [InlineData("preview")]
+    public async Task list_and_preview_report_a_suite_with_nothing_discovered(string command)
+    {
+        var console = new StringWriter();
+        var original = Console.Out;
+        Console.SetOut(console);
+        try
+        {
+            var code = await BobcatRunner.Run([command], _ => { });
+            code.ShouldBe(0);
+            console.ToString().ShouldContain("No specs were discovered");
+        }
+        finally { Console.SetOut(original); }
+    }
+
+    /// <summary>
+    /// Issue #369 / #370. A filter that selects nothing quotes itself back, rather than rendering
+    /// as an empty page the reader has to interpret.
+    /// </summary>
+    [Theory]
+    [InlineData("list")]
+    [InlineData("preview")]
+    public async Task list_and_preview_report_a_filter_that_matched_nothing(string command)
+    {
+        var console = new StringWriter();
+        var original = Console.Out;
+        Console.SetOut(console);
+        try
+        {
+            var code = await BobcatRunner.Run([command, "--tag", "nosuchtag"],
+                r => r.AddFeature(buildFeature("Orders", passes: true, "places")));
+
+            code.ShouldBe(0);
+            var text = console.ToString();
+            text.ShouldContain("Nothing matched");
+            text.ShouldContain("nosuchtag");
+            text.ShouldNotContain("Feature: Orders");
+        }
+        finally { Console.SetOut(original); }
+    }
+
     [Fact]
     public async Task list_executes_nothing_and_exits_zero()
     {

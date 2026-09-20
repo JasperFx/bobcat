@@ -58,7 +58,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         {
             EventModelFileKind.Curated => readCurated(yaml),
             EventModelFileKind.Emlang => importEmlang(input, yaml),
-            _ => null,
+            _ => describeUnrecognized(input.FilePath),
         };
 
         if (curated is null) return false;
@@ -69,6 +69,21 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
 
         return input.UrlFlag is null || await pushAsync(input.UrlFlag, descriptor);
+    }
+
+    /// <summary>
+    /// The file exists and is neither shape. Issue #369: this arm used to return null with no
+    /// message at all, so the command exited 1 having printed nothing — where a missing file and
+    /// an invalid curated file both reported properly. Naming the two shapes it tried is the
+    /// whole fix.
+    /// </summary>
+    private static CuratedModelFile? describeUnrecognized(string path)
+    {
+        System.Console.Error.WriteLine(
+            $"{path} is not an event-model file. Expected either the curated format (a `schema:`, "
+            + "`model:` and `slices:` document) or an eventmodelers.ai emlang board export (a "
+            + "`slices:` map of chapters with `steps:`).");
+        return null;
     }
 
     private static CuratedModelFile? readCurated(string yaml)
@@ -108,6 +123,14 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var outPath = input.OutFlag
                       ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!, $"{model}.emodel.yaml");
+
+        // --out names a file, and its directory may not exist yet. Letting File.WriteAllText throw
+        // dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the segmentation report had
+        // already printed and looked like success (issue #369). Creating it is the friendlier
+        // reading of "write the reviewable file here".
+        var outDirectory = Path.GetDirectoryName(Path.GetFullPath(outPath));
+        if (!string.IsNullOrEmpty(outDirectory)) Directory.CreateDirectory(outDirectory);
+
         File.WriteAllText(outPath, CuratedModelWriter.Write(result.Model), Encoding.UTF8);
         System.Console.WriteLine($"Curated model written to {outPath} — review the segmentation there before building against it.");
 

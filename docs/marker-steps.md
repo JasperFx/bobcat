@@ -18,7 +18,9 @@ eighteen tests, no test body edited.
 **Marker comments** declare the steps of one test:
 
 ```csharp
-[Bobcat.BobcatFeature("Async daemon")]
+using Bobcat.Xunit;      // or Bobcat.TUnit — the runner adapter, see below
+
+[BobcatFeature("Async daemon"), BobcatScenario]
 public class when_the_daemon_catches_up : DaemonContext
 {
     [Fact]
@@ -42,6 +44,11 @@ public class when_the_daemon_catches_up : DaemonContext
 Three of those comments are steps and one is a comment. A marker is a `//` comment opening with
 `Given`, `When`, `Then`, `And` or `But` as a whole word — everything else stays invisible, which
 is the property that makes this usable on a real suite full of explanatory comments.
+
+`[BobcatFeature]` names the feature and `[BobcatScenario]` comes from the
+[runner adapter](#the-runner-adapter). **Both are needed.** The comments alone register declared
+steps at compile time, but without the adapter no scenario is ever opened, so nothing publishes —
+you get the half of the feature that is invisible.
 
 **`[BobcatStep]`** goes the other way. Decorate a shared helper once and *every* test that already
 calls it renders that step:

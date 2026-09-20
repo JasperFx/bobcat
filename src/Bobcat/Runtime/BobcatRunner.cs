@@ -282,6 +282,38 @@ public class BobcatRunner
             : "Every discovered feature has no scenarios, so this run asserted nothing.";
     }
 
+    /// <summary>
+    /// Why a <c>list</c>/<c>preview</c> selection is empty, or null when it has something.
+    /// </summary>
+    /// <remarks>
+    /// The same reasons <see cref="describeEmptyRun"/> reports, phrased for a command that
+    /// inspects rather than asserts — and deliberately NOT gated on <see cref="RequireSpecs"/>,
+    /// which is a statement about what a run is allowed to pass with. Issue #369: `run` reported
+    /// this state loudly and exited 2 while `list` and `preview` printed nothing and exited 0, so
+    /// the two commands a person reaches for FIRST when a project is misconfigured were the two
+    /// that said nothing. They still exit 0 — inspecting an empty selection is a fair thing to
+    /// ask for — but they no longer do it in silence.
+    /// </remarks>
+    internal string? DescribeEmptySelection(string? featureFilter, string? tagFilter)
+    {
+        if (_features.Count == 0)
+            return "No specs were discovered. A .feature file must be an <AdditionalFiles> item "
+                   + "in the project the generator runs in, and its fixture must bind (BOBCAT001).";
+
+        var features = filteredFeatures(featureFilter).ToArray();
+        if (features.Sum(f => filteredScenarios(f, tagFilter).Count()) > 0) return null;
+
+        var applied = new List<string>();
+        if (!string.IsNullOrWhiteSpace(featureFilter)) applied.Add($"--feature \"{featureFilter}\"");
+        if (!string.IsNullOrWhiteSpace(tagFilter)) applied.Add($"--tag \"{tagFilter}\"");
+
+        return applied.Count > 0
+            ? $"Nothing matched {string.Join(" and ", applied)} — "
+              + $"{_features.Sum(f => f.Scenarios.Count)} scenario(s) discovered across "
+              + $"{_features.Count} feature(s)."
+            : "Every discovered feature has no scenarios.";
+    }
+
     private async Task runSuite(FeatureDefinition[] features, string? tagFilter, SuiteResults suiteResults)
     {
         try
@@ -572,8 +604,14 @@ public class BobcatRunner
 
         if (tagFilter != null)
         {
+            // Tags are stored without the '@' — the Gherkin parser strips it. A user filtering
+            // copies the tag out of their own .feature file, where it is written WITH one, so
+            // both spellings have to mean the same thing. Rejecting `@slow` silently matched
+            // nothing, and on `list`/`preview` that renders as a feature with no scenarios
+            // rather than as an empty result (issue #370).
+            var tag = tagFilter.TrimStart('@');
             scenarios = scenarios.Where(s =>
-                s.Tags.Any(t => t.Equals(tagFilter, StringComparison.OrdinalIgnoreCase)));
+                s.Tags.Any(t => t.Equals(tag, StringComparison.OrdinalIgnoreCase)));
         }
 
         if (ScenarioFilter != null)

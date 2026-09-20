@@ -14,7 +14,10 @@ public class PreviewCommand : JasperFxAsyncCommand<BobcatInput>
 {
     public override Task<bool> Execute(BobcatInput input)
     {
-        RenderAll(input.Runner, input.FeatureFlag, input.TagFlag, new CommandLineRenderer());
+        // Issue #369: an empty selection is reported rather than rendered as nothing at all.
+        var empty = input.Runner.DescribeEmptySelection(input.FeatureFlag, input.TagFlag);
+        if (empty != null) Console.WriteLine(empty);
+        else RenderAll(input.Runner, input.FeatureFlag, input.TagFlag, new CommandLineRenderer());
 
         input.ExitCode = 0;
         return Task.FromResult(true);
@@ -28,9 +31,15 @@ public class PreviewCommand : JasperFxAsyncCommand<BobcatInput>
     {
         foreach (var feature in runner.SelectFeatures(featureFilter))
         {
+            var scenarios = runner.SelectScenarios(feature, tagFilter).ToArray();
+
+            // Same reason as ListCommand: a feature whose scenarios a tag filter removed should
+            // not render a header suggesting it has none (issue #370).
+            if (scenarios.Length == 0) continue;
+
             renderer.RenderFeatureHeader(feature.Title);
 
-            foreach (var scenario in runner.SelectScenarios(feature, tagFilter))
+            foreach (var scenario in scenarios)
             {
                 renderer.RenderPreview(PreviewRender.FromScenario(feature, scenario));
             }
