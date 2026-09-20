@@ -46,6 +46,8 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Integrating Bobcat Gherkin', link: '/integrating-gherkin' },
+          { text: 'The Run Lifecycle', link: '/run-lifecycle' },
+          { text: 'Resources', link: '/resources' },
           { text: 'Wiring a Real Host', link: '/wiring-a-real-host' },
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
