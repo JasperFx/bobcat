@@ -195,7 +195,7 @@ public class AlbaContentRootResolutionTests : IDisposable
     public void nested_tests_layout_finds_the_host_project_without_the_attribute()
     {
         // <repo>/samples/My.Web/My.Web.csproj with the tests at <repo>/samples/My.Web/Tests — the
-        // layout docs/sample-wiring.md footgun 2 is about.
+        // layout docs/wiring-a-real-host.md footgun 2 is about.
         file(Path.Combine(dir(), "repo.sln"));
         var project = dir("samples", "My.Web");
         file(Path.Combine(project, "My.Web.csproj"));

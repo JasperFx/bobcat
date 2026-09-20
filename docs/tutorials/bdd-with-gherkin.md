@@ -146,7 +146,7 @@ var result = await Context!.PostJsonAsync<CreateCustomer, Customer>("/customers"
 `TResponse` cannot be inferred from the call.
 
 Wiring a real host has a playbook of its own, including eighteen footguns found by actually doing
-it: [Sample Wiring Playbook](../sample-wiring.md). The two that bite first are giving the resource
+it: [Wiring a Real Host](../wiring-a-real-host.md). The two that bite first are giving the resource
 a reset hook so scenarios do not inherit each other's data, and waiting for cascaded messages
 before asserting.
 

@@ -85,7 +85,7 @@ public class AlbaStepContextExtensionsTests : IAsyncLifetime
     public async Task put_surfaces_a_non_200_status_instead_of_throwing()
     {
         // Alba's default Scenario() asserts 200. The helpers call IgnoreStatusCode() so a spec
-        // can assert on 409/404 paths deliberately — see docs/sample-wiring.md footgun 6.
+        // can assert on 409/404 paths deliberately — see docs/wiring-a-real-host.md footgun 6.
         var result = await _context.PutJsonAsync<Thing, Thing>("/conflict", new Thing("x", 0));
 
         result.StatusCode.ShouldBe(409);

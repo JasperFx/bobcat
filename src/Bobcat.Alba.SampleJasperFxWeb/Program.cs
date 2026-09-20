@@ -10,7 +10,7 @@ namespace Bobcat.Alba.SampleJasperFxWeb;
 /// A host whose Main ends in <c>RunJasperFxCommands</c>, exactly as a Wolverine or Marten
 /// application's does. An explicit class rather than top-level statements, so the test project
 /// that references this one never sees two global-namespace <c>Program</c> types
-/// (docs/sample-wiring.md footgun 1).
+/// (docs/wiring-a-real-host.md footgun 1).
 /// </summary>
 public class Program
 {

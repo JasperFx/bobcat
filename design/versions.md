@@ -19,7 +19,7 @@ target the **same** set when wired up (issue #8).
 | Test stack | `xunit.v3` / `Microsoft.Testing.Platform` / `Shouldly` / `NSubstitute` | `3.2.2` / `1.9.1` / `4.3.0` / `5.3.0` |
 | Second runner (adapter surface) | `TUnit.Core` | `1.66.27` |
 
-## The samples now target the canonical set
+## Which samples track the canonical set, and which deliberately do not
 
 The standing exception — `samples/BankAccountES` on WolverineFx 6.31.0 while `src/` stayed on
 6.30.1 — is **gone**. It existed because `Wolverine.CritterWatch 1.0.2-vehicle.1` floors at
@@ -124,7 +124,7 @@ Two wrinkles worth knowing:
 ## Samples: target set for wiring (issue #8)
 
 Each sample currently pins `WolverineFx.* 5.30.0` on `net9.0`. Wiring a sample to BobcatRunner
-(see [sample-wiring.md](sample-wiring.md)) requires moving it onto the canonical set above:
+(see [sample-wiring-playbook.md](sample-wiring-playbook.md)) requires moving it onto the canonical set above:
 
 1. Host `.csproj`: `TargetFramework` → `net10.0`.
 2. `WolverineFx.*` package references → `6.5.1` (this is a **major upgrade** from 5.30.x —

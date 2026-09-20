@@ -945,7 +945,7 @@ public class BobcatRunner
                    "top-level statements, which collide with the host's 'Program' so AlbaResource<Program> binds to " +
                    "the wrong entry point (often a native PAL_SEHException with no managed stack). Fix: make " +
                    "SpecsRunner.cs an explicit 'static class SpecsRunner { static Task Main(string[] args) ... }' " +
-                   "rather than top-level statements. See docs/sample-wiring.md.";
+                   "rather than top-level statements. See docs/wiring-a-real-host.md.";
         }
 
         return null;

@@ -46,7 +46,7 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Integrating Bobcat Gherkin', link: '/integrating-gherkin' },
-          { text: 'Sample Wiring Playbook', link: '/sample-wiring' },
+          { text: 'Wiring a Real Host', link: '/wiring-a-real-host' },
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
           { text: 'Specs From Existing Tests', link: '/marker-steps' },

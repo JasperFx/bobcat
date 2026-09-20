@@ -43,7 +43,7 @@ namespace Bobcat.Wolverine;
 /// <code>
 /// new HostResource&lt;Program&gt;(reset: async host =&gt;
 /// {
-///     await host.ResetStoreAsync();          // whatever the suite already did
+///     await host.ResetEventStoresAsync();    // whatever the suite already did
 ///     await host.DrainTransportsAsync();     // …and the broker too
 /// });
 /// </code>

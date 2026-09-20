@@ -92,5 +92,5 @@ of messages it cleared.
 
 ## Where to go next
 
-- The eighteen wiring footguns, several of which are Wolverine-specific — [Sample Wiring Playbook](../sample-wiring.md)
+- The eighteen wiring footguns, several of which are Wolverine-specific — [Wiring a Real Host](../wiring-a-real-host.md)
 - Marten alongside Wolverine — [Bobcat with Marten](marten.md)

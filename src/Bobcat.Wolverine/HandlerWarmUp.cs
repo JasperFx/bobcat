@@ -102,7 +102,7 @@ public sealed class HandlerWarmUpException : Exception
 /// <b>HTTP endpoints are not covered.</b> A Wolverine.HTTP route compiles on its first request,
 /// and Bobcat.Wolverine has no Wolverine.HTTP reference to reach it. Wolverine already owns the
 /// switch: <c>app.MapWolverineEndpoints(opts =&gt; opts.WarmUpRoutes = RouteWarmup.Eager)</c>
-/// builds every route while the host starts. See <c>docs/sample-wiring.md</c>.
+/// builds every route while the host starts. See <c>docs/wiring-a-real-host.md</c>.
 /// </para>
 /// </remarks>
 public static class HandlerWarmUp

@@ -219,7 +219,7 @@ public static class SpecsRunner
 
 **`ScanForFeatures` is not optional.** It is what hands the generator's output to the runner;
 without it every command below runs and finds nothing. Use an explicit `static class` rather than
-top-level statements — see [footgun 1](sample-wiring.md#_1-program-symbol-collision-when-specsrunner-uses-top-level-statements).
+top-level statements — see [footgun 1](wiring-a-real-host.md#_1-program-symbol-collision-when-specsrunner-uses-top-level-statements).
 
 ### The commands
 

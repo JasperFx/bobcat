@@ -1,83 +1,22 @@
-# Sample Wiring Playbook
+# Wiring a Real Host
 
-How to wire a sample host to `BobcatRunner` so its `.feature` specs run end-to-end through
-Alba. This is the canonical reference for issue #8; the reference implementation is
-`samples/CqrsMinimalApi/Tests/`.
+Pointing Bobcat at a real application — an ASP.NET Core host, a database, a message broker — is
+where the work actually goes. None of what follows is exotic; every item below was found by wiring
+a real host and running it, and most of them fail **silently** or fail somewhere far from the
+cause.
 
-## Before anything: start the database
+Read it once before you start, and come back to it when something behaves strangely. If you are
+looking for the setup rather than the hazards, start with
+[Integrating Bobcat Gherkin](integrating-gherkin.md) and the
+[Alba](integrations/alba.md), [Marten](integrations/marten.md) and
+[Wolverine](integrations/wolverine.md) integration pages.
 
-```bash
-cd samples && docker compose up -d
-```
-
-Published on **5433**, which is the port every sample's default connection string already names,
-with one database per sample created by `samples/init/create-databases.sql`. This did not exist
-until `PaymentsMonolith` was wired, and its absence is not a footnote — the whole lesson of this
-playbook is that **a sample is not fixed until it has been run**, and there was nothing to run it
-against. Wiring a sample without starting this is wiring it blind.
-
-**5433 collides with the Wolverine repo's own Postgres**, which publishes on the same port and is
-routinely left running for days. `docker compose up -d` then fails with `Bind for 0.0.0.0:5433
-failed: port is already allocated`, and killing the other repo's container to get your own is the
-wrong trade. Bobcat's *root* `docker-compose.yml` already learned this and sits on 5445 precisely
-so it never collides. The fastest way through, since it is the same image and the same
-`postgres`/`postgres` credentials, is to create the sample databases in whichever instance holds
-the port:
-
-```bash
-for db in bank_account booking clean_architecture_todos cqrs_minimal_api ecommerce \
-          inflow meeting_groups more_speakers outbox_demo; do
-  docker exec <container> psql -U postgres -c "CREATE DATABASE $db"
-done
-```
-
-Moving `samples/docker-compose.yml` off 5433 is the durable fix, but it means editing the
-connection string in all eleven `appsettings.json` files, so it is a decision rather than a
-detail.
-
-## The playbook
-
-For each sample, replicate what `CqrsMinimalApi` has:
-
-1. **Add a `Tests/` subdirectory** with three files:
-   - `Tests.csproj` — `net10.0`, `OutputType=Exe`; project-references the host + `Bobcat` +
-     `Bobcat.Alba` + `Bobcat.Generators` (as an analyzer); `<Compile Include="..\<Project>Fixture.cs" />`
-     to link the fixture in; `<AssemblyName><Project>.Tests</AssemblyName>` to match
-     `[InternalsVisibleTo]`.
-   - `SpecsRunner.cs` — an **explicit `static class SpecsRunner` with a `Main`**. Do **not** use
-     top-level statements (see footgun #1).
-   - `AssemblyAttributes.cs` —
-     `[assembly: WebApplicationFactoryContentRoot("<HostAssemblyName>", "../../../..", "appsettings.json", "1")]`
-     so Alba can find the host's content root despite the nested layout (footgun #2).
-2. **Update the host `.csproj`:** (target the canonical version matrix in `design/versions.md` — `net10.0`,
-   `WolverineFx.* 6.5.1`, `Marten 9.6.0`; the move off `5.30.0`/`net9.0` is a major upgrade)
-   - Bump `TargetFramework` to `net10.0` if still on `net9.0` (footgun #1 also presents as a TFM mismatch).
-   - `<InternalsVisibleTo Include="<Project>.Tests" />`.
-   - Exclude the fixture from the host compile group: `<Compile Remove="<Project>Fixture.cs" />`.
-3. Make the fixture extend `Bobcat.Fixture` and use `Context!` (not a stored field), or take an
-   `IStepContext` parameter per step. **`Fixture` is not optional** — the generator's fixture
-   discovery is `inheritsFrom(symbol, "Bobcat.Fixture")`, so a class that merely carries
-   `[FixtureTitle]` matches nothing and the feature generates no code at all. The symptom is
-   silence, not an error: the project compiles, and `list` reports no features.
-4. **Give the resource a reset hook if the host has persistent state.** `AlbaResource`'s `reset:`
-   parameter is `ResetBetweenScenarios`. A suite that passes once per database and then reports
-   conflicts for records it believes are new is worse than no suite — and it is the default
-   outcome for any sample with a unique index. `samples/OutboxDemo/Tests/SpecsRunner.cs` is the
-   worked example (`store.Advanced.Clean.DeleteAllDocumentsAsync()`).
-5. **Bring the host API and the fixture into agreement.** This is where the work usually goes —
-   fixtures often describe a clean RESTful contract while host endpoints are RPC-style. Refactor
-   the host (Path A) rather than weakening the spec. Expect the fixture to describe endpoints
-   that do not exist at all: `OutboxDemo`'s posted to `/api/meetings/member-joined` while the host
-   exposed one `POST /registration`. Nothing had ever compiled it, so nothing reported the drift.
-6. Drop and recreate the host's Marten schema before the first run (old shape may conflict).
-7. **Wait for cascaded messages before asserting** if the host routes integration events between
-   modules. See footgun 7 — this is the difference between a suite that passes and one that
-   passes *reliably*, and it does not announce itself.
-8. **Run it twice, then break it once.** Twice, because persistent state is what a first run
-   cannot reveal. Broken once, because a spec that cannot go red has told you nothing: change an
-   expected value, confirm the failure lands on the step you expected, change it back.
-   `PaymentsMonolith` was verified this way, including removing the cascade tracking to confirm
-   three scenarios really do fail without it.
+::: tip The two that bite first
+Give the resource a **reset hook** so scenarios do not inherit each other's data (footgun 11), and
+**wait for cascaded messages** before asserting (footgun 7). A suite that passes once per database,
+or that asserts on the HTTP response while a cascade is still in flight, is the default outcome
+rather than an unlucky one.
+:::
 
 ## Footguns
 
@@ -218,8 +157,9 @@ Asserting off the response races the handler.
   — hence the explicitly typed delegate rather than an inline lambda (CS0121).
 - `samples/PaymentsMonolith/PaymentsMonolithFixture.cs` (`awaitingCascades`) is the worked
   example. Removing it fails 3 of 11 scenarios, so it is load-bearing rather than defensive.
-- This is the seam `Bobcat.CritterStack` owns (`InvokeMessageAndWaitAsync`,
-  `ExecuteAggregateCommandAsync<T>`, `WaitForNonStaleProjectionsAsync`); `PaymentsMonolith`
+- This is the seam the Critter Stack packages own — `ExecuteAggregateCommandAsync<T>` and
+  `WaitForNonStaleProjectionsAsync` in `Bobcat.CritterStack`, `InvokeMessageAndWaitAsync` in
+  `Bobcat.Wolverine`, which `Bobcat.CritterStack` references; `PaymentsMonolith`
   predates it and still reaches for `Wolverine.Tracking` directly. `BankAccountES/Tests` is the
   sample that uses the package — its reset hook is `host.ResetEventStoresAsync()`, through
   `JasperFx.Events.IEventStore`, with no `using Marten` in the spec project.
@@ -228,8 +168,6 @@ Asserting off the response races the handler.
   and passed **10 of 10** runs with the tracking removed, because a one-document handler
   usually beats the follow-up GET. Usually. Keep the tracking wherever the cascade exists, and
   record the measurement either way so the next reader knows which kind of suite they have.
-- This is the seam `Bobcat.CritterStack` will eventually own; until that package exists, the
-  fixture reaches for `Wolverine.Tracking` directly.
 
 ### 8. Marten projection subclasses must be `partial`, and `CreateEvent<T>` is gone
 Two separate breakages in the same file, both from the Marten 9 / JasperFx.Events 2 move, and
@@ -444,7 +382,7 @@ is broken" when the cause is the one before it. Issue #282.
 ```csharp
 new HostResource<Program>(reset: async host =>
 {
-    await host.ResetStoreAsync();        // whatever the suite already did
+    await host.ResetEventStoresAsync();  // whatever the suite already did
     await host.DrainTransportsAsync();   // …and the broker too
 });
 ```
@@ -517,3 +455,4 @@ app.MapWolverineEndpoints(opts => opts.WarmUpRoutes = RouteWarmup.Eager);
 
 Or skip all of it: pre-generated code (`codegen write` + `TypeLoadMode.Static`, footgun 4) pays
 nothing at run time.
+

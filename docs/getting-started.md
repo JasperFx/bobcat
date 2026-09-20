@@ -38,7 +38,7 @@ decorated helpers, one class at a time.
 - **[The Tutorials](tutorials/)** — the whole documentation set organized by what you are trying to accomplish, rather than by what Bobcat is made of. Start there if you are not sure which page you want
 - [Integrating Bobcat Gherkin](integrating-gherkin.md) — making a spec project executable: `dotnet test` and your IDE, or the command line runner with `preview` and `interactive`
 - [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
-- [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
+- [Wiring a Real Host](wiring-a-real-host.md) — the eighteen hazards of pointing Bobcat at a real application, database and broker
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Make Existing Integration Tests More Reliable](parallel-ready-suites.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets, and what a suite needs before it can be split
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it

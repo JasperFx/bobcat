@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Console;
 namespace Bobcat.Runtime;
 
 /// <summary>
-/// Diagnostics for the Alba host bootstrap footguns documented in docs/sample-wiring.md.
+/// Diagnostics for the Alba host bootstrap footguns documented in docs/wiring-a-real-host.md.
 /// </summary>
 public static class AlbaResourceDiagnostics
 {
@@ -56,7 +56,7 @@ public static class AlbaResourceDiagnostics
                "then the test output directory itself — so reaching this usually means no solution file is above the " +
                $"test output, or the directory it found is not the one the host wants. {fix}, or add " +
                "[assembly: WebApplicationFactoryContentRoot(\"<HostAssemblyName>\", \"<relative path from the test output>\", \"appsettings.json\", \"1\")] " +
-               "to the test assembly. See docs/sample-wiring.md footgun 2.";
+               "to the test assembly. See docs/wiring-a-real-host.md footgun 2.";
     }
 
     /// <summary>

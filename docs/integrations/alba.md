@@ -76,4 +76,4 @@ first:
 - **Host console logging floods the test output** — `AlbaResource<T>` floors it at Warning for you.
 - **Seed data in `Program.cs` runs under Alba**, and your reset hook is what removes it.
 
-All eighteen, with the symptom each one presents as: [Sample Wiring Playbook](../sample-wiring.md).
+All eighteen, with the symptom each one presents as: [Wiring a Real Host](../wiring-a-real-host.md).

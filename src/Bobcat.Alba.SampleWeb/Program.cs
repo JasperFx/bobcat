@@ -9,7 +9,7 @@ namespace Bobcat.Alba.SampleWeb;
 /// <summary>
 /// Entry point of the sample host Bobcat.Alba.Tests boots through <c>AlbaResource&lt;Program&gt;</c>.
 /// An explicit class rather than top-level statements, so the test project that references this
-/// one never sees two global-namespace <c>Program</c> types (docs/sample-wiring.md footgun 1).
+/// one never sees two global-namespace <c>Program</c> types (docs/wiring-a-real-host.md footgun 1).
 /// </summary>
 public class Program
 {
