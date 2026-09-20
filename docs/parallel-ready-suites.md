@@ -266,7 +266,7 @@ partition sets the floor: Wolverine's run bottomed out at ~67s because one test 
 The evidence for attacking that is in the run itself: `RunReport`'s `Timing` section ranks the
 slowest tests by **share of wall clock**, reports parallel efficiency, and prices retries and
 isolation — report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
-Across runs, the committed ledger (`TestLedger`, see `ledger-design.md`) carries duration trends,
+Across runs, the committed ledger (`TestLedger`, see `design/ledger-design.md`) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
 durations instead of test counts.
 

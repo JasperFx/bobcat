@@ -174,3 +174,13 @@
 .bc-fail { color: var(--bc-fail); font-family: var(--vp-font-family-mono); }
 .dark .bc-pass { color: #5FBF8B; }
 .dark .bc-fail { color: #E2564A; }
+
+/* Community box beside the outline — same shape as Marten's */
+.info-box {
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 10px;
+  margin-top: 10px;
+  font-size: 0.85em;
+  color: var(--vp-c-text-2);
+}
+.info-box a { font-weight: 600; }

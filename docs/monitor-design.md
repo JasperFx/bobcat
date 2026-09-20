@@ -305,7 +305,7 @@ instead will collapse the same rows again.
 
 - **Elapsed-vs-expected per step.** Step progress (Bobcat-side seams item 5) carries elapsed;
   "expected" needs a duration history across runs, which is the same committed ledger #44 layer 2
-  and #56 layer 3 want — one store, not three. See [Test Ledger Design](ledger-design.md).
+  and #56 layer 3 want — one store, not three. See `design/ledger-design.md`.
 - **Step result cells.** `label / expected / actual / comparison / verdict` on a step result, so a
   table step's failure travels as a marked-up table instead of the sentence it is flattened into
   today. That is issue #324, left out of #322 deliberately rather than bundled in.

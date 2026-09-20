@@ -18,13 +18,30 @@ export default defineConfig({
     logo: { light: '/bobcat-avatar-light-512.png', dark: '/bobcat-avatar-dark-512.png', alt: 'Bobcat' },
     siteTitle: 'Bobcat',
     nav: [
-      { text: 'Guide', link: '/getting-started' },
+      { text: 'Tutorials', link: '/tutorials/' },
+      { text: 'Guides', link: '/getting-started' },
+      { text: 'Integrations', link: '/integrations/' },
       { text: 'Supervising', link: '/parallel-ready-suites' },
-      { text: 'Reference', link: '/versions' }
+      { text: 'Join Chat', link: 'https://discord.gg/WMxrvegf8H' }
     ],
     sidebar: [
       {
-        text: 'Guide',
+        text: 'Tutorials',
+        collapsed: false,
+        items: [
+          { text: 'Overview', link: '/tutorials/' },
+          { text: 'BDD with Gherkin', link: '/tutorials/bdd-with-gherkin' },
+          { text: 'Specifications with Code', link: '/tutorials/specifications-with-code' },
+          { text: 'Data Intensive Specifications', link: '/tutorials/data-intensive-specifications' },
+          { text: 'Integrating with CI', link: '/tutorials/continuous-integration' },
+          { text: 'Integrating with Your IDE', link: '/tutorials/ide-integration' },
+          { text: 'Event Modeling and SDD', link: '/tutorials/event-modeling' },
+          { text: 'Reliable Integration Testing', link: '/tutorials/reliable-integration-testing' },
+          { text: 'Agent Friendly Tests', link: '/tutorials/agent-friendly-tests' }
+        ]
+      },
+      {
+        text: 'Guides',
         collapsed: false,
         items: [
           { text: 'Getting Started', link: '/getting-started' },
@@ -34,8 +51,20 @@ export default defineConfig({
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
           { text: 'Specs From Existing Tests', link: '/marker-steps' },
+          { text: 'Bobcat with xUnit.net', link: '/xunit' },
+          { text: 'Bobcat with TUnit', link: '/tunit' },
           { text: 'Checking Spec Identities', link: '/spec-identities' },
           { text: 'Editor Integration', link: '/editor-integration' }
+        ]
+      },
+      {
+        text: 'Integrations',
+        collapsed: false,
+        items: [
+          { text: 'Overview', link: '/integrations/' },
+          { text: 'Bobcat with Alba', link: '/integrations/alba' },
+          { text: 'Bobcat with Marten', link: '/integrations/marten' },
+          { text: 'Bobcat with Wolverine', link: '/integrations/wolverine' }
         ]
       },
       {
@@ -44,15 +73,6 @@ export default defineConfig({
         items: [
           { text: 'Parallel-Ready Suites', link: '/parallel-ready-suites' },
           { text: 'What a Run Publishes', link: '/monitor-design' }
-        ]
-      },
-      {
-        text: 'Reference',
-        collapsed: false,
-        items: [
-          { text: 'Version Matrix', link: '/versions' },
-          { text: 'Test Ledger Design', link: '/ledger-design' },
-          { text: 'Wolverine CI Rollout', link: '/wolverine-ci-rollout' }
         ]
       }
     ],

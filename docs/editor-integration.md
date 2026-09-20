@@ -5,7 +5,7 @@ Status, 2026-08-28:
 | Editor | Status | What it costs |
 |---|---|---|
 | **VS Code** | Works today, zero Bobcat code | Install the official Cucumber extension, commit three settings (`.vscode/settings.json` in this repo is the sample) |
-| **Rider** | **A Bobcat plugin of our own, not scheduled** (bobcat#109, reframed 2026-09-14) | Nothing today. [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) — the `docs/rider/0001-bobcat-attributes.patch` change, pushed as `jeremydmiller:bobcat-attributes` — is open upstream and nothing waits on it: if it merges, Rider works for Bobcat users sooner. Before submitting it the 2026.2 gap was closed: the full plugin **and** its test project compile clean with `dotnet build` against the real `JetBrains.Rider.SDK` 2026.2.0 (the `./gradlew :prepare` guard only wants `build/DotNetSdkPath.Generated.props`, satisfiable by hand — see `docs/rider/README.md`), though it was never run in a `:runIde` sandbox. Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
+| **Rider** | **A Bobcat plugin of our own, not scheduled** (bobcat#109, reframed 2026-09-14) | Nothing today. [reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) — the `design/rider/0001-bobcat-attributes.patch` change, pushed as `jeremydmiller:bobcat-attributes` — is open upstream and nothing waits on it: if it merges, Rider works for Bobcat users sooner. Before submitting it the 2026.2 gap was closed: the full plugin **and** its test project compile clean with `dotnet build` against the real `JetBrains.Rider.SDK` 2026.2.0 (the `./gradlew :prepare` guard only wants `build/DotNetSdkPath.Generated.props`, satisfiable by hand — see `design/rider/README.md`), though it was never run in a `:runIde` sandbox. Meanwhile, a `partial` fixture in the same solution is very likely already visible to the shipped plugin (source reading, below) |
 
 Decision of record from the issue still stands: no Reqnroll package dependency (there is no
 attributes-only package) and no namespace-squatting of `Reqnroll.GivenAttribute`. Everything
@@ -294,7 +294,7 @@ reading above is wrong somewhere specific.
 
 ### The patch — option A, written and verified as far as this machine allows
 
-`docs/rider/0001-bobcat-attributes.patch` (+186/−9 across 5 files; `docs/rider/README.md` is the
+`design/rider/0001-bobcat-attributes.patch` (+186/−9 across 5 files; `design/rider/README.md` is the
 cover note with the fork / `gh pr create` commands). It is the sketch below made real, with three
 things the sketch did not have:
 
@@ -315,7 +315,7 @@ the Rider 2025.1 installed on this machine; both caches **type-check** against t
 metadata DLLs with only the two expected errors from 2026.2's reshaped `IAssemblyCache`; the
 patch applies cleanly on `origin/main`. The plugin was **not** built with the 2026.2 SDK (Gradle +
 Java 25 + a multi-GB SDK download, not on this machine) and **not** run in a Rider sandbox.
-`docs/rider/README.md` spells out exactly what was and was not done.
+`design/rider/README.md` spells out exactly what was and was not done.
 
 **`[Check]` and `[TableGrammar]` under the patch:** `[Check("...")]` becomes a Then on both paths
 (full name `Bobcat.CheckAttribute` in assemblies, short name `Check` in source), so the

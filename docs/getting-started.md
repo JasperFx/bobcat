@@ -35,6 +35,7 @@ decorated helpers, one class at a time.
 
 ## Next
 
+- **[The Tutorials](tutorials/)** — the whole documentation set organized by what you are trying to accomplish, rather than by what Bobcat is made of. Start there if you are not sure which page you want
 - [The Command Line](command-line.md) — `run`, `list`, `preview` (step bindings, nothing executed), and the warm-suite `interactive` mode
 - [Running Specs with `dotnet test`](dotnet-test.md) — the generated MTP entry point, `[BobcatConfiguration]`, and the `--filter-feature`/`--filter-tag` options
 - [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
@@ -43,4 +44,3 @@ decorated helpers, one class at a time.
 - [Make Existing Integration Tests More Reliable](parallel-ready-suites.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets, and what a suite needs before it can be split
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The `bobcat` Tool](command-line.md#the-bobcat-tool) — reading, validating and importing Event Model files
-- [Version Matrix](versions.md) — the canonical, mutually-compatible dependency set
