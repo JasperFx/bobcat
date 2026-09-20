@@ -63,7 +63,33 @@ public class PartialArrangementTests
             }, partial: true));
 
         ex.Message.ShouldContain("ProposdFor");
-        ex.Message.ShouldContain("match nothing on 'Proposed'");
+        ex.Message.ShouldContain("the column [ProposdFor] matches nothing on 'Proposed'");
+    }
+
+    /// <summary>
+    /// The verb agrees with the count. Only the noun used to be pluralized, so a single bad column
+    /// read "the column [X] match nothing" — which is the message a reader meets at the exact
+    /// moment they have mistyped something, so it is the worst place to look careless.
+    /// </summary>
+    [Fact]
+    public void the_unmatched_column_message_agrees_in_number()
+    {
+        var one = Should.Throw<SpecCriticalException>(() =>
+            RecordBuilding.Build(typeof(Proposed), new Dictionary<string, string>
+            {
+                ["OwnerId"] = Owner.ToString(), ["ProposdFor"] = "2026-10-01T15:00:00Z",
+            }, partial: true));
+
+        one.Message.ShouldContain("the column [ProposdFor] matches nothing");
+
+        var many = Should.Throw<SpecCriticalException>(() =>
+            RecordBuilding.Build(typeof(Proposed), new Dictionary<string, string>
+            {
+                ["OwnerId"] = Owner.ToString(), ["ProposdFor"] = "x", ["Wieght"] = "y",
+            }, partial: true));
+
+        many.Message.ShouldContain("match nothing");
+        many.Message.ShouldNotContain("matches nothing");
     }
 
     [Fact]

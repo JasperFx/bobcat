@@ -168,7 +168,7 @@ public static class RecordBuilding
         throw new SpecCriticalException(
             (step is null ? "" : $"'{step}': ")
             + $"the column{(unmatched.Count == 1 ? "" : "s")} [{string.Join(", ", unmatched)}] "
-            + $"match nothing on '{type.Name}', which has ({string.Join(", ", known.OrderBy(x => x, StringComparer.Ordinal))}). "
+            + $"{(unmatched.Count == 1 ? "matches" : "match")} nothing on '{type.Name}', which has ({string.Join(", ", known.OrderBy(x => x, StringComparer.Ordinal))}). "
             + "Check the spelling, or the field may have been renamed since this spec was written.");
     }
 
