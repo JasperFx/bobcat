@@ -4,7 +4,7 @@ A global .NET tool for **Event Model files** — reading them, validating them, 
 board export into the curated format.
 
 It has nothing to do with running specs. Spec projects are driven either by
-[`dotnet test`](dotnet-test.md) or by [the command line](command-line.md); this tool never loads
+[`dotnet test` or the command line runner](integrating-gherkin.md); this tool never loads
 your test assembly and never executes a scenario. The shared name is the only thing they have in
 common.
 

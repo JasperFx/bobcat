@@ -36,7 +36,7 @@ still compiles — it just compiles nothing, and you get a green build containin
 It is the quietest way to get this wrong.
 
 `Bobcat.Mtp` makes the project a Microsoft.Testing.Platform host, so `dotnet test` and IDE test
-explorers see each scenario as a test. See [Running Specs with `dotnet test`](../dotnet-test.md)
+explorers see each scenario as a test. See [Integrating Bobcat Gherkin](../integrating-gherkin.md#dotnet-test)
 for what that buys you and how to configure the suite.
 
 ## 2. The feature
@@ -131,7 +131,7 @@ binding and where each parameter's value came from:
 ```
 
 It never starts a resource, so it works with the database down. The full command surface is in
-[The Command Line](../command-line.md).
+[Integrating Bobcat Gherkin](../integrating-gherkin.md#command-line-runner).
 
 ## 6. Point it at a real system
 

@@ -33,10 +33,10 @@ No hand-written `Main` is needed — the generator detects `Bobcat.Mtp` and emit
 **One cost to know about:** resources start per run. An IDE that runs one test at a time pays host
 and database startup each time, which is fine for a single scenario and painful for a loop. When
 you are iterating, the `interactive` command keeps resources warm between runs instead — see
-[The Command Line](../command-line.md).
+[Integrating Bobcat Gherkin](../integrating-gherkin.md#command-line-runner).
 
 Details, including configuring the suite with `[BobcatConfiguration]` and the case where the entry
-point is *not* generated: [Running Specs with `dotnet test`](../dotnet-test.md).
+point is *not* generated: [Integrating Bobcat Gherkin](../integrating-gherkin.md#dotnet-test).
 
 ## Part 2 — editing `.feature` files
 

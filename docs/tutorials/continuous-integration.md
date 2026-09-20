@@ -47,7 +47,7 @@ outcome — a green pipeline over a suite that ran nothing. A `.feature` file th
 Under `dotnet test` the flags differ — `--filter-feature`, `--filter-tag`, `--filter-uid` — because
 the MTP host has its own argument surface and the two never mix. Write the tag without the `@`;
 the platform consumes `@`-prefixed arguments as response files. Both filters intersect, and both
-narrow `--list-tests` too. See [Running Specs with `dotnet test`](../dotnet-test.md).
+narrow `--list-tests` too. See [Integrating Bobcat Gherkin](../integrating-gherkin.md#dotnet-test).
 
 Be careful here: on `list` and `preview` a filter that matches nothing prints nothing and exits 0.
 Only `run` treats an empty result as a failure.

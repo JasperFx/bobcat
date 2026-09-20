@@ -36,8 +36,7 @@ decorated helpers, one class at a time.
 ## Next
 
 - **[The Tutorials](tutorials/)** — the whole documentation set organized by what you are trying to accomplish, rather than by what Bobcat is made of. Start there if you are not sure which page you want
-- [The Command Line](command-line.md) — `run`, `list`, `preview` (step bindings, nothing executed), and the warm-suite `interactive` mode
-- [Running Specs with `dotnet test`](dotnet-test.md) — the generated MTP entry point, `[BobcatConfiguration]`, and the `--filter-feature`/`--filter-tag` options
+- [Integrating Bobcat Gherkin](integrating-gherkin.md) — making a spec project executable: `dotnet test` and your IDE, or the command line runner with `preview` and `interactive`
 - [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
 - [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider

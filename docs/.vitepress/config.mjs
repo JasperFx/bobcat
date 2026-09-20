@@ -45,8 +45,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Getting Started', link: '/getting-started' },
-          { text: 'The Command Line', link: '/command-line' },
-          { text: 'Running Specs with dotnet test', link: '/dotnet-test' },
+          { text: 'Integrating Bobcat Gherkin', link: '/integrating-gherkin' },
           { text: 'Sample Wiring Playbook', link: '/sample-wiring' },
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
           { text: 'Code-First Specifications', link: '/code-first-specs' },
