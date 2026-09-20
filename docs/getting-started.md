@@ -40,7 +40,7 @@ decorated helpers, one class at a time.
 - [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
 - [Sample Wiring Playbook](sample-wiring.md) — wire a sample host to `BobcatRunner`
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
-- [Parallel-Ready Suites](parallel-ready-suites.md) — what a suite needs before the supervisor splits it
+- [Make Existing Integration Tests More Reliable](parallel-ready-suites.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets, and what a suite needs before it can be split
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The `bobcat` Tool](command-line.md#the-bobcat-tool) — reading, validating and importing Event Model files
 - [Version Matrix](versions.md) — the canonical, mutually-compatible dependency set

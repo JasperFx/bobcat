@@ -7,12 +7,15 @@ export default defineConfig({
   cleanUrls: true,
   head: [
     ['link', { rel: 'icon', type: 'image/png', sizes: '64x64', href: '/bobcat-favicon-64.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '48x48', href: '/bobcat-favicon-48.png' }],
     ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/bobcat-favicon-32.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/bobcat-favicon-16.png' }],
+    ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: '/bobcat-apple-touch-icon.png' }],
     ['meta', { property: 'og:image', content: 'https://bobcat.jasperfx.net/bobcat-social-dark-1280x640.png' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }]
   ],
   themeConfig: {
-    logo: { light: '/bobcat-mark-light.svg', dark: '/bobcat-mark.svg', alt: 'Bobcat' },
+    logo: { light: '/bobcat-avatar-light-512.png', dark: '/bobcat-avatar-dark-512.png', alt: 'Bobcat' },
     siteTitle: 'Bobcat',
     nav: [
       { text: 'Guide', link: '/getting-started' },

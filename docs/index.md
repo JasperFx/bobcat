@@ -17,18 +17,15 @@ hero:
 
 features:
   - title: Author
-    details: Specifications as Gherkin `.feature` files, bound to plain C# fixture methods with Cucumber expressions.
+    details: Specifications as Gherkin `.feature` files, bound to plain C# fixture methods with Cucumber expressions. Or author them in plain C# instead — an xUnit v3 or TUnit suite carries the specifications itself, through marker comments and `[BobcatStep]` helpers.
     link: /sample-wiring
     linkText: Wire a sample host
   - title: Supervise
-    details: Split a suite across worker processes with per-lane resource isolation, retry budgets, and honest indeterminate reporting.
+    details: Make a big integration suite worth trusting — split across worker processes, resources isolated per lane, retry budgets, and flakiness reported honestly instead of buried.
     link: /parallel-ready-suites
-    linkText: Parallel-ready suites
-  - title: Execute
-    details: Real hosts through Alba, every run publishing its progress over a documented wire, and a `bobcat` tool for Event Model files.
-    link: /monitor-design
-    linkText: What a run publishes
+    linkText: Make existing tests more reliable
+  - title: Specify
+    details: Spec-driven development end to end — executable specifications that still read as requirements, and slice-by-slice scaffolding straight from an Event Model.
+    link: /command-line#import-event-model
+    linkText: Import an Event Model
 ---
-
-<img class="bc-banner bc-banner--light" src="/bobcat-social-light-1280x640.png" alt="Bobcat — author, supervise, and run integration tests in .NET" />
-<img class="bc-banner bc-banner--dark" src="/bobcat-social-dark-1280x640.png" alt="Bobcat — author, supervise, and run integration tests in .NET" />

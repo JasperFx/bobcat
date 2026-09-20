@@ -122,11 +122,20 @@
 .VPHero .text,
 .VPHero .tagline { letter-spacing: -0.02em; }
 
+/* Banner sits above the hero via the `home-hero-before` slot (see theme/index.js).
+   The gutter goes on the wrapper and the 1152px cap on the image itself — putting both on one
+   element subtracts the padding from the cap, which is what left the banner 128px narrower than
+   the hero and feature cards it sits above. Mirrors VPHero/VPFeatures, which pad the outer
+   element and cap an inner `.container`, so all three share one horizontal rhythm. */
+.bc-banner-wrap { padding: 24px 24px 0; }
+@media (min-width: 640px) { .bc-banner-wrap { padding: 32px 48px 0; } }
+@media (min-width: 960px) { .bc-banner-wrap { padding: 40px 64px 0; } }
+
 .bc-banner {
   display: block;
   width: 100%;
   max-width: 1152px;
-  margin: 0 auto 8px;
+  margin: 0 auto;
   border-radius: 12px;
   border: 1px solid var(--vp-c-divider);
 }
