@@ -17,7 +17,7 @@ hero:
 
 features:
   - title: Author
-    details: Specifications as Gherkin `.feature` files, bound to plain C# fixture methods with Cucumber expressions. Or author them in plain C# instead — an xUnit v3 or TUnit suite carries the specifications itself, through marker comments and `[BobcatStep]` helpers.
+    details: Author specifications with Gherkin expressions bound to your test code. Or author them in plain code with the unit testing tool of your choice and let Bobcat render human readable specifications through marker comments and other helpers.
     link: /sample-wiring
     linkText: Wire a sample host
   - title: Supervise
