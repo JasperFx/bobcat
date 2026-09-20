@@ -126,6 +126,25 @@ the new one.
 
 > **Anything a step captured from the old scope is dead after a restart. Re-resolve, don't hoard.**
 
+### Use an explicit `Main`, not top-level statements
+
+If your spec project uses top-level statements **and** project-references the host (which also has
+a `Program`), both compilations synthesize a `Program` in the global namespace.
+`AlbaResource<Program>` then binds to the test runner's stub and bootstraps an empty
+`WebApplication`, which crashes natively in `WebApplication.CreateBuilder` — a `PAL_SEHException`
+with no managed stack.
+
+```csharp
+public static class SpecsRunner
+{
+    public static Task<int> Main(string[] args) => …;
+}
+```
+
+Bobcat detects two global-namespace `Program` types and throws a `BobcatConfigurationException`
+pointing here, before Alba can crash natively. It also presents as a target-framework mismatch, so
+check this first when `AlbaResource<Program>` behaves as though it bound to nothing.
+
 ### Hosts that run JasperFx commands
 
 Every Critter Stack `Program.Main` ends in `return await app.RunJasperFxCommands(args);`. Under a

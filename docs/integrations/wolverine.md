@@ -65,6 +65,13 @@ story, and a test that only asserts an outcome throws all of it away:
 Surfacing that material in a failure is the subject of
 [Agent Friendly Integration Tests](../tutorials/agent-friendly-tests.md).
 
+::: warning Do not read a green run as proof the race is absent
+A suite with the same shape passed **10 of 10** runs with the tracking removed, because a
+one-document handler usually beats the follow-up GET. Usually. Keep the tracking wherever the
+cascade exists, and record the measurement either way so the next reader knows which kind of suite
+they have.
+:::
+
 ## Handler warm-up
 
 Wolverine compiles a handler chain on first use. Inside a tracked session's timeout window, that
@@ -92,5 +99,5 @@ of messages it cleared.
 
 ## Where to go next
 
-- The eighteen wiring footguns, several of which are Wolverine-specific — [Wiring a Real Host](../wiring-a-real-host.md)
+- [The Run Lifecycle](../run-lifecycle.md) — where tracking, warm-up and draining sit in the schedule
 - Marten alongside Wolverine — [Bobcat with Marten](marten.md)

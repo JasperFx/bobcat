@@ -113,8 +113,8 @@ var result = await Context!.PostJsonAsync<CreateCustomer, Customer>(
 ```
 
 See [Bobcat with Alba](integrations/alba.md), and
-[Wiring a Real Host](wiring-a-real-host.md) for the hazards of pointing it at a real database and
-broker.
+[Resources](resources.md) for how a host, a database or a set of containers is started, reset and
+disposed around your scenarios.
 
 **Prefer C# to `.feature` files?** The same engine runs
 [code-first specifications](code-first-specs.md) — `[Scenario]` methods on a `Specification`
@@ -129,7 +129,7 @@ comments and decorated helpers, one class at a time.
 - **[The Tutorials](tutorials/)** — the whole documentation set organized by what you are trying to accomplish, rather than by what Bobcat is made of. Start there if you are not sure which page you want
 - [Integrating Bobcat Gherkin](integrating-gherkin.md) — the two ways to make a spec project executable, and when to pick each
 - [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
-- [Wiring a Real Host](wiring-a-real-host.md) — the eighteen hazards of a real application, database and broker
+- [The Run Lifecycle](run-lifecycle.md) and [Resources](resources.md) — what Bobcat does to your application, and when
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it

@@ -83,6 +83,12 @@ public class CalculatorFixture : Fixture
 `{int}` is a [Cucumber expression](https://github.com/cucumber/cucumber-expressions) capture, bound
 to the parameter by position.
 
+**One step text per attribute.** Stacking `[Given("a registration for X")]` and
+`[When("I submit a registration for X")]` on the same method does not bind both texts — the unbound
+one fails the build with `BOBCAT002`. Give each text its own method; they can both delegate to one
+private helper. The failure names the step rather than the method, which is the only reason this is
+ever surprising.
+
 Two binding rules decide whether this works at all:
 
 - **Extending `Fixture` is not optional.** The generator's discovery is literally "inherits from
@@ -145,10 +151,9 @@ var result = await Context!.PostJsonAsync<CreateCustomer, Customer>("/customers"
 `Context` is `IStepContext?`, so the `!` is load-bearing, and both type arguments are required —
 `TResponse` cannot be inferred from the call.
 
-Wiring a real host has a playbook of its own, including eighteen footguns found by actually doing
-it: [Wiring a Real Host](../wiring-a-real-host.md). The two that bite first are giving the resource
-a reset hook so scenarios do not inherit each other's data, and waiting for cascaded messages
-before asserting.
+How a host is started, reset and disposed around your scenarios is in [Resources](../resources.md).
+The two things that bite first are giving the resource a reset hook so scenarios do not inherit each
+other's data, and waiting for cascaded messages before asserting.
 
 ## 7. Share steps between features
 

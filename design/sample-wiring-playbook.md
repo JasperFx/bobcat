@@ -6,8 +6,9 @@ specs run end-to-end through Alba — the canonical reference for issue #8, with
 
 It is internal because it is about `samples/`: this repo's compose file, this repo's database
 ports, this repo's eleven `appsettings.json` files. A consumer wiring their own host wants
-[Wiring a Real Host](../docs/wiring-a-real-host.md), which is where the footguns this playbook
-uncovered now live.
+[Resources](../docs/resources.md) and the integration pages, which is where the footguns this
+playbook uncovered now live. The upstream-framework ones are in
+[critter-stack-interop-notes.md](critter-stack-interop-notes.md).
 
 ## Before anything: start the database
 
@@ -84,4 +85,28 @@ For each sample, replicate what `CqrsMinimalApi` has:
    expected value, confirm the failure lands on the step you expected, change it back.
    `PaymentsMonolith` was verified this way, including removing the cascade tracking to confirm
    three scenarios really do fail without it.
+
+
+## Fixing a drifted sample
+
+Two things that come up every time a sample's fixture is brought back into agreement with its
+host. Both are about `samples/`, which is why they live here.
+
+### Expect read endpoints to be missing entirely
+Drifted fixtures describe *writes* that were at least plausible, but the assertion side often has
+nothing to call. `PaymentsMonolith` had no `GET /api/customers/{id}` at all — the module could
+only be written to, so the sample's central claim (registering a user creates a customer stub)
+was unobservable. Path A applies: add the endpoint to the host rather than dropping the
+assertion. It is usually four lines.
+
+### A cascade that mints its own id is unobservable to the caller
+In a modular monolith the interesting write is usually the *second* one — the record another
+module creates in response to the first. If that handler does `Id = Guid.NewGuid()`, nobody
+outside the process can address what it made: `MeetingGroupMonolith`'s accepted proposal created
+a `MeetingGroup` under a fresh Guid, so "accepting the proposal creates the group" could only be
+checked by searching the whole list for a matching name. Path A applies: give the created record
+the id the caller already holds (the group takes the proposal's id, which is what the original
+project did too), and footgun 9's read endpoint then has something to read. Same shape in the
+Payments direction — a subscription's cascade is only observable because the `Member` it updates
+carries the user's id.
 

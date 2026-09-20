@@ -143,4 +143,4 @@ once, the full per-scenario bracket every time.
 
 - [Resources](resources.md) — the four verbs, hosts, and Docker
 - [Integrating Bobcat Gherkin](integrating-gherkin.md) — making the project executable
-- [Wiring a Real Host](wiring-a-real-host.md) — the hazards, once this is set up
+- [Bobcat with Alba](integrations/alba.md) — the host resource most suites start from
