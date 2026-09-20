@@ -43,4 +43,4 @@ decorated helpers, one class at a time.
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Make Existing Integration Tests More Reliable](parallel-ready-suites.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets, and what a suite needs before it can be split
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
-- [The `bobcat` Tool](command-line.md#the-bobcat-tool) — reading, validating and importing Event Model files
+- [The `bobcat` Tool](bobcat-tool.md) — reading, validating and importing Event Model files

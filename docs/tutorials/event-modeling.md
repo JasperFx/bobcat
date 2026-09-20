@@ -30,7 +30,7 @@ Two shapes, both handled by `bobcat import-event-model`:
 
 The segmentation is a set of reported guesses, and a wrong guess should be a one-line diff in the
 generated file rather than a re-import. That framing is the point and should survive into the
-tutorial. See [The Command Line](../command-line.md#import-event-model).
+tutorial. See [The `bobcat` Tool](../bobcat-tool.md#import-event-model).
 
 ### 3. Scaffolding specs from a slice
 
@@ -62,7 +62,7 @@ limitations, stated plainly so nobody files them as bugs:
 
 | | |
 |---|---|
-| The `bobcat` tool and `import-event-model` | [The Command Line](../command-line.md) |
+| The `bobcat` tool and `import-event-model` | [The `bobcat` Tool](../bobcat-tool.md) |
 | Slice binding and the ownership manifest | [Specs from tests you already have](../marker-steps.md) |
 | The identity gate | [Checking Spec Identities Against the Model](../spec-identities.md) |
 | **The curated format reference** | `ai-skills` — **by design**, not an oversight. No Bobcat doc documents the `then:` vocabulary or carries a grammar step table |

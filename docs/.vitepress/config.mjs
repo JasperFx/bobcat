@@ -53,6 +53,7 @@ export default defineConfig({
           { text: 'Specs From Existing Tests', link: '/marker-steps' },
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },
+          { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
           { text: 'Checking Spec Identities', link: '/spec-identities' },
           { text: 'Editor Integration', link: '/editor-integration' }
         ]

@@ -1,122 +1,286 @@
 # The Command Line
 
-Every spec host built on `BobcatRunner.Run(args, configure)` carries a JasperFx command family
-(issue #206), so a runner and its help text come from the same machinery as every other JasperFx
-tool:
+A spec project can expose itself two different ways, and **you have to pick one**. This page is
+about the second.
 
-```bash
-dotnet run --project src/MySpecs -- run          # or ./MySpecs run for a published host
-dotnet run --project src/MySpecs -- help         # list the commands
-dotnet run --project src/MySpecs -- help run     # usage for one command
+## Which one do you want?
+
+| | `dotnet test` and your IDE | The Bobcat command line |
+|---|---|---|
+| You get | one scenario = one test node, the green arrow in the gutter, the debugger, `dotnet test`, CI | `run`, `list`, **`preview`**, **`interactive`** |
+| The project needs | `Bobcat.Mtp`, and **no `Main` of your own** | a `Main` that calls `BobcatRunner.Run` |
+| Set up in | [Running Specs with `dotnet test`](dotnet-test.md) · [Integrating with Your IDE](tutorials/ide-integration.md) | this page |
+
+**Most projects should take the first column.** It is less setup, it runs in CI exactly the same
+way, and it is the only one that gives you a test explorer and a debugger. If you are not sure,
+that is your answer — start at
+[Integrating Bobcat with Your IDE](tutorials/ide-integration.md).
+
+Take the command line when you want the two things `dotnet test` has no equivalent for:
+
+- **`preview`** — every step with the fixture method it bound to, executing nothing. The tool for
+  "why did my step match the wrong grammar."
+- **`interactive`** — pick scenarios from a live prompt with the suite's resources held warm, so a
+  run-tweak-run-again loop stops paying database and host startup each time.
+
+A pure Gherkin spec project driven from a terminal and a pipeline is the case this fits. A project
+that also holds ordinary unit tests, or whose authors live in an IDE, is better served by the first
+column.
+
+::: warning You cannot have both in one project
+The command family needs a `Main` of your own. The moment you declare one, the generator stops
+emitting the MTP entry point — and `dotnet test` then feeds its protocol flags to Bobcat's parser:
+
+```
+error run failed: Unknown argument or flag for value --internal-msbuild-node
 ```
 
-> [!NOTE]
-> This is the **plain runner's** surface. A host exposed through Microsoft.Testing.Platform
-> (`BobcatTestApplication.Run`) is a separate entry with its own flags — `--list-tests`,
-> `--filter-uid`, `--filter-feature`, `--filter-tag` — covered in
-> [Running Specs with `dotnet test`](dotnet-test.md). The two argument surfaces never mix.
+The two argument surfaces never mix, by design. If you want both, put the specs in two projects or
+take the `dotnet test` column and drive `preview` from a scratch host.
+:::
 
-## Commands
+## Setup
 
-| Command | What it does |
-|---|---|
-| `run` (the default) | Execute the discovered features and render the results |
-| `list` | List features and scenarios without running them |
-| `preview` | Render scenarios **with their step bindings**, executing nothing |
-| `interactive` | Pick scenarios to run or preview from a live prompt, resources kept warm |
+```xml
+<PropertyGroup>
+  <OutputType>Exe</OutputType>
+</PropertyGroup>
 
-All four accept the same filters — `-f, --feature <text>` (case-insensitive substring of the
-feature title) and `-t, --tag <tag>` — and `run` alone adds `-j, --json` for the machine-readable
-report instead of the console rendering.
+<ItemGroup>
+  <PackageReference Include="Bobcat" />
+  <PackageReference Include="Bobcat.Generators" />
+  <AdditionalFiles Include="Features/**/*.feature" />
+</ItemGroup>
+```
 
-## `preview` — see the bindings, not just the prose
+```csharp
+using System.Reflection;
+using Bobcat.Runtime;                       // BobcatRunner lives here, not in `Bobcat`
 
-Preview shows the one thing the `.feature` file cannot: which fixture method each step matched,
-and where every parameter's value comes from — a Cucumber capture, a table column, an injected
-service, or a decision table's expected-output cell.
+public static class SpecsRunner
+{
+    public static Task<int> Main(string[] args) => BobcatRunner.Run(args, runner =>
+    {
+        runner.ScanForFeatures(Assembly.GetExecutingAssembly());
+        // runner.Suite.AddResource(new AlbaResource<Program>());
+    });
+}
+```
+
+**`ScanForFeatures` is not optional.** It is what hands the generator's output to the runner;
+without it every command below runs and finds nothing. Use an explicit `static class` rather than
+top-level statements — see [footgun 1](sample-wiring.md#_1-program-symbol-collision-when-specsrunner-uses-top-level-statements).
+
+## The commands
+
+`run` is the default, so a bare `dotnet run` executes the suite. Every form below works from the
+project directory, or from anywhere with `--project <path>`.
+
+| Command | What it does | Starts resources? |
+|---|---|---|
+| `run` (the default) | Execute the discovered scenarios and render the results | yes |
+| `list` | Feature and scenario titles, nothing executed | no |
+| `preview` | Every step **with its binding**, executing nothing | no |
+| `interactive` | Pick scenarios from a live prompt, resources kept warm | on the first run only |
+
+All four take `-f, --feature <text>` (case-insensitive substring of the feature title) and
+`-t, --tag <tag>`. `run` alone adds `-j, --json`.
+
+`dotnet run -- help` lists them; `dotnet run -- help <command>` shows one command's usage.
+
+### `run`
+
+```bash
+dotnet run
+```
 
 ```
 Feature: Calculator
 ════════════════════
 
-  Add two numbers
+  Add two numbers OK
   ─────────────────────────
+    ✓ Given the left operand is 25
+    ✓ Given the right operand is 17
+    ✓ When  the operands are added
+    ✓ Then  the result is 42
+
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
+  Duration: 1ms
+
+═══════════════════════════════════════════
+  Succeeded with Rights: 8, Wrongs: 0, Errors: 0
+  2/2 scenarios passed
+
+  Timing — 1ms measured across 2 scenario(s)
+    • Add two numbers 1ms (100% of measured time) — steps 0ms, lifecycle 0ms
+    step the left operand is {number} cost 0ms across 2 occurrence(s)
+    lifecycle ResetAll cost 0ms across 2 scenario(s)
+```
+
+### `list`
+
+```bash
+dotnet run -- list
+dotnet run -- list --tag slow
+```
+
+```
+Feature: Calculator
+  Fixture: CalculatorFixture
+  - Add two numbers @arithmetic
+  - Subtract two numbers @arithmetic @slow
+```
+
+The fixture is named because a feature binding to the wrong one — or to none — is the most common
+wiring mistake, and this is where it shows.
+
+### `preview` — see the bindings, not just the prose
+
+```bash
+dotnet run -- preview
+dotnet run -- preview --feature calculator
+```
+
+```
+Feature: Calculator
+════════════════════
+
+  Subtract two numbers @arithmetic @slow
+  ──────────────────────────────
     ○ Given the left operand is 25
       ↳ CalculatorFixture.TheLeftOperandIs — "the left operand is {int}"
         value ← "25" (capture)
+    ○ When  the operands are subtracted
+      ↳ CalculatorFixture.Subtracted — "the operands are subtracted"
+    ○ Then  the result is 8
+      ↳ CalculatorFixture.TheResultIs — "the result is {int}"
+        expected ← "8" (capture)
 ```
 
-That makes it the tool for "why did my step match the wrong grammar" — and a scaffolded feature
-can be sanity-checked before anything runs. Preview **never starts a resource**: the plan is
-built before `StartAll`, so a suite whose database is down previews fine. Steps without binding
+`↳` is the method the step bound to and the expression it matched; the line under it is where each
+parameter's value came from — a Cucumber capture, a table column, an injected service, or a
+decision table's expected-output cell.
+
+**Preview never starts a resource.** The plan is pure in-memory composition, built before
+`StartAll` would run, so a suite whose database is down previews fine. Steps with no binding
 metadata (code-first specs, hand-built definitions) render with a quiet note instead.
 
-## `interactive` — a REPL for specs
-
-`interactive` puts a Spectre selection prompt over the feature/scenario tree; each selection can
-be **run** or **previewed**, and picking a feature row runs all of its scenarios.
-
-The point of the mode is the warm suite: resources are started **once, lazily on the first run**
-(a preview-only session starts nothing), and stay up between selections — so the
-run-tweak-run-again loop stops paying Postgres or host startup each time. Every scenario still
-gets the full `ResetAll` → scenario-scope → teardown bracket per run; warmth never means dirty
-state. Everything is disposed once, on exit.
-
-The prompt requires a real terminal. Under redirected input or a non-interactive console the
-command **refuses with a clear message and exit code 1** rather than falling back silently — a
-misconfigured CI job should fail loudly, not hang or quietly do something else.
-
-## The `bobcat` tool
-
-Separate from everything above. `Bobcat.Console` is a global tool — `dotnet tool install -g
-Bobcat.Console` — and it is a **plain command host**: no web server, no store, nothing that outlives
-the process. It carries the free, no-server half of the toolset, which today is reading,
-validating and converting [Event Model](https://eventmodeling.org) files.
-
-> [!NOTE]
-> The `bobcat` tool used to host the live run console. It does not any more — the board, the
-> archive, the model store and the design-time canvas all moved to
-> [Stoat](https://github.com/JasperFx/stoat) on 2026-09-18, because every one of them remembers
-> something across a process and this repository holds nothing that gates on a licence. Bobcat is
-> the format and the run. Its runs still publish to that console exactly as before; see
-> [What a Run Publishes](monitor-design.md).
-
-### `import-event-model`
+### `interactive` — a REPL for specs
 
 ```bash
-bobcat import-event-model Wallet.emodel.yaml
+dotnet run -- interactive
 ```
 
-It sniffs the file and takes either shape:
+A Spectre selection prompt over the feature/scenario tree; each selection can be **run** or
+**previewed**, and picking a feature row runs all of its scenarios.
 
-- **The curated format** (`schema` / `model` / `slices`) is read and validated. Warnings print
-  whether or not it validated — a file carrying nothing but warnings validates, which is exactly
-  the silence the warning exists to break. Validation problems go to stderr and the command fails.
-- **An [eventmodelers.ai](https://eventmodelers.ai) emlang board export** is segmented into slices
-  and **written out as a curated file to review** — `<Model>.emodel.yaml` beside the input by
-  default. The segmentation is a set of reported guesses, and a wrong guess should be a one-line
-  diff in that file rather than a re-import.
+The point of the mode is the warm suite: resources start **once, lazily on the first run** (a
+preview-only session starts nothing) and stay up between selections, so the loop stops paying
+Postgres or host startup each time. Every scenario still gets the full `ResetAll` →
+scenario-scope → teardown bracket per run; warmth never means dirty state. Everything is disposed
+once, on exit.
 
-Either way it prints the model name, the slice count, and how many specifications are bound.
+It requires a real terminal. Under redirected input or a non-interactive console it refuses rather
+than hanging:
 
-| Flag | What it does |
-|---|---|
-| `-m, --model <name>` | Model name for an emlang import; defaults to the file name. The curated format carries its own |
-| `--namespace <ns>` | Root namespace recorded for synthesized type names on an emlang import |
-| `-o, --out <path>` | Where an emlang import writes the reviewable curated file |
-| `-u, --url <base>` | Push the assembled model to a run console at this base URL, e.g. `http://localhost:5525` |
+```
+The interactive command needs a terminal, but standard input is redirected — an interactive
+prompt here would hang forever. Use 'list' to see the scenarios, 'preview' to inspect them,
+or 'run --feature <name>' to run a subset.
+```
 
-`--url` takes the console's **base** URL and appends `/api/event-model` itself; pointing it at the
-endpoint directly is the documented trap (the base answers 404, the endpoint answers 204).
+### `--json` — the machine-readable report
+
+```bash
+dotnet run -- run --json
+```
+
+Replaces the console rendering. The report carries the exit code and counts, then every feature and
+scenario with **per-step status and start offset**, per-scenario lifecycle phases, aggregate step
+timings, and a `gaps` array for time inside a scenario that no step or lifecycle phase accounts for:
+
+```json
+{
+  "exitCode": 0,
+  "counts": { "rights": 8, "wrongs": 0, "errors": 0, "succeeded": true },
+  "features": [
+    {
+      "title": "Calculator",
+      "scenarios": [
+        {
+          "title": "Add two numbers",
+          "succeeded": true,
+          "durationMs": 1,
+          "lifecycle": [ { "name": "ResetAll", "startedAtMs": 0, "durationMs": 0 } ],
+          "steps": [
+            { "stepId": "TheLeftOperandIs", "kind": "Given",
+              "text": "the left operand is 25", "status": "success", "startedAtMs": 1 }
+          ]
+        }
+      ]
+    }
+  ],
+  "timing": {
+    "steps": [ { "text": "the left operand is {number}", "occurrences": 2, "totalMs": 0, "maxMs": 0 } ],
+    "gaps":  [ { "scenario": "Add two numbers", "after": "BeginScenarioAll",
+                 "before": "EndScenarioAll", "durationMs": 1 } ]
+  }
+}
+```
+
+This is the report to feed a build summary, a dashboard, or an agent.
+
+## Filters
+
+```bash
+dotnet run -- run --feature "Checkout"     # substring of the feature title, case-insensitive
+dotnet run -- run --tag smoke              # exact tag, case-insensitive
+```
+
+Both narrow every command, and they combine.
+
+Write the tag **without** the `@`. `--tag smoke` matches `@smoke`; `--tag @smoke` matches nothing.
+
+`run` treats a filter that matched nothing as a failure (exit 2) rather than a pass — see below.
+`list` and `preview` do not, since inspecting an empty selection is a reasonable thing to ask for.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Every scenario passed (a pass-on-retry still exits 0, reported separately) |
-| `1` | Regression failure — or a usage error, including an unrecognized flag |
-| `2` | Catastrophic: a resource failed to start, preflight failed, or `SpecCatastrophicException` |
+| `0` | Every scenario passed. A pass-on-retry still exits 0, reported separately |
+| `1` | A regression failure — **or** a usage error, including an unrecognized flag |
+| `2` | Nothing was discovered or the filters matched nothing; a resource failed to start; preflight failed; `SpecCatastrophicException` |
 
-Two behaviours changed when the hand-rolled parser retired: an **unknown flag is now an
-error** (it used to be silently ignored), and **`list` respects `--feature`/`--tag`** instead of
-always printing everything.
+Two of these are worth designing a pipeline around.
+
+**`2` includes "no specs were discovered,"** and that is the entry that protects you from the worst
+CI outcome — a green pipeline over a suite that ran nothing:
+
+```
+No specs were discovered, so this run asserted nothing. A .feature file must be an
+<AdditionalFiles> item in the project the generator runs in, and its fixture must bind
+(BOBCAT001). Set BobcatRunner.RequireSpecs = false if an empty run is expected here.
+```
+
+Set `BobcatRunner.RequireSpecs = false` only where an empty run is genuinely expected.
+
+**`1` covers both a real failure and a typo in your own pipeline flags**, because an unknown flag is
+an error rather than being silently ignored:
+
+```
+$ dotnet run -- run --bogus
+Invalid usage
+Unknown argument or flag for value --bogus
+```
+
+That is the right behaviour, but it means a malformed CI invocation looks like a failing suite until
+someone reads the output.
+
+## See also
+
+- [Running Specs with `dotnet test`](dotnet-test.md) — the other surface, and the one most projects want
+- [Integrating Bobcat with Your IDE](tutorials/ide-integration.md) — scenarios in the test explorer
+- [Integrating Bobcat with CI](tutorials/continuous-integration.md) — putting either surface in a pipeline
+- [The `bobcat` Tool](bobcat-tool.md) — a separate global tool for Event Model files, unrelated to running specs
