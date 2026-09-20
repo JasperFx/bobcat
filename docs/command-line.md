@@ -1,7 +1,13 @@
 # The Command Line
 
-A spec project can expose itself two different ways, and **you have to pick one**. This page is
-about the second.
+::: tip
+We *think* this option will mostly appeal to folks using AI assisted development
+:::
+
+You have two options for making your Bobcat Gherkin test project executable:
+
+1. Use the `Bobcat.Mtp` Nuget to enable Bobcat specifications to run from `dotnet test` and your IDE
+2. Use the command line runner shown in this page 
 
 ## Which one do you want?
 
