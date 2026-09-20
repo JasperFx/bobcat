@@ -43,7 +43,12 @@ dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use **xUnit v3 +
+Every shipped package multi-targets `net9.0;net10.0`, so a consumer is not forced onto .NET 10
+to use Bobcat. Three exceptions, each deliberate: `Bobcat.Generators` is `netstandard2.0`
+because a Roslyn analyzer must be; `Bobcat.EntityFrameworkCore` is net10.0-only because
+multi-targeting it would mean a conditional EF Core 9 reference and a second dependency graph
+to keep working; and `Bobcat.Console` is net10.0-only because it is a tool, not a library
+anyone compiles against. Every test and sample project targets net10.0. Tests use **xUnit v3 +
 Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather than VSTest.
 
 Every `*.Tests` project is therefore a self-executing MTP test host — `OutputType=Exe`,
@@ -1342,14 +1347,19 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 
 | Package | Target | Status | Responsibility |
 |---------|--------|--------|---------------|
-| **Bobcat** | net10.0 | Active | Runtime: engine, rendering, resources, runner |
+| **Bobcat** | net9.0;net10.0 | Active | Runtime: engine, rendering, resources, runner |
 | **Bobcat.Generators** | netstandard2.0 | Active | Source generator: Gherkin parser, Cucumber Expressions, code gen |
-| **Bobcat.Marten** | net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
+| **Bobcat.Marten** | net9.0;net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
 | **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
-| **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
-| **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
-| **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
-| **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
+| **Bobcat.Mtp** | net9.0;net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
+| **Bobcat.Supervisor** | net9.0;net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
+| **Bobcat.CritterStack** | net9.0;net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
+| **Bobcat.Wolverine** | net9.0;net10.0 | Active | `IStepContext` extensions for tracked-session message dispatch, handler warm-up, transport draining |
+| **Bobcat.Alba** | net9.0;net10.0 | Active | `AlbaResource` over `IAlbaHost` + `IStepContext` extensions for HTTP/ASP.NET Core specs |
+| **Bobcat.Xunit** | net9.0;net10.0 | Active | Projects ordinary `[Fact]`/`[Theory]` tests into the Bobcat model — an existing suite renders as specs without changing runners |
+| **Bobcat.TUnit** | net9.0;net10.0 | Active | The same projection for TUnit's `[Test]` methods |
+| **Bobcat.EventModel** | net9.0;net10.0 | Active | The curated Event Model file format (a Declared-rung `IEventModelDefinitionSource`) + the eventmodelers.ai emlang importer |
+| **Bobcat.EventModel.Scaffolding** | net9.0;net10.0 | Active | JasperFx code-gen frames turning a declared slice into handler / endpoint / aggregate / `.feature` skeletons |
 | **Bobcat.Console** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
