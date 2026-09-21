@@ -386,11 +386,16 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   xUnit/TUnit tests and `EventModelEmitter.Collect` folds them into the *same* slice dictionary
   the features feed — so one slice fed by a `.feature` and a projected test is one descriptor.
   Slice/domain come from `[BobcatSlice]` and the tag vocabulary (no `@`); identity is
-  `{derived feature title}/{derived scenario title}` via `CodeFirstNaming`. **That derivation has
-  no runtime twin any more** — `MarkerStepRun.FeatureNameFor`/`ScenarioNameFor` only swap
-  underscores, while `CodeFirstNaming` also strips `Specs`/`Fixture` suffixes and Pascal-splits,
-  so the two disagree for `WalletSpecs` and for `EventsThenResponse`. The agreement test that used
-  to guard this pinned the deleted `SpecificationFeature`, not the marker path. Unfiled.
+  `{derived feature title}/{derived scenario title}`, derived by
+  `Bobcat.Generators.MarkerSpecNaming` at compile time and `Bobcat.MarkerSpecNaming` (through
+  `MarkerStepRun`) at run time. **`MarkerSpecNamingAgreementTests` pins the two together** — that
+  string is looked up by `DeclaredSteps.For(Uid)` AND published on `scenario_finished`, so a
+  divergence costs a projected suite both its rendered steps and its place on the model, silently.
+  The rule: `[BobcatFeature]`'s title verbatim when present; else strip one
+  `Specification`/`Specs`/`Spec`/`Fixture` suffix, read underscores as spaces (dropping empty
+  segments), else split PascalCase. Scenario titles use the same reading of the method name.
+  `ProjectedSpecNaming.RoundTrips` in `Bobcat.EventModel` is a third copy of the scenario half —
+  that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.

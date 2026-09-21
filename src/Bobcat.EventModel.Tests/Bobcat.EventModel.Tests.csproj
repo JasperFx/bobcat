@@ -28,6 +28,15 @@
       there, with nothing anywhere reporting it.
     -->
     <Compile Include="..\Bobcat.Generators\SpecOwnershipManifest.cs" Link="Generators\SpecOwnershipManifest.cs" />
+    <!--
+      Issue #110. ProjectedSpecNaming.RoundTrips answers "will this curated scenario name publish
+      as itself?", which it can only do by modelling the marker lane's real derivation — and this
+      assembly references neither Bobcat nor the generator, so that is a third copy of it.
+      ProjectedSpecNamingAgreementTests pins it to the generator's, which Bobcat.Tests already
+      pins to the runtime's. A wrong copy makes the round-trip warning report exactly the two
+      errors it exists to prevent: silence on a name that drifts, a warning on one that does not.
+    -->
+    <Compile Include="..\Bobcat.Generators\MarkerSpecNaming.cs" Link="Generators\MarkerSpecNaming.cs" />
   </ItemGroup>
 
 </Project>

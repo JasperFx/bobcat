@@ -10,7 +10,7 @@ namespace Bobcat.Generators;
 /// <remarks>
 /// <para>
 /// Duplicated, not shared, for the same reason as <see cref="GeneratorSliceTags"/> and
-/// <see cref="CodeFirstNaming"/>: this project is netstandard2.0 and references nothing. Shipping
+/// <see cref="MarkerSpecNaming"/>: this project is netstandard2.0 and references nothing. Shipping
 /// YamlDotNet inside an analyzer means the consuming build loads whichever copy Roslyn resolves
 /// first, which is a version fight nobody wants from a diagnostic.
 /// <c>SpecOwnershipParsingAgreementTests</c> pins the two implementations together, exactly as the

@@ -87,7 +87,11 @@ public class MarkerStepRunTests : IDisposable
         var recording = MarkerStepRun.BeginScenario(
             typeof(UnadornedSpecs).GetMethod(nameof(UnadornedSpecs.it_works))!, "xunit");
 
-        recording.Uid.ShouldBe("UnadornedSpecs/it works");
+        // "Unadorned", not "UnadornedSpecs": the derived feature title strips one
+        // Specification/Specs/Spec/Fixture suffix, reads underscores as spaces and splits
+        // PascalCase — the derivation the GENERATOR has always stamped, which the runtime now
+        // shares so the two halves of the identity can join. MarkerSpecNamingAgreementTests.
+        recording.Uid.ShouldBe("Unadorned/it works");
     }
 
     [Fact]

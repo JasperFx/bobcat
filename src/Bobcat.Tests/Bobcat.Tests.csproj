@@ -29,11 +29,12 @@
       ResourceParsingAgreementTests exists for the recovery-hint resource lists.
     -->
     <Compile Include="..\Bobcat.Generators\GeneratorSliceTags.cs" Link="Runtime\GeneratorSliceTags.cs" />
-    <!-- Same deal for the code-first naming rules (issue #170): the generator stamps a spec's
-      {Feature}/{Scenario} identity from its own copy of SpecificationFeature's derivations, and
-      CodeFirstNamingAgreementTests pins the two together — a divergence would silently unjoin
-      run evidence from the design-time model. -->
-    <Compile Include="..\Bobcat.Generators\CodeFirstNaming.cs" Link="Runtime\CodeFirstNaming.cs" />
+    <!-- Same deal for the marker lane's naming rules (issue #110): the generator stamps a
+      projected test's {Feature}/{Scenario} identity at compile time from its own copy, and
+      MarkerStepRun publishes it at runtime from the other. MarkerSpecNamingAgreementTests pins
+      the two together — a divergence costs the suite both its rendered steps (DeclaredSteps is
+      keyed on this string) and its join to the design-time model, silently. -->
+    <Compile Include="..\Bobcat.Generators\MarkerSpecNaming.cs" Link="Generators\MarkerSpecNaming.cs" />
   </ItemGroup>
 
 </Project>

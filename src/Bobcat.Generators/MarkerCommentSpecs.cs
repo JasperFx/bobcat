@@ -99,7 +99,7 @@ internal static class MarkerCommentSpecs
 
         var spec = new MarkedSpec
         {
-            FeatureTitle = CodeFirstNaming.FeatureTitle(declaration.Identifier.Text, title)
+            FeatureTitle = MarkerSpecNaming.FeatureTitle(declaration.Identifier.Text, title)
         };
 
         spec.Tags.AddRange(sliceTags(declaration, ctx.SemanticModel, spec.Problems));
@@ -111,7 +111,7 @@ internal static class MarkerCommentSpecs
 
             var scenario = new MarkedScenario
             {
-                Title = CodeFirstNaming.ScenarioTitle(method.Identifier.Text, null)
+                Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text)
             };
 
             foreach (var step in StepsIn(method)) scenario.Steps.Add(step);
