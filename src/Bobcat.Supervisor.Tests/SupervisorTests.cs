@@ -395,9 +395,9 @@ public class SupervisorTests
             return Task.CompletedTask;
         }
 
-        public Task Start() => Task.CompletedTask;
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public ValueTask DisposeAsync() => default;
     }
 
     // ---------------------------------------------------------------- crash handling

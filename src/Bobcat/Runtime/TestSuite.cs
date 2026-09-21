@@ -45,7 +45,7 @@ public class TestSuite : IAsyncDisposable
     /// resources after it are never asked to start. The ones before it are up, and the one
     /// that threw may be half up — <see cref="DisposeAsync"/> tears both down.
     /// </summary>
-    public async Task StartAll()
+    public async Task StartAll(CancellationToken token = default)
     {
         foreach (var resource in _resources)
         {
@@ -55,7 +55,7 @@ public class TestSuite : IAsyncDisposable
 
             try
             {
-                await resource.Start();
+                await resource.StartAsync(token);
             }
             catch (Exception ex)
             {

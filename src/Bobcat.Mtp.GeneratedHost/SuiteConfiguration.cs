@@ -19,9 +19,9 @@ public static class SuiteConfiguration
     {
         public string Name => "probe";
 
-        public Task Start() => log("start");
+        public Task StartAsync(CancellationToken cancellationToken = default) => log("start");
+        public Task StopAsync(CancellationToken cancellationToken = default) => log("stop");
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public async ValueTask DisposeAsync() => await log("dispose");
 
         private static Task log(string what)
         {

@@ -72,7 +72,7 @@ public class EfRecipeTests
             return builder.Build();
         });
 
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
         await resource.BeginScenarioScope();
 
         var suite = new TestSuite();
@@ -98,7 +98,7 @@ public class EfRecipeTests
             return builder.Build();
         });
 
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
         await resource.BeginScenarioScope();
 
         var suite = new TestSuite();

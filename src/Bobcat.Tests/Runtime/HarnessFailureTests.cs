@@ -298,7 +298,7 @@ public class HarnessFailureTests
     {
         public string Name { get; } = name;
 
-        public Task Start()
+        public Task StartAsync(CancellationToken cancellationToken = default)
         {
             log.Add($"{Name}:start");
             onStart?.Invoke();
@@ -310,6 +310,8 @@ public class HarnessFailureTests
             onReset?.Invoke();
             return Task.CompletedTask;
         }
+
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public ValueTask DisposeAsync()
         {

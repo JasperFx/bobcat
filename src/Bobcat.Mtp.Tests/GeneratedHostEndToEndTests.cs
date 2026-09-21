@@ -96,7 +96,7 @@ public class GeneratedHostEndToEndTests
             exitCode.ShouldBe(0);
             var events = File.ReadAllLines(log);
             events.ShouldContain("probe:start");
-            events.ShouldContain("probe:dispose");
+            events.ShouldContain("probe:stop");
         }
         finally
         {

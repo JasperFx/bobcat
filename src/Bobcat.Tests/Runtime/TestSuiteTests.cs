@@ -198,12 +198,14 @@ internal class TrackingResource : ITestResource
 
     public string Name { get; }
 
-    public Task Start()
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
         _log.Add($"{Name}:start");
         if (_failOnStart) throw new InvalidOperationException($"{Name} would not start");
         return Task.CompletedTask;
     }
+
+    public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task ResetBetweenScenarios()
     {
@@ -211,6 +213,9 @@ internal class TrackingResource : ITestResource
         return Task.CompletedTask;
     }
 
+    // Teardown stays in DisposeAsync rather than StopAsync on purpose: these tests are about
+    // TestSuite's dispose loop — reverse order, and every resource getting its turn when one
+    // throws — and TestSuite disposes. A real resource puts its teardown in StopAsync.
     public ValueTask DisposeAsync()
     {
         _log.Add($"{Name}:dispose");
@@ -234,7 +239,7 @@ internal class TrackingHostResource : IHostResource
     public IServiceProvider RootServices => throw new NotSupportedException();
     public IServiceProvider CurrentServices => throw new NotSupportedException();
 
-    public Task Start()
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
         _log.Add($"{Name}:start");
         return Task.CompletedTask;
@@ -258,6 +263,8 @@ internal class TrackingHostResource : IHostResource
         return ValueTask.CompletedTask;
     }
 
+    public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
     public ValueTask DisposeAsync()
     {
         _log.Add($"{Name}:dispose");
@@ -269,7 +276,7 @@ internal class FailingResource : ITestResource
 {
     public FailingResource(string name) => Name = name;
     public string Name { get; }
-    public Task Start() => throw new Exception("Connection refused");
+    public Task StartAsync(CancellationToken cancellationToken = default) => throw new Exception("Connection refused");
+    public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task ResetBetweenScenarios() => Task.CompletedTask;
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

@@ -54,7 +54,7 @@ public class DiScopingTests
             return builder.Build();
         });
 
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         Should.Throw<InvalidOperationException>(() => resource.CurrentServices)
             .Message.ShouldContain("No scenario scope is open");
@@ -70,7 +70,7 @@ public class DiScopingTests
             return builder.Build();
         });
 
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         await resource.BeginScenarioScope();
         var first = resource.CurrentServices.GetRequiredService<ISessionMarker>().Id;
@@ -95,7 +95,7 @@ public class DiScopingTests
             return builder.Build();
         });
 
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         resource.RootServices.ShouldBeSameAs(resource.Host.Services);
     }

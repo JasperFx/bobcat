@@ -1,22 +1,35 @@
+using Microsoft.Extensions.Hosting;
+
 namespace Bobcat.Runtime;
 
 /// <summary>
 /// A named test resource — database, IHost, Docker container, message broker, etc.
 /// Resources are managed by TestSuite: started once at suite start, reset between
-/// scenarios, torn down at suite end.
+/// scenarios, stopped at suite end.
 /// </summary>
-public interface ITestResource : IAsyncDisposable
+/// <remarks>
+/// <para>
+/// A resource is an <see cref="IHostedService"/>, so its two lifecycle verbs are the ones every
+/// .NET developer already knows — <c>StartAsync</c> and <c>StopAsync</c> — and a resource is
+/// registrable as a hosted service wherever one is wanted. Bobcat adds the two verbs a host has
+/// no notion of: <see cref="ResetBetweenScenarios"/> and <see cref="Check"/>.
+/// </para>
+/// <para>
+/// <strong>Teardown is <c>StopAsync</c>, not <c>DisposeAsync</c>.</strong> The default
+/// <see cref="IAsyncDisposable.DisposeAsync"/> here delegates to it, so a resource that owns
+/// nothing beyond what <c>StopAsync</c> releases need not write one at all, and
+/// <c>await using</c> over such a resource still tears it down. Write your own
+/// <c>DisposeAsync</c> only for handles <c>StopAsync</c> leaves open — and call
+/// <c>StopAsync</c> from it, because <c>TestSuite</c> disposes.
+/// </para>
+/// </remarks>
+public interface ITestResource : IHostedService, IAsyncDisposable
 {
     /// <summary>
     /// Unique name for this resource. Used for lookup when multiple resources
     /// of the same type exist (e.g., two Alba hosts for cross-service testing).
     /// </summary>
     string Name { get; }
-
-    /// <summary>
-    /// Called once at suite start. Failure here wraps in SpecCatastrophicException.
-    /// </summary>
-    Task Start();
 
     /// <summary>
     /// Called between each scenario. Use to reset state (truncate tables,
@@ -34,6 +47,12 @@ public interface ITestResource : IAsyncDisposable
     /// contract — so a resource can satisfy both without adapting.
     /// </remarks>
     Task Check(CancellationToken token) => Task.CompletedTask;
+
+    /// <summary>
+    /// Teardown runs through <see cref="IHostedService.StopAsync"/>. Override only to release
+    /// something <c>StopAsync</c> does not, and call <c>StopAsync</c> when you do.
+    /// </summary>
+    ValueTask IAsyncDisposable.DisposeAsync() => new(StopAsync(CancellationToken.None));
 }
 
 /// <summary>
@@ -44,7 +63,7 @@ public interface ITestResource : IAsyncDisposable
 /// <remarks>
 /// <para>
 /// <c>Recycle</c> is deliberately a third verb alongside <see cref="ITestResource.ResetBetweenScenarios"/>
-/// (clean the state) and <c>DisposeAsync</c> (final teardown). Reset assumes the thing still
+/// (clean the state) and <c>StopAsync</c> (final teardown). Reset assumes the thing still
 /// works; recycle assumes it does not.
 /// </para>
 /// <para>

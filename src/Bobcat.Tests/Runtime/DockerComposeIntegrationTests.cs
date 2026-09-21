@@ -32,7 +32,7 @@ public class DockerComposeIntegrationTests
         // container, so Bobcat needs no Postgres-specific package to find out.
         var postgres = resource();
 
-        await postgres.Start();
+        await postgres.StartAsync(CancellationToken.None);
 
         postgres.ReadinessSource.ShouldBe("docker healthcheck");
     }
@@ -41,7 +41,7 @@ public class DockerComposeIntegrationTests
     public async Task check_passes_against_a_healthy_container()
     {
         var postgres = resource();
-        await postgres.Start();
+        await postgres.StartAsync(CancellationToken.None);
 
         await postgres.Check(TestContext.Current.CancellationToken);
     }
@@ -55,7 +55,7 @@ public class DockerComposeIntegrationTests
             WorkingDirectory = fixtureDirectory()
         }.UsingComposeFile(fixtureComposeFile());
 
-        var thrown = await Should.ThrowAsync<Exception>(() => missing.Start());
+        var thrown = await Should.ThrowAsync<Exception>(() => missing.StartAsync(CancellationToken.None));
 
         // Not "the process exited with 1" — it has to name the resource and suggest a cause.
         thrown.Message.ShouldContain("nope");
@@ -67,7 +67,7 @@ public class DockerComposeIntegrationTests
         // The expensive one, and the reason IRecyclableResource exists: a broker whose in-flight
         // state cannot be drained has to be thrown away, not restarted.
         var postgres = resource();
-        await postgres.Start();
+        await postgres.StartAsync(CancellationToken.None);
 
         var before = await containerIdOf("postgres");
         await postgres.Recycle(TestContext.Current.CancellationToken);

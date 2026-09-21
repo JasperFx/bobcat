@@ -107,9 +107,9 @@ public class PreflightTests
     private sealed class StubResource(string name, Action? onCheck = null) : ITestResource
     {
         public string Name { get; } = name;
-        public Task Start() => Task.CompletedTask;
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public ValueTask DisposeAsync() => default;
 
         public Task Check(CancellationToken token)
         {

@@ -247,11 +247,11 @@ public class TestHostEndToEndTests
 
             var events = File.ReadAllLines(lifecycle);
             events.ShouldContain("database:start");
-            events.ShouldContain("database:dispose");
+            events.ShouldContain("database:stop");
 
             // The broker never started, so a scenario-less run that failed before the first
             // feature must not leave the database resource hanging open.
-            Array.IndexOf(events, "database:dispose").ShouldBeGreaterThan(Array.IndexOf(events, "database:start"));
+            Array.IndexOf(events, "database:stop").ShouldBeGreaterThan(Array.IndexOf(events, "database:start"));
         }
         finally
         {

@@ -33,15 +33,17 @@ runner.Suite.AddResource("billing", new AlbaResource<BillingProgram>());
 var orders = Context!.GetResource<IHostResource>("orders");
 ```
 
-## The four verbs
+## The five verbs
 
-`ITestResource` has `Start` and `ResetBetweenScenarios`; two sibling interfaces add a verb each.
-They are deliberately four different things, not one with flags.
+`ITestResource` **is an `IHostedService`**, so its two lifecycle verbs are the ones you already
+know — `StartAsync` and `StopAsync`. Bobcat adds `ResetBetweenScenarios`, and two sibling
+interfaces add a verb each. They are deliberately five different things, not one with flags.
 
 | verb | who calls it | what it assumes |
 |---|---|---|
-| **`Start`** | the suite, once | nothing is up yet |
+| **`StartAsync`** | the suite, once, in registration order | nothing is up yet |
 | **`ResetBetweenScenarios`** | the suite, before every scenario | the resource is up and healthy; its *state* is dirty |
+| **`StopAsync`** | the suite, once, in reverse order | the run is over |
 | **`Recycle`** (`IRecyclableResource`) | the **supervisor**, between attempts, outside any scenario | the resource is **broken** |
 | **`Restart`** (`IRestartableResource`) | a **step**, mid-scenario, because the spec says so | the resource is **healthy** |
 
@@ -50,6 +52,16 @@ in-process host it cannot see, and would make a spec's restart step read as a re
 
 There is also `Check(CancellationToken)`, a no-op by default, which contributes the resource to
 [preflight](run-lifecycle.md#preflight).
+
+### Teardown is `StopAsync`, not `DisposeAsync`
+
+`ITestResource` still extends `IAsyncDisposable`, but its **default `DisposeAsync` delegates to
+`StopAsync`** — so a resource that owns nothing beyond what `StopAsync` releases does not write a
+disposer at all, and `await using` over it still tears it down.
+
+Write your own `DisposeAsync` only for handles `StopAsync` leaves open, and **call `StopAsync`
+from it**: the suite disposes, so a `DisposeAsync` that does not reach `StopAsync` means your
+teardown never runs.
 
 ## Resetting between scenarios
 
@@ -152,7 +164,7 @@ test host that `Main` runs with the factory's synthesized arguments, and JasperF
 line never meant for it.
 
 `JasperFxEnvironment.AutoStartHost = true` is JasperFx's own switch for exactly this, and
-**`AlbaResource` sets it for you** on `Start()`. What you will still see on the console is
+**`AlbaResource` sets it for you** on `StartAsync()`. What you will still see on the console is
 JasperFx-side and harmless — an assembly scan line, and a note that it ignored the factory's
 `--environment` flag.
 
@@ -246,12 +258,15 @@ public class SftpServerResource : ITestResource
 {
     public string Name => "sftp";
 
-    public Task Start() => …;                       // once, in registration order
-    public Task ResetBetweenScenarios() => …;       // before every scenario
-    public Task Check(CancellationToken token) => …; // optional: joins preflight
-    public ValueTask DisposeAsync() => …;           // reverse order, only if Start was attempted
+    public Task StartAsync(CancellationToken token = default) => …; // once, in registration order
+    public Task ResetBetweenScenarios() => …;                       // before every scenario
+    public Task StopAsync(CancellationToken token = default) => …;  // reverse order, only if
+                                                                    // StartAsync was attempted
+    public Task Check(CancellationToken token) => …;                // optional: joins preflight
 }
 ```
+
+There is no `DisposeAsync` there on purpose — the interface's default routes it to `StopAsync`.
 
 Add `IRecyclableResource` if it can be thrown away and stood up fresh, and `IRestartableResource`
 if a *spec* should be able to bounce it mid-scenario.

@@ -82,7 +82,7 @@ public sealed class DockerComposeResource : IRecyclableResource
     /// <summary>How readiness was last established. Reported so a weak check is never silent.</summary>
     public string? ReadinessSource { get; private set; }
 
-    public async Task Start()
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         Log?.Invoke($"docker compose up ({Name})");
 
@@ -91,9 +91,9 @@ public sealed class DockerComposeResource : IRecyclableResource
         await compose(
             ["up", "-d", "--wait", "--wait-timeout", ((int)StartTimeout.TotalSeconds).ToString(), .. Services],
             StartTimeout,
-            CancellationToken.None);
+            cancellationToken);
 
-        await Check(CancellationToken.None);
+        await Check(cancellationToken);
     }
 
     /// <summary>
@@ -178,14 +178,14 @@ public sealed class DockerComposeResource : IRecyclableResource
     /// <summary>No-op: containers are not reset between scenarios, they are recycled or left alone.</summary>
     public Task ResetBetweenScenarios() => Task.CompletedTask;
 
-    public async ValueTask DisposeAsync()
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         if (!StopOnDispose) return;
 
         Log?.Invoke($"docker compose down ({Name})");
         try
         {
-            await compose(["down"], TimeSpan.FromMinutes(2), CancellationToken.None);
+            await compose(["down"], TimeSpan.FromMinutes(2), cancellationToken);
         }
         catch (Exception e)
         {
@@ -193,6 +193,8 @@ public sealed class DockerComposeResource : IRecyclableResource
             Log?.Invoke($"Resource '{Name}': docker compose down failed — {e.Message}");
         }
     }
+
+    public ValueTask DisposeAsync() => new(StopAsync(CancellationToken.None));
 
     // ── docker plumbing ─────────────────────────────────────────────────────
 

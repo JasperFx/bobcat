@@ -31,9 +31,9 @@ public static class Program
     {
         public string Name { get; } = name;
 
-        public Task Start() => log("start");
+        public Task StartAsync(CancellationToken cancellationToken = default) => log("start");
+        public Task StopAsync(CancellationToken cancellationToken = default) => log("stop");
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public async ValueTask DisposeAsync() => await log("dispose");
 
         private Task log(string what)
         {
@@ -44,14 +44,14 @@ public static class Program
     }
 
     /// <summary>
-    /// Throws from <see cref="Start"/> when <c>BOBCAT_START_FAILS</c> is set — the broker that is
+    /// Throws from <see cref="StartAsync"/> when <c>BOBCAT_START_FAILS</c> is set — the broker that is
     /// down this morning. Issue #123: this used to take the whole host process down with it.
     /// </summary>
     private sealed class BrokerThatWillNotStart : ITestResource
     {
         public string Name => "broker";
 
-        public Task Start()
+        public Task StartAsync(CancellationToken cancellationToken = default)
         {
             if (Environment.GetEnvironmentVariable("BOBCAT_START_FAILS") == "true")
             {
@@ -63,11 +63,11 @@ public static class Program
 
         public Task ResetBetweenScenarios() => Task.CompletedTask;
 
-        public ValueTask DisposeAsync()
+        public Task StopAsync(CancellationToken cancellationToken = default)
         {
             var path = Environment.GetEnvironmentVariable("BOBCAT_LIFECYCLE_LOG");
-            if (path is not null) File.AppendAllText(path, $"{Name}:dispose{Environment.NewLine}");
-            return ValueTask.CompletedTask;
+            if (path is not null) File.AppendAllText(path, $"{Name}:stop{Environment.NewLine}");
+            return Task.CompletedTask;
         }
     }
 

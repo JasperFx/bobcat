@@ -25,7 +25,7 @@ public class WarmSuiteTests
 
         public string Name => "counting";
 
-        public Task Start()
+        public Task StartAsync(CancellationToken cancellationToken = default)
         {
             if (FailOnStart) throw new InvalidOperationException("connection refused");
             Started++;
@@ -37,6 +37,8 @@ public class WarmSuiteTests
             Resets++;
             return Task.CompletedTask;
         }
+
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public ValueTask DisposeAsync()
         {

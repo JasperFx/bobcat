@@ -37,7 +37,7 @@ public class HostResourceRestartTests
     public async Task restart_replaces_the_host_with_a_fresh_container()
     {
         await using var resource = new HostResource(buildHost);
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         var before = resource.Host;
         var beforeMarker = resource.RootServices.GetRequiredService<Marker>();
@@ -54,7 +54,7 @@ public class HostResourceRestartTests
     public async Task restart_stops_and_disposes_the_old_host()
     {
         await using var resource = new HostResource(buildHost);
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         var old = resource.Host;
         var stopped = old.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopped;
@@ -69,7 +69,7 @@ public class HostResourceRestartTests
     public async Task restart_inside_a_scenario_reopens_the_scope_on_the_new_host()
     {
         await using var resource = new HostResource(buildHost);
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
         await resource.BeginScenarioScope();
 
         var scopedBefore = resource.CurrentServices.GetRequiredService<ScopedMarker>();
@@ -88,7 +88,7 @@ public class HostResourceRestartTests
     public async Task restart_outside_a_scenario_leaves_no_scope_open()
     {
         await using var resource = new HostResource(buildHost);
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         await resource.Restart();
 
@@ -100,7 +100,7 @@ public class HostResourceRestartTests
     {
         var resets = 0;
         await using var resource = new HostResource(buildHost, reset: _ => { resets++; return Task.CompletedTask; });
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
 
         await resource.Restart();
 
@@ -116,7 +116,7 @@ public class HostResourceRestartTests
             builds++;
             builder.Services.AddSingleton<Marker>();
         });
-        await resource.Start();
+        await resource.StartAsync(CancellationToken.None);
         var before = resource.RootServices.GetRequiredService<Marker>();
 
         await resource.Restart();
@@ -167,10 +167,10 @@ public class HostResourceRestartTests
         public IHost Host => throw new NotSupportedException();
         public IServiceProvider RootServices => throw new NotSupportedException();
         public IServiceProvider CurrentServices => throw new NotSupportedException();
-        public Task Start() => Task.CompletedTask;
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ResetBetweenScenarios() => Task.CompletedTask;
         public ValueTask BeginScenarioScope() => ValueTask.CompletedTask;
         public ValueTask EndScenarioScope() => ValueTask.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

@@ -23,7 +23,7 @@ Global SetUp                every IGlobalAction, in registration order
   ↓
 Global TearDown             reverse registration order
   ↓
-DisposeAsync                reverse registration order
+StopAsync                   reverse registration order
 ```
 
 Retries repeat the whole per-scenario bracket, not just the steps — a second attempt starts from
@@ -42,8 +42,8 @@ Resource 'AlbaHost' failed to start: …
 ```
 
 Resources after the failure are never asked to start. The ones before it are up, and the one that
-threw may be half up — both are still disposed, because a resource is recorded as *attempted*
-before `Start` is called rather than after it succeeds.
+threw may be half up — both are still torn down, because a resource is recorded as *attempted*
+before `StartAsync` is called rather than after it succeeds.
 
 If the failure is a port collision, the message names the process holding the port. That is
 deliberate: "failed to start" over somebody else's orphaned container reads as a product regression,
@@ -114,10 +114,15 @@ records it believes are new. See [Resources](resources.md#resetting-between-scen
 
 ## Shutting down
 
-`DisposeAsync` runs in reverse registration order, and only over resources that `StartAll`
-actually attempted. A resource that was never asked to start is not touched — its `DisposeAsync`
-was written assuming `Start` ran, and a second exception from tearing down something that never
-came up would only bury the one that matters.
+`StopAsync` runs in reverse registration order, and only over resources that `StartAll` actually
+attempted. A resource that was never asked to start is not touched — its teardown was written
+assuming `StartAsync` ran, and a second exception from tearing down something that never came up
+would only bury the one that matters.
+
+The suite disposes each resource, and `ITestResource`'s default `DisposeAsync` routes to
+`StopAsync`. A resource that writes its **own** `DisposeAsync` must call `StopAsync` from it, or
+its teardown never runs here. See
+[Teardown is `StopAsync`](resources.md#teardown-is-stopasync-not-disposeasync).
 
 Every resource gets its turn even if an earlier one throws; failures surface together as an
 `AggregateException`.
@@ -129,7 +134,7 @@ Two consequences worth budgeting for:
 - **Execution always pays the full resource start-up, however few scenarios you selected.** Running
   one scenario from a test explorer still runs `StartAll` for every registered resource. A
   scenario's meaning includes the resources it runs against, and Bobcat will not guess which ones a
-  subset needs. Keeping `Start()` fast — reusing running containers, `docker compose up -d` out of
+  subset needs. Keeping `StartAsync()` fast — reusing running containers, `docker compose up -d` out of
   band — is the lever that matters.
 - **The first tracked act of a run pays code generation** on frameworks that compile on first use.
   `Bobcat.Wolverine` primes the compiler outside the tracked window for you; see

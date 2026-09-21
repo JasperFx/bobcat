@@ -83,9 +83,9 @@ public class CommandLineTests
     private sealed class FailingResource : ITestResource
     {
         public string Name => "broker";
-        public Task Start() => throw new InvalidOperationException("connection refused");
+        public Task StartAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("connection refused");
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     [Fact]

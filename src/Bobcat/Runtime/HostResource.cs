@@ -5,7 +5,7 @@ namespace Bobcat.Runtime;
 /// <summary>
 /// A test resource that manages an IHost built from a user-provided factory.
 /// The factory receives no arguments — the user controls the entire host construction.
-/// The host should NOT be pre-started; HostResource.Start() calls StartAsync().
+/// The host should NOT be pre-started; HostResource.StartAsync() calls the host's own StartAsync().
 /// </summary>
 public class HostResource : IHostResource, IRestartableResource
 {
@@ -38,10 +38,10 @@ public class HostResource : IHostResource, IRestartableResource
     {
     }
 
-    public async Task Start()
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         Host = await _hostFactory();
-        await Host.StartAsync();
+        await Host.StartAsync(cancellationToken);
     }
 
     /// <inheritdoc cref="IRestartableResource.Restart"/>
@@ -74,16 +74,26 @@ public class HostResource : IHostResource, IRestartableResource
 
     public ValueTask EndScenarioScope() => _scope.End();
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// Stop and dispose the host, closing any open scenario scope first. Idempotent: the host
+    /// is released, so a second stop — or the <c>DisposeAsync</c> that delegates here — is a
+    /// no-op rather than a second <c>StopAsync</c> on a disposed host.
+    /// </summary>
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         await _scope.End();
 
-        if (Host != null)
+        var host = Host;
+        Host = null!;
+
+        if (host != null)
         {
-            await Host.StopAsync();
-            Host.Dispose();
+            await host.StopAsync(cancellationToken);
+            host.Dispose();
         }
     }
+
+    public ValueTask DisposeAsync() => new(StopAsync(CancellationToken.None));
 }
 
 /// <summary>
@@ -111,10 +121,10 @@ public class HostResource<TProgram> : IHostResource, IRestartableResource where 
         _scope = new ScenarioScope(Name, () => Host?.Services);
     }
 
-    public async Task Start()
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         Host = build();
-        await Host.StartAsync();
+        await Host.StartAsync(cancellationToken);
     }
 
     /// <inheritdoc cref="IRestartableResource.Restart"/>
@@ -152,14 +162,24 @@ public class HostResource<TProgram> : IHostResource, IRestartableResource where 
 
     public ValueTask EndScenarioScope() => _scope.End();
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// Stop and dispose the host, closing any open scenario scope first. Idempotent: the host
+    /// is released, so a second stop — or the <c>DisposeAsync</c> that delegates here — is a
+    /// no-op rather than a second <c>StopAsync</c> on a disposed host.
+    /// </summary>
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         await _scope.End();
 
-        if (Host != null)
+        var host = Host;
+        Host = null!;
+
+        if (host != null)
         {
-            await Host.StopAsync();
-            Host.Dispose();
+            await host.StopAsync(cancellationToken);
+            host.Dispose();
         }
     }
+
+    public ValueTask DisposeAsync() => new(StopAsync(CancellationToken.None));
 }

@@ -36,7 +36,7 @@ public static class Program
     {
         public string Name => "broker";
 
-        public Task Start()
+        public Task StartAsync(CancellationToken cancellationToken = default)
         {
             if (Environment.GetEnvironmentVariable("BOBCAT_START_FAILS") == "true")
             {
@@ -46,8 +46,8 @@ public static class Program
             return Task.CompletedTask;
         }
 
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task ResetBetweenScenarios() => Task.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
 
