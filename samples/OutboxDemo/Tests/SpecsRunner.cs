@@ -25,7 +25,7 @@ public static class SpecsRunner
             // registrations it believes are new — a sample that only works on a virgin database
             // is worse than no sample. ResetBetweenScenarios is where persistent state is
             // cleaned; the per-scenario DI scope opens over the top of it.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

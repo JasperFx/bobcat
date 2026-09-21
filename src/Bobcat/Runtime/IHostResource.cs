@@ -6,7 +6,7 @@ namespace Bobcat.Runtime;
 /// <summary>
 /// Any test resource that wraps an IHost — and therefore owns a DI container.
 /// Enables Wolverine, Marten, and other extensions to locate the host without knowing
-/// the specific resource type (AlbaResource, HostResource, etc).
+/// the specific resource type (HostResource, or one the suite wrote itself).
 ///
 /// The resource owns BOTH providers: <see cref="RootServices"/> (the host's root container)
 /// and <see cref="CurrentServices"/> (the per-scenario scope). The runner never touches
@@ -40,7 +40,7 @@ public interface IHostResource : ITestResource
 /// <summary>
 /// Shared implementation of the per-scenario DI scope that every <see cref="IHostResource"/>
 /// composes in. Keeps the scope lifecycle in one place rather than repeating it across
-/// HostResource, HostResource&lt;T&gt;, AlbaResource, and AlbaResource&lt;T&gt;.
+/// HostResource, HostResource&lt;T&gt;, and any host resource a suite writes.
 /// </summary>
 public sealed class ScenarioScope
 {

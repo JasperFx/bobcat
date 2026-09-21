@@ -19,8 +19,8 @@ public static class Program
             // Two resources, registered in this order, so the end-to-end tests can prove that
             // when the second one fails to start the first one is still torn down. Both are
             // inert unless armed through the environment.
-            runner.Suite.AddResource(new LifecycleLoggingResource("database"));
-            runner.Suite.AddResource(new BrokerThatWillNotStart());
+            runner.Resources.Add(new LifecycleLoggingResource("database"));
+            runner.Resources.Add(new BrokerThatWillNotStart());
         });
 
     /// <summary>

@@ -8,11 +8,9 @@ actually wanted.
 ## The whole run, in order
 
 ```
-StartAll                    every resource, in registration order
+StartAll                    everything registered, in registration order
   ↓
 Preflight                   all checks run, results gathered
-  ↓
-Global SetUp                every IGlobalAction, in registration order
   ↓
   ┌─ per scenario ─────────────────────────────────┐
   │  ResetAll                every resource        │
@@ -20,8 +18,6 @@ Global SetUp                every IGlobalAction, in registration order
   │  ── the scenario's steps ──                    │
   │  EndScenarioAll          scopes disposed       │
   └────────────────────────────────────────────────┘
-  ↓
-Global TearDown             reverse registration order
   ↓
 StopAsync                   reverse registration order
 ```
@@ -74,25 +70,31 @@ their checks twice.
 
 A preflight failure is catastrophic: exit code 2, and no feature runs.
 
-## Global actions — once for the whole run {#global-actions}
+## Once for the whole run {#global-actions}
 
-`IGlobalAction` is cross-cutting setup and teardown that runs **once per run**: seeding reference
-data, priming a cache, installing a fake clock.
+Cross-cutting setup and teardown — seeding reference data, priming a cache, installing a fake
+clock — is a plain **`IHostedService`**, registered in the same list as everything else:
 
 ```csharp
-runner.Suite.AddGlobalAction(new SeedReferenceData());
+runner.Resources.Add(new SeedReferenceData());
 ```
 
-`SetUp` runs after every resource has started, so resources are available to it. `TearDown` runs
-after the last feature and before resources are disposed, in **reverse** registration order.
+There is no separate `IGlobalAction` interface and no separate phase. `StartAsync` runs in
+registration order alongside the resources, `StopAsync` in reverse, and the ordering lever is
+where you register it.
 
-A `SetUp` failure is catastrophic — nothing downstream can be trusted. `TearDown` is different:
-every action gets its turn even if an earlier one threw, and the failures surface together
+**That ordering is the thing to know if you are moving one across.** Under the old
+`IGlobalAction`, every resource started before every global action, whatever order you registered
+them in. Now a service registered *before* a resource starts *before* it — so a seeding service
+belongs after the database resource it writes to, which is also how it reads.
+
+A start failure is catastrophic — nothing downstream can be trusted. Teardown is different: every
+registration gets its turn even if an earlier one threw, and the failures surface together
 afterwards, so one broken teardown cannot hide the rest.
 
-> **If the work owns something — a connection, a container, a host — write a
-> [resource](resources.md) instead.** It already has the lifecycle. A global action is for work
-> that has no lifecycle of its own.
+> **If the work owns something — a connection, a container, a host — write an
+> [`ITestResource`](resources.md) instead.** It is an `IHostedService` too, and it adds the name,
+> the between-scenario reset and the preflight check that a bare hosted service has no notion of.
 
 ## Per scenario
 

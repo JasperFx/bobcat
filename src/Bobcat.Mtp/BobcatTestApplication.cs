@@ -16,7 +16,7 @@ namespace Bobcat.Mtp;
 ///         =&gt; BobcatTestApplication.Run(args, runner =&gt;
 ///         {
 ///             runner.ScanForFeatures(typeof(SpecsRunner).Assembly);
-///             runner.Suite.AddResource(new AlbaResource&lt;Program&gt;());
+///             runner.Resources.Add(new MyWebApp());
 ///         });
 /// }
 /// </code>

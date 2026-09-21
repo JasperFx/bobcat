@@ -91,7 +91,7 @@ public class TableGrammarTests
 
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Table_Grammar_Scoped_Feature.Define());
-        runner.Suite.AddResource(new HostResource(() =>
+        runner.Resources.Add(new HostResource(() =>
         {
             var builder = Host.CreateApplicationBuilder();
             builder.Services.AddScoped<ISessionMarker, SessionMarker>();

@@ -4,7 +4,7 @@ namespace Bobcat.Runtime;
 
 /// <summary>
 /// A named test resource — database, IHost, Docker container, message broker, etc.
-/// Resources are managed by TestSuite: started once at suite start, reset between
+/// Resources are managed by TestResources: started once at suite start, reset between
 /// scenarios, stopped at suite end.
 /// </summary>
 /// <remarks>
@@ -20,7 +20,7 @@ namespace Bobcat.Runtime;
 /// nothing beyond what <c>StopAsync</c> releases need not write one at all, and
 /// <c>await using</c> over such a resource still tears it down. Write your own
 /// <c>DisposeAsync</c> only for handles <c>StopAsync</c> leaves open — and call
-/// <c>StopAsync</c> from it, because <c>TestSuite</c> disposes.
+/// <c>StopAsync</c> from it, because <c>TestResources</c> disposes.
 /// </para>
 /// </remarks>
 public interface ITestResource : IHostedService, IAsyncDisposable
@@ -82,8 +82,7 @@ public interface IRecyclableResource : ITestResource
 /// <summary>
 /// A resource that can stop and start again <em>inside</em> a scenario, on purpose, as part of
 /// what the scenario is testing — "the application restarts and forgets nothing", "a queued
-/// message survives a bounce". Hosts, mostly: <c>HostResource</c> and <c>AlbaResource</c>
-/// implement it.
+/// message survives a bounce". Hosts, mostly: <c>HostResource</c> implements it.
 /// </summary>
 /// <remarks>
 /// <para>

@@ -24,7 +24,7 @@ public static class SpecsRunner
             // runs. Both halves are needed to actually empty it: the booking snapshots are
             // documents, but the events that produced them are not, and DeleteAllDocuments does
             // not touch the streams.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

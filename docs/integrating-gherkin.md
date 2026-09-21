@@ -105,7 +105,7 @@ public static class SuiteConfiguration
     [BobcatConfiguration]
     public static void Configure(BobcatRunner runner)
     {
-        runner.Suite.AddResource(new AlbaResource<Program>());
+        runner.Resources.Add(new AlbaResource<Program>());
         runner.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };
     }
 }
@@ -138,7 +138,7 @@ public static class SpecsRunner
         => BobcatTestApplication.Run(args, runner =>
         {
             runner.ScanForFeatures(typeof(SpecsRunner).Assembly);
-            runner.Suite.AddResource(new AlbaResource<Program>());
+            runner.Resources.Add(new AlbaResource<Program>());
         });
 }
 ```
@@ -212,7 +212,7 @@ public static class SpecsRunner
     public static Task<int> Main(string[] args) => BobcatRunner.Run(args, runner =>
     {
         runner.ScanForFeatures(Assembly.GetExecutingAssembly());
-        // runner.Suite.AddResource(new AlbaResource<Program>());
+        // runner.Resources.Add(new AlbaResource<Program>());
     });
 }
 ```

@@ -61,8 +61,8 @@ public static class CritterStackHostExtensions
 
     /// <summary>
     /// Delete every event and every document in every event store the host registers, keeping the
-    /// schema — the between-scenario reset. Pass this as a <c>HostResource</c> / <c>AlbaResource</c>
-    /// reset hook: <c>new AlbaResource&lt;Program&gt;(reset: host =&gt; host.ResetEventStoresAsync())</c>.
+    /// schema — the between-scenario reset. Pass this as a host resource's reset hook:
+    /// <c>new WebApp(reset: host =&gt; host.ResetEventStoresAsync())</c>.
     /// </summary>
     public static async Task ResetEventStoresAsync(this IServiceProvider services, CancellationToken token = default)
     {

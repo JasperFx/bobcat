@@ -34,7 +34,7 @@ public static class SpecsRunner
             // It reaches the store through JasperFx.Events.IEventStore, which Marten, Polecat and
             // Fisher all register, so this file has no `using Marten` and would read the same
             // against either of the others. Bobcat.CritterStack, issue #103.
-            runner.Suite.AddResource(new WebApp(reset: host => host.ResetEventStoresAsync()));
+            runner.Resources.Add(new WebApp(reset: host => host.ResetEventStoresAsync()));
             runner.ScanForFeatures(typeof(BankAccountESFixture).Assembly);
         });
 }

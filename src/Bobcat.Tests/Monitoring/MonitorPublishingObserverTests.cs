@@ -24,7 +24,7 @@ public class MonitorPublishingObserverTests
     }
 
     private static readonly MonitorRunInfo info =
-        new(Guid.NewGuid(), "TestSuite", "/repo", "main", "in-process");
+        new(Guid.NewGuid(), "TestResources", "/repo", "main", "in-process");
 
     /// <summary>Fails on the first attempt, passes on the second.</summary>
     private static readonly Dictionary<string, int> attempts = new();
@@ -76,7 +76,7 @@ public class MonitorPublishingObserverTests
         // honest counts (pass-on-retry never folded into clean passes).
         var started = events.First().ShouldBeOfType<RunStarted>();
         started.RunId.ShouldBe(info.RunId);
-        started.Suite.ShouldBe("TestSuite");
+        started.Suite.ShouldBe("TestResources");
         started.TotalScenarios.ShouldBe(2);
 
         var finished = events.Last().ShouldBeOfType<RunFinished>();

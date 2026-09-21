@@ -28,7 +28,7 @@ public class StepProgressPublishingTests
     }
 
     private static readonly MonitorRunInfo info =
-        new(Guid.NewGuid(), "TestSuite", "/repo", "main", "in-process");
+        new(Guid.NewGuid(), "TestResources", "/repo", "main", "in-process");
 
     private static MonitorPublishingObserver unthrottled(RecordingSink sink)
         => new(sink, info, progressInterval: TimeSpan.Zero);

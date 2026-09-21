@@ -28,7 +28,7 @@ public static class SpecsRunner
             // one meeting on every run. The assertions would still pass, but the suite would
             // slowly stop meaning what it says. Both halves are needed — the Payments module is
             // event-sourced, and DeleteAllDocuments does not touch the streams.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

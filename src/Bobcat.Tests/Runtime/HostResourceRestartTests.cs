@@ -128,25 +128,25 @@ public class HostResourceRestartTests
     [Fact]
     public async Task RestartHost_extension_restarts_the_named_host_resource()
     {
-        var suite = new TestSuite();
+        var resources = new TestResources();
         var resource = new HostResource(buildHost, name: "app");
-        suite.AddResource(resource);
-        await suite.StartAll();
-        var context = new SpecExecutionContext("spec", suite: suite);
+        resources.Add(resource);
+        await resources.StartAll();
+        var context = new SpecExecutionContext("spec", resources: resources);
         var before = resource.Host;
 
         await context.RestartHost("app");
 
         resource.Host.ShouldNotBeSameAs(before);
-        await suite.DisposeAsync();
+        await resources.DisposeAsync();
     }
 
     [Fact]
     public async Task RestartHost_extension_names_a_host_that_cannot_restart()
     {
-        var suite = new TestSuite();
-        suite.AddResource(new FixedHostResource("fixed"));
-        var context = new SpecExecutionContext("spec", suite: suite);
+        var resources = new TestResources();
+        resources.Add(new FixedHostResource("fixed"));
+        var context = new SpecExecutionContext("spec", resources: resources);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(() => context.RestartHost("fixed"));
         ex.Message.ShouldContain("fixed");

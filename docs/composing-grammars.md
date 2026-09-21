@@ -253,7 +253,7 @@ that carries the call. `Bobcat.Alba`'s `AlbaResource` (both forms) implements it
 in-memory TestServer, so the usual Critter Stack wiring is already enough:
 
 ```csharp
-runner.Suite.AddResource(new AlbaResource<Program>());
+runner.Resources.Add(new AlbaResource<Program>());
 ```
 
 `Bobcat.CritterStack` itself still references no Alba and no ASP.NET: the grammar sees only the

@@ -5,7 +5,7 @@ namespace Bobcat.Engine;
 public class SpecExecutionContext : IExecutionContext
 {
     private readonly IServiceProvider? _services;
-    private readonly TestSuite? _suite;
+    private readonly TestResources? _resources;
     private readonly List<Exception> _exceptions = new();
 
     /// <summary>
@@ -13,11 +13,11 @@ public class SpecExecutionContext : IExecutionContext
     /// </summary>
     internal StepResult? CurrentStep { get; set; }
 
-    public SpecExecutionContext(string specId, IServiceProvider? services = null, TestSuite? suite = null)
+    public SpecExecutionContext(string specId, IServiceProvider? services = null, TestResources? resources = null)
     {
         SpecId = specId;
         _services = services;
-        _suite = suite;
+        _resources = resources;
         Results = new ExecutionResults(specId, DateTimeOffset.UtcNow);
     }
 
@@ -39,10 +39,10 @@ public class SpecExecutionContext : IExecutionContext
 
     public T GetResource<T>(string? name = null) where T : class, ITestResource
     {
-        if (_suite == null)
-            throw new InvalidOperationException("No TestSuite configured.");
+        if (_resources == null)
+            throw new InvalidOperationException("No TestResources configured.");
 
-        return _suite.GetResource<T>(name);
+        return _resources.GetResource<T>(name);
     }
 
     public void Log(string message)

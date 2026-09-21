@@ -32,7 +32,7 @@ under Guides: [Bobcat with xUnit.net](../xunit.md) and [Bobcat with TUnit](../tu
 [BobcatConfiguration]
 public static void Configure(BobcatRunner runner)
 {
-    runner.Suite.AddResource(new WebApp());
+    runner.Resources.Add(new WebApp());
 }
 ```
 

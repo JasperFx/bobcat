@@ -27,7 +27,7 @@ public static class SpecsRunner
             // with this hook emptied, the first run is already 8/10 and the second is 2/10.
             // Lists are plain Marten documents with their items nested inside, so
             // DeleteAllDocuments is the whole reset.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

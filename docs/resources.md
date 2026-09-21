@@ -8,7 +8,7 @@ them to your steps, and disposes them, on the schedule in [The Run Lifecycle](ru
 [BobcatConfiguration]
 public static void Configure(BobcatRunner runner)
 {
-    runner.Suite.AddResource(new AlbaResource<Program>());
+    runner.Resources.Add(new AlbaResource<Program>());
 }
 ```
 
@@ -27,8 +27,8 @@ the single resource of that type — and **throws if there are two**, rather tha
 pair is how a suite drives more than one host or more than one store at once:
 
 ```csharp
-runner.Suite.AddResource("orders", new AlbaResource<OrdersProgram>());
-runner.Suite.AddResource("billing", new AlbaResource<BillingProgram>());
+runner.Resources.Add("orders", new AlbaResource<OrdersProgram>());
+runner.Resources.Add("billing", new AlbaResource<BillingProgram>());
 
 var orders = Context!.GetResource<IHostResource>("orders");
 ```
@@ -188,7 +188,7 @@ minimum level. Every other sink is left alone.
 run.
 
 ```csharp
-runner.Suite.AddResource(new DockerComposeResource("infrastructure")
+runner.Resources.Add(new DockerComposeResource("infrastructure")
 {
     Services = ["postgres", "rabbitmq"],
     ReadyWhenListeningOn = 5432
@@ -249,9 +249,9 @@ broker it is about to be replaced alongside. Register them with
 
 ## Writing your own
 
-Implement `ITestResource` when the thing has a lifecycle — it owns a connection, a container, a
-process, a host. Use an [`IGlobalAction`](run-lifecycle.md#global-actions)
-when the work has no lifecycle of its own.
+Implement `ITestResource` when the thing is named, needs resetting between scenarios, or should
+join preflight. When it needs none of those — seeding reference data, installing a fake clock —
+register a plain [`IHostedService`](run-lifecycle.md#global-actions) instead; the list takes both.
 
 ```csharp
 public class SftpServerResource : ITestResource

@@ -12,7 +12,7 @@ public class EfRecipeTests
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Ef_Recipe_Feature.Define());
-        runner.Suite.AddResource(new HostResource(() =>
+        runner.Resources.Add(new HostResource(() =>
         {
             var builder = Host.CreateApplicationBuilder();
             builder.Services.AddDbContext<ShopContext>(o => o.UseInMemoryDatabase(databaseName));
@@ -75,9 +75,9 @@ public class EfRecipeTests
         await resource.StartAsync(CancellationToken.None);
         await resource.BeginScenarioScope();
 
-        var suite = new TestSuite();
-        suite.AddResource(resource);
-        var context = new Bobcat.Engine.SpecExecutionContext("identity", suite: suite);
+        var resources = new TestResources();
+        resources.Add(resource);
+        var context = new Bobcat.Engine.SpecExecutionContext("identity", resources: resources);
 
         var behavior = new EfCoreStorageBehavior(typeof(ShopContext));
         await behavior.Open(context);
@@ -101,9 +101,9 @@ public class EfRecipeTests
         await resource.StartAsync(CancellationToken.None);
         await resource.BeginScenarioScope();
 
-        var suite = new TestSuite();
-        suite.AddResource(resource);
-        var stepContext = new Bobcat.Engine.SpecExecutionContext("batching", suite: suite);
+        var resources = new TestResources();
+        resources.Add(resource);
+        var stepContext = new Bobcat.Engine.SpecExecutionContext("batching", resources: resources);
 
         var behavior = new EfCoreStorageBehavior(typeof(ShopContext));
         await behavior.Open(stepContext);

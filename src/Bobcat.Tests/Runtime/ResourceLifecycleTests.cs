@@ -40,11 +40,11 @@ public class ResourceLifecycleTests
     public async Task disposing_the_suite_stops_a_resource_that_never_wrote_a_disposer()
     {
         var log = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new StopOnlyResource("database", log));
+        var resources = new TestResources();
+        resources.Add(new StopOnlyResource("database", log));
 
-        await suite.StartAll();
-        await suite.DisposeAsync();
+        await resources.StartAll();
+        await resources.DisposeAsync();
 
         log.ShouldBe(["database:start", "database:stop"]);
     }
@@ -66,12 +66,12 @@ public class ResourceLifecycleTests
     public async Task suite_teardown_stops_in_reverse_registration_order()
     {
         var log = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new StopOnlyResource("first", log));
-        suite.AddResource(new StopOnlyResource("second", log));
+        var resources = new TestResources();
+        resources.Add(new StopOnlyResource("first", log));
+        resources.Add(new StopOnlyResource("second", log));
 
-        await suite.StartAll();
-        await suite.DisposeAsync();
+        await resources.StartAll();
+        await resources.DisposeAsync();
 
         log.ShouldBe(["first:start", "second:start", "second:stop", "first:stop"]);
     }
@@ -122,7 +122,7 @@ public class ResourceLifecycleTests
         await resource.StartAsync(CancellationToken.None);
         await resource.StopAsync(CancellationToken.None);
 
-        // The disposed host must not be stopped again — TestSuite disposes, and DisposeAsync
+        // The disposed host must not be stopped again — TestResources disposes, and DisposeAsync
         // routes back here.
         await Should.NotThrowAsync(() => resource.StopAsync(CancellationToken.None));
         await Should.NotThrowAsync(async () => await resource.DisposeAsync());

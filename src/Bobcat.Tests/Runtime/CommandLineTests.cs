@@ -72,7 +72,7 @@ public class CommandLineTests
         var code = await BobcatRunner.Run(["run", "--json"], r =>
         {
             r.AddFeature(buildFeature("Orders", passes: true, "places"));
-            r.Suite.AddResource(new FailingResource());
+            r.Resources.Add(new FailingResource());
         });
 
         // JasperFx maps a command to 0/1; the 2 must come from the recorded SuiteResults verdict.
@@ -233,7 +233,7 @@ public class CommandLineTests
 
             // The resource throws on Start, so exit 0 is only reachable if preview never
             // started it — the same never-start rule as MTP discovery.
-            r.Suite.AddResource(new FailingResource());
+            r.Resources.Add(new FailingResource());
         });
 
         code.ShouldBe(0);

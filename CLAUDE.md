@@ -455,9 +455,11 @@ by type, so there is no reflection:
 - **Per feature:** `static BeforeAll` / `AfterAll` (+`Async`). Runs before any scenario scope
   exists — may inject `IStepContext`, test resources, and `[FromRootService]` values, but a
   scoped ask is a compile error (BOBCAT004).
-- **Per run:** `IGlobalAction` registered explicitly with `suite.AddGlobalAction(...)`. `SetUp`
-  runs after `StartAll` and before the first feature; `TearDown` after the last feature and
-  before `DisposeAsync`, in reverse order. Resource-shaped work belongs in an `ITestResource`.
+- **Per run:** a plain `IHostedService` registered with `runner.Resources.Add(...)`. There is no
+  `IGlobalAction` any more and no separate global phase: it starts and stops in ONE registration
+  order shared with the resources, so a service registered before a resource starts before it.
+  Named / resettable / preflight-checkable work belongs in an `ITestResource`, which is an
+  `IHostedService` too.
 
 `[BeforeEach]`/`[AfterEach]`/`[BeforeAll]`/`[AfterAll]` override the naming convention. There is
 no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
@@ -530,7 +532,9 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
 ### Runtime (`src/Bobcat/Runtime/`)
 - **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.
 - **`FeatureDefinition`** / **`ScenarioDefinition`** — compiled feature structure from generator
-- **`TestSuite`** — Named resource registry (start/reset/teardown lifecycle)
+- **`TestResources`** — Everything the run owns a lifecycle for, as one ordered list of
+  `IHostedService`. `Add(...)` takes a resource (indexed by name) or a bare hosted service.
+  Reached as `BobcatRunner.Resources`
 - **`ITestResource`** — Database, IHost, Docker container, etc.
 - **`IHostResource`** — A resource that owns a DI container. Exposes `RootServices` (the host's
   root container) and `CurrentServices` (the per-scenario scope), and owns the scope itself via
@@ -576,7 +580,7 @@ feature hook, or anything else that escapes the orchestration comes back as
 scenario that has no result listed in `SuiteResults.NotRun` — by name, with the reason, and
 deliberately *not* as a synthesized `ScenarioResult` (a scenario that never ran has no steps or
 counts to report). `PreflightFailure` populates `NotRun` the same way. Before this, the
-`SpecCatastrophicException` from `TestSuite.StartAll` escaped `RunAll`, the MTP host process
+`SpecCatastrophicException` from `TestResources.StartAll` escaped `RunAll`, the MTP host process
 died with an unhandled exception (exit 134, nothing on the wire), and a supervisor could only
 call that a crash. Two finer rules that fell out of it:
 
@@ -586,7 +590,7 @@ call that a crash. Two finer rules that fell out of it:
   of a critical step aborting its scenario. `AfterAll` still runs when `BeforeAll` threw (the
   half-finished `BeforeAll` is the one that leaves something to clean up), so write it to
   tolerate that. A `SpecCatastrophicException` from either hook still stops the suite.
-- **`TestSuite.DisposeAsync` disposes what `StartAll` started or tried to start**, in reverse
+- **`TestResources.DisposeAsync` disposes what `StartAll` started or tried to start**, in reverse
   order, every resource getting its turn before failures surface as one `AggregateException`.
   The resource that threw from `Start` is disposed too (a Docker resource may have its
   containers up and its health check failed); the ones after it were never asked to start and
@@ -1267,8 +1271,8 @@ discovers through its base).
   `IWolverineRuntime`. Default `AutomaticWarmUp.PrimeCompiler` compiles **one** chain, not all:
   starting the compiler is ~2/3 of the cold cost and is paid once, while compiling every chain
   charges a large application for handlers the suite never reaches (measured: warm-all cost more
-  in total than the lazy path on an 8-handler host). `WarmUpWolverineHandlers` (an
-  `IGlobalAction`) / `host.WarmUpHandlers()` compile everything before the first feature when a
+  in total than the lazy path on an 8-handler host). `WarmUpWolverineHandlers` (a hosted
+  service) / `host.WarmUpHandlers()` compile everything before the first feature when a
   suite wants no codegen in any scenario. A chain that fails to compile is a
   `HandlerWarmUpException` naming every broken handler, remembered per host — never skipped.
   The 5s default is unchanged. Wolverine.HTTP routes are out of reach (no Wolverine.HTTP
@@ -1384,7 +1388,7 @@ sweep:
   rather than collapsed into Stoat's coordination port, because every publisher already probes it;
   Stoat's single host binds both.
 - `Bobcat.Runtime.PortHolder`, which names the process holding a port when a resource fails to
-  bind (appended to `TestSuite.StartAll`'s `SpecCatastrophicException`) — report, never act.
+  bind (appended to `TestResources.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
 **The `bobcat` tool is `src/Bobcat.Console/`, and it has exactly one command: `import-event-model`.**
 It carries the free, no-server half of the toolset — read and validate a curated event-model file,

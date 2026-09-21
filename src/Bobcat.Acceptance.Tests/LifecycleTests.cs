@@ -8,11 +8,11 @@ namespace Bobcat.Acceptance.Tests;
 
 public class LifecycleTests
 {
-    private static BobcatRunner buildRunner(params IGlobalAction[] globals)
+    private static BobcatRunner buildRunner(params IHostedService[] globals)
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         runner.AddFeature(Lifecycle_Feature.Define());
-        runner.Suite.AddResource(new HostResource(() =>
+        runner.Resources.Add(new HostResource(() =>
         {
             var builder = Host.CreateApplicationBuilder();
             builder.Services.AddScoped<ISessionMarker, SessionMarker>();
@@ -20,7 +20,7 @@ public class LifecycleTests
             return builder.Build();
         }));
 
-        foreach (var global in globals) runner.Suite.AddGlobalAction(global);
+        foreach (var global in globals) runner.Resources.Add(global);
 
         return runner;
     }
@@ -53,96 +53,132 @@ public class LifecycleTests
     }
 
     [Fact]
-    public async Task global_action_runs_once_around_the_whole_run()
+    public async Task a_registered_hosted_service_runs_once_around_the_whole_run()
     {
         LifecycleFixture.Reset();
 
-        var action = new RecordingGlobalAction();
+        var action = new RecordingService();
         var results = await buildRunner(action).RunAll();
 
         shouldHaveNoFailures(results);
 
-        action.SetUpCount.ShouldBe(1);
-        action.TearDownCount.ShouldBe(1);
+        action.StartCount.ShouldBe(1);
+        action.StopCount.ShouldBe(1);
 
-        // SetUp lands before the first feature hook, TearDown after the last one.
-        action.BeforeAllCountAtSetUp.ShouldBe(0);
-        action.AfterAllCountAtTearDown.ShouldBe(1);
+        // Start lands before the first feature hook, Stop after the last one.
+        action.BeforeAllCountAtStart.ShouldBe(0);
+        action.AfterAllCountAtStop.ShouldBe(1);
     }
 
+    /// <summary>
+    /// The ordering change that came with <c>IGlobalAction</c>'s removal: there is now ONE list,
+    /// so a hosted service and a resource order against each other by registration rather than
+    /// every resource starting before every global action.
+    /// </summary>
     [Fact]
-    public async Task global_actions_set_up_in_order_and_tear_down_in_reverse()
+    public async Task hosted_services_start_in_order_and_stop_in_reverse()
     {
         var log = new List<string>();
-        var suite = new TestSuite();
-        suite.AddGlobalAction(new OrderedGlobalAction("first", log));
-        suite.AddGlobalAction(new OrderedGlobalAction("second", log));
+        var resources = new TestResources();
+        resources.Add(new OrderedService("first", log));
+        resources.Add(new OrderedService("second", log));
 
-        await suite.RunGlobalSetUp();
-        await suite.RunGlobalTearDown();
+        await resources.StartAll();
+        await resources.DisposeAsync();
 
-        log.ShouldBe(["first:setup", "second:setup", "second:teardown", "first:teardown"]);
+        log.ShouldBe(["first:start", "second:start", "second:stop", "first:stop"]);
     }
 
     [Fact]
-    public async Task global_action_setup_failure_is_catastrophic()
+    public async Task a_hosted_service_that_will_not_start_is_catastrophic()
     {
-        var suite = new TestSuite();
-        suite.AddGlobalAction(new ThrowingGlobalAction());
+        var resources = new TestResources();
+        resources.Add(new ThrowingService());
 
-        var ex = await Should.ThrowAsync<SpecCatastrophicException>(suite.RunGlobalSetUp());
-        ex.Message.ShouldContain("ThrowingGlobalAction");
+        var ex = await Should.ThrowAsync<SpecCatastrophicException>(resources.StartAll());
+        ex.Message.ShouldContain("ThrowingService");
     }
 
-    private class RecordingGlobalAction : IGlobalAction
+    /// <summary>
+    /// A resource and a plain hosted service share one registration order, which is the whole
+    /// point of folding IGlobalAction into IHostedService. Registering the service FIRST means it
+    /// starts first — something IGlobalAction could not express.
+    /// </summary>
+    [Fact]
+    public async Task resources_and_plain_services_share_one_ordering()
     {
-        public int SetUpCount;
-        public int TearDownCount;
-        public int BeforeAllCountAtSetUp;
-        public int AfterAllCountAtTearDown;
+        var log = new List<string>();
+        var resources = new TestResources();
+        resources.Add(new OrderedService("seed", log));
+        resources.Add(new OrderedResource("database", log));
 
-        public Task SetUp()
-        {
-            SetUpCount++;
-            BeforeAllCountAtSetUp = LifecycleFixture.BeforeAllCount;
-            return Task.CompletedTask;
-        }
+        await resources.StartAll();
+        await resources.DisposeAsync();
 
-        public Task TearDown()
-        {
-            TearDownCount++;
-            AfterAllCountAtTearDown = LifecycleFixture.AfterAllCount;
-            return Task.CompletedTask;
-        }
+        log.ShouldBe(["seed:start", "database:start", "database:stop", "seed:stop"]);
     }
 
-    private class OrderedGlobalAction : IGlobalAction
+    private class RecordingService : IHostedService
     {
-        private readonly string _name;
-        private readonly List<string> _log;
+        public int StartCount;
+        public int StopCount;
+        public int BeforeAllCountAtStart;
+        public int AfterAllCountAtStop;
 
-        public OrderedGlobalAction(string name, List<string> log)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
-            _name = name;
-            _log = log;
-        }
-
-        public Task SetUp()
-        {
-            _log.Add($"{_name}:setup");
+            StartCount++;
+            BeforeAllCountAtStart = LifecycleFixture.BeforeAllCount;
             return Task.CompletedTask;
         }
 
-        public Task TearDown()
+        public Task StopAsync(CancellationToken cancellationToken)
         {
-            _log.Add($"{_name}:teardown");
+            StopCount++;
+            AfterAllCountAtStop = LifecycleFixture.AfterAllCount;
             return Task.CompletedTask;
         }
     }
 
-    private class ThrowingGlobalAction : IGlobalAction
+    private class OrderedService(string name, List<string> log) : IHostedService
     {
-        public Task SetUp() => throw new InvalidOperationException("seed data unavailable");
-        public Task TearDown() => Task.CompletedTask;
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            log.Add($"{name}:start");
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            log.Add($"{name}:stop");
+            return Task.CompletedTask;
+        }
+    }
+
+    private class OrderedResource(string name, List<string> log) : ITestResource
+    {
+        public string Name => name;
+
+        public Task StartAsync(CancellationToken cancellationToken = default)
+        {
+            log.Add($"{name}:start");
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            log.Add($"{name}:stop");
+            return Task.CompletedTask;
+        }
+
+        public Task ResetBetweenScenarios() => Task.CompletedTask;
+    }
+
+    private class ThrowingService : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken)
+            => throw new InvalidOperationException("seed data unavailable");
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

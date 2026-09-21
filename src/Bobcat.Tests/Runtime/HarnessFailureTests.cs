@@ -1,5 +1,6 @@
 using Bobcat.Engine;
 using Bobcat.Runtime;
+using Microsoft.Extensions.Hosting;
 using Shouldly;
 
 namespace Bobcat.Tests.Runtime;
@@ -46,9 +47,9 @@ public class HarnessFailureTests
     public async Task a_resource_that_fails_to_start_is_reported_as_catastrophic_not_thrown()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order", "cancels an order"), buildFeature("Stock", "counts"));
-        runner.Suite.AddResource(new LoggingResource("database"));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
-        runner.Suite.AddResource(new LoggingResource("cache"));
+        runner.Resources.Add(new LoggingResource("database"));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("cache"));
 
         var results = await runner.RunAll();
 
@@ -74,9 +75,9 @@ public class HarnessFailureTests
     public async Task resources_that_started_are_torn_down_after_a_start_failure()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("database"));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
-        runner.Suite.AddResource(new LoggingResource("cache"));
+        runner.Resources.Add(new LoggingResource("database"));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("cache"));
 
         await runner.RunAll();
 
@@ -89,8 +90,8 @@ public class HarnessFailureTests
     public async Task a_teardown_failure_after_a_start_failure_is_appended_not_masking()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("database", onDispose: () => throw new IOException("disk gone")));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("database", onDispose: () => throw new IOException("disk gone")));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
 
         var results = await runner.RunAll();
 
@@ -101,16 +102,16 @@ public class HarnessFailureTests
     }
 
     [Fact]
-    public async Task a_global_action_that_fails_during_set_up_is_catastrophic_and_resources_are_still_disposed()
+    public async Task a_hosted_service_that_fails_to_start_is_catastrophic_and_resources_are_still_torn_down()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("database"));
-        runner.Suite.AddGlobalAction(new ThrowingGlobalAction());
+        runner.Resources.Add(new LoggingResource("database"));
+        runner.Resources.Add(new ThrowingService());
 
         var results = await runner.RunAll();
 
         results.ExitCode.ShouldBe(2);
-        results.CatastrophicFailure.ShouldContain("ThrowingGlobalAction");
+        results.CatastrophicFailure.ShouldContain("ThrowingService");
         results.NotRun.ShouldHaveSingleItem().Title.ShouldBe("places an order");
         log.ShouldBe(["database:start", "database:dispose"]);
     }
@@ -184,7 +185,7 @@ public class HarnessFailureTests
             afterAll: _ => { log.Add("Orders:AfterAll"); return Task.CompletedTask; },
             "places an order");
         var runner = buildRunner(orders, buildFeature("Stock", "counts"));
-        runner.Suite.AddResource(new LoggingResource("database"));
+        runner.Resources.Add(new LoggingResource("database"));
 
         var results = await runner.RunAll();
 
@@ -203,7 +204,7 @@ public class HarnessFailureTests
         // kind of thing the last line of defence exists for.
         var resets = 0;
         var runner = buildRunner(buildFeature("Orders", "first", "second", "third"), buildFeature("Stock", "counts"));
-        runner.Suite.AddResource(new LoggingResource("database", onReset: () =>
+        runner.Resources.Add(new LoggingResource("database", onReset: () =>
         {
             if (++resets == 2) throw new TimeoutException("truncate timed out");
         }));
@@ -227,7 +228,7 @@ public class HarnessFailureTests
     public async Task the_observer_still_sees_the_run_finish_with_the_catastrophic_results()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
         var observer = new RecordingObserver();
         runner.WithObserver(observer);
 
@@ -244,7 +245,7 @@ public class HarnessFailureTests
     {
         // The in-process CLI path: BobcatRunner.Run renders the summary and returns ExitCode.
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
 
         var results = await runner.RunAll();
 
@@ -256,7 +257,7 @@ public class HarnessFailureTests
     public async Task the_json_report_carries_the_failure_and_the_scenarios_that_did_not_run()
     {
         var runner = buildRunner(buildFeature("Orders", "places an order"));
-        runner.Suite.AddResource(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
+        runner.Resources.Add(new LoggingResource("broker", onStart: () => throw new InvalidOperationException("connection refused")));
 
         var results = await runner.RunAll();
         var json = System.Text.Json.JsonDocument.Parse(Bobcat.Rendering.JsonRenderer.RenderSuite(results)).RootElement;
@@ -287,10 +288,12 @@ public class HarnessFailureTests
         public void ScenarioFinished(ExecutionResults results) { }
     }
 
-    private sealed class ThrowingGlobalAction : IGlobalAction
+    private sealed class ThrowingService : IHostedService
     {
-        public Task SetUp() => throw new InvalidOperationException("seeding failed");
-        public Task TearDown() => Task.CompletedTask;
+        public Task StartAsync(CancellationToken cancellationToken)
+            => throw new InvalidOperationException("seeding failed");
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class LoggingResource(

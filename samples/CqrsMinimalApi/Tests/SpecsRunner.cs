@@ -36,7 +36,7 @@ public static class SpecsRunner
             // explicit Main above, this assembly no longer synthesizes a
             // competing `Program`, so unqualified Program there resolves
             // unambiguously to the host's entry point.
-            runner.Suite.AddResource(new WebApp());
+            runner.Resources.Add(new WebApp());
             runner.ScanForFeatures(typeof(CqrsMinimalApiFixture).Assembly);
         });
     }

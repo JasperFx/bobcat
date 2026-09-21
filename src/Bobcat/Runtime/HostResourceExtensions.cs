@@ -7,7 +7,7 @@ namespace Bobcat.Runtime;
 public static class HostResourceExtensions
 {
     /// <summary>
-    /// Get the IHost from any registered IHostResource (AlbaResource, HostResource, etc).
+    /// Get the IHost from any registered IHostResource (HostResource, or one you wrote).
     /// If multiple IHostResource registrations exist, specify a name to disambiguate.
     /// </summary>
     public static IHost GetHost(this IStepContext context, string? name = null)
@@ -53,7 +53,7 @@ public static class HostResourceExtensions
     /// Restart the registered host mid-scenario — stop the application, start a fresh one over the
     /// same persistent state, and re-enter the scenario scope on the new container. For specs
     /// whose subject is survival across a bounce ("a restart forgets nothing"). The resource must
-    /// implement <see cref="IRestartableResource"/>; <c>HostResource</c> and <c>AlbaResource</c> do.
+    /// implement <see cref="IRestartableResource"/>; <c>HostResource</c> does.
     /// </summary>
     public static Task RestartHost(this IStepContext context, string? name = null)
     {

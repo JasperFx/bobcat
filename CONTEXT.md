@@ -52,7 +52,7 @@
 ```
 Bobcat (core)
 ├── IHostResource, HostResource, HostResource<T>
-├── ITestResource, TestSuite, BobcatRunner
+├── ITestResource, TestResources, BobcatRunner
 ├── Fixture, Attributes, Source Generator
 │
 Bobcat.Alba
@@ -90,7 +90,7 @@ Bobcat.CritterStack (built 2026-08-20, #103 — store-agnostic over JasperFx.Eve
 
 ### Blockers for Running Sample Specs
 1. **No Bobcat project references** — sample .csproj files don't reference Bobcat, Bobcat.Alba, or Bobcat.Generators
-2. **No runner setup** — samples need a `Program.cs` (or separate test project) that calls `BobcatRunner.Run()` with `AlbaResource` registered on `TestSuite`
+2. **No runner setup** — samples need a `Program.cs` (or separate test project) that calls `BobcatRunner.Run()` with `AlbaResource` registered on `TestResources`
 3. **PostgreSQL required** — all sample projects use Wolverine/Marten which need a running PostgreSQL instance. Docker-compose from critterstacksamples provides this on port 5432.
 4. **`[Check]` attribute** requires a string argument (the step text), not bare like `[Fact]`
 5. **Version upgrade** — samples are on `WolverineFx.* 5.30.0` / `net9.0`; the canonical set is
@@ -127,7 +127,7 @@ The built-in demo runs 3 features (Calculator, Inventory, Invoicing) with 8 scen
 - `src/Bobcat/Runtime/ITestResource.cs` — `Name`, `Start()`, `ResetBetweenScenarios()`, `DisposeAsync()`
 - `src/Bobcat/Runtime/IHostResource.cs` — extends ITestResource with `IHost Host`
 - `src/Bobcat/Runtime/HostResource.cs` — both generic and non-generic implementations
-- `src/Bobcat/Runtime/TestSuite.cs` — resource registry and lifecycle
+- `src/Bobcat/Runtime/TestResources.cs` — registry and lifecycle for resources and hosted services
 - `src/Bobcat/Engine/IStepContext.cs` — `GetResource<T>()`, `GetService<T>()`, `Log()`, `AttachDiagnostic()`
 - `src/Bobcat/Engine/ExecutionContext.cs` — `SpecExecutionContext` implementation
 - `src/Bobcat/Fixture.cs` — base class with `Context` property, `SetUp()`, `TearDown()`
@@ -209,7 +209,7 @@ container was masking what looked like Bobcat-specific failures.
   CqrsMinimalApi). The CqrsMinimalApi case study under `samples/CqrsMinimalApi/` is the
   reference pattern: project file references for Bobcat / Bobcat.Alba / Bobcat.Generators,
   a SpecsRunner with `BobcatRunner.Run()`, and an `AlbaResource<Program>` registration on
-  the `TestSuite`.
+  the `TestResources`.
 - **#9** Build `Bobcat.Marten` — `MartenStepContextExtensions` analogous to the
   Wolverine extensions: `CleanAllMartenDataAsync`, `QueryByIdAsync`, `FetchStreamAsync`,
   etc., resolving `IDocumentStore` via the registered `IHostResource`.

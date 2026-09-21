@@ -61,7 +61,7 @@ public class WarmSuiteTests
     {
         var runner = new BobcatRunner { SuppressConsoleOutput = true };
         foreach (var feature in features) runner.AddFeature(feature);
-        runner.Suite.AddResource(resource);
+        runner.Resources.Add(resource);
         return runner;
     }
 

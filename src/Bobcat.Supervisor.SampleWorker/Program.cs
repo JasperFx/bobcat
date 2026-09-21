@@ -25,7 +25,7 @@ public static class Program
 
             // Inert unless armed. When it is, no scenario in this process can run, and the
             // supervisor must hear that as a reported failure rather than a crash (issue #123).
-            runner.Suite.AddResource(new BrokerThatWillNotStart());
+            runner.Resources.Add(new BrokerThatWillNotStart());
         });
 
     /// <summary>

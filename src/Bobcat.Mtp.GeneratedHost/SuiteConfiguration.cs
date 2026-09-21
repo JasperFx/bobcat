@@ -13,7 +13,7 @@ public static class SuiteConfiguration
 {
     [BobcatConfiguration]
     public static void Configure(BobcatRunner runner)
-        => runner.Suite.AddResource(new ProbeResource());
+        => runner.Resources.Add(new ProbeResource());
 
     private sealed class ProbeResource : ITestResource
     {

@@ -31,7 +31,7 @@ public static class SpecsRunner
             // This hook is what removes it, so "at least 1 catalog product is returned" is
             // satisfied by the product the scenario created and not by the seed. See
             // docs/sample-wiring.md footgun 10.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

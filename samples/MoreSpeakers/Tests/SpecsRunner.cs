@@ -25,7 +25,7 @@ public static class SpecsRunner
             // believes is new. Same shape as PaymentsMonolith's unique index on email, for the
             // same reason. ResetBetweenScenarios is where persistent state is cleaned; the
             // per-scenario DI scope opens over the top of it.
-            runner.Suite.AddResource(new WebApp(reset: async host =>
+            runner.Resources.Add(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

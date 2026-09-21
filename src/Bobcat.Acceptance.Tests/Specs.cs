@@ -22,7 +22,7 @@ public static class Specs
         var plan = new ExecutionPlan(scenario.Title, TimeSpan.FromSeconds(30));
         scenario.BuildPlan(fixture, plan);
 
-        var context = new SpecExecutionContext(scenario.Title, suite: new TestSuite());
+        var context = new SpecExecutionContext(scenario.Title, resources: new TestResources());
         fixture.Context = context;
 
         // Mirror the runner: fresh controllable clock per scenario.

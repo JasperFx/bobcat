@@ -16,13 +16,13 @@ namespace Bobcat.Runtime;
 /// </summary>
 public class BobcatRunner
 {
-    private readonly TestSuite _suite = new();
+    private readonly TestResources _resources = new();
     private readonly List<FeatureDefinition> _features = new();
     private readonly CommandLineRenderer _renderer = new();
     private readonly List<IFailurePolicy> _policies = new();
     private IExecutionObserver _observer = NullObserver.Instance;
 
-    public TestSuite Suite => _suite;
+    public TestResources Resources => _resources;
 
     /// <summary>
     /// Registered features. Exposed so a front-end can enumerate the run without executing it —
@@ -318,12 +318,12 @@ public class BobcatRunner
     {
         try
         {
-            await _suite.StartAll();
+            await _resources.StartAll();
         }
         catch (SpecCatastrophicException e)
         {
             // The resources before the one that threw are up; it may be half up itself.
-            // TestSuite.DisposeAsync knows which ones to tear down. A failure on the way down is
+            // TestResources.DisposeAsync knows which ones to tear down. A failure on the way down is
             // appended to the report rather than allowed to bury the failure that started it.
             var teardown = await tryDisposeSuite();
             markCatastrophic(suiteResults, features, tagFilter, e.Message + teardown, e);
@@ -342,41 +342,22 @@ public class BobcatRunner
                 return;
             }
 
-            // Global actions run with resources up but before any feature, and tear down
-            // after the last feature but before resources are disposed.
-            try
+            foreach (var feature in features)
             {
-                await _suite.RunGlobalSetUp();
-            }
-            catch (SpecCatastrophicException e)
-            {
-                markCatastrophic(suiteResults, features, tagFilter, e.Message, e);
-                return;
-            }
+                // Registered before it runs, so the scenarios it completes survive a
+                // harness failure part-way through the feature.
+                var featureResults = new FeatureResults(feature.Title);
+                suiteResults.Add(featureResults);
 
-            try
-            {
-                foreach (var feature in features)
-                {
-                    // Registered before it runs, so the scenarios it completes survive a
-                    // harness failure part-way through the feature.
-                    var featureResults = new FeatureResults(feature.Title);
-                    suiteResults.Add(featureResults);
+                await runFeature(feature, tagFilter, featureResults);
 
-                    await runFeature(feature, tagFilter, featureResults);
-
-                    // Stop on catastrophic
-                    if (featureResults.WasCatastrophic) break;
-                }
-            }
-            finally
-            {
-                await _suite.RunGlobalTearDown();
+                // Stop on catastrophic
+                if (featureResults.WasCatastrophic) break;
             }
         }
         finally
         {
-            await _suite.DisposeAsync();
+            await _resources.DisposeAsync();
         }
     }
 
@@ -388,7 +369,7 @@ public class BobcatRunner
     // so warmth never means dirty state — what changes hands is only who pays for StartAll.
 
     /// <summary>
-    /// Starts the suite's resources, preflight and global set-up ONCE for a warm session.
+    /// Starts everything the run owns, and runs preflight, ONCE for a warm session.
     /// Returns a failure description — with whatever started already torn down — or null when
     /// the suite is up and <see cref="RunWarmSelection"/> may be called repeatedly.
     /// </summary>
@@ -396,7 +377,7 @@ public class BobcatRunner
     {
         try
         {
-            await _suite.StartAll();
+            await _resources.StartAll();
         }
         catch (SpecCatastrophicException e)
         {
@@ -409,14 +390,6 @@ public class BobcatRunner
             return preflight + await tryDisposeSuite();
         }
 
-        try
-        {
-            await _suite.RunGlobalSetUp();
-        }
-        catch (SpecCatastrophicException e)
-        {
-            return e.Message + await tryDisposeSuite();
-        }
 
         return null;
     }
@@ -470,18 +443,8 @@ public class BobcatRunner
         return suiteResults;
     }
 
-    /// <summary>Closes a warm session: global tear-down, then every resource disposed.</summary>
-    internal async Task StopWarmSuite()
-    {
-        try
-        {
-            await _suite.RunGlobalTearDown();
-        }
-        finally
-        {
-            await _suite.DisposeAsync();
-        }
-    }
+    /// <summary>Closes a warm session: everything torn down in reverse registration order.</summary>
+    internal Task StopWarmSuite() => _resources.DisposeAsync().AsTask();
 
     /// <summary>
     /// Disposes the suite on the way out of a failed start, returning a note for the report
@@ -492,7 +455,7 @@ public class BobcatRunner
     {
         try
         {
-            await _suite.DisposeAsync();
+            await _resources.DisposeAsync();
             return string.Empty;
         }
         catch (Exception teardown)
@@ -625,7 +588,7 @@ public class BobcatRunner
     /// <summary>Returns a description of the failure, or null when the environment is fine.</summary>
     private async Task<string?> runPreflight()
     {
-        Preflight.AddResourceChecks(_suite.Resources);
+        Preflight.AddResourceChecks(_resources.Resources);
         if (Preflight.IsEmpty) return null;
 
         var results = await Preflight.Run();
@@ -647,7 +610,7 @@ public class BobcatRunner
         // BeforeAll/AfterAll run once per feature, outside any scenario scope. They get a
         // feature-level context so they can reach resources and root services — asking it
         // for a scoped service throws, which is the intended rejection.
-        var featureContext = new SpecExecutionContext(feature.Title, suite: _suite);
+        var featureContext = new SpecExecutionContext(feature.Title, resources: _resources);
 
         try
         {
@@ -754,7 +717,7 @@ public class BobcatRunner
             var plan = new ExecutionPlan(scenario.Title, timeout);
             scenario.BuildPlan(fixture, plan);
 
-            var context = new SpecExecutionContext(scenario.Title, suite: _suite);
+            var context = new SpecExecutionContext(scenario.Title, resources: _resources);
             fixture.Context = context;
 
             // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
@@ -770,11 +733,11 @@ public class BobcatRunner
 
             // ResetAll stays BEFORE the scope opens: clean persistent state (DB rows, queues),
             // then open a fresh DI scope over it.
-            await _suite.ResetAll();
+            await _resources.ResetAll();
             context.Results.RecordTimelinePoint("ResetAll", 0, clock.ElapsedMilliseconds);
 
             var beginMark = clock.ElapsedMilliseconds;
-            await _suite.BeginScenarioAll();
+            await _resources.BeginScenarioAll();
             context.Results.RecordTimelinePoint("BeginScenarioAll", beginMark, clock.ElapsedMilliseconds);
 
             ScenarioResult result;
@@ -785,7 +748,7 @@ public class BobcatRunner
             finally
             {
                 var endMark = clock.ElapsedMilliseconds;
-                await _suite.EndScenarioAll();
+                await _resources.EndScenarioAll();
                 context.Results.RecordTimelinePoint("EndScenarioAll", endMark, clock.ElapsedMilliseconds);
 
                 // The bracket's true wall clock — what max(step.End) structurally under-reports.
@@ -942,9 +905,9 @@ public class BobcatRunner
     /// <summary>
     /// Detects the top-level-statements footgun: when SpecsRunner.cs uses top-level
     /// statements AND project-references a host that also does, both compilations synthesize
-    /// a global-namespace 'Program'. AlbaResource&lt;Program&gt; then binds to the wrong entry
-    /// point and Alba crashes natively (PAL_SEHException, no managed stack). We turn that into
-    /// a clear managed error before any resource starts.
+    /// a global-namespace 'Program'. A host resource resolving <c>Program</c> then binds to the wrong
+    /// entry point and the in-memory host crashes natively (PAL_SEHException, no managed stack).
+    /// We turn that into a clear managed error before any resource starts.
     /// </summary>
     internal static void GuardAgainstProgramCollision()
     {
@@ -980,7 +943,8 @@ public class BobcatRunner
             if (!hasProgram) continue;
             return $"Ambiguous 'Program' type: the test runner assembly ('{entryName}') and the host assembly " +
                    $"('{name}') both define a global-namespace 'Program'. This usually means SpecsRunner.cs uses " +
-                   "top-level statements, which collide with the host's 'Program' so AlbaResource<Program> binds to " +
+                   "top-level statements, which collide with the host's 'Program', so a host resource resolving " +
+                   "'Program' binds to " +
                    "the wrong entry point (often a native PAL_SEHException with no managed stack). Fix: make " +
                    "SpecsRunner.cs an explicit 'static class SpecsRunner { static Task Main(string[] args) ... }' " +
                    "rather than top-level statements. See docs/resources.md.";
@@ -1005,7 +969,7 @@ public class BobcatRunner
         };
         configure(runner);
 
-        // configure() typically constructs AlbaResource<Program>, which loads the host
+        // configure() typically constructs a host resource over Program, which loads the host
         // assembly — so run the collision guard after it, once both assemblies are present.
         GuardAgainstProgramCollision();
 

@@ -4,18 +4,18 @@ using Shouldly;
 
 namespace Bobcat.Tests.Runtime;
 
-public class TestSuiteTests
+public class TestResourcesTests
 {
     [Fact]
     public async Task starts_resources_in_registration_order()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("first", order));
-        suite.AddResource(new TrackingResource("second", order));
-        suite.AddResource(new TrackingResource("third", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("first", order));
+        resources.Add(new TrackingResource("second", order));
+        resources.Add(new TrackingResource("third", order));
 
-        await suite.StartAll();
+        await resources.StartAll();
 
         order.ShouldBe(["first:start", "second:start", "third:start"]);
     }
@@ -24,15 +24,15 @@ public class TestSuiteTests
     public async Task disposes_in_reverse_order()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("first", order));
-        suite.AddResource(new TrackingResource("second", order));
-        suite.AddResource(new TrackingResource("third", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("first", order));
+        resources.Add(new TrackingResource("second", order));
+        resources.Add(new TrackingResource("third", order));
 
-        await suite.StartAll();
+        await resources.StartAll();
         order.Clear();
 
-        await suite.DisposeAsync();
+        await resources.DisposeAsync();
 
         order.ShouldBe(["third:dispose", "second:dispose", "first:dispose"]);
     }
@@ -41,14 +41,14 @@ public class TestSuiteTests
     public async Task resets_all_resources()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("a", order));
-        suite.AddResource(new TrackingResource("b", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("a", order));
+        resources.Add(new TrackingResource("b", order));
 
-        await suite.StartAll();
+        await resources.StartAll();
         order.Clear();
 
-        await suite.ResetAll();
+        await resources.ResetAll();
 
         order.ShouldBe(["a:reset", "b:reset"]);
     }
@@ -56,10 +56,10 @@ public class TestSuiteTests
     [Fact]
     public async Task start_failure_throws_catastrophic()
     {
-        var suite = new TestSuite();
-        suite.AddResource(new FailingResource("bad"));
+        var resources = new TestResources();
+        resources.Add(new FailingResource("bad"));
 
-        var ex = await Should.ThrowAsync<SpecCatastrophicException>(suite.StartAll());
+        var ex = await Should.ThrowAsync<SpecCatastrophicException>(resources.StartAll());
         ex.Message.ShouldContain("bad");
         ex.Message.ShouldContain("failed to start");
     }
@@ -68,13 +68,13 @@ public class TestSuiteTests
     public async Task a_start_failure_leaves_the_resources_before_it_up_and_the_ones_after_it_untouched()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("first", order));
-        suite.AddResource(new TrackingResource("second", order, failOnStart: true));
-        suite.AddResource(new TrackingResource("third", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("first", order));
+        resources.Add(new TrackingResource("second", order, failOnStart: true));
+        resources.Add(new TrackingResource("third", order));
 
-        await Should.ThrowAsync<SpecCatastrophicException>(suite.StartAll());
-        await suite.DisposeAsync();
+        await Should.ThrowAsync<SpecCatastrophicException>(resources.StartAll());
+        await resources.DisposeAsync();
 
         // "third" was never asked to start, so it is never asked to dispose either — its
         // DisposeAsync was written assuming Start ran. "second" may be half up, so it is.
@@ -85,15 +85,15 @@ public class TestSuiteTests
     public async Task every_resource_is_disposed_even_when_one_throws_and_the_failure_surfaces_after()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("first", order));
-        suite.AddResource(new TrackingResource("second", order, failOnDispose: true));
-        suite.AddResource(new TrackingResource("third", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("first", order));
+        resources.Add(new TrackingResource("second", order, failOnDispose: true));
+        resources.Add(new TrackingResource("third", order));
 
-        await suite.StartAll();
+        await resources.StartAll();
         order.Clear();
 
-        var ex = await Should.ThrowAsync<AggregateException>(async () => await suite.DisposeAsync());
+        var ex = await Should.ThrowAsync<AggregateException>(async () => await resources.DisposeAsync());
 
         ex.InnerExceptions.ShouldHaveSingleItem().Message.ShouldContain("second");
         order.ShouldBe(["third:dispose", "second:dispose", "first:dispose"]);
@@ -102,54 +102,54 @@ public class TestSuiteTests
     [Fact]
     public void get_resource_by_type()
     {
-        var suite = new TestSuite();
+        var resources = new TestResources();
         var resource = new TrackingResource("tracker", new List<string>());
-        suite.AddResource(resource);
+        resources.Add(resource);
 
-        suite.GetResource<TrackingResource>().ShouldBe(resource);
+        resources.GetResource<TrackingResource>().ShouldBe(resource);
     }
 
     [Fact]
     public void get_resource_by_name()
     {
-        var suite = new TestSuite();
+        var resources = new TestResources();
         var first = new TrackingResource("first", new List<string>());
         var second = new TrackingResource("second", new List<string>());
-        suite.AddResource(first);
-        suite.AddResource(second);
+        resources.Add(first);
+        resources.Add(second);
 
-        suite.GetResource<TrackingResource>("first").ShouldBe(first);
-        suite.GetResource<TrackingResource>("second").ShouldBe(second);
+        resources.GetResource<TrackingResource>("first").ShouldBe(first);
+        resources.GetResource<TrackingResource>("second").ShouldBe(second);
     }
 
     [Fact]
     public void get_resource_by_type_throws_when_multiple()
     {
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("a", new List<string>()));
-        suite.AddResource(new TrackingResource("b", new List<string>()));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("a", new List<string>()));
+        resources.Add(new TrackingResource("b", new List<string>()));
 
-        Should.Throw<InvalidOperationException>(() => suite.GetResource<TrackingResource>())
+        Should.Throw<InvalidOperationException>(() => resources.GetResource<TrackingResource>())
             .Message.ShouldContain("Multiple");
     }
 
     [Fact]
     public void get_resource_throws_when_not_found()
     {
-        var suite = new TestSuite();
+        var resources = new TestResources();
 
-        Should.Throw<InvalidOperationException>(() => suite.GetResource<TrackingResource>())
+        Should.Throw<InvalidOperationException>(() => resources.GetResource<TrackingResource>())
             .Message.ShouldContain("No resource");
     }
 
     [Fact]
     public void duplicate_name_throws()
     {
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("same", new List<string>()));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("same", new List<string>()));
 
         Should.Throw<ArgumentException>(() =>
-            suite.AddResource(new TrackingResource("same", new List<string>())))
+            resources.Add(new TrackingResource("same", new List<string>())))
             .Message.ShouldContain("same");
     }
 
@@ -157,13 +157,13 @@ public class TestSuiteTests
     public async Task opens_scenario_scopes_in_registration_order_and_closes_in_reverse()
     {
         var order = new List<string>();
-        var suite = new TestSuite();
-        suite.AddResource(new TrackingResource("plain", order));
-        suite.AddResource(new TrackingHostResource("first", order));
-        suite.AddResource(new TrackingHostResource("second", order));
+        var resources = new TestResources();
+        resources.Add(new TrackingResource("plain", order));
+        resources.Add(new TrackingHostResource("first", order));
+        resources.Add(new TrackingHostResource("second", order));
 
-        await suite.BeginScenarioAll();
-        await suite.EndScenarioAll();
+        await resources.BeginScenarioAll();
+        await resources.EndScenarioAll();
 
         // The plain (non-host) resource has no DI container and is skipped entirely.
         order.ShouldBe(["first:begin", "second:begin", "second:end", "first:end"]);
@@ -172,12 +172,12 @@ public class TestSuiteTests
     [Fact]
     public async Task resource_accessible_from_step_context()
     {
-        var suite = new TestSuite();
+        var resources = new TestResources();
         var resource = new TrackingResource("tracker", new List<string>());
-        suite.AddResource(resource);
-        await suite.StartAll();
+        resources.Add(resource);
+        await resources.StartAll();
 
-        var context = new SpecExecutionContext("test", suite: suite);
+        var context = new SpecExecutionContext("test", resources: resources);
         context.GetResource<TrackingResource>().ShouldBe(resource);
     }
 }
@@ -214,8 +214,8 @@ internal class TrackingResource : ITestResource
     }
 
     // Teardown stays in DisposeAsync rather than StopAsync on purpose: these tests are about
-    // TestSuite's dispose loop — reverse order, and every resource getting its turn when one
-    // throws — and TestSuite disposes. A real resource puts its teardown in StopAsync.
+    // TestResources's dispose loop — reverse order, and every resource getting its turn when one
+    // throws — and TestResources disposes. A real resource puts its teardown in StopAsync.
     public ValueTask DisposeAsync()
     {
         _log.Add($"{Name}:dispose");
