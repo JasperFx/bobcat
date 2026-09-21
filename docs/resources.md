@@ -146,6 +146,12 @@ a `Program`), both compilations synthesize a `Program` in the global namespace.
 `WebApplication`, which crashes natively in `WebApplication.CreateBuilder` — a `PAL_SEHException`
 with no managed stack.
 
+The cleanest fix is to declare **no entry point at all** — reference `Bobcat.Mtp`, let the
+generator emit the `Main`, and put suite configuration on a `[BobcatConfiguration]` method. A
+generated entry point is a named class, so nothing competes. Every sample under `samples/` is
+wired that way. If you do want your own `Main` (the [command line runner](integrating-gherkin.md#command-line-runner)
+surface needs one), make it an explicit class rather than top-level statements:
+
 ```csharp
 public static class SpecsRunner
 {

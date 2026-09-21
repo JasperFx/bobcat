@@ -47,11 +47,15 @@ For each sample, replicate what `CqrsMinimalApi` has:
 
 1. **Add a `Tests/` subdirectory** with three files:
    - `Tests.csproj` — `net10.0`, `OutputType=Exe`; project-references the host + `Bobcat` +
-     `Bobcat.Alba` + `Bobcat.Generators` (as an analyzer); `<Compile Include="..\<Project>Fixture.cs" />`
-     to link the fixture in; `<AssemblyName><Project>.Tests</AssemblyName>` to match
-     `[InternalsVisibleTo]`.
-   - `SpecsRunner.cs` — an **explicit `static class SpecsRunner` with a `Main`**. Do **not** use
-     top-level statements (see footgun #1).
+     `Bobcat.Mtp` + `Bobcat.Generators` (as an analyzer) + an `Alba` PackageReference;
+     `<Compile Include="..\<Project>Fixture.cs" />` to link the fixture in;
+     `<AssemblyName><Project>.Tests</AssemblyName>` to match `[InternalsVisibleTo]`. The MTP
+     host properties come from `samples/Directory.Build.props` — do not restate them.
+   - `SpecsRunner.cs` — a `static class SpecsRunner` carrying a `[BobcatConfiguration]` method and
+     **no `Main` at all**. The generator emits the entry point because the project references
+     `Bobcat.Mtp` and declares none of its own, which is also what keeps footgun #1 from arising:
+     with no hand-written `Main` there is no competing global `Program` to bind to.
+   - `WebApp.cs` — the sample's own `ITestResource` over Alba. Bobcat ships no Alba integration.
    - `AssemblyAttributes.cs` —
      `[assembly: WebApplicationFactoryContentRoot("<HostAssemblyName>", "../../../..", "appsettings.json", "1")]`
      so Alba can find the host's content root despite the nested layout (footgun #2).

@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\EcommerceModularMonolith.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Mtp\Bobcat.Mtp.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

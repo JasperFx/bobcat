@@ -1,3 +1,4 @@
+using Bobcat;
 using Bobcat.Runtime;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,31 +6,28 @@ using Microsoft.Extensions.DependencyInjection;
 namespace MoreSpeakers.Tests;
 
 /// <summary>
-/// Bobcat spec-runner entry point. An explicit Main class rather than top-level statements,
-/// because this project references the host — which uses top-level statements and synthesizes
-/// its own <c>Program</c> in the global namespace. Two of those in one assembly make
-/// <c>WebApp</c> bind to the runner stub instead of the web app, which
-/// surfaces as a native PAL crash with no managed stack. See docs/sample-wiring.md footgun 1.
+/// Suite configuration for this spec project. No <c>Main</c>: the project references
+/// <c>Bobcat.Mtp</c> and declares no entry point, so the generator emits the
+/// Microsoft.Testing.Platform one and calls every <c>[BobcatConfiguration]</c> method.
+/// Declaring none is also what keeps <c>WebApp</c>'s unqualified <c>Program</c> unambiguous —
+/// see docs/resources.md.
 /// </summary>
 public static class SpecsRunner
 {
-    public static Task<int> Main(string[] args)
-        => BobcatRunner.Run(args, runner =>
+    [BobcatConfiguration]
+    public static void Configure(BobcatRunner runner)
+    {
+        // The reset hook is load-bearing. POST /api/speakers refuses a duplicate email with
+        // a 409, and every scenario registers speakers under fixed addresses
+        // ("speaker@conf.com", "mentor@conf.com", ...). Without a reset the suite passes
+        // exactly once per database and then every registration is a 409 for a speaker it
+        // believes is new. Same shape as PaymentsMonolith's unique index on email, for the
+        // same reason. ResetBetweenScenarios is where persistent state is cleaned; the
+        // per-scenario DI scope opens over the top of it.
+        runner.Resources.Add(new WebApp(reset: async host =>
         {
-            // Resolves unambiguously to the host's entry point, given the explicit Main above.
-            //
-            // The reset hook is load-bearing. POST /api/speakers refuses a duplicate email with
-            // a 409, and every scenario registers speakers under fixed addresses
-            // ("speaker@conf.com", "mentor@conf.com", ...). Without a reset the suite passes
-            // exactly once per database and then every registration is a 409 for a speaker it
-            // believes is new. Same shape as PaymentsMonolith's unique index on email, for the
-            // same reason. ResetBetweenScenarios is where persistent state is cleaned; the
-            // per-scenario DI scope opens over the top of it.
-            runner.Resources.Add(new WebApp(reset: async host =>
-            {
-                var store = host.Services.GetRequiredService<IDocumentStore>();
-                await store.Advanced.Clean.DeleteAllDocumentsAsync();
-            }));
-            runner.ScanForFeatures(typeof(MoreSpeakersFixture).Assembly);
-        });
+            var store = host.Services.GetRequiredService<IDocumentStore>();
+            await store.Advanced.Clean.DeleteAllDocumentsAsync();
+        }));
+    }
 }

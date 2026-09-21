@@ -122,6 +122,8 @@ jobs:
 
       # Off with the quarantine above — the project does not build until the CritterStack grammar
       # is rebuilt. Turn this back on in the same change that takes BankAccountES off the list.
+      # `dotnet test`, not `dotnet run -- run`: the samples are MTP test hosts now, so a scenario
+      # is a test node and the platform runs them.
       - name: Run the BankAccountES specs on Fisher (SQLite, no services)
         if: false
         env:
@@ -129,4 +131,4 @@ jobs:
           ConnectionStrings__Fisher: "Data Source=${{ runner.temp }}/bank_account.db"
           # The spec host would otherwise try to publish progress to a local viewer that is not running.
           BOBCAT_MONITOR: "0"
-        run: dotnet run --project samples/BankAccountES/Tests -c Release -- run
+        run: dotnet test samples/BankAccountES/Tests -c Release
