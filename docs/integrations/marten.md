@@ -16,7 +16,7 @@ between-scenario reset to deleting all document and event data while keeping the
 
 ## Where the evidence is being gathered
 
-`Bobcat.CritterStack` still ships the store-agnostic half: `EventStores`, `DocumentStores`,
+Bobcat core still ships the store-agnostic half: `EventStores`, `DocumentStores`,
 `EventStoreAuthoring`, `RecordBuilding` and the `IStepContext.EventStore(...)` seam, all bound to
 the **JasperFx.Events** abstractions rather than to Marten. Anything rebuilt here has to stay on
 those abstractions, so the same code serves Marten, Polecat and Fisher.

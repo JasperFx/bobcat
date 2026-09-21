@@ -1092,12 +1092,13 @@ shipped a whole abstraction where a parameter was wanted.
 
 Container or remote workers remain speculative. Same rule applies: build it when something needs it.
 
-### Bobcat.CritterStack is store-agnostic (`src/Bobcat.CritterStack/`)
+### The Critter Stack helpers are store-agnostic (`src/Bobcat/CritterStack/`)
 
 Decision of record 2026-08-20 (issue #103): Bobcat's event-sourcing helpers bind to the
 **`JasperFx.Events` abstractions**, never to Marten — the same discipline `Wolverine.CritterWatch`
-lives by — so one package serves Marten, Polecat and Fisher. `Bobcat.CritterStack` references
-`Bobcat`, `Bobcat.Wolverine` and the `JasperFx.Events` package; **it does not reference
+lives by — so one package serves Marten, Polecat and Fisher. They live in **Bobcat core** now
+(the `Bobcat.CritterStack` package is gone, the namespace is not), and reach the store through
+the `JasperFx.Events` package; **core does not reference
 `Bobcat.Marten`, Marten, Polecat or Fisher**, and a spec project using it needs none of those
 either (`samples/BankAccountES/Tests` has no `using Marten`). `Bobcat.Marten` stays as the
 *document-store* flavour — `MartenResource`, `[MartenEntities]`, `QueryByIdAsync` — not as the way
@@ -1322,8 +1323,6 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 | **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
 | **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
-| **Bobcat.CritterStack** | net10.0 | Active | Wolverine tracked-session dispatch + event-store assertions over `JasperFx.Events` (Marten / Polecat / Fisher); see below |
-| **Bobcat.Alba** | net10.0 | Planned | AlbaResource wrapping IAlbaHost |
 | **Bobcat.Console** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the

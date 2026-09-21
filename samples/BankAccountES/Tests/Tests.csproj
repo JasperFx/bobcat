@@ -22,7 +22,6 @@
     <!-- Store-agnostic event-store helpers (reset, projection waits). Deliberately NOT Bobcat.Marten:
          the spec project talks to the host's store through JasperFx.Events.IEventStore, so it would
          read the same against Polecat or Fisher. See CLAUDE.md, "Bobcat.CritterStack is store-agnostic". -->
-    <ProjectReference Include="..\..\..\src\Bobcat.CritterStack\Bobcat.CritterStack.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

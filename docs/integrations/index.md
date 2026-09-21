@@ -18,9 +18,11 @@ being gathered.
 | [Bobcat.Marten](marten.md) | **Removed.** Anything rebuilt must bind to JasperFx.Events, not Marten |
 | [Bobcat.Wolverine](wolverine.md) | **Removed.** The tracked-session helpers are expected to land in Wolverine itself |
 
-`Bobcat.CritterStack` still ships its store-agnostic half — `EventStores`, `DocumentStores`,
-`EventStoreAuthoring`, `RecordBuilding` — on the JasperFx.Events abstractions, so it serves Marten,
-Polecat and Fisher alike. Its Gherkin grammar and `CritterStackFixture` went with `Bobcat.Wolverine`.
+The store-agnostic half — `EventStores`, `DocumentStores`, `EventStoreAuthoring`,
+`RecordBuilding` — **moved into `Bobcat` core** and still binds only to the JasperFx.Events
+abstractions, so it serves Marten, Polecat and Fisher alike. The `Bobcat.CritterStack` package is
+gone; the namespace is unchanged, so a `using Bobcat.CritterStack;` still resolves. Its Gherkin
+grammar and `CritterStackFixture` went with `Bobcat.Wolverine`.
 `Bobcat.EntityFrameworkCore` covers EF Core and is unaffected.
 
 The runner adapters — `Bobcat.Xunit` and `Bobcat.TUnit` — are a different kind of package and live

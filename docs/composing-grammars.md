@@ -151,7 +151,7 @@ Three things worth knowing:
   that only wants documents composes it onto a bare fixture and references no event-sourcing
   vocabulary.
 - **Store-agnostic, like everything else here.** The steps reach the store through
-  `JasperFx.Events.Documents`, so `Bobcat.CritterStack` still references no Marten, no Polecat and
+  `JasperFx.Events.Documents`, so Bobcat still references no Marten, no Polecat and
   no Fisher. Nothing extra has to be registered either: on every Critter Stack store the concrete
   store object is both `IEventStore` and `IDocumentSessionFactory`, so the document steps resolve
   what the event steps already resolve.
@@ -167,7 +167,7 @@ asserting one needs its own vocabulary rather than a `{document}` in disguise. T
 ## Building an object from a table row
 
 A grammar that takes a `StepTable` almost always has to turn each row into an object, and
-`Bobcat.CritterStack.RecordBuilding` is that conversion — the same one every shipped grammar
+`Bobcat.CritterStack.RecordBuilding` (in Bobcat core) is that conversion — the same one every shipped grammar
 uses, and public API for exactly this reason (issue #272):
 
 ```csharp
@@ -256,9 +256,7 @@ in-memory TestServer, so the usual Critter Stack wiring is already enough:
 runner.Resources.Add(new AlbaResource<Program>());
 ```
 
-`Bobcat.CritterStack` itself still references no Alba and no ASP.NET: the grammar sees only the
-`IHttpResource` contract, the same delegate-shaped composition that keeps `WhenTracked` free of
-HTTP dependencies. Any other way of reaching the application — a real socket, a gRPC-web bridge
+Bobcat itself still references no Alba and no ASP.NET. Any other way of reaching the application — a real socket, a gRPC-web bridge
 — plugs in by implementing the same two-record contract (`SpecHttpRequest` in,
 `SpecHttpResponse` out; status codes are never asserted by the transport).
 

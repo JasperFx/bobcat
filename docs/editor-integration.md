@@ -107,8 +107,8 @@ Two smaller findings from the same run:
   concerned. Inside this repo that is not a problem because the source is here. A consumer
   taking Bobcat from NuGet will see `Given the date is "..."` underlined as undefined unless the
   grammar source is in their workspace — shipping the grammars as source is the fix, and is
-  why the issue notes "the shipped grammars ship as source". **Done for `Bobcat.CritterStack`**
-  (issue #104): its grammar `.cs` travels in the package under `contentFiles/cs/` (buildAction
+  why the issue notes "the shipped grammars ship as source". **Done for the shipped
+  Critter Stack grammar** (issue #104): its `.cs` travels in the `Bobcat` package under `contentFiles/cs/` (buildAction
   `None`, so it is never double-compiled against the assembly) and `content/grammars/`, so a
   consumer can point `cucumber.glue` at it. The Bobcat **generator** still needs no source — it
   reads a base fixture's steps from assembly metadata — this is purely for the editors. The core

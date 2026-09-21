@@ -12,9 +12,9 @@ public static void Configure(BobcatRunner runner)
 }
 ```
 
-Most suites never implement one — `Bobcat.Alba`, `Bobcat.Marten` and `Bobcat.CritterStack` ship the
-resources you need. This page is for understanding what they do, and for the cases where you write
-your own.
+Bobcat ships `HostResource` and `DockerComposeResource`; a host you drive through a client of your
+own — Alba, say — is a resource you write, and that is a handful of members. This page is for
+understanding what a resource does, and for writing one.
 
 ## Reaching a resource from a step
 
