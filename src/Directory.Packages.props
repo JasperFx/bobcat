@@ -3,9 +3,11 @@
   <!--
     Central Package Management for the Bobcat source tree (src/). One pinned version per
     package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
-    canonical, mutually-compatible alignment that consuming samples must also target:
+    canonical, mutually-compatible alignment, and samples/Directory.Packages.props must hold the
+    SAME numbers — a sample project-references Bobcat, so it resolves this JasperFx.Events
+    whatever its own store says:
 
-      WolverineFx 6.35.0  ↔  Marten 9.33.0  ↔  JasperFx(.Events) 2.67.1  ↔  Fisher 1.3.0  ↔  Polecat 5.25.0
+      WolverineFx 6.38.0  ↔  Marten 9.36.0  ↔  JasperFx(.Events) 2.69.3  ↔  Fisher 1.10.0  ↔  Polecat 5.29.0
 
     ⚠️ READ THIS BEFORE MOVING JasperFx(.Events) ON ITS OWN. It was tried, on 2026-09-09, and
     it does not work. The reasoning was that every store declares JasperFx(.Events) only as a
@@ -29,10 +31,12 @@
     `>= 2.56.0` says the store can RUN against 2.67.1 only for members that existed when it was
     compiled. An interface that gains an abstract member is a runtime break for every
     implementer, and no amount of nuspec reading predicts it — the only safe signal is that the
-    store itself was BUILT against the JasperFx you are pinning. Hence the set above: Marten
-    9.33.0, Fisher 1.3.0 and Polecat 5.25.0 are each compiled against JasperFx 2.67.0, so each
-    necessarily implements whatever 2.67 made abstract. WolverineFx 6.35.0 floors at 2.66.1 and
-    is safe at any floor, because Wolverine implements none of the event-store interfaces.
+    store itself was BUILT against the JasperFx you are pinning. The set above satisfies that
+    more tightly than the one it replaced: Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 each
+    declare JasperFx(.Events) at EXACTLY 2.69.3, the pin, rather than merely at or below it, so
+    each was built against the runtime it will load. WolverineFx 6.38.0 now declares 2.69.3
+    itself — it used to float, being free of the event-store interfaces, and no longer needs the
+    exemption.
 
     Why JasperFx had to move at all: CritterWatch#1212 — the Event Model wire needs partial
     descriptors from several producers to round-trip, and slice constructor collections arriving
@@ -49,17 +53,21 @@
     they must honour; that is upstream's contract to keep, but a silent wrong-results failure is
     the shape to look for if event queries start returning too much.
 
-    Checked against the published nuspecs on 2026-09-09:
-      WolverineFx 6.35.0        requires JasperFx(.Events) >= 2.66.1
-      WolverineFx.Marten 6.35.0 requires Marten >= 9.32.1
-      WolverineFx.Fisher 6.35.0 requires Fisher >= 1.2.0
-      Marten 9.33.0             requires JasperFx(.Events) >= 2.67.0, Weasel >= 9.31.1
-      Fisher 1.3.0              requires JasperFx(.Events) >= 2.67.0, Weasel.Sqlite >= 9.31.0
-      Polecat 5.25.0            requires JasperFx(.Events) >= 2.67.0
+    Re-read from the packages' own nuspecs on 2026-09-21, because this block had gone stale
+    against the pins below and a stale "canonical set" note is exactly the hazard it exists to
+    prevent:
+      WolverineFx 6.38.0        requires JasperFx and JasperFx.Events >= 2.69.3
+      WolverineFx.Marten 6.38.0 requires Marten >= 9.35.0
+      WolverineFx.Fisher 6.38.0 requires Fisher >= 1.10.0
+      Marten 9.36.0             requires JasperFx(.Events) >= 2.69.3, Weasel.Postgresql >= 9.32.0
+      Fisher 1.10.0             requires JasperFx(.Events) >= 2.69.3, Weasel.Sqlite >= 9.32.0
+      Polecat 5.29.0            requires JasperFx(.Events) >= 2.69.3, Weasel.SqlServer >= 9.32.0
 
-    Every floor is at or below the pin, so taking the newest of each still lands on ONE
-    JasperFx (2.67.1), which is the property that matters — the event types (IEvent, etc.) only
-    unify when every package resolves the same JasperFx.Events.
+    Every floor equals the pin, so taking the newest of each lands on ONE JasperFx (2.69.3),
+    which is the property that matters — the event types (IEvent, etc.) only unify when every
+    package resolves the same JasperFx.Events. Confirmed in the resolved graph rather than
+    inferred: Bobcat.CritterStack.Tests references Marten AND Fisher and restores a single
+    JasperFx.Events 2.69.3, with Weasel.Storage unifying at 9.32.0.
 
     One consequence of Marten + Fisher together: both nupkgs bundle the IDENTICAL
     JasperFx.Events.SourceGenerator (byte-for-byte), so a project referencing both stores loads
@@ -68,6 +76,11 @@
     store-bundled copies via a DropDuplicateBundledEventSourceGenerator target and compile with
     the explicit JasperFx.Events.SourceGenerator pinned below, so the generator always matches
     the JasperFx.Events runtime whatever the stores happen to bundle.
+
+    On THIS set the two bundled copies are byte-identical again (both SHA-256 5d15fdf9…), so they
+    dedupe themselves and the target is currently belt-and-braces. That is the trap, not the
+    all-clear: a project without the target compiles fine today and starts failing CS0433 the
+    moment a bump puts the two stores on different JasperFx builds.
 
     JasperFx.Events.EventModeling is what issues #106/#107/#108 implement against; the semantic
     model (SpecificationDescriptor, HotspotDescriptor.PendingSpecification, SlicePattern,

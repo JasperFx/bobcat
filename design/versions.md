@@ -28,10 +28,17 @@ moved to 2.67.1 for its own reason (below), so the whole set re-aligned above th
 and the gap closed with it. That was issue **#191**, against the 6.35.0/2.67.1 set; the canonical
 set has moved on twice since and the exception has not come back.
 
-The other samples still pin WolverineFx 6.29.1 and resolve their own stores. They are standalone
-consumers with no `ProjectReference` to Bobcat, so they never see this repo's JasperFx and the
-load-order rule below does not reach them. `BankAccountES` is the one sample that *does* link
-against the Bobcat projects, which is exactly why it is the one that must track the set.
+**Every sample now tracks the set**, pinned centrally in
+[`samples/Directory.Packages.props`](../samples/Directory.Packages.props) since 2026-09-21.
+
+That paragraph used to say the other samples were standalone consumers with no `ProjectReference`
+to Bobcat, so they never saw this repo's JasperFx and the load-order rule below did not reach
+them. **That was wrong on both counts**, and it is why half the samples sat on WolverineFx 6.29.1
+/ Marten 9.28.0 unexamined. Every sample `Tests` project does project-reference `src/Bobcat`, so
+every one of them resolves this repo's JasperFx.Events — and Marten 9.28.0, built before 2.67 made
+`QueryStreamStates` abstract, therefore died on the exact TypeLoadException described below the
+first time it opened a session. Nothing reported it because `samples.yml` only *builds* the
+samples; running `CqrsMinimalApi` is what surfaced it.
 
 ## Why these versions line up
 
@@ -78,9 +85,10 @@ Fisher 1.0.4 identically: 13 failures in `Bobcat.CritterStack.Tests`, 3 in `Bobc
 A nuspec cannot predict this: `>= 2.56.0` means the store can run against 2.67.1 *for members
 that existed when it was built*. An interface gaining an abstract member is a runtime break for
 every implementer. **The only safe signal is that the store itself was built against the JasperFx
-you are pinning** — which is why Marten 9.33.0, Fisher 1.3.0 and Polecat 5.25.0 are the versions
-here: each is compiled against JasperFx 2.67.0, so each necessarily implements whatever 2.67 made
-abstract. WolverineFx is exempt from the rule; it implements none of the event-store interfaces.
+you are pinning** — which is why Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 are the versions
+here: each declares JasperFx(.Events) at *exactly* 2.69.3, so each was built against the runtime it
+will load. WolverineFx used to be exempt from the rule, implementing none of the event-store
+interfaces; on this set it declares 2.69.3 itself and needs no exemption.
 
 The mirror-image hazard runs the other way and is why the set moves as a **unit**. On
 CritterWatch's bump, `EventQuery.TagValues` joined `EventQueryFilters.All`: a store *rebuilt*
@@ -91,23 +99,24 @@ much, not for an exception.
 
 Two wrinkles worth knowing:
 
-- Weasel unifies cleanly on this set: Marten 9.33.0 floors Weasel at 9.31.1, Fisher 1.3.0 at
-  9.31.0, so `Weasel.Storage` resolves to 9.31.1 for both.
+- Weasel unifies cleanly on this set: Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 each floor
+  their Weasel provider at 9.32.0, and `Weasel.Storage` resolves to 9.32.0 for all of them.
 - Marten and Fisher each bundle `JasperFx.Events.SourceGenerator` inside their own nupkgs, so a
   project referencing both stores loads the generator twice and every projection's `Evolver`
   partial is emitted twice (CS0433 — jasperfx#462). The fix, ported from CritterWatch: a
   `DropDuplicateBundledEventSourceGenerator` target drops every store-bundled copy and the project
   references one explicit `JasperFx.Events.SourceGenerator` as an analyzer, so the generator always
   matches the runtime. `Bobcat.CritterStack.Tests` and `samples/BankAccountES` both carry it.
-  Note the trap: on the previous set the two bundled copies were **byte-identical** and deduped
-  themselves, so `BankAccountES` compiled without the target. Moving the stores to different
-  JasperFx builds is what made them differ — a bump can therefore *introduce* CS0433 in a project
-  that never had it.
+  Note the trap: whether the two bundled copies collide depends on the set. On this one they are
+  **byte-identical again** (both SHA-256 `5d15fdf9…`), so they dedupe themselves and the target is
+  belt-and-braces today. That is not an all-clear — a project without it compiles fine now and
+  starts failing CS0433 the moment a bump puts the two stores on different JasperFx builds.
 
 ### History
 
 | Date | Set | Why |
 |------|-----|-----|
+| current | WolverineFx 6.38.0 / Marten 9.36.0 / JasperFx 2.69.3 / Fisher 1.10.0 / Polecat 5.29.0 | **Reason not recorded.** The pins moved and the canonical-set table above was updated, but this history, the narrative, and `src/Directory.Packages.props`' header were not — which is how that header came to name the 2026-09-09 set while the pins said otherwise. Re-verified against the nuspecs on 2026-09-21: every store floors at exactly 2.69.3, which is a tighter guarantee than the set it replaced. If you know why it moved, write it here. |
 | 2026-09-09 | WolverineFx 6.35.0 / Marten 9.33.0 / JasperFx 2.67.1 / Fisher 1.3.0 / Polecat 5.25.0 | CritterWatch#1212 needs partial Event Model descriptors to round-trip (jasperfx#807, in 2.67.1). JasperFx was moved alone first and broke every store at runtime — `IReadOnlyEventStore.QueryStreamStates` became abstract in 2.67 — so the whole set re-aligned onto stores built against 2.67.0. Closes the samples/src pin gap (#191). |
 | 2026-08-28 | WolverineFx 6.30.1 / Marten 9.30.0 / JasperFx 2.56.0 / Fisher 1.0.4 / Polecat 5.20.0 | Issue #172: the four-source event-model vehicle needs Wolverine ≥ 6.30.1 (chains carry EM roles, `event-model` export with a push URL). JasperFx had already moved to 2.56.0 for descriptor provenance (jasperfx#703/#704). |
 | 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. (JasperFx then moved alone to 2.54.0 for #106's descriptor, and to 2.56.0 for provenance — floors permitted the solo moves.) |
