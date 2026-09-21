@@ -64,7 +64,7 @@ public class EventStoreAuthoringIsPublicTests
         // oversight rather than a boundary. Pinned so the tier does not drift apart again.
         foreach (var type in new[]
                  {
-                     typeof(EventStores), typeof(DocumentStores), typeof(TrackedActs),
+                     typeof(EventStores), typeof(DocumentStores),
                      typeof(RecordBuilding), typeof(EventStoreAuthoring)
                  })
         {

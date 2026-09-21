@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Bobcat.Runtime;
 
@@ -148,7 +147,21 @@ public static class AlbaContentRoot
         return contentRoot == "~" ? baseDirectory : contentRoot;
     }
 
-    private static IEnumerable<WebApplicationFactoryContentRootAttribute> contentRootAttributes(
+    /// <summary>
+    /// One <c>[WebApplicationFactoryContentRoot]</c> as this resolver needs to read it.
+    /// </summary>
+    private sealed record ContentRootAttribute(string ContentRootPath, string ContentRootTest, int Priority);
+
+    /// <summary>
+    /// The attribute is read <em>reflectively, by type name</em>, so Bobcat core carries no
+    /// reference to <c>Microsoft.AspNetCore.Mvc.Testing</c>. An application that uses
+    /// WebApplicationFactory already has the package; one that does not should not be made to
+    /// take the whole ASP.NET testing stack to get a content root resolved.
+    /// </summary>
+    private const string ContentRootAttributeTypeName =
+        "Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryContentRootAttribute";
+
+    private static IEnumerable<ContentRootAttribute> contentRootAttributes(
         IEnumerable<Assembly>? assemblies, string fullName, string simpleName)
     {
         if (assemblies == null) return [];
@@ -156,13 +169,33 @@ public static class AlbaContentRoot
         return assemblies
             .SelectMany(a =>
             {
-                try { return a.GetCustomAttributes<WebApplicationFactoryContentRootAttribute>(); }
+                try { return a.GetCustomAttributes(); }
                 catch { return []; }
             })
+            .Where(a => a.GetType().FullName == ContentRootAttributeTypeName)
+            .Select(read)
+            .Where(a => a.HasValue)
+            .Select(a => a!.Value)
             .Where(a => string.Equals(a.Key, fullName, StringComparison.OrdinalIgnoreCase)
                         || string.Equals(a.Key, simpleName, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(a => a.Priority)
+            .OrderBy(a => a.Attribute.Priority)
+            .Select(a => a.Attribute)
             .ToArray();
+    }
+
+    private static (string Key, ContentRootAttribute Attribute)? read(Attribute attribute)
+    {
+        var type = attribute.GetType();
+
+        string? text(string name) => type.GetProperty(name)?.GetValue(attribute) as string;
+
+        var key = text("Key");
+        var path = text("ContentRootPath");
+        var test = text("ContentRootTest");
+        if (key == null || path == null || test == null) return null;
+
+        var priority = type.GetProperty("Priority")?.GetValue(attribute) as int? ?? 0;
+        return (key, new ContentRootAttribute(path, test, priority));
     }
 
     /// <summary>

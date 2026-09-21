@@ -1,72 +1,17 @@
 using System.Reflection;
 using System.Text.Json;
-using Bobcat.Engine;
 using Bobcat.Runtime;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Shouldly;
 
-namespace Bobcat.Alba.Tests;
+// Only for AlbaContentRootResolutionTests: "My.Web" is a synthetic entry point that exists in no
+// assembly, so this attribute can never influence a real host. It lets the tests prove that a
+// [WebApplicationFactoryContentRoot] carried by a test assembly is honoured with its marker file
+// — and, since AlbaContentRoot now reads the attribute reflectively by type name rather than
+// referencing Microsoft.AspNetCore.Mvc.Testing, that the reflective read matches the real type.
+[assembly: WebApplicationFactoryContentRoot("My.Web", "../../../..", "appsettings.json", "1")]
 
-public class ContentRootTests
-{
-    [Fact]
-    public void with_content_root_is_fluent()
-    {
-        var resource = new AlbaResource<TestApp>();
-        resource.WithContentRoot("/tmp/host").ShouldBeSameAs(resource);
-    }
-
-    [Fact]
-    public void with_content_root_is_reported_as_the_resolution()
-    {
-        var resource = new AlbaResource<TestApp>().WithContentRoot("/tmp/host");
-        resource.ContentRoot.Path.ShouldBe("/tmp/host");
-        resource.ContentRoot.Source.ShouldBe("WithContentRoot");
-    }
-
-    [Fact]
-    public void directory_not_found_is_wrapped_with_actionable_guidance()
-    {
-        var wrapped = AlbaResourceDiagnostics.WrapStartException(
-            new DirectoryNotFoundException("doubled path"), "MySample");
-
-        var config = wrapped.ShouldBeOfType<BobcatConfigurationException>();
-        config.Message.ShouldContain("WebApplicationFactoryContentRoot");
-        // The concrete way to set the root differs by resource form (issue #274): the typed
-        // AlbaResource<TProgram> is told about WithContentRoot, the factory-delegate form about
-        // UseContentRoot inside its own lambda. Both are pinned in DoubledContentRootTests; what
-        // this test is about is that a content-root failure gets wrapped and explained at all.
-        config.Message.ShouldContain("ContentRoot");
-        config.Message.ShouldContain("MySample");
-        config.InnerException.ShouldBeOfType<DirectoryNotFoundException>();
-    }
-
-    [Fact]
-    public void no_solution_file_above_the_test_output_is_wrapped_too()
-    {
-        // WebApplicationFactory throws this from UseSolutionRelativeContentRoot before any
-        // configure callback runs, so it cannot be pre-empted — only explained.
-        var wrapped = AlbaResourceDiagnostics.WrapStartException(
-            new InvalidOperationException("Solution root could not be located using application root /x/bin."), "MySample");
-
-        wrapped.ShouldBeOfType<BobcatConfigurationException>().Message.ShouldContain("ContentRoot");
-    }
-
-    [Fact]
-    public void the_resolved_root_is_named_in_the_guidance()
-    {
-        var wrapped = AlbaResourceDiagnostics.WrapStartException(
-            new DirectoryNotFoundException("x"), "MySample", "/repo/src/MySample (manifest)");
-
-        wrapped.Message.ShouldContain("/repo/src/MySample (manifest)");
-    }
-
-    [Fact]
-    public void unrelated_exceptions_pass_through_unchanged()
-    {
-        var original = new InvalidOperationException("boom");
-        AlbaResourceDiagnostics.WrapStartException(original, "MySample").ShouldBeSameAs(original);
-    }
-}
+namespace Bobcat.Tests.Runtime;
 
 /// <summary>
 /// <see cref="AlbaContentRoot"/> against synthetic repository layouts (issue #62 gap 9). Every
@@ -303,44 +248,3 @@ public class AlbaContentRootResolutionTests : IDisposable
 }
 
 /// <summary>
-/// The real thing: <c>src/Bobcat.Alba.SampleWeb</c> sits under <c>src/</c>, exactly the layout
-/// WebApplicationFactory's solution-relative guess gets wrong (it would look for
-/// <c>&lt;repo&gt;/Bobcat.Alba.SampleWeb</c>). No attribute, no <c>WithContentRoot</c>.
-/// </summary>
-public class SampleWebContentRootTests
-{
-    [Fact]
-    public void the_sample_web_project_under_src_resolves_to_its_own_directory()
-    {
-        var resolution = AlbaContentRoot.Resolve(typeof(SampleWeb.Program).Assembly);
-
-        resolution.Path.ShouldNotBeNull();
-        Path.GetFileName(Path.TrimEndingDirectorySeparator(resolution.Path!)).ShouldBe("Bobcat.Alba.SampleWeb");
-        File.Exists(Path.Combine(resolution.Path!, "Bobcat.Alba.SampleWeb.csproj")).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task a_host_under_src_starts_with_its_project_directory_as_content_root()
-    {
-        await using var resource = new AlbaResource<SampleWeb.Program>();
-        await resource.Start();
-
-        var result = await resource.AlbaHost.Scenario(s => s.Get.Url("/content-root"));
-        var contentRoot = Path.TrimEndingDirectorySeparator(await result.ReadAsTextAsync());
-
-        Path.GetFileName(contentRoot).ShouldBe("Bobcat.Alba.SampleWeb");
-        resource.ContentRoot.Path.ShouldNotBeNull();
-        Path.TrimEndingDirectorySeparator(resource.ContentRoot.Path!).ShouldBe(contentRoot);
-    }
-
-    [Fact]
-    public async Task with_content_root_still_wins_over_resolution()
-    {
-        await using var resource = new AlbaResource<SampleWeb.Program>().WithContentRoot(AppContext.BaseDirectory);
-        await resource.Start();
-
-        var result = await resource.AlbaHost.Scenario(s => s.Get.Url("/content-root"));
-        Path.TrimEndingDirectorySeparator(await result.ReadAsTextAsync())
-            .ShouldBe(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
-    }
-}

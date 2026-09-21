@@ -1,7 +1,7 @@
 using Npgsql;
 using Xunit;
 
-namespace Bobcat.Marten.Tests;
+namespace Bobcat.CritterStack.Tests;
 
 /// <summary>
 /// Where the Marten integration tests find their database, and whether one is actually there.

@@ -107,6 +107,10 @@
     <PackageVersion Include="Fisher" Version="1.10.0" />
     <PackageVersion Include="Polecat" Version="5.29.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
+    <!-- Bobcat.Tests only. AlbaContentRoot reads [WebApplicationFactoryContentRoot] reflectively
+         by type name so the shipped package needs no ASP.NET reference; the test assembly carries
+         the real attribute so the reflective read is proved against the real type. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
 
     <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />

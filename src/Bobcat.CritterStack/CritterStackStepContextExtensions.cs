@@ -1,25 +1,14 @@
 using Bobcat.Engine;
 using Bobcat.Runtime;
-using Bobcat.Wolverine;
 using JasperFx.Events;
 using JasperFx.Events.Projections;
-using Wolverine.Tracking;
 
 namespace Bobcat.CritterStack;
 
 /// <summary>
-/// The result of an aggregate-command execution: the tracked Wolverine session, the events
-/// newly appended to the stream, and the rebuilt aggregate — so step assertions can compare
-/// against expected state.
-/// </summary>
-public record AggregateExecution<T>(
-    ITrackedSession Session,
-    IReadOnlyList<IEvent> NewEvents,
-    T? Aggregate);
-
-/// <summary>
-/// The layer above <c>Bobcat.Wolverine</c> for the canonical Critter Stack pattern: tracked-session
-/// message dispatch <i>and</i> event-store assertion in the same scenario.
+/// Reaching the event store from inside a step: which store, which stream, which projection —
+/// bound to the JasperFx.Events abstractions, so the same step code runs on Marten, Polecat or
+/// Fisher.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -92,35 +81,6 @@ public static class CritterStackStepContextExtensions
         this IStepContext context, string streamKey, string? hostResource = null, string? storeName = null) where T : class
         => EventStores.AggregateStreamAsync<T>(context.EventStore(hostResource, storeName), streamKey, context.Cancellation);
 
-    // --- Commands ---------------------------------------------------------------------------------
-
-    /// <summary>
-    /// Send a command through Wolverine, wait for the tracked session (and all cascading messages)
-    /// to settle, then return the newly appended events and the rebuilt aggregate for the given
-    /// stream. The canonical "I sent a command, here's what changed" helper.
-    /// </summary>
-    public static async Task<AggregateExecution<T>> ExecuteAggregateCommandAsync<T>(
-        this IStepContext context,
-        object command,
-        Guid streamId,
-        string? hostResource = null,
-        string? storeName = null,
-        int timeoutInMilliseconds = 5000) where T : class
-    {
-        var store = context.EventStore(hostResource, storeName);
-
-        var before = await EventStores.FetchStreamAsync(store, streamId, context.Cancellation);
-        var beforeCount = before.Count;
-
-        var session = await context.InvokeMessageAndWaitAsync(command, hostResource, timeoutInMilliseconds);
-
-        var all = await EventStores.FetchStreamAsync(store, streamId, context.Cancellation);
-        var aggregate = await EventStores.AggregateStreamAsync<T>(store, streamId, context.Cancellation);
-
-        var newEvents = all.Skip(beforeCount).ToList();
-        return new AggregateExecution<T>(session, newEvents, aggregate);
-    }
-
     // --- Projections ------------------------------------------------------------------------------
 
     /// <summary>
@@ -178,10 +138,9 @@ public static class CritterStackStepContextExtensions
 
     /// <summary>
     /// Composite between-scenario reset: deletes every event and every document in every event
-    /// store the host registers, keeping the schema. With the tracked-session dispatch model,
-    /// commands are awaited to completion, so there are typically no in-flight Wolverine envelopes
-    /// left to drain; <see cref="CritterStackHostExtensions.ClearStatefulResourcesAsync(IServiceProvider, CancellationToken)"/>
-    /// is the JasperFx-native way to purge durable envelope storage and transports when a suite needs it.
+    /// store the host registers, keeping the schema. This purges <em>stores</em> only — for
+    /// durable envelope storage and transports, see
+    /// <see cref="CritterStackHostExtensions.ClearStatefulResourcesAsync(IServiceProvider, CancellationToken)"/>.
     /// </summary>
     public static Task ResetCritterStackAsync(this IStepContext context, string? hostResource = null)
         => context.GetResource<IHostResource>(hostResource).RootServices.ResetEventStoresAsync(context.Cancellation);

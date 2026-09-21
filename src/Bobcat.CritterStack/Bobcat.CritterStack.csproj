@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <Description>Bobcat + Critter Stack integration — Wolverine tracked-session dispatch plus event-store assertions (aggregate command execution, projection waits, between-scenario reset) bound to the JasperFx.Events abstractions, so the same helpers serve Marten, Polecat and Fisher.</Description>
+    <Description>Bobcat + Critter Stack integration — event-store and document-store helpers (stream authoring, projection waits, between-scenario reset) bound to the JasperFx.Events abstractions, so the same helpers serve Marten, Polecat and Fisher.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
-    <ProjectReference Include="..\Bobcat.Wolverine\Bobcat.Wolverine.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,7 +39,7 @@
     read-only source the editors can parse and the compiler ignores. See docs/editor-integration.md.
   -->
   <ItemGroup>
-    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs;DocumentGrammars.cs;SagaGrammars.cs">
+    <Content Include="DocumentGrammars.cs">
       <Pack>true</Pack>
       <PackagePath>contentFiles/cs/any/Bobcat.CritterStack/</PackagePath>
       <BuildAction>None</BuildAction>
@@ -49,7 +48,7 @@
       <Visible>false</Visible>
     </Content>
     <!-- Also under content/ so a consumer can copy the grammar into their workspace for the editor. -->
-    <Content Include="CritterStackFixture.cs;CritterStackGrammars.cs;HttpGrammars.cs;CritterStackHttpFixture.cs;DocumentGrammars.cs;SagaGrammars.cs">
+    <Content Include="DocumentGrammars.cs">
       <Pack>true</Pack>
       <PackagePath>content/grammars/</PackagePath>
       <BuildAction>None</BuildAction>
