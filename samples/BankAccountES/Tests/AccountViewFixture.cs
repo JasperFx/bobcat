@@ -1,4 +1,4 @@
-using Bobcat.CritterStack;
+using Bobcat.Wolverine;
 
 namespace BankAccountES.Tests;
 
@@ -7,4 +7,4 @@ namespace BankAccountES.Tests;
 /// CritterStack grammar so the fixture is the base class and nothing else (bobcat#104). It exists
 /// for bobcat#300: a spec-declared View slice that must fold into the store-derived one by name.
 /// </summary>
-public class AccountViewFixture : CritterStackFixture;
+public class AccountViewFixture : WolverineCritterStackFixture;

@@ -74,25 +74,10 @@ jobs:
           # noise. This one has to shrink: fix a sample, and CI tells you to delete its line.
           # Tracked by the "fix the samples" issue.
           #
-          # 2026-09-21: Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine were deleted, and the
-          # support is being rebuilt from what the samples actually need. Eight of the nine are
-          # converted to raw Alba and out of this list.
-          #
-          # BankAccountES is the exception, and the reason is worth reading. Its AccountView and
-          # FreezeAccount features are written ENTIRELY in the Bobcat.CritterStack Gherkin
-          # grammar — `Given no events for Account`, `When FreezeAccount is received`,
-          # `Then AccountFrozen is emitted` — so both fixtures were one line each:
-          #
-          #     public class FreezeAccountFixture : CritterStackFixture;
-          #
-          # That grammar went with the package. Converting the sample would mean re-implementing
-          # the grammar inside it, which is the rebuild rather than a conversion — and
-          # EventModel.feature asserts on the slices those two declare, so a hand-rolled
-          # substitute would have to reproduce the type captures too. It stays here until the
-          # grammar is rebuilt. It is the clearest evidence in the repo of what that grammar was
-          # carrying.
+          # Empty again as of 2026-09-21: every sample builds. The Alba, Marten and Wolverine
+          # support was deleted and rebuilt from what the samples actually needed, and
+          # BankAccountES — quarantined while the Critter Stack grammar was gone — is back.
           quarantined=(
-            samples/BankAccountES/Tests/Tests.csproj
           )
 
           is_quarantined() {
@@ -151,8 +136,8 @@ jobs:
           # nothing here has to know about another sample's schema choices. Created up front
           # because the service container only ever makes one.
           #
-          # BankAccountES is absent on purpose: it is the quarantined project above, and it is the
-          # one sample that also wants a broker.
+          # BankAccountES runs its Marten leg here and its Fisher leg in the step below, which is
+          # the point of that sample: the same handlers against two stores.
           samples=(
             CqrsMinimalApi:cqrs_minimal_api
             BookingMonolith:booking
@@ -162,6 +147,7 @@ jobs:
             EcommerceModularMonolith:ecommerce
             MeetingGroupMonolith:meeting_groups
             OutboxDemo:outbox_demo
+            BankAccountES:bank_account
           )
 
           for entry in "${samples[@]}"; do
@@ -191,12 +177,11 @@ jobs:
           fi
           echo "every runnable sample passed"
 
-      # Off with the quarantine above — the project does not build until the CritterStack grammar
-      # is rebuilt. Turn this back on in the same change that takes BankAccountES off the list.
-      # `dotnet test`, not `dotnet run -- run`: the samples are MTP test hosts now, so a scenario
-      # is a test node and the platform runs them.
+      # `dotnet test`, not `dotnet run -- run`: the samples are MTP test hosts, so a scenario is a
+      # test node and the platform runs them. This leg needs no services at all — a SQLite file is
+      # the whole store, which is the argument for Fisher as the inner-loop store, and a sample
+      # whose point is "the same handlers run on two stores" is only proved by running both.
       - name: Run the BankAccountES specs on Fisher (SQLite, no services)
-        if: false
         env:
           EventStore: Fisher
           ConnectionStrings__Fisher: "Data Source=${{ runner.temp }}/bank_account.db"

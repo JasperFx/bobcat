@@ -18,6 +18,7 @@
     <ProjectReference Include="..\BankAccountES.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Alba\Bobcat.Alba.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Wolverine\Bobcat.Wolverine.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Mtp\Bobcat.Mtp.csproj" />
     <!-- Store-agnostic event-store helpers (reset, projection waits). Deliberately NOT Bobcat.Marten:
          the spec project talks to the host's store through JasperFx.Events.IEventStore, so it would
