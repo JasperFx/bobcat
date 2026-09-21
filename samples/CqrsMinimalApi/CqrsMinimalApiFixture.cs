@@ -1,5 +1,4 @@
 using Bobcat;
-using Bobcat.Alba;
 
 namespace CqrsMinimalApi.Tests;
 

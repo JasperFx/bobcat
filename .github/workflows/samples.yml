@@ -48,7 +48,26 @@ jobs:
           # A quarantine that only ever forgives is how a permanently-red job becomes background
           # noise. This one has to shrink: fix a sample, and CI tells you to delete its line.
           # Tracked by the "fix the samples" issue.
+          #
+          # 2026-09-21: Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine were deleted, and the
+          # support is being rebuilt from what the samples actually need. Eight of the nine are
+          # converted to raw Alba and out of this list.
+          #
+          # BankAccountES is the exception, and the reason is worth reading. Its AccountView and
+          # FreezeAccount features are written ENTIRELY in the Bobcat.CritterStack Gherkin
+          # grammar — `Given no events for Account`, `When FreezeAccount is received`,
+          # `Then AccountFrozen is emitted` — so both fixtures were one line each:
+          #
+          #     public class FreezeAccountFixture : CritterStackFixture;
+          #
+          # That grammar went with the package. Converting the sample would mean re-implementing
+          # the grammar inside it, which is the rebuild rather than a conversion — and
+          # EventModel.feature asserts on the slices those two declare, so a hand-rolled
+          # substitute would have to reproduce the type captures too. It stays here until the
+          # grammar is rebuilt. It is the clearest evidence in the repo of what that grammar was
+          # carrying.
           quarantined=(
+            samples/BankAccountES/Tests/Tests.csproj
           )
 
           is_quarantined() {
@@ -101,7 +120,10 @@ jobs:
           [ $status -eq 0 ] && echo "no regressions"
           exit $status
 
+      # Off with the quarantine above — the project does not build until the CritterStack grammar
+      # is rebuilt. Turn this back on in the same change that takes BankAccountES off the list.
       - name: Run the BankAccountES specs on Fisher (SQLite, no services)
+        if: false
         env:
           EventStore: Fisher
           ConnectionStrings__Fisher: "Data Source=${{ runner.temp }}/bank_account.db"

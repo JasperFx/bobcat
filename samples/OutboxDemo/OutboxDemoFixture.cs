@@ -1,5 +1,4 @@
 using Bobcat;
-using Bobcat.Alba;
 using Bobcat.Engine;
 
 namespace OutboxDemo.Tests;

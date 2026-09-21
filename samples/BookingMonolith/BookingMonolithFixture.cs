@@ -1,5 +1,4 @@
 using Bobcat;
-using Bobcat.Alba;
 using Booking;
 using Identity;
 using Wolverine;
@@ -263,7 +262,7 @@ public class BookingMonolithFixture : Fixture
     /// </summary>
     private async Task<HttpResult<T>> awaitingCascades<T>(Func<Task<HttpResult<T>>> call)
     {
-        var host = Context!.GetResource<IAlbaResource>().AlbaHost;
+        var host = Context!.GetResource<WebApp>().Host;
         HttpResult<T>? captured = null;
 
         // Explicitly typed: ExecuteAndWaitAsync overloads on Task and ValueTask, and an async

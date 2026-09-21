@@ -41,7 +41,7 @@ public class EventModelFixture : Fixture
     [When("the event model is assembled from the chains, the overlay, the store and this assembly's specs")]
     public async Task AssembleEventModel()
     {
-        var host = Context!.GetResource<AlbaResource<Program>>();
+        var host = Context!.GetResource<WebApp>();
 
         // What EventModelDiscovery.AssembleAsync(services) would do, plus this assembly's
         // generated source — which the host's container cannot see (see the class remarks).

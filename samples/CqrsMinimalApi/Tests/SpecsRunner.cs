@@ -31,12 +31,12 @@ public static class SpecsRunner
 
         return BobcatRunner.Run(args, runner =>
         {
-            // Use the global-namespace Program from the host project
+            // WebApp uses the global-namespace Program from the host project
             // (CqrsMinimalApi.csproj's top-level statements). With the
             // explicit Main above, this assembly no longer synthesizes a
-            // competing `Program`, so unqualified Program here resolves
+            // competing `Program`, so unqualified Program there resolves
             // unambiguously to the host's entry point.
-            runner.Suite.AddResource(new AlbaResource<Program>());
+            runner.Suite.AddResource(new WebApp());
             runner.ScanForFeatures(typeof(CqrsMinimalApiFixture).Assembly);
         });
     }

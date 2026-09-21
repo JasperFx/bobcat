@@ -1,4 +1,3 @@
-using Bobcat.Alba;
 using Bobcat.Runtime;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,7 +8,7 @@ namespace MoreSpeakers.Tests;
 /// Bobcat spec-runner entry point. An explicit Main class rather than top-level statements,
 /// because this project references the host — which uses top-level statements and synthesizes
 /// its own <c>Program</c> in the global namespace. Two of those in one assembly make
-/// <c>AlbaResource&lt;Program&gt;</c> bind to the runner stub instead of the web app, which
+/// <c>WebApp</c> bind to the runner stub instead of the web app, which
 /// surfaces as a native PAL crash with no managed stack. See docs/sample-wiring.md footgun 1.
 /// </summary>
 public static class SpecsRunner
@@ -26,7 +25,7 @@ public static class SpecsRunner
             // believes is new. Same shape as PaymentsMonolith's unique index on email, for the
             // same reason. ResetBetweenScenarios is where persistent state is cleaned; the
             // per-scenario DI scope opens over the top of it.
-            runner.Suite.AddResource(new AlbaResource<Program>(reset: async host =>
+            runner.Suite.AddResource(new WebApp(reset: async host =>
             {
                 var store = host.Services.GetRequiredService<IDocumentStore>();
                 await store.Advanced.Clean.DeleteAllDocumentsAsync();

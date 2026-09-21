@@ -1,4 +1,3 @@
-using Bobcat.Alba;
 using Bobcat.CritterStack;
 using Bobcat.Runtime;
 
@@ -8,7 +7,7 @@ namespace BankAccountES.Tests;
 /// Bobcat spec-runner entry point. An explicit Main class rather than top-level statements,
 /// because this project references the host — which uses top-level statements and synthesizes
 /// its own <c>Program</c> in the global namespace. Two of those in one assembly make
-/// <c>AlbaResource&lt;Program&gt;</c> bind to the runner stub instead of the web app, which
+/// <c>WebApp</c> bind to the runner stub instead of the web app, which
 /// surfaces as a native PAL crash with no managed stack. See docs/sample-wiring.md footgun 1.
 /// </summary>
 public static class SpecsRunner
@@ -35,7 +34,7 @@ public static class SpecsRunner
             // It reaches the store through JasperFx.Events.IEventStore, which Marten, Polecat and
             // Fisher all register, so this file has no `using Marten` and would read the same
             // against either of the others. Bobcat.CritterStack, issue #103.
-            runner.Suite.AddResource(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
+            runner.Suite.AddResource(new WebApp(reset: host => host.ResetEventStoresAsync()));
             runner.ScanForFeatures(typeof(BankAccountESFixture).Assembly);
         });
 }

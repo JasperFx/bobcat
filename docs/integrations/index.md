@@ -5,15 +5,23 @@ message brokers — those arrive as separate packages, each one adding a **resou
 a lifecycle the suite starts, resets and disposes) and a set of `IStepContext` extension methods so
 your steps can reach it without holding a reference.
 
-| Package | What it gives you |
-|---|---|
-| [Bobcat.Alba](alba.md) | An ASP.NET Core host, driven over HTTP through Alba |
-| [Bobcat.Marten](marten.md) | A Marten document store and event store |
-| [Bobcat.Wolverine](wolverine.md) | Wolverine message tracking, handler warm-up and transport draining |
+::: warning Three of these were removed on 2026-09-21
+`Bobcat.Alba`, `Bobcat.Marten` and `Bobcat.Wolverine` are gone, along with the Wolverine half of
+`Bobcat.CritterStack`. The support is being rebuilt from what real applications turn out to need.
+The three pages below are placeholders recording what each carried and where the evidence is
+being gathered.
+:::
 
-Two more exist and are documented with the features that use them: `Bobcat.CritterStack` ships the
-Gherkin grammar for Critter Stack applications (see [Composing Grammar Modules](../composing-grammars.md)),
-and `Bobcat.EntityFrameworkCore` covers EF Core.
+| Package | Status |
+|---|---|
+| [Bobcat.Alba](alba.md) | **Removed.** Use Alba directly; `AlbaContentRoot` survived into core |
+| [Bobcat.Marten](marten.md) | **Removed.** Anything rebuilt must bind to JasperFx.Events, not Marten |
+| [Bobcat.Wolverine](wolverine.md) | **Removed.** The tracked-session helpers are expected to land in Wolverine itself |
+
+`Bobcat.CritterStack` still ships its store-agnostic half — `EventStores`, `DocumentStores`,
+`EventStoreAuthoring`, `RecordBuilding` — on the JasperFx.Events abstractions, so it serves Marten,
+Polecat and Fisher alike. Its Gherkin grammar and `CritterStackFixture` went with `Bobcat.Wolverine`.
+`Bobcat.EntityFrameworkCore` covers EF Core and is unaffected.
 
 The runner adapters — `Bobcat.Xunit` and `Bobcat.TUnit` — are a different kind of package and live
 under Guides: [Bobcat with xUnit.net](../xunit.md) and [Bobcat with TUnit](../tunit.md).
@@ -24,14 +32,17 @@ under Guides: [Bobcat with xUnit.net](../xunit.md) and [Bobcat with TUnit](../tu
 [BobcatConfiguration]
 public static void Configure(BobcatRunner runner)
 {
-    runner.Suite.AddResource(new AlbaResource<Program>());
+    runner.Suite.AddResource(new WebApp());
 }
 ```
 
 A resource is started once for the suite, reset between scenarios if you give it a reset hook, and
-disposed at the end. Every integration's resource takes an optional `name`, and every step-context
-extension takes an optional `resourceName` — that pair is how a suite drives more than one host or
-more than one store at once.
+stopped at the end. Give a resource an optional `name`, and a lookup an optional `resourceName` —
+that pair is how a suite drives more than one host or more than one store at once.
+
+`WebApp` there is a resource the **sample** writes, not one Bobcat ships; every sample under
+`samples/` has one, and they are worth reading as the current answer to "what does hosting an
+application actually take". See [Resources](../resources.md) for the four members.
 
 **Give the resource a reset hook if the thing behind it has persistent state.** A suite that passes
 once per database and then reports conflicts for records it believes are new is worse than no suite,
