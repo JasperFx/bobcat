@@ -2,6 +2,7 @@ using JasperFx.CommandLine;
 using JasperFx.Testing;
 using System.Diagnostics;
 using System.Reflection;
+using JasperFx.Core.TypeScanning;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
 using Bobcat.Rendering;
@@ -145,17 +146,46 @@ public class BobcatRunner
 
     /// <summary>
     /// Scan an assembly for all generated FeatureDefinition factories.
-    /// Looks for static classes with a public static Define() method returning FeatureDefinition.
+    /// Looks for public static classes with a public static Define() method returning FeatureDefinition.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Scanning goes through JasperFx's <see cref="TypeRepository"/> rather than
+    /// <c>Assembly.GetTypes()</c>, so Bobcat reads an assembly the same way the rest of the
+    /// Critter Stack does. Two consequences worth knowing.
+    /// </para>
+    /// <para>
+    /// <strong>Public types only.</strong> Measured, not assumed: for a given assembly
+    /// <c>TypeRepository.FindTypes(…, TypeClassification.All, …)</c> returns exactly what
+    /// <c>GetExportedTypes()</c> does, where <c>GetTypes()</c> also returned internal ones. Every
+    /// generated <c>*_Feature</c> class is <c>public static</c>, so nothing the generator emits is
+    /// affected; a hand-written <em>internal</em> static class with a <c>Define()</c> would no
+    /// longer be found.
+    /// </para>
+    /// <para>
+    /// <strong>A type-load failure is raised, not swallowed.</strong> <c>GetTypes()</c> throws
+    /// <c>ReflectionTypeLoadException</c> when a type in the assembly cannot be loaded — a raw
+    /// error, but at least a loud one. <c>TypeRepository</c> instead records the assembly and
+    /// hands back ZERO types, which would turn a spec assembly missing a dependency into a run
+    /// that quietly discovers nothing. So the failure is checked for and rethrown with the
+    /// assembly named and the loader's own reason attached.
+    /// </para>
+    /// </remarks>
     public BobcatRunner ScanForFeatures(Assembly assembly)
     {
         // Assembly-level hints are the run-wide defaults a fixture can then override.
         RecoveryHints.AddFromAssembly(assembly);
 
-        foreach (var type in assembly.GetTypes())
-        {
-            if (!type.IsClass || !type.IsAbstract || !type.IsSealed) continue; // static classes
+        // A static class is abstract + sealed, and JasperFx classifies those as Concretes rather
+        // than Abstracts — All plus the explicit predicate keeps the shape check ours.
+        var candidates = TypeRepository
+            .FindTypes(assembly, TypeClassification.All, type => type.IsClass && type.IsAbstract && type.IsSealed)
+            .ToList();
 
+        assertScannable(assembly);
+
+        foreach (var type in candidates)
+        {
             var defineMethod = type.GetMethod("Define", BindingFlags.Public | BindingFlags.Static);
             if (defineMethod == null || defineMethod.ReturnType != typeof(FeatureDefinition)) continue;
 
@@ -167,6 +197,39 @@ public class BobcatRunner
         }
 
         return this;
+    }
+
+    /// <summary>
+    /// Turn a silent scanning failure into a diagnostic. Only <paramref name="assembly"/>'s own
+    /// failure counts: <see cref="TypeRepository"/>'s record is process-global, and an unrelated
+    /// assembly that failed to scan elsewhere is not this suite's problem.
+    /// </summary>
+    private static void assertScannable(Assembly assembly)
+    {
+        var name = assembly.GetName().Name;
+        if (name == null) return;
+
+        var failed = TypeRepository.FailedAssemblies()
+            .Any(a => a.Record?.ToString()?.StartsWith(name + ",", StringComparison.Ordinal) == true);
+
+        if (!failed) return;
+
+        var message =
+            $"Assembly '{name}' could not be scanned for features, so no scenarios were discovered from it. " +
+            "This is almost always a missing dependency — a package the spec assembly references at compile " +
+            "time but that did not make it into the output directory.";
+
+        try
+        {
+            // Carries the loader's own reason, which is the part that names the missing file.
+            TypeRepository.AssertNoTypeScanningFailures();
+        }
+        catch (Exception e)
+        {
+            throw new BobcatConfigurationException(message, e);
+        }
+
+        throw new BobcatConfigurationException(message);
     }
 
     /// <summary>
