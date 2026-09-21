@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + Alba — an ASP.NET Core application hosted in memory as a Bobcat test resource, and the HTTP calls a step makes against it.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Alba" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bobcat.Alba.Tests" />
+  </ItemGroup>
+
+</Project>

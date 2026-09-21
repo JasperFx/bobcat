@@ -1,4 +1,5 @@
 using Bobcat;
+using Bobcat.Alba;
 using Bobcat.Runtime;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,8 +10,8 @@ namespace PaymentsMonolith.Tests;
 /// Suite configuration for this spec project. No <c>Main</c>: the project references
 /// <c>Bobcat.Mtp</c> and declares no entry point, so the generator emits the
 /// Microsoft.Testing.Platform one and calls every <c>[BobcatConfiguration]</c> method.
-/// Declaring none is also what keeps <c>WebApp</c>'s unqualified <c>Program</c> unambiguous —
-/// see docs/resources.md.
+/// Declaring none is also what keeps <c>AlbaResource&lt;Program&gt;</c> unambiguous — see
+/// docs/resources.md.
 /// </summary>
 public static class SpecsRunner
 {
@@ -22,7 +23,7 @@ public static class SpecsRunner
         // stored), so every user this suite registers is persistent state that changes what
         // the next run means. Without a reset the suite passes exactly once per database and
         // then reports 409s for registrations it believes are new.
-        runner.Resources.Add(new WebApp(reset: async host =>
+        runner.Resources.Add(new AlbaResource<Program>(reset: async host =>
         {
             var store = host.Services.GetRequiredService<IDocumentStore>();
             await store.Advanced.Clean.DeleteAllDocumentsAsync();

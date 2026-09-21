@@ -12,9 +12,10 @@ public static void Configure(BobcatRunner runner)
 }
 ```
 
-Bobcat ships `HostResource` and `DockerComposeResource`; a host you drive through a client of your
-own — Alba, say — is a resource you write, and that is a handful of members. This page is for
-understanding what a resource does, and for writing one.
+Bobcat ships `HostResource` and `DockerComposeResource`, and `Bobcat.Alba` ships
+[`AlbaResource<TProgram>`](integrations/alba.md) for an ASP.NET Core application. Anything else —
+a broker, a service you shell out to — is a resource you write, and that is a handful of members.
+This page is for understanding what a resource does, and for writing one.
 
 ## Reaching a resource from a step
 

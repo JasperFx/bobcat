@@ -1,4 +1,5 @@
 using Bobcat;
+using Bobcat.Alba;
 using Bobcat.CritterStack;
 using Bobcat.Runtime;
 
@@ -8,8 +9,8 @@ namespace BankAccountES.Tests;
 /// Suite configuration for this spec project. No <c>Main</c>: the project references
 /// <c>Bobcat.Mtp</c> and declares no entry point, so the generator emits the
 /// Microsoft.Testing.Platform one and calls every <c>[BobcatConfiguration]</c> method.
-/// Declaring none is also what keeps <c>WebApp</c>'s unqualified <c>Program</c> unambiguous —
-/// see docs/resources.md.
+/// Declaring none is also what keeps <c>AlbaResource&lt;Program&gt;</c> unambiguous — see
+/// docs/resources.md.
 /// </summary>
 public static class SpecsRunner
 {
@@ -33,6 +34,6 @@ public static class SpecsRunner
         // It reaches the store through JasperFx.Events.IEventStore, which Marten, Polecat and
         // Fisher all register, so this file has no `using Marten` and would read the same
         // against either of the others. Bobcat.CritterStack, issue #103.
-        runner.Resources.Add(new WebApp(reset: host => host.ResetEventStoresAsync()));
+        runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
     }
 }

@@ -12,13 +12,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Alba directly: Bobcat ships no Alba integration. -->
-    <PackageReference Include="Alba" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CleanArchitectureTodos.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Alba\Bobcat.Alba.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Mtp\Bobcat.Mtp.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />

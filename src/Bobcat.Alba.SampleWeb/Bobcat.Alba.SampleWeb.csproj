@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    A deliberately tiny ASP.NET Core host for Bobcat.Alba.Tests to bootstrap through
+    AlbaResource<TProgram>. It lives under src/ beside the test project — the sibling layout every
+    Bobcat.* web project uses — so the tests exercise the real WebApplicationFactory bootstrap
+    rather than a hand-built WebApplication. Not packable, never shipped.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+</Project>

@@ -1,3 +1,4 @@
+using Bobcat.Alba;
 using Administration;
 using Bobcat;
 using Meetings;
@@ -270,7 +271,7 @@ public class MeetingGroupMonolithFixture : Fixture
     /// </summary>
     private async Task<HttpResult<T>> awaitingCascades<T>(Func<Task<HttpResult<T>>> call)
     {
-        var host = Context!.GetResource<WebApp>().Host;
+        var host = Context!.GetResource<IAlbaResource>().AlbaHost;
         HttpResult<T>? captured = null;
 
         // Explicitly typed: ExecuteAndWaitAsync overloads on Task and ValueTask, and an async
