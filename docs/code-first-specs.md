@@ -1,263 +1,225 @@
-# Code-first specifications
+# Code-First Specifications
 
-Issue #105. The code-first authoring origin sketched in `src/Bobcat/notes.md` (`[Spec]` /
-`[FormatAs]`, never built), resolved by **use rather than up front**: Jeremy's decision of record
-(2026-08-21) was to take genuinely slow Marten and Wolverine integration tests, rewrite them as
-code-first Bobcat specs, and grow the API only as those ports demanded. This is what that produced
-and what it taught. The ports themselves are `src/Bobcat.CodeFirst.Samples/` (its README maps each
-spec to the original test, file and line).
+Specifications written in C#, with no `.feature` file and no generator. They run on the same
+engine, render the same report, supervise the same way, and appear on the Event Model the same way
+as Gherkin specs — the only thing that changes is where the scenario is written.
 
-## The API, as it stands
+Reach for this when nobody outside the team is reading the specs. Gherkin earns its second file and
+its binding layer when a non-developer reads it; when nobody does, this is the cheaper shape. If
+you have an existing suite you would rather not rewrite at all, see
+[Specs From Existing Tests](marker-steps.md) instead — that is a third, different answer.
 
-Everything lives in `src/Bobcat/CodeFirst/`, additive to core; nothing else in `Bobcat` changed.
+## Your first specification
 
 ```csharp
 public class OrderSagaSpecs : Specification              // feature title: "Order Saga"
 {
-    [Scenario("Starting an order")]                      // one [Scenario] method = one scenario
+    [Scenario("Starting an order")]
     public void starting_an_order()
     {
         var orderId = Guid.NewGuid().ToString();
 
-        var run = When("StartOrder is received", ctx => ctx.InvokeMessageAndWaitAsync(new StartOrder(orderId), "app"))
-            .WithRows(new StartOrder(orderId));          // records are self-describing → input table
+        var run = When("StartOrder is received", ctx => ctx.InvokeMessageAndWaitAsync(new StartOrder(orderId)))
+            .WithRows(new StartOrder(orderId));
 
         Then("the Order saga document", ctx => load(ctx, orderId)).ShouldNotBeNull();
-        Then("the OrderTimeout scheduled by the saga", () => run.Value.Scheduled.SingleMessage<OrderTimeout>().Id).ShouldBe(orderId);
-        ThenRows("the open orders", ctx => query(ctx)).KeyedBy("Id").ShouldMatch(new { Id = orderId, Completed = false });
+        Then("the OrderTimeout scheduled by the saga", () => run.Value.Scheduled.SingleMessage<OrderTimeout>().Id)
+            .ShouldBe(orderId);
     }
 }
 ```
 
+A `Specification` **is** a `Fixture` — one fresh instance per scenario, the same `Context`, the same
+lifecycle hooks (`BeforeEach`/`AfterEach`, static `BeforeAll`/`AfterAll`, with or without an `Async`
+suffix), the same recovery-hint attributes.
+
+The feature title comes from the class name minus a `Specification`/`Specs`/`Spec`/`Fixture`
+suffix; `[FixtureTitle]` overrides it. A scenario's title comes from `[Scenario("…")]`, or from the
+method name with underscores read as spaces.
+
+## Registering it
+
 ```csharp
-runner.AddSpecification<OrderSagaSpecs>();               // or ScanForSpecifications(assembly), beside ScanForFeatures
+runner.AddSpecification<OrderSagaSpecs>();          // one
+runner.ScanForSpecifications(assembly);             // all of them
 ```
 
-- **`Specification : Fixture`.** A specification *is* the fixture: one fresh instance per
-  scenario, the same `Context`, the same recovery-hint attributes. `SpecificationFeature.Build(type)`
-  reflects once per type at registration (the `[Scenario]` methods, hooks by the Gherkin naming
-  convention — `BeforeEach`/`AfterEach`, static `BeforeAll`/`AfterAll`, `Async` suffix, the
-  attributes as overrides) and produces the same `FeatureDefinition` / `DelegateExecutionStep` model
-  the generator emits. `FixtureType` is the specification itself, so `BobcatRunner.AddFeature`'s
-  hint scoping works unchanged.
-- **Compose, then execute.** A scenario method is invoked at plan-build time and *declares* steps;
-  the engine then executes them with the timeout, continuation rules and observers every other
-  scenario gets. Two consequences the ports kept bumping into: the method body cannot `await` a
-  step's outcome — a `Given`/`When` that returns a value hands back a `Captured<T>`, read as
-  `.Value` inside a later step — and anything needing the step context belongs in a step body. A
-  `Captured` read too early throws with an explanation; an exception escaping the scenario method
-  itself becomes a single failing "composing the scenario" step rather than taking the run down.
-- **Overloads, not a DSL.** `Given`/`When` take `Action`, `Func<Task>`, `Func<IStepContext, Task>`,
-  and value-returning `Func<T>` / `Func<Task<T>>` / `Func<IStepContext, Task<T>>` (→ `Captured<T>`).
-  `Then` has the same shapes, plus `Then(text, () => value)` returning a `ValueExpectation<T>` —
-  `ShouldBe`, `ShouldNotBe`, `ShouldBeNull`, `ShouldNotBeNull`, `ShouldSatisfy(predicate, "be positive")`,
-  `ShouldMatch("NULL")` through the Gherkin cell checker — and `Then(() => account.Balance)` with
-  `[CallerArgumentExpression]` for text-free asserts ("account.Balance should be 50"). `Check(text, bool)`
-  is the boolean step. `ThenRows(text, () => rows).KeyedBy(...).ShouldMatch(...)` is set
-  verification through the same `SetVerificationComparer` a Gherkin `[SetVerification]` uses.
-  `Step(kind, text, (ctx, result, ct) => …)` is the raw escape hatch.
-- **Tables from records.** `.WithRows(objects)` on any step (and on a `Captured<T>`) renders the
-  objects' public properties as the step's input table; a marker record with no properties, or rows
-  of mixed types, gets a `type` column — so an event stream reads as a list of event names.
-  `RowTable` is the describer; `SetExpectation` reuses it to flatten expected rows.
-- **The one deliberate divergence from Gherkin: a `Then` body that throws is an assertion failure,
-  not a crash.** The step is marked failed with the exception's message as a cell, and the scenario
-  continues, so a run with three wrong assertions reports three, not one. That is the
-  `ProjectionScenario` contract (action failures stop, assertion failures accumulate) and what
-  anyone using Shouldly inside a `Then` wants. `Given`/`When` that throw are critical exactly as in
-  Gherkin, and `SpecCriticalException`/`SpecCatastrophicException` mean what they mean anywhere. The
-  generator still treats a throwing `[Then]` *method* as critical; the two surfaces disagree here on
-  purpose, and this paragraph is the record of it.
-- **Discovery is reflection, once.** `[Scenario]` attribute → title from the attribute or the
-  method name (`events_then_response` → "events then response"); `Tags` on the attribute use the
-  Gherkin vocabulary (`retry(2)`, `isolated`, `timeout(60)`). Class name minus
-  `Specification`/`Specs`/`Spec`/`Fixture` → feature title, `[FixtureTitle]` overrides. The hot path
-  is lambdas — no reflection per step.
+Under `Bobcat.Mtp` the generated entry point scans for you and neither line is needed — see
+[Integrating Bobcat Gherkin](integrating-gherkin.md#dotnet-test).
 
-`Bobcat.Mtp.SampleHost` and `Bobcat.Supervisor.SampleWorker` — the two in-repo hand-rolled
-`scenario(...)` helpers the issue named (the third had already been folded into unit tests) — are
-now specifications. The sample worker uses the raw `Step` on purpose: its probes crash and throw to
-exercise the supervisor, and must reach the platform as errors, not as gathered assertion failures.
+## Compose, then execute
 
-## Acceptance: the twin renders the same
+**This is the one thing to understand, and everything awkward follows from it.**
 
-`src/Bobcat.Acceptance.Tests/CodeFirstTwinTests.cs` runs `Features/CodeFirstTwin.feature` through
-the generator and `CodeFirstTwinSpecification` through `SpecificationFeature`, renders both to
-`SpecRender`, and asserts the shapes are identical: feature and scenario title, step kinds and
-texts, statuses, failure levels, comparison cells (name, status, expected, actual, note) and the
-set-verification table (columns, rows, per-cell status). The one thing excluded is `StepId` — the
-generator keys it on the matched method name, code-first on position, and nothing downstream keys
-off it. It passed first time, which is the cleanest evidence that the compose-then-execute model
-lands on the same runtime model rather than beside it.
+A scenario method does not run your test. It runs at plan-build time and **declares** steps, which
+the engine then executes with the same timeouts, continuation rules and observers every other
+scenario gets.
 
-## What the ports demanded
+Two consequences you will hit in the first hour:
 
-Four shapes were ported (see the sample README for file:line): an event-sourced aggregate command
-workflow (Wolverine `aggregate_handler_workflow`), a Marten outbox commit (`MartenOutbox_end_to_end`),
-an async projection across tenants (Marten `build_aggregate_projection.simple_scenario`), and a
-Marten-persisted saga with a scheduled timeout (`OrderSagaTests` + the `OrderSagaSample` saga).
+**The method body cannot `await` a step's outcome.** A value-returning `Given`/`When` hands back a
+`Captured<T>`, read as `.Value` *inside a later step*:
 
-What they asked for, in the order they asked:
+```csharp
+var run = When("the command is sent", ctx => ctx.InvokeMessageAndWaitAsync(cmd));
 
-1. **A value handle across steps** (`Captured<T>`). The aggregate port's first line was "send the
-   command, then assert on what came back", which in a compose-then-execute model needs something
-   to carry the result from the When into the Thens. Every later port used it.
-2. **`WithRows` on a value-producing step.** The command a `When` sends is worth seeing in the
-   report; `When<T>` returns a `Captured<T>` rather than a `StepHandle`, so `Captured<T>` grew
-   `WithRows` too.
-3. **Set verification from code** (`ThenRows … KeyedBy … ShouldMatch`). The projection port's
-   assertions were already a table — three ids, two counts each, per tenant — and writing them as
-   six `ShouldBe`s would have been worse than the xUnit original. This is the one Storyteller-style
-   fluent builder that earned its place; a data-setup builder did not come up, because
-   `Given(...).WithRows(records)` already renders the data and the records are the setup.
-4. **Self-describing records** (`RowTable`). `record StreamSeed(Tenant, Stream, params object[] Events)`
-   renders as a row whose `Events` cell says `MTAEvent, MTBEvent` — the "records are
-   self-describing" line in the issue, made concrete by a port that had six streams to declare.
-5. **The Then-throws-is-a-failure rule.** Writing the aggregate port with `ShouldBe`-style
-   expectations made the gathered-failures report obvious (see below); the moment a Then used a
-   plain `throw`, Gherkin's critical-on-exception would have hidden the later assertions.
-6. **`IStepContext`-taking overloads.** Every Wolverine/Marten step wants the context
-   (`ctx.InvokeMessageAndWaitAsync`, `ctx.ScenarioServices`, `ctx.GetRootService<IDocumentStore>`);
-   `Context!` from the fixture works but `ctx =>` reads better and cannot be used too early.
-7. **Named host resources.** Two hosts with different store settings, so every helper takes the
-   resource name — which `Bobcat.CritterStack` already supported.
-
-What the ports did **not** ask for, and was therefore not built: a data-setup fluent builder; a
-`ThenDocument<T>(id, assert)` helper (plain `Then(text, ctx => load(...)).ShouldNotBeNull()` was
-enough); `[FormatAs]`-style step-text templates on fixture methods (the typed steps in
-`CritterStackSpecification` build their own text, and it is clearer); a generator-free binding of
-code-first steps back to `[Given]/[When]/[Then]` fixture methods (the notes.md origin — a
-specification can *host* a fixture and call its methods inside step bodies, which covers the
-sharing case without a second matching engine).
-
-## Which shapes the API handles well, and which were awkward
-
-**Well:**
-
-- *Command → outcome → assertions.* `var run = WhenCommand<LetterAggregate>(new RaiseABC(id), id);
-  ThenNewEvents(run, typeof(AEvent), …); Then("the aggregate's ACount", () => run.Value.Aggregate!.ACount).ShouldBe(1);`
-  reads as the scenario it is, and the report shows the command row, the event table, and each
-  count with expected/actual side by side.
-- *Tables.* Both directions — input (`WithRows`) and verification (`ThenRows`) — render as the
-  same per-cell table the Gherkin side gets, including missing and extra rows.
-- *Waits.* `When("the async daemon has caught up …", ctx => ctx.WaitForNonStaleProjectionsAsync(…))`
-  is one line and its duration shows on the step (521ms on the first run), which is exactly the
-  "is this hung or slow?" information notes.md wanted.
-- *Hosting once.* Two hosts shared by nine scenarios, reset between them: the whole suite runs
-  in about 5.5s under `dotnet test`, host start-up included. The originals stood a host up per
-  test class (xUnit `IAsyncLifetime`).
-
-**Awkward:**
-
-- *Value-returning step bodies are awaited.* `Given("a waiter", () => Handler.WaitForNextMessage())`
-  infers `Func<Task<T>>` and awaits the waiter inside the Given — a 15s hang in the outbox port
-  until the waiter went into a field. The overloads are the right default; the pitfall needs the
-  line in the docs it now has.
-- *Step text for `ShouldBe` chains.* "the order is completed should be false" read badly until
-  the text became "whether the order is completed". Text-plus-suffix is the right model (it is
-  what makes the twin render identically) but the author has to write the text as a noun phrase.
-- *`ShouldSatisfy` on an object.* `ThenMessageSent<…, Response>(run).ShouldSatisfy(r => r.ACount == 1, "carry ACount 1")`
-  renders its actual as the object's `ToString()`. A projector overload (`ShouldSatisfy(r => r.ACount, 1)`)
-  would fix it; not built because one port wanted it once.
-- *Two type arguments on the typed steps.* `ThenMessageSent<LetterAggregate, Response>(run)` —
-  C# cannot infer `TAggregate` from `Captured<AggregateExecution<TAggregate>>` and leave
-  `TMessage` explicit. That is the sample-local helper's problem; #104's `CritterStackFixture`
-  should shape it differently (a message-typed capture, say).
-- *Tags are strings.* `[Scenario(Tags = ["retry(2)"])]` is the Gherkin vocabulary verbatim, which is
-  the point, but there is no IntelliSense for the tag names. A `Retry = 2` property would be nicer
-  and was not needed by any port.
-
-## Candidly: are these specs better than the xUnit originals?
-
-The thesis being tested. Three axes.
-
-**Rendering — yes, clearly.** An xUnit test that fails tells you the first assertion that failed,
-with a stack trace. The code-first spec renders the *whole* scenario: the events that were
-appended as a table, the command as a row, each assertion with expected and actual, and the
-duration of the step that waited. Deliberately breaking three assertions in the aggregate port gave
-(from `dotnet run -- report --feature Aggregate`):
-
-```
-  Events then response FAILED
-    ✓ Given a LetterAggregate stream 0c6e30e5 with these events (44ms)
-      │ 1 │ LetterStarted │ OK │
-    ✓ When  RaiseABC is received for 0c6e30e5 (706ms)
-      │ 1 │ 0c6e30e5-8d63-4ba5-bf98-cfcf61af9eba │ OK │
-    ✗ Then  these events are appended (2ms)
-      │ 1 │ AEvent                          │  OK  │
-      │ 2 │ BEvent                          │  OK  │
-      │ 3 │ expected 'DEvent', got 'CEvent' │ FAIL │
-    ✓ Then  the Response that was sent should carry ACount 1
-    ✗ Then  the aggregate's ACount should be 2
-        ✗ result: expected '2', got '1'
-    ✗ Then  the aggregate's BCount
-        ✗ assertion: BCount should be at least 5 but was 1
-    ✓ Then  the aggregate's CCount should be 1
-  Failed with Rights: 8, Wrongs: 6, Errors: 0
+// ✗ run.Value here — nothing has executed yet
+Then("the balance", () => run.Value.Balance).ShouldBe(50);   // ✓ read inside a step
 ```
 
-Three disagreements, all reported, the passing assertions around them still visible. The xUnit
-original would have stopped at the first `ShouldBe`. This is the same report the Gherkin side
-gets, and it is what the viewer and the JSON output carry.
+Reading a `Captured` too early throws with an explanation rather than a null reference.
 
-**Failure reporting — yes, with one honest caveat.** Gathered assertion failures and typed
-failed-vs-error are better than a stack trace. The caveat: the decision to treat any exception in a
-`Then` as an assertion failure means a genuinely broken Then (a null reference while *computing* the
-value) is reported as `failed` rather than `error`. The message names it, so it is not hidden, but
-a supervisor policy keying off failed-vs-error sees it as a disagreement. That is the price of
-gathering, and it is the right price for a Then; it is why Given/When keep the critical rule.
+**Anything needing the step context belongs in a step body**, not in the method around them. Prefer
+the `ctx =>` overloads over `Context!` from the fixture — they read better and cannot be used too
+early.
 
-**Supervision — yes, for free, and this is the part the originals cannot have.** Because the
-specs land on `FeatureDefinition`, they are MTP nodes with stable uids (`Order saga/Starting an
-order`), they carry `retry(N)`/`isolated` as traits, they can be run alone by uid, re-run in a fresh
-process, or scheduled in isolation by the supervisor — none of which needed a line in the sample.
-The one thing to be honest about: nothing here proves the ports *needed* supervision; they are
-stable. What is proven is that a spec written this way arrives with the whole resilience layer
-attached, where an xUnit class arrives with `IAsyncLifetime`.
+An exception escaping the scenario method itself becomes a single failing "composing the scenario"
+step rather than taking the run down.
 
-**Where the originals are still better:** brevity for a one-assertion test (`should_exist` is one
-line of xUnit and three of spec), IDE debugging of a single method (compose-then-execute puts a
-lambda between the breakpoint and the step), and the absence of a small learning curve around
-"declare, don't await". For a one-off unit-ish test, xUnit wins; for an integration scenario with
-more than one step and more than one assertion — the tests that are slow and the tests that flake —
-the spec is better on every axis that matters once the test is red.
+::: warning A value-returning body is awaited inside its own step
+`Given("a waiter", () => Handler.WaitForNextMessage())` infers `Func<Task<T>>` and **awaits the
+waiter inside the Given** — which is a hang, not a handle. If you want a task to run alongside
+later steps, put it in a field rather than returning it from a step.
+:::
 
-## Deliberately not built
+## The vocabulary
 
-- A fluent data-setup builder. `Given(text, body).WithRows(records)` covered every port.
-- Binding code-first steps to `[Given]/[When]/[Then]` fixture methods by text (the notes.md
-  `[FormatAs]`). Hosting a fixture and calling its methods inside step bodies covers sharing; a
-  second matching engine would not pay for itself.
-- A `Retry`/`Timeout`/`Isolated` property set on `[Scenario]`. Tags are the vocabulary the whole
-  resilience layer reads; typed sugar can come when someone wants it.
-- Making `BobcatRunner.ScanForFeatures` find specifications. It is an extension
-  (`ScanForSpecifications`) to keep the core change additive while other agents are in
-  `BobcatRunner`; folding it in is a one-line follow-up once the API settles.
-- Wiring `BobcatLoggerProvider` into the hosts so the saga's `ILogger` lines land on the step. The
-  provider exists in core but the runner never calls `SetContext`; the sample hosts log at Warning
-  for now. Worth doing — notes.md lists log correlation as a goal — but it is a runner change.
+### Steps
 
-## Since then (updated 2026-09-03; #104, #105 and #170 closed)
+`Given`, `When` and `Then` each take `Action`, `Func<Task>` and `Func<IStepContext, Task>`.
+`Given` and `When` also take value-returning forms — `Func<T>`, `Func<Task<T>>`,
+`Func<IStepContext, Task<T>>` — which return a `Captured<T>`.
 
-- **`CritterStackFixture` shipped** (#104): the typed steps this doc's ports wanted —
-  `GivenEvents<T>` / `GivenNoEvents<T>`, `WhenCommand<T>` (tracked-session dispatch, captured
-  outcome), `WhenTracked(() => …)` (issue #211: any act — typically an Alba HTTP call — run inside
-  the tracked session, outcome captured identically, so every `Then` below asserts on what the
-  call *caused*; `Bobcat.Wolverine`'s `context.ExecuteAndWaitAsync` is the raw surface),
-  `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
-  `ThenCommandRefused()` (#168 — the non-throwing `HandlerContinuation.Stop` refusal),
-  `ThenDocument<T>` (with a projection wait), `ThenMessagesSent<T>()` — live on the fixture and
-  are shared with code-first specs via `Host<TFixture>()`-borrowed steps. The sample's
-  `CritterStackSpecification.cs` stopgap still exists and deleting it in favour of the fixture
-  remains the follow-up.
-- **Code-first specs feed the Event Model** (#170): the generator reads `[Scenario]` methods on
-  `Specification` subclasses and folds them into the same slice dictionary the `.feature` files
-  feed. Slice and domain come from `[Scenario(Tags = ["slice:X", "domain:Y"])]`; roles come from
-  the typed-step convention in the method body (`WhenCommand<T>` → aggregate + command,
-  `ThenEvents` → events, `ThenDocument<T>` → read model, `ThenMessagesSent<T>` → message), gated
-  on the target being declared on a `Fixture` subclass so an unrelated method never stamps a
-  phantom role. An empty `[Scenario]` method is the pending-specification hotspot.
-- Still open from the original list: the generator's throwing-`[Then]` semantics (critical there,
-  assertion-and-continue here) have not been reconciled; `ShouldSatisfy` with a projector, a
-  `Retry =` property on `[Scenario]`, and `ScanForFeatures` finding specifications each still
-  wait for a second asker.
+`Step(kind, text, (ctx, result, ct) => …)` is the raw escape hatch when you need the `StepResult`
+itself. `StepKind` lives in `Bobcat.Engine`.
+
+### Asserting a value
+
+`Then<T>(text, …)` returns a `ValueExpectation<T>`:
+
+```csharp
+Then("the balance", () => account.Balance).ShouldBe(50);
+Then("the closing reason", () => account.Reason).ShouldNotBeNull();
+Then("the balance", () => account.Balance).ShouldSatisfy(b => b > 0, "be positive");
+Then("the closed date", () => account.ClosedOn).ShouldMatch("NULL");
+```
+
+`ShouldBe`, `ShouldNotBe`, `ShouldBeNull`, `ShouldNotBeNull`, `ShouldSatisfy(predicate,
+description)`, and `ShouldMatch(text)` — the last running through the same cell checker a Gherkin
+table uses, so `"NULL"`, `"EMPTY"` and friends mean what they mean everywhere else.
+
+There is a text-free form for the common case:
+
+```csharp
+Then(() => account.Balance).ShouldBe(50);      // renders "account.Balance should be 50"
+```
+
+`Check(text, () => predicate)` is the boolean step.
+
+### Asserting a set
+
+```csharp
+ThenRows("the open orders", ctx => query(ctx))
+    .KeyedBy("Id")
+    .ShouldMatch(new { Id = orderId, Completed = false });
+
+ThenRows("the cancelled orders", ctx => cancelled(ctx)).ShouldBeEmpty();
+```
+
+Expected rows are any objects whose public properties name the columns — **anonymous types read
+best**. `KeyedBy` matches rows by key rather than by order, and the report shows missing rows,
+extra rows and per-cell disagreements, exactly as the Gherkin `[SetVerification]` does, because it
+is the same comparer.
+
+### Showing your inputs
+
+```csharp
+Given("the streams", () => seed()).WithRows(streams);
+When("StartOrder is received", …).WithRows(new StartOrder(orderId));
+```
+
+`WithRows` renders the objects' public properties as the step's input table, so a command shows as
+a row and an event stream shows as a list of event names. A marker record with no properties, or
+rows of mixed types, gets a `type` column. It works on both `StepHandle` and `Captured<T>`.
+
+## A `Then` that throws is an assertion failure
+
+**The one deliberate divergence from Gherkin.** A `Then` body that throws marks that step failed
+with the exception's message and the scenario *continues*, so a run with three wrong assertions
+reports three rather than the first. That is what anyone using Shouldly inside a `Then` wants.
+
+`Given` and `When` that throw are critical exactly as in Gherkin, and
+`SpecCriticalException`/`SpecCatastrophicException` mean what they mean anywhere.
+
+One honest consequence: a genuinely broken `Then` — a null reference while *computing* the value —
+is reported as `failed` rather than `error`. The message names it, so it is not hidden, but a
+policy keying off failed-vs-error sees a disagreement. That is the price of gathering, and it is
+the right price for a `Then`.
+
+::: tip The generator disagrees on purpose
+A throwing `[Then]` *method* on a Gherkin fixture is still critical. The two surfaces differ here
+deliberately, and that has not been reconciled.
+:::
+
+## Tags
+
+```csharp
+[Scenario("Starting an order", Tags = ["retry(2)", "isolated", "slice:StartOrder"])]
+```
+
+Tags are the Gherkin vocabulary verbatim — `retry(N)`, `isolated`, `timeout(60)` — which is the
+point: the whole resilience layer reads them, and a code-first scenario is filtered, retried and
+isolated by exactly the same machinery. There is no IntelliSense for them.
+
+## Borrowing a fixture's steps
+
+```csharp
+protected TFixture Host<TFixture>() where TFixture : Fixture, new();
+```
+
+A specification can host a fixture and call its methods inside step bodies. That covers sharing a
+vocabulary between the two styles without a second text-matching engine.
+
+## With the Critter Stack
+
+`CritterStackFixture` carries typed steps that a `Specification` borrows through `Host<TFixture>()`:
+
+| | |
+|---|---|
+| `GivenEvents<T>` / `GivenNoEvents<T>` | arrange a stream, or assert it starts empty |
+| `WhenCommand<T>` | tracked-session dispatch, outcome captured |
+| `WhenTracked(() => …)` | any act — typically an Alba HTTP call — inside the tracked session |
+| `ThenEvents(…)` / `ThenNoEvents()` | the events the act appended |
+| `ThenValidationFails(text)` / `ThenCommandRefused()` | the two refusal shapes |
+| `ThenDocument<T>` | a read model, with a projection wait |
+| `ThenMessagesSent<T>()` | what the act put on the bus |
+
+See [Composing Grammar Modules](composing-grammars.md) for the grammar side of the same vocabulary.
+
+## Writing step text that reads well
+
+The report renders your text followed by the expectation, so write the text as a **noun phrase**:
+
+```csharp
+Then("the order is completed", () => order.Completed).ShouldBe(false);   // "…is completed should be false"
+Then("whether the order is completed", () => order.Completed).ShouldBe(false);   // ✓
+```
+
+## On the Event Model
+
+Code-first scenarios fold into the same slice dictionary `.feature` files feed. Slice and domain
+come from tags (`slice:X`, `domain:Y`); roles come from the typed-step convention in the method
+body — `WhenCommand<T>` gives the aggregate and command, `ThenEvents` the events, `ThenDocument<T>`
+the read model, `ThenMessagesSent<T>` the message — gated on the target being declared on a
+`Fixture` subclass, so an unrelated method never stamps a phantom role.
+
+An empty `[Scenario]` method is the pending-specification hotspot.
+
+Unlike the Gherkin HTTP lane, a code-first specification stamps **no trigger kind**: it records the
+roles a scenario resolved, not the grammar step that resolved them.
+
+## See also
+
+- [Specifications with Code](tutorials/specifications-with-code.md) — the tutorial, and how this compares to the projected lane
+- [Specs From Existing Tests](marker-steps.md) — the other way to avoid Gherkin
+- [Composing Grammar Modules](composing-grammars.md) — the shipped Critter Stack vocabulary
