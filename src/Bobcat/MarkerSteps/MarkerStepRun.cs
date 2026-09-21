@@ -66,7 +66,7 @@ public static class MarkerStepRun
         var info = ensureStarted(mode);
 
         return ScenarioRecorder.Begin(
-            FeatureNameFor(declaringType), Prettify(methodName), _sink, info.RunId);
+            FeatureNameFor(declaringType), ScenarioNameFor(methodName), _sink, info.RunId);
     }
 
     /// <summary>
@@ -104,19 +104,24 @@ public static class MarkerStepRun
         recording.Dispose();
     }
 
-    /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name prettified.</summary>
+    /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived.</summary>
     public static string FeatureNameFor(MethodInfo method) => FeatureNameFor(method.DeclaringType);
 
     /// <summary>The feature title for a test class.</summary>
-    public static string FeatureNameFor(Type? declaringType)
-        => declaringType?.GetCustomAttribute<BobcatFeatureAttribute>()?.Title
-           ?? Prettify(declaringType?.Name ?? "Specifications");
+    public static string FeatureNameFor(Type? declaringType) => MarkerSpecNaming.FeatureTitle(declaringType);
 
-    /// <summary>The scenario title: the method name prettified.</summary>
-    public static string ScenarioNameFor(MethodInfo method) => Prettify(method.Name);
+    /// <summary>The scenario title: the method name derived.</summary>
+    public static string ScenarioNameFor(MethodInfo method) => MarkerSpecNaming.ScenarioTitle(method);
 
-    /// <summary>Underscores are how a test method spells a sentence.</summary>
-    public static string Prettify(string name) => name.Replace('_', ' ');
+    /// <summary>The scenario title for a method name, for a runner that hands out no MethodInfo.</summary>
+    public static string ScenarioNameFor(string methodName) => MarkerSpecNaming.ScenarioTitle(methodName);
+
+    /// <summary>
+    /// A C# identifier as the sentence it was standing in for. Kept as the spelling callers know;
+    /// <see cref="MarkerSpecNaming"/> owns the rule, and the generator holds the copy that has to
+    /// agree with it.
+    /// </summary>
+    public static string Prettify(string name) => MarkerSpecNaming.Prettify(name);
 
     private static MonitorRunInfo ensureStarted(string mode)
     {

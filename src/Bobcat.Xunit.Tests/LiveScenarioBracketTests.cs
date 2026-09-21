@@ -58,6 +58,8 @@ public class UndecoratedFeatureTests
 {
     [Fact]
     public void the_class_name_becomes_the_feature()
+        // Split on the capitals, because the derived feature title is a title — the same
+        // derivation the generator stamps at compile time, now shared.
         => ScenarioRecorder.Current!.Uid
-            .ShouldBe("UndecoratedFeatureTests/the class name becomes the feature");
+            .ShouldBe("Undecorated Feature Tests/the class name becomes the feature");
 }

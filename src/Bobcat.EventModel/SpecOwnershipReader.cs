@@ -349,7 +349,7 @@ public static class SpecOwnershipReader
                     warnings.Add(
                         $"slice '{slice.Name}', scenario '{scenario.Name}': a projected test's scenario title is its "
                         + $"METHOD NAME with underscores read as spaces, so this one will publish "
-                        + $"'{ProjectedSpecNaming.MethodNameFor(scenario.Name).Replace('_', ' ')}' instead and join nothing. "
+                        + $"'{ProjectedSpecNaming.ScenarioTitleFor(ProjectedSpecNaming.MethodNameFor(scenario.Name))}' instead and join nothing. "
                         + "Rename it to something a C# method name can spell.");
                 }
             }
