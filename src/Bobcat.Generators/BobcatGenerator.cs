@@ -1367,7 +1367,7 @@ public class BobcatGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// The recipe's entity type: the attribute's single type argument (<c>[MartenEntities&lt;Customer&gt;]</c>)
+    /// The recipe's entity type: the attribute's single type argument (<c>[EfCoreEntities&lt;Customer&gt;]</c>)
     /// or a <c>typeof(...)</c> constructor argument. Absent means the entity comes from Row's return.
     /// </summary>
     private static EntityTypeInfo? extractRecipeEntity(AttributeData attr)
@@ -1666,7 +1666,7 @@ internal static class Diagnostics
         "BOBCAT009",
         "Table grammar has no Row method",
         "Table grammar '{0}' has no per-row method. Add a method named 'Row' (or 'RowAsync'), " +
-        "mark one with [Row], or name the entity type on the recipe (e.g. [MartenEntities<Customer>]) " +
+        "mark one with [Row], or name the entity type on the recipe (e.g. [EfCoreEntities<Customer>]) " +
         "so columns can be bound by convention.",
         "Bobcat",
         DiagnosticSeverity.Error,

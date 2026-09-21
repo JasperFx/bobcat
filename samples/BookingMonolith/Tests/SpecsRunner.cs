@@ -1,5 +1,6 @@
 using Bobcat;
 using Bobcat.Alba;
+using Bobcat.CritterStack;
 using Bobcat.Runtime;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,16 +20,13 @@ public static class SpecsRunner
     public static void Configure(BobcatRunner runner)
     {
         // Nothing in this host carries a unique index, and every scenario mints fresh ids,
-        // so the reset is not what makes the suite pass twice — it is what keeps the
-        // document tables and the booking event store from growing without bound across
-        // runs. Both halves are needed to actually empty it: the booking snapshots are
-        // documents, but the events that produced them are not, and DeleteAllDocuments does
-        // not touch the streams.
-        runner.Resources.Add(new AlbaResource<Program>(reset: async host =>
-        {
-            var store = host.Services.GetRequiredService<IDocumentStore>();
-            await store.Advanced.Clean.DeleteAllDocumentsAsync();
-            await store.Advanced.Clean.DeleteAllEventDataAsync();
-        }));
+        // so the reset is not what makes the suite pass twice — it is what keeps the document
+        // tables and the booking event store from growing without bound across runs. Both
+        // halves matter: the booking snapshots are documents, the events that produced them
+        // are not, and deleting one leaves the other.
+        //
+        // ResetEventStoresAsync does both, for every store the host registers, through
+        // JasperFx.Events — so this line reads the same against Marten, Polecat or Fisher.
+        runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
     }
 }

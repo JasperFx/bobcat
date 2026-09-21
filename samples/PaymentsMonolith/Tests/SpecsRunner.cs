@@ -1,8 +1,7 @@
 using Bobcat;
 using Bobcat.Alba;
+using Bobcat.CritterStack;
 using Bobcat.Runtime;
-using Marten;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace PaymentsMonolith.Tests;
 
@@ -23,10 +22,6 @@ public static class SpecsRunner
         // stored), so every user this suite registers is persistent state that changes what
         // the next run means. Without a reset the suite passes exactly once per database and
         // then reports 409s for registrations it believes are new.
-        runner.Resources.Add(new AlbaResource<Program>(reset: async host =>
-        {
-            var store = host.Services.GetRequiredService<IDocumentStore>();
-            await store.Advanced.Clean.DeleteAllDocumentsAsync();
-        }));
+        runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
     }
 }

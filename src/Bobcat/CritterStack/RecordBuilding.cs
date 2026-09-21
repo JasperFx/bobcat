@@ -8,7 +8,7 @@ namespace Bobcat.CritterStack;
 
 /// <summary>
 /// Builds a command or event object from a Gherkin table row at runtime — the piece the shipped
-/// grammars need that the compile-time entity binder (<c>[MartenEntities]</c>) does not cover,
+/// grammars need that a compile-time entity binder (<c>[EfCoreEntities]</c>) does not cover,
 /// because a grammar's event/command type is named in the step text (<c>{command}</c>,
 /// <c>{event}</c>) and its columns are read as constructor arguments per row. Records land on their
 /// primary constructor; a settable-property object is the fallback. Cells convert with the same

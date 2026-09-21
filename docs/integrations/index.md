@@ -5,17 +5,17 @@ message brokers — those arrive as separate packages, each one adding a **resou
 a lifecycle the suite starts, resets and disposes) and a set of `IStepContext` extension methods so
 your steps can reach it without holding a reference.
 
-::: warning Marten and Wolverine support is still being rebuilt
-`Bobcat.Marten` and `Bobcat.Wolverine` were removed on 2026-09-21, along with the Wolverine half
-of `Bobcat.CritterStack`. Each is being rebuilt from what real applications turn out to need —
-`Bobcat.Alba` already has been. Their two pages below record what they carried and where the
-evidence is being gathered.
+::: warning Wolverine support is still being rebuilt
+`Bobcat.Wolverine` was removed on 2026-09-21 along with the Wolverine half of
+`Bobcat.CritterStack`, and is being rebuilt from what real applications turn out to need.
+`Bobcat.Alba` already has been. `Bobcat.Marten` turned out not to need rebuilding at all — see
+its page for why.
 :::
 
 | Package | Status |
 |---|---|
 | [Bobcat.Alba](alba.md) | **Rebuilt** from what nine sample suites needed |
-| [Bobcat.Marten](marten.md) | **Removed.** Anything rebuilt must bind to JasperFx.Events, not Marten |
+| [Bobcat.Marten](marten.md) | **Not needed.** Core already reaches the store through JasperFx.Events |
 | [Bobcat.Wolverine](wolverine.md) | **Removed.** The tracked-session helpers are expected to land in Wolverine itself |
 
 The store-agnostic half — `EventStores`, `DocumentStores`, `EventStoreAuthoring`,

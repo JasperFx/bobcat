@@ -1,8 +1,7 @@
 using Bobcat;
 using Bobcat.Alba;
+using Bobcat.CritterStack;
 using Bobcat.Runtime;
-using Marten;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace MeetingGroupMonolith.Tests;
 
@@ -28,11 +27,6 @@ public static class SpecsRunner
         // one meeting on every run. The assertions would still pass, but the suite would
         // slowly stop meaning what it says. Both halves are needed — the Payments module is
         // event-sourced, and DeleteAllDocuments does not touch the streams.
-        runner.Resources.Add(new AlbaResource<Program>(reset: async host =>
-        {
-            var store = host.Services.GetRequiredService<IDocumentStore>();
-            await store.Advanced.Clean.DeleteAllDocumentsAsync();
-            await store.Advanced.Clean.DeleteAllEventDataAsync();
-        }));
+        runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
     }
 }

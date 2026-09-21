@@ -28,7 +28,7 @@ public interface IGrammarBehavior : IAsyncDisposable
 }
 
 /// <summary>
-/// Base class for recipe attributes such as <c>[MartenEntities]</c> and <c>[EfCoreEntities]</c>.
+/// Base class for recipe attributes such as <c>[EfCoreEntities]</c>.
 /// Deriving from this is the ONLY signal the source generator needs — it never learns what the
 /// recipe actually does.
 /// </summary>

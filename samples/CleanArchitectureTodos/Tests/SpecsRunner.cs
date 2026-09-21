@@ -1,8 +1,7 @@
 using Bobcat;
 using Bobcat.Alba;
+using Bobcat.CritterStack;
 using Bobcat.Runtime;
-using Marten;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace CleanArchitectureTodos.Tests;
 
@@ -27,10 +26,6 @@ public static class SpecsRunner
         // with this hook emptied, the first run is already 8/10 and the second is 2/10.
         // Lists are plain Marten documents with their items nested inside, so
         // DeleteAllDocuments is the whole reset.
-        runner.Resources.Add(new AlbaResource<Program>(reset: async host =>
-        {
-            var store = host.Services.GetRequiredService<IDocumentStore>();
-            await store.Advanced.Clean.DeleteAllDocumentsAsync();
-        }));
+        runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
     }
 }
