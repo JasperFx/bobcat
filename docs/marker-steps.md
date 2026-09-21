@@ -1,7 +1,7 @@
 # Specs from tests you already have
 
 Issue #110. The other two authoring styles ask you to write a specification: a `.feature` file
-bound to a fixture, or a [code-first `Specification`](code-first-specs.md). This one asks for
+bound to a fixture. This one asks for
 almost nothing. You point Bobcat at tests that already exist, in whatever runner they already use,
 and they start reporting themselves as specifications — ordered steps, a `{Feature}/{Scenario}`
 identity, and live progress [on the wire a run publishes](monitor-design.md).
@@ -299,7 +299,7 @@ for what that costs when it happens. A projected test's contribution is **eviden
 
 So a projected test's slice shows the roles the model and the code agree on, and the test's identity
 alongside them. It merges by name with every other authoring style — a slice can carry Gherkin, HTTP,
-code-first and projected specifications at once, because a slice is a vertical behaviour and not an
+Gherkin and projected specifications at once, because a slice is a vertical behaviour and not an
 authoring style.
 
 ### Two spellings, and why `SliceType` is preferred
@@ -372,10 +372,9 @@ are `integration` + `projected`** — real database tests, rendered through mark
 | `kind` | `authoring` | what the scaffolder emits |
 |---|---|---|
 | `integration` | `gherkin` | a `.feature` — the default, and what every unlisted slice gets |
-| `integration` | `code-first` | a `Specification` skeleton |
 | `integration` | `projected` | a projected test skeleton, or **nothing** — say which with `scaffold:` |
 | `unit` | `projected` | a projected test skeleton |
-| `unit` | `gherkin` *or* `code-first` | **invalid** — both run through the fixture, and so through the store |
+| `unit` | `gherkin` | **invalid** — Gherkin runs through the fixture, and so through the store |
 
 That last row is a validation rule rather than a note: honouring the authoring would hand a
 `.feature` back to an author who asked for a unit test. `kind: unit` on its own resolves to
@@ -413,7 +412,7 @@ What it does **not** carry is the store. An integration skeleton says so:
 public class BookingAppointmentsSpecs
 ```
 
-The same refusal to guess a base class that the code-first skeleton already makes, for the same
+The same refusal to guess a base class the Gherkin skeleton already makes, for the same
 reason: the scaffolder does not know what this repository boots a store with.
 
 ### `defaults:` — for a repo that is projected unless stated otherwise (issue #334)

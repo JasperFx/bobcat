@@ -347,7 +347,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   a view with none), and `SliceScaffolder.ViewSourcesFor` prefers `consumedEvents:` over every
   inference. `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
   acting — so it is curated-only. Pinned by `EventModelDescriptorTests` (both halves, plus the
-  arrangement-inlined and code-first twins) and by `EventModel.feature` in the sample. **Type
+  arrangement-inlined twins) and by `EventModel.feature` in the sample. **Type
   lists merge by equality, not union**: a View slice whose scenarios between them arrange fewer
   events than the store's projection applies is a `SourceDisagreement` hotspot — the same finding
   `FreezeAccount.feature` plants on purpose for emitted events, and the right reading (the view is
@@ -382,28 +382,15 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   `<Compile Link>`-ed into `Bobcat.Tests` rather than referencing the analyzer assembly). Without
   it the runtime and the descriptor could report different slice names and nothing would say so —
   same guard as `ResourceParsingAgreementTests`.
-- **Code-first specs contribute slices too (issue #170).** `CodeFirstSpecs.Extract` reads
-  `[Scenario]` methods on non-abstract `Specification` subclasses (base classes included; a
-  partial class speaks once) and `EventModelEmitter.Collect` folds them into the *same* slice
-  dictionary the features feed — so one slice fed by a `.feature` and a C# spec is one
-  descriptor. Roslyn-side rather than a runtime-contributed source, deliberately: compile-time
-  extraction keeps identity stamping identical for both authoring styles, which is what lets
-  run evidence join the same way. Slice/domain come from `[Scenario(Tags = ["slice:X",
-  "domain:Y"])]` (same vocabulary, no `@`); identity is `{derived feature title}/{derived
-  scenario title}` via `CodeFirstNaming` — the generator's verbatim copy of
-  `SpecificationFeature.DeriveTitle`/`DeriveScenarioTitle`, pinned by
-  `CodeFirstNamingAgreementTests` (linked source, same pattern as `GeneratorSliceTags`). Roles
-  come from the typed-step convention in the method body, lambdas included
-  (`Host<TFixture>()`-borrowed steps): `GivenEvents<T>`/`GivenNoEvents<T>` → aggregate,
-  `WhenCommand<T>` → aggregate + the argument's static type as command (last one is the act,
-  same last-When rule), `ThenEvents(...)` → argument types as events, `ThenDocument<T>` →
-  readmodel, `ThenMessagesSent<T>` → message — matched by name but gated on the target being
-  declared on a `Bobcat.Fixture` subclass, so an unrelated `WhenCommand` never stamps a phantom
-  role. Arrange-event arguments to `GivenEvents` are deliberately not stamped (the Gherkin path
-  resolves only the aggregate there — same spec, same shape). An empty `[Scenario]` method is
-  the pending-specification hotspot; an untagged scenario with no roles contributes nothing;
-  there is no trigger label (code-first has no `Triggered by` line). An `object`-typed or
-  unresolvable command argument degrades to no role, never a guess.
+- **Marker-projected specs contribute slices too.** `MarkerCommentSpecs` reads marker-commented
+  xUnit/TUnit tests and `EventModelEmitter.Collect` folds them into the *same* slice dictionary
+  the features feed — so one slice fed by a `.feature` and a projected test is one descriptor.
+  Slice/domain come from `[BobcatSlice]` and the tag vocabulary (no `@`); identity is
+  `{derived feature title}/{derived scenario title}` via `CodeFirstNaming`. **That derivation has
+  no runtime twin any more** — `MarkerStepRun.FeatureNameFor`/`ScenarioNameFor` only swap
+  underscores, while `CodeFirstNaming` also strips `Specs`/`Fixture` suffixes and Pascal-splits,
+  so the two disagree for `WalletSpecs` and for `EventsThenResponse`. The agreement test that used
+  to guard this pinned the deleted `SpecificationFeature`, not the marker path. Unfiled.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
@@ -792,7 +779,7 @@ where the **MSBuild extension** (the thing `dotnet test` actually talks to, via
 registers it itself (`TestingPlatformBuilderHook.AddExtensions`). For a long time no Bobcat host
 in the repo had `IsTestProject=true`, so `dotnet test` had never actually collected one and the
 missing registration went unnoticed — running the executable directly never exercises that path.
-`Bobcat.CodeFirst.Samples` and `Bobcat.Mtp.GeneratedHost` are the hosts that keep it exercised
+`Bobcat.Mtp.SampleHost` and `Bobcat.Mtp.GeneratedHost` are the hosts that keep it exercised
 today.
 
 The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
@@ -801,7 +788,7 @@ what `Bobcat.Mtp.Tests` exercises.
 **The entry point is generated (issue #207)** — a consumer needs only package references +
 `.feature` files, the zero-ceremony bar xUnit v3 sets. `Bobcat.Generators` emits
 `BobcatEntryPoint.g.cs` (a `Main` through `BobcatTestApplication.Run`, so the MSBuild-extension
-registration above keeps working, scanning the assembly for features and code-first specs) when
+registration above keeps working, scanning the assembly for generated features) when
 **all four gates** pass, in order: the compilation references `Bobcat.Mtp` (type probe for
 `BobcatTestApplication`, same pattern as the `EventModelSliceDescriptor` probe); the
 `BobcatGenerateEntryPoint` MSBuild property is not `false` (opt-out — surfaced as a
@@ -1180,7 +1167,7 @@ canonical route, riding the base-class discovery above; `[IncludeGrammars(typeof
 is the mix-in route (`CritterStackGrammars` is an empty `sealed` subclass whose steps the module path
 discovers through its base).
 
-- **Typed steps** (shared with the code-first API, #105) sit on the fixture: `GivenEvents<T>(id,
+- **Typed steps** sit on the fixture: `GivenEvents<T>(id,
   events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (Wolverine invoke + `TrackedSession`,
   returns the `AggregateExecution`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
@@ -1316,28 +1303,6 @@ discovers through its base).
   JasperFx.Events ≥ 2.47.0, above the repo's 2.37.0 pin; that alignment bump is issue **#125**, in
   flight on another branch. The fixture binds to `JasperFx.Events`, so the same feature runs against a
   Fisher host by swapping `AddMarten` for `AddFisher` once the pin moves.
-
-### Code-first specifications (`src/Bobcat/CodeFirst/`)
-
-Issue #105, designed by use (decision of record 2026-08-21): a `Specification : Fixture` whose
-`[Scenario]` methods *declare* `Given`/`When`/`Then` steps in C# — no `.feature`, no generator — and
-land on the same `FeatureDefinition` / `DelegateExecutionStep` model, so they render, supervise and
-report identically (`CodeFirstTwinTests` pins a Gherkin twin to the same `SpecRender` shape).
-Registered with `runner.AddSpecification<T>()` / `ScanForSpecifications(assembly)`.
-
-- **Compose, then execute.** The scenario method runs at plan-build time on a fresh instance; a
-  value-producing `Given`/`When` hands back a `Captured<T>` read as `.Value` inside a later step.
-  A step body returning a `Task` is awaited — hold a task you want to keep in a field.
-- **A `Then` body that throws is an assertion failure, and the scenario continues** — the
-  `ProjectionScenario` contract, and the one deliberate divergence from a Gherkin `[Then]` method
-  (which the generator treats as critical). `Given`/`When` that throw are critical as ever.
-- `Then(text, () => v).ShouldBe(...)`, `Then(() => v)` via `[CallerArgumentExpression]`,
-  `ThenRows(...).KeyedBy(...).ShouldMatch(anonymous rows)` (set verification), `.WithRows(records)`
-  on any step for a self-describing input table (`RowTable`), `Step(kind, text, raw)` escape hatch.
-- `src/Bobcat.CodeFirst.Samples/` is the design-by-use project — Marten/Wolverine tests ported
-  as specs against the root Postgres, collected by `dotnet test` (off-CI no-Postgres → zero tests,
-  exit code 8 ignored). Its `CritterStackSpecification` is a stopgap for #104's
-  `CritterStackFixture`. Verdict and open questions: `docs/code-first-specs.md`.
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.

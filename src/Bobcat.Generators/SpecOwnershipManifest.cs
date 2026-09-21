@@ -64,7 +64,7 @@ internal static class SpecOwnershipManifest
             get
             {
                 var stated = Normalize(Authoring);
-                return stated == "gherkin" || stated == "codefirst" || stated == "projected" ? stated : "";
+                return stated == "gherkin" || stated == "projected" ? stated : "";
             }
         }
 
@@ -119,7 +119,7 @@ internal static class SpecOwnershipManifest
             if (entry?.StatedKind == "unit") return "projected";
 
             var inherited = Normalize(Defaults?.Authoring);
-            if (inherited == "gherkin" || inherited == "codefirst" || inherited == "projected") return inherited;
+            if (inherited == "gherkin" || inherited == "projected") return inherited;
 
             return Normalize(Defaults?.Kind) == "unit" ? "projected" : "gherkin";
         }

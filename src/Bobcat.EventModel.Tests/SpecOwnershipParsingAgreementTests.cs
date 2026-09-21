@@ -47,7 +47,7 @@ public class SpecOwnershipParsingAgreementTests
           - slice: A
             kind: unit
           - slice: B
-            authoring: code-first
+            authoring: projected
           - slice: C
         """,
 
@@ -96,12 +96,12 @@ public class SpecOwnershipParsingAgreementTests
             coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
         """,
 
-        // A defaults block alone, hyphenated, with a comment and a literal owner.
+        // A defaults block alone, with a comment and a literal owner.
         """
         schema: 1
         model: CritterCrush
         defaults:
-          authoring: code-first     # every slice, unless it says otherwise
+          authoring: projected      # every slice, unless it says otherwise
           owner: CritterCrush.Specs.AllSpecs
         """,
 

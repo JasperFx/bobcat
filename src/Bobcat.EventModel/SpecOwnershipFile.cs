@@ -16,9 +16,6 @@ public enum SpecAuthoring
     /// <summary>A <c>.feature</c> file against the shipped grammar. The default.</summary>
     Gherkin,
 
-    /// <summary>A <c>Specification</c> subclass with <c>[Scenario]</c> methods.</summary>
-    CodeFirst,
-
     /// <summary>
     /// An ordinary xUnit/TUnit test rendered through marker steps and bound with
     /// <c>[BobcatSlice]</c> (issue #110, #324 part 1).
@@ -304,7 +301,7 @@ public sealed class SpecOwnership
     /// </summary>
     public string? Kind { get; set; }
 
-    /// <summary><c>gherkin</c> | <c>code-first</c> | <c>projected</c>. See <see cref="Authoring"/>.</summary>
+    /// <summary><c>gherkin</c> | <c>projected</c>. See <see cref="Authoring"/>.</summary>
     public string? Authoring { get; set; }
 
     /// <summary>
@@ -369,14 +366,14 @@ public static class SpecOwnershipVocabulary
     }
 
     /// <summary>
-    /// <c>code-first</c> is the spelling the file uses and <c>CodeFirst</c> the one the enum uses;
-    /// hyphens and underscores are dropped so the YAML reads like YAML.
+    /// Hyphens and underscores are dropped so a multi-word value reads like YAML and still parses
+    /// as the enum name.
     /// </summary>
     public static string Normalize(string value) => value.Trim().Replace("-", "").Replace("_", "");
 
     public static readonly string[] KindNames = ["integration", "unit"];
 
-    public static readonly string[] AuthoringNames = ["gherkin", "code-first", "projected"];
+    public static readonly string[] AuthoringNames = ["gherkin", "projected"];
 }
 
 /// <summary>

@@ -218,26 +218,6 @@ public class SpecOwnershipScaffoldingTests
     }
 
     [Fact]
-    public void a_code_first_slice_gets_a_specification_skeleton_carrying_its_slice_tag()
-    {
-        var ownership = SpecOwnershipPlan.For(new SpecOwnershipFile
-        {
-            Schema = 1,
-            Model = "CritterCrush",
-            Slices =
-            [
-                new SpecOwnership { Slice = "ConfirmAppointment", Authoring = "code-first", Owner = "CritterCrush.Specs.BookingSpecs" }
-            ]
-        });
-
-        var skeleton = SpecSkeletons.Scaffold(model(), ownership)["Specs/BookingSpecs.cs"];
-
-        skeleton.ShouldContain("[FixtureTitle(\"BookingAppointments\")]");
-        skeleton.ShouldContain("[Scenario(\"a proposal is confirmed\", Tags = [\"slice:ConfirmAppointment\", \"pattern:Command\", \"domain:Scheduling\"])]");
-        skeleton.ShouldContain("throw new NotImplementedException");
-    }
-
-    [Fact]
     public void scaffold_all_writes_the_skeleton_and_no_feature_for_the_same_slice()
     {
         var files = SliceScaffolder.ScaffoldAll(

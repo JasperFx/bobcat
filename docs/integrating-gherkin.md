@@ -77,8 +77,8 @@ them.
 
 `Bobcat.Generators` detects that the compilation references `Bobcat.Mtp` and declares no entry point
 of its own, and emits one (`BobcatEntryPoint.g.cs`): a `Main` that goes through
-`BobcatTestApplication.Run`, scans the assembly for generated features and code-first
-specifications, and calls every `[BobcatConfiguration]` method.
+`BobcatTestApplication.Run`, scans the assembly for generated features, and calls every
+`[BobcatConfiguration]` method.
 
 Check it worked:
 
@@ -313,7 +313,7 @@ decision table's expected-output cell.
 
 **Preview never starts a resource.** The plan is pure in-memory composition, built before `StartAll`
 would run, so a suite whose database is down previews fine. Steps with no binding metadata
-(code-first specs, hand-built definitions) render with a quiet note instead.
+(hand-built definitions) render with a quiet note instead.
 
 #### `interactive` — a REPL for specs {#interactive}
 

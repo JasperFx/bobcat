@@ -15,7 +15,6 @@ when it answers *"how do I do the thing I came here to do."*
 | `rider/` | The upstream Reqnroll.Rider patch, its PR body, and notes on what was and was not verified |
 | `sample-wiring-playbook.md` | Wiring *this repo's* samples — its compose file, its ports, its eleven appsettings.json |
 | `critter-stack-interop-notes.md` | Upstream Wolverine/Marten/Fisher hazards a Bobcat suite was first to hit |
-| `code-first-specs-design.md` | What the four ports demanded of the code-first API, what was deliberately not built, and whether the specs beat their xUnit originals |
 
 ## Known follow-up
 
@@ -28,7 +27,6 @@ editorial decision rather than a mechanical one:
 - **`docs/monitor-design.md`** — the wire contract is what an integrator needs; the decisions of
   record around it are not.
 
-`docs/code-first-specs.md` **is done**: its API half was rewritten as a user-facing reference and
 the design record moved here. `docs/sample-wiring.md` is done too — dissolved, with its playbook
 here and its footguns distributed to the pages that own them.
 

@@ -36,7 +36,6 @@ Verifying a collection against expected rows without asserting on order. The com
 `src/Bobcat/Runtime/SetVerificationComparer.cs`. Needs to cover matching by key, and how
 missing/extra/wrong rows are each reported — the reporting is most of the value.
 
-The code-first twin is `ThenRows(text, () => rows).KeyedBy("Id").ShouldMatch(...)`, which runs
 through the same comparer — see [Specifications with Code](specifications-with-code.md).
 
 ### 4. Decision tables — `[DecisionTable]`
@@ -50,11 +49,6 @@ came from, which is worth showing.
 `[Expected]`, `[Comparison]`, `[Approx]` — declared in `src/Bobcat/Attributes.cs`. `[Approx]` in
 particular needs a worked example; floating-point set verification is where people give up.
 
-### 6. Tables from objects, in code-first specs
-
-`.WithRows(objects)` renders public properties as the step's input table; mixed row types get a
-`type` column, so an event stream reads as a list of event names. `RowTable`
-(`src/Bobcat/CodeFirst/RowTable.cs`) is the describer.
 
 ## Source material
 

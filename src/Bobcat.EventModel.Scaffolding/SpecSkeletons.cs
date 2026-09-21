@@ -4,7 +4,7 @@ namespace Bobcat.EventModel.Scaffolding;
 
 /// <summary>
 /// The specification skeletons a spec-ownership manifest asks for (issue #324 part 4) — the
-/// code-first and projected counterparts of the <c>.feature</c> the Gherkin lane gets.
+/// projected counterpart of the <c>.feature</c> the Gherkin lane gets.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,16 +40,13 @@ public static class SpecSkeletons
             if (entries.Count == 0) continue;
 
             var slices = entries.Select(x => bySlice[x.Slice]).ToList();
-            var authoring = entries[0].Authoring;
 
             var typeName = TypeNameOf(group.Key);
             var ns = NamespaceOf(group.Key) ?? $"{model.Namespace ?? model.Model}.Specs";
 
             var plans = slices.Select(x => SliceScaffolder.PlanFor(model, x)).ToList();
 
-            files[$"Specs/{typeName}.cs"] = authoring == SpecAuthoring.CodeFirst
-                ? codeFirst(model, ns, typeName, entries, slices, plans)
-                : projected(model, ns, typeName, entries, slices, plans, ownership.Fixture);
+            files[$"Specs/{typeName}.cs"] = projected(model, ns, typeName, entries, slices, plans, ownership.Fixture);
         }
 
         return files;
@@ -163,56 +160,6 @@ public static class SpecSkeletons
                 writer.AppendLine("    {");
                 foreach (var line in StepSentences(plans[i], scenario)) writer.AppendLine($"        // {line}");
                 writer.AppendLine();
-                writer.AppendLine($"        throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
-                writer.AppendLine("    }");
-            }
-        }
-
-        writer.AppendLine("}");
-        return writer.ToString();
-    }
-
-    private static string codeFirst(
-        CuratedModelFile model, string ns, string typeName, IReadOnlyList<ResolvedSpecOwnership> entries,
-        IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans)
-    {
-        var writer = new StringBuilder();
-
-        writer.AppendLine("using Bobcat;");
-        writer.AppendLine("using Bobcat.CodeFirst;");
-        foreach (var each in usingsFor(model, slices)) writer.AppendLine($"using {each};");
-        writer.AppendLine();
-        writer.AppendLine($"namespace {ns};");
-        writer.AppendLine();
-        writer.AppendLine("/// <summary>");
-        writer.AppendLine($"/// Code-first specifications for {string.Join(", ", slices.Select(x => x.Name))}.");
-        writer.AppendLine("/// </summary>");
-        writer.AppendLine($"[FixtureTitle(\"{featureOf(slices[0])}\")]");
-        writer.AppendLine("// TODO — derive from this repository's CritterStack specification base, the one that");
-        writer.AppendLine("// carries the store vocabulary (GivenStream/WhenCommand/ThenNewEvents). Specification");
-        writer.AppendLine("// alone declares scenarios but binds no store.");
-        writer.AppendLine($"public class {typeName} : Specification");
-        writer.AppendLine("{");
-
-        var first = true;
-        for (var i = 0; i < entries.Count; i++)
-        {
-            var slice = slices[i];
-            var tags = new List<string> { $"\"slice:{slice.Name}\"" };
-            if (slice.Pattern is { Length: > 0 } pattern) tags.Add($"\"pattern:{pattern}\"");
-            if (slice.Chapter is { Length: > 0 } chapter) tags.Add($"\"chapter:{chapter}\"");
-            if (slice.Domain is { Length: > 0 } domain) tags.Add($"\"domain:{domain}\"");
-
-            foreach (var scenario in slice.Specifications?.Scenarios ?? [])
-            {
-                if (!first) writer.AppendLine();
-                first = false;
-
-                writer.AppendLine($"    [Scenario(\"{scenario.Name}\", Tags = [{string.Join(", ", tags)}])]");
-                writer.AppendLine($"    public void {MethodNameFor(scenario.Name)}()");
-                writer.AppendLine("    {");
-                writer.AppendLine("        // Declare the steps below and delete the throw — the shape is:");
-                foreach (var line in StepSentences(plans[i], scenario)) writer.AppendLine($"        //   {line}");
                 writer.AppendLine($"        throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
                 writer.AppendLine("    }");
             }

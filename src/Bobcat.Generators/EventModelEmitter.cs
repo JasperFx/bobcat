@@ -224,54 +224,6 @@ internal static class EventModelEmitter
     }
 
     /// <summary>
-    /// Fold a code-first specification's scenarios into <paramref name="slices"/> (issue #170) —
-    /// the same rules as the Gherkin overload, applied to what <see cref="CodeFirstSpecs"/>
-    /// extracted: the slice is a scenario-level grouping, an untagged scenario with no roles
-    /// contributes nothing, the identity is <c>{FeatureTitle}/{ScenarioTitle}</c>, and an empty
-    /// scenario method is a pending-specification hotspot. The one asymmetry is the trigger
-    /// label: code-first has no <c>Triggered by</c> line, so none is stamped.
-    /// </summary>
-    public static void Collect(CodeFirstSpecs.SpecInfo spec, Dictionary<string, SliceModel> slices)
-    {
-        foreach (var scenario in spec.Scenarios)
-        {
-            var declared = GeneratorSliceTags.Slice(scenario.Tags);
-            if (declared == null && scenario.Roles.Count == 0) continue;
-
-            var name = declared ?? spec.FeatureTitle;
-            if (!slices.TryGetValue(name, out var slice))
-            {
-                slice = new SliceModel { Name = name, ClassName = CodeEmitter.SanitizeIdentifier(name) };
-                slices[name] = slice;
-            }
-
-            slice.Domain ??= GeneratorSliceTags.Domain(scenario.Tags);
-            slice.Chapter ??= GeneratorSliceTags.Chapter(scenario.Tags);
-            slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(scenario.Tags);
-            slice.ActCommand ??= scenario.ActCommand;
-
-            var resolved = new List<string>();
-            foreach (var (role, type) in scenario.Roles)
-            {
-                addDistinct(resolved, type);
-                switch (role)
-                {
-                    case Command: addDistinct(slice.Commands, type); break;
-                    case Event: addDistinct(slice.Events, type); break;
-                    case Aggregate: addDistinct(slice.Aggregates, type); break;
-                    case ReadModel: addDistinct(slice.ReadModels, type); break;
-                    case Message: addDistinct(slice.Messages, type); break;
-                    case Consumed: addDistinct(slice.ArrangedEvents, type); break;
-                }
-            }
-
-            var identity = $"{spec.FeatureTitle}/{scenario.Title}";
-            if (scenario.IsPending) slice.PendingSpecifications.Add(identity);
-            else slice.Specifications.Add((identity, resolved));
-        }
-    }
-
-    /// <summary>
     /// Fold a projected test's <c>[BobcatSlice]</c> bindings into <paramref name="slices"/>
     /// (issue #324) — the xUnit / TUnit lane reaching the Event Model at last.
     /// </summary>

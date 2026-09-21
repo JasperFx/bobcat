@@ -1,20 +1,19 @@
-using Bobcat.CodeFirst;
 using Bobcat.Mtp;
 using Bobcat.Runtime;
 
 namespace Bobcat.Mtp.SampleHost;
 
 /// <summary>
-/// A Bobcat spec project running as an MTP test host. Features are written code-first rather
-/// than generated so the outcomes are exact and the end-to-end tests can assert on them.
+/// A Bobcat spec project running as an MTP test host. The features are written so the outcomes
+/// are exact — one pass, one comparison failure, one error — and the end-to-end tests can assert
+/// on them.
 /// </summary>
 public static class Program
 {
     public static Task<int> Main(string[] args)
         => BobcatTestApplication.Run(args, runner =>
         {
-            runner.AddSpecification<Arithmetic>();
-            runner.AddSpecification<Inventory>();
+            runner.ScanForFeatures(typeof(Program).Assembly);
 
             // Two resources, registered in this order, so the end-to-end tests can prove that
             // when the second one fails to start the first one is still torn down. Both are
@@ -69,29 +68,5 @@ public static class Program
             if (path is not null) File.AppendAllText(path, $"{Name}:stop{Environment.NewLine}");
             return Task.CompletedTask;
         }
-    }
-
-    public class Arithmetic : Specification
-    {
-        [Scenario]
-        public void addition_works() => Then("2 + 2", () => 2 + 2).ShouldBe(4);
-
-        /// <summary>A comparison that disagrees: MTP state <c>failed</c>, with expected and actual.</summary>
-        [Scenario]
-        public void subtraction_disagrees() => Then("9 - 4", () => 9 - 4).ShouldBe(4);
-
-        /// <summary>An exception that escapes: MTP state <c>error</c>, with the type and message.</summary>
-        [Scenario]
-        public void division_explodes()
-            => When("dividing by zero", () => throw new InvalidOperationException("attempted to divide by zero"));
-    }
-
-    public class Inventory : Specification
-    {
-        [Scenario(Tags = ["regression"])]
-        public void stock_is_counted() => Then("the stock is counted", () => { });
-
-        [Scenario(Tags = ["isolated", "recycle(rabbit)"])]
-        public void restock_is_flaky() => Then("the restock completes", () => { });
     }
 }

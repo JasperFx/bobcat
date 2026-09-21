@@ -117,14 +117,14 @@ public static class SpecOwnershipReader
             var resolved = file.Resolve(entry.Slice);
 
             // The one impossible corner of two otherwise orthogonal axes. A rule and not a
-            // comment: both Gherkin and code-first run through the fixture and therefore the
-            // store, so `unit` with either is a contradiction, and silently honouring the
-            // authoring would hand back a `.feature` to an author who asked for a unit test.
+            // comment: a Gherkin spec runs through the fixture and therefore the store, so `unit`
+            // with it is a contradiction, and silently honouring the authoring would hand back a
+            // `.feature` to an author who asked for a unit test.
             if (resolved.Kind == SpecKind.Unit && resolved.Authoring != SpecAuthoring.Projected)
             {
                 problems.Add(
-                    $"slice '{entry.Slice}': kind 'unit' cannot be authored as '{resolved.Authoring.ToString().ToLowerInvariant()}' — both gherkin and "
-                    + "code-first run through the fixture and so through the store. A unit-tested slice is `authoring: projected`.");
+                    $"slice '{entry.Slice}': kind 'unit' cannot be authored as '{resolved.Authoring.ToString().ToLowerInvariant()}' — gherkin "
+                    + "runs through the fixture and so through the store. A unit-tested slice is `authoring: projected`.");
             }
 
             if (resolved.Kind == SpecKind.Unit && string.IsNullOrWhiteSpace(resolved.CoveredBy))

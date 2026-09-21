@@ -143,7 +143,6 @@ internal static class EntryPointEmitter
         sb.AppendLine("    {");
         sb.AppendLine("        var assembly = typeof(BobcatEntryPoint).Assembly;");
         sb.AppendLine("        runner.ScanForFeatures(assembly);");
-        sb.AppendLine("        global::Bobcat.CodeFirst.SpecificationRunnerExtensions.ScanForSpecifications(runner, assembly);");
 
         foreach (var method in ordered)
         {

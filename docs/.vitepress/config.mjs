@@ -49,7 +49,6 @@ export default defineConfig({
           { text: 'The Run Lifecycle', link: '/run-lifecycle' },
           { text: 'Resources', link: '/resources' },
           { text: 'Composing Grammar Modules', link: '/composing-grammars' },
-          { text: 'Code-First Specifications', link: '/code-first-specs' },
           { text: 'Specs From Existing Tests', link: '/marker-steps' },
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },

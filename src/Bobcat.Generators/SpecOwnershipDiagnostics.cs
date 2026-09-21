@@ -32,7 +32,7 @@ internal static class SpecOwnershipDiagnostics
     {
         public string Slice = "";
 
-        /// <summary><c>gherkin</c> | <c>codefirst</c> | <c>projected</c>.</summary>
+        /// <summary><c>gherkin</c> | <c>projected</c>.</summary>
         public string Lane = "";
 
         /// <summary>What to name in the message — the feature file, or the test class.</summary>
@@ -73,8 +73,8 @@ internal static class SpecOwnershipDiagnostics
                 IsError = true,
                 Slice = binding.Slice,
                 Message =
-                    binding.Source + " specifies slice '" + binding.Slice + "' as " + lane(binding.Lane)
-                    + ", but the spec-ownership manifest says " + lane(declared) + unlisted
+                    binding.Source + " specifies slice '" + binding.Slice + "' as " + binding.Lane
+                    + ", but the spec-ownership manifest says " + declared + unlisted
                     + ". One slice is specified in one place — two lanes means two specs claiming one "
                     + "Feature/Scenario identity."
             });
@@ -95,7 +95,7 @@ internal static class SpecOwnershipDiagnostics
                 Slice = entry.Slice,
                 Message =
                     "the spec-ownership manifest says slice '" + entry.Slice + "' is specified as "
-                    + lane(authoring) + owner
+                    + authoring + owner
                     + ", but nothing in this compilation binds it. The manifest records a human choice and "
                     + "cannot be derived, so a renamed slice or a deleted test leaves it pointing at nothing."
             });
@@ -111,7 +111,6 @@ internal static class SpecOwnershipDiagnostics
     /// </summary>
     public static IReadOnlyList<Binding> BindingsIn(
         IEnumerable<FeatureInfo> features,
-        IEnumerable<CodeFirstSpecs.SpecInfo> specifications,
         IEnumerable<MarkerCommentSpecs.MarkedSpec> marked)
     {
         var bindings = new List<Binding>();
@@ -135,15 +134,6 @@ internal static class SpecOwnershipDiagnostics
             }
         }
 
-        foreach (var spec in specifications)
-        {
-            foreach (var scenario in spec.Scenarios)
-            {
-                add(GeneratorSliceTags.Slice(scenario.Tags), "codefirst",
-                    "the specification " + spec.FeatureTitle);
-            }
-        }
-
         foreach (var spec in marked)
         {
             foreach (var scenario in spec.Scenarios)
@@ -156,8 +146,6 @@ internal static class SpecOwnershipDiagnostics
 
         return bindings;
     }
-
-    private static string lane(string value) => value == "codefirst" ? "code-first" : value;
 
     private static string fileName(string path)
     {

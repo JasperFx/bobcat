@@ -116,13 +116,10 @@ See [Bobcat with Alba](integrations/alba.md), and
 [Resources](resources.md) for how a host, a database or a set of containers is started, reset and
 disposed around your scenarios.
 
-**Prefer C# to `.feature` files?** The same engine runs
-[code-first specifications](code-first-specs.md) — `[Scenario]` methods on a `Specification`
-class, no generator involved — and both styles render, supervise, and report identically.
-
-**Already have a large test suite?** [Specs from tests you already
-have](marker-steps.md) turns existing xUnit v3 or TUnit tests into specifications with marker
-comments and decorated helpers, one class at a time.
+**Prefer C# to `.feature` files?** [Specs from tests you already have](marker-steps.md) turns
+existing xUnit v3 or TUnit tests into specifications with marker comments and decorated helpers,
+one class at a time — they keep running on their own runner, and render, supervise and report
+alongside Gherkin ones.
 
 ## Next
 

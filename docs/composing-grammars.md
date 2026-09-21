@@ -283,5 +283,4 @@ guess. That slot stays null for a source that knows — Wolverine's derived one 
 Two honest limits. A `routePrefix` resolved from the scenario rather than from an
 `[IncludeGrammars]` literal has no compile-time route, so the *kind* is still stamped and the
 route is left off — a route missing its prefix is a wrong route, which is worse on a canvas than
-no route. And the code-first `Specification` twin stamps no trigger kind: it records the roles a
-scenario resolved, not the grammar step that resolved them.
+no route.

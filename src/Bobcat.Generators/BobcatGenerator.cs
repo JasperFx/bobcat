@@ -37,17 +37,6 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(g => g != null)
             .Select((g, _) => g!);
 
-        // 3b. Collect code-first specifications (issue #170): [Scenario] methods on Specification
-        //     subclasses build runtime FeatureDefinitions the Gherkin pipeline never sees, so
-        //     their Event Modeling slice declarations are read here, Roslyn-side, keeping the
-        //     {Feature}/{Scenario} identity stamping identical for both authoring styles.
-        var specifications = context.SyntaxProvider
-            .CreateSyntaxProvider(
-                predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.BaseList != null,
-                transform: (ctx, ct) => CodeFirstSpecs.Extract(ctx, ct))
-            .Where(s => s != null)
-            .Select((s, _) => s!);
-
         // 3c. Collect calls to [BobcatStep] helpers (issue #110). Each one becomes an interceptor
         //     that reports the step as it runs — the only way a step declared OUTSIDE the test
         //     body, on a shared helper, can report progress without the test being edited.
@@ -119,7 +108,6 @@ public class BobcatGenerator : IIncrementalGenerator
         var combined = featureFiles.Collect()
             .Combine(fixtureClasses.Collect())
             .Combine(tableGrammars.Collect())
-            .Combine(specifications.Collect())
             .Combine(markedSpecs.Collect())
             .Combine(manifests.Collect())
             .Combine(context.CompilationProvider);
@@ -127,10 +115,9 @@ public class BobcatGenerator : IIncrementalGenerator
         // 5. Generate source
         context.RegisterSourceOutput(combined, (spc, pair) =>
         {
-            var features = pair.Left.Left.Left.Left.Left.Left;
-            var fixtures = pair.Left.Left.Left.Left.Left.Right;
-            var grammars = pair.Left.Left.Left.Left.Right;
-            var specs = pair.Left.Left.Left.Right;
+            var features = pair.Left.Left.Left.Left.Left;
+            var fixtures = pair.Left.Left.Left.Left.Right;
+            var grammars = pair.Left.Left.Left.Right;
             var marked = pair.Left.Left.Right;
             var ownership = pair.Left.Right;
             var resolver = new TypeNameResolver(pair.Right);
@@ -160,7 +147,7 @@ public class BobcatGenerator : IIncrementalGenerator
             // no manifest is in AdditionalFiles, which is what makes adopting it the opt-in.
             if (ownership.Length > 0)
             {
-                var bindings = SpecOwnershipDiagnostics.BindingsIn(features, specs, marked);
+                var bindings = SpecOwnershipDiagnostics.BindingsIn(features, marked);
                 foreach (var manifest in ownership)
                 {
                     foreach (var finding in SpecOwnershipDiagnostics.Check(manifest, bindings))
@@ -245,12 +232,11 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
-            // Issue #170: code-first specifications feed the same slice fold, so a team authoring
-            // specs in C# gets the same event model — and the same Specifications bindings that
-            // drive drift colouring — as the equivalent .feature files would produce.
+            // Marker-projected specs feed the same slice fold, so a team rendering an existing
+            // xUnit/TUnit suite gets the same event model — and the same Specifications bindings
+            // that drive drift colouring — as the equivalent .feature files would produce.
             if (canEmitEventModel)
             {
-                foreach (var spec in specs) EventModelEmitter.Collect(spec, slices);
                 foreach (var spec in marked) EventModelEmitter.Collect(spec, slices);
             }
 

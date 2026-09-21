@@ -9,7 +9,7 @@ dotnet add package Bobcat.Xunit
 
 This is the projected lane. Nothing is rewritten, nothing moves, and the tests keep their own
 runner. For writing new specifications on Bobcat's own engine instead, see
-[Code-First Specifications](code-first-specs.md).
+[Specifications with Code](tutorials/specifications-with-code.md).
 
 ## Wire it up
 

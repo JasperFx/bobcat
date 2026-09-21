@@ -131,16 +131,6 @@ public class SpecOwnershipReaderTests
     }
 
     [Fact]
-    public void code_first_spells_with_a_hyphen_and_the_enum_does_not()
-    {
-        new SpecOwnershipFile
-            {
-                Schema = 1, Model = "M", Slices = [new SpecOwnership { Slice = "X", Authoring = "code-first" }]
-            }
-            .Resolve("X").Authoring.ShouldBe(SpecAuthoring.CodeFirst);
-    }
-
-    [Fact]
     public void a_unit_slice_must_name_the_scenario_that_covers_it_end_to_end()
     {
         var problems = SpecOwnershipReader.Validate(new SpecOwnershipFile
@@ -249,7 +239,7 @@ public class SpecOwnershipReaderTests
             Slices =
             [
                 new SpecOwnership { Slice = "A", Authoring = "projected", Owner = "Specs.Shared" },
-                new SpecOwnership { Slice = "B", Authoring = "code-first", Owner = "Specs.Shared" }
+                new SpecOwnership { Slice = "B", Authoring = "gherkin", Owner = "Specs.Shared" }
             ]
         });
 
@@ -395,7 +385,7 @@ public class SpecOwnershipReaderTests
     public void every_other_combination_answers_itself()
     {
         // The requirement is narrow on purpose: it applies to the one corner where both readings
-        // are plausible. A unit slice is always scaffolded, and so is a code-first one.
+        // are plausible. A unit slice is always scaffolded, and so is a Gherkin one.
         var file = SpecOwnershipReader.Read(
             """
             schema: 1
@@ -405,7 +395,7 @@ public class SpecOwnershipReaderTests
                 kind: unit
                 coveredBy: F/S
               - slice: B
-                authoring: code-first
+                authoring: gherkin
               - slice: C
             """).File!;
 
