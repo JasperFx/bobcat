@@ -1,0 +1,63 @@
+<Project>
+
+  <!--
+    Central Package Management for samples/.
+
+    The samples are outside bobcat.sln, so nothing forced them onto one version set and they
+    drifted into two generations: half on WolverineFx 6.29.1 / Marten 9.28.0, half on 6.38.0 /
+    9.36.0. That is not cosmetic. A sample project-references Bobcat, which pins
+    JasperFx.Events 2.69.3, and Marten 9.28 was compiled before 2.67 made `QueryStreamStates`
+    an ABSTRACT member of IReadOnlyEventStore — so the older samples loaded fine, built fine,
+    and died the first time anything opened a session:
+
+      System.TypeLoadException: Method 'QueryStreamStates' in type
+      'Marten.Events.QueryEventStore' ... does not have an implementation.
+
+    This is the same failure src/Directory.Packages.props documents at length; read its header
+    before changing any version here. Nothing caught it because samples.yml only BUILDS the
+    samples — a floor constrains resolution, not the vtable.
+
+    The Critter Stack versions below must stay identical to src/Directory.Packages.props. The
+    property that matters is that every package in a sample resolves the SAME JasperFx.Events
+    as the Bobcat it references, and the only safe signal is that each store was BUILT against
+    that JasperFx.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Critter Stack — must match src/Directory.Packages.props exactly -->
+    <PackageVersion Include="WolverineFx.Http" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Http.Marten" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Http.FluentValidation" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.FluentValidation" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.38.0" />
+    <PackageVersion Include="Marten" Version="9.36.0" />
+    <PackageVersion Include="Marten.AspNetCore" Version="9.36.0" />
+    <PackageVersion Include="Fisher" Version="1.10.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.69.3" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.69.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Alba directly: Bobcat ships no Alba integration, so each sample hosts its own. -->
+    <PackageVersion Include="Alba" Version="8.5.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Sample-only -->
+    <PackageVersion Include="Wolverine.CritterWatch" Version="1.0.2-vehicle.1" />
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="7.2.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.8.1" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.2.1" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="9.2.1" />
+    <PackageVersion Include="Aspire.Npgsql" Version="9.2.1" />
+  </ItemGroup>
+
+</Project>
