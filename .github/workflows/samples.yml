@@ -5,17 +5,17 @@ name: samples
 # because they carry spec fixtures the host project has no reference to. Nothing reported it,
 # because nothing built them.
 #
-# This job builds them. It does not run them — they want Postgres, brokers and wiring tests.yml
-# does not provide, and compiling is the check that would have caught the rot.
+# This job builds them, and since 2026-09-21 it RUNS them too.
 #
-# Compiling is NOT enough to call a sample fixed, though: OutboxDemo compiled clean and still
-# could not start, because Wolverine 6 stopped shipping the runtime compiler. Wiring a sample
-# means running its specs against a real database at least once, by hand.
+# Compiling was never enough to call a sample fixed, and this job's own history is the argument:
+# OutboxDemo compiled clean and could not start, because Wolverine 6 stopped shipping the runtime
+# compiler. Worse, half the samples sat on WolverineFx 6.29.1 / Marten 9.28.0 and died on a
+# TypeLoadException the first time they opened a session — for weeks, invisibly, because a build
+# is all this job did. That is what running them catches.
 #
-# One exception runs end to end: BankAccountES on Fisher (issue #103). A SQLite file needs nothing
-# this runner does not already have, which is the whole argument for Fisher as the inner-loop
-# store — and a sample whose point is "the same handlers run on two stores" is only proved by
-# running it. The Marten leg still needs Postgres and stays a by-hand run.
+# The samples are Microsoft.Testing.Platform hosts, so `dotnet test` runs them and one scenario is
+# one test node. They need Postgres and nothing else: the only sample that wants a broker is
+# BankAccountES, which is quarantined.
 on:
   push:
     branches:
@@ -28,6 +28,31 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # Same image and port as tests.yml, so "the database CI gives you" means one thing in this
+    # repo. Each sample gets its OWN database below rather than sharing this one: MeetingGroupMonolith
+    # puts its event store in a schema called `payments`, which is also the schema PaymentsMonolith
+    # uses for everything, so a shared database would have the two of them creating mt_streams in
+    # the same place and each one's between-scenario reset wiping the other's events. Harmless while
+    # they run in sequence, and a trap the day anything runs them in parallel.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bobcat_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5445:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # A spec host publishes its progress to a monitor when one answers. Nothing listens here.
+      BOBCAT_MONITOR: "0"
 
     steps:
       - uses: actions/checkout@v4
@@ -119,6 +144,52 @@ jobs:
 
           [ $status -eq 0 ] && echo "no regressions"
           exit $status
+
+      - name: Run every runnable sample's specs against Postgres
+        run: |
+          # Each sample names its own database, matching the default in its own Program.cs, so
+          # nothing here has to know about another sample's schema choices. Created up front
+          # because the service container only ever makes one.
+          #
+          # BankAccountES is absent on purpose: it is the quarantined project above, and it is the
+          # one sample that also wants a broker.
+          samples=(
+            CqrsMinimalApi:cqrs_minimal_api
+            BookingMonolith:booking
+            CleanArchitectureTodos:clean_architecture_todos
+            MoreSpeakers:more_speakers
+            PaymentsMonolith:inflow
+            EcommerceModularMonolith:ecommerce
+            MeetingGroupMonolith:meeting_groups
+            OutboxDemo:outbox_demo
+          )
+
+          for entry in "${samples[@]}"; do
+            db="${entry#*:}"
+            PGPASSWORD=postgres createdb -h localhost -p 5445 -U postgres "$db"
+          done
+
+          failed=()
+          for entry in "${samples[@]}"; do
+            name="${entry%%:*}"
+            db="${entry#*:}"
+            echo "::group::$name"
+            if ConnectionStrings__Marten="Host=localhost;Port=5445;Database=$db;Username=postgres;Password=postgres" \
+               dotnet test "samples/$name/Tests" -c Release; then
+              echo "OK  $name"
+            else
+              echo "::error file=samples/$name::specs failed"
+              failed+=("$name")
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "${#failed[@]} sample(s) failed their specs:"
+            printf '  %s\n' "${failed[@]}"
+            exit 1
+          fi
+          echo "every runnable sample passed"
 
       # Off with the quarantine above — the project does not build until the CritterStack grammar
       # is rebuilt. Turn this back on in the same change that takes BankAccountES off the list.
