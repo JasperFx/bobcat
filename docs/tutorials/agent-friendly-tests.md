@@ -30,9 +30,10 @@ This is the anchor case. A tracked session knows the whole messaging story — w
 was handled, in what order, and what threw — and a test that merely asserts an outcome discards all
 of it.
 
-- `Bobcat.Wolverine` surfaces tracked sessions directly:
-  `InvokeMessageAndWaitAsync`, `SendMessageAndWaitAsync`, `ExecuteAndWaitAsync` and `TrackActivity`
-  all hand back an `ITrackedSession` — see [Bobcat with Wolverine](../integrations/wolverine.md).
+- `Bobcat.Wolverine` surfaces tracked sessions directly: `InvokeMessageAndWaitAsync`,
+  `SendMessageAndWaitAsync`, `ExecuteAndWaitAsync` and `TrackActivity` all hand back an
+  `ITrackedSession`, and `WolverineActOutcome.Session` exposes it from inside a grammar step —
+  see [Bobcat with Wolverine](../integrations/wolverine.md).
 - The session's own diagnostics — `Status`, `AllExceptions()`, `AllRecordsInOrder()` — are the
   material. `AllRecordsInOrder()` in particular is a causal chain, which is exactly what an agent
   cannot reconstruct from an assertion message.
@@ -54,9 +55,10 @@ The point is not to print more to the console. It is to put the context somewher
 
 ### 4. Generalizing past Wolverine
 
-The same argument for Marten (what was actually in the stream), for HTTP (the response body on an
-unexpected status), and for the database. `Bobcat.Marten`'s `FetchStreamAsync` and
-`AggregateStreamAsync` are the equivalents.
+The same argument for the event store (what was actually in the stream), for HTTP (the response
+body on an unexpected status), and for the database. `Context.FetchEventStreamAsync` and
+`Context.AggregateEventStreamAsync` are the equivalents, and they are store-agnostic — the same
+call answers for Marten, Polecat or Fisher.
 
 ### 5. Where to stop
 

@@ -1,3 +1,15 @@
+> **Historical. Do not read this as current guidance.**
+>
+> A session dump from 2026-04-12 with an update on 04-29, moved out of the repository root on
+> 2026-09-21 because it had sat there for five months reading as orientation while describing an
+> API that no longer exists: a non-generic `AlbaResource`, `AlbaAuthExtensions`, `ScenarioAsync`,
+> samples "not yet wired up to compile/run", and a planned package hierarchy that went a different
+> way. Its "Next Steps" are closed issues and its "Resuming in a new chat window" addresses a
+> session long over.
+>
+> **Current guidance is `CLAUDE.md`. Design records are in `design/`. User documentation is in
+> `docs/`.** This is kept only because it records why some early decisions were made.
+
 # Bobcat Development Context — April 12, 2026
 
 ## What Was Built Today

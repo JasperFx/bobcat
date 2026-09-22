@@ -181,13 +181,13 @@ check.
 ### Quieting a noisy host
 
 An ASP.NET Core host at its default `Information` level writes several lines per request, which
-buries the run summary. `AlbaResource<TProgram>` puts a floor under the hosted application's
-**console** logging — `ConsoleLogLevel`, default `Warning`, fluent `WithConsoleLogLevel(level)`,
-`null` to leave the application's logging exactly as it ships.
+buries the run summary. `AlbaResource<TProgram>` used to put a floor under the hosted
+application's console logging; it was deleted with the rest of the package and did not come back,
+because none of the nine sample suites that rebuilt the resource from scratch reached for it.
 
-It is a filter rule scoped to the console provider rather than `SetMinimumLevel`, because an
-`appsettings.json` `"Logging:LogLevel:Default": "Information"` is itself a rule and rules beat the
-minimum level. Every other sink is left alone.
+Configure it in the application instead — an `appsettings.json` log level, or a
+`builder.Logging` filter — which is the same lever, in the place a reader already looks. If the
+resource should own it again, that comes back when a suite wants it.
 
 ## Docker resources
 
