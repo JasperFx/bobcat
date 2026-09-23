@@ -1,4 +1,4 @@
-using System.Text;
+using JasperFx.CodeGeneration;
 
 namespace Bobcat.EventModel.Scaffolding;
 
@@ -97,23 +97,23 @@ public static class SpecSkeletons
         CuratedModelFile model, string ns, string typeName, IReadOnlyList<ResolvedSpecOwnership> entries,
         IReadOnlyList<CuratedSlice> slices, IReadOnlyList<SlicePlan> plans, SpecFixture? repositoryFixture)
     {
-        var writer = new StringBuilder();
+        using var writer = new SourceWriter();
         var single = entries.Count == 1;
 
-        writer.AppendLine("using Bobcat;");
-        writer.AppendLine("using Xunit;");
-        foreach (var each in usingsFor(model, slices)) writer.AppendLine($"using {each};");
-        writer.AppendLine();
-        writer.AppendLine($"namespace {ns};");
-        writer.AppendLine();
-        writer.AppendLine("/// <summary>");
-        writer.AppendLine($"/// Projected specifications for {string.Join(", ", slices.Select(x => x.Name))}.");
-        writer.AppendLine("/// </summary>");
-        writer.AppendLine("/// <remarks>");
-        writer.AppendLine("/// Steps render from the marker comments in each test body; the verdict comes from the");
-        writer.AppendLine("/// runner. [BobcatSlice] carries the BINDING only — the slice's domain, chapter and pattern");
-        writer.AppendLine("/// are stated once, on the event model, and merge in by slice name.");
-        writer.AppendLine("/// </remarks>");
+        writer.WriteLine("using Bobcat;");
+        writer.WriteLine("using Xunit;");
+        foreach (var each in usingsFor(model, slices)) writer.WriteLine($"using {each};");
+        writer.BlankLine();
+        writer.WriteLine($"namespace {ns};");
+        writer.BlankLine();
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine($"/// Projected specifications for {string.Join(", ", slices.Select(x => x.Name))}.");
+        writer.WriteLine("/// </summary>");
+        writer.WriteLine("/// <remarks>");
+        writer.WriteLine("/// Steps render from the marker comments in each test body; the verdict comes from the");
+        writer.WriteLine("/// runner. [BobcatSlice] carries the BINDING only — the slice's domain, chapter and pattern");
+        writer.WriteLine("/// are stated once, on the event model, and merge in by slice name.");
+        writer.WriteLine("/// </remarks>");
         var integration = entries.Any(x => x.Kind == SpecKind.Integration);
         var fixture = integration ? repositoryFixture : null;
 
@@ -124,18 +124,26 @@ public static class SpecSkeletons
         // it attributes.
         if (integration && fixture is null)
         {
-            writer.AppendLine("// TODO — these are integration slices: give this class the store. Derive from (or");
-            writer.AppendLine("// inject) this repository's host/store fixture; the arrange/act/assert helpers are in");
-            writer.AppendLine("// Bobcat.CritterStack. Declaring `defaults.fixture:` on the spec-ownership manifest");
-            writer.AppendLine("// writes all of this instead, once for the repository.");
+            writer.WriteLine("// TODO — these are integration slices: give this class the store. Derive from (or");
+            writer.WriteLine("// inject) this repository's host/store fixture; the arrange/act/assert helpers are in");
+            writer.WriteLine("// the Bobcat.CritterStack NAMESPACE, which ships in the Bobcat package — there has been");
+            writer.WriteLine("// no Bobcat.CritterStack package since 0.27.0. Declaring `defaults.fixture:` on the");
+            writer.WriteLine("// spec-ownership manifest writes all of this instead, once for the repository.");
         }
 
-        writer.AppendLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
+        writer.WriteLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
 
-        if (fixture?.Attribute is { Length: > 0 } attribute) writer.AppendLine($"[{attribute}]");
-        if (single) writer.AppendLine($"[BobcatSlice({BindingFor(slices[0])})]");
-        writer.AppendLine($"public class {typeName}{declarationTail(fixture)}");
-        writer.AppendLine("{");
+        if (fixture?.Attribute is { Length: > 0 } attribute) writer.WriteLine($"[{attribute}]");
+        if (single) writer.WriteLine($"[BobcatSlice({BindingFor(slices[0])})]");
+
+        // Braces are opened and closed explicitly rather than through `Write("BLOCK:…")` /
+        // FinishBlock. Those are the idiomatic pair, but FinishBlock always emits a blank line
+        // after the brace it closes, which leaves one sitting between the last test and the
+        // class's own `}`. This is a showcase scaffold; stray whitespace in it gets read as
+        // carelessness. IndentionLevel still does all the indenting — no literal "    " survives.
+        writer.WriteLine($"public class {typeName}{declarationTail(fixture)}");
+        writer.WriteLine("{");
+        writer.IndentionLevel++;
 
         var first = true;
         for (var i = 0; i < entries.Count; i++)
@@ -143,30 +151,33 @@ public static class SpecSkeletons
             var slice = slices[i];
             foreach (var scenario in slice.Specifications?.Scenarios ?? [])
             {
-                if (!first) writer.AppendLine();
+                if (!first) writer.BlankLine();
                 first = false;
 
-                writer.AppendLine("    [Fact]");
-                if (!single) writer.AppendLine($"    [BobcatSlice({BindingFor(slice)})]");
+                writer.WriteLine("[Fact]");
+                if (!single) writer.WriteLine($"[BobcatSlice({BindingFor(slice)})]");
 
                 if (!RoundTrips(scenario.Name))
                 {
-                    writer.AppendLine($"    // The model's scenario is \"{scenario.Name}\". A projected test's identity IS");
-                    writer.AppendLine("    // its method name, so this one publishes a DIFFERENT identity and joins nothing.");
-                    writer.AppendLine("    // Rename the scenario in the model to something a method name can spell.");
+                    writer.WriteLine($"// The model's scenario is \"{scenario.Name}\". A projected test's identity IS");
+                    writer.WriteLine("// its method name, so this one publishes a DIFFERENT identity and joins nothing.");
+                    writer.WriteLine("// Rename the scenario in the model to something a method name can spell.");
                 }
 
-                writer.AppendLine($"    public void {MethodNameFor(scenario.Name)}()");
-                writer.AppendLine("    {");
-                foreach (var line in StepSentences(plans[i], scenario)) writer.AppendLine($"        // {line}");
-                writer.AppendLine();
-                writer.AppendLine($"        throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
-                writer.AppendLine("    }");
+                writer.WriteLine($"public void {MethodNameFor(scenario.Name)}()");
+                writer.WriteLine("{");
+                writer.IndentionLevel++;
+                foreach (var line in StepSentences(plans[i], scenario)) writer.WriteLine($"// {line}");
+                writer.BlankLine();
+                writer.WriteLine($"throw new NotImplementedException(\"{slice.Name}: {scenario.Name}\");");
+                writer.IndentionLevel--;
+                writer.WriteLine("}");
             }
         }
 
-        writer.AppendLine("}");
-        return writer.ToString();
+        writer.IndentionLevel--;
+        writer.WriteLine("}");
+        return writer.Code();
     }
 
     private static string featureOf(CuratedSlice slice) => slice.Specifications?.Feature ?? slice.Name;
