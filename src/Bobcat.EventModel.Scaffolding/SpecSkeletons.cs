@@ -126,8 +126,9 @@ public static class SpecSkeletons
         {
             writer.WriteLine("// TODO — these are integration slices: give this class the store. Derive from (or");
             writer.WriteLine("// inject) this repository's host/store fixture; the arrange/act/assert helpers are in");
-            writer.WriteLine("// Bobcat.CritterStack. Declaring `defaults.fixture:` on the spec-ownership manifest");
-            writer.WriteLine("// writes all of this instead, once for the repository.");
+            writer.WriteLine("// the Bobcat.CritterStack NAMESPACE, which ships in the Bobcat package — there has been");
+            writer.WriteLine("// no Bobcat.CritterStack package since 0.27.0. Declaring `defaults.fixture:` on the");
+            writer.WriteLine("// spec-ownership manifest writes all of this instead, once for the repository.");
         }
 
         writer.WriteLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");

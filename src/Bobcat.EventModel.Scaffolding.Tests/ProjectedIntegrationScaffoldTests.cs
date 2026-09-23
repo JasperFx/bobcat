@@ -148,6 +148,12 @@ public class ProjectedIntegrationScaffoldTests
         var code = scaffold(AllProjected)["Specs/BookingAppointmentsSpecs.cs"];
 
         code.ShouldContain("TODO — these are integration slices: give this class the store");
+
+        // Issue #376's lesson, applied to the other piece of generated prose that names a package:
+        // Bobcat.CritterStack stopped being one in 0.27.0, and nothing compiles a TODO comment, so
+        // only an assertion keeps it honest.
+        code.ShouldContain("no Bobcat.CritterStack package since 0.27.0");
+        code.ShouldNotContain("helpers are in Bobcat.CritterStack.");
     }
 
     [Fact]
