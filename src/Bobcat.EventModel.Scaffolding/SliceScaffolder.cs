@@ -826,15 +826,29 @@ public static class SliceScaffolder
         if (sharedLabel is not null) writer.WriteLine($"  Triggered by {sharedLabel}");
 
         // Which fixture binds these steps is decided by the same plan that decided the code's
-        // shape, so say it here rather than leaving it to be discovered as an unbound step. A
-        // feature whose acts POST needs HttpGrammars, which only CritterStackHttpFixture carries.
+        // shape, so say it here rather than leaving it to be discovered as an unbound step.
+        //
+        // The HTTP branch says what is NOT shipped, which is the point. Bobcat used to carry an
+        // HttpGrammars module and a CritterStackHttpFixture base; both were deleted with the old
+        // Bobcat.Alba and are not coming back, because an act over Alba reads better than an
+        // abstraction in front of it. So a feature whose acts POST has two steps that nothing
+        // binds until its author writes them, and a scaffolded comment that named a deleted base
+        // type sent them looking for a package instead (issue #376).
         writer.BlankLine();
         if (plans.Any(x => x.OverHttp))
         {
-            writer.WriteLine("  # Fixture: derive from CritterStackHttpFixture. At least one act below POSTs to a");
-            writer.WriteLine("  # collapsed endpoint, and `is posted to` is HttpGrammars' step — CritterStackFixture");
-            writer.WriteLine("  # alone carries the store vocabulary but not the HTTP one. Routes here are absolute,");
-            writer.WriteLine("  # so leave the module's route prefix empty.");
+            writer.WriteLine("  # Fixture: derive from WolverineCritterStackFixture — the store vocabulary plus the");
+            writer.WriteLine("  # tracked act. Bobcat ships NO HTTP grammar, so the two HTTP steps below are yours to");
+            writer.WriteLine("  # bind; consume Alba directly, inside the tracked session so the Then steps still see");
+            writer.WriteLine("  # what the call appended:");
+            writer.WriteLine("  #");
+            writer.WriteLine("  #   [When(\"{command} is posted to \\\"{route}\\\"\")]");
+            writer.WriteLine("  #   public Task Posted(TRequest command, string route)");
+            writer.WriteLine("  #       => WhenTracked(() => Context!.PostJsonAsync<TRequest, TResponse>(route, command));");
+            writer.WriteLine("  #");
+            writer.WriteLine("  # PostJsonAsync is Bobcat.Alba's and answers an HttpResult<T>, whose StatusCode is what");
+            writer.WriteLine("  # `Then the response is …` asserts. Routes here are absolute, so leave the module's");
+            writer.WriteLine("  # route prefix empty.");
         }
         else
         {
@@ -1049,8 +1063,10 @@ public static class SliceScaffolder
     /// </summary>
     /// <remarks>
     /// Issue #235. A collapsed endpoint computes its stream from the request body — <c>[Identity]
-    /// public Guid AppointmentId</c> — and <c>HttpGrammars.WhenCommandIsPosted</c> builds that body
-    /// from the act's table and nothing else. So without a way to say "this scenario's stream", the
+    /// public Guid AppointmentId</c> — and an HTTP act builds that body from the act's table and
+    /// nothing else. (The shipped <c>HttpGrammars</c> module that did so has since been deleted;
+    /// the act is now the author's, over Alba, and the reasoning is unchanged because it is the
+    /// table that is the sole input either way.) So without a way to say "this scenario's stream", the
     /// act writes to whatever stream the body happens to name, which is never the stream the
     /// <c>Given</c> events reached. The happy paths still pass (the endpoint starts a fresh stream
     /// and <c>Then X is emitted</c> reads the tracked session, not the store) and — far worse — so

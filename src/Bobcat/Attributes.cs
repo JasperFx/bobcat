@@ -57,7 +57,7 @@ public sealed class BobcatConfigurationAttribute : Attribute;
 /// <remarks>
 /// <para>
 /// <b>Parameterized modules (issue #212, phase 2):</b> constructor arguments after the module type
-/// flow to the module's construction — <c>[IncludeGrammars(typeof(HttpGrammars), "/api/wallet")]</c>
+/// flow to the module's construction — <c>[IncludeGrammars(typeof(WalletGrammars), "/api/wallet")]</c>
 /// — so one grammar type binds against different targets without a subclass per binding. The
 /// vocabulary stays a compile-time fact (the generator reads the steps from the type symbol); only
 /// the <em>binding</em> becomes a construction fact. Attribute arguments are limited to constants
