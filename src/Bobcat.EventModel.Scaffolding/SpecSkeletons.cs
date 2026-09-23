@@ -101,6 +101,12 @@ public static class SpecSkeletons
         var single = entries.Count == 1;
 
         writer.WriteLine("using Bobcat;");
+
+        // Bobcat.Xunit, for [BobcatScenario] below. This emitter is xUnit-only — it writes
+        // `using Xunit;` and [Fact] unconditionally — so there is no runner to choose between
+        // here; Bobcat.TUnit ships the same attribute under its own namespace for the day this
+        // emitter learns TUnit.
+        writer.WriteLine("using Bobcat.Xunit;");
         writer.WriteLine("using Xunit;");
         foreach (var each in usingsFor(model, slices)) writer.WriteLine($"using {each};");
         writer.BlankLine();
@@ -113,6 +119,11 @@ public static class SpecSkeletons
         writer.WriteLine("/// Steps render from the marker comments in each test body; the verdict comes from the");
         writer.WriteLine("/// runner. [BobcatSlice] carries the BINDING only — the slice's domain, chapter and pattern");
         writer.WriteLine("/// are stated once, on the event model, and merge in by slice name.");
+        writer.WriteLine("/// <para>");
+        writer.WriteLine("/// [BobcatScenario] is what OPENS the recording each test's steps go into. Without it");
+        writer.WriteLine("/// ScenarioRecorder.Current is null, every [BobcatStep] interceptor records into");
+        writer.WriteLine("/// NoStep.Instance, and the suite goes green having rendered nothing at all (issue #379).");
+        writer.WriteLine("/// </para>");
         writer.WriteLine("/// </remarks>");
         var integration = entries.Any(x => x.Kind == SpecKind.Integration);
         var fixture = integration ? repositoryFixture : null;
@@ -131,6 +142,10 @@ public static class SpecSkeletons
             writer.WriteLine("// spec-ownership manifest writes all of this instead, once for the repository.");
         }
 
+        // The recording, then the feature it belongs to. Emitted together because a scaffolded
+        // class that declares one without the other is the shape issue #379 describes: a suite
+        // that looks like a specification, passes, and records nothing.
+        writer.WriteLine("[BobcatScenario]");
         writer.WriteLine($"[BobcatFeature(\"{featureOf(slices[0])}\")]");
 
         if (fixture?.Attribute is { Length: > 0 } attribute) writer.WriteLine($"[{attribute}]");

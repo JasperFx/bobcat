@@ -134,6 +134,24 @@ public class ProjectedIntegrationScaffoldTests
     }
 
     [Fact]
+    public void a_projected_class_opens_a_recording_or_it_renders_nothing()
+    {
+        // Issue #379. ScenarioRecorder.Step is null-conditional on the ambient recording, and under
+        // xUnit only [BobcatScenario] sets it — so a scaffolded class without it records into
+        // NoStep.Instance for every step, and the suite passes having produced no specification at
+        // all. Nothing else reports that state: the build is clean and the tests are green either
+        // way, which is why it survived to a third occurrence of this lane being wired but not
+        // working.
+        var code = scaffold(AllProjected)["Specs/BookingAppointmentsSpecs.cs"];
+
+        code.ShouldContain("using Bobcat.Xunit;");
+
+        // Beside the feature, not merely somewhere in the file: both are class-level, and a reader
+        // checking one should be looking straight at the other.
+        code.ShouldContain($"[BobcatScenario]{Environment.NewLine}[BobcatFeature(");
+    }
+
+    [Fact]
     public void the_steps_the_model_derives_come_through_as_comments()
     {
         var code = scaffold(AllProjected)["Specs/BookingAppointmentsSpecs.cs"];
