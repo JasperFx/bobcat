@@ -160,8 +160,34 @@ public partial class SpecAndCodeAgreementTests
     {
         // Which fixture carries which vocabulary is decided by the same plan that chose the
         // shape, so it is stated rather than left to be discovered as an unbound step.
-        featureFor("Appointments").ShouldContain("derive from CritterStackHttpFixture");
+        featureFor("Appointments").ShouldContain("derive from WolverineCritterStackFixture");
         featureFor("Moderation").ShouldContain("derive from CritterStackFixture");
+    }
+
+    [Fact]
+    public void the_http_feature_names_no_type_the_release_deleted()
+    {
+        // Issue #376. CritterStackHttpFixture, HttpGrammars and IHttpResource went with the old
+        // Bobcat.Alba; the scaffolder kept naming the first two for several releases after, and
+        // the assertion above passed the whole time because it pinned the stale string. A
+        // scaffolded comment is generated output like any other, so it gets the same treatment
+        // the rest of the scaffold gets: name nothing that does not ship.
+        var feature = featureFor("Appointments");
+        feature.ShouldNotContain("CritterStackHttpFixture");
+        feature.ShouldNotContain("HttpGrammars");
+        feature.ShouldNotContain("IHttpResource");
+    }
+
+    [Fact]
+    public void the_http_feature_says_its_act_step_is_unbound_and_how_to_bind_it()
+    {
+        // The comment has to be actionable, not merely correct: the two HTTP steps below it have
+        // no shipped binding at all, and an author who is not told that discovers it as a red
+        // scenario. Bobcat.Alba's own helper is what to reach for.
+        var feature = featureFor("Appointments");
+        feature.ShouldContain("Bobcat ships NO HTTP grammar");
+        feature.ShouldContain("PostJsonAsync");
+        feature.ShouldContain("WhenTracked");
     }
 
     /// <summary>

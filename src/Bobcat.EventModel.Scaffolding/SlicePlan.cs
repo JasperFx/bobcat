@@ -81,10 +81,13 @@ public sealed record SlicePlan(
     public string ActType => OverHttp ? RequestType : Trigger?.Event ?? Command;
 
     /// <summary>
-    /// The Gherkin act line, chosen by the same rule that chose the code's shape. The HTTP form
-    /// is <c>HttpGrammars</c>' step (issue #210) and the bus form is <c>CritterStackFixture</c>'s;
-    /// a feature that mixes slices needs the fixture that binds both, which
-    /// <see cref="SliceScaffolder.ScaffoldFeatures"/> names in a comment at the top of the file.
+    /// The Gherkin act line, chosen by the same rule that chose the code's shape. The bus form is
+    /// <c>CritterStackFixture</c>'s shipped step; the HTTP form is bound by <em>nobody</em> — the
+    /// <c>HttpGrammars</c> module that used to carry it was deleted with the old
+    /// <c>Bobcat.Alba</c>, and an act written over Alba directly replaced it rather than another
+    /// abstraction. So this line is a step its author still has to write, which
+    /// <see cref="SliceScaffolder.ScaffoldFeatures"/> says in a comment at the top of the file,
+    /// with the shape to write (issue #376).
     /// </summary>
     public string ActStep => OverHttp
         ? $"When {ActType} is posted to \"{Route}\""
