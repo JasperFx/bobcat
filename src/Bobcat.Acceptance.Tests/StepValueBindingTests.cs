@@ -80,7 +80,12 @@ public class StepValueBindingTests
             $"Given Appointment \"{id}\" has already recorded these events",
             "When ConfirmAppointment is posted to \"/api/scheduling/confirmappointment\"",
             "Then AppointmentConfirmed is emitted",
-            "Then the response is 404"
+
+            // `And`, not a second `Then`. Both helpers declare Keyword = "Then" and neither can
+            // know it is the second of its block; the recorder does, and Gherkin has always been
+            // written this way. This assertion is the end-to-end proof — a real vocabulary, called
+            // from a real test, rendering through the real recorder.
+            "And the response is 404"
         ]);
 
         // Not one placeholder left. That is the whole finding.

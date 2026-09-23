@@ -133,7 +133,18 @@ public static class ScenarioRecorder
 
         private bool _cancelled;
 
+        /// <summary>
+        /// The last keyword that actually opened a block — Given, When or Then, never And or But.
+        /// A repeat of it renders as <c>And</c>, which is how Gherkin has always been written.
+        /// </summary>
+        private string? _openKeyword;
+
         internal IDisposable BeginStep(string keyword, string text) => BeginStep(keyword, text, -1);
+
+        /// <summary>A keyword that continues the block it is in rather than opening one.</summary>
+        private static bool isContinuation(string keyword)
+            => string.Equals(keyword, "And", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(keyword, "But", StringComparison.OrdinalIgnoreCase);
 
         internal IDisposable BeginStep(string keyword, string text, int declaredIndex)
         {
@@ -145,7 +156,30 @@ public static class ScenarioRecorder
                 ? declaredIndex + 1
                 : (int?)null;
 
-            var step = new RecordedStep(keyword, text, _clock.ElapsedMilliseconds)
+            // Gherkin's own convention: a step that repeats the previous step's keyword is written
+            // `And`. A [BobcatStep] helper cannot do that for itself — its keyword is fixed on the
+            // attribute, and whether a call is the first of its block or the third is a fact about
+            // the scenario, not about the helper. So it is settled here, where the previous step is
+            // known. A helper that hardcodes `And` to fit its usual position then stops being
+            // necessary, and stops being WRONG in the position it did not expect: CritterCrush has
+            // seven scenarios that open with `And` because their first step happens to come from a
+            // helper written for the second. `And` and `But` pass through and do not close the block
+            // they sit in, so Given / And / Given still reads Given / And / And.
+            var rendered = keyword;
+            if (isContinuation(keyword))
+            {
+                rendered = keyword;
+            }
+            else if (string.Equals(keyword, _openKeyword, StringComparison.OrdinalIgnoreCase))
+            {
+                rendered = "And";
+            }
+            else
+            {
+                _openKeyword = keyword;
+            }
+
+            var step = new RecordedStep(rendered, text, _clock.ElapsedMilliseconds)
             {
                 StepId = "s" + (_steps.Count + 1),
                 DeclaredStepNumber = declaredNumber
@@ -156,7 +190,7 @@ public static class ScenarioRecorder
             // see the step that is currently taking the time, which is exactly the step that has
             // not finished yet.
             _publisher?.Post(new StepStarted(
-                _runId, Uid, step.StepId, keyword, text,
+                _runId, Uid, step.StepId, rendered, text,
                 StepNumber: _steps.Count,
                 TotalSteps: Declared.Count > 0 ? Declared.Count : null,
                 ScenarioElapsedMs: step.StartedAtMs,
