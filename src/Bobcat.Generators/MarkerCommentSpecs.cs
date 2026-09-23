@@ -104,6 +104,17 @@ internal static class MarkerCommentSpecs
 
         spec.Tags.AddRange(sliceTags(declaration, ctx.SemanticModel, spec.Problems));
 
+        // Issue #379. A marked class renders nothing unless something OPENS a recording:
+        // ScenarioRecorder.Step is null-conditional on the ambient one, so with no scenario every
+        // [BobcatStep] interceptor and every marker comment records into NoStep.Instance and the
+        // suite goes green having produced no specification at all. [BobcatFeature] and
+        // [BobcatSlice] carry the BINDING; only [BobcatScenario] starts the recording.
+        //
+        // Checked here rather than at runtime because at runtime there is nothing to check: a suite
+        // that records nothing looks exactly like a suite with no steps to record.
+        var opensRecording = HasScenarioAttribute(declaration)
+                             || declaration.Members.OfType<MethodDeclarationSyntax>().Any(HasScenarioAttribute);
+
         foreach (var method in declaration.Members.OfType<MethodDeclarationSyntax>())
         {
             ct.ThrowIfCancellationRequested();
@@ -120,8 +131,50 @@ internal static class MarkerCommentSpecs
             spec.Scenarios.Add(scenario);
         }
 
-        return spec.Scenarios.Count == 0 ? null : spec;
+        if (spec.Scenarios.Count == 0) return null;
+
+        // Only a class that BINDS A SLICE. [BobcatFeature] on its own is a legitimate compile-time
+        // use — Bobcat's own acceptance tests carry it to make the generator emit their declared
+        // steps, then assert on DeclaredSteps without ever running a scenario, and warning at them
+        // would be wrong. [BobcatSlice] is the stronger claim: this behaviour is specified HERE and
+        // appears on the Event Model. That claim is false if nothing records.
+        //
+        // The narrower rule came from running the first version over this repository, where it
+        // fired on four such classes. Four false positives in the first compilation it met is the
+        // kind of thing a diagnostic has to be measured against rather than reasoned about.
+        var bindsASlice = spec.Tags.Count > 0 || spec.Scenarios.Any(x => x.Tags.Count > 0);
+
+        if (bindsASlice && !opensRecording)
+        {
+            spec.Problems.Add(new MarkedProblem
+            {
+                Id = "RecordsNothing",
+                Message =
+                    $"'{declaration.Identifier.Text}' binds a slice with [BobcatSlice] but nothing opens a " +
+                    "scenario, so none of its steps are recorded and it reaches the Event Model as no " +
+                    "specification at all. Add [BobcatScenario] to the class (Bobcat.Xunit, or Bobcat.TUnit " +
+                    "for a TUnit suite).",
+                Where = declaration.Identifier.GetLocation()
+            });
+        }
+
+        return spec;
     }
+
+    /// <summary>
+    /// Does this class or method carry <c>[BobcatScenario]</c> — the attribute that opens the
+    /// recording its steps go into?
+    /// </summary>
+    /// <remarks>
+    /// Matched by short name, the way <c>[BobcatSlice]</c> is: the xUnit and TUnit adapters ship
+    /// the same attribute under their own namespaces, and a suite may write it qualified. Matching
+    /// the name rather than resolving the symbol also means this works in a compilation that
+    /// references neither adapter — which is exactly the compilation worth warning.
+    /// </remarks>
+    internal static bool HasScenarioAttribute(MemberDeclarationSyntax member)
+        => member.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .Any(a => shortName(a.Name.ToString()) == "BobcatScenario");
 
     /// <summary>
     /// <c>[BobcatSlice]</c> on a class or a method, rendered as tag strings (issue #324).

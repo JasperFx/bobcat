@@ -136,8 +136,14 @@ public class BobcatGenerator : IIncrementalGenerator
             {
                 foreach (var problem in spec.Problems)
                 {
+                    var descriptor = problem.Id switch
+                    {
+                        "RecordsNothing" => Diagnostics.SpecRecordsNothing,
+                        _ => problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType
+                    };
+
                     spc.ReportDiagnostic(Diagnostic.Create(
-                        problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType,
+                        descriptor,
                         problem.Where ?? Microsoft.CodeAnalysis.Location.None,
                         problem.Message));
                 }
@@ -1802,6 +1808,39 @@ internal static class Diagnostics
         "Step template names no parameter",
         "[BobcatStep] on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
         "'{1}'{2}. Nothing can fill it, so the step renders as '{{{1}}}'.",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
+        true);
+
+    /// <summary>
+    /// A <c>[BobcatFeature]</c> class that never opens a recording (issue #379).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ScenarioRecorder.Step</c> is null-conditional on the ambient recording, and only
+    /// <c>[BobcatScenario]</c> opens one. Without it every step — a <c>[BobcatStep]</c>
+    /// interceptor's and a marker comment's alike — records into <c>NoStep.Instance</c>, and the
+    /// suite passes having produced no specification whatsoever.
+    /// </para>
+    /// <para>
+    /// This is the third time the projected lane has been wired but not working, and the tell was
+    /// identical every time: a green suite, a clean build, and no signal anywhere. The other two —
+    /// 73 of 95 step texts rendering as raw placeholders (#339) and the scaffolder naming a base
+    /// type the release had deleted (#376) — were both found by a human reading generated output
+    /// weeks later. Nothing about a run can report this one, because a suite that records nothing
+    /// is indistinguishable at run time from a suite with nothing to record. The compiler is the
+    /// only place that can see it, which is why it is here rather than in the runtime.
+    /// </para>
+    /// <para>
+    /// A warning, not an error: a hand-written adapter may open the scenario itself, and this
+    /// matches by attribute name rather than by symbol so it also fires in a compilation that
+    /// references no adapter at all.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor SpecRecordsNothing = new(
+        "BOBCAT028",
+        "Marked spec records no steps",
+        "{0}",
         "Bobcat",
         DiagnosticSeverity.Warning,
         true);
