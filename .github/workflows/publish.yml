@@ -64,28 +64,14 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build --no-restore -c Release
-
-      - name: Test
-        run: dotnet test --no-build -c Release --verbosity normal
-
-      - name: Pack
-        run: dotnet pack --no-build -c Release -o ${{ github.workspace }}/artifacts
-
-      # The bobcat dotnet tool. It carries no frontend any more — the console moved to Stoat —
-      # so this is a plain pack with no EmbedFrontend gate and no npm step.
-      - name: Pack the bobcat tool
-        run: >
-          dotnet pack src/Bobcat.Console/Bobcat.Console.csproj
-          -c Release -o ${{ github.workspace }}/artifacts
+      # The same `CI` target tests.yml runs, then `Pack`: every packable project plus the bobcat
+      # tool, into artifacts/packages.
+      - name: Build, test and pack
+        run: ./build.sh CI Pack
 
       - name: Push to NuGet
         run: >
-          dotnet nuget push "${{ github.workspace }}/artifacts/*.nupkg"
+          dotnet nuget push "${{ github.workspace }}/artifacts/packages/*.nupkg"
           --source https://api.nuget.org/v3/index.json
           --api-key ${{ secrets.NUGET_API_KEY }}
           --skip-duplicate
@@ -114,7 +100,7 @@ jobs:
           set -euo pipefail
 
           outstanding=()
-          for pkg in "${{ github.workspace }}"/artifacts/*.nupkg; do
+          for pkg in "${{ github.workspace }}"/artifacts/packages/*.nupkg; do
             file=$(basename "$pkg" .nupkg)
             if [[ ! "$file" =~ ^(.+)\.([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
               echo "::error::Cannot parse a package id and version out of '$file'"

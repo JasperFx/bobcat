@@ -61,31 +61,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build --no-restore -c Release
-
-      - name: Test
-        run: dotnet test --no-build -c Release --verbosity normal
-
-      # Bobcat specs running THROUGH `dotnet test` is a supported path, and the root run above
-      # covers it only implicitly: a spec host is collected because it sets the MTP test-host
-      # properties by hand rather than by the `*.Tests` convention. If that wiring ever broke,
-      # the specs would drop out of the root run and this job would stay green. This targeted
-      # run makes the path a stated fact — and the grep refuses a run that collected zero tests,
-      # which `dotnet test` does not reliably treat as a failure.
-      #
-      # It targeted Bobcat.Console.Specs until the console moved to Stoat; Bobcat.Mtp.GeneratedHost
-      # is the nearest remaining project on that path — it IS the generated MTP entry point, which
-      # is the wiring the guard cares about.
-      - name: Bobcat specs through dotnet test
-        shell: bash
-        run: |
-          set -o pipefail
-          dotnet test src/Bobcat.Mtp.GeneratedHost --no-build -c Release | tee specs-via-dotnet-test.log
-          grep -E "Total: [1-9][0-9]*" specs-via-dotnet-test.log
+      # The Nuke build's CI target (build/Build.cs) is the whole job: restore, Release build, the
+      # full suite, then Bobcat specs THROUGH `dotnet test` against Bobcat.Mtp.GeneratedHost —
+      # the supported path the root run covers only implicitly, guarded so a run that collected
+      # zero tests fails (`dotnet test` does not reliably treat that as a failure). One definition,
+      # so `./build.sh CI` on a laptop means what it means here. The services above stand in for
+      # the Docker target.
+      - name: Build and test
+        run: ./build.sh CI
 
       # The MSBuild integration of Microsoft.Testing.Platform prints only "Failed: N" to the
       # console and writes the failing tests' names and assertions to each project's

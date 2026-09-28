@@ -10,10 +10,9 @@ using Nuke.Common.Tools.DotNet;
 using Serilog;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
-// The local mirror of .github/workflows/tests.yml. `./build.sh` runs the same restore → build →
-// test → "specs through dotnet test" sequence CI runs, so "the build is green" means the same
-// thing on a laptop as it does on a push. Keep the two in step: a target CI runs and this file
-// does not (or the reverse) is how a local green stops predicting a CI green.
+// The one definition of the build. tests.yml runs `./build.sh CI` and publish.yml runs
+// `./build.sh CI Pack`, so "the build is green" means the same thing on a laptop as on a push.
+// Change what CI does here, not in the workflows.
 class Build : NukeBuild
 {
     public static int Main() => Execute<Build>(x => x.Test);
