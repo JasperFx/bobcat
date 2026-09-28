@@ -209,7 +209,7 @@ and `docs/.vitepress/theme/style.css`.
 
 Copyright © Jeremy D. Miller and contributors.
 
-Bobcat is provided as-is under the MIT license.
+Bobcat is provided as-is under the MIT license. For more information see [LICENSE](LICENSE).
 
 ## Code of Conduct
 
