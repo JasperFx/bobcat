@@ -80,13 +80,14 @@ Before getting started you will need the following in your environment:
 
 ### 1. .NET SDK 10.0+
 
-Available [here](https://dotnet.microsoft.com/download). Every project targets .NET 10 except
-`Bobcat.Generators`, which targets `netstandard2.0` because it is a Roslyn analyzer.
+Available [here](https://dotnet.microsoft.com/download). The repository builds with the .NET 10 SDK. Most
+packages target both net9.0 and net10.0; `Bobcat.Generators` targets `netstandard2.0` because it
+is a Roslyn analyzer.
 
 ### 2. Docker
 
-Some integration tests need a real PostgreSQL database and a real RabbitMQ broker. The fastest way
-to get both is the `docker-compose.yml` at the repository root:
+Some integration tests and every sample need a real PostgreSQL database. The fastest way to get one
+is the `docker-compose.yml` at the repository root, which also starts a RabbitMQ broker:
 
 ```bash
 docker compose up -d

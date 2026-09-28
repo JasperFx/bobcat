@@ -50,8 +50,12 @@ dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-All projects target .NET 10.0 except Bobcat.Generators (netstandard2.0). Tests use **xUnit v3 +
-Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather than VSTest.
+Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console`,
+`Bobcat.EntityFrameworkCore`, and every test and sample host target net10.0 only, and
+`Bobcat.Generators` targets netstandard2.0 (a Roslyn analyzer). See Package Structure below.
+
+Tests use **xUnit v3 + Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather
+than VSTest.
 
 Every `*.Tests` project is therefore a self-executing MTP test host — `OutputType=Exe`,
 `UseMicrosoftTestingPlatformRunner`, `TestingPlatformDotnetTestSupport` are set once in
@@ -103,7 +107,7 @@ what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mt
 to 2.x loads a platform assembly whose types have moved and xUnit's auto-registered MSBuild
 extension dies with a `TypeLoadException` on `IDataConsumer`.
 
-**Database-backed tests:** `Bobcat.Marten.Tests` exercises the `[MartenEntities]` recipe against a
+**Database-backed tests:** `Bobcat.CritterStack.Tests` exercises the store plumbing against a
 real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to
 the `docker-compose.yml` instance on **5445**. The skip is deliberately disabled when `CI=true`,
 so CI can never report a silent pass for a missing database.
@@ -1360,15 +1364,36 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 
 ## Package Structure
 
-| Package | Target | Status | Responsibility |
-|---------|--------|--------|---------------|
-| **Bobcat** | net10.0 | Active | Runtime: engine, rendering, resources, runner |
-| **Bobcat.Generators** | netstandard2.0 | Active | Source generator: Gherkin parser, Cucumber Expressions, code gen |
-| **Bobcat.Marten** | net10.0 | Active | MartenResource, step-context helpers, `[MartenEntities]` recipe |
-| **Bobcat.EntityFrameworkCore** | net10.0 | Active | `[EfCoreEntities]` table-grammar persistence recipe |
-| **Bobcat.Mtp** | net10.0 | Active | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
-| **Bobcat.Supervisor** | net10.0 | Active | Drives MTP hosts as worker processes; retry/isolation policy |
-| **Bobcat.Console** | net10.0 | Active | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
+Every shipped package is `<IsPackable>true</IsPackable>` in its own csproj (src/ defaults to false)
+and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these twelve.
+
+| Package | Target | Responsibility |
+|---------|--------|----------------|
+| **Bobcat** | net9.0; net10.0 | Runtime: engine, rendering, resources, runner, Gherkin + code-first specs, and the store-agnostic Critter Stack helpers (`Bobcat.CritterStack` namespace, bound to `JasperFx.Events` only) |
+| **Bobcat.Generators** | netstandard2.0 | Source generator: Gherkin parser, Cucumber Expressions, code gen, the Event Model descriptor and the MTP entry point |
+| **Bobcat.Mtp** | net9.0; net10.0 | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
+| **Bobcat.Supervisor** | net9.0; net10.0 | Drives MTP hosts as worker processes; retry/isolation policy, parallel lanes |
+| **Bobcat.Alba** | net9.0; net10.0 | `AlbaResource` — an ASP.NET Core app hosted in memory as a test resource, and the HTTP calls a step makes |
+| **Bobcat.Wolverine** | net9.0; net10.0 | The act only: dispatch through Wolverine's tracked session, handler warm-up, transport draining |
+| **Bobcat.EntityFrameworkCore** | net10.0 | `[EfCoreEntities]` table-grammar persistence recipe |
+| **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
+| **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
+| **Bobcat.EventModel** | net9.0; net10.0 | The curated Event Model YAML format (a Declared-rung `IEventModelDefinitionSource`) and the eventmodelers.ai emlang importer |
+| **Bobcat.EventModel.Scaffolding** | net9.0; net10.0 | Deterministic slice scaffolding: JasperFx codegen frames for handler, endpoint, aggregate and `.feature` skeletons |
+| **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
+
+**Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
+deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
+unlike Alba and Wolverine, was not rebuilt — the event store is reached through the
+`JasperFx.Events` abstractions in core. The `Bobcat.CritterStack` *package* went the same day
+(8586eaa, "Move the Critter Stack helpers into Bobcat core"); the namespace lives on in core, and
+`CritterStackFixture` and `DocumentGrammars` are back there (812ac92), but `SagaGrammars`,
+`HttpGrammars` and `CritterStackHttpFixture` were not restored. Prose further down that describes
+`Bobcat.Marten`, `[MartenEntities]` or those three grammars predates that; check the code before
+relying on it.
+
+Not packed: `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
+`Bobcat.Supervisor.SampleWorker` and `ConsolePreview` are hosts the tests and demos drive.
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
 console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over
