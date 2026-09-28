@@ -6,12 +6,12 @@ cleanly enough to build [#41](https://github.com/JasperFx/bobcat/issues/41) on t
 
 **→ Read [findings.md](findings.md) for the answer (GO) and the evidence.**
 
-Deliberately **not** part of `bobcat.sln`, so the main build and CI never touch it.
+Deliberately **not** part of `bobcat.slnx`, so the main build and CI never touch it.
 
 ## Run it
 
 ```bash
-dotnet build MtpSpike.sln
+dotnet build MtpSpike.slnx
 
 cd Spike.Orchestrator
 dotnet run -- \

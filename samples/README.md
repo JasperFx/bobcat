@@ -52,7 +52,7 @@ See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that i
 
 ## Running
 
-Each sample has its own `.sln` file and `Tests/` subfolder. Requires PostgreSQL (see
+Each sample has its own `.slnx` file and `Tests/` subfolder. Requires PostgreSQL (see
 `docker-compose.yml` in this folder), except `BankAccountES` on Fisher, which needs nothing:
 
 ```bash

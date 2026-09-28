@@ -1,0 +1,40 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/SolutionItems/">
+    <File Path="spec-driven-development-design.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Bobcat.Acceptance.Tests/Bobcat.Acceptance.Tests.csproj" />
+    <Project Path="src/Bobcat.Alba.SampleWeb/Bobcat.Alba.SampleWeb.csproj" />
+    <Project Path="src/Bobcat.Alba.Tests/Bobcat.Alba.Tests.csproj" />
+    <Project Path="src/Bobcat.Alba/Bobcat.Alba.csproj" />
+    <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
+    <Project Path="src/Bobcat.CritterStack.Tests/Bobcat.CritterStack.Tests.csproj" />
+    <Project Path="src/Bobcat.EntityFrameworkCore.Tests/Bobcat.EntityFrameworkCore.Tests.csproj" />
+    <Project Path="src/Bobcat.EntityFrameworkCore/Bobcat.EntityFrameworkCore.csproj" />
+    <Project Path="src/Bobcat.EventModel.Scaffolding.Tests/Bobcat.EventModel.Scaffolding.Tests.csproj" />
+    <Project Path="src/Bobcat.EventModel.Scaffolding/Bobcat.EventModel.Scaffolding.csproj" />
+    <Project Path="src/Bobcat.EventModel.Tests/Bobcat.EventModel.Tests.csproj" />
+    <Project Path="src/Bobcat.EventModel/Bobcat.EventModel.csproj" />
+    <Project Path="src/Bobcat.Generators.Tests/Bobcat.Generators.Tests.csproj" />
+    <Project Path="src/Bobcat.Generators/Bobcat.Generators.csproj" />
+    <Project Path="src/Bobcat.Mtp.GeneratedHost/Bobcat.Mtp.GeneratedHost.csproj" />
+    <Project Path="src/Bobcat.Mtp.SampleHost/Bobcat.Mtp.SampleHost.csproj" />
+    <Project Path="src/Bobcat.Mtp.Tests/Bobcat.Mtp.Tests.csproj" />
+    <Project Path="src/Bobcat.Mtp/Bobcat.Mtp.csproj" />
+    <Project Path="src/Bobcat.Supervisor.SampleWorker/Bobcat.Supervisor.SampleWorker.csproj" />
+    <Project Path="src/Bobcat.Supervisor.Tests/Bobcat.Supervisor.Tests.csproj" />
+    <Project Path="src/Bobcat.Supervisor/Bobcat.Supervisor.csproj" />
+    <Project Path="src/Bobcat.TUnit/Bobcat.TUnit.csproj" />
+    <Project Path="src/Bobcat.Wolverine/Bobcat.Wolverine.csproj" />
+    <Project Path="src/Bobcat.Xunit.Tests/Bobcat.Xunit.Tests.csproj" />
+    <Project Path="src/Bobcat.Xunit/Bobcat.Xunit.csproj" />
+  </Folder>
+  <Project Path="src/Bobcat.Tests/Bobcat.Tests.csproj" />
+  <Project Path="src/Bobcat/Bobcat.csproj" />
+  <Project Path="src/ConsolePreview/ConsolePreview.csproj" />
+</Solution>

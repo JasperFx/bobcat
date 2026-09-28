@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Spike.BobcatHost/Spike.BobcatHost.csproj" />
+  <Project Path="Spike.Orchestrator/Spike.Orchestrator.csproj" />
+  <Project Path="Spike.TUnitHost/Spike.TUnitHost.csproj" />
+  <Project Path="Spike.XunitV3Host/Spike.XunitV3Host.csproj" />
+</Solution>

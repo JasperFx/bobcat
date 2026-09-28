@@ -9,7 +9,7 @@ Reproduce with:
 
 ```bash
 cd spikes/mtp-orchestration
-dotnet build MtpSpike.sln
+dotnet build MtpSpike.slnx
 cd Spike.Orchestrator
 dotnet run -- \
   ../Spike.XunitV3Host/bin/Debug/net10.0/Spike.XunitV3Host \
@@ -337,5 +337,5 @@ past it.
 | `Spike.TUnitHost` | The same shapes in TUnit 1.62.0. |
 | `Spike.BobcatHost` | A Bobcat-owned MTP host — proves the *expose* half of the seam. |
 
-Throwaway code, kept for reproducibility. It is deliberately **not** in `bobcat.sln`, so the
+Throwaway code, kept for reproducibility. It is deliberately **not** in `bobcat.slnx`, so the
 main build and CI never touch it.

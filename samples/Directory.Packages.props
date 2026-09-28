@@ -3,7 +3,7 @@
   <!--
     Central Package Management for samples/.
 
-    The samples are outside bobcat.sln, so nothing forced them onto one version set and they
+    The samples are outside bobcat.slnx, so nothing forced them onto one version set and they
     drifted into two generations: half on WolverineFx 6.29.1 / Marten 9.28.0, half on 6.38.0 /
     9.36.0. That is not cosmetic. A sample project-references Bobcat, which pins
     JasperFx.Events 2.69.3, and Marten 9.28 was compiled before 2.67 made `QueryStreamStates`

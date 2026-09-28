@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <!-- The platform only. No xUnit, no tUnit — this is Bobcat standing on its own as a host. -->
-    <PackageReference Include="Microsoft.Testing.Platform" Version="2.3.3" />
+    <PackageReference Include="Microsoft.Testing.Platform" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,6 @@
 name: samples
 
-# The samples are not in bobcat.sln, so tests.yml never touches them. That gap let nine projects
+# The samples are not in bobcat.slnx, so tests.yml never touches them. That gap let nine projects
 # rot undetected: each fails with "Bobcat / IStepContext / ThenAttribute could not be found",
 # because they carry spec fixtures the host project has no reference to. Nothing reported it,
 # because nothing built them.
