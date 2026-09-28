@@ -1,21 +1,11 @@
 name: samples
 
-# The samples are not in bobcat.slnx, so tests.yml never touches them. That gap let nine projects
-# rot undetected: each fails with "Bobcat / IStepContext / ThenAttribute could not be found",
-# because they carry spec fixtures the host project has no reference to. Nothing reported it,
-# because nothing built them.
-#
-# This job builds them, and since 2026-09-21 it RUNS them too.
-#
-# Compiling was never enough to call a sample fixed, and this job's own history is the argument:
-# OutboxDemo compiled clean and could not start, because Wolverine 6 stopped shipping the runtime
-# compiler. Worse, half the samples sat on WolverineFx 6.29.1 / Marten 9.28.0 and died on a
-# TypeLoadException the first time they opened a session — for weeks, invisibly, because a build
-# is all this job did. That is what running them catches.
-#
-# The samples are Microsoft.Testing.Platform hosts, so `dotnet test` runs them and one scenario is
-# one test node. They need Postgres and nothing else: the only sample that wants a broker is
-# BankAccountES, which is quarantined.
+# The samples are not in bobcat.slnx, so tests.yml never touches them. This job builds every
+# sample project and runs the specs of every runnable one, through the Nuke build's Samples
+# target (build/Samples.cs) — which is also where the reasoning lives: why building was never
+# enough, the quarantine list and its "stale quarantine fails too" rule, the database per sample,
+# and the BankAccountES Fisher leg. `./build.sh Docker Samples` runs the same thing locally.
+
 on:
   push:
     branches:
@@ -23,6 +13,7 @@ on:
     paths:
       - 'samples/**'
       - 'src/**'
+      - 'build/**'
       - '.github/workflows/samples.yml'
 
 jobs:
@@ -30,11 +21,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # Same image and port as tests.yml, so "the database CI gives you" means one thing in this
-    # repo. Each sample gets its OWN database below rather than sharing this one: MeetingGroupMonolith
-    # puts its event store in a schema called `payments`, which is also the schema PaymentsMonolith
-    # uses for everything, so a shared database would have the two of them creating mt_streams in
-    # the same place and each one's between-scenario reset wiping the other's events. Harmless while
-    # they run in sequence, and a trap the day anything runs them in parallel.
+    # repo. The Samples target creates one database per sample inside it; see build/Samples.cs.
     services:
       postgres:
         image: postgres:16-alpine
@@ -62,129 +49,5 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Build every sample project
-        run: |
-          # The ones that do not compile today, named individually rather than skipped as a
-          # group. Started at nine. Two rules, and the second is the one that matters:
-          #
-          #   * a project outside this list that fails  -> new rot, fail the build
-          #   * a project inside this list that BUILDS  -> the list is stale, fail the build
-          #
-          # A quarantine that only ever forgives is how a permanently-red job becomes background
-          # noise. This one has to shrink: fix a sample, and CI tells you to delete its line.
-          # Tracked by the "fix the samples" issue.
-          #
-          # Empty again as of 2026-09-21: every sample builds. The Alba, Marten and Wolverine
-          # support was deleted and rebuilt from what the samples actually needed, and
-          # BankAccountES — quarantined while the Critter Stack grammar was gone — is back.
-          quarantined=(
-          )
-
-          is_quarantined() {
-            local needle="$1"
-            for q in "${quarantined[@]}"; do [ "$q" = "$needle" ] && return 0; done
-            return 1
-          }
-
-          regressions=()
-          recovered=()
-
-          while IFS= read -r project; do
-            echo "::group::$project"
-            if dotnet build "$project" -c Release --nologo; then
-              if is_quarantined "$project"; then
-                echo "::error file=$project::builds now — remove it from the quarantine list"
-                recovered+=("$project")
-              else
-                echo "OK  $project"
-              fi
-            else
-              if is_quarantined "$project"; then
-                echo "known broken (quarantined): $project"
-              else
-                echo "::error file=$project::sample failed to build"
-                regressions+=("$project")
-              fi
-            fi
-            echo "::endgroup::"
-          done < <(find samples -name '*.csproj' | sort)
-
-          echo
-          echo "===================== summary ====================="
-          echo "quarantined: ${#quarantined[@]}"
-
-          status=0
-
-          if [ ${#regressions[@]} -gt 0 ]; then
-            echo "${#regressions[@]} sample(s) newly broken:"
-            printf '  %s\n' "${regressions[@]}"
-            status=1
-          fi
-
-          if [ ${#recovered[@]} -gt 0 ]; then
-            echo "${#recovered[@]} quarantined sample(s) now build — shrink the list:"
-            printf '  %s\n' "${recovered[@]}"
-            status=1
-          fi
-
-          [ $status -eq 0 ] && echo "no regressions"
-          exit $status
-
-      - name: Run every runnable sample's specs against Postgres
-        run: |
-          # Each sample names its own database, matching the default in its own Program.cs, so
-          # nothing here has to know about another sample's schema choices. Created up front
-          # because the service container only ever makes one.
-          #
-          # BankAccountES runs its Marten leg here and its Fisher leg in the step below, which is
-          # the point of that sample: the same handlers against two stores.
-          samples=(
-            CqrsMinimalApi:cqrs_minimal_api
-            BookingMonolith:booking
-            CleanArchitectureTodos:clean_architecture_todos
-            MoreSpeakers:more_speakers
-            PaymentsMonolith:inflow
-            EcommerceModularMonolith:ecommerce
-            MeetingGroupMonolith:meeting_groups
-            OutboxDemo:outbox_demo
-            BankAccountES:bank_account
-          )
-
-          for entry in "${samples[@]}"; do
-            db="${entry#*:}"
-            PGPASSWORD=postgres createdb -h localhost -p 5445 -U postgres "$db"
-          done
-
-          failed=()
-          for entry in "${samples[@]}"; do
-            name="${entry%%:*}"
-            db="${entry#*:}"
-            echo "::group::$name"
-            if ConnectionStrings__Marten="Host=localhost;Port=5445;Database=$db;Username=postgres;Password=postgres" \
-               dotnet test "samples/$name/Tests" -c Release; then
-              echo "OK  $name"
-            else
-              echo "::error file=samples/$name::specs failed"
-              failed+=("$name")
-            fi
-            echo "::endgroup::"
-          done
-
-          if [ ${#failed[@]} -gt 0 ]; then
-            echo "${#failed[@]} sample(s) failed their specs:"
-            printf '  %s\n' "${failed[@]}"
-            exit 1
-          fi
-          echo "every runnable sample passed"
-
-      # `dotnet test`, not `dotnet run -- run`: the samples are MTP test hosts, so a scenario is a
-      # test node and the platform runs them. This leg needs no services at all — a SQLite file is
-      # the whole store, which is the argument for Fisher as the inner-loop store, and a sample
-      # whose point is "the same handlers run on two stores" is only proved by running both.
-      - name: Run the BankAccountES specs on Fisher (SQLite, no services)
-        env:
-          EventStore: Fisher
-          ConnectionStrings__Fisher: "Data Source=${{ runner.temp }}/bank_account.db"
-          # The spec host would otherwise try to publish progress to a local viewer that is not running.
-          BOBCAT_MONITOR: "0"
-        run: dotnet test samples/BankAccountES/Tests -c Release
+      - name: Build and run every sample
+        run: ./build.sh Samples

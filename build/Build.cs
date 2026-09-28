@@ -13,7 +13,7 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 // The one definition of the build. tests.yml runs `./build.sh CI` and publish.yml runs
 // `./build.sh CI Pack`, so "the build is green" means the same thing on a laptop as on a push.
 // Change what CI does here, not in the workflows.
-class Build : NukeBuild
+partial class Build : NukeBuild
 {
     public static int Main() => Execute<Build>(x => x.Test);
 
@@ -25,7 +25,6 @@ class Build : NukeBuild
     // Not artifacts/ itself: artifacts/local-feed is a hand-maintained NuGet feed that
     // samples/BankAccountES and the Wolverine CI branch consume, and Clean must never touch it.
     AbsolutePath PackagesDirectory => RootDirectory / "artifacts" / "packages";
-    AbsolutePath SamplesDirectory => RootDirectory / "samples";
 
     Target Clean => _ => _
         .Before(Restore)
@@ -97,31 +96,5 @@ class Build : NukeBuild
                 .SetProject(RootDirectory / "src" / "Bobcat.Console" / "Bobcat.Console.csproj")
                 .SetConfiguration(Configuration)
                 .SetOutputDirectory(PackagesDirectory));
-        });
-
-    // The samples are outside bobcat.slnx, so neither Compile nor Test touches them; samples.yml
-    // is where they are really exercised. This is the quick local check that each one still
-    // builds against the Bobcat in this checkout.
-    Target Samples => _ => _
-        .Executes(() =>
-        {
-            var failed = SamplesDirectory.GlobFiles("*/*.slnx")
-                .Where(solution =>
-                {
-                    Log.Information("Building {Sample}", solution.Parent.Name);
-                    try
-                    {
-                        DotNetBuild(s => s.SetProjectFile(solution).SetConfiguration(Configuration));
-                        return false;
-                    }
-                    catch (ProcessException)
-                    {
-                        return true;
-                    }
-                })
-                .Select(solution => solution.Parent.Name)
-                .ToList();
-
-            Assert.Empty(failed, $"Samples failed to build: {string.Join(", ", failed)}");
         });
 }

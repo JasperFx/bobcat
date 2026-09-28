@@ -14,6 +14,9 @@
   <ItemGroup>
     <PackageReference Include="Nuke.Common" Version="10.1.0" />
 
+    <!-- The Samples target creates one Postgres database per sample. -->
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+
     <!--
       Nuke.Common 10.1.0 (the latest release) pulls NuGet.Packaging 6.12.1, which in turn pulls
       System.Security.Cryptography.Xml 9.0.0 - seven high-severity advisories (NU1903). Nuke can't
