@@ -87,15 +87,14 @@ is a Roslyn analyzer.
 ### 2. Docker
 
 Some integration tests and every sample need a real PostgreSQL database. The fastest way to get one
-is the `docker-compose.yml` at the repository root, which also starts a RabbitMQ broker:
+is the `docker-compose.yml` at the repository root:
 
 ```bash
 docker compose up -d
 ```
 
-or, through the build (see below), `./build.sh Docker`. The services are published on ports that
-will not collide with ones you may already run: Postgres on **5445** and RabbitMQ on **5683**
-(management UI on 15683).
+or, through the build (see below), `./build.sh Docker`. Postgres is published on **5445**, so it
+will not collide with one you may already run.
 
 To use your own database instead, set `BOBCAT_POSTGRES` to its connection string. Without a
 database, the tests that need one **skip locally** and say so. On CI they never skip, so a missing
@@ -170,7 +169,7 @@ CI is GitHub Actions only, and each workflow is a thin wrapper around the Nuke b
 
 | Workflow | Runs | When |
 |----------|------|------|
-| `tests.yml` | `./build.sh CI`, with Postgres and RabbitMQ services | every push |
+| `tests.yml` | `./build.sh CI`, with a Postgres service | every push |
 | `samples.yml` | `./build.sh Samples`, with a Postgres service | pushes touching `src/`, `samples/`, or `build/` |
 | `publish.yml` | `./build.sh CI Pack`, then pushes to nuget.org | `v*` tags, or manually |
 | `docs.yml` | builds and deploys the documentation site | manually |

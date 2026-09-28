@@ -82,7 +82,7 @@ its own equivalents.
   SpecsThroughDotnetTest / `CI` / Pack / Docker) and `Samples.cs` (CompileSamples / TestSamples /
   TestSamplesOnFisher / `Samples`). `tests.yml` runs `./build.sh CI`, `publish.yml` runs
   `./build.sh CI Pack`, `samples.yml` runs `./build.sh Samples`. **Change what CI does in `build/`,
-  not in a workflow** — the workflows only supply services (Postgres, RabbitMQ) and environment.
+  not in a workflow** — the workflows only supply services (Postgres) and environment.
   Configuration defaults to Debug locally and Release on a CI server.
   - `SpecsThroughDotnetTest` runs `Bobcat.Mtp.GeneratedHost` through `dotnet test` and **fails a
     run that collected zero tests**, which `dotnet test` does not reliably treat as a failure.

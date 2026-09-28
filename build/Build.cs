@@ -40,7 +40,7 @@ partial class Build : NukeBuild
             .SetConfiguration(Configuration)
             .EnableNoRestore()));
 
-    // The Marten and RabbitMQ integration tests skip locally without these services (saying so)
+    // The database-backed integration tests skip locally without Postgres (saying so)
     // and fail on CI without them. Not a dependency of Test, deliberately: someone pointing
     // BOBCAT_POSTGRES at their own database should not have Docker started on their behalf.
     Target Docker => _ => _
