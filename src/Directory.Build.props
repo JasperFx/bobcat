@@ -16,7 +16,11 @@
     <PackageProjectUrl>https://github.com/JasperFx/bobcat</PackageProjectUrl>
     <RepositoryUrl>https://github.com/JasperFx/bobcat</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!--
+      The repository's own LICENSE (MIT) travels in every package, packed from the root below.
+      NuGet will not take this and <PackageLicenseExpression> together (NU5033).
+    -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageTags>testing;integration-testing;bdd;gherkin;specification;critterstack</PackageTags>
     <PackageIcon>icon.png</PackageIcon>
 
@@ -38,6 +42,14 @@
   -->
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+
+    <!--
+      Referenced where it lives rather than copied into src/ like the icon: the root LICENSE is
+      the one GitHub and every reader sees, and two copies of a license can only drift. Same
+      unconditional reasoning as the icon — <PackageLicenseFile> errors (NU5030) in any packable
+      project that does not pack the file.
+    -->
+    <None Include="$(MSBuildThisFileDirectory)../LICENSE" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
   <!--

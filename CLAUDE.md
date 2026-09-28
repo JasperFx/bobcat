@@ -88,6 +88,9 @@ its own equivalents.
     is a hand-maintained NuGet feed consumed by `samples/BankAccountES/NuGet.config` and the
     Wolverine CI branch — never clean `artifacts/` wholesale. `publish.yml` pushes
     `artifacts/packages/*.nupkg`.
+  - **Every package carries the root `LICENSE`** (`PackageLicenseFile`, packed from
+    `src/Directory.Build.props` by path — not copied, unlike `src/icon.png`). It replaced
+    `PackageLicenseExpression` (NuGet refuses both, NU5033), so nuget.org shows a license *file*.
   - `CompileSamples` builds every `samples/**/*.csproj` (not the `.slnx` files, so a project in no
     solution is still caught) against `QuarantinedSamples` — currently empty. A quarantined project
     that *builds* fails too, so the list can only shrink. `TestSamples` creates one Postgres
