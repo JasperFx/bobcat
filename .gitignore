@@ -366,3 +366,6 @@ samples/**/*.db-shm
 # records a gitlink to a throwaway commit that nobody can resolve on clone.
 .claude/worktrees/
 
+
+# Nuke
+.nuke/temp/

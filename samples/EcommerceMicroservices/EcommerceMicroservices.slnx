@@ -9,5 +9,4 @@
   <Project Path="Discount/Discount.csproj" />
   <Project Path="Ordering/Ordering.csproj" />
   <Project Path="Shared/Shared.csproj" />
-  <Project Path="Tests/Tests.csproj" />
 </Solution>

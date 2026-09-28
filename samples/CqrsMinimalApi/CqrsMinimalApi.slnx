@@ -5,7 +5,7 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/Tests/">
-    <Project Path="Tests/CqrsMinimalApi.Tests.csproj" />
+    <Project Path="Tests/Tests.csproj" />
   </Folder>
   <Project Path="CqrsMinimalApi.csproj" />
 </Solution>

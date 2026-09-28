@@ -9,6 +9,12 @@ Bobcat is a spec-driven integration testing framework for .NET, successor to Sto
 ## Build & Test Commands
 
 ```bash
+# The Nuke build (build/Build.cs) — the local mirror of tests.yml. Default target is Test.
+./build.sh                          # restore → compile → test
+./build.sh Docker CI                # start compose services, then exactly what tests.yml runs
+./build.sh Pack                     # packages to artifacts/packages (never touches artifacts/local-feed)
+./build.sh Samples                  # build every samples/*/*.slnx against this checkout
+
 # Build everything
 dotnet build
 
