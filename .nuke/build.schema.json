@@ -27,12 +27,15 @@
         "CI",
         "Clean",
         "Compile",
+        "CompileSamples",
         "Docker",
         "Pack",
         "Restore",
         "Samples",
         "SpecsThroughDotnetTest",
-        "Test"
+        "Test",
+        "TestSamples",
+        "TestSamplesOnFisher"
       ]
     },
     "Verbosity": {
@@ -113,6 +116,10 @@
             "Debug",
             "Release"
           ]
+        },
+        "SamplesPostgres": {
+          "type": "string",
+          "description": "Postgres the sample specs run against, without a database name - each sample gets its own"
         },
         "Solution": {
           "type": "string",

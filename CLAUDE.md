@@ -14,8 +14,9 @@ Bobcat is a spec-driven integration testing framework for .NET, successor to Sto
 ./build.sh Docker CI                # start compose services, then exactly what tests.yml runs
 ./build.sh Pack                     # packages to artifacts/packages (never touches artifacts/local-feed)
 ./build.sh Docker Samples           # what samples.yml runs: build every sample, run their specs (Postgres + Fisher)
+./build.sh --help                   # every target and parameter
 
-# Build everything
+# Build everything (bobcat.slnx is the only solution at the root, so it is picked up implicitly)
 dotnet build
 
 # Run unit tests
@@ -58,6 +59,41 @@ Every `*.Tests` project is therefore a self-executing MTP test host — `OutputT
 cannot silently fall back to VSTest. There is no `Microsoft.NET.Test.Sdk`, no
 `xunit.runner.visualstudio`, and no `coverlet.collector` (a VSTest data collector) — MTP supplies
 its own equivalents.
+
+### Solutions, packages and the build
+
+- **Solutions are `.slnx`, everywhere** — `bobcat.slnx`, one per sample
+  (`samples/*/*.slnx`), and `spikes/mtp-orchestration/MtpSpike.slnx`. There are no `.sln` files
+  left; converted with `dotnet sln migrate` on 2026-09-28. The samples and the spike are
+  deliberately **not** in `bobcat.slnx`. `AlbaContentRoot.FindSolutionDirectory` recognises both
+  extensions, so a consumer still on `.sln` is unaffected.
+- **Central Package Management, one file per tree**, never an inline `Version=` on a
+  `PackageReference`: `src/Directory.Packages.props`, `samples/Directory.Packages.props` (its
+  Critter Stack versions must stay **identical** to src's — read src's header before moving
+  JasperFx(.Events) on its own), and `spikes/mtp-orchestration/Directory.Packages.props` (kept
+  apart because the spike measured MTP 2.x, which src cannot take). **`build/` opts out** in its own
+  `Directory.Packages.props` and pins inline, like the JasperFx repo's build: the Nuke bootstrap
+  stays self-contained, and the root file must not grow Nuke.Common.
+- **The Nuke build (`build/`) is the one definition of CI** — `Build.cs` (Restore / Compile / Test /
+  SpecsThroughDotnetTest / `CI` / Pack / Docker) and `Samples.cs` (CompileSamples / TestSamples /
+  TestSamplesOnFisher / `Samples`). `tests.yml` runs `./build.sh CI`, `publish.yml` runs
+  `./build.sh CI Pack`, `samples.yml` runs `./build.sh Samples`. **Change what CI does in `build/`,
+  not in a workflow** — the workflows only supply services (Postgres, RabbitMQ) and environment.
+  Configuration defaults to Debug locally and Release on a CI server.
+  - `SpecsThroughDotnetTest` runs `Bobcat.Mtp.GeneratedHost` through `dotnet test` and **fails a
+    run that collected zero tests**, which `dotnet test` does not reliably treat as a failure.
+  - `Docker` (`docker compose up -d --wait`) is never a dependency of `Test`: someone pointing
+    `BOBCAT_POSTGRES` at their own database must not have Docker started for them.
+  - **`Pack` writes to `artifacts/packages` and `Clean` touches only that.** `artifacts/local-feed`
+    is a hand-maintained NuGet feed consumed by `samples/BankAccountES/NuGet.config` and the
+    Wolverine CI branch — never clean `artifacts/` wholesale. `publish.yml` pushes
+    `artifacts/packages/*.nupkg`.
+  - `CompileSamples` builds every `samples/**/*.csproj` (not the `.slnx` files, so a project in no
+    solution is still caught) against `QuarantinedSamples` — currently empty. A quarantined project
+    that *builds* fails too, so the list can only shrink. `TestSamples` creates one Postgres
+    database per sample with Npgsql (not the `createdb` CLI, so it works on a laptop; an existing
+    database is reused) and passes it as `ConnectionStrings__Marten`; `SamplesPostgres` overrides
+    the server. `TestSamplesOnFisher` runs BankAccountES on a SQLite file in `.nuke/temp`.
 
 **Version pin that matters:** `Microsoft.Testing.Platform` is held at **1.9.1** because that is
 what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mtp-v1`). Moving it
@@ -1168,7 +1204,7 @@ to reach the event store.
   `Storage.StartStream`, `IEventStoreOperations`, `IDocumentReadOperations`, a self-aggregating
   `Snapshot<T>` read model in place of a `SingleStreamProjection<,>` subclass) so that
   `Program.cs` is the only file naming a store; the swap table is footgun 14. The Fisher leg runs
-  in CI (`samples.yml`), because a SQLite file needs nothing the runner does not have — which is
+  in CI (the `TestSamplesOnFisher` target, via `samples.yml`), because a SQLite file needs nothing the runner does not have — which is
   the whole argument for Fisher as the inner loop.
 
 #### `CritterStackFixture` + shipped grammar modules (issue #104)
