@@ -116,7 +116,7 @@ so CI can never report a silent pass for a missing database.
 `default(...)`, `typeof(...)`, `new`) must use `ParameterInfo.QualifiedType` /
 `QualifiedReturnType` / the `global::`-qualified class FQNs. Generated code lives in the fixture's
 own namespace, where an unqualified name binds to the wrong type — e.g. `Marten.IDocumentSession`
-resolving to `Bobcat.Marten.IDocumentSession` inside `Bobcat.Marten.Tests`. The plain `Type`
+resolving to `Bobcat.Marten.IDocumentSession` inside the (since deleted) `Bobcat.Marten.Tests`. The plain `Type`
 string stays short ("int", "string") because the Gherkin literal conversion switches on it.
 
 ## Naming conventions
@@ -224,12 +224,12 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
 - **Lifecycle hooks nest**: discovered `BeforeEach`/`BeforeAll` run base-first, `AfterEach`/`AfterAll`
   derived-first — constructor/disposer order.
 - **Two composition mechanisms, and which is canonical:** a **base class** (`class WithdrawFunds :
-  CritterStackFixture`) is canonical for "this fixture *is* a … fixture" — the whole vocabulary with
+  WolverineCritterStackFixture`) is canonical for "this fixture *is* a … fixture" — the whole vocabulary with
   no attribute. `[IncludeGrammars(typeof(Module))]` is for **mix-ins** — a shared module dropped into
   a fixture that already has another base, or several grammars combined. Modules inherit their own
   base's steps too, so an empty `sealed class XGrammars : XFixture` exposes a base fixture as a module.
-- **Parameterized modules (issue #212 phase 2):** `[IncludeGrammars(typeof(HttpGrammars),
-  "/api/wallet")]` — literals after the type flow to the module's per-scenario construction. The
+- **Parameterized modules (issue #212 phase 2):** `[IncludeGrammars(typeof(DocumentGrammars),
+  "orders")]` — literals after the type flow to the module's per-scenario construction. The
   vocabulary stays a compile-time fact (steps read from the symbol); only the *binding* is a
   construction fact. Literals bind positionally to the constructor's value parameters; uncovered
   parameters resolve like step parameters (`IStepContext`, resources, scoped services — a module
@@ -237,8 +237,9 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   `??=`; literal-only modules stay eager at plan build); trailing optionals may be omitted (the
   emitted construction uses named arguments). `[IncludeGrammars]` is discovered on base classes —
   most-derived declaration of a module type wins, which is how a derived fixture re-parameterizes
-  a base-declared module (`CritterStackHttpFixture` carries `HttpGrammars`; the user's fixture
-  re-declares it with a route prefix). **One instance per module type per fixture** is load-bearing
+  a base-declared module (`BaseComposedFixture` / `DerivedComposedFixture` in
+  `Bobcat.Acceptance.Tests/ParameterizedModules.cs` pin it; the deleted `CritterStackHttpFixture`
+  was the original case). **One instance per module type per fixture** is load-bearing
   (phase 3 refused): a same-class duplicate is **BOBCAT018** (error) — two instances of one
   vocabulary re-open the ambiguity BOBCAT013 closes — and arguments no public constructor can take
   are **BOBCAT019** (error). Composition errors suppress feature emission for that fixture so the
@@ -257,7 +258,8 @@ so a shipped grammar base class binds from the NuGet reference alone, no source 
   `ExecutionResults` to reach the wire, and both are accumulate-onto-context already.
 - **Type-name captures** — `{type}`, the Event Modeling aliases `{aggregate}`/`{command}`/
   `{event}`/`{readmodel}`/`{message}`, the document-store `{document}` (issue #270) and Wolverine's
-  `{saga}` (issue #281) — capture a type *name* in the step text and bind to a `System.Type`
+  `{saga}` (issue #281; still recognised by the generator, though no shipped grammar uses it since
+  `SagaGrammars` was deleted) — capture a type *name* in the step text and bind to a `System.Type`
   parameter as `typeof(global::…)`. **`{document}` and `{saga}` stamp no Event Modeling role**,
   deliberately: a document-backed application has no stream, and a saga's state is not an
   aggregate, event or read model, so an element on the canvas for either would describe nothing.
@@ -468,11 +470,13 @@ keyword-agnostic, so a shared grammar drops into any feature.
 
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
-persistence sink, so a data-setup table needs almost no code:
+persistence sink, so a data-setup table needs almost no code. `[EfCoreEntities]`
+(`Bobcat.EntityFrameworkCore`) is the one shipped recipe; `[MartenEntities]` went with
+`Bobcat.Marten` on 2026-09-21:
 
 ```csharp
 [TableGrammar("the following customers exist")]
-[MartenEntities<Customer>]          // or [EfCoreEntities<Customer>(ContextType = typeof(ShopContext))]
+[EfCoreEntities<Customer>(ContextType = typeof(ShopContext))]
 public class CustomerEntities { }   // no Row body — columns bind to Customer's constructor
 ```
 
@@ -480,9 +484,9 @@ public class CustomerEntities { }   // no Row body — columns bind to Customer'
   netstandard2.0 generator must never reference Marten or EF; it only recognizes "this attribute
   derives from `GrammarBehaviorAttribute`" and emits a generic envelope call. `GrammarBehaviors.Resolve`
   is the one runtime-resolved piece — the accepted, bounded softening of "no reflection".
-- **The behavior** lives in the extension package and resolves its session/context from
-  `IHostResource.CurrentServices`, so the recipe's session and a hand-injected
-  `[FromScopedService] IDocumentSession` are the **same instance** — that is what batches the save.
+- **The behavior** lives in the extension package and resolves its context from
+  `IHostResource.CurrentServices`, so the recipe's `DbContext` and a hand-injected
+  `[FromScopedService]` one are the **same instance** — that is what batches the save.
 - **Entity construction** is compile-time: columns bind to the entity's constructor parameters
   first (records-friendly), then to settable properties, by header name. A hand-written `Row`
   returning the entity is the override for custom construction. With a recipe applied, `Row`'s
@@ -581,36 +585,32 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   root container) and `CurrentServices` (the per-scenario scope), and owns the scope itself via
   `BeginScenarioScope()`/`EndScenarioScope()`. `CurrentServices` **throws** outside a scenario —
   there is no silent root fallback.
-- **`IRestartableResource`** — `Restart()` on a host resource (`HostResource`, `AlbaResource`,
-  both generic forms) for specs whose subject is survival across a bounce: stop the application,
+- **`IRestartableResource`** — `Restart()` on a host resource (`HostResource`, both forms; the
+  rebuilt `AlbaResource` does not implement it — no sample needed it) for specs whose subject is survival across a bounce: stop the application,
   start a fresh one over the *same* persistent state, keep the registration, and re-enter the
   scenario scope on the new container if one was open. Steps call it as `context.RestartHost(name)`.
   It is deliberately **not** `IRecyclableResource.Recycle` — recycle assumes the resource is
   broken and belongs to the supervisor between attempts; restart assumes it is healthy and is a
   step, mid-scenario, because the spec says so. A restart never runs `ResetBetweenScenarios`.
-- **`AlbaContentRoot`** (`Bobcat.Alba`) — `AlbaResource<TProgram>` resolves the host's content
+- **`AlbaContentRoot`** (core, `Runtime/`, reading `[WebApplicationFactoryContentRoot]` by
+  reflection so core takes no ASP.NET testing reference) — `AlbaResource<TProgram>` resolves the host's content
   root itself instead of trusting `WebApplicationFactory`, whose manifest lookup is relative to
   the *working directory* and whose `<solution>/<assembly>` fallback is wrong for anything under
   `src/` or `samples/`. Order: `TEST_CONTENTROOT_*` setting (left to the factory) → manifest in
   the test output → `[WebApplicationFactoryContentRoot]` → `<solution>/<name>` if it exists →
-  `<name>.csproj` found below the solution → the test output directory. `resource.ContentRoot`
-  says what was decided and why; `WithContentRoot` still overrides everything. See
-  docs/sample-wiring.md footgun 2.
-- **`AlbaResource` sets `JasperFxEnvironment.AutoStartHost = true` on `Start()`** (both forms;
-  `AlbaResource.PrepareJasperFxHosting()` for a bare `AlbaHost.For<T>`). Required for any host
+  `<name>.csproj` found below the solution → the test output directory. The rebuilt resource
+  has no `WithContentRoot` override and no `ContentRoot` report — the samples needed neither.
+- **`AlbaResource` sets `JasperFxEnvironment.AutoStartHost = true` on `Start()`**. Required for any host
   whose `Main` ends in `RunJasperFxCommands` — every Critter Stack app — because under
   WebApplicationFactory the command runner otherwise parses the factory's synthesized
   `--environment/--contentRoot/--applicationName` flags and races the factory to start the host.
   It is a process-wide static that Bobcat never sets back, deliberately; see
   docs/sample-wiring.md footgun 15 for the trade-off and the JasperFx console chatter that is
   harmless (`Searching '…' for commands`, `cannot override the environment name`).
-- **`AlbaResource<TProgram>.ConsoleLogLevel`** — default `Warning`: a filter rule scoped to the
-  console logger provider that floors the hosted app's console output, because under MTP the
-  console is the runner's and an ASP.NET host at `Information` writes several lines per request.
-  A provider-scoped *rule*, not `SetMinimumLevel`, because an appsettings `"Default":
-  "Information"` is itself a rule and rules beat the minimum level. Added before the user's
-  `configure` so a user rule wins; other providers (debug, `BobcatLoggerProvider`) untouched;
-  `WithConsoleLogLevel(null)` leaves the app alone. See docs/sample-wiring.md footgun 16.
+- **No console log-level floor any more.** The deleted `AlbaResource` capped the hosted app's
+  console at `Warning` (`ConsoleLogLevel`); the rebuild dropped it with the rest of what no sample
+  used, so a chatty host now writes to the runner's console. Configure logging in the app, or bring
+  the floor back when a suite needs it.
 - **`SetVerificationComparer`** — Static comparison utility called by generated code
 - **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
 
@@ -1147,11 +1147,11 @@ Decision of record 2026-08-20 (issue #103): Bobcat's event-sourcing helpers bind
 **`JasperFx.Events` abstractions**, never to Marten — the same discipline `Wolverine.CritterWatch`
 lives by — so one package serves Marten, Polecat and Fisher. They live in **Bobcat core** now
 (the `Bobcat.CritterStack` package is gone, the namespace is not), and reach the store through
-the `JasperFx.Events` package; **core does not reference
-`Bobcat.Marten`, Marten, Polecat or Fisher**, and a spec project using it needs none of those
-either (`samples/BankAccountES/Tests` has no `using Marten`). `Bobcat.Marten` stays as the
-*document-store* flavour — `MartenResource`, `[MartenEntities]`, `QueryByIdAsync` — not as the way
-to reach the event store.
+the `JasperFx.Events` package; **core does not reference Marten, Polecat or Fisher**, and a spec
+project using it needs none of those either (`samples/BankAccountES/Tests` has no `using Marten`).
+There is no Marten-specific package any more: `Bobcat.Marten` (`MartenResource`,
+`[MartenEntities]`, `QueryByIdAsync`) was deleted on 2026-09-21 and not rebuilt, and the document
+side is `DocumentGrammars`, below, over `JasperFx.Events.Documents`.
 
 - **The store comes from the host's container, not from a Bobcat resource type.** Marten
   (`AddMarten`), Polecat (`AddPolecat`) and Fisher (`AddFisher`) all register their store as
@@ -1196,17 +1196,17 @@ to reach the event store.
   the real store) and still no reset abstraction (`Advanced.ResetAllDataAsync` is Fisher's spelling
   — also proved). The `IProjectionCoordinator` fallback stays for a store that does not override
   `IEventStore.AllDatabases()`; all three do.
-- **Fisher is the inner-loop target, and is covered.** The aligned set landed 2026-08-21 (issue
-  #125): WolverineFx 6.29.1 ↔ Marten 9.28.0 ↔ JasperFx 2.53.0 ↔ Fisher 1.0.2 ↔ Polecat 5.19.2.
-  `Bobcat.CritterStack.Tests` runs the same five integration tests against Marten (Postgres 5445,
-  `[PostgresFact]`) and Fisher (`FisherIntegrationTests`, a temp SQLite file, never skipped). The
-  Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
+- **Fisher is the inner-loop target, and is covered by the samples.** The current aligned version
+  set is the header of `src/Directory.Packages.props`. `Bobcat.CritterStack.Tests` covers the
+  convention paths against fakes shaped like each store (`EventStoresTests`) and the grammar against
+  Marten (Postgres 5445, `[PostgresFact]`); its Wolverine-driven Fisher suite went with the
+  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg. The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
   Fisher builds its schema lazily and the daemon reads the progression table on start
   (`docs/sample-wiring.md` footgun 13). Polecat needs SQL Server and is a documented manual run:
   `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and reset
   share Marten's spellings, so the same code path applies.
-- **Acceptance (#103): `samples/BankAccountES` runs on Marten and on Fisher — 9/9 on each — with
-  no `Bobcat.Marten` reference, switched by `EventStore=Marten|Fisher` in configuration.** The
+- **Acceptance (#103): `samples/BankAccountES` runs on Marten and on Fisher — the same specs on
+  each — with no store-specific Bobcat reference, switched by `EventStore=Marten|Fisher` in configuration.** The
   host was rewritten to the store-agnostic vocabulary (`[DeciderFunction]`, `[Entity]`,
   `Storage.StartStream`, `IEventStoreOperations`, `IDocumentReadOperations`, a self-aggregating
   `Snapshot<T>` read model in place of a `SingleStreamProjection<,>` subclass) so that
@@ -1216,15 +1216,19 @@ to reach the event store.
 
 #### `CritterStackFixture` + shipped grammar modules (issue #104)
 
-`Bobcat.CritterStack` ships the slice-declaring Gherkin vocabulary as a base fixture. Derive from
-`CritterStackFixture` and every event-sourcing step is bound with no further code — that is the
-canonical route, riding the base-class discovery above; `[IncludeGrammars(typeof(CritterStackGrammars))]`
-is the mix-in route (`CritterStackGrammars` is an empty `sealed` subclass whose steps the module path
-discovers through its base).
+Core ships the slice-declaring Gherkin vocabulary as an **abstract** base fixture,
+`CritterStackFixture`, whose single abstract member is the act —
+`DispatchAsync(object command, int timeout) → IActOutcome`. Everything a scenario *says* (arrange,
+assert) runs against the `JasperFx.Events` abstractions in core; only sending the command needs a
+bus. `Bobcat.Wolverine`'s **`WolverineCritterStackFixture`** supplies it (Wolverine invoke inside a
+tracked session, outcome `WolverineActOutcome`), so `public class FreezeAccountFixture :
+WolverineCritterStackFixture;` is a whole fixture — the canonical route, riding the base-class
+discovery above. There is **no mix-in form** of this vocabulary: `CritterStackGrammars` went with
+the 2026-09-21 deletion (a stale `<see cref>` to it survives in `CritterStackFixture`'s doc comment).
 
 - **Typed steps** sit on the fixture: `GivenEvents<T>(id,
-  events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (Wolverine invoke + `TrackedSession`,
-  returns the `AggregateExecution`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
+  events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (through `DispatchAsync`, returns
+  the `AggregateExecution<T>`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
 - **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
   {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `Given
@@ -1235,12 +1239,14 @@ discovers through its base).
   is `ConsumedEvents`, issue #297) · `When
   {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
   table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
-  is refused` · `Then the {readmodel} read model contains` + table · `Then {message} is sent`.
+  is refused` · `Then the {readmodel} read model contains` + table · `Then the {readmodel} read model
+  with id {string} contains` + table · `Then a {aggregate} stream is started with id {string}` ·
+  `Then {message} is sent` (reads `IActOutcome.MessagesSent`).
 - **The document lane is `DocumentGrammars` (issue #270), for an app that is not event sourced.**
   `Given documents of type {document}` + table · `Then the {document} with id {string} has` + table ·
   `Then no {document} exists with id {string}`. A module, not a base class — compose it with
   `[IncludeGrammars(typeof(DocumentGrammars))]` onto a bare `Fixture`, or beside
-  `CritterStackFixture` when the messaging vocabulary is also wanted (its stream steps then simply
+  `WolverineCritterStackFixture` when the messaging vocabulary is also wanted (its stream steps then simply
   go unused). It exists because exactly **four of the ten** shipped steps applied to a measured
   document-backed Wolverine app — `Storage.Insert`, `[Entity]`, a revisioned document — and all
   four were the messaging and HTTP halves, so such a project had to write a private grammar before
@@ -1252,20 +1258,12 @@ discovers through its base).
   type, id)` is public for the same reason `RecordBuilding` is — `LoadAsync<T>` is generic-only on
   every store while a `{document}` capture yields nothing but a `Type`, and every type-capturing
   grammar hits that wall.
-- **The saga lane is `SagaGrammars` (issue #281)** — `Then the {saga} with id {string} is active`
-  (+ optional one-row table, only named columns compared) · `Then no {saga} exists with id
-  {string}`. A module like `DocumentGrammars`, composed with `[IncludeGrammars(typeof(SagaGrammars))]`.
-  Reads through `IWolverineRuntime.SagaStorage` — Wolverine's read-only view aggregated over every
-  saga storage (Marten, Polecat, Fisher, EF Core, RavenDB, RDBMS) — so no store reference. Three
-  decisions of record (2026-09-10): **no "is complete" step**, because every saga storage deletes a
-  completed saga (one completing inside its start handler is never inserted), so "complete" and
-  "never started" are the same row — none — and a step claiming completion would be the
-  spec-that-cannot-fail #273 was about; showing the saga active, then gone, says it honestly.
-  **No arrange step**: sagas vary too much for a pre-canned start, so they start the way the app
-  starts them — a Wolverine message or an Alba call. **An unknown saga type is refused**, not read
-  as absent: the storage view returns null both for "no instance" and "no storage owns this type",
-  so each step first checks `GetRegisteredSagasAsync` and names what is registered. The id is
-  converted to the saga's own `Id` type before the read, so no provider has to guess at a string.
+- **No saga lane today.** `SagaGrammars` (issue #281: `Then the {saga} with id {string} is active`
+  / `Then no {saga} exists…`, read through `IWolverineRuntime.SagaStorage`) was deleted on
+  2026-09-21 with the rest of the old Wolverine package and not rebuilt. Its decisions still stand
+  for whoever brings it back: no "is complete" step (every saga storage deletes a completed saga,
+  so complete and never-started are the same row), no arrange step, and an unknown saga type is
+  refused rather than read as absent.
 - **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
   through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
   **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
@@ -1282,29 +1280,21 @@ discovers through its base).
   bare `Stop` has no reason anywhere, so a reason clause would assert on nothing. A refusal that
   also notifies composes with `Then {message} is sent`. Messages are deliberately not constrained
   by the refusal step itself.
-- **The tracked HTTP call is `WhenTracked`, and it lives here, not in Bobcat.Alba (issue #211).**
-  Wolverine's sample `TrackedHttpCall` pattern — the Alba scenario executed inside
+- **The tracked HTTP call is `WhenTracked`, on `WolverineCritterStackFixture` (issue #211).**
+  Wolverine's sample `TrackedHttpCall` pattern — the Alba call executed inside
   `TrackActivity().ExecuteAndWaitAsync(...)` so the session waits for everything the call *caused*
-  (cascades, forwarded events, local queues drained) — ships as
-  `CritterStackFixture.WhenTracked(Func<Task<T>>)`: the same before/after stream bracket and
-  capture-don't-throw semantics as `WhenCommand` (one shared `executeTrackedCore`), so the whole
-  assertion vocabulary (`Then {event} is emitted`, `Then {message} is sent`, refusal checks,
-  `ThenDocument`'s projection wait) works unchanged after an HTTP act. Placement is the dependency
-  arithmetic: the call reaches `WhenTracked` as a *delegate*, so Bobcat.CritterStack needs no Alba
-  or ASP.NET reference, Bobcat.Alba stays Wolverine-free for Alba users who run no bus, and no
-  bridge package exists for one method — `Bobcat.Alba`'s helpers are the natural delegate body
-  (`WhenTracked(() => Ctx.PostJsonAsync(...))`). The hand-written-fixture surface is
-  `Bobcat.Wolverine`'s `context.ExecuteAndWaitAsync(Func<Task>)`. The capture is the public, typed
-  `TrackedExecution` (session, new stream events, error) on `CritterStackFixture.LastExecution`,
-  written only via `RecordExecution(...)` — deliberately a seam, not private fields, because it is
-  the first consumer of #212's cross-grammar shared-state contract: #210's HTTP grammar feeds the
-  store grammar's `Then` steps by recording its own capture. `LastEvents`/`LastSession`/`LastError`
-  are now read-only views over it. The `configureTracking` parameter exists for the call that only
-  *enqueues* (wolverine GH-3714): an endpoint handing envelopes to a local queue can return before
-  the session observes activity, and `WaitForExecutionOf<T>()`-style conditions close that race.
-  Proven by `TrackedHttpCallTests` (a gated handler makes "the bare Alba call returns while the
-  work is in flight; the tracked one does not" an asserted ordering, not a race — no store, always
-  runs) and `TrackedHttpFixtureTests` (Marten + async daemon over HTTP, `[PostgresFact]`).
+  (cascades, forwarded events, local queues drained) — as `WhenTracked(Func<Task<T>>)`, with the same
+  before/after stream bracket and capture-don't-throw semantics as `WhenCommand` (one shared
+  `executeTrackedCore`), so the whole assertion vocabulary works unchanged after an HTTP act. The
+  call is a *delegate*, so `Bobcat.Wolverine` needs no Alba reference and `Bobcat.Alba` stays
+  Wolverine-free: `WhenTracked(() => Context.PostJsonAsync<TReq, TRes>(url, body))`. The
+  hand-written-fixture surface is `context.ExecuteAndWaitAsync(Func<Task>)`. The capture is the
+  public `ActExecution` (outcome, new stream events, error) on `CritterStackFixture.LastExecution`,
+  written only via `RecordExecution(...)` and published to scenario state (#212), so an act performed
+  by another grammar feeds these `Then` steps; `LastEvents`/`LastOutcome`/`LastError` are read-only
+  views over it. `configureTracking` exists for the call that only *enqueues* (wolverine GH-3714).
+  `ScenarioActs.ExecuteAsync` is the shared act bracket; the Givens publish `ScenarioStream` so a
+  foreign act can bracket the fixture's stream.
 - **Every tracked act primes Wolverine's compiler before its session starts (issue #287).**
   Under `TypeLoadMode.Dynamic` a handler compiles on first use, which put the cold host's codegen
   *inside* the first act's 5s window (7.98s on a loaded CI runner, reported as a downstream `Then`
@@ -1319,28 +1309,13 @@ discovers through its base).
   `HandlerWarmUpException` naming every broken handler, remembered per host — never skipped.
   The 5s default is unchanged. Wolverine.HTTP routes are out of reach (no Wolverine.HTTP
   reference) and are documented instead: `WarmUpRoutes = RouteWarmup.Eager`, footgun 18.
-- **The HTTP lane is `CritterStackHttpFixture` (issue #210), and it is an assembly, not a third
-  monolith** — issue #212's success measure: `CritterStackFixture` base (store vocabulary, the
-  canonical route) + `[IncludeGrammars(typeof(HttpGrammars))]` on the class (the mix-in route,
-  inherited by derived fixtures; re-declare with a route prefix to parameterize) + the tracked
-  capture flowing over scenario state. `HttpGrammars` (`Fixture`-derived so it receives the
-  context; deliberately NOT `CritterStackFixture`-derived, which would duplicate every store step
-  into BOBCAT013 ambiguity) ships two steps: `When {command} is posted to {string}` (+ one table
-  row of body fields → `RecordBuilding`, sent as JSON, run inside the tracked session via the
-  shared `TrackedActs` bracket) and `Then the response is {int}` — the HTTP refusal vocabulary,
-  because an HTTP guard refuses with ProblemDetails/400, not an exception, so `Then validation
-  fails with …` cannot describe it; compose with `Then no events are emitted`. Placement: the
-  grammar lives in Bobcat.CritterStack with **no Alba/ASP.NET reference** — the call goes through
-  `Bobcat.Runtime.IHttpResource` (core; `SpecHttpRequest`/`SpecHttpResponse`, status never
-  asserted by the transport), which `AlbaResource` (both forms) implements over the TestServer
-  with the app's own JSON options. Same dependency arithmetic as `WhenTracked` (#211), just with
-  a resource contract instead of a delegate because generated grammar steps have no caller to
-  supply one. `TrackedActs.ExecuteAsync` is the one shared act bracket (stream snapshot → tracked
-  dispatch → capture-don't-throw → publish `TrackedExecution` to state); `executeTrackedCore`
-  delegates to it, and the Givens publish `ScenarioStream` so a foreign act can bracket the
-  fixture's stream. E2E: `WalletHttp.feature` + `HttpGrammarSpecTests` (`[PostgresFact]`, Alba
-  host with a collapsed endpoint) — and its `@slice:CreditWallet` scenarios fold into the same
-  slice descriptor as the bus-driven ones, because a slice is a behaviour, not a transport.
+- **No HTTP grammar today.** `CritterStackHttpFixture`, `HttpGrammars` (`When {command} is posted
+  to {string}`, `Then the response is {int}`), `TrackedActs` and the core `IHttpResource` /
+  `SpecHttpRequest` / `SpecHttpResponse` seam (issue #210) were all deleted on 2026-09-21 — both
+  implementors of the seam were `AlbaResource`. An HTTP act is a hand-written step calling
+  `WhenTracked` over `Bobcat.Alba`'s `PostJsonAsync`, and the slice scaffolder says so in the stubs
+  it writes. A slice is still a behaviour, not a transport: HTTP- and bus-driven scenarios tagged
+  with one `@slice:` fold into one descriptor.
 - **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
   resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
   **appending** arrange-events and **loading** a read-model document — go through the shared
@@ -1348,16 +1323,16 @@ discovers through its base).
   bounded softening as `EventStores`' aggregate/reset helpers. `RecordBuilding`/`EventTypeResolver`
   build command/event objects from table rows at runtime (the one runtime type-name lookup — the
   compile-time `{command}`/`{event}` captures never come there).
-- **Ship as source.** The grammar `.cs` travels in the package under `contentFiles/cs/` (buildAction
-  `None`, so a consumer never double-compiles it against the assembly) and `content/grammars/`, so
-  VS Code's tree-sitter and Rider can parse the step source in a consumer's workspace. The *generator*
-  needs no source — it reads the base fixture's steps from assembly metadata.
-- **Proven** end to end by `Bobcat.CritterStack.Tests/GrammarSpecTests`: `Wallet.feature`, written
-  only in shipped-grammar steps, compiles through the generator, runs on Marten (Postgres 5445) across
-  four scenarios, and renders. **Fisher coverage is not possible yet** — every published Fisher needs
-  JasperFx.Events ≥ 2.47.0, above the repo's 2.37.0 pin; that alignment bump is issue **#125**, in
-  flight on another branch. The fixture binds to `JasperFx.Events`, so the same feature runs against a
-  Fisher host by swapping `AddMarten` for `AddFisher` once the pin moves.
+- **Ship as source.** `DocumentGrammars.cs` and `ArrangementSteps.cs` travel in the `Bobcat`
+  package under `contentFiles/cs/` (buildAction `None`, so a consumer never double-compiles them)
+  and `content/grammars/`, so VS Code's tree-sitter and Rider can parse the step source in a
+  consumer's workspace. **`CritterStackFixture.cs` is not shipped as source today**, so editors see
+  no completion for its steps — a gap, not a decision. The *generator* needs no source either way;
+  it reads the base fixture's steps from assembly metadata.
+- **Proven** end to end by `Bobcat.CritterStack.Tests/GrammarSpecTests`: `Wallet.feature` and
+  `WalletSummary.feature`, written only in shipped-grammar steps against `WolverineCritterStackFixture`
+  subclasses, compile through the generator, run on Marten (Postgres 5445), and render. The Fisher
+  proof is the BankAccountES sample (see above).
 
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
@@ -1386,11 +1361,11 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these t
 deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
 unlike Alba and Wolverine, was not rebuilt — the event store is reached through the
 `JasperFx.Events` abstractions in core. The `Bobcat.CritterStack` *package* went the same day
-(8586eaa, "Move the Critter Stack helpers into Bobcat core"); the namespace lives on in core, and
-`CritterStackFixture` and `DocumentGrammars` are back there (812ac92), but `SagaGrammars`,
-`HttpGrammars` and `CritterStackHttpFixture` were not restored. Prose further down that describes
-`Bobcat.Marten`, `[MartenEntities]` or those three grammars predates that; check the code before
-relying on it.
+(8586eaa, "Move the Critter Stack helpers into Bobcat core"). `CritterStackFixture` and
+`DocumentGrammars` are in core (812ac92) and `WolverineCritterStackFixture` + `WhenTracked` in
+`Bobcat.Wolverine`; `SagaGrammars`, `HttpGrammars`, `CritterStackHttpFixture`,
+`CritterStackGrammars` and the `IHttpResource` seam were not restored. See the Critter Stack
+section above for what each one was.
 
 Not packed: `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
 `Bobcat.Supervisor.SampleWorker` and `ConsolePreview` are hosts the tests and demos drive.
@@ -1516,7 +1491,8 @@ the correlation hook — an opaque string Bobcat stamps on a run and never inter
 - `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
 - `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
 - `docs/composing-grammars.md` — User-facing guide to grammar composition: parameterized
-  `[IncludeGrammars]`, scenario state, and the `CritterStackHttpFixture` HTTP vocabulary
+  `[IncludeGrammars]` and scenario state (check its HTTP section against the code — the
+  `CritterStackHttpFixture` vocabulary it describes was deleted on 2026-09-21)
 - `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
   code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
   and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which
