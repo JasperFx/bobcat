@@ -485,31 +485,18 @@ public static class CucumberExpressionParser
     /// <summary>
     /// Generate a C# literal expression for a captured value with the given type.
     /// </summary>
+    /// <summary>
+    /// The C# expression for one written value as <paramref name="csharpType"/>. Delegates to
+    /// <see cref="CellLiterals"/>, which is the one place that decides how a cell is read — and
+    /// the only one that knows an enum's members, so prefer the <see cref="ParameterInfo"/>
+    /// overload wherever the parameter is in hand.
+    /// </summary>
     public static string ToCSharpLiteral(string value, string csharpType)
-    {
-        return csharpType switch
-        {
-            "int" => value,
-            "long" => $"{value}L",
-            "float" => $"{value}f",
-            "double" => $"{value}d",
-            "decimal" => $"{value}m",
-            "string" => $"\"{escapeCSharpString(value)}\"",
+        => CellLiterals.Convert(value, csharpType);
 
-            // A named placeholder binds to the parameter's OWN type, so these now reach the emitter
-            // where before only the Cucumber words could. Without them a bool or a Guid parameter got
-            // a string literal, which fails in the CONSUMER's build, in a file they cannot edit.
-            "bool" => value.ToLowerInvariant() is "true" ? "true" : "false",
-            "short" or "byte" or "sbyte" or "ushort" => $"({csharpType}){value}",
-            "uint" => $"{value}u",
-            "ulong" => $"{value}ul",
-            "System.Guid" or "Guid" => $"global::System.Guid.Parse(\"{escapeCSharpString(value)}\")",
-
-            // The value has already been resolved to a global::-qualified name by the generator.
-            TypeCSharpType => $"typeof({value})",
-            _ => $"\"{escapeCSharpString(value)}\""
-        };
-    }
+    /// <inheritdoc cref="ToCSharpLiteral(string,string)"/>
+    public static string ToCSharpLiteral(string value, ParameterInfo parameter)
+        => CellLiterals.Convert(value, parameter);
 
     private static string escapeCSharpString(string s)
     {

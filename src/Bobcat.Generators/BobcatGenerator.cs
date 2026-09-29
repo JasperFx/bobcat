@@ -246,7 +246,24 @@ public class BobcatGenerator : IIncrementalGenerator
                     var matched = matchScenarios(feature, fixture, grammars, resolver, spc);
                     if (matched == null) continue;
 
-                    var source = CodeEmitter.EmitFeature(feature, fixture, matched);
+                    var source = CodeEmitter.EmitFeature(feature, fixture, matched, out var unreadable);
+
+                    if (unreadable.Count > 0)
+                    {
+                        // The emitted source would not compile: a value the binder decided to read
+                        // from the document is one the generator cannot write as its parameter's
+                        // type. Reported here and the feature dropped, rather than handed to the
+                        // compiler as a CS error in a file the author cannot open.
+                        foreach (var value in unreadable)
+                        {
+                            spc.ReportDiagnostic(Diagnostic.Create(
+                                Diagnostics.UnreadableValue, Microsoft.CodeAnalysis.Location.None,
+                                feature.Title, value.Step, value.Parameter, value.Problem));
+                        }
+
+                        continue;
+                    }
+
                     var fileName = CodeEmitter.SanitizeIdentifier(feature.Title) + "_Feature.g.cs";
                     spc.AddSource(fileName, source);
 
@@ -1032,6 +1049,7 @@ public class BobcatGenerator : IIncrementalGenerator
             QualifiedType = qualified(param.Type),
             IsOut = param.RefKind == RefKind.Out,
             IsSimpleType = IsSimpleType(param.Type),
+            EnumMembers = enumMembers(param.Type),
         };
 
         foreach (var attr in param.GetAttributes())
@@ -1109,6 +1127,29 @@ public class BobcatGenerator : IIncrementalGenerator
     /// True for types a Gherkin cell can be converted into: string, primitives, enums,
     /// decimal, Guid, and the date/time types (plus their nullable forms).
     /// </summary>
+    /// <summary>
+    /// The member names of an enum type — through a nullable wrapper — and nothing for anything
+    /// else. What <see cref="CellLiterals"/> needs to turn the cell "Blue" into a real member
+    /// reference instead of a string literal the consumer's build rejects.
+    /// </summary>
+    private static List<string> enumMembers(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable
+            && nullable.IsGenericType
+            && nullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+
+        if (type.TypeKind != TypeKind.Enum) return new List<string>();
+
+        return type.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(f => f.HasConstantValue)
+            .Select(f => f.Name)
+            .ToList();
+    }
+
     internal static bool IsSimpleType(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol nullable
@@ -1961,6 +2002,33 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Info,
+        true);
+
+    /// <summary>
+    /// A written value — a capture or a data-table cell — that cannot be read as the type of the
+    /// parameter it binds to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An error, and it suppresses the feature, because the alternative is what happened before it
+    /// existed: the generator emitted the value's text and the <b>consumer's</b> build failed with
+    /// <c>CS0103: the name 'oops' does not exist</c> or <c>CS1503: cannot convert from 'string' to
+    /// 'Colour'</c>, at a line inside a generated file, over a step that matched its method
+    /// perfectly. The author's own files had no error in them at all.
+    /// </para>
+    /// <para>
+    /// Storyteller reported this as a yellow cell at run time and carried on with the rest of the
+    /// row, because it bound values by reflection when the specification ran. Bobcat binds at
+    /// compile time, so the row cannot run at all — and the compile-time answer is better: the
+    /// value is wrong in the document whether or not anybody runs the suite.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnreadableValue = new(
+        "BOBCAT030",
+        "A value cannot be read as its parameter's type",
+        "Feature '{0}', step '{1}': the value for '{2}' cannot be read — {3}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor InvalidArrangement = new(

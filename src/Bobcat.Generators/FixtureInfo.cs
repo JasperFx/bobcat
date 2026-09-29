@@ -344,6 +344,13 @@ public class ParameterInfo
     /// </summary>
     public bool IsSimpleType { get; set; } = true;
 
+    /// <summary>
+    /// The member names of an enum parameter's type, in declaration order; empty for every other
+    /// type. Carried so <see cref="CellLiterals"/> can write <c>global::Ns.Colour.Blue</c> for the
+    /// cell "Blue" and name the alternatives when it cannot.
+    /// </summary>
+    public List<string> EnumMembers { get; set; } = new();
+
     public bool IsInjected => Binding != ParameterBinding.Value;
 
     /// <summary>

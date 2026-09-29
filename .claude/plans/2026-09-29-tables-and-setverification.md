@@ -1,120 +1,75 @@
-# Handoff — projected specs done, Tables and SetVerification next
+# Handoff — Tables and SetVerification, Gherkin lane done
 
-Written 2026-09-29, end of the session that recreated Storyteller's Sentence and Fact grammars.
+Rewritten 2026-09-29 at the end of the session that recreated Storyteller's Tables and Sets samples in
+the Gherkin lane. The session before it recreated Sentence and Fact grammars in the projected lane;
+that part of this file is now history and lives in the commits.
 
 ## Where things stand
 
-Branch **`projected-spec-rendering`**, pushed, four commits ahead of `main`:
+Branch **`projected-spec-rendering`**, six commits ahead of `main`:
 
 ```
-4705e2d Make the assertion dialect a seam, with Shouldly as the 1.0 one
+4705e2d Make the assertion dialect a seam, with Shouldly as the 1.0 one   ← earlier session
 7729921 Project ordinary Shouldly assertions as steps, and evaluate a run of them
 68cbfc4 Make failure rendering pluggable, and read an assertion's own message
 b4a3dc3 Render a projected specification, and merge the step attributes
+<new>   Show which row a set verification is missing
+<new>   Recreate Storyteller's Tables and Sets samples, and read every value a step binds
 ```
 
-1461 tests green across 12 suites. `main` has not been merged into or fast-forwarded — Jeremy asked for
-the branch, and nobody has opened a PR.
+**1479 tests green across 12 suites** (`docker compose up -d` first — `Bobcat.CritterStack.Tests`
+needs Postgres on 5445). `main` has not been merged in and nobody has opened a PR.
 
-`src/Bobcat/notes.md` is modified in the working tree and was **already** modified before this work
-started. It is not part of it; leave it alone.
+`src/Bobcat/notes.md` is modified in the working tree and was **already** modified before any of this
+started. It is not part of it; leave it alone. Same for the untracked `src/Bobcat.EventModel.FrontEnd/`
+and `src/Bobcat.Monitor.FrontEnd/`.
 
 ## Read first
 
-`src/Bobcat.Xunit.Samples/README.md` is the decision record for everything below: the Storyteller→Bobcat
-mapping table, what each sample covers, and the gaps still open. This file is only the handoff.
+Two decision records, one per lane, and this file is only the handoff:
 
-## What exists now, in one pass
+- `src/Bobcat.Gherkin.Samples/README.md` — **this** session: the Tables/Sets mapping table, the four
+  defects fixed, the gaps still open, and the one rendering decision owed.
+- `src/Bobcat.Xunit.Samples/README.md` — the projected lane: Sentences, Facts, projected assertions.
 
-Storyteller 5's samples come from `github.com/storyteller/Storyteller` at `master` (v5.4.0) —
-`src/Samples` (the documented ones) and `src/StoryTeller.Samples`. **Not** `~/code/storyteller`, which
-is the abandoned v6 skeleton with no specs in it at all. Clone it fresh; the scratchpad copy from that
-session is gone.
+The corpus is `github.com/storyteller/Storyteller` at `master` (v5.4.0) — `src/Samples` and
+`src/StoryTeller.Samples`. **Not** `~/code/storyteller`, the abandoned v6 skeleton with no specs in it.
+Clone it fresh; the scratchpad copy is gone with the session.
 
-- **`src/Bobcat.Xunit.Samples`** — the recreations. `IsTestProject=false`, because a dozen of them fail
-  on purpose; run it directly.
-  ```bash
-  BOBCAT_SPEC_CONSOLE=1  ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
-  BOBCAT_SPEC_PREVIEW=1  ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
-  ```
-- **One step-attribute family.** `[Step]` means no keyword and *is* the `StepAttribute` base;
-  Given/When/Then/Check derive from it; `[BobcatStep]` is the legacy spelling. All of them work in both
-  the Gherkin and the projected lane. `StepAttributes` in the generator is the single recognizer.
-- **Two expression syntaxes**, decided per placeholder with the built-in Cucumber word winning:
-  `{int}` stays Cucumber, `{sum}` naming a parameter is Storyteller's `[FormatAs]` form. Jeremy prefers
-  FormatAs. Mixing is allowed on purpose.
-- **Facts** are a `bool`-returning step whose answer is the verdict, `Task<bool>` included. **Named
-  tuple returns** compare element by element — the async-safe replacement for `out` parameters.
-- **Projected assertions**, opt-in per project via `BobcatProjectAssertions`: a statement-level Shouldly
-  call renders as a step and a run of consecutive ones is all evaluated, throwing at the next *action*.
-  Shouldly is the 1.0 dialect; `IAssertionDialect` is the seam and carries FluentAssertions' shape in
-  its doc comment. `Assert.*` is **not** planned.
-- **The wire carries a Storyteller report**: `StepFinished` has `Cells`, `Columns`, `Logs`,
-  `Diagnostics`, `ExceptionType`/`StackTrace` and filtered `StackFrames`; `ScenarioStarted` has
-  `PlannedSteps`; `StepStarted` has `PlannedStepNumber` and input-value spans.
-- Stoat's side is filed as **JasperFx/stoat#58–#62**. #60 has a comment explaining that Bobcat now does
-  the stack filtering itself.
+## What this session did
 
-## Next task: Tables and SetVerification
+**`src/Bobcat.Gherkin.Samples`** is new — twenty scenarios in two features (`Tables`, `Sets`) with the
+fixtures behind them, twelve failing on purpose. A plain `BobcatRunner` console, in `bobcat.slnx`,
+collected by nothing:
 
-Jeremy's sequencing: **the Gherkin lane first**, because the support already exists there, so it is a
-rendering review rather than a build. The projected lane is a second pass with a real design question in
-it.
-
-### The corpus
-
-From the ST5 clone:
-
-- `src/Samples/Specs/Tables/` — `Before_and_After_Actions`, `Decision_Table`, `Table_with_Options`,
-  `Using_[ExposeAsTable]`, `Using_a_Paragraph`
-- `src/Samples/Specs/Sets/` — `Arrays`, `Data_Tables`, `Object_Sets`,
-  `Set_that_uses_a_non_primitive_type`, `String_Lists`
-- `src/StoryTeller.Samples/Specs/Tables/` — `Tables`, `Decision Table`,
-  `Table with Optional Columns`, `Boolean Results in a Table`, `Tables with Errors`
-- `src/StoryTeller.Samples/Specs/Sets/` — `Ordered Set`, `Unordered Set`, `Unsuccessful Ordering`,
-  `SetWithError`, `OrderedStringsSuccess`
-- Fixtures: `src/Samples/Fixtures/TableFixture.cs`, `src/Samples/Fixtures/SetsFixture.cs`
-
-`SetsFixture` is the one to read closely — `VerifySetOf(...).Ordered().Comparisons(...)`,
-`VerifyStringList`, `NameArrayFixture`'s `{names}` array capture, and `CreateNewObject<T>(...).AsTable(...)`
-for arranging the actual rows.
-
-### What Bobcat already has
-
-- `[Table]` on a step — one invocation per row
-- `[TableGrammar]` on a class — Before / Row / After envelope, `[ScopePerRow]`
-- decision tables — `Row` returning a value with one unbound column, `[Expected("col")]`
-- `[SetVerification(KeyColumns = "...")]` — `SetVerificationComparer`, rendered as a real grid
-- persistence recipes — `[MartenEntities<T>]`, `[EfCoreEntities<T>]`
-
-The live demo is `ConsolePreview`: `dotnet run --project src/ConsolePreview/ -- run --feature "Inventory"`.
-`InventoryFixture.TheInventoryShouldBe` is the `[SetVerification]` example and
-`Features/Inventory.feature` has a deliberately wrong scenario.
-
-### Known bug to fix on the way in
-
-A `MISSING` row renders every column as `-`, so you cannot see **which** row was missing even though
-the comparer knows:
-
-```
-│ 2 │ -       │ -           │ -                        │ MISSING │
+```bash
+dotnet run --project src/Bobcat.Gherkin.Samples/ -- run
+dotnet run --project src/Bobcat.Gherkin.Samples/ -- run --feature "Sets"
 ```
 
-`SetVerificationComparer.cs:59` builds a `missing-row` cell whose text is
-`Expected row not found: {keyDesc}`, and `SpecRender.cs:592` carries it into
-`SetVerificationRowRender.Description` — and `CommandLineRenderer.cs:391` never reads `Description`,
-emitting `-` for every column instead. Two options, and the second is better:
+Four defects found and fixed. The README has the detail; in one line each:
 
-1. Render `Description` beside or instead of the dashes. One line, no model change.
-2. Carry the missing row's **expected cell values per column** so the grid shows them in place, the way
-   a wrong cell shows `expected 'x', got 'y'`. Needs the comparer to keep the expected row rather than
-   only a description of its key.
+1. **A `MISSING` row rendered every column as `-`** — the comparer knew which row was missing and the
+   renderer never read it. Both absent-row kinds now carry their values per column, which also
+   retired a hack that recovered an extra row's values by re-parsing its own description string.
+2. **An extra row did not fail the step** — a green `✓` over a grid with an `EXTRA` row under a red
+   scenario. The comparer's failure flag was set for missing rows and wrong cells but not extras.
+3. **A value that cannot be read as its parameter's type broke the consumer's build.** The headline,
+   and nothing to do with tables: `int` + a non-numeric cell emitted a bare identifier (CS0103), and
+   an enum, `DateTime`, `TimeSpan`, `DateOnly`, `TimeOnly`, `DateTimeOffset`, `Uri`, `char` or **any**
+   nullable value type got a string literal (CS1503) — in a generated file the author cannot open, in
+   a plain `[Given]` sentence. `CellLiterals` is now the single place that decides how a written value
+   becomes an argument, covering everything `IsSimpleType` admits, and an unreadable value is the new
+   **BOBCAT030** naming the step and parameter. `Bobcat.Generators.Tests/CellLiteralTests` pins both
+   sides.
+4. **One throwing row erased the whole grid** — the cells reached the result only after the last row,
+   so an exception discarded the rows that had already passed. `Apply` now runs in a `finally` in both
+   table lanes.
 
-Whichever, the wire's `Cells`/`Columns` fields now exist, so Stoat can render the same grid — worth
-checking that the missing row survives the trip (it is a cell named `missing-row`, which a viewer has to
-know about; that may deserve a note on stoat#58).
+## Next: the projected lane's tables and sets
 
-### The projected-lane design question
+Same sequencing as before — the Gherkin lane first because the support existed, then the projected
+lane, which has the real design question in it. It is unchanged from the last handoff:
 
 A C# test has no trailing `|...|` table. Three options, discussed and not settled:
 
@@ -123,17 +78,42 @@ A C# test has no trailing `|...|` table. Three options, discussed and not settle
    one cell per row. `Columns` + `RowIndex` already grid up, so this works today.
 3. **Make `Bobcat.StepTable` constructible in C#** — then **one grammar body serves both lanes**: the
    feature file supplies the table, or the caller does. This is the recommendation, and it is the same
-   prize the `[FormatAs]` work just took for sentences.
+   prize the `[FormatAs]` work took for sentences.
 
 For **sets** specifically, C# is arguably better than a table: `SpecAssert.VerifySet(actual, expected,
 keyColumns: …)` with expected rows as records, producing the same grid. `SetVerificationComparer` is
-already pure and reusable.
+pure and reusable, and now carries absent rows' values, so the grid is complete whoever calls it.
 
-Watch for the trap the tuple work hit: a grammar whose expected cells come from the *document* cannot be
-called from C# without them, and BOBCAT027 correctly refuses it. A projected table grammar has to take
-its expectations as arguments.
+Watch for the trap the tuple work hit: a grammar whose expected cells come from the *document* cannot
+be called from C# without them, and BOBCAT027 correctly refuses it. A projected table grammar has to
+take its expectations as arguments.
 
-## Open decisions owed from the last pass
+## Decisions owed
+
+Newly owed, from this session:
+
+- **Should a throwing table row be an error cell with the remaining rows still evaluated?** Storyteller
+  did that and carried on. Bobcat's documented tier says an exception in a step is critical and aborts
+  the scenario, which is what still happens — the grid now survives it, but the rows after the bad one
+  do not run. For a decision table (a pure function per row) continuing is clearly right; for a
+  `[TableGrammar]` sharing state across rows it is less obviously safe. Needs a row-level marker cell
+  (`row-error`, beside `missing-row`/`extra-row`) to carry the message, and the renderer to show it.
+- **Should a plain `[Table]` step render a grid?** Today it renders one step line per row
+  (`✓ Given the invoice details are (row 1)`) and the values it arranged appear nowhere, so the
+  specification cannot be read back from its own report. Every other table shape renders a grid, and
+  Storyteller rendered all of them. The counterweight is that one step per row is what gives a failing
+  row its own line. Changing it changes the shape of every existing report.
+- **Ordered sets, primitive sets, inline list captures, column headers/defaults, relative dates** — the
+  five gaps in the README's list. Ordering is the biggest: three of the five samples in
+  `StoryTeller.Samples/Specs/Sets` are about it, and `[SetVerification]` is key-matched and therefore
+  unordered by construction.
+- **Tell Stoat that absent rows now carry cells.** `StepFinished.Cells` already carries
+  `Name/Status/Expected/Actual/Note/RowIndex` plus `Columns`, so a viewer can now reassemble a grid
+  including its missing and extra rows — but only if it knows that a cell named `missing-row` or
+  `extra-row` is the row's verdict marker and its siblings are the row's values. Worth a comment on
+  **JasperFx/stoat#58**; nothing was posted from here.
+
+Still owed from the earlier session:
 
 - **A passing narrated spec is vacuously green** — three grey `○` and `Rights: 0`. `SuiteTiming` flags
   "asserts nothing" for the Gherkin lane; the projected lane has no equivalent.
@@ -142,19 +122,26 @@ its expectations as arguments.
 - **`SpecStep.Log(...)`** does not exist. `StepFinished.Logs` is on the wire and the Gherkin lane fills
   it; a projected step has no way to attach one, so Storyteller's `Context.Reporting.Log` has no
   counterpart. See `BatchProcessGrammar.DoSomethingWorthLogging`.
-- **Scenarios sort alphabetically** within a feature in the console report. Source order would be better
-  and is a compile-time fact the generator knows and does not register.
+- **Scenarios sort alphabetically** within a feature in the console report. Source order would be
+  better and is a compile-time fact the generator knows and does not register.
 - **`main` vs the branch** — nobody has merged or opened a PR.
+
+One stale line worth knowing: `src/Bobcat.Xunit.Samples/README.md` says "twelve of the twenty-five
+specifications fail on purpose"; the project now has 28 with 16 failing. The extra failures all read
+as the intended deliberate ones — nothing this session touched runs in that lane — so it is the
+sentence that is out of date, not the samples.
 
 ## How to run everything
 
 ```bash
 dotnet build bobcat.slnx
-./src/Bobcat.Tests/bin/Debug/net10.0/Bobcat.Tests          # and the other 11 *.Tests
-docker compose up -d                                        # Postgres on 5445, for Bobcat.CritterStack.Tests
+docker compose up -d                                        # Postgres on 5445
+export TESTINGPLATFORM_TELEMETRY_OPTOUT=1
+for d in src/*.Tests; do p=$(basename $d); ./$d/bin/Debug/net10.0/$p; done
+
+dotnet run --project src/Bobcat.Gherkin.Samples/ -- run      # the Gherkin corpus, 12 red on purpose
+BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
 ```
 
-`TESTINGPLATFORM_TELEMETRY_OPTOUT=1` keeps the MTP banner out of captured output.
-
-One flake seen once and green on two reruns:
+One flake seen once in an earlier session and green on two reruns:
 `Bobcat.Tests.Runtime.DockerComposeIntegrationTests.a_recycle_replaces_the_container_and_waits_for_it_again`.

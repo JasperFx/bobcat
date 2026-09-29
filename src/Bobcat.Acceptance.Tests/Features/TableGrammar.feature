@@ -17,3 +17,10 @@ Feature: Table Grammar
       | label |
       | one   |
       | two   |
+
+  Scenario: A throwing row still leaves the rows before it on the grid
+    Given the tally runs
+      | label | amount |
+      | one   | 1      |
+      | two   | -1     |
+      | three | 3      |

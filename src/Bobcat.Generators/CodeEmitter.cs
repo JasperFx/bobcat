@@ -12,6 +12,28 @@ namespace Bobcat.Generators;
 public static class CodeEmitter
 {
     public static string EmitFeature(FeatureInfo feature, FixtureInfo fixture, List<MatchedScenario> scenarios)
+        => EmitFeature(feature, fixture, scenarios, out _);
+
+    /// <summary>
+    /// Emit the feature, and report any written value that could not be read as the parameter it
+    /// binds to. A non-empty <paramref name="unreadable"/> means the emitted source would not
+    /// compile — the caller reports BOBCAT030 and adds nothing.
+    /// </summary>
+    public static string EmitFeature(FeatureInfo feature, FixtureInfo fixture,
+        List<MatchedScenario> scenarios, out List<CellLiterals.UnreadableValue> unreadable)
+    {
+        unreadable = CellLiterals.StartCollecting();
+        try
+        {
+            return emitFeature(feature, fixture, scenarios);
+        }
+        finally
+        {
+            CellLiterals.StopCollecting();
+        }
+    }
+
+    private static string emitFeature(FeatureInfo feature, FixtureInfo fixture, List<MatchedScenario> scenarios)
     {
         var safeClassName = SanitizeIdentifier(feature.Title) + "_Feature";
         var sb = new StringBuilder();
@@ -147,6 +169,9 @@ public static class CodeEmitter
 
     private static void emitStep(StringBuilder sb, MatchedStep matched, FixtureInfo fixture)
     {
+        // So an unreadable value can name the step it was written in.
+        CellLiterals.CurrentStep(matched.Step.Text);
+
         var step = matched.Step;
 
         var stepKind = step.ResolvedKeyword.Trim() switch
@@ -366,6 +391,11 @@ public static class CodeEmitter
         sb.AppendLine($"                        var g__ = new {grammar.FullyQualifiedName}();");
         sb.AppendLine("                        var cells__ = new System.Collections.Generic.List<CellResult>();");
 
+        // As with a decision table: whatever rows were reached still render, even when Before, a
+        // row, or After throws.
+        sb.AppendLine("                        try");
+        sb.AppendLine("                        {");
+
         if (grammar.HasRecipe)
         {
             // The one runtime-resolved piece: the recipe's behavior lives in the extension
@@ -470,7 +500,11 @@ public static class CodeEmitter
             sb.AppendLine("                            await behavior__.Close();");
 
         sb.AppendLine("                        }");
-        sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        finally");
+        sb.AppendLine("                        {");
+        sb.AppendLine($"                            DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        sb.AppendLine("                        }");
 
         // The grammar's binding: the class is the match, Row (or the recipe entity's
         // construction) is what each data row feeds, and the expected column — when the table
@@ -517,7 +551,7 @@ public static class CodeEmitter
         if (best != null)
         {
             var args = best.Select(p =>
-                $"{p.Name}: {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p.Type)}");
+                $"{p.Name}: {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p)}");
             return $"new {entity.FullyQualifiedName}({string.Join(", ", args)})";
         }
 
@@ -525,7 +559,7 @@ public static class CodeEmitter
         {
             var assignments = entity.SettableProperties
                 .Where(p => p.IsSimpleType && Cell(p.Name) != null)
-                .Select(p => $"{p.Name} = {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p.Type)}")
+                .Select(p => $"{p.Name} = {CucumberExpressionParser.ToCSharpLiteral(Cell(p.Name)!, p)}")
                 .ToList();
 
             if (assignments.Count > 0)
@@ -635,7 +669,7 @@ public static class CodeEmitter
             }
             else
             {
-                callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p.Type));
+                callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p));
             }
         }
 
@@ -721,6 +755,12 @@ public static class CodeEmitter
         var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{escapeString(h)}\""));
         var awaitKw = method.IsAsync ? "await " : "";
 
+        // The grid is the report, so the rows that were reached are rendered even when a later one
+        // throws: `Apply` runs in a finally. Without it one bad row erased the whole table and the
+        // reader was left with an exception and no idea which row produced it.
+        sb.AppendLine("                        try");
+        sb.AppendLine("                        {");
+
         for (var r = 0; r < rows.Count; r++)
         {
             var row = rows[r];
@@ -768,7 +808,7 @@ public static class CodeEmitter
                 if (p.IsExplicitlyInjected || (p.IsInjected && idx < 0))
                     callArgs.Add(injectionExpression(p, rowScopeProvider));
                 else if (idx >= 0 && idx < row.Count)
-                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p.Type));
+                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p));
                 else
                     callArgs.Add($"default({p.QualifiedType})");
             }
@@ -804,7 +844,11 @@ public static class CodeEmitter
             }
         }
 
-        sb.AppendLine($"                        DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        finally");
+        sb.AppendLine("                        {");
+        sb.AppendLine($"                            DecisionTableComparer.Apply(result, new[] {{ {columnsLiteral} }}, cells__);");
+        sb.AppendLine("                        }");
         if (!method.IsAsync)
             sb.AppendLine("                        return Task.CompletedTask;");
         var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
@@ -864,7 +908,7 @@ public static class CodeEmitter
                 }
                 else
                 {
-                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p.Type));
+                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(capture, p));
                 }
             }
 
@@ -1115,7 +1159,7 @@ public static class CodeEmitter
             }
             else if (vi < values.Count)
             {
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param.Type));
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param));
                 vi++;
             }
             else if (docString != null && param.Type == "string")
@@ -1161,13 +1205,13 @@ public static class CodeEmitter
             }
             else if (colIndex >= 0 && colIndex < row.Count)
             {
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(row[colIndex], param.Type));
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(row[colIndex], param));
             }
             else if (vi < values.Count)
             {
                 // No column names this parameter, so it consumes the next capture from the
                 // step text — the same positional rule a non-table step binds by.
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param.Type));
+                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param));
                 vi++;
             }
             else

@@ -35,6 +35,26 @@ public class DecisionTableTests
     }
 
     [Fact]
+    public async Task a_throwing_row_keeps_the_grid_up_to_where_it_got()
+    {
+        var results = await Specs.Run(Decision_Table_Feature.Define(),
+            "A row that throws still leaves the rows before it on the grid");
+        var step = results.Step("the line totals are calculated");
+
+        // The exception is still the step's verdict — that tier did not change. What changed is
+        // that the table survives it: before, one throwing row discarded every cell and the
+        // reader got an exception with no grid and no way to see which row caused it.
+        step.StepStatus.ShouldBe(ResultStatus.error);
+        step.IsSetVerification.ShouldBeTrue();
+        step.Cells.Where(c => c.RowIndex == 0).ShouldNotBeEmpty();
+        step.Cells.Single(c => c.RowIndex == 0 && c.Name == "LineTotal").Status
+            .ShouldBe(ResultStatus.success);
+
+        // ...and nothing is invented for the row that threw, or the ones after it.
+        step.Cells.ShouldAllBe(c => c.RowIndex == 0);
+    }
+
+    [Fact]
     public async Task out_param_decision_table_all_pass()
     {
         var results = await Specs.Run(Decision_Table_Feature.Define(), "Out-param columns all pass");

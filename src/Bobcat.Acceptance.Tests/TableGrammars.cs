@@ -72,3 +72,23 @@ public class FailingBeforeGrammar
 
     public void After() => AfterRan = true;
 }
+
+/// <summary>
+/// A row that throws mid-table. The envelope's contract for it is unchanged — the exception is
+/// critical and the scenario aborts — but the cells gathered before it now reach the report, so
+/// the grid shows how far the table got instead of vanishing.
+/// </summary>
+[TableGrammar("the tally runs")]
+public class ThrowingRowGrammar
+{
+    public static bool AfterRan;
+
+    public static void Reset() => AfterRan = false;
+
+    public void Row(string label, int amount)
+    {
+        if (amount < 0) throw new InvalidOperationException($"'{label}' cannot be negative");
+    }
+
+    public void After() => AfterRan = true;
+}

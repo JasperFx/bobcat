@@ -22,6 +22,7 @@
     <Project Path="src/Bobcat.EventModel/Bobcat.EventModel.csproj" />
     <Project Path="src/Bobcat.Generators.Tests/Bobcat.Generators.Tests.csproj" />
     <Project Path="src/Bobcat.Generators/Bobcat.Generators.csproj" />
+    <Project Path="src/Bobcat.Gherkin.Samples/Bobcat.Gherkin.Samples.csproj" />
     <Project Path="src/Bobcat.Mtp.GeneratedHost/Bobcat.Mtp.GeneratedHost.csproj" />
     <Project Path="src/Bobcat.Mtp.SampleHost/Bobcat.Mtp.SampleHost.csproj" />
     <Project Path="src/Bobcat.Mtp.Tests/Bobcat.Mtp.Tests.csproj" />
