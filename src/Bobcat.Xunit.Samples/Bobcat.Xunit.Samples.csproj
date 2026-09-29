@@ -26,7 +26,15 @@
          ProjectReference analyzer brings the generator but not its props. Without it a
          [BobcatStep] helper is an ordinary method call and records nothing. -->
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+
+    <!-- Project ordinary Shouldly assertions as steps, and let a run of them all be evaluated. The
+         same buildTransitive props a package consumer gets; in-repo it is stated here. -->
+    <BobcatProjectAssertions>true</BobcatProjectAssertions>
   </PropertyGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="BobcatProjectAssertions" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />

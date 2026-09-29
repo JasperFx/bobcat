@@ -412,6 +412,10 @@ public class StepRender
         };
     }
 
+    /// <summary>Whether the step's own cells already account for its failure.</summary>
+    private static bool explainedByCells(ScenarioRecorder.RecordedStep step)
+        => step.Cells.Any(x => x.Status is not (ResultStatus.success or ResultStatus.ok));
+
     /// <summary>One step a projected test actually ran — a <c>[BobcatStep]</c> helper call.</summary>
     public static StepRender FromRecordedStep(ScenarioRecorder.RecordedStep step, int depth = 0)
     {
@@ -439,7 +443,13 @@ public class StepRender
             // A gathered wrong has no exception TYPE worth showing — SpecAssert.Fail's
             // SpecAssertionException was never thrown, and naming it would make a clean failure
             // message look like a crash.
-            ErrorMessage = rendered?.Message is { Length: > 0 } message ? message : null,
+            // Suppressed when a cell already reports the disagreement. The cell says it in one line and
+            // in the shape every other comparison in the report uses, and for a projected assertion the
+            // library's own message is actively WORSE — intercepting the call moves it away from the
+            // source Shouldly reads its subject expression out of.
+            ErrorMessage = explainedByCells(step) || rendered?.Message is not { Length: > 0 }
+                ? null
+                : rendered.Message,
             ExceptionType = rendered?.ShowStackTrace == true ? step.Failure!.GetType().Name : null,
             ValueSpans = step.ValueSpans,
 

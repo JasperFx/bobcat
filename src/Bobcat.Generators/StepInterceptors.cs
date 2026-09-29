@@ -58,6 +58,21 @@ internal static class StepInterceptors
         /// read the answer — so a bool-returning step called from a test is always a fact.
         /// </remarks>
         public bool ReturnsBool;
+
+        /// <summary>
+        /// A projected ASSERTION rather than a declared step — <c>x.ShouldBe(7)</c>. Emitted only when
+        /// the project opted in, and gathered rather than thrown so a run of them all get evaluated.
+        /// </summary>
+        public bool IsProjectedAssertion;
+
+        /// <summary>The last assertion of its run: the point the run's failures are thrown at.</summary>
+        public bool FlushesRun;
+
+        /// <summary>The method's ORIGINAL definition, whose signature an interceptor must match.</summary>
+        public IMethodSymbol? Definition;
+
+        /// <summary>The receiver expression as written — the sentence's subject and the cell's name.</summary>
+        public string Subject = "";
         public List<string> ParameterTypes = new();
 
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
@@ -120,7 +135,10 @@ internal static class StepInterceptors
         // Any step attribute, not just the legacy [BobcatStep]: [Given], [When], [Then], [Check] and
         // the keywordless [Step] all reach a C# call site the same way (the merge).
         var recognized = StepAttributes.On(method);
-        if (recognized is null) return null;
+
+        // ...or an ordinary assertion the project asked to have projected. Extracted unconditionally
+        // and gated at emit time, because the transform cannot see MSBuild properties.
+        if (recognized is null) return ExtractAssertion(ctx, invocation, method, ct);
 
         // RSEXPERIMENTAL002: GetInterceptableLocation and GetInterceptsLocationAttributeSyntax are
         // marked experimental by Roslyn, and there is no supported alternative — hand-writing the
@@ -308,6 +326,58 @@ internal static class StepInterceptors
         return feature + "/" + MarkerSpecNaming.ScenarioTitle(method.Identifier.ValueText);
     }
 
+    /// <summary>
+    /// A statement-level Shouldly call, as a step that gathers rather than throws.
+    /// </summary>
+    private static InterceptedCall? ExtractAssertion(
+        GeneratorSyntaxContext ctx, InvocationExpressionSyntax invocation, IMethodSymbol method,
+        CancellationToken ct)
+    {
+        if (!ProjectedAssertions.IsAssertion(method)) return null;
+
+        // Never a call whose value is consumed: see ProjectedAssertions for why chaining must be left
+        // alone.
+        if (ProjectedAssertions.StatementOf(invocation) is not { } statement) return null;
+
+        var uid = UidOf(invocation, ctx.SemanticModel, ct);
+        if (uid is null) return null;
+
+#pragma warning disable RSEXPERIMENTAL002
+        var location = ctx.SemanticModel.GetInterceptableLocation(invocation, ct);
+#pragma warning restore RSEXPERIMENTAL002
+        if (location is null) return null;
+
+        // `x.ShouldBe(7)` resolves to the REDUCED extension method, whose Parameters omit the receiver
+        // — so an interceptor built from it is one parameter short and CS9144's. ReducedFrom is the
+        // declared method, receiver included, which is the signature an interceptor has to match.
+        var definition = (method.ReducedFrom ?? method).OriginalDefinition;
+
+        var call = new InterceptedCall
+        {
+#pragma warning disable RSEXPERIMENTAL002
+            InterceptsLocation = location.GetInterceptsLocationAttributeSyntax(),
+#pragma warning restore RSEXPERIMENTAL002
+            DeclaringType = definition.ContainingType.ToDisplayString(),
+            MethodName = definition.Name,
+            ReturnType = definition.ReturnType.ToDisplayString(),
+            ReturnsVoid = definition.ReturnsVoid,
+            Keyword = "Then",
+            IsProjectedAssertion = true,
+            FlushesRun = ProjectedAssertions.IsLastOfRun(statement, ctx.SemanticModel, ct),
+            Definition = definition,
+            Uid = uid,
+            DeclaredIndex = DeclaredIndexOf(invocation),
+            Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+            Location = invocation.GetLocation()
+        };
+
+        call.Subject = ProjectedAssertions.Subject(method, invocation);
+        call.Template = ProjectedAssertions.Sentence(method, invocation);
+        call.StepText = call.Template;
+
+        return call;
+    }
+
     /// <summary>Whether the method answers <c>bool</c>, through a <c>Task</c>/<c>ValueTask</c> or not.</summary>
     private static bool returnsBool(ITypeSymbol returnType)
     {
@@ -422,6 +492,124 @@ internal static class StepInterceptors
         return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
     }
 
+    /// <summary>
+    /// An interceptor for a projected assertion. Its signature has to match the ASSERTION's, not
+    /// Bobcat's — type parameters, constraints, optional arguments and all — because that is what the
+    /// interceptor feature requires.
+    /// </summary>
+    /// <remarks>
+    /// The original is called STATICALLY through its declaring type rather than as an extension method.
+    /// Generated code is not itself intercepted, so recursion was never possible, but the static call
+    /// says so at a glance and cannot be broken by a later change to what gets intercepted.
+    /// </remarks>
+    private static void emitAssertion(StringBuilder sb, InterceptedCall call, int index)
+    {
+        var definition = call.Definition!;
+
+        var typeParameters = definition.TypeParameters.Length == 0
+            ? ""
+            : "<" + string.Join(", ", definition.TypeParameters.Select(t => t.Name)) + ">";
+
+        var parameters = definition.Parameters.Select((p, i) => parameterOf(p, i == 0)).ToList();
+        var arguments = definition.Parameters.Select(p => Identifier(p.Name)).ToList();
+
+        sb.AppendLine($"        {call.InterceptsLocation}");
+        sb.AppendLine($"        internal static void __BobcatAssert{index}{typeParameters}(");
+        sb.AppendLine($"            {string.Join(", ", parameters)})");
+
+        foreach (var clause in constraintsOf(definition))
+        {
+            sb.AppendLine($"            {clause}");
+        }
+
+        sb.AppendLine("        {");
+        sb.AppendLine(
+            $"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, "
+            + $"{Quote(call.StepText)}, {call.DeclaredIndex}, {call.PlannedIndex});");
+        // The receiver is the subject; the first parameter after it that is not a custom message is the
+        // expectation, when there is one. Both as VALUES, so the cell is data rather than parsed prose.
+        var receiver = arguments.Count > 0 ? arguments[0] : "null";
+        var expectation = definition.Parameters
+            .Select((p, i) => (p, i))
+            .Where(x => x.i > 0 && x.p.Name is not ("customMessage" or "customMessageFunc"))
+            .Select(x => Identifier(x.p.Name))
+            .FirstOrDefault() ?? "null";
+
+        sb.AppendLine(
+            $"            global::Bobcat.AssertionRun.Gather(() => global::{call.DeclaringType}."
+            + $"{call.MethodName}{typeParameters}({string.Join(", ", arguments)}), step, "
+            + (call.FlushesRun ? "true" : "false")
+            + $", {Quote(call.Subject)}, {receiver}, {expectation});");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Fully qualified AND nullability-annotated. The plain fully-qualified form drops <c>?</c>, and an
+    /// interceptor whose <c>string</c> should have been <c>string?</c> is CS9159 in the consumer's build
+    /// — a warning in a file they cannot edit.
+    /// </summary>
+    private static readonly SymbolDisplayFormat interceptorFormat =
+        SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+            SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+            | SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
+    /// <summary>One parameter of the intercepted signature, reproduced exactly.</summary>
+    private static string parameterOf(IParameterSymbol parameter, bool isReceiver)
+    {
+        var modifiers = isReceiver ? "this " : parameter.IsParams ? "params " : "";
+        var text = $"{modifiers}{parameter.Type.ToDisplayString(interceptorFormat)} " + Identifier(parameter.Name);
+
+        // `this T actual = default` is CS1743 — a receiver cannot carry one even when the original
+        // declares it, and the call site always supplies it anyway.
+        if (isReceiver || !parameter.HasExplicitDefaultValue) return text;
+
+        return text + " = " + defaultOf(parameter);
+    }
+
+    /// <summary>
+    /// An optional parameter's default, which the interceptor must repeat or the call site no longer
+    /// matches.
+    /// </summary>
+    private static string defaultOf(IParameterSymbol parameter)
+        => parameter.ExplicitDefaultValue switch
+        {
+            null => "default",
+            bool flag => flag ? "true" : "false",
+            string text => Quote(text),
+            char character => "'" + character + "'",
+
+            // Anything else — an enum, a decimal, a number whose literal form differs by locale — as
+            // `default`, which is legal for every optional parameter and is what the value is in every
+            // case that matters here.
+            var value when value.GetType().IsPrimitive => value.ToString()!.ToLowerInvariant(),
+            _ => "default"
+        };
+
+    /// <summary>
+    /// The <c>where</c> clauses of the intercepted signature. Omitting a constraint the original
+    /// declares is a build error in the consumer's own compilation, so they are reproduced rather than
+    /// hoped about.
+    /// </summary>
+    private static IEnumerable<string> constraintsOf(IMethodSymbol definition)
+    {
+        foreach (var parameter in definition.TypeParameters)
+        {
+            var constraints = new List<string>();
+
+            if (parameter.HasReferenceTypeConstraint) constraints.Add("class");
+            if (parameter.HasValueTypeConstraint) constraints.Add("struct");
+            if (parameter.HasUnmanagedTypeConstraint) constraints.Add("unmanaged");
+            if (parameter.HasNotNullConstraint) constraints.Add("notnull");
+
+            constraints.AddRange(parameter.ConstraintTypes.Select(t => t.ToDisplayString(interceptorFormat)));
+
+            if (parameter.HasConstructorConstraint) constraints.Add("new()");
+
+            if (constraints.Count > 0) yield return $"where {parameter.Name} : {string.Join(", ", constraints)}";
+        }
+    }
+
     public static string Emit(IEnumerable<InterceptedCall> calls)
     {
         const string ns = Namespace;
@@ -445,6 +633,12 @@ internal static class StepInterceptors
         var index = 0;
         foreach (var call in calls)
         {
+            if (call.IsProjectedAssertion)
+            {
+                emitAssertion(sb, call, index++);
+                continue;
+            }
+
             var parameters = string.Join("", call.ParameterTypes
                 .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
             var arguments = string.Join(", ", call.ParameterIdentifiers);

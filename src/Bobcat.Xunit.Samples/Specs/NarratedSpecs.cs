@@ -101,4 +101,42 @@ public class NarratedSpecs
     {
         new Calculator { Value = 1 }.Value.ShouldBe(1);
     }
+
+    /// <summary>
+    /// A RUN of consecutive assertions all get evaluated, and the run's failures are thrown at its end.
+    /// </summary>
+    /// <remarks>
+    /// Four assertions, two of them wrong. A plain Shouldly test reports the first and leaves three
+    /// blanks; here all four reach the report and the test still fails, once.
+    /// </remarks>
+    [Fact]
+    public void every_assertion_in_a_run_is_evaluated()
+    {
+        var calculator = new Calculator { Value = 3 };
+
+        // Then the calculator agrees about its value
+        calculator.Value.ShouldBe(3);
+        calculator.Value.ShouldBeGreaterThan(10);
+        calculator.Value.ShouldBeLessThan(2);
+        calculator.Value.ShouldBe(3);
+    }
+
+    /// <summary>
+    /// The run ends at the next ACTION, which never runs — it would be operating on state the
+    /// assertions have already shown to be wrong, and anything it reported after that is noise.
+    /// </summary>
+    [Fact]
+    public void the_run_throws_before_the_next_action()
+    {
+        var calculator = new Calculator { Value = 3 };
+
+        // Then the value disagrees
+        calculator.Value.ShouldBe(99);
+
+        // When the calculator is doubled anyway
+        calculator.MultiplyBy(2);
+
+        // Then this is never reached
+        calculator.Value.ShouldBe(6);
+    }
 }

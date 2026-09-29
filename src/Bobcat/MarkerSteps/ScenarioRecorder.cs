@@ -195,6 +195,36 @@ public static class ScenarioRecorder
         /// <summary>The innermost step currently executing, or null between steps.</summary>
         public RecordedStep? OpenStep { get; private set; }
 
+        private readonly List<Exception> _gatheredAssertions = new();
+
+        /// <summary>
+        /// Hold onto an assertion failure so the rest of its run still gets to be evaluated
+        /// (<see cref="AssertionRun"/>).
+        /// </summary>
+        internal void GatherAssertionFailure(Exception failure)
+        {
+            lock (_gatheredAssertions) _gatheredAssertions.Add(failure);
+        }
+
+        /// <summary>
+        /// Throw what the run gathered, and forget it. Called at the run's last assertion — the point
+        /// just before the next action, which would otherwise operate on state the assertions have
+        /// already shown to be wrong.
+        /// </summary>
+        internal void FlushAssertionRun()
+        {
+            List<Exception> gathered;
+            lock (_gatheredAssertions)
+            {
+                if (_gatheredAssertions.Count == 0) return;
+
+                gathered = _gatheredAssertions.ToList();
+                _gatheredAssertions.Clear();
+            }
+
+            AssertionRun.Throw(gathered);
+        }
+
         /// <summary>
         /// The last keyword that actually opened a block — Given, When or Then, never And or But.
         /// A repeat of it renders as <c>And</c>, which is how Gherkin has always been written.
@@ -367,7 +397,15 @@ public static class ScenarioRecorder
                     if (step.Cells.Count > 0)
                     {
                         foreach (var cell in step.Cells) counts.Read(cell.Status);
-                        if (step.Failure is not null) counts.Read(ProjectedFailure.StatusOf(step.Failure));
+
+                        // The failure counts only when no cell already reports one. A projected assertion
+                        // produces both — a cell built from the call site and the exception it threw — and
+                        // they are one disagreement, not two.
+                        if (step.Failure is not null
+                            && step.Cells.All(x => x.Status is ResultStatus.success or ResultStatus.ok))
+                        {
+                            counts.Read(ProjectedFailure.StatusOf(step.Failure));
+                        }
                     }
                     else
                     {
@@ -452,6 +490,8 @@ public static class ScenarioRecorder
             private bool _ended;
 
             public void Fail(Exception exception) => end(exception);
+
+            public void AddCell(CellResult cell) => step.Cells.Add(cell);
 
             public void Dispose() => end(null);
 
@@ -561,9 +601,18 @@ public static class ScenarioRecorder
             => (Keyword.Length > 0 ? Keyword + " " : "") + Text;
     }
 
-    private sealed class NoStep : IDisposable
+    /// <summary>
+    /// The handle handed out when no scenario is recording. Every operation is a no-op, so a decorated
+    /// helper called outside a specification behaves exactly as it would undecorated.
+    /// </summary>
+    private sealed class NoStep : IStepHandle
     {
         public static readonly NoStep Instance = new();
+
+        public void Fail(Exception exception) { }
+
+        public void AddCell(CellResult cell) { }
+
         public void Dispose() { }
     }
 }
@@ -576,4 +625,15 @@ public static class ScenarioRecorder
 public interface IStepHandle : IDisposable
 {
     void Fail(Exception exception);
+
+    /// <summary>
+    /// Attach a comparison to this step, whether or not it is still the ambient open one.
+    /// </summary>
+    /// <remarks>
+    /// On the HANDLE rather than through <c>ScenarioRecorder.CurrentStep</c>, because
+    /// <see cref="Fail"/> closes the step and restores whatever was open before it — so a caller that
+    /// failed the step first and reached for the ambient one second was adding its cell to the step's
+    /// parent, or to nothing at all. Order-independent is the only safe shape here.
+    /// </remarks>
+    void AddCell(CellResult cell);
 }

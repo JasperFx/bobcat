@@ -47,8 +47,18 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(c => c != null)
             .Select((c, _) => c!);
 
-        context.RegisterSourceOutput(stepCalls.Collect(), (spc, calls) =>
+        context.RegisterSourceOutput(
+            stepCalls.Collect().Combine(context.AnalyzerConfigOptionsProvider), (spc, pair) =>
         {
+            var (extracted, config) = pair;
+
+            // Projected assertions are opt-in per PROJECT: extracted always (a transform cannot see
+            // MSBuild properties), kept only when the project asked for them. Off, a suite behaves
+            // exactly as it did — every Shouldly call throws where it always threw.
+            var calls = ProjectedAssertions.Enabled(config)
+                ? extracted
+                : extracted.Where(c => !c.IsProjectedAssertion).ToImmutableArray();
+
             if (calls.Length == 0) return;
 
             // Reported once per (method, placeholder) rather than once per call site: the mistake
