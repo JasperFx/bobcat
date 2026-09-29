@@ -19,7 +19,12 @@ public class CommandLineRenderer
 
     public void Render(SpecRender spec)
     {
-        var statusIcon = spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
+        // A scenario with no steps is Bobcat's pending-specification hotspot everywhere else, and the
+        // build already warns about it (BOBCAT028). Calling it OK here was the one place that did not
+        // agree — a test that declares nothing has not passed anything.
+        var statusIcon = spec.Steps.Count == 0 && spec.Succeeded
+            ? "[yellow]PENDING[/]"
+            : spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"  {Markup.Escape(spec.Title)} {statusIcon}");
@@ -42,9 +47,24 @@ public class CommandLineRenderer
         if (spec.ScenarioFailure is { } failure)
         {
             AnsiConsole.WriteLine();
-            foreach (var line in failure.Split('\n'))
+
+            // When the failure's renderer recovered a cell from its message, show the CELL — it says
+            // the same thing in one line that the message says in five, and in the same shape every
+            // other comparison in the report uses.
+            if (spec.ScenarioFailureCells.Count > 0)
             {
-                AnsiConsole.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
+                foreach (var cell in spec.ScenarioFailureCells)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"    [red]✗[/] {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+                }
+            }
+            else
+            {
+                foreach (var line in failure.Split('\n'))
+                {
+                    AnsiConsole.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
+                }
             }
         }
 

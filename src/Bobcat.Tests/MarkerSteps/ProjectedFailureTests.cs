@@ -56,5 +56,16 @@ public class ProjectedFailureTests
 
     [Fact]
     public void nothing_thrown_is_not_an_assertion()
-        => ProjectedFailure.IsAssertion(null).ShouldBeFalse();
+        => ProjectedFailure.IsAssertion((Exception?)null).ShouldBeFalse();
+
+    [Fact]
+    public void a_name_alone_answers_the_same_question()
+    {
+        // A verdict that crossed a process boundary is a name and a message; the registry keys on the
+        // name for exactly that reason.
+        ProjectedFailure.IsAssertion("ShouldAssertException").ShouldBeTrue();
+        ProjectedFailure.IsAssertion("SpecAssertionException").ShouldBeTrue();
+        ProjectedFailure.IsAssertion("InvalidOperationException").ShouldBeFalse();
+        ProjectedFailure.IsAssertion((string?)null).ShouldBeFalse();
+    }
 }

@@ -41,6 +41,12 @@ public class SpecRender
     /// </remarks>
     public string? ScenarioFailure { get; init; }
 
+    /// <summary>
+    /// Expected/actual pairs recovered from <see cref="ScenarioFailure"/> by its renderer — a Shouldly
+    /// message read as the cell it already contains.
+    /// </summary>
+    public List<CellRender> ScenarioFailureCells { get; init; } = new();
+
     public static SpecRender FromResults(string title, ExecutionResults results, string? featureTitle = null)
     {
         var steps = results.Steps.Select(StepRender.FromStepResult).ToList();
@@ -100,9 +106,18 @@ public class SpecRender
             : withoutAPlan(declared, recorded);
 
         var counts = recording.Counts;
-        var unexplained = steps.All(x => x.Status is ResultStatus.success or ResultStatus.ok)
-            ? recording.FailureDescription ?? recording.Failure?.Message
-            : null;
+        var unexplained = unexplainedFailure(recording, steps);
+
+        if (unexplained is not null)
+        {
+            // Counted, so the figures and the heading agree. A narrated test whose only failure is its
+            // own assertion library's used to render `Succeeded with Rights: 0, Wrongs: 0, Errors: 0`
+            // under a FAILED heading — truthful about what was RECORDED and useless to read.
+            counts = new Counts(counts.Rights, counts.Wrongs, counts.Errors);
+            counts.Read(unexplained.Kind == SpecFailureKind.Assertion
+                ? ResultStatus.failed
+                : ResultStatus.error);
+        }
 
         return new SpecRender
         {
@@ -111,7 +126,8 @@ public class SpecRender
             Succeeded = counts.Succeeded && unexplained is null && recording.FailureDescription is null,
             Steps = steps,
             Counts = counts,
-            ScenarioFailure = unexplained,
+            ScenarioFailure = unexplained?.Message,
+            ScenarioFailureCells = unexplained?.Cells.Select(CellRender.From).ToList() ?? [],
             DurationMs = recorded.Count > 0
                 ? recorded.Max(x => x.EndedAtMs ?? x.StartedAtMs)
                 : 0
@@ -191,6 +207,35 @@ public class SpecRender
 
             foreach (var grandchild in descendantsOf(child, depth + 1)) yield return grandchild;
         }
+    }
+
+    /// <summary>
+    /// The scenario's failure when no step accounts for it, read through
+    /// <see cref="SpecFailureRenderers"/> — which is what turns a narrated test's Shouldly wall of text
+    /// into a named expected/actual cell.
+    /// </summary>
+    private static SpecFailure? unexplainedFailure(
+        ScenarioRecorder.Recording recording, List<StepRender> steps)
+    {
+        if (steps.Any(x => x.Status is not (ResultStatus.success or ResultStatus.ok))) return null;
+
+        if (recording.Failure is { } exception)
+        {
+            return SpecFailureRenderers.Render(SpecFailureContext.From(exception));
+        }
+
+        if (recording.FailureDescription is not { Length: > 0 } described) return null;
+
+        // The runner hands over a TYPE NAME and a MESSAGE, never the exception — xUnit v3 reports
+        // ExceptionTypes and ExceptionMessages on TestContext.TestState. `Describe()` joined them with
+        // ": ", so they are split back apart here rather than the registry being given prose.
+        var colon = described.IndexOf(": ", StringComparison.Ordinal);
+        var typeName = colon > 0 ? described[..colon] : "";
+        var message = colon > 0 ? described[(colon + 2)..] : described;
+
+        var simpleName = typeName.Contains('.') ? typeName[(typeName.LastIndexOf('.') + 1)..] : typeName;
+
+        return SpecFailureRenderers.Render(new SpecFailureContext(simpleName, message));
     }
 
     /// <summary>
@@ -369,7 +414,12 @@ public class StepRender
 
     /// <summary>One step a projected test actually ran — a <c>[BobcatStep]</c> helper call.</summary>
     public static StepRender FromRecordedStep(ScenarioRecorder.RecordedStep step, int depth = 0)
-        => new()
+    {
+        var rendered = step.Failure is null
+            ? null
+            : SpecFailureRenderers.Render(SpecFailureContext.From(step.Failure));
+
+        return new StepRender
         {
             StepId = step.StepId,
             Kind = KindOf(step.Keyword),
@@ -389,27 +439,22 @@ public class StepRender
             // A gathered wrong has no exception TYPE worth showing — SpecAssert.Fail's
             // SpecAssertionException was never thrown, and naming it would make a clean failure
             // message look like a crash.
-            ErrorMessage = step.Failure?.Message is { Length: > 0 } message ? message : null,
-            ExceptionType = step.Failure is null || ProjectedFailure.IsAssertion(step.Failure)
-                ? null
-                : step.Failure.GetType().Name,
+            ErrorMessage = rendered?.Message is { Length: > 0 } message ? message : null,
+            ExceptionType = rendered?.ShowStackTrace == true ? step.Failure!.GetType().Name : null,
             ValueSpans = step.ValueSpans,
 
-            // Only for a real throw. A gathered wrong's SpecAssertionException was never thrown, and
-            // handing it to an exception formatter would dress a clean failure message up as a crash.
-            Exception = step.Failure is not null && !ProjectedFailure.IsAssertion(step.Failure)
-                ? step.Failure
-                : null,
-            Cells = step.Cells.Select(c => new CellRender
-            {
-                Name = c.Name,
-                Status = c.Status,
-                DisplayText = c.DisplayText,
-                Expected = c.Expected,
-                Actual = c.Actual,
-                Note = c.Note
-            }).ToList()
+            // Only when the failure's own renderer says a stack is worth showing. A gathered wrong's
+            // SpecAssertionException was never thrown, and an assertion library's failure has a message
+            // that already says everything — handing either to an exception formatter dresses a clean
+            // failure up as a crash.
+            Exception = rendered?.ShowStackTrace == true ? step.Failure : null,
+
+            // The step's own cells, plus any the failure's renderer recovered from its message.
+            Cells = step.Cells.Select(CellRender.From)
+                .Concat(rendered?.Cells.Select(CellRender.From) ?? [])
+                .ToList()
         };
+    }
 
     /// <summary>
     /// One step a projected test <b>declared</b> in a marker comment, carrying the verdict of
@@ -498,6 +543,17 @@ public class CellRender
     public string? Expected { get; init; }
     public string? Actual { get; init; }
     public string? Note { get; init; }
+
+    public static CellRender From(CellResult cell)
+        => new()
+        {
+            Name = cell.Name,
+            Status = cell.Status,
+            DisplayText = cell.DisplayText,
+            Expected = cell.Expected,
+            Actual = cell.Actual,
+            Note = cell.Note
+        };
 }
 
 /// <summary>

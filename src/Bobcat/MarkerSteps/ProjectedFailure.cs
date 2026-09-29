@@ -21,44 +21,42 @@ namespace Bobcat;
 /// and it degrades the same way: an unrecognised assertion library reports <c>error</c>, which
 /// over-states the severity of a failure rather than under-stating it.
 /// </para>
+/// <para>
+/// <b>The answer is <see cref="SpecFailureRenderers"/>'s, not this type's.</b> What a library's
+/// failure MEANS, and how its message reads, is knowledge that has to be registerable from outside —
+/// <c>Bobcat.Xunit</c> contributes xUnit's, a consumer contributes its own. This is the narrow
+/// question ("wrong or error?") asked of that registry.
+/// </para>
 /// </remarks>
 public static class ProjectedFailure
 {
-    /// <summary>
-    /// Type-name suffixes every mainstream .NET assertion library ends its failure exception
-    /// with. Matched as a suffix so a library's own subclasses come along for free.
-    /// </summary>
-    private static readonly string[] assertionSuffixes =
-    [
-        "AssertionException",   // NUnit, TUnit, FluentAssertions' own
-        "AssertException",      // Shouldly (ShouldAssertException)
-        "AssertFailedException",// MSTest
-        "XunitException",       // xUnit v2/v3 — Assert.* and Record.Exception
-        "ShouldlyException"
-    ];
-
     /// <summary>The verdict an escaped exception gives the step it escaped from.</summary>
     public static ResultStatus StatusOf(Exception exception)
         => IsAssertion(exception) ? ResultStatus.failed : ResultStatus.error;
 
     /// <summary>
     /// Whether <paramref name="exception"/> is an assertion disagreeing rather than code
-    /// breaking. <see cref="SpecAssertionException"/> says so outright; everything else is
-    /// recognised by the naming convention its library follows.
+    /// breaking. <see cref="SpecAssertionException"/> says so outright; everything else is decided by
+    /// <see cref="SpecFailureRenderers"/> — a registered renderer first, then the naming convention.
     /// </summary>
+    /// <remarks>
+    /// The whole inheritance chain is walked, so a library's own subclass of its failure type is
+    /// recognised through its base. Out of process only one name survives, which is why the registry
+    /// and the convention both key on a name rather than a type.
+    /// </remarks>
     public static bool IsAssertion(Exception? exception)
     {
         for (var type = exception?.GetType(); type is not null && type != typeof(object); type = type.BaseType)
         {
             if (type == typeof(SpecAssertionException)) return true;
-
-            var name = type.Name;
-            foreach (var suffix in assertionSuffixes)
-            {
-                if (name.EndsWith(suffix, StringComparison.Ordinal)) return true;
-            }
+            if (SpecFailureRenderers.IsAssertion(type.Name)) return true;
         }
 
         return false;
     }
+
+    /// <summary>The same question from a name alone — a verdict that crossed a process boundary.</summary>
+    public static bool IsAssertion(string? exceptionTypeName)
+        => exceptionTypeName is nameof(SpecAssertionException)
+           || SpecFailureRenderers.IsAssertion(exceptionTypeName);
 }

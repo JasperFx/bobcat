@@ -144,8 +144,15 @@ public class ProjectedSpecRenderTests
         // The case a projected suite hits most often: the narrative is declared and the verdict is
         // an exception the specification cannot see inside. Without this the report shows three
         // grey lines and no reason at all.
-        render.ScenarioFailure.ShouldBe("Shouldly.ShouldAssertException: should be 7 but was 6");
+        //
+        // The TYPE is split back off the front and handed to the failure registry, so what reaches the
+        // render is the message — the runner joined the two with ": " on the way in.
+        render.ScenarioFailure.ShouldBe("should be 7 but was 6");
         render.Succeeded.ShouldBeFalse();
+
+        // And it is counted, so the figures and the heading agree rather than reading
+        // "Succeeded with Rights: 0, Wrongs: 0" under a FAILED heading.
+        render.Counts.Wrongs.ShouldBe(1);
     }
 
     [Fact]
