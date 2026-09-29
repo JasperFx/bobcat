@@ -44,17 +44,29 @@ internal static class ProjectedAssertions
         => config.GlobalOptions.TryGetValue(Property, out var value)
            && (value.Equals("true", System.StringComparison.OrdinalIgnoreCase) || value == "1");
 
-    /// <summary>
-    /// Whether <paramref name="method"/> is an assertion this can project: a Shouldly extension method.
-    /// </summary>
+    /// <summary>The dialects this generator can read, in the order they are consulted.</summary>
     /// <remarks>
-    /// Matched by NAMESPACE and name, never by symbol identity — Bobcat references no assertion
-    /// library, which is the premise of the whole projected lane.
+    /// Shouldly is the one Bobcat supports for 1.0. FluentAssertions is the next, and the seam exists so
+    /// that is an addition rather than a retrofit — see <see cref="IAssertionDialect"/> for the shape it
+    /// will need. <c>Assert.*</c> is <b>not</b> planned: its subject is an argument whose position differs
+    /// per assertion, so a sentence built from a rule reads backwards, and a per-method table of every
+    /// xUnit assertion is a maintenance burden with no ceiling.
     /// </remarks>
-    internal static bool IsAssertion(IMethodSymbol method)
-        => method.IsExtensionMethod
-           && method.Name.StartsWith("Should", System.StringComparison.Ordinal)
-           && method.ContainingNamespace?.ToDisplayString() == "Shouldly";
+    private static readonly IAssertionDialect[] dialects = [new ShouldlyDialect()];
+
+    /// <summary>The dialect that claims <paramref name="method"/>, or null.</summary>
+    internal static IAssertionDialect? DialectFor(IMethodSymbol method)
+    {
+        foreach (var dialect in dialects)
+        {
+            if (dialect.Claims(method)) return dialect;
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether <paramref name="method"/> is an assertion any dialect can project.</summary>
+    internal static bool IsAssertion(IMethodSymbol method) => DialectFor(method) != null;
 
     /// <summary>
     /// The invocation's own statement, when the call stands alone as one — and null when its value is
@@ -89,6 +101,57 @@ internal static class ProjectedAssertions
            && model.GetSymbolInfo(next, ct).Symbol is IMethodSymbol method
            && IsAssertion(method);
 
+}
+
+/// <summary>
+/// One assertion library's shape: which of its calls are assertions, and how a call reads as a
+/// sentence.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Why a seam inside the generator rather than a plug-in.</b> A source generator cannot load a
+/// consumer's code, so this cannot be registered the way <c>ISpecFailureRenderer</c> is. What it can be
+/// is one small implementation per library, with the library matched by NAMESPACE and name — no
+/// reference to it anywhere.
+/// </para>
+/// <para>
+/// <b>FluentAssertions, when it comes.</b> Its shape is <c>x.Should().Be(5)</c>, so:
+/// <see cref="Claims"/> matches a method on a type under <c>FluentAssertions</c>; the statement-level
+/// call is the LAST one (<c>Be</c>), which is what the existing chaining rule already wants; and
+/// <see cref="Subject"/> has to unwrap the receiver's <c>.Should()</c> invocation to reach <c>x</c>
+/// rather than taking the receiver expression verbatim. The verb needs the word "should" put back in
+/// front, because FluentAssertions spends it on the <c>Should()</c> call — <c>BeGreaterThan</c> reads
+/// "should be greater than". Its fluent chains (<c>.And.NotBeNull()</c>) consume the result, so the
+/// statement-level rule already leaves them alone, which is the conservative and correct answer.
+/// </para>
+/// </remarks>
+internal interface IAssertionDialect
+{
+    /// <summary>Whether this dialect owns <paramref name="method"/>.</summary>
+    bool Claims(IMethodSymbol method);
+
+    /// <summary>The thing being asserted about, as the author wrote it — the cell's name.</summary>
+    string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation);
+
+    /// <summary>The whole claim as a sentence.</summary>
+    string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation);
+}
+
+/// <summary>
+/// Shouldly: <c>calculator.Value.ShouldBe(7)</c> → "calculator.Value should be 7".
+/// </summary>
+/// <remarks>
+/// The shape is uniform, which is why it is the dialect Bobcat supports first: the receiver is the
+/// subject, the method name is the verb phrase, and the arguments are the expectation. Nothing has to be
+/// guessed at.
+/// </remarks>
+internal sealed class ShouldlyDialect : IAssertionDialect
+{
+    public bool Claims(IMethodSymbol method)
+        => method.IsExtensionMethod
+           && method.Name.StartsWith("Should", System.StringComparison.Ordinal)
+           && method.ContainingNamespace?.ToDisplayString() == "Shouldly";
+
     /// <summary>
     /// The step's sentence, read off the CALL SITE: <c>calculator.Value.ShouldBe(7)</c> becomes
     /// "calculator.Value should be 7".
@@ -104,7 +167,7 @@ internal static class ProjectedAssertions
     /// part of the claim, and reading it into the sentence would put the same words in twice.
     /// </para>
     /// </remarks>
-    internal static string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation)
+    public string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation)
     {
         var subject = Subject(method, invocation);
 
@@ -118,7 +181,7 @@ internal static class ProjectedAssertions
     /// The receiver expression as the author wrote it — <c>calculator.Value</c> — which is the subject
     /// of the sentence AND the cell's name.
     /// </summary>
-    internal static string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation)
+    public string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation)
         => invocation.Expression is MemberAccessExpressionSyntax access
             ? access.Expression.ToString()
             : method.Name;

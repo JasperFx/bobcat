@@ -149,6 +149,39 @@ promoted to `And`, because `And` is a word the author never wrote.
 Storyteller's prose paragraphs between steps map onto marker comments (`SentenceSpecs.sentences`).
 A keywordless one opens with `*`, since an ordinary comment has to stay an ordinary comment.
 
+## Projected assertions (opt-in)
+
+With `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, an ordinary statement-level Shouldly
+call inside a `[BobcatFeature]` test renders as a step, and a **run** of consecutive assertions is all
+evaluated before the next action:
+
+```
+  every assertion in a run is evaluated FAILED
+    ✗ Then  the calculator agrees about its value
+      ✓ Then  calculator.Value should be 3
+      ✗ And   calculator.Value should be greater than 10
+          ✗ calculator.Value: expected '10', got '3'
+      ✗ And   calculator.Value should be less than 2
+          ✗ calculator.Value: expected '2', got '3'
+      ✓ And   calculator.Value should be 3
+```
+
+The run's failures are thrown at its end — the point just before the next action, which would be
+operating on state the assertions have already shown to be wrong. Everything after renders as never
+reached.
+
+**Only a statement-level call is projected.** `x.ShouldNotBeNull().Name.ShouldBe("a")` consumes the
+first assertion's result, so gathering it would dereference null and report a
+`NullReferenceException` instead of the assertion that failed. A call whose value is used is left alone,
+which also means a fluent chain is safe by construction.
+
+**Shouldly is the dialect Bobcat supports for 1.0.** `IAssertionDialect` in the generator is the seam;
+FluentAssertions is the intended second, and its shape is written down there (`x.Should().Be(5)` needs
+the receiver's `.Should()` unwrapped to reach the subject, and the word "should" put back in front of
+the verb). **`Assert.*` is not planned:** its subject is an argument whose position differs per
+assertion, so a sentence built from a rule reads backwards, and a per-method table of every xUnit
+assertion is a maintenance burden with no ceiling.
+
 ## What this pass found
 
 Two defects, both fixed here, and three gaps still open.

@@ -333,7 +333,7 @@ internal static class StepInterceptors
         GeneratorSyntaxContext ctx, InvocationExpressionSyntax invocation, IMethodSymbol method,
         CancellationToken ct)
     {
-        if (!ProjectedAssertions.IsAssertion(method)) return null;
+        if (ProjectedAssertions.DialectFor(method) is not { } dialect) return null;
 
         // Never a call whose value is consumed: see ProjectedAssertions for why chaining must be left
         // alone.
@@ -371,8 +371,8 @@ internal static class StepInterceptors
             Location = invocation.GetLocation()
         };
 
-        call.Subject = ProjectedAssertions.Subject(method, invocation);
-        call.Template = ProjectedAssertions.Sentence(method, invocation);
+        call.Subject = dialect.Subject(method, invocation);
+        call.Template = dialect.Sentence(method, invocation);
         call.StepText = call.Template;
 
         return call;
