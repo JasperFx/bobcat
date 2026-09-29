@@ -369,6 +369,32 @@ public class CommandLineRenderer
         return markup.ToString();
     }
 
+    /// <summary>
+    /// One line of the grid for a row present on only one side: its own values where it has
+    /// them, and a placeholder per column when the producer carried only a description.
+    /// </summary>
+    private static List<string> absentRow(SetVerificationRender sv, SetVerificationRowRender row,
+        int rowNum, string colour, string label, string placeholder)
+    {
+        var cols = new List<string> { $"[dim]{rowNum}[/]" };
+
+        if (row.Cells.Count > 0)
+        {
+            foreach (var cell in row.Cells)
+            {
+                var text = string.IsNullOrEmpty(cell.DisplayText) ? placeholder : cell.DisplayText;
+                cols.Add($"[{colour}]{Markup.Escape(text)}[/]");
+            }
+        }
+        else
+        {
+            cols.AddRange(sv.Columns.Select(_ => $"[{colour}]{placeholder}[/]"));
+        }
+
+        cols.Add($"[{colour}]{label}[/]");
+        return cols;
+    }
+
     public void RenderSetVerification(SetVerificationRender sv)
     {
         if (sv.Columns.Count == 0) return;
@@ -390,28 +416,14 @@ public class CommandLineRenderer
             {
                 case SetVerificationRowType.Missing:
                 {
-                    var cols = sv.Columns.Select(_ => "[red]-[/]").ToList();
-                    cols.Insert(0, $"[dim]{rowNum}[/]");
-                    cols.Add("[red]MISSING[/]");
-                    table.AddRow(cols.ToArray());
+                    // The expected values of the row that never showed up — a row of dashes
+                    // told you a row was missing but never which one.
+                    table.AddRow(absentRow(sv, row, rowNum, "red", "MISSING", "-").ToArray());
                     break;
                 }
                 case SetVerificationRowType.Extra:
                 {
-                    var cols = new List<string> { $"[dim]{rowNum}[/]" };
-                    if (row.Cells.Count > 0)
-                    {
-                        foreach (var cell in row.Cells)
-                        {
-                            cols.Add($"[yellow]{Markup.Escape(cell.DisplayText)}[/]");
-                        }
-                    }
-                    else
-                    {
-                        cols.AddRange(sv.Columns.Select(_ => "[yellow]...[/]"));
-                    }
-                    cols.Add("[yellow]EXTRA[/]");
-                    table.AddRow(cols.ToArray());
+                    table.AddRow(absentRow(sv, row, rowNum, "yellow", "EXTRA", "...").ToArray());
                     break;
                 }
                 default:

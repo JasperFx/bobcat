@@ -587,45 +587,16 @@ public class SetVerificationRender
 
             if (missingCell != null)
             {
-                rows.Add(new SetVerificationRowRender
-                {
-                    RowType = SetVerificationRowType.Missing,
-                    Description = missingCell.DisplayText
-                });
+                // The comparer emits the expected values per column beside the marker cell,
+                // so the grid can show which row was missing. Older producers emitted only
+                // the marker; then the row carries no cells and the renderer says so.
+                rows.Add(rowOfAbsent(SetVerificationRowType.Missing, missingCell, cells, columns,
+                    c => c.Expected));
             }
             else if (extraCell != null)
             {
-                var extraRow = new SetVerificationRowRender
-                {
-                    RowType = SetVerificationRowType.Extra,
-                    Description = extraCell.DisplayText
-                };
-
-                // Parse "Extra row: Key=Value, Key=Value" into cells
-                var desc = extraCell.DisplayText;
-                if (desc.StartsWith("Extra row: "))
-                {
-                    var pairs = desc["Extra row: ".Length..].Split(", ");
-                    var parsed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var pair in pairs)
-                    {
-                        var eq = pair.IndexOf('=');
-                        if (eq > 0)
-                            parsed[pair[..eq]] = pair[(eq + 1)..];
-                    }
-
-                    foreach (var col in columns)
-                    {
-                        extraRow.Cells.Add(new SetVerificationCellRender
-                        {
-                            Column = col,
-                            Status = ResultStatus.invalid,
-                            DisplayText = parsed.GetValueOrDefault(col, "")
-                        });
-                    }
-                }
-
-                rows.Add(extraRow);
+                rows.Add(rowOfAbsent(SetVerificationRowType.Extra, extraCell, cells, columns,
+                    c => c.Actual));
             }
             else
             {
@@ -648,6 +619,44 @@ public class SetVerificationRender
         }
 
         return new SetVerificationRender { Columns = columns, Rows = rows };
+    }
+
+    /// <summary>
+    /// A row present on only one side: the marker cell carries the human description and the
+    /// row's verdict, while the per-column cells beside it carry the values to show in place.
+    /// </summary>
+    private static SetVerificationRowRender rowOfAbsent(
+        SetVerificationRowType rowType,
+        CellResult marker,
+        List<CellResult> cells,
+        List<string> columns,
+        Func<CellResult, string?> valueOf)
+    {
+        var row = new SetVerificationRowRender
+        {
+            RowType = rowType,
+            Description = marker.DisplayText
+        };
+
+        var byColumn = columns
+            .Select(col => (col, cell: cells.FirstOrDefault(c => c.Name == col)))
+            .ToList();
+
+        if (byColumn.All(x => x.cell == null)) return row;
+
+        foreach (var (col, cell) in byColumn)
+        {
+            row.Cells.Add(new SetVerificationCellRender
+            {
+                Column = col,
+                Status = marker.Status,
+                DisplayText = (cell == null ? null : valueOf(cell)) ?? "",
+                Expected = cell?.Expected,
+                Actual = cell?.Actual
+            });
+        }
+
+        return row;
     }
 }
 

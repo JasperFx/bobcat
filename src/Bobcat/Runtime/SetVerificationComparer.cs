@@ -59,6 +59,19 @@ public static class SetVerificationComparer
                 cells.Add(new CellResult("missing-row", ResultStatus.missing,
                     $"Expected row not found: {keyDesc}")
                     { RowIndex = rowIndex });
+
+                // The row's expected values, one cell per column, so a renderer can show
+                // WHICH row was missing in place instead of a row of dashes. Status is `ok`
+                // deliberately: the missing-row cell above is the one failure this row counts as.
+                foreach (var col in columns)
+                {
+                    cells.Add(new CellResult(col, ResultStatus.ok)
+                    {
+                        Expected = expected.GetValueOrDefault(col, ""),
+                        RowIndex = rowIndex
+                    });
+                }
+
                 hasFailure = true;
             }
 
@@ -72,7 +85,26 @@ public static class SetVerificationComparer
             var desc = string.Join(", ", extra.Select(kv => $"{kv.Key}={format(kv.Value)}"));
             cells.Add(new CellResult("extra-row", ResultStatus.invalid,
                 $"Extra row: {desc}")
-                { RowIndex = rowIndex++ });
+                { RowIndex = rowIndex });
+
+            // The same treatment as a missing row: the actual values per column, uncounted,
+            // so the grid shows the row rather than the renderer re-parsing the description.
+            foreach (var col in columns)
+            {
+                cells.Add(new CellResult(col, ResultStatus.ok)
+                {
+                    Actual = extra.TryGetValue(col, out var value) ? format(value) : "",
+                    RowIndex = rowIndex
+                });
+            }
+
+            // An extra row fails the step, like a missing one. A set verification says the set is
+            // exactly this; a row the specification does not describe is a disagreement, and the
+            // run already counted it as an error — only the step's own verdict said otherwise,
+            // which read as a green step under a red scenario.
+            hasFailure = true;
+
+            rowIndex++;
         }
 
         result.IsSetVerification = true;
