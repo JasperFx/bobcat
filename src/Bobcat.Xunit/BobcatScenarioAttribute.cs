@@ -44,8 +44,20 @@ public sealed class BobcatScenarioAttribute : BeforeAfterTestAttribute
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
         => MarkerStepRun.BeginScenario(methodUnderTest, Mode);
 
+    /// <remarks>
+    /// <b>Throwing here is how a gathered wrong reaches the runner.</b>
+    /// <see cref="SpecAssert"/> records a failed value check without throwing, so that a
+    /// specification shows every disagreement rather than only its first — and a test whose
+    /// checks all gathered would otherwise finish without an exception and be reported green
+    /// over a red specification. xUnit folds an exception from an after-test hook into the
+    /// test's own result, which is precisely the window needed: the spec's verdict lands on
+    /// the test, once, at the end.
+    /// </remarks>
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
-        => MarkerStepRun.EndScenario(VerdictFrom(TestContext.Current.TestState));
+    {
+        var gathered = MarkerStepRun.EndScenario(VerdictFrom(TestContext.Current.TestState));
+        if (gathered is not null) throw gathered;
+    }
 
     /// <summary>
     /// Translate xUnit's verdict into Bobcat's. Public because it is the only part of this

@@ -72,7 +72,19 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
+            // Numbered before either output: the interceptor writes each call's ordinal into the
+            // recorder, and the plan is the list that ordinal indexes into. They have to agree.
+            StepInterceptors.Number(calls);
+
             spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));
+
+            // The plan a projected test's grammar calls make up (preview, and the grey steps a
+            // stopped scenario never reached). Only when some call site sits in a projected test —
+            // a suite using [BobcatStep] helpers outside one gains no initializer.
+            if (StepInterceptors.HasPlan(calls))
+            {
+                spc.AddSource("BobcatPlannedSteps.g.cs", StepInterceptors.EmitPlan(calls));
+            }
         });
 
         // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
@@ -139,6 +151,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     var descriptor = problem.Id switch
                     {
                         "RecordsNothing" => Diagnostics.SpecRecordsNothing,
+                        "ProseKeyword" => Diagnostics.ProseReadAsComment,
                         _ => problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType
                     };
 
@@ -720,27 +733,80 @@ public class BobcatGenerator : IIncrementalGenerator
     private static string stepKey(StepMethodInfo step)
         => (step.StepKind == "Check" ? "Then" : step.StepKind) + "|" + step.Expression;
 
-    private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
-    {
-        string? expression = null;
-        string? kind = null;
+    /// <summary>
+    /// The step method's parameters as the expression parser needs them — so a placeholder naming one
+    /// resolves against its declared type. Injected parameters are excluded: a scoped service is not
+    /// something a sentence can name.
+    /// </summary>
+    private static List<StepParameter> stepParametersOf(StepMethodInfo info)
+        => info.Parameters
+            .Where(p => !p.IsInjected && p.Binding != ParameterBinding.Table)
+            .Select(p => new StepParameter(p.Name, p.Type))
+            .ToList();
 
-        // [Check] wins over [Then] when both sit on one method, in either order. Editor tooling
-        // (the VS Code Cucumber extension, Rider's Reqnroll plugin) only recognises the
-        // Given/When/Then short names, so stacking a [Then] with the same expression beside a
-        // [Check] is the documented way to make a check navigable — see docs/editor-integration.md.
-        // Without this rule the outcome would depend on attribute order, and a [Check]
-        // silently downgraded to a [Then] discards the bool instead of asserting on it.
-        foreach (var attr in method.GetAttributes())
+    private static int countValueParameters(StepMethodInfo info)
+    {
+        var count = 0;
+        foreach (var p in info.Parameters) if (!p.IsInjected) count++;
+        return count;
+    }
+
+    /// <summary>
+    /// The named elements of a tuple return type, or nothing. <c>Task&lt;(int Sum, int Product)&gt;</c>
+    /// counts — the awaitable has already been unwrapped by the time the return type is read.
+    /// </summary>
+    /// <remarks>
+    /// Only a NAMED tuple. <c>(int, int)</c>'s elements are called Item1 and Item2, which no sentence
+    /// would ever name, so treating it as a comparison would produce two cells nobody asked for.
+    /// </remarks>
+    private static void collectReturnTupleElements(IMethodSymbol method, StepMethodInfo info)
+    {
+        var returnType = method.ReturnType;
+        if (returnType is INamedTypeSymbol { Name: "Task" or "ValueTask" } awaitable
+            && awaitable.TypeArguments.Length == 1)
         {
-            var attrName = attr.AttributeClass?.Name;
-            if (attrName == "GivenAttribute") { kind = "Given"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "WhenAttribute") { kind = "When"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "ThenAttribute" && kind != "Check") { kind = "Then"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "CheckAttribute") { kind = "Check"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
+            returnType = awaitable.TypeArguments[0];
         }
 
-        if (expression == null || kind == null) return null;
+        if (returnType is not INamedTypeSymbol { IsTupleType: true } tuple) return;
+
+        foreach (var element in tuple.TupleElements)
+        {
+            // An unnamed element reports Item1/Item2 as its name AND says so through
+            // CorrespondingTupleField, which is how a deliberately-named "Item1" is told apart.
+            if (element.CorrespondingTupleField is null
+                || SymbolEqualityComparer.Default.Equals(element, element.CorrespondingTupleField))
+            {
+                info.ReturnTupleElements.Clear();
+                return;
+            }
+
+            info.ReturnTupleElements.Add(new ParameterInfo
+            {
+                Name = element.Name,
+                Type = element.Type.ToDisplayString(),
+                QualifiedType = qualified(element.Type)
+            });
+        }
+    }
+
+    /// <summary>The return's comparable parts: a tuple's elements, or nothing.</summary>
+    private static List<StepParameter> resultParametersOf(StepMethodInfo info)
+        => info.ReturnTupleElements.Select(e => new StepParameter(e.Name, e.Type)).ToList();
+
+    private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
+    {
+        // One recognizer for both lanes (StepAttributes) — including the keywordless [Step], which
+        // matches under whatever keyword the feature file wrote, and a consumer's own attribute
+        // deriving from [Given]. [Check] beats [Then] when both sit on one method, in either order:
+        // editor tooling only knows the Given/When/Then short names, so stacking a [Then] beside a
+        // [Check] is the documented way to make a check navigable, and a [Check] silently downgraded
+        // to a [Then] would discard the bool instead of asserting on it.
+        var recognized = StepAttributes.On(method);
+        if (recognized is null) return null;
+
+        var expression = recognized.Expression;
+        var kind = recognized.Keyword;
 
         var (returnType, qualifiedReturnType, isAwaitable) = unwrapReturnType(method.ReturnType);
 
@@ -803,15 +869,32 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Parameters.Add(ExtractParameter(param));
         }
 
-        // Parse the expression
+        // A tuple return is compared element by element — the async-safe replacement for `out`
+        // parameters, which an async method cannot have at all.
+        collectReturnTupleElements(method, info);
+
+        // Parse the expression, WITH the method's parameters — a placeholder that names one is the
+        // Storyteller [FormatAs] reading and binds to that parameter's own type — and with the
+        // return's shape, so a placeholder naming a tuple element becomes that element's expected cell.
         try
         {
-            info.ParsedExpression = CucumberExpressionParser.Parse(expression);
+            info.ParsedExpression = CucumberExpressionParser.Parse(
+                expression, stepParametersOf(info), info.ReturnType, resultParametersOf(info));
         }
         catch
         {
             // Will be reported as diagnostic later
         }
+
+        // Storyteller's Fact: a bool-returning step whose return value is NOT in the sentence. The
+        // answer is the verdict. [Check] says so outright; this is the inference for everything else,
+        // and without it a [Then] returning bool had its answer silently thrown away.
+        //
+        // "Not in the sentence" is the same test the emitter uses to decide it has an expected value:
+        // one more capture than the method has value parameters.
+        var captureCount = info.ParsedExpression?.Parameters.Count ?? 0;
+        info.IsFact = info.StepKind == "Check"
+                      || (info.ReturnType == "bool" && captureCount <= countValueParameters(info));
 
         return info;
     }
@@ -1806,7 +1889,7 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor UnknownStepPlaceholder = new(
         "BOBCAT027",
         "Step template names no parameter",
-        "[BobcatStep] on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
+        "Step attribute on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
         "'{1}'{2}. Nothing can fill it, so the step renders as '{{{1}}}'.",
         "Bobcat",
         DiagnosticSeverity.Warning,
@@ -1843,6 +1926,31 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Warning,
+        true);
+
+    /// <summary>
+    /// A comment that opens with <c>And</c> or <c>But</c> where no narrative is open: ordinary prose,
+    /// reported so the author is never left wondering where their step went.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rule it explains exists because English sentences begin "And …" and "But …" constantly, and
+    /// a comment in a test body is overwhelmingly NOT a step. A keyword that can only continue a
+    /// narrative must not be able to start one — otherwise switching the marker lane on silently turns
+    /// a note to a reader into a specification step, and wraps the real steps underneath it.
+    /// </para>
+    /// <para>
+    /// <b>Info, not a warning.</b> The overwhelmingly common case is that the comment really is prose
+    /// and everything is fine; a warning would train people to ignore it. It is here for the one
+    /// author who meant a step and cannot see why it is missing.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor ProseReadAsComment = new(
+        "BOBCAT029",
+        "Comment read as prose, not a step",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Info,
         true);
 
     public static readonly DiagnosticDescriptor InvalidArrangement = new(

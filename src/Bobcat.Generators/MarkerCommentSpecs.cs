@@ -86,6 +86,9 @@ internal static class MarkerCommentSpecs
         public string Keyword = "";
         public string Text = "";
 
+        /// <summary>Where the comment is, for a diagnostic that needs to point at it.</summary>
+        public Location? Where;
+
         /// <summary>1-based line of the comment, kept so a failure can later be mapped back to the
         /// step it fell inside — the open question on #110, and cheap to carry now.</summary>
         public int Line;
@@ -125,7 +128,23 @@ internal static class MarkerCommentSpecs
                 Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text)
             };
 
-            foreach (var step in StepsIn(method)) scenario.Steps.Add(step);
+            var prose = new List<MarkedStep>();
+            foreach (var step in StepsIn(method, prose)) scenario.Steps.Add(step);
+
+            foreach (var skipped in prose)
+            {
+                spec.Problems.Add(new MarkedProblem
+                {
+                    Id = "ProseKeyword",
+                    IsError = false,
+                    Where = skipped.Where,
+                    Message =
+                        $"The comment \"{skipped.Keyword} {skipped.Text}\" opens with '{skipped.Keyword}', but no "
+                        + "step has opened the narrative in this test, so it is read as an ordinary comment rather "
+                        + "than a step. 'And' and 'But' continue a narrative and cannot start one. Open with Given, "
+                        + "When or Then, or mark it '* " + skipped.Text + "' if it is a step with no keyword."
+                });
+            }
             scenario.Tags.AddRange(sliceTags(method, ctx.SemanticModel, spec.Problems));
 
             spec.Scenarios.Add(scenario);
@@ -303,8 +322,19 @@ internal static class MarkerCommentSpecs
     /// belongs to the statement it precedes.
     /// </remarks>
     internal static IEnumerable<MarkedStep> StepsIn(MethodDeclarationSyntax method)
+        => StepsIn(method, null);
+
+    /// <param name="prose">
+    /// Collects the comments that LOOKED like steps and were read as prose instead, so the caller can
+    /// say so out loud (BOBCAT029). Null when nobody is reporting.
+    /// </param>
+    internal static IEnumerable<MarkedStep> StepsIn(MethodDeclarationSyntax method, List<MarkedStep>? prose)
     {
         if (method.Body is null) yield break;
+
+        // Whether a Given/When/Then/* comment has opened the narrative yet in THIS method. `And` and
+        // `But` continue a narrative; they cannot start one.
+        var narrativeOpen = false;
 
         foreach (var trivia in method.Body.DescendantTrivia())
         {
@@ -314,9 +344,29 @@ internal static class MarkerCommentSpecs
             if (step is null) continue;
 
             step.Line = trivia.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+            step.Where = trivia.GetLocation();
+
+            // An `And`/`But` with nothing to continue is ORDINARY PROSE, and this is the rule that
+            // makes the marker lane safe to switch on. English sentences begin "And ..." and "But ..."
+            // all the time — the author of this very rule wrote `// And a false one fails its step`
+            // as a note to a reader and had it silently become a step, wrapping the two real steps
+            // under a narrative row that was never meant to exist. A keyword that can only continue
+            // something cannot be the thing that starts it.
+            if (isContinuation(step.Keyword) && !narrativeOpen)
+            {
+                prose?.Add(step);
+                continue;
+            }
+
+            if (!isContinuation(step.Keyword)) narrativeOpen = true;
+
             yield return step;
         }
     }
+
+    /// <summary>A keyword that continues the narrative it is in rather than opening one.</summary>
+    private static bool isContinuation(string keyword)
+        => keyword is "And" or "But";
 
     /// <summary>
     /// <c>// Given a proposed appointment</c> → Given / "a proposed appointment". Anything that
@@ -419,6 +469,21 @@ internal static class MarkerCommentSpecs
 
     private static string Quote(string value)
         => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+    /// <summary>
+    /// The feature title for a class that carries <c>[BobcatFeature]</c>, or false when it does not
+    /// carry one at all — which is how a call site decides whether it sits in a projected test.
+    /// </summary>
+    internal static bool TryFeatureTitle(
+        ClassDeclarationSyntax declaration, SemanticModel model, CancellationToken ct, out string title)
+    {
+        var attributeTitle = featureAttributeTitle(declaration, model, ct, out var marked);
+        title = marked
+            ? MarkerSpecNaming.FeatureTitle(declaration.Identifier.ValueText, attributeTitle)
+            : "";
+
+        return marked;
+    }
 
     private static string? featureAttributeTitle(
         ClassDeclarationSyntax declaration, SemanticModel model, CancellationToken ct, out bool marked)

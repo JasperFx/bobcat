@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+
+    <!-- A self-executing xUnit v3 / MTP application, like every *.Tests project — but the name
+         does not end in .Tests, so the properties src/Directory.Build.props applies by convention
+         have to be stated here. -->
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+    <!--
+      Driven directly (`./Bobcat.Xunit.Samples`), never collected by `dotnet test`. Storyteller's
+      sample specifications fail ON PURPOSE — a wrong value, a false fact, a thrown exception, a
+      critical stop — because the samples exist to show how each outcome RENDERS. Collecting them
+      would paint the build red for working as designed, the same reason Bobcat.Mtp.SampleHost and
+      Bobcat.Supervisor.SampleWorker opt out.
+    -->
+    <IsTestProject>false</IsTestProject>
+
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; a
+         ProjectReference analyzer brings the generator but not its props. Without it a
+         [BobcatStep] helper is an ordinary method call and records nothing. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

@@ -32,6 +32,7 @@
     <Project Path="src/Bobcat.TUnit/Bobcat.TUnit.csproj" />
     <Project Path="src/Bobcat.Wolverine/Bobcat.Wolverine.csproj" />
     <Project Path="src/Bobcat.Xunit.Tests/Bobcat.Xunit.Tests.csproj" />
+    <Project Path="src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj" />
     <Project Path="src/Bobcat.Xunit/Bobcat.Xunit.csproj" />
   </Folder>
   <Project Path="src/Bobcat.Tests/Bobcat.Tests.csproj" />

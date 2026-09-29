@@ -157,8 +157,25 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             _info.RunId, _currentUid, stepId, update.Message, update.Row, update.TotalRows, elapsed));
     }
 
+    /// <summary>
+    /// The Gherkin lane's step report, now including its <b>cells</b>.
+    /// </summary>
+    /// <remarks>
+    /// Before this, a failed comparison left the process as one flattened <c>DescribeFailure()</c>
+    /// string, so a viewer could show a red row and nothing else — no named cell, no expected/actual
+    /// pair, and no green cells beside the wrong one. The console renders all of that locally from
+    /// <c>StepResult.Cells</c>; there was simply no field on the wire to put it in.
+    /// </remarks>
     public void StepFinished(StepResult result)
-        => _sink.Post(new StepFinished(
+    {
+        var filtered = SpecStackTrace.Filter(result.Exception);
+
+        var cells = result.Cells.Count > 0
+            ? result.Cells.Select(c => new StepCell(
+                c.Name, c.Status.ToString(), c.Expected, c.Actual, c.Note, c.RowIndex)).ToList()
+            : null;
+
+        _sink.Post(new StepFinished(
             _info.RunId, _currentUid, result.StepId,
             result.StepStatus.ToString(),
             Math.Max(0, result.End - result.Start),
@@ -167,7 +184,21 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             result.DescribeFailure(),
             // The step's own end stamp — the executor's clock, the same one StepStarted rode in
             // on, rather than a reading taken here a moment later.
-            ScenarioElapsedMs: result.End));
+            ScenarioElapsedMs: result.End,
+            Cells: cells,
+
+            // The column order of a set-verification grid: the one thing cells cannot carry
+            // themselves, and without it a viewer cannot reassemble the table.
+            Columns: result.SetVerificationColumns?.ToList(),
+            Logs: result.Logs.Count > 0 ? result.Logs.ToList() : null,
+            Diagnostics: result.Diagnostics.Count > 0
+                ? result.Diagnostics.ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? "")
+                : null,
+            ExceptionType: result.Exception?.GetType().Name,
+            StackTrace: result.Exception?.StackTrace,
+            StackFrames: filtered.Frames.Count > 0 ? filtered.Frames : null,
+            HiddenStackFrames: filtered.Hidden));
+    }
 
     public void ScenarioRetrying(string scenarioTitle, int nextAttempt, string reason)
         // The in-process runner only ever performs in-process retries — fresh-process and

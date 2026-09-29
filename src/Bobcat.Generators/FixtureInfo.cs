@@ -169,7 +169,43 @@ public class StepMethodInfo
 {
     public string MethodName { get; set; } = "";
     public string Expression { get; set; } = "";
-    public string StepKind { get; set; } = ""; // "Given", "When", "Then", "Check"
+    public string StepKind { get; set; } = ""; // "Given", "When", "Then", "Check", or "" for [Step]
+
+    /// <summary>
+    /// The step's verdict IS its <c>bool</c> return value — Storyteller's Fact grammar.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// True for <c>[Check]</c>, and true for any step method returning <c>bool</c> (or
+    /// <c>Task&lt;bool&gt;</c>) whose expression declares no expected cell for the return. Storyteller
+    /// wrote a Fact as exactly that — a <c>bool</c> method whose return value is <b>not</b> in the
+    /// sentence — and before this a <c>[Then]</c> returning <c>bool</c> fell through to the plain
+    /// action path and the answer was <b>discarded</b>. A specification that cannot fail is worse
+    /// than no specification.
+    /// </para>
+    /// <para>
+    /// Kept separate from <see cref="StepKind"/> rather than promoting the kind to <c>Check</c>,
+    /// because a keywordless <c>[Step]</c> must stay keywordless: the kind is what decides which
+    /// Gherkin keywords the step matches under, and Fact-ness has nothing to do with that.
+    /// </para>
+    /// </remarks>
+    public bool IsFact { get; set; }
+
+    /// <summary>
+    /// The elements of a tuple return type, when the step returns one — the async-safe way to make
+    /// several assertions from one sentence.
+    /// </summary>
+    /// <remarks>
+    /// Storyteller used <c>out</c> parameters for this, and it predates async/await: an
+    /// <c>async</c> method cannot have an <c>out</c> parameter at all, so every multi-value
+    /// assertion was stuck being synchronous. A named tuple says the same thing, works on
+    /// <c>Task&lt;(int Sum, int Product)&gt;</c>, and each element is compared against the cell that
+    /// names it — so the sentence still reads as a sentence and each claim is judged on its own.
+    /// </remarks>
+    public List<ParameterInfo> ReturnTupleElements { get; set; } = new();
+
+    /// <summary>Whether this step's return value is a named tuple to be compared element by element.</summary>
+    public bool ComparesTuple => ReturnTupleElements.Count > 0;
     public bool IsTable { get; set; }
     public bool IsSetVerification { get; set; }
     public string SetVerificationKeyColumns { get; set; } = "";
@@ -256,7 +292,8 @@ public class StepMethodInfo
     /// </summary>
     public bool IsComparisonStep =>
         !IsTable && !IsSetVerification && !IsDecisionTable &&
-        (OutParameters.Count > 0 || (HasReturnValue && (StepKind == "Then")));
+        (OutParameters.Count > 0 || ComparesTuple
+         || (HasReturnValue && !IsFact && StepKind is "Then" or ""));
 }
 
 public class ParameterInfo

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using System.Text;
 
 namespace Bobcat;
 
@@ -52,21 +53,77 @@ public static class StepText
     /// argument's rendering.
     /// </summary>
     public static string Render(string template, IReadOnlyList<StepArgument> arguments)
+        => RenderWithValues(template, arguments).Text;
+
+    /// <summary>
+    /// The same rendering, plus <b>where the values landed</b> in the finished sentence.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Storyteller italicised a sentence's input cells, and it is worth copying: a step reads as
+    /// prose, and the one thing a reader scans for is which parts of it were the data. Once the
+    /// values are substituted into a flat string that information is gone, so it is carried out
+    /// alongside the text rather than recovered later by searching for the values — which would
+    /// mark the wrong run of characters whenever a value happens to appear in the prose too.
+    /// </para>
+    /// <para>
+    /// Resolved in ONE pass over the template, which also fixes a smaller thing: substituting one
+    /// argument at a time with <c>string.Replace</c> re-scanned text it had already written, so a
+    /// value that itself looked like <c>{x}</c> could be substituted a second time.
+    /// </para>
+    /// </remarks>
+    public static RenderedStepText RenderWithValues(string template, IReadOnlyList<StepArgument> arguments)
     {
-        if (arguments.Count == 0) return template;
+        if (arguments.Count == 0 || template.IndexOf('{') < 0) return new RenderedStepText(template, []);
 
-        foreach (var argument in arguments)
+        var text = new StringBuilder(template.Length);
+        var values = new List<StepTextSpan>();
+
+        for (var i = 0; i < template.Length; i++)
         {
-            var placeholder = "{" + argument.Name + "}";
-            if (!template.Contains(placeholder)) continue;
-
-            if (Value(argument.Value) is { } rendered)
+            if (template[i] != '{')
             {
-                template = template.Replace(placeholder, rendered);
+                text.Append(template[i]);
+                continue;
             }
+
+            var close = template.IndexOf('}', i + 1);
+            if (close < 0)
+            {
+                // An unbalanced brace is text, not a placeholder.
+                text.Append(template, i, template.Length - i);
+                break;
+            }
+
+            var name = template.Substring(i + 1, close - i - 1);
+            var rendered = resolve(name, arguments);
+
+            if (rendered is null)
+            {
+                // The placeholder is the floor: a reader can see that something did not resolve,
+                // rather than being shown a blank and believing it.
+                text.Append(template, i, close - i + 1);
+            }
+            else
+            {
+                values.Add(new StepTextSpan(text.Length, rendered.Length));
+                text.Append(rendered);
+            }
+
+            i = close;
         }
 
-        return template;
+        return new RenderedStepText(text.ToString(), values);
+    }
+
+    private static string? resolve(string name, IReadOnlyList<StepArgument> arguments)
+    {
+        foreach (var argument in arguments)
+        {
+            if (argument.Name == name) return Value(argument.Value);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -139,3 +196,14 @@ public static class StepText
             : string.Join(", ", rendered);
     }
 }
+
+/// <summary>Where one substituted value sits in a rendered step sentence.</summary>
+/// <param name="Start">0-based index into the rendered text.</param>
+/// <param name="Length">Length of the value's rendering.</param>
+public readonly record struct StepTextSpan(int Start, int Length);
+
+/// <summary>
+/// A rendered step sentence and the spans of it that came from the step's arguments — its input
+/// values, which a renderer shows in italics the way Storyteller did.
+/// </summary>
+public sealed record RenderedStepText(string Text, IReadOnlyList<StepTextSpan> Values);

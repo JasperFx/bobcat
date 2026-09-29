@@ -189,10 +189,16 @@ public static class CodeEmitter
         }
 
         // Does this comparison have a return-value capture? (one capture beyond the value params)
-        var compareReturn = method.HasReturnValue && method.StepKind == "Then"
+        // A fact's return value is its VERDICT, never something to compare — and a tuple return is
+        // compared element by element instead. `[Step]` (keywordless) compares like `[Then]`: the
+        // keyword decides which Gherkin keywords a step matches under, not whether it asserts.
+        var compareReturn = method.HasReturnValue && !method.IsFact && !method.ComparesTuple
+            && method.StepKind is "Then" or ""
             && values.Count == valueParamCount(method) + 1;
+        var compareTuple = method.ComparesTuple
+            && values.Count == valueParamCount(method) + method.ReturnTupleElements.Count;
         var isComparison = !method.IsTable && !method.IsSetVerification && !method.IsDecisionTable
-            && (method.OutParameters.Count > 0 || compareReturn);
+            && (method.OutParameters.Count > 0 || compareReturn || compareTuple);
 
         // [NewScope] — this step's injected services come from a child scope nested under
         // the scenario scope, disposed when the step finishes.
@@ -247,6 +253,7 @@ public static class CodeEmitter
         {
             var waitArgs = bindingArgsFromCaptures(method.Parameters, values, step.DocString);
             if (compareReturn) withReturnCompare(waitArgs, method, values);
+            if (compareTuple) withTupleCompare(waitArgs, method, values);
             var binding = bindingInitializer(declaringType, method.MethodName, method.Expression, waitArgs);
             emitWaitForStep(sb, step, method, stepId, stepKind, values, compareReturn, isComparison, target, ctxStmt,
                 binding, scopeStmt, scopeProvider);
@@ -255,9 +262,10 @@ public static class CodeEmitter
         {
             var comparisonArgs = bindingArgsFromCaptures(method.Parameters, values, step.DocString);
             if (compareReturn) withReturnCompare(comparisonArgs, method, values);
+            if (compareTuple) withTupleCompare(comparisonArgs, method, values);
             var binding = bindingInitializer(declaringType, method.MethodName, method.Expression, comparisonArgs);
             emitComparisonStep(sb, step, method, stepId, stepKind, values, compareReturn, target, ctxStmt,
-                binding, scopeStmt, scopeProvider);
+                binding, scopeStmt, scopeProvider, compareTuple);
         }
         else
         {
@@ -268,9 +276,11 @@ public static class CodeEmitter
             var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
                 bindingArgsFromCaptures(method.Parameters, values, step.DocString));
 
-            if (method.StepKind == "Check")
+            if (method.IsFact)
             {
-                // Check (bool return) — assertion failure, not critical
+                // A Fact: the bool return IS the verdict — an assertion failure, not a critical one,
+                // so the scenario carries on to its next step. True for [Check] and for any step
+                // method returning bool (or Task<bool>) with no expected cell in its sentence.
                 sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
                 sb.AppendLine($"                        \"{escapeString(stepId)}\",");
                 sb.AppendLine($"                        StepKind.Then,");
@@ -591,7 +601,7 @@ public static class CodeEmitter
     /// </summary>
     private static void emitComparisonStep(StringBuilder sb, StepInfo step, StepMethodInfo method,
         string stepId, string stepKind, List<string> values, bool compareReturn, string target, string ctxStmt,
-        string binding, string scopeStmt = "", string? scopeProvider = null)
+        string binding, string scopeStmt = "", string? scopeProvider = null, bool compareTuple = false)
     {
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
         sb.AppendLine($"                        \"{escapeString(stepId)}\",");
@@ -633,7 +643,7 @@ public static class CodeEmitter
         var awaitKw = method.IsAsync ? "await " : "";
         var argList = string.Join(", ", callArgs);
 
-        if (compareReturn)
+        if (compareReturn || compareTuple)
             sb.AppendLine($"                        var actual__ret = {awaitKw}{target}.{method.MethodName}({argList});");
         else
             sb.AppendLine($"                        {awaitKw}{target}.{method.MethodName}({argList});");
@@ -650,6 +660,22 @@ public static class CodeEmitter
             var col = method.ReturnColumn ?? "result";
             var retExpected = values[valueParamCount(method)];
             sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(col)}\", actual__ret, \"{escapeString(retExpected)}\", {opts}));");
+        }
+
+        if (compareTuple)
+        {
+            // One cell per tuple element, each judged on its own — the same shape `out` parameters
+            // produce above, and the only shape an async method can produce at all.
+            var first = valueParamCount(method);
+            for (var i = 0; i < method.ReturnTupleElements.Count; i++)
+            {
+                var element = method.ReturnTupleElements[i];
+                var expected = first + i < values.Count ? values[first + i] : "";
+                sb.AppendLine(
+                    $"                        cells__.Add(CellCheck.For<{element.QualifiedType}>(" +
+                    $"\"{escapeString(element.Name)}\", actual__ret.{element.Name}, " +
+                    $"\"{escapeString(expected)}\", {opts}));");
+            }
         }
 
         sb.AppendLine("                        result.MarkCells(cells__.ToArray());");
@@ -861,7 +887,7 @@ public static class CodeEmitter
 
             sb.AppendLine("                            return new WaitAttempt(cells__.TrueForAll(c => c.Status == ResultStatus.success), cells__.ToArray());");
         }
-        else if (method.StepKind == "Check")
+        else if (method.IsFact)
         {
             var args = buildSentenceArgs(method, values, step.DocString, scopeProvider, tableLiteral(step));
             sb.AppendLine($"                            var ok__ = {awaitKw}{target}.{method.MethodName}({args});");
@@ -952,6 +978,19 @@ public static class CodeEmitter
         var col = method.ReturnColumn ?? "result";
         var expected = valueParamCount(method) < values.Count ? values[valueParamCount(method)] : "";
         args.Add(bindingArgLiteral(col, expected, "Expected"));
+        return args;
+    }
+
+    /// <summary>Adds one compared pseudo-argument per tuple element a comparison step returns.</summary>
+    private static List<string> withTupleCompare(List<string> args, StepMethodInfo method, List<string> values)
+    {
+        var first = valueParamCount(method);
+        for (var i = 0; i < method.ReturnTupleElements.Count; i++)
+        {
+            var expected = first + i < values.Count ? values[first + i] : "";
+            args.Add(bindingArgLiteral(method.ReturnTupleElements[i].Name, expected, "Expected"));
+        }
+
         return args;
     }
 

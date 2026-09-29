@@ -1,0 +1,104 @@
+using Bobcat.Xunit.Samples.Application;
+using Bobcat.Xunit.Samples.Grammars;
+using Shouldly;
+
+namespace Bobcat.Xunit.Samples.Specs;
+
+/// <summary>
+/// The other projected authoring style: <b>marker comments</b>, which narrate a test that already
+/// exists and asserts with its own library.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Nothing here calls a grammar. The steps come from the comments, which the compiler erases and the
+/// generator reads — so opting an existing suite in costs one class attribute and some comments, with
+/// no change to a single line of test logic. That is the adoption story the marker lane was built
+/// for, and it is worth reading beside <see cref="CalculatorSpecs"/>: same behaviour, same
+/// specification, two very different reports.
+/// </para>
+/// <para>
+/// <b>What the comment lane cannot do.</b> A comment DECLARES a step; it does not execute one, so
+/// there is no step object for a value comparison to attach to and no cell in the report. The finest
+/// verdict available is the test's own exception, which means one failure per test and no
+/// expected/actual pair. <see cref="a_narrated_value_check_that_disagrees"/> is what that looks like.
+/// </para>
+/// </remarks>
+[BobcatFeature("Calculator, narrated"), BobcatScenario]
+public class NarratedSpecs
+{
+    [Fact]
+    public void using_sentences()
+    {
+        // Given a calculator starting with 3
+        var calculator = new Calculator { Value = 3 };
+
+        // When it is multiplied by 2
+        calculator.MultiplyBy(2);
+
+        // Then the value should be 6
+        calculator.Value.ShouldBe(6);
+    }
+
+    /// <summary>
+    /// The same specification with the wrong expectation. Shouldly throws, so the report carries the
+    /// scenario's failure and nothing narrower — no cell, no expected/actual, and the steps are
+    /// declared but never recorded.
+    /// </summary>
+    [Fact]
+    public void a_narrated_value_check_that_disagrees()
+    {
+        // Given a calculator starting with 3
+        var calculator = new Calculator { Value = 3 };
+
+        // When it is multiplied by 2
+        calculator.MultiplyBy(2);
+
+        // Then the value should be 7
+        calculator.Value.ShouldBe(7);
+    }
+
+    /// <summary>
+    /// Both styles at once, which is how a real suite adopts this: comments for the narrative a
+    /// reader wants, grammar helpers for the steps worth measuring and colouring. The recorded steps
+    /// nest under the comment they ran inside — a compile-time join on the call site's line, never a
+    /// guess from timing.
+    /// </summary>
+    [Fact]
+    public void narrated_with_grammar_steps_inside()
+    {
+        var grammar = new CalculatorGrammar();
+
+        // Given a calculator with a value of 3 that is then doubled
+        grammar.StartWith(3);
+        grammar.MultiplyBy(2);
+
+        // Then the arithmetic holds
+        grammar.TheValueShouldBe(6);
+        grammar.AddingNumbersTogether(2, 3, 5);
+    }
+
+    /// <summary>The same mixture, failing inside the second comment.</summary>
+    [Fact]
+    public void narrated_with_a_wrong_grammar_step_inside()
+    {
+        var grammar = new CalculatorGrammar();
+
+        // Given a calculator with a value of 3 that is then doubled
+        grammar.StartWith(3);
+        grammar.MultiplyBy(2);
+
+        // Then the arithmetic holds
+        grammar.TheValueShouldBe(7);
+        grammar.AddingNumbersTogether(2, 3, 6);
+    }
+
+    /// <summary>
+    /// A test that opts in and narrates nothing: no comments, no grammar calls. It renders as a
+    /// scenario with no steps at all, which Bobcat treats elsewhere as a pending specification.
+    /// </summary>
+    [Fact]
+    public void a_test_that_declares_nothing()
+    {
+        new Calculator { Value = 1 }.Value.ShouldBe(1);
+    }
+}
