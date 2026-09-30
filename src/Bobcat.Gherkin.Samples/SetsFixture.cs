@@ -2,8 +2,12 @@ using Bobcat;
 
 namespace Bobcat.Gherkin.Samples;
 
-/// <summary>Storyteller's <c>InvoiceDetail</c>, as a record.</summary>
-public record InvoiceDetail(double Amount, string Date, string Name);
+/// <summary>
+/// Storyteller's <c>InvoiceDetail</c>, as a record. <c>Date</c> is a real <see cref="DateOnly"/>: the
+/// samples' own data says <c>TODAY</c> and <c>TODAY-1</c>, which is read as a date on the way IN and
+/// asserted as one on the way out.
+/// </summary>
+public record InvoiceDetail(double Amount, DateOnly Date, string Name);
 
 /// <summary>Storyteller's <c>DataTableFixture</c> row — a city read back "from the database".</summary>
 public record CityRow(string City, int Distance, string Zip);
@@ -44,7 +48,7 @@ public class SetsFixture : Fixture
     /// </summary>
     [Given("the invoice details are")]
     [Table]
-    public void TheInvoiceDetailsAre(double amount, string date, string name)
+    public void TheInvoiceDetailsAre(double amount, DateOnly date, string name)
         => _details.Add(new InvoiceDetail(amount, date, name));
 
     /// <summary>

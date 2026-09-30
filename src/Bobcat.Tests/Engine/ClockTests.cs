@@ -46,7 +46,7 @@ public class ClockTests
         var clock = new ControllableTimeProvider(new DateTimeOffset(2026, 6, 5, 9, 0, 0, TimeSpan.Zero));
         RelativeTimeResolver.TryResolve(token, clock, out var resolved, out var note).ShouldBeTrue();
         DateOnly.FromDateTime(resolved).ShouldBe(DateOnly.Parse(expectedDate));
-        note.ShouldContain("→");
+        note.ShouldBe(token);
     }
 
     [Fact]

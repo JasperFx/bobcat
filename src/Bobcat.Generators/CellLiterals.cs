@@ -92,6 +92,36 @@ public static class CellLiterals
             ? qualifiedType.Substring(0, qualifiedType.Length - 1)
             : qualifiedType;
 
+        var trimmed = value.Trim();
+
+        // A quoted cell is the literal text of whatever it wraps, which is how a cell says the WORD
+        // "NULL". Read at run time, where the same rule applies to an expected value.
+        if (CellExpressions.IsQuoted(trimmed)) return runtimeRead(value, qualifiedType);
+
+        // The reserved tokens, and the relative times. All three mean on the input side of a table
+        // exactly what they have always meant on the expected side, which is the point: a document
+        // that says TODAY+2 says one thing whether it supplies that date or asserts it.
+        if (CellExpressions.IsToken(trimmed, "NULL"))
+        {
+            if (nullable || !IsValueType(bare, enumMembers)) return "null";
+            problem = $"{bare} cannot be null";
+            return null;
+        }
+
+        if (CellExpressions.IsToken(trimmed, "EMPTY"))
+        {
+            if (bare == "string") return Quote("");
+            if (nullable || !IsValueType(bare, enumMembers)) return "null";
+            problem = $"{bare} has no empty value";
+            return null;
+        }
+
+        // Only where the parameter is a date or a time. Against a string, TODAY is the word TODAY —
+        // a string cell is text, and a table that keeps its dates as text is entitled to say so.
+        // Against a number it falls through and is refused as a number, which is the better message.
+        if (CellExpressions.IsRelativeTime(trimmed) && CellExpressions.IsTemporal(bare))
+            return runtimeRead(value, qualifiedType);
+
         // An empty cell against a nullable value type is the one way a specification can say
         // "no value". For a reference type the empty string IS the value.
         if (nullable && value.Length == 0 && IsValueType(bare, enumMembers)) return "null";
@@ -146,23 +176,27 @@ public static class CellLiterals
                 problem = $"'{value}' is not a Guid";
                 return null;
 
+            // The date and time types read at run time even for a plain literal. There is nothing to
+            // gain by parsing at compile time — the emitted literal was a `Parse` call either way —
+            // and one path means a date cell cannot mean two different things depending on whether
+            // it happens to be relative.
             case "System.DateTime":
-                return parsed(value, bare, "global::System.DateTime",
+                return temporal(value, bare, qualifiedType,
                     v => DateTime.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                     out problem);
 
             case "System.DateTimeOffset":
-                return parsed(value, bare, "global::System.DateTimeOffset",
+                return temporal(value, bare, qualifiedType,
                     v => DateTimeOffset.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                     out problem);
 
             case "System.DateOnly":
-                return parsed(value, bare, "global::System.DateOnly",
+                return temporal(value, bare, qualifiedType,
                     v => DateTime.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
                     out problem);
 
             case "System.TimeOnly":
-                return parsed(value, bare, "global::System.TimeOnly",
+                return temporal(value, bare, qualifiedType,
                     v => TimeSpan.TryParse(v, CultureInfo.InvariantCulture, out _),
                     out problem);
 
@@ -276,6 +310,25 @@ public static class CellLiterals
     /// A type with no literal form: emitted as an invariant-culture parse, validated here with the
     /// same parse so a bad value is a build error rather than a run-time one.
     /// </summary>
+    /// <summary>
+    /// A date or time cell: validated here so a nonsense one is a build error, and read at run time
+    /// so <c>TODAY</c> means the day of the RUN. A build cached overnight that had baked the date in
+    /// would hand every later run yesterday, with nothing in the report to say so.
+    /// </summary>
+    private static string? temporal(string value, string bare, string qualifiedType,
+        Func<string, bool> canParse, out string? problem)
+    {
+        problem = null;
+        if (canParse(value.Trim())) return runtimeRead(value, qualifiedType);
+
+        problem = $"'{value.Trim()}' is not {article(shortName(bare))} {shortName(bare)}";
+        return null;
+    }
+
+    /// <summary>Hands the cell to the one runtime authority on what a cell means.</summary>
+    private static string runtimeRead(string value, string qualifiedType)
+        => $"global::Bobcat.Runtime.CellValues.Read<{qualifiedType}>({Quote(value)})";
+
     private static string? parsed(string value, string type, string qualified,
         Func<string, bool> canParse, out string? problem)
     {
