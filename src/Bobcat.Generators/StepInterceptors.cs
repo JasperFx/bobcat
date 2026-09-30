@@ -183,6 +183,18 @@ internal static class StepInterceptors
         call.Template = template;
         call.StepText = Render(template, method, invocation, call.RuntimeArguments, call.UnknownPlaceholders);
 
+        // A table is always handed over, whether or not the template names it. Every other argument
+        // reaches the recorder because it is a word in the sentence; a StepTable is the step's DATA,
+        // which renders as a grid under the sentence and never inside it — so a template that
+        // mentions it is not the trigger, having one is.
+        foreach (var parameter in method.Parameters)
+        {
+            if (parameter.Type.ToDisplayString().TrimEnd('?') != "Bobcat.StepTable") continue;
+            if (call.RuntimeArguments.Contains(parameter.Name)) continue;
+
+            call.RuntimeArguments.Add(parameter.Name);
+        }
+
         return call;
     }
 

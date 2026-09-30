@@ -25,7 +25,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Twelve of the twenty-five specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Seventeen of the thirty-one specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 ## This pass covers Sentence and Fact grammars
@@ -46,8 +46,43 @@ BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 | `Fixtures/AsyncOperationsFixture.cs` | `AsyncSpecs.*` | green / wrong / error |
 | — | `NarratedSpecs.*` | the marker-comment style, for contrast |
 
-Not yet: Tables, Sets (`SetVerification`), `create_object`/`verify_object`, `ApiFixture`,
-`ModelFixture`, selection lists, Paragraphs (deliberately out of scope).
+Not yet: Sets (`SetVerification`), `create_object`/`verify_object`, `ApiFixture`, `ModelFixture`,
+selection lists, Paragraphs (deliberately out of scope).
+
+## Tables: a table literal in the test
+
+A C# test has no trailing `|...|` block, so a table arrives as **pipe-delimited text** that
+`StepTable` reads by an implicit conversion — see `Grammars/RosterGrammar.cs` and `Specs/TableSpecs.cs`:
+
+```csharp
+_roster.TheRosterIs("""
+    | player       | position |
+    | Nolan Ryan   | Pitcher  |
+    | Johnny Bench | Catcher  |
+    """);
+```
+
+**One grammar body serves both lanes.** `TheRosterIs(StepTable roster)` is the same method a
+`.feature` file binds to; the document supplies the table there and the caller supplies it here, and
+nothing in the grammar knows which. Both lanes then render the same grid — the table becomes cells
+carrying a `RowIndex` plus the column order, which is exactly what a Gherkin `[Table]` step produces,
+so `SetVerificationRender.FromCells` is one fold for both.
+
+The two alternatives were worse. Calling a row helper once per row renders as N steps and loses the
+grid, which is the report the Gherkin lane just stopped producing. A collection-of-tuples argument
+(`void Sum((int x, int y, int sum)[] rows)`) grids up fine but is a second signature written for the
+C# lane beside the one the document binds to, so a change to the vocabulary has to be made twice.
+
+A markdown table pastes in unchanged — the alignment row is recognised and dropped, outer pipes are
+optional, cells are trimmed — so the table in the specification, the table in the pull request and
+the table in the test are the same text. What is deliberately not supported is markdown's escaping
+and inline formatting: a cell is the text between pipes, because that is what a Gherkin cell is, and
+two rules for reading a cell is how the lanes would drift.
+
+A **decision table** works the same way, with the grammar reporting one cell per row —
+`SpecAssert.Check(name, actual, expected, rowIndex: i)` — so the grid carries a verdict per row. The
+comparison supersedes the value the literal wrote for that column, which is why a wrong row reads
+`expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
 
 ## One attribute family, two expression syntaxes
 

@@ -43,16 +43,23 @@ public static class SpecAssert
     /// sentence uses ("value", "sum", "product"), because that is what the report shows beside the
     /// expected/actual pair.
     /// </param>
-    public static bool Check<T>(string name, T actual, T expected, CheckOptions? options = null)
-        => record(CellCheck.For(name, actual, CheckFormat.Of(expected), options));
+    /// <param name="rowIndex">
+    /// Which row of the step's table this cell belongs to, when the step was handed one. Left at
+    /// <c>-1</c> a cell is the step's own, as an assertion sentence's cells are; given a row it joins
+    /// that row of the grid, which is how a projected decision table reports a verdict per row.
+    /// </param>
+    public static bool Check<T>(string name, T actual, T expected, CheckOptions? options = null,
+        int rowIndex = -1)
+        => record(CellCheck.For(name, actual, CheckFormat.Of(expected), options, rowIndex));
 
     /// <summary>
     /// The text-expected form: compare against the expected value <b>as a specification would
     /// write it</b>, so <c>NULL</c>, <c>EMPTY</c> and a quoted literal all mean what they mean in a
     /// Gherkin cell.
     /// </summary>
-    public static bool Check(string name, object? actual, string expected, CheckOptions? options = null)
-        => record(CellCheck.ForValue(name, actual, expected, options));
+    public static bool Check(string name, object? actual, string expected, CheckOptions? options = null,
+        int rowIndex = -1)
+        => record(CellCheck.ForValue(name, actual, expected, options, rowIndex));
 
     /// <summary>
     /// Storyteller's Fact: a single boolean condition, rendered as the step passing or failing.

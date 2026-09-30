@@ -119,7 +119,17 @@ public static class ScenarioRecorder
         if (recording is null) return NoStep.Instance;
 
         var rendered = StepText.RenderWithValues(text, arguments);
-        return recording.BeginStep(keyword, rendered.Text, declaredIndex, plannedIndex, rendered.Values);
+        var step = recording.BeginStep(keyword, rendered.Text, declaredIndex, plannedIndex, rendered.Values);
+
+        // A table argument is the step's data, not a word in its sentence, so it is recorded as a
+        // grid — the same cells-plus-columns shape a Gherkin [Table] step produces, so both lanes
+        // render and publish one table the same way.
+        foreach (var argument in arguments)
+        {
+            if (argument.Value is StepTable table) recording.RecordTable(table);
+        }
+
+        return step;
     }
 
     /// <summary>A step with no arguments to render, identified by its position in the plan.</summary>
@@ -194,6 +204,29 @@ public static class ScenarioRecorder
 
         /// <summary>The innermost step currently executing, or null between steps.</summary>
         public RecordedStep? OpenStep { get; private set; }
+
+        /// <summary>
+        /// Record the table the open step was handed, as one <c>ok</c> cell per (row, column) plus
+        /// the column order — the shape a Gherkin <c>[Table]</c> step produces, so the grid renders
+        /// and travels identically in both lanes.
+        /// </summary>
+        internal void RecordTable(StepTable table)
+        {
+            var step = OpenStep;
+            if (step is null) return;
+
+            step.TableColumns = table.Headers.ToList();
+
+            for (var r = 0; r < table.Rows.Count; r++)
+            {
+                var row = table.Rows[r];
+                for (var c = 0; c < table.Headers.Count; c++)
+                {
+                    step.Cells.Add(new CellResult(table.Headers[c], ResultStatus.ok,
+                        c < row.Count ? row[c] : "") { RowIndex = r });
+                }
+            }
+        }
 
         private readonly List<Exception> _gatheredAssertions = new();
 
@@ -351,6 +384,11 @@ public static class ScenarioRecorder
                 Cells: step.Cells.Count > 0
                     ? step.Cells.Select(toWire).ToList()
                     : null,
+
+                // The column order of a grid: the one thing cells cannot carry themselves, and
+                // without it a viewer cannot reassemble the table. The Gherkin lane has always sent
+                // it; a projected step handed a table literal sends the same field.
+                Columns: step.TableColumns.Count > 0 ? step.TableColumns.ToList() : null,
                 ExceptionType: thrown?.GetType().Name,
                 StackTrace: thrown?.StackTrace,
                 StackFrames: filtered.Frames.Count > 0 ? filtered.Frames : null,
@@ -394,7 +432,13 @@ public static class ScenarioRecorder
 
                 foreach (var step in _steps)
                 {
-                    if (step.Cells.Count > 0)
+                    // Cells that carry no verdict of their own — the input columns of a table the
+                    // step was handed — are not claims, so the step still counts as the one thing it
+                    // did. Without this a three-row setup table read as zero rights and the step
+                    // that ran it disappeared from the figures.
+                    var asserts = step.Cells.Any(x => x.Status is not ResultStatus.ok);
+
+                    if (step.Cells.Count > 0 && asserts)
                     {
                         foreach (var cell in step.Cells) counts.Read(cell.Status);
 
@@ -581,6 +625,13 @@ public static class ScenarioRecorder
                 return ResultStatus.success;
             }
         }
+
+        /// <summary>
+        /// The column headers of the table this step was given, in order, or empty when it was given
+        /// none. The sibling of <c>StepResult.SetVerificationColumns</c>: cells cannot carry the
+        /// column ORDER themselves, and without it a viewer cannot reassemble the grid.
+        /// </summary>
+        public IReadOnlyList<string> TableColumns { get; internal set; } = [];
 
         /// <summary>Unique within the scenario; the id the wire events key on.</summary>
         public string StepId { get; internal set; } = "";

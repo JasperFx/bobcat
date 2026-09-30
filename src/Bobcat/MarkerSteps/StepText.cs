@@ -157,6 +157,11 @@ public static class StepText
             TimeSpan span => span.ToString(null, CultureInfo.InvariantCulture),
             IFormattable number when isNumeric(number) => number.ToString(null, CultureInfo.InvariantCulture),
 
+            // A table is the step's data, and a step's text is prose: it renders as a grid under the
+            // sentence, so it has nothing to say inside it. The placeholder standing is the honest
+            // outcome for a template that names it anyway.
+            StepTable => null,
+
             IEnumerable sequence => sequenceOf(sequence),
 
             // Everything else — a command record, an entity, a fixture — by the name of its type.

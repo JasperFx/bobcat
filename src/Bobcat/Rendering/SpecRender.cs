@@ -463,7 +463,14 @@ public class StepRender
             // The step's own cells, plus any the failure's renderer recovered from its message.
             Cells = step.Cells.Select(CellRender.From)
                 .Concat(rendered?.Cells.Select(CellRender.From) ?? [])
-                .ToList()
+                .ToList(),
+
+            // A table the step was handed renders as a grid, the same one a Gherkin [Table] step
+            // renders — the cells carry a RowIndex and the columns carry the order, so the fold is
+            // the fold that already exists.
+            SetVerification = step.TableColumns.Count == 0
+                ? null
+                : SetVerificationRender.FromCells(step.TableColumns, step.Cells)
         };
     }
 
@@ -576,11 +583,23 @@ public class SetVerificationRender
     public List<SetVerificationRowRender> Rows { get; init; } = new();
 
     public static SetVerificationRender FromStepResult(StepResult result)
+        => FromCells(result.SetVerificationColumns ?? [], result.Cells);
+
+    /// <summary>
+    /// The grid for a set of cells carrying a <c>RowIndex</c>, under the given column order.
+    /// </summary>
+    /// <remarks>
+    /// Taken as cells rather than as a <c>StepResult</c> so the projected lane can use it: a C# test
+    /// handing a step a table literal produces exactly the same cells, and one fold means the two
+    /// lanes cannot render the same table two ways.
+    /// </remarks>
+    public static SetVerificationRender FromCells(
+        IReadOnlyList<string> columnOrder, IReadOnlyList<CellResult> allCells)
     {
-        var columns = result.SetVerificationColumns?.ToList() ?? new();
+        var columns = columnOrder.ToList();
         var rows = new List<SetVerificationRowRender>();
 
-        foreach (var group in result.Cells.GroupBy(c => c.RowIndex).OrderBy(g => g.Key))
+        foreach (var group in allCells.GroupBy(c => c.RowIndex).OrderBy(g => g.Key))
         {
             var cells = group.ToList();
             var missingCell = cells.FirstOrDefault(c => c.Name == "missing-row");
@@ -620,7 +639,12 @@ public class SetVerificationRender
 
                 foreach (var col in columns)
                 {
-                    var cell = cells.FirstOrDefault(c => c.Name == col);
+                    // LAST wins. One cell per column per row is the Gherkin lane's shape, so this
+                    // is the same cell either way; in the projected lane a step is handed the table
+                    // as written AND then reports its own comparisons, and the comparison is the
+                    // thing worth showing — an expected/actual pair rather than the text the test
+                    // wrote two lines above.
+                    var cell = cells.LastOrDefault(c => c.Name == col);
 
                     // A compared column whose row threw produced nothing to compare — the cell is
                     // absent, not empty, and takes the row's own status so it is never read as a pass.

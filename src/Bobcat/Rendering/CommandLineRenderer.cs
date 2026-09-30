@@ -303,17 +303,22 @@ public class CommandLineRenderer
         // Storyteller's own StoryTellerAssert existed to replace.
 
 
-        foreach (var cell in step.Cells)
+        // A grid has already shown every one of them, in the rows they belong to. Listing them again
+        // underneath reads as a second, flatter report of the same comparison.
+        if (step.SetVerification == null)
         {
-            var cellIcon = cell.Status switch
+            foreach (var cell in step.Cells)
             {
-                ResultStatus.success => "[green]✓[/]",
-                ResultStatus.failed => "[red]✗[/]",
-                ResultStatus.error => "[yellow]![/]",
-                _ => " "
-            };
-            AnsiConsole.MarkupLine(
-                $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+                var cellIcon = cell.Status switch
+                {
+                    ResultStatus.success => "[green]✓[/]",
+                    ResultStatus.failed => "[red]✗[/]",
+                    ResultStatus.error => "[yellow]![/]",
+                    _ => " "
+                };
+                AnsiConsole.MarkupLine(
+                    $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+            }
         }
 
         // Render correlated logs

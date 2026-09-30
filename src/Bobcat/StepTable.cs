@@ -66,4 +66,80 @@ public sealed class StepTable
 
     public override string ToString()
         => string.Join("\n", new[] { Headers }.Concat(Rows).Select(r => "| " + string.Join(" | ", r) + " |"));
+
+    /// <summary>
+    /// A table written as pipe-delimited text — the same table a <c>.feature</c> file writes, and
+    /// the exact inverse of <see cref="ToString"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is how a <b>projected</b> test supplies a table. A C# test has no trailing
+    /// <c>|...|</c> block, and the alternatives were worse: calling a row grammar N times renders as
+    /// N steps and loses the grid, and a collection-of-tuples argument needs a second grammar
+    /// written for the C# lane beside the one the feature file uses. A table literal means
+    /// <b>one grammar body serves both lanes</b> — the document supplies the table, or the caller
+    /// does:
+    /// </para>
+    /// <code>
+    /// TheUsersAre("""
+    ///     | first  | last   |
+    ///     | LeBron | James  |
+    ///     | Chris  | Paul   |
+    ///     """);
+    /// </code>
+    /// <para>
+    /// A markdown table pastes in unchanged: the alignment row (<c>|---|:--:|</c>) is recognised and
+    /// dropped, leading and trailing pipes are optional, cells are trimmed, and blank lines are
+    /// ignored. What is deliberately NOT supported is markdown's escaping and inline formatting — a
+    /// cell is the text between pipes, because that is what a Gherkin cell is, and two rules for
+    /// reading a cell is how the two lanes would drift.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">The text has no rows at all, so there are no headers.</exception>
+    public static StepTable Parse(string text)
+    {
+        var rows = new List<IReadOnlyList<string>>();
+
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.Trim().Trim('\r');
+            if (trimmed.Length == 0) continue;
+
+            var cells = splitRow(trimmed);
+            if (cells.Count == 0) continue;
+
+            // A markdown alignment row is punctuation, not data.
+            if (rows.Count == 1 && cells.All(isAlignment)) continue;
+
+            rows.Add(cells);
+        }
+
+        if (rows.Count == 0)
+            throw new ArgumentException(
+                "A table literal needs at least a header row, written as pipe-delimited text: " +
+                "\"| first | last |\"", nameof(text));
+
+        return new StepTable(rows[0], rows.Skip(1).ToList());
+    }
+
+    /// <summary>
+    /// Reads a table literal as a table. Lets a call site pass the text itself, which is the whole
+    /// point — see <see cref="Parse"/>.
+    /// </summary>
+    public static implicit operator StepTable(string text) => Parse(text);
+
+    private static List<string> splitRow(string line)
+    {
+        // Leading and trailing pipes are optional, so a row is the text BETWEEN them.
+        var body = line;
+        if (body.StartsWith("|", StringComparison.Ordinal)) body = body.Substring(1);
+        if (body.EndsWith("|", StringComparison.Ordinal)) body = body.Substring(0, body.Length - 1);
+
+        if (body.Trim().Length == 0 && !line.Contains('|')) return new List<string>();
+
+        return body.Split('|').Select(c => c.Trim()).ToList();
+    }
+
+    private static bool isAlignment(string cell)
+        => cell.Length > 0 && cell.All(c => c is '-' or ':' or ' ');
 }
