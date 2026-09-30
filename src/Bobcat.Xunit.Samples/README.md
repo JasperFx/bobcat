@@ -25,7 +25,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Seventeen of the thirty-one specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Seventeen of the thirty-two specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 ## This pass covers Sentence and Fact grammars
@@ -78,6 +78,13 @@ optional, cells are trimmed — so the table in the specification, the table in 
 the table in the test are the same text. What is deliberately not supported is markdown's escaping
 and inline formatting: a cell is the text between pipes, because that is what a Gherkin cell is, and
 two rules for reading a cell is how the lanes would drift.
+
+A **table of objects** is `TableRunner.BuildRows<T>(table)` — Storyteller's `CreateNewObject<T>`,
+with the same cell conversion the Gherkin lane uses, so `TODAY+30` is a date and a field the record
+defaults need not appear in the table at all. Its "before all rows" and "after all rows" hooks are the
+lines either side of the call; Storyteller needed hooks because the table was declared rather than
+called. On a grammar that inherits `Fixture`, `BuildRows<T>` and `RunTable(nameof(...), table)` are
+there directly.
 
 A **decision table** works the same way, with the grammar reporting one cell per row —
 `SpecAssert.Check(name, actual, expected, rowIndex: i)` — so the grid carries a verdict per row. The

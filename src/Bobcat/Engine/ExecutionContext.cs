@@ -55,6 +55,24 @@ public class SpecExecutionContext : IExecutionContext
         CurrentStep?.AttachDiagnostic(key, data);
     }
 
+    public void RecordCells(IReadOnlyList<CellResult> cells, IReadOnlyList<string> columns)
+    {
+        var step = CurrentStep;
+        if (step is null) return;
+
+        step.IsSetVerification = true; // the grid rendering path
+        step.SetVerificationColumns = columns.ToList();
+        step.MarkCells(cells as CellResult[] ?? cells.ToArray());
+
+        // Same rule DecisionTableComparer.Apply follows: a bad cell fails the step, and a table of
+        // input cells leaves the step's own verdict alone.
+        if (cells.Any(c => c.Status is ResultStatus.failed or ResultStatus.invalid
+                or ResultStatus.error or ResultStatus.missing))
+        {
+            step.MarkFailed();
+        }
+    }
+
     public void ReportProgress(StepUpdate update)
     {
         ProgressSink?.Invoke(update);

@@ -38,10 +38,10 @@ public static class CellValues
     /// <summary>
     /// The cell as <paramref name="target"/>, or null where the cell says so and the target allows it.
     /// </summary>
-    /// <exception cref="SpecCriticalException">
-    /// The cell cannot be read as that type. A critical failure rather than a
-    /// <see cref="FormatException"/> from somewhere inside a parse, because the author needs to be
-    /// told which cell and what was expected of it.
+    /// <exception cref="BadCellException">
+    /// The cell cannot be read as that type — named rather than left as a <see cref="FormatException"/>
+    /// from somewhere inside a parse, and outside the <c>Spec*</c> tier so one bad row does not take
+    /// the scenario with it.
     /// </exception>
     public static object? Read(string text, Type target)
     {
@@ -156,7 +156,18 @@ public static class CellValues
         try
         {
             if (target == typeof(string)) return raw;
-            if (target.IsEnum) return Enum.Parse(target, raw, ignoreCase: true);
+
+            if (target.IsEnum)
+            {
+                // Named, like BOBCAT030 names them at build time. .NET's own message is
+                // "Requested value 'Shortstop' was not found", which tells the author nothing about
+                // what they could have written instead.
+                if (Enum.TryParse(target, raw, ignoreCase: true, out var member)) return member;
+
+                throw cannotRead(original, target,
+                    $"'{raw}' is not one of {target.Name}'s values ({string.Join(", ", Enum.GetNames(target))})");
+            }
+
             if (target == typeof(Guid)) return Guid.Parse(raw);
             if (target == typeof(bool)) return bool.Parse(raw);
             if (target == typeof(char)) return char.Parse(raw);
@@ -189,6 +200,6 @@ public static class CellValues
         }
     }
 
-    private static SpecCriticalException cannotRead(string text, Type target, string because)
+    private static BadCellException cannotRead(string text, Type target, string because)
         => new($"The cell '{text}' could not be read as {target.Name}: {because}");
 }

@@ -1,4 +1,14 @@
+using Bobcat.Runtime;
+
 namespace Bobcat.Xunit.Samples.Grammars;
+
+/// <summary>What Storyteller expressed as [SelectionValues]; an enum says it to the compiler too.</summary>
+public enum Position
+{
+    Pitcher,
+    Outfield,
+    Catcher
+}
 
 /// <summary>
 /// Storyteller 5's table grammars, from the C# side: the tabular data a specification sets up,
@@ -48,6 +58,35 @@ public class RosterGrammar
     [Then("the roster reads {expected}")]
     internal void TheRosterReads(string expected)
         => SpecAssert.Check("roster", string.Join(", ", _roster), expected);
+
+    /// <summary>
+    /// Storyteller's <c>CreateNewObject&lt;T&gt;</c> from the C# side: the rows ARE the input, built
+    /// through the same cell conversion the Gherkin lane uses — so <c>TODAY+2</c> is a date and a
+    /// field the record defaults need not appear in the table at all.
+    /// </summary>
+    /// <remarks>
+    /// The "before all rows" and "after all rows" hooks Storyteller needed are the lines either side
+    /// of the call: <c>_signings.Clear()</c> above, one save below. A declared table needed hooks
+    /// because it was declared rather than called.
+    /// </remarks>
+    [Given("the signings are")]
+    internal void TheSigningsAre(StepTable table)
+    {
+        _signings.Clear();
+        _signings.AddRange(TableRunner.BuildRows<Signing>(table));
+    }
+
+    [Then("the signings read {expected}")]
+    internal void TheSigningsRead(string expected)
+        => SpecAssert.Check("signings", string.Join(", ", _signings.Select(s => s.Describe())), expected);
+
+    private readonly List<Signing> _signings = new();
+
+    /// <summary>A record with a defaulted field, so a column can be left out of the table.</summary>
+    public record Signing(string Player, Position Position, DateOnly StartsOn, int Years = 1)
+    {
+        public string Describe() => $"{Player}/{Position}/{Years}y";
+    }
 
     /// <summary>
     /// A decision table from the C# side: the expected value is a column like any other, and the

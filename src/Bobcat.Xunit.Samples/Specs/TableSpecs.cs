@@ -42,6 +42,22 @@ public class TableSpecs
     }
 
     /// <summary>
+    /// Storyteller's <c>CreateNewObject&lt;T&gt;</c>: a table of records as the test input, with a
+    /// relative date and the <c>Years</c> column left out because the record defaults it.
+    /// </summary>
+    [Fact]
+    public void a_table_of_objects_as_the_input()
+    {
+        _roster.TheSigningsAre("""
+            | Player       | Position | StartsOn |
+            | Nolan Ryan   | Pitcher  | TODAY    |
+            | Johnny Bench | Catcher  | TODAY+30 |
+            """);
+
+        _roster.TheSigningsRead("Nolan Ryan/Pitcher/1y, Johnny Bench/Catcher/1y");
+    }
+
+    /// <summary>
     /// StoryTeller.Samples/Specs/Tables/Tables.md — a decision table with one wrong answer, so the
     /// grid has a verdict per row and one of them disagrees.
     /// </summary>

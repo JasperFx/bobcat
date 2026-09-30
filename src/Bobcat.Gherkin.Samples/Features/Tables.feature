@@ -82,6 +82,38 @@ Feature: Tables
       | Johnny Bench |
     Then the roster reads "Willy Mays (Outfield), Johnny Bench (Outfield)"
 
+  # Samples/Fixtures/TableFixture.cs — the same before/after envelope, run from the step's own body
+  Scenario: A table run through one of the fixture's own methods
+    Given the team is
+      | Player Name  | position |
+      | Nolan Ryan   | Pitcher  |
+      | Johnny Bench | Catcher  |
+    Then the team was saved once as "Nolan Ryan:Pitcher; Johnny Bench:Catcher"
+
+  Scenario: A row of that table throws
+    Given the team is
+      | Player Name | position  |
+      | Willy Mays  | Outfield  |
+      | Nobody      | Shortstop |
+      | Nolan Ryan  | Pitcher   |
+    Then the team was saved once as "Willy Mays:Outfield; Nolan Ryan:Pitcher"
+
+  # Samples/Fixtures/SetsFixture.cs — CreateNewObject<T>: a relative date, and a column left out
+  # because the record declares a default for it
+  Scenario: A table of objects as the test input
+    Given the invoices are
+      | Id    | Amount | DueOn   |
+      | INV-1 | 100.50 | TODAY   |
+      | INV-2 | 200.00 | TODAY+2 |
+    Then the invoices are two days apart and both in USD
+
+  Scenario: A row of that table cannot be built
+    Given the invoices are
+      | Id    | Amount | DueOn    |
+      | INV-1 | 100.50 | TODAY    |
+      | INV-2 | oops   | TODAY+2  |
+    Then one invoice was built
+
   # StoryTeller.Samples/Specs/Tables/Tables with Errors.md
   Scenario: The batch cannot be opened
     Given the batch with a broken open runs

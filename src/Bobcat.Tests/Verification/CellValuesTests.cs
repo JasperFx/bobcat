@@ -78,14 +78,14 @@ public class CellValuesTests
     [Fact]
     public void NULL_against_a_type_that_cannot_be_null_says_which_type()
     {
-        Should.Throw<SpecCriticalException>(() => CellValues.Read<int>("NULL"))
+        Should.Throw<BadCellException>(() => CellValues.Read<int>("NULL"))
             .Message.ShouldContain("Int32 cannot be null");
     }
 
     [Fact]
     public void a_cell_it_cannot_read_names_the_cell_and_the_type()
     {
-        var ex = Should.Throw<SpecCriticalException>(() => CellValues.Read<int>("oops"));
+        var ex = Should.Throw<BadCellException>(() => CellValues.Read<int>("oops"));
 
         ex.Message.ShouldContain("'oops'");
         ex.Message.ShouldContain("Int32");
@@ -96,6 +96,6 @@ public class CellValuesTests
     {
         // A string cell is text, so TODAY is the word TODAY. Anything else is refused as itself.
         CellValues.Read<string>("TODAY").ShouldBe("TODAY");
-        Should.Throw<SpecCriticalException>(() => CellValues.Read<int>("TODAY"));
+        Should.Throw<BadCellException>(() => CellValues.Read<int>("TODAY"));
     }
 }

@@ -20,6 +20,9 @@ public enum Position
     Catcher
 }
 
+/// <summary>The kind of object a table of test input builds — a record with a defaulted field.</summary>
+public record Invoice(string Id, decimal Amount, DateOnly DueOn, string Currency = "USD");
+
 public class TablesFixture : Fixture
 {
     /// <summary>
@@ -96,10 +99,63 @@ public class TablesFixture : Fixture
     public void BeforeEach()
     {
         Roster.Clear();
+        _team.Clear();
+        TeamSaved = "";
+        Invoices = [];
         UserTableGrammar.Saved = "";
         BeforeThrowsGrammar.AfterRan = false;
         AfterThrowsGrammar.RowsSeen = 0;
     }
+
+    /// <summary>
+    /// Storyteller's <c>this["BuildUser"].AsTable("The Users are").Before(...).After(...)</c>, written
+    /// out: the step takes the whole table, <c>RunTable</c> runs one private method per row, and the
+    /// envelope is the method body — the clear above the rows and the save below them.
+    /// </summary>
+    [Given("the team is")]
+    public async Task TheTeamIs(StepTable table)
+    {
+        _team.Clear();                       // before all rows
+        await RunTable(nameof(addToTeam), table);
+        TeamSaved = string.Join("; ", _team); // after all rows, once
+    }
+
+    private void addToTeam([Header("Player Name")] string player, Position position = Position.Outfield)
+        => _team.Add($"{player}:{position}");
+
+    private readonly List<string> _team = new();
+
+    internal string TeamSaved = "";
+
+    [Then("the team was saved once as {string}")]
+    public string TheTeamWasSavedOnceAs() => TeamSaved;
+
+    /// <summary>
+    /// Storyteller's <c>CreateNewObject&lt;T&gt;</c>: the rows ARE the test input. Columns bind to the
+    /// record's constructor, the <c>DueOn</c> column reads <c>TODAY+2</c> as a date, and <c>Currency</c>
+    /// is left out of the table entirely because the record declares a default for it.
+    /// </summary>
+    [Given("the invoices are")]
+    public void TheInvoicesAre(StepTable table) => Invoices = BuildRows<Invoice>(table);
+
+    internal Invoice[] Invoices = [];
+
+    /// <summary>
+    /// Asserted relative to each other rather than against a written date, because <c>TODAY</c> is a
+    /// fact about the run and a spec pinning today's date is red tomorrow.
+    /// </summary>
+    [Check("the invoices are two days apart and both in USD")]
+    public bool TheInvoicesAreTwoDaysApart()
+        => Invoices.Length == 2
+           && Invoices[1].DueOn == Invoices[0].DueOn.AddDays(2)
+           && Invoices.All(i => i.Currency == "USD");
+
+    /// <summary>
+    /// A row whose cell will not convert is that row's failure: it is left out, the others are still
+    /// built, and the grid shows which one broke.
+    /// </summary>
+    [Check("one invoice was built")]
+    public bool OneInvoiceWasBuilt() => Invoices.Length == 1;
 
     /// <summary>Reads what the table grammar's After flushed — once, not once per row.</summary>
     [Then("the batch was saved once as {string}")]

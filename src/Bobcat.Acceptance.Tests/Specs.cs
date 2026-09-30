@@ -10,14 +10,19 @@ namespace Bobcat.Acceptance.Tests;
 /// </summary>
 public static class Specs
 {
-    public static async Task<ExecutionResults> Run(FeatureDefinition feature, string scenarioTitle)
+    /// <param name="instance">
+    /// The fixture to run against, when the test wants to read its state afterwards. Built like the
+    /// runner would when omitted.
+    /// </param>
+    public static async Task<ExecutionResults> Run(FeatureDefinition feature, string scenarioTitle,
+        Fixture? instance = null)
     {
         var scenario = feature.Scenarios.FirstOrDefault(s => s.Title == scenarioTitle)
                        ?? throw new ArgumentException(
                            $"No scenario '{scenarioTitle}' in feature '{feature.Title}'. " +
                            $"Available: {string.Join(", ", feature.Scenarios.Select(s => s.Title))}");
 
-        var fixture = (Fixture)Activator.CreateInstance(feature.FixtureType)!;
+        var fixture = instance ?? (Fixture)Activator.CreateInstance(feature.FixtureType)!;
 
         var plan = new ExecutionPlan(scenario.Title, TimeSpan.FromSeconds(30));
         scenario.BuildPlan(fixture, plan);

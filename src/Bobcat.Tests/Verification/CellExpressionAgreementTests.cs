@@ -48,7 +48,7 @@ public class CellExpressionAgreementTests
         CellExpressions.IsRelativeTime(token).ShouldBeTrue();
         RelativeTimeResolver.TryResolve(token, TimeProvider.System, out _, out _).ShouldBeFalse();
 
-        var ex = Should.Throw<SpecCriticalException>(() => CellValues.Read<DateTime>(token));
+        var ex = Should.Throw<BadCellException>(() => CellValues.Read<DateTime>(token));
         ex.Message.ShouldContain(token);
     }
 

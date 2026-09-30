@@ -23,7 +23,7 @@ dotnet run --project src/Bobcat.Gherkin.Samples/ -- run --feature "Sets"
 dotnet run --project src/Bobcat.Gherkin.Samples/ -- list
 ```
 
-**Sixteen of the twenty-six specifications fail on purpose**, which is why this is a plain `BobcatRunner`
+**Eighteen of the thirty specifications fail on purpose**, which is why this is a plain `BobcatRunner`
 console and not a test project: nothing collects it, and a red run here is the samples working.
 
 ## The Storyteller → Bobcat mapping
@@ -169,6 +169,83 @@ genuinely constrained a value an enum parameter now does the job better: `Positi
 cell outside the list a BOBCAT030 build error naming the alternatives, which a runtime selection list
 never could.
 
+## Cell expressions, on both sides of a table
+
+Storyteller read `TODAY`, `TODAY+2`, `NULL` and `EMPTY` in any cell. Bobcat read them on the
+**expected** side only: `TODAY+2` worked where a specification *asserted* a date and was a build error
+where it *supplied* one — the same word meaning two things in one document. It now means one thing.
+
+`Bobcat.Runtime.CellValues` is the single runtime authority on what a written cell means, and the
+tokens read the same in a `[Table]` step's input column, a set verification's expected column, a
+`RunTable` row and a table literal in a C# test. `NULL`, `EMPTY`, a quoted literal (`"NULL"` is the
+word) and the relative times all travel. `TODAY - 1 week` resolves; months and years deliberately do
+not, because their length depends on which month and a spec asserting the offset would drift.
+
+**A relative time resolves at run time, never at build time.** The generator emits a call rather than
+a computed date: "today" is a fact about the run, and a build cached overnight would hand every later
+run yesterday's date with nothing in the report to say so. A relative token against a `string` is the
+*word* — a table entitled to keep its dates as text says `TODAY` and means it — and against a number
+it is refused as a number, which is the better message.
+
+The grid shows the resolved value with the token as its note:
+
+```
+│ 1 │ 10     │ 2026-09-28 (TODAY-2) │ Socks      │   OK   │
+```
+
+## A table the step runs itself
+
+Storyteller's `this["BuildUser"].AsTable("The Users are").Before(...).After(...)` and
+`CreateNewObject<T>(...)`, as two methods on `Fixture`:
+
+```csharp
+[Given("the team is")]
+public async Task TheTeamIs(StepTable table)
+{
+    _team.Clear();                            // before all rows
+    await RunTable(nameof(addToTeam), table);
+    TeamSaved = string.Join("; ", _team);     // after all rows, once
+}
+
+private void addToTeam([Header("Player Name")] string player, Position position = Position.Outfield)
+    => _team.Add($"{player}:{position}");
+```
+
+```csharp
+[Given("the invoices are")]
+public void TheInvoicesAre(StepTable table) => Invoices = BuildRows<Invoice>(table);
+
+public record Invoice(string Id, decimal Amount, DateOnly DueOn, string Currency = "USD");
+```
+
+**The before/after hooks are the method body.** Storyteller needed `.Before(...)` and `.After(...)`
+because the table was *declared* rather than called; here "before all rows" is the line above and
+"after all rows" is the line below, which is also where a `DbContext` or a document session gets its
+single `SaveChangesAsync`. That is the same observation as an optional column being an optional C#
+parameter: the language already has the feature.
+
+Everything else matches the generated envelope on purpose — columns bind by name, `[Header]` renames
+one, an optional parameter's column may be left out, cells convert through `CellValues`, a row that
+throws is a failed row with the rest still run, a returned value plus one unclaimed column is a
+decision table, and the whole thing renders as one grid. A table run this way and a table bound by the
+generator report the same way over the same document.
+
+`TableRunner` is the engine, public so a grammar that is not a `Fixture` can use it —
+`TableRunner.BuildRows<Signing>(table)` is how the projected lane's `RosterGrammar` does it. It is the
+fourth bounded softening of "no reflection", beside `GrammarBehaviors.Resolve`, `RecordBuilding` and
+the store conventions: a method named by a `string` cannot be bound at compile time, and naming one is
+the point — the row method stays a private detail of the fixture instead of a step in the document.
+
+**A bad cell is one row's problem.** `BadCellException` sits deliberately outside the `Spec*` tier
+vocabulary — those three words mean something to the runner — so a cell that will not convert fails
+its row, names the column and the alternatives, and lets the other rows run:
+
+```
+│ 2 │ Nobody      │ Shortstop │ ERROR  │
+  row 2: BadCellException: The cell 'Shortstop' could not be read as Position:
+          'Shortstop' is not one of Position's values (Pitcher, Outfield, Catcher)
+```
+
 ## Gaps that remain
 
 - **Inline list captures.** `[FormatAs("The array of names should be {names}")]` with
@@ -178,9 +255,6 @@ never could.
   columns are the result type's properties, so the equivalent alias would be an attribute on the
   property — Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built; no sample
   needed it once the document could name the columns itself.
-- **Relative dates.** Storyteller read `TODAY`, `TODAY-1`, `TODAY+2` in any date cell. `SetsFixture`
-  here keeps `Date` as a `string` for that reason — with a `DateTime` the samples' own data would be
-  BOBCAT030. This is a cell-conversion concern, so `CellLiterals` is now the one place it would go.
 - **Paragraphs.** `Paragraph("Divide numbers", …).AsTable(…)` composed a table row out of several
   grammars. Deliberately out of scope: the same decision the projected lane took about
   Storyteller's paragraphs.

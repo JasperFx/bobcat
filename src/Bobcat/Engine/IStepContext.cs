@@ -51,6 +51,21 @@ public interface IStepContext
     }
 
     /// <summary>
+    /// Report a grid on the step in progress: the cells, each carrying its <c>RowIndex</c>, and the
+    /// column order they belong in.
+    /// </summary>
+    /// <remarks>
+    /// How a hand-written step reports a table. The generated <c>[Table]</c> and
+    /// <c>[DecisionTable]</c> envelopes build the same cells and reach the step result directly,
+    /// because they ARE the step; a fixture method running a table itself — <c>Fixture.RunTable</c>,
+    /// <c>Fixture.BuildRows</c> — has only its context. Default no-op so narrow test fakes need not
+    /// care.
+    /// </remarks>
+    void RecordCells(IReadOnlyList<CellResult> cells, IReadOnlyList<string> columns)
+    {
+    }
+
+    /// <summary>
     /// Publish <paramref name="value"/> as this scenario's <typeparamref name="T"/> on the typed
     /// per-scenario blackboard (issue #212), replacing any earlier <typeparamref name="T"/>. State
     /// lives for exactly one scenario bracket — the runner builds a fresh context per attempt, so
