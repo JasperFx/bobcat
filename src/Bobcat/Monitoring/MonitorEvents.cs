@@ -241,6 +241,27 @@ public record StepCell(
 /// <see cref="ElapsedMs"/> is time since the step started. Coalesced by the publisher, so a
 /// 200-row grammar does not cost 200 HTTP payloads; the last row always posts.
 /// </summary>
+/// <param name="Cells">
+/// The cells the step has produced <b>so far</b> — the whole set, not a delta — or <c>null</c> when
+/// this update says nothing about cells (issue #387).
+/// </param>
+/// <remarks>
+/// <para>
+/// <b>Why the whole set and not a delta.</b> A consumer upserts per step, latest wins, so a dropped
+/// or coalesced update costs nothing: the next one restates everything. A delta would make the
+/// coalescing that protects the channel into a correctness problem.
+/// </para>
+/// <para>
+/// <b><c>null</c> means "nothing to say about cells", never "there are none".</b> A receiver keeps
+/// the last set it had. That is what lets a <c>[TableGrammar]</c> row tick — which carries rows and
+/// no cells — interleave with cell-bearing updates without blanking them.
+/// </para>
+/// <para>
+/// <b><see cref="StepFinished.Cells"/> stays the authority.</b> Interim cells are replaced by the
+/// final set when the step finishes, so an interim update the coalescer throws away can never leave
+/// a wrong final picture.
+/// </para>
+/// </remarks>
 public record StepProgress(
     Guid RunId,
     string Uid,
@@ -248,7 +269,8 @@ public record StepProgress(
     string? Message,
     int? Row,
     int? TotalRows,
-    long ElapsedMs) : MonitorEvent(RunId);
+    long ElapsedMs,
+    IReadOnlyList<StepCell>? Cells = null) : MonitorEvent(RunId);
 
 // The supervisor's lane topology, recycles and worker faults (issue #84) — posted by
 // SupervisorRunPublisher, which is the only publisher that knows them.

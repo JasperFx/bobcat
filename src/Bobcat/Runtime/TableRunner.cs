@@ -175,6 +175,10 @@ public static class TableRunner
 
         step.TableColumns = run.Columns;
         foreach (var cell in run.Cells) step.Cells.Add(cell);
+
+        // The grid reaches a watcher while the step is still running (issue #387). Coalesced there,
+        // so one call is one post at most.
+        ScenarioRecorder.PublishCellsSoFar();
     }
 
     private static object?[] bind(ParameterInfo[] parameters,

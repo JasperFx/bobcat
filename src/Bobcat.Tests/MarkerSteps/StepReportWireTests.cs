@@ -35,6 +35,71 @@ public class StepReportWireTests : IDisposable
     private ScenarioRecorder.Recording begin()
         => ScenarioRecorder.Begin("Feature", "Scenario", _sink, _runId);
 
+    // --- issue #387: cells so far, while the step is still running ---
+
+    [Fact]
+    public void a_running_step_publishes_the_cells_it_has_made_so_far()
+    {
+        using var recording = begin();
+        using (ScenarioRecorder.Step("Then", "the totals are"))
+        {
+            SpecAssert.Check("Sum", 8, 6);
+            SpecAssert.Check("Product", 16, 16);
+        }
+
+        // At least one interim update, carrying the whole set as of that moment rather than a delta.
+        var progress = _sink.Events.OfType<StepProgress>().ToArray();
+        progress.ShouldNotBeEmpty();
+        progress.ShouldAllBe(p => p.StepId == "s1");
+
+        var last = progress[^1];
+        last.Cells.ShouldNotBeNull();
+        last.Cells!.Select(c => c.Name).ShouldBeSubsetOf(["Sum", "Product"]);
+        last.Cells[0].Name.ShouldBe("Sum");
+        last.Cells[0].Expected.ShouldBe("6");
+        last.Cells[0].Actual.ShouldBe("8");
+    }
+
+    [Fact]
+    public void the_final_cells_are_still_the_authority()
+    {
+        using var recording = begin();
+        using (ScenarioRecorder.Step("Then", "the totals are"))
+        {
+            SpecAssert.Check("Sum", 8, 6);
+            SpecAssert.Check("Product", 16, 16);
+        }
+
+        // Whatever the interim updates managed to say, StepFinished carries the complete set — so an
+        // interim update the coalescer threw away can never leave a wrong final picture.
+        _sink.Events.OfType<StepFinished>().Single().Cells!
+            .Select(c => c.Name).ShouldBe(["Sum", "Product"]);
+    }
+
+    [Fact]
+    public void five_hundred_cells_in_a_tight_loop_do_not_become_five_hundred_payloads()
+    {
+        using var recording = begin();
+        using (ScenarioRecorder.Step("Then", "every row agrees"))
+        {
+            for (var i = 0; i < 500; i++) SpecAssert.Check($"row{i}", i, i);
+        }
+
+        // Coalesced on the same interval the engine lane uses. The channel drops on backpressure and
+        // StepFinished matters more than any tick, so the interim view is deliberately cheap.
+        _sink.Events.OfType<StepProgress>().Count().ShouldBeLessThan(20);
+    }
+
+    [Fact]
+    public void a_check_outside_a_scenario_publishes_nothing_and_throws_nothing()
+    {
+        // SpecAssert is called from helpers that are not specifications. With nothing recording there
+        // is nothing to report to, and saying so must not cost the caller an exception.
+        SpecAssert.Check("loose", 1, 2).ShouldBeFalse();
+
+        _sink.Events.ShouldBeEmpty();
+    }
+
     [Fact]
     public void a_value_comparison_reaches_the_wire_as_a_cell()
     {

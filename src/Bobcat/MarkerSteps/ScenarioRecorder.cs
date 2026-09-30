@@ -53,6 +53,30 @@ public static class ScenarioRecorder
     public static RecordedStep? CurrentStep => _current.Value?.OpenStep;
 
     /// <summary>
+    /// Hang a cell on the step in progress and publish the step's cells so far (issue #387). No-op
+    /// when no scenario is recording.
+    /// </summary>
+    public static void RecordCell(CellResult cell)
+    {
+        var recording = _current.Value;
+        var step = recording?.OpenStep;
+        if (recording is null || step is null) return;
+
+        step.Cells.Add(cell);
+        recording.CellsProgressed(step);
+    }
+
+    /// <summary>
+    /// Publish the open step's cells so far, for a caller that added them itself. No-op when no
+    /// scenario is recording.
+    /// </summary>
+    public static void PublishCellsSoFar()
+    {
+        var recording = _current.Value;
+        if (recording?.OpenStep is { } step) recording.CellsProgressed(step);
+    }
+
+    /// <summary>
     /// Open a scenario. Disposing the returned handle closes it and publishes the verdict.
     /// </summary>
     public static Recording Begin(string feature, string scenario, IMonitorEventSink? publisher, Guid runId)
@@ -206,6 +230,46 @@ public static class ScenarioRecorder
         public RecordedStep? OpenStep { get; private set; }
 
         /// <summary>
+        /// Post the open step's cells so far, coalesced (issue #387).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A projected step that spends thirty seconds making twenty <c>SpecAssert.Check</c> calls used
+        /// to show nothing until it ended, because cells first reached the wire on
+        /// <c>StepFinished</c>. This is the interim view, and it is the WHOLE set every time rather
+        /// than a delta: a receiver upserts per step, latest wins, so a coalesced or dropped update
+        /// costs nothing because the next one restates everything.
+        /// </para>
+        /// <para>
+        /// Coalesced on the same <see cref="MonitorPublishingObserver.DefaultProgressInterval"/> the
+        /// engine lane uses, per step, because a step checking five hundred cells in a tight loop must
+        /// not put five hundred payloads into a channel that drops on backpressure.
+        /// <c>StepFinished.Cells</c> is the authority, so dropping interim updates is always safe.
+        /// </para>
+        /// </remarks>
+        internal void CellsProgressed(RecordedStep step)
+        {
+            if (_publisher is null || step.Cells.Count == 0) return;
+
+            var elapsed = _clock.ElapsedMilliseconds;
+            if (_lastCellsPostedAtMs != long.MinValue
+                && elapsed < _lastCellsPostedAtMs + (long)MonitorPublishingObserver.DefaultProgressInterval.TotalMilliseconds)
+            {
+                return;
+            }
+
+            _lastCellsPostedAtMs = elapsed;
+
+            _publisher.Post(new StepProgress(
+                _runId, Uid, step.StepId,
+                Message: null, Row: null, TotalRows: null,
+                ElapsedMs: elapsed - step.StartedAtMs,
+                Cells: step.Cells.Select(toWire).ToList()));
+        }
+
+        private long _lastCellsPostedAtMs = long.MinValue;
+
+        /// <summary>
         /// Record the table the open step was handed, as one <c>ok</c> cell per (row, column) plus
         /// the column order — the shape a Gherkin <c>[Table]</c> step produces, so the grid renders
         /// and travels identically in both lanes.
@@ -226,6 +290,10 @@ public static class ScenarioRecorder
                         c < row.Count ? row[c] : "") { RowIndex = r });
                 }
             }
+
+            // Once, not per cell: a watcher showing a slow step should see the table it was handed
+            // while it is still working on it (issue #387).
+            CellsProgressed(step);
         }
 
         private readonly List<Exception> _gatheredAssertions = new();
@@ -329,6 +397,9 @@ public static class ScenarioRecorder
                 ValueSpans = valueSpans
             };
             _steps.Add(step);
+
+            // Per step, like the engine lane's: the first cell of a new step always posts.
+            _lastCellsPostedAtMs = long.MinValue;
 
             // Published as it opens, not at the end: a watcher showing a run in flight needs to
             // see the step that is currently taking the time, which is exactly the step that has

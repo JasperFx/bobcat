@@ -138,10 +138,16 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     }
 
     /// <summary>
-    /// Interim progress onto the wire — a <c>[TableGrammar]</c> row tick or a <c>[WaitFor]</c>
-    /// poll message — coalesced per <see cref="DefaultProgressInterval"/> so a fast grammar
-    /// cannot flood the channel. The first update of a step and the final row always post.
+    /// Interim progress onto the wire — a <c>[TableGrammar]</c> row tick, a <c>[WaitFor]</c> poll
+    /// message, or the cells a step has produced so far — coalesced per
+    /// <see cref="DefaultProgressInterval"/> so a fast grammar cannot flood the channel. The first
+    /// update of a step and the final row always post.
     /// </summary>
+    /// <remarks>
+    /// <c>StepUpdate.Cells</c> has been on the engine seam since <c>WaitForRunner</c> needed it, and
+    /// was dropped here: a poll loop reported what it last saw and the wire carried only the message,
+    /// so a viewer could say a step was still running but never what it had established (issue #387).
+    /// </remarks>
     public void StepProgress(string stepId, StepUpdate update)
     {
         var elapsed = _stepClock.ElapsedMilliseconds;
@@ -154,8 +160,18 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
         _lastProgressPostedAtMs = elapsed;
         _sink.Post(new Monitoring.StepProgress(
-            _info.RunId, _currentUid, stepId, update.Message, update.Row, update.TotalRows, elapsed));
+            _info.RunId, _currentUid, stepId, update.Message, update.Row, update.TotalRows, elapsed,
+            // Null, not empty, when the update carries none: a receiver keeps the last set it had,
+            // so a row tick cannot blank the cells a cell-bearing update already showed.
+            Cells: toWire(update.Cells)));
     }
+
+    /// <summary>The cells as the wire carries them, or null when there are none to speak of.</summary>
+    private static List<StepCell>? toWire(IReadOnlyList<CellResult> cells)
+        => cells.Count == 0
+            ? null
+            : cells.Select(c => new StepCell(
+                c.Name, c.Status.ToString(), c.Expected, c.Actual, c.Note, c.RowIndex)).ToList();
 
     /// <summary>
     /// The Gherkin lane's step report, now including its <b>cells</b>.
@@ -170,10 +186,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     {
         var filtered = SpecStackTrace.Filter(result.Exception);
 
-        var cells = result.Cells.Count > 0
-            ? result.Cells.Select(c => new StepCell(
-                c.Name, c.Status.ToString(), c.Expected, c.Actual, c.Note, c.RowIndex)).ToList()
-            : null;
+        var cells = toWire(result.Cells);
 
         _sink.Post(new StepFinished(
             _info.RunId, _currentUid, result.StepId,

@@ -141,7 +141,9 @@ public static class SpecAssert
 
     private static bool record(CellResult cell)
     {
-        ScenarioRecorder.CurrentStep?.Cells.Add(cell);
+        // Silent outside a scenario, deliberately: these helpers are called from plenty of places
+        // that are not specifications, and with nothing recording there is nothing to report to.
+        ScenarioRecorder.RecordCell(cell);
         return cell.Status is ResultStatus.success or ResultStatus.ok;
     }
 }
