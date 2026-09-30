@@ -1,4 +1,5 @@
 using Bobcat.Engine;
+using Bobcat.Runtime;
 
 namespace Bobcat.Rendering;
 
@@ -584,6 +585,8 @@ public class SetVerificationRender
             var cells = group.ToList();
             var missingCell = cells.FirstOrDefault(c => c.Name == "missing-row");
             var extraCell = cells.FirstOrDefault(c => c.Name == "extra-row");
+            var errorCell = cells.FirstOrDefault(c => c.Name == DecisionTableComparer.RowErrorCell);
+            var orderCell = cells.FirstOrDefault(c => c.Name == SetVerificationComparer.OutOfOrderCell);
 
             if (missingCell != null)
             {
@@ -600,14 +603,31 @@ public class SetVerificationRender
             }
             else
             {
-                var row = new SetVerificationRowRender { RowType = SetVerificationRowType.Matched };
+                // A row that ran, whatever its verdict. A row whose own call threw
+                // (`row-error`) or whose position was wrong (`out-of-order`) still has cells
+                // worth showing — the values it was given — so it renders like any other row
+                // with the marker carrying the reason.
+                var marker = errorCell ?? orderCell;
+                var row = new SetVerificationRowRender
+                {
+                    RowType = errorCell != null
+                        ? SetVerificationRowType.Errored
+                        : orderCell != null
+                            ? SetVerificationRowType.OutOfOrder
+                            : SetVerificationRowType.Matched,
+                    Description = marker?.DisplayText
+                };
+
                 foreach (var col in columns)
                 {
                     var cell = cells.FirstOrDefault(c => c.Name == col);
+
+                    // A compared column whose row threw produced nothing to compare — the cell is
+                    // absent, not empty, and takes the row's own status so it is never read as a pass.
                     row.Cells.Add(new SetVerificationCellRender
                     {
                         Column = col,
-                        Status = cell?.Status ?? ResultStatus.ok,
+                        Status = cell?.Status ?? marker?.Status ?? ResultStatus.ok,
                         DisplayText = cell?.DisplayText ?? "",
                         Expected = cell?.Expected,
                         Actual = cell?.Actual,
@@ -670,9 +690,10 @@ public class SetVerificationRowRender
     /// A row passes when it has no bad cells. Plain input/echo cells (status <c>ok</c>)
     /// from decision tables do not count against the row.
     /// </summary>
-    public bool AllCellsOk => Cells.All(c =>
-        c.Status is not (ResultStatus.failed or ResultStatus.invalid
-            or ResultStatus.error or ResultStatus.missing));
+    public bool AllCellsOk => RowType is SetVerificationRowType.Matched
+                              && Cells.All(c =>
+                                  c.Status is not (ResultStatus.failed or ResultStatus.invalid
+                                      or ResultStatus.error or ResultStatus.missing));
 }
 
 public class SetVerificationCellRender
@@ -687,7 +708,20 @@ public class SetVerificationCellRender
 
 public enum SetVerificationRowType
 {
+    /// <summary>A row present on both sides, whose cells carry the verdict.</summary>
     Matched,
+
+    /// <summary>Expected and not found.</summary>
     Missing,
-    Extra
+
+    /// <summary>Found and not expected.</summary>
+    Extra,
+
+    /// <summary>A row whose own call threw. <see cref="SetVerificationRowRender.Description"/> says what.</summary>
+    Errored,
+
+    /// <summary>
+    /// An ordered comparison where this row's values are right but its position is not.
+    /// </summary>
+    OutOfOrder
 }

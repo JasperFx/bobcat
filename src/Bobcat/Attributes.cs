@@ -303,6 +303,57 @@ public class SetVerificationAttribute : Attribute
     /// Comma-separated column names that uniquely identify a row for matching.
     /// </summary>
     public string KeyColumns { get; set; } = "";
+
+    /// <summary>
+    /// When true the rows must also appear in the order the specification writes them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, because most sets have no meaningful order and asserting one the system
+    /// never promised is how a suite acquires a test that fails when nothing broke. Turn it on when
+    /// the order is part of what the specification claims — an event stream, a sorted report, a
+    /// queue.
+    /// </para>
+    /// <para>
+    /// Rows are still matched by <see cref="KeyColumns"/> first and the order of the matches is
+    /// then checked, so an inserted row reads as one extra row rather than as every row after it
+    /// disagreeing. See <c>SetVerificationComparer.Compare</c> for why that matters and for what
+    /// naming no key columns costs.
+    /// </para>
+    /// </remarks>
+    public bool Ordered { get; set; }
+
+    /// <summary>
+    /// For a set of plain values — <c>IEnumerable&lt;string&gt;</c>, <c>IEnumerable&lt;int&gt;</c>,
+    /// a set of enum values — the name of the single column each value is compared under.
+    /// </summary>
+    /// <remarks>
+    /// A set of objects takes its columns from the properties the document's headers name; a set of
+    /// values has no properties to read, so the fixture says what the one column is called. This is
+    /// Storyteller's <c>VerifyStringList(...).Titled("The names in order should be", "Name")</c>,
+    /// whose second argument did the same job. Without it a set of strings is compared against the
+    /// properties of <c>string</c> — <c>Length</c> and <c>Chars</c> — and every row reads as missing
+    /// and extra at once, which is why BOBCAT031 asks for it at build time.
+    /// </remarks>
+    public string Column { get; set; } = "";
+}
+
+/// <summary>
+/// The data-table column this parameter binds to, when the document should not have to call it by
+/// the parameter's own name.
+/// </summary>
+/// <remarks>
+/// Storyteller's <c>[Header("Player Name")]</c>, and for the same reason: the column heading is
+/// prose in a document people read, while the parameter name is code. Without it a table that wants
+/// to say "Player Name" forces the parameter to be called <c>Player_Name</c> or the column to be
+/// called <c>player</c>.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Parameter)]
+public class HeaderAttribute : Attribute
+{
+    public HeaderAttribute(string name) => Name = name;
+
+    public string Name { get; }
 }
 
 /// <summary>

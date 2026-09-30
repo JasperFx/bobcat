@@ -15,19 +15,57 @@ namespace Bobcat.Runtime;
 public static class SetVerificationComparer
 {
     /// <summary>
+    /// The cell name that carries a row matched in the wrong place, in an ordered comparison.
+    /// Sibling of <c>missing-row</c>, <c>extra-row</c> and
+    /// <see cref="DecisionTableComparer.RowErrorCell"/>.
+    /// </summary>
+    public const string OutOfOrderCell = "out-of-order";
+
+    /// <summary>
     /// Compare an actual collection against expected rows, producing per-cell CellResults.
     /// </summary>
+    /// <param name="ordered">
+    /// When true the expected rows must also appear in the order the specification writes them:
+    /// rows are still matched by <paramref name="keyColumns"/>, and a matched row that turns up
+    /// behind one written before it is reported as out of order. See the remarks.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Order is checked after matching, not instead of it.</b> Comparing position by position
+    /// would read one inserted row as every row after it disagreeing — an event stream with a
+    /// single extra event would report every later event wrong. Matching first means an insertion
+    /// is one extra row, a deletion is one missing row, and a genuine reordering is the only thing
+    /// reported as a reordering.
+    /// </para>
+    /// <para>
+    /// So <c>KeyColumns</c> earns its keep in an ordered comparison too: with no key columns a row
+    /// is matched on every column, and a row with one wrong value is then a missing row beside an
+    /// extra one rather than a row with one wrong cell. Naming the columns that identify a row —
+    /// the event type, the SKU — is what turns that back into a cell-level disagreement.
+    /// </para>
+    /// </remarks>
+    /// <param name="scalarColumn">
+    /// For a collection of plain values, the single column each value is compared under —
+    /// <c>[SetVerification(Column = "…")]</c>. Null for a collection of objects, whose columns are
+    /// read off its properties.
+    /// </param>
     public static void Compare(
         IEnumerable actual,
         IReadOnlyList<Dictionary<string, string>> expectedRows,
         string[] keyColumns,
-        StepResult result)
+        StepResult result,
+        bool ordered = false,
+        string? scalarColumn = null)
     {
-        var actualRows = toRows(actual);
+        var actualRows = toRows(actual, scalarColumn);
         var matchedActualIndices = new HashSet<int>();
         var cells = new List<CellResult>();
         var hasFailure = false;
         var rowIndex = 0;
+
+        // The furthest position any earlier expected row was found at. An ordered comparison fails
+        // the first row that turns up behind it.
+        var furthestMatched = -1;
 
         var columns = expectedRows.Count > 0
             ? expectedRows[0].Keys.ToList()
@@ -41,6 +79,17 @@ public static class SetVerificationComparer
             {
                 matchedActualIndices.Add(matchIndex);
                 var actualRow = actualRows[matchIndex];
+
+                if (ordered && matchIndex < furthestMatched)
+                {
+                    cells.Add(new CellResult(OutOfOrderCell, ResultStatus.failed,
+                            $"Out of order: found at position {matchIndex + 1}; a row written " +
+                            $"earlier is at position {furthestMatched + 1}")
+                        { RowIndex = rowIndex });
+                    hasFailure = true;
+                }
+
+                furthestMatched = Math.Max(furthestMatched, matchIndex);
 
                 foreach (var col in expected.Keys)
                 {
@@ -140,16 +189,28 @@ public static class SetVerificationComparer
         return -1;
     }
 
-    private static List<Dictionary<string, object?>> toRows(IEnumerable actual)
+    private static List<Dictionary<string, object?>> toRows(IEnumerable actual, string? scalarColumn)
     {
         var rows = new List<Dictionary<string, object?>>();
         foreach (var item in actual)
         {
             var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var prop in item.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+
+            if (scalarColumn != null)
             {
-                row[prop.Name] = prop.GetValue(item);
+                // A set of values: the item IS the row, under the one column the fixture named.
+                // Reading properties off it instead would compare a string against Length and
+                // Chars, which is what made every row read as missing and extra at once.
+                row[scalarColumn] = item;
             }
+            else
+            {
+                foreach (var prop in item.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    row[prop.Name] = prop.GetValue(item);
+                }
+            }
+
             rows.Add(row);
         }
         return rows;

@@ -209,6 +209,25 @@ public class StepMethodInfo
     public bool IsTable { get; set; }
     public bool IsSetVerification { get; set; }
     public string SetVerificationKeyColumns { get; set; } = "";
+
+    /// <summary>
+    /// <c>[SetVerification(Ordered = true)]</c> — the rows must appear in the order the
+    /// specification writes them, not merely be present.
+    /// </summary>
+    public bool SetVerificationOrdered { get; set; }
+
+    /// <summary>
+    /// <c>[SetVerification(Column = "…")]</c> — the single column a set of plain values is compared
+    /// under. Empty for a set of objects, whose columns are its properties.
+    /// </summary>
+    public string SetVerificationColumn { get; set; } = "";
+
+    /// <summary>
+    /// True when the collection this set verification returns is a collection of values rather than
+    /// of objects, so it has no properties to read columns off and needs
+    /// <see cref="SetVerificationColumn"/>. Null when the element type could not be determined.
+    /// </summary>
+    public bool? SetVerificationElementIsScalar { get; set; }
     public bool IsDecisionTable { get; set; }
     public bool IsAsync { get; set; }
 
@@ -350,6 +369,28 @@ public class ParameterInfo
     /// cell "Blue" and name the alternatives when it cannot.
     /// </summary>
     public List<string> EnumMembers { get; set; } = new();
+
+    /// <summary>
+    /// <c>[Header("…")]</c> — the data-table column this parameter binds to, when it is not the
+    /// parameter's own name. Null when the parameter carries no <c>[Header]</c>.
+    /// </summary>
+    public string? Header { get; set; }
+
+    /// <summary>The column name this parameter binds to: its <see cref="Header"/>, else its name.</summary>
+    public string ColumnName => Header ?? Name;
+
+    /// <summary>
+    /// True for a parameter with a C# default value. Such a parameter's column may be left out of
+    /// the table: the generated call omits the argument and the language supplies the default.
+    /// </summary>
+    /// <remarks>
+    /// This is Bobcat's answer to Storyteller's optional columns and <c>DefaultValue</c>, and it
+    /// needs no attribute of its own — <c>string currency = "USD"</c> already says it, in the one
+    /// place a reader of the fixture will look. Before it, a parameter no column named was passed
+    /// <c>default(T)</c>, so an optional parameter's declared default was silently ignored and the
+    /// fixture saw null.
+    /// </remarks>
+    public bool IsOptional { get; set; }
 
     public bool IsInjected => Binding != ParameterBinding.Value;
 

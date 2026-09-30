@@ -435,10 +435,18 @@ public class CommandLineRenderer
                         {
                             ResultStatus.success => $"[green]{Markup.Escape(cell.DisplayText)}[/]",
                             ResultStatus.failed => $"[red]{Markup.Escape(cell.DisplayText)}[/]",
+                            // A compared column whose row threw produced nothing to compare.
+                            ResultStatus.error when cell.DisplayText.Length == 0 => "[red]![/]",
                             _ => Markup.Escape(cell.DisplayText)
                         });
                     }
-                    values.Add(row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]");
+
+                    values.Add(row.RowType switch
+                    {
+                        SetVerificationRowType.Errored => "[red]ERROR[/]",
+                        SetVerificationRowType.OutOfOrder => "[red]ORDER[/]",
+                        _ => row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]"
+                    });
                     table.AddRow(values.ToArray());
                     break;
                 }
@@ -446,6 +454,19 @@ public class CommandLineRenderer
         }
 
         AnsiConsole.Write(table);
+
+        // A row's own reason — the exception it threw, or where an out-of-order row really was —
+        // under the grid rather than squeezed into a cell, because it is a sentence and the cell
+        // is as wide as its column.
+        var rowNumber = 0;
+        foreach (var row in sv.Rows)
+        {
+            rowNumber++;
+            if (row.RowType is not (SetVerificationRowType.Errored or SetVerificationRowType.OutOfOrder)) continue;
+            if (string.IsNullOrEmpty(row.Description)) continue;
+
+            AnsiConsole.MarkupLine($"  [red]row {rowNumber}:[/] {Markup.Escape(row.Description!)}");
+        }
     }
 
     // --- Legacy ExecutionResults-based rendering (bridge) ---

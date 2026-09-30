@@ -236,36 +236,18 @@ public static class CodeEmitter
 
         if (method.IsDecisionTable && step.TableRows != null && step.TableHeaders != null)
         {
-            emitDecisionTableStep(sb, step, method, stepId, target, ctxStmt, declaringType, scopeStmt, scopeProvider);
+            emitRowTableStep(sb, step, method, stepId, target, ctxStmt, declaringType, values, scopeStmt,
+                scopeProvider, stepKind);
         }
         else if (method.IsTable && step.TableRows != null && step.TableHeaders != null)
         {
-            // Table grammar — emit one step per row. Each row already runs in its own lambda,
-            // so [ScopePerRow] and [NewScope] mean the same thing here.
-            var rowScope = method.ScopePerRow || method.NewScope;
-            var rowScopeStmt = rowScope ? childScopeStatement(method, "__sc") + " " : "";
-            var rowScopeProvider = rowScope ? "__sc.ServiceProvider" : null;
-
-            for (var rowIdx = 0; rowIdx < step.TableRows.Count; rowIdx++)
-            {
-                var row = step.TableRows[rowIdx];
-                var headers = step.TableHeaders;
-
-                var args = buildTableRowArgs(method, values, headers, row, rowScopeProvider);
-                var rowStepId = $"{stepId}.row{rowIdx + 1}";
-                var awaitRow = method.IsAsync ? "await " : "";
-                var rowBinding = bindingInitializer(declaringType, method.MethodName, method.Expression,
-                    bindingArgsFromColumns(method.Parameters, values, headers));
-
-                sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
-                sb.AppendLine($"                        \"{escapeString(rowStepId)}\",");
-                sb.AppendLine($"                        {stepKind},");
-                sb.AppendLine($"                        \"{escapeString(step.Text)} (row {rowIdx + 1})\",");
-                if (method.IsAsync)
-                    sb.AppendLine($"                        async (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{awaitRow}{target}.{method.MethodName}({args}); }}) {rowBinding});");
-                else
-                    sb.AppendLine($"                        (ctx, result, ct) => {{ {ctxStmt}{rowScopeStmt}{target}.{method.MethodName}({args}); return Task.CompletedTask; }}) {rowBinding});");
-            }
+            // The same grid, with nothing compared: a [Table] step's columns are all inputs and its
+            // return value, if it has one, is not an expectation — that is what [DecisionTable]
+            // means. [NewScope] on a [Table] step has always meant a scope per row, because every
+            // row used to be its own step.
+            emitRowTableStep(sb, step, method, stepId, target, ctxStmt, declaringType, values,
+                stepKind: stepKind, compareOutputs: false,
+                scopePerRow: method.ScopePerRow || method.NewScope);
         }
         else if (method.IsSetVerification && step.TableRows != null && step.TableHeaders != null)
         {
@@ -358,7 +340,7 @@ public static class CodeEmitter
         foreach (var p in row?.Parameters ?? new List<ParameterInfo>())
         {
             if (p.IsExplicitlyInjected) continue;
-            var header = headers.FirstOrDefault(h => string.Equals(h, p.Name, StringComparison.OrdinalIgnoreCase));
+            var header = headers.FirstOrDefault(h => string.Equals(h, p.ColumnName, StringComparison.OrdinalIgnoreCase));
             if (header != null) boundHeaders.Add(header);
         }
 
@@ -618,7 +600,11 @@ public static class CodeEmitter
         }
 
         sb.AppendLine("                        };");
-        sb.AppendLine($"                        SetVerificationComparer.Compare(actual, expected, {keyColumns}, result);");
+        var ordered = method.SetVerificationOrdered ? ", ordered: true" : "";
+        var scalarColumn = string.IsNullOrEmpty(method.SetVerificationColumn)
+            ? ""
+            : $", scalarColumn: \"{escapeString(method.SetVerificationColumn)}\"";
+        sb.AppendLine($"                        SetVerificationComparer.Compare(actual, expected, {keyColumns}, result{ordered}{scalarColumn});");
 
         if (!method.IsAsync)
         {
@@ -722,29 +708,61 @@ public static class CodeEmitter
     }
 
     /// <summary>
-    /// Emit a decision table: one method call per row, with input columns supplying
-    /// arguments and out/return columns compared as expected outputs. Renders as a grid.
+    /// Emit a table of rows as one step rendering one grid: the method is called once per row,
+    /// input columns supply its arguments, and <c>out</c>/return columns are compared as expected
+    /// outputs.
     /// </summary>
-    private static void emitDecisionTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId,
-        string target, string ctxStmt, string declaringType, string scopeStmt = "", string? stepScopeProvider = null)
+    /// <remarks>
+    /// <para>
+    /// Serves both <c>[DecisionTable]</c> and the plain per-row <c>[Table]</c> step, which differ
+    /// only in whether anything is compared — <paramref name="compareOutputs"/>. A <c>[Table]</c>
+    /// step used to emit one <c>DelegateExecutionStep</c> per row, reading
+    /// <c>Given the users are (row 2)</c> once per row with the values it arranged appearing
+    /// nowhere; the specification could not be read back from its own report, which is the whole
+    /// point of a grid.
+    /// </para>
+    /// <para>
+    /// <b>A row that throws is a failed row, not a failed step.</b> Each call is wrapped so the
+    /// exception becomes a <c>row-error</c> cell on that row and the remaining rows still run —
+    /// Storyteller's behaviour, and the right one for a table, where a row is an independent case
+    /// rather than a step in a sequence. The escape hatch is Bobcat's own failure vocabulary: a
+    /// <c>SpecCriticalException</c> still aborts the scenario and a <c>SpecCatastrophicException</c>
+    /// still stops the suite, so a fixture that means "stop" can still say so, and cancellation
+    /// propagates untouched. See <c>DecisionTableComparer.IsRowFailure</c>.
+    /// </para>
+    /// </remarks>
+    private static void emitRowTableStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId,
+        string target, string ctxStmt, string declaringType, List<string> values, string scopeStmt = "",
+        string? stepScopeProvider = null, string stepKind = "StepKind.Then", bool compareOutputs = true,
+        bool? scopePerRow = null)
     {
         var headers = step.TableHeaders!;
         var rows = step.TableRows!;
 
         // Classify each header: input param, out param, the return value, or unknown (echo).
-        var returnColumn = method.ReturnColumn
-            ?? (method.HasReturnValue ? method.MethodName : null);
+        var returnColumn = compareOutputs
+            ? method.ReturnColumn ?? (method.HasReturnValue ? method.MethodName : null)
+            : null;
+        var outParameters = compareOutputs ? method.OutParameters : new List<ParameterInfo>();
 
         ParameterInfo? FindParam(string header) =>
             method.Parameters.FirstOrDefault(p =>
-                string.Equals(p.Name, header, StringComparison.OrdinalIgnoreCase));
+                string.Equals(p.ColumnName, header, StringComparison.OrdinalIgnoreCase));
+
+        bool IsCompared(string header)
+        {
+            var param = FindParam(header);
+            if (compareOutputs && param != null && param.IsOut) return true;
+            return returnColumn != null
+                   && string.Equals(header, returnColumn, StringComparison.OrdinalIgnoreCase);
+        }
 
         var opts = emitCheckOptions(method);
-        var perRowScope = method.ScopePerRow;
+        var perRowScope = scopePerRow ?? method.ScopePerRow;
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
         sb.AppendLine($"                        \"{escapeString(stepId)}\",");
-        sb.AppendLine($"                        StepKind.Then,");
+        sb.AppendLine($"                        {stepKind},");
         sb.AppendLine($"                        \"{escapeString(step.Text)}\",");
         sb.AppendLine($"                        {(method.IsAsync ? "async " : "")}(ctx, result, ct) =>");
         sb.AppendLine("                    {");
@@ -755,9 +773,8 @@ public static class CodeEmitter
         var columnsLiteral = string.Join(", ", headers.Select(h => $"\"{escapeString(h)}\""));
         var awaitKw = method.IsAsync ? "await " : "";
 
-        // The grid is the report, so the rows that were reached are rendered even when a later one
-        // throws: `Apply` runs in a finally. Without it one bad row erased the whole table and the
-        // reader was left with an exception and no idea which row produced it.
+        // The grid is the report, so the rows that were reached are rendered even when the step is
+        // cut short by a critical failure: `Apply` runs in a finally.
         sb.AppendLine("                        try");
         sb.AppendLine("                        {");
 
@@ -770,78 +787,106 @@ public static class CodeEmitter
                 return idx >= 0 && idx < row.Count ? row[idx] : "";
             }
 
-            sb.AppendLine($"                        // row {r + 1}");
+            sb.AppendLine($"                            // row {r + 1}");
+            sb.AppendLine("                            {");
 
-            // Declare out locals (outside any per-row scope block so the cells can read them)
-            foreach (var outParam in method.OutParameters)
+            // Row-level progress: to the executor the whole table is one step, so without this a
+            // 200-row table is the least observable thing in a suite. Message-less on purpose —
+            // see StepUpdate.ForRow.
+            sb.AppendLine($"                                ctx.ReportProgress(global::Bobcat.Engine.StepUpdate.ForRow({r + 1}, {rows.Count}));");
+
+            // Declared before the try and initialised, because the call may never assign them.
+            foreach (var outParam in outParameters)
             {
-                sb.AppendLine($"                        {outParam.QualifiedType} dt{r}__{outParam.Name};");
+                sb.AppendLine($"                                {outParam.QualifiedType} dt{r}__{outParam.Name} = default!;");
             }
             if (returnColumn != null)
-                sb.AppendLine($"                        {method.QualifiedReturnType} dt{r}__ret;");
+                sb.AppendLine($"                                {method.QualifiedReturnType} dt{r}__ret = default!;");
+
+            sb.AppendLine("                                try");
+            sb.AppendLine("                                {");
 
             // [ScopePerRow] — each row's injected services come from their own child scope.
             var rowScopeLocal = $"__sc{r}";
             var rowScopeProvider = perRowScope ? $"{rowScopeLocal}.ServiceProvider" : stepScopeProvider;
             if (perRowScope)
             {
-                sb.AppendLine($"                        using (var {rowScopeLocal} = {childScopeExpression(method)})");
-                sb.AppendLine("                        {");
+                sb.AppendLine($"                                    using (var {rowScopeLocal} = {childScopeExpression(method)})");
+                sb.AppendLine("                                    {");
             }
 
-            var indent = perRowScope ? "                            " : "                        ";
+            var indent = perRowScope ? "                                        " : "                                    ";
 
-            // Build the call argument list in declaration order
-            var callArgs = new List<string>();
+            // Build the call argument list in declaration order, by the same rule
+            // buildArgsFromColumns uses: a header match, then the step text's own captures
+            // positionally for the parameters no column names (issue #122), then injection.
+            var callArgs = new List<(string Name, string? Expression)>();
+            var vi = 0;
             foreach (var p in method.Parameters)
             {
                 if (p.IsOut)
                 {
-                    callArgs.Add($"out dt{r}__{p.Name}");
+                    callArgs.Add((p.Name, compareOutputs ? $"out dt{r}__{p.Name}" : "out _"));
                     continue;
                 }
 
-                var idx = headers.FindIndex(h => string.Equals(h, p.Name, StringComparison.OrdinalIgnoreCase));
+                var idx = headers.FindIndex(h => string.Equals(h, p.ColumnName, StringComparison.OrdinalIgnoreCase));
 
                 // Explicit attributes beat a header match; convention injection only applies
                 // to parameters no column supplies.
                 if (p.IsExplicitlyInjected || (p.IsInjected && idx < 0))
-                    callArgs.Add(injectionExpression(p, rowScopeProvider));
+                    callArgs.Add((p.Name, injectionExpression(p, rowScopeProvider)));
                 else if (idx >= 0 && idx < row.Count)
-                    callArgs.Add(CucumberExpressionParser.ToCSharpLiteral(row[idx], p));
+                    callArgs.Add((p.Name, CucumberExpressionParser.ToCSharpLiteral(row[idx], p)));
+                else if (vi < values.Count)
+                    callArgs.Add((p.Name, CucumberExpressionParser.ToCSharpLiteral(values[vi++], p)));
+                else if (p.IsOptional)
+                    // The column was left out and the parameter declares what to do about it, so
+                    // the argument is omitted and C# applies the default the fixture wrote.
+                    callArgs.Add((p.Name, null));
                 else
-                    callArgs.Add($"default({p.QualifiedType})");
+                    callArgs.Add((p.Name, $"default({p.QualifiedType})"));
             }
 
-            var argList = string.Join(", ", callArgs);
+            var argList = argumentList(callArgs);
             if (returnColumn != null)
                 sb.AppendLine($"{indent}dt{r}__ret = {awaitKw}{target}.{method.MethodName}({argList});");
             else
                 sb.AppendLine($"{indent}{awaitKw}{target}.{method.MethodName}({argList});");
 
             if (perRowScope)
-                sb.AppendLine("                        }");
+                sb.AppendLine("                                    }");
 
-            // Emit one cell per header, in header order
-            foreach (var header in headers)
+            // The compared columns, inside the try: they read what the call produced.
+            foreach (var header in headers.Where(IsCompared))
             {
                 var value = Cell(header);
                 var param = FindParam(header);
 
                 if (param != null && param.IsOut)
                 {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{param.QualifiedType}>(\"{escapeString(header)}\", dt{r}__{param.Name}, \"{escapeString(value)}\", {opts}, {r}));");
-                }
-                else if (returnColumn != null && string.Equals(header, returnColumn, StringComparison.OrdinalIgnoreCase))
-                {
-                    sb.AppendLine($"                        cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(header)}\", dt{r}__ret, \"{escapeString(value)}\", {opts}, {r}));");
+                    sb.AppendLine($"                                    cells__.Add(CellCheck.For<{param.QualifiedType}>(\"{escapeString(header)}\", dt{r}__{param.Name}, \"{escapeString(value)}\", {opts}, {r}));");
                 }
                 else
                 {
-                    // input or unknown column — render plain
-                    sb.AppendLine($"                        cells__.Add(new CellResult(\"{escapeString(header)}\", ResultStatus.ok, \"{escapeString(value)}\") {{ RowIndex = {r} }});");
+                    sb.AppendLine($"                                    cells__.Add(CellCheck.For<{method.QualifiedReturnType}>(\"{escapeString(header)}\", dt{r}__ret, \"{escapeString(value)}\", {opts}, {r}));");
                 }
             }
+
+            sb.AppendLine("                                }");
+            sb.AppendLine("                                catch (global::System.Exception ex__) when (DecisionTableComparer.IsRowFailure(ex__))");
+            sb.AppendLine("                                {");
+            sb.AppendLine($"                                    cells__.Add(DecisionTableComparer.RowError({r}, ex__));");
+            sb.AppendLine("                                }");
+
+            // The input columns, outside the try: their values are what the document says, known
+            // whether or not the row ran, so a row that threw still shows what it was given.
+            foreach (var header in headers.Where(h => !IsCompared(h)))
+            {
+                sb.AppendLine($"                                cells__.Add(new CellResult(\"{escapeString(header)}\", ResultStatus.ok, \"{escapeString(Cell(header))}\") {{ RowIndex = {r} }});");
+            }
+
+            sb.AppendLine("                            }");
         }
 
         sb.AppendLine("                        }");
@@ -852,7 +897,9 @@ public static class CodeEmitter
         if (!method.IsAsync)
             sb.AppendLine("                        return Task.CompletedTask;");
         var binding = bindingInitializer(declaringType, method.MethodName, method.Expression,
-            bindingArgsForDecisionTable(method, headers, returnColumn));
+            compareOutputs
+                ? bindingArgsForDecisionTable(method, headers, returnColumn)
+                : bindingArgsFromColumns(method.Parameters, values, headers));
         sb.AppendLine($"                    }}) {binding});");
     }
 
@@ -1048,7 +1095,7 @@ public static class CodeEmitter
         foreach (var param in parameters)
         {
             var colIndex = headers.FindIndex(h =>
-                string.Equals(h, param.Name, StringComparison.OrdinalIgnoreCase));
+                string.Equals(h, param.ColumnName, StringComparison.OrdinalIgnoreCase));
 
             if (param.IsExplicitlyInjected || (param.IsInjected && colIndex < 0))
             {
@@ -1072,7 +1119,7 @@ public static class CodeEmitter
         return args;
     }
 
-    /// <summary>Mirrors <see cref="emitDecisionTableStep"/>'s column classification: out
+    /// <summary>Mirrors <see cref="emitRowTableStep"/>'s column classification: out
     /// parameters and the return column are expected outputs, headers supply inputs.</summary>
     private static List<string> bindingArgsForDecisionTable(StepMethodInfo method, List<string> headers,
         string? returnColumn)
@@ -1081,7 +1128,7 @@ public static class CodeEmitter
         foreach (var param in method.Parameters)
         {
             var colIndex = headers.FindIndex(h =>
-                string.Equals(h, param.Name, StringComparison.OrdinalIgnoreCase));
+                string.Equals(h, param.ColumnName, StringComparison.OrdinalIgnoreCase));
 
             if (param.IsOut)
             {
@@ -1145,36 +1192,41 @@ public static class CodeEmitter
     {
         if (parameters.Count == 0) return "";
 
-        var args = new List<string>();
+        var args = new List<(string Name, string? Expression)>();
         var vi = 0;
         foreach (var param in parameters)
         {
             if (param.Binding == ParameterBinding.Table)
             {
-                args.Add(tableLiteral ?? "null");
+                args.Add((param.Name, tableLiteral ?? "null"));
             }
             else if (param.IsInjected)
             {
-                args.Add(injectionExpression(param, scopeProvider));
+                args.Add((param.Name, injectionExpression(param, scopeProvider)));
             }
             else if (vi < values.Count)
             {
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param));
+                args.Add((param.Name, CucumberExpressionParser.ToCSharpLiteral(values[vi], param)));
                 vi++;
             }
             else if (docString != null && param.Type == "string")
             {
                 // A DocString fills the trailing string parameter not covered by captures.
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(docString, "string"));
+                args.Add((param.Name, CucumberExpressionParser.ToCSharpLiteral(docString, "string")));
                 docString = null;
+            }
+            else if (param.IsOptional)
+            {
+                // Nothing in the step supplied it and the parameter says what to do about that.
+                args.Add((param.Name, null));
             }
             else
             {
-                args.Add($"default({param.QualifiedType})");
+                args.Add((param.Name, $"default({param.QualifiedType})"));
             }
         }
 
-        return string.Join(", ", args);
+        return argumentList(args);
     }
 
     private static string buildTableRowArgs(StepMethodInfo method, List<string> values, List<string> headers,
@@ -1190,38 +1242,75 @@ public static class CodeEmitter
     private static string buildArgsFromColumns(List<ParameterInfo> parameters, List<string> values,
         List<string> headers, List<string> row, string? scopeProvider)
     {
-        var args = new List<string>();
+        var args = new List<(string Name, string? Expression)>();
         var vi = 0;
         foreach (var param in parameters)
         {
             // A header match wins over convention-based injection; [FromScopedService] and
             // friends are the explicit override that wins over a header match.
             var colIndex = headers.FindIndex(h =>
-                string.Equals(h, param.Name, StringComparison.OrdinalIgnoreCase));
+                string.Equals(h, param.ColumnName, StringComparison.OrdinalIgnoreCase));
 
             if (param.IsExplicitlyInjected || (param.IsInjected && colIndex < 0))
             {
-                args.Add(injectionExpression(param, scopeProvider));
+                args.Add((param.Name, injectionExpression(param, scopeProvider)));
             }
             else if (colIndex >= 0 && colIndex < row.Count)
             {
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(row[colIndex], param));
+                args.Add((param.Name, CucumberExpressionParser.ToCSharpLiteral(row[colIndex], param)));
             }
             else if (vi < values.Count)
             {
                 // No column names this parameter, so it consumes the next capture from the
                 // step text — the same positional rule a non-table step binds by.
-                args.Add(CucumberExpressionParser.ToCSharpLiteral(values[vi], param));
+                args.Add((param.Name, CucumberExpressionParser.ToCSharpLiteral(values[vi], param)));
                 vi++;
+            }
+            else if (param.IsOptional)
+            {
+                // An optional column: the argument is omitted and C# applies the parameter's own
+                // default. Before this it was passed default(T), so a fixture that wrote
+                // `string currency = "USD"` saw null instead.
+                args.Add((param.Name, null));
             }
             else
             {
-                args.Add($"default({param.QualifiedType})");
+                args.Add((param.Name, $"default({param.QualifiedType})"));
             }
         }
 
-        return string.Join(", ", args);
+        return argumentList(args);
     }
+
+    /// <summary>
+    /// An argument list with the omitted arguments left out. Positional while nothing is skipped;
+    /// once something is, every argument is named, because a gap cannot be expressed positionally.
+    /// </summary>
+    private static string argumentList(List<(string Name, string? Expression)> args)
+    {
+        var supplied = args.Where(a => a.Expression != null).ToList();
+        if (supplied.Count == args.Count)
+            return string.Join(", ", supplied.Select(a => a.Expression));
+
+        return string.Join(", ", supplied.Select(a => $"{escapeIdentifier(a.Name)}: {a.Expression}"));
+    }
+
+    /// <summary>A parameter name as a named argument: escaped when it is a C# keyword.</summary>
+    private static string escapeIdentifier(string name)
+        => CSharpKeywords.Contains(name) ? "@" + name : name;
+
+    private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
+        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
+        "void", "volatile", "while"
+    };
 
     /// <summary>
     /// The <c>new Module(...)</c> expression for a grammar module instance (issue #212 phase 2):

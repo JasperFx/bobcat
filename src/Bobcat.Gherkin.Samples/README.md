@@ -23,7 +23,7 @@ dotnet run --project src/Bobcat.Gherkin.Samples/ -- run --feature "Sets"
 dotnet run --project src/Bobcat.Gherkin.Samples/ -- list
 ```
 
-**Twelve of the twenty specifications fail on purpose**, which is why this is a plain `BobcatRunner`
+**Sixteen of the twenty-six specifications fail on purpose**, which is why this is a plain `BobcatRunner`
 console and not a test project: nothing collects it, and a red run here is the samples working.
 
 ## The Storyteller → Bobcat mapping
@@ -102,51 +102,91 @@ because it bound values by reflection as the specification ran. Bobcat binds at 
 row cannot run at all — and the compile-time answer is the better one: the value is wrong in the
 document whether or not anybody runs the suite.
 
-**Fixed — one throwing row erased the whole grid.** `Tables.md` has a `3 / 0` row in a table of
-divisions. Bobcat reported `! Then dividing numbers — DivideByZeroException` and **no table**: the
-cells were gathered into a list and applied to the result only after the last row, so anything that
-threw discarded every cell, including the rows that had already passed. `DecisionTableComparer.Apply`
-now runs in a `finally` in both table lanes, so the grid shows how far the table got. The failure tier
-is unchanged — the exception is still critical and still aborts the scenario. Whether a throwing row
-should instead be an error *cell* with the remaining rows still evaluated, as Storyteller did, is a
-semantic decision and is left open; see the handoff.
+**Fixed — one throwing row erased the whole grid, and stopped the table.** `Tables.md` has a `3 / 0`
+row in a table of divisions. Bobcat reported `! Then dividing numbers — DivideByZeroException` and
+**no table**: the cells were gathered into a list and applied to the result only after the last row,
+so anything that threw discarded every cell, including the rows that had already passed.
 
-## Gaps, with what Storyteller did
+A row of a table is an independent case, not a step in a sequence, so **a row that throws is now that
+row's failure and the rest of the table still runs** — Storyteller's behaviour, decided 2026-09-30.
+The exception becomes a `row-error` cell, the row renders as `ERROR` with the reason under the grid,
+and the step is an assertion-level failure the scenario carries on from:
 
-- **Ordered sets.** `VerifySetOf(…).Ordered()` and `VerifyStringList(…).Ordered()` have no equivalent:
-  `[SetVerification]` is key-matched and therefore unordered by construction. `Ordered Set.md`,
-  `Unsuccessful Ordering.md` and `String_Lists.md` are the samples this costs — three of the five in
-  `StoryTeller.Samples/Specs/Sets` are *about* ordering. Storyteller rendered an `Order` column and
-  marked the rows whose position was wrong, which is the honest rendering: a set in the wrong order is
-  neither missing nor extra.
-- **A set of primitives needs a wrapper record.** `SetVerificationComparer` reads a row's columns off
-  the actual object's public properties, so an `IEnumerable<string>` yields the columns `Length` and
-  `Chars` and every row reads as missing-and-extra. `TheColoursShouldBe` here projects through a
-  one-property record to work around it. Storyteller had `VerifyStringList` for exactly this shape.
+```
+╭───┬────┬───┬──────────┬────────╮
+│ # │ x  │ y │ quotient │ Status │
+├───┼────┼───┼──────────┼────────┤
+│ 1 │ 10 │ 5 │ 2        │   OK   │
+│ 2 │ 3  │ 0 │ !        │ ERROR  │
+│ 3 │ 9  │ 3 │ 3        │   OK   │
+╰───┴────┴───┴──────────┴────────╯
+  row 2: DivideByZeroException: cannot divide by zero
+```
+
+The escape hatch is Bobcat's own failure vocabulary rather than a new one: a `SpecCriticalException`
+still aborts the scenario and a `SpecCatastrophicException` still stops the suite, so a fixture that
+means "stop here" can still say so, and cancellation propagates untouched
+(`DecisionTableComparer.IsRowFailure`). `Apply` also runs in a `finally`, so even a critical stop
+leaves the rows it reached on the grid.
+
+## Since the review: the three decisions, and what they cost
+
+Decided 2026-09-30, all three built and proven above.
+
+**A `[Table]` step renders a grid.** It used to emit one `DelegateExecutionStep` per row, so an
+arrange table read `✓ Given the invoice details are (row 1)` once per row and the values it set up
+appeared nowhere — the specification could not be read back from its own report. Both table shapes
+now go through one emitter (`CodeEmitter.emitRowTableStep`), differing only in whether anything is
+compared, which is also how they came to share per-row progress reporting and per-row failure
+handling. The cost, paid knowingly: a failing row no longer gets its own `✗` line, it gets its own
+grid row; and a 20-row table is one step rather than twenty in every step count and preview.
+
+**Ordered sets.** `[SetVerification(Ordered = true)]` — one word on the assertion that already
+exists, because whether order is part of the claim is a property of the assertion rather than a
+different kind of assertion. **Order is checked after matching, not instead of it:** rows are matched
+by `KeyColumns` as before and the order of the matches is then verified, so an inserted row is one
+extra row rather than every row after it disagreeing — which is the difference between a useful
+report and a useless one for an event stream with one unexpected event. A row that turns up behind
+one written before it is an `out-of-order` cell, renders as `ORDER`, and says where it actually was.
+
+**A set of plain values names its column.** `[SetVerification(Column = "Name")]` over an
+`IEnumerable<string>`, which is Storyteller's `VerifyStringList(...).Titled(title, "Name")` with the
+same second argument doing the same job — no wrapper record and no second grammar. Left unsaid it is
+**BOBCAT031** at build time, because the old behaviour was to compare each string against the
+properties of `string` and report every row as missing *and* extra, a report that describes nothing.
+
+**Column options: two of the three.** `[Header("Player Name")]` on a parameter titles its column for
+the document, because a heading is prose and a parameter name is code. An **optional column** is a
+plain C# optional parameter — `Grade grade = Grade.Bronze` — and needs no attribute at all: the
+declaration already says what happens when the column is left out, in the one place a reader of the
+fixture looks. That also fixed a silent bug, since a parameter no column named was passed
+`default(T)`, so a declared default was ignored and the fixture saw `null` or the enum's zero value.
+Storyteller's per-table override (`-> b = False`, which fixed a value for every row of one table) has
+no Gherkin spelling and is not built.
+
+**`SelectionValues` is declined, not deferred.** It existed for Storyteller's editor, and where it
+genuinely constrained a value an enum parameter now does the job better: `Position position` makes a
+cell outside the list a BOBCAT030 build error naming the alternatives, which a runtime selection list
+never could.
+
+## Gaps that remain
+
 - **Inline list captures.** `[FormatAs("The array of names should be {names}")]` with
   `Han, Luke, Chewie` in the cell compared a whole array from one capture (`Arrays.md`). Bobcat has no
-  collection capture — the closest thing is a table.
-- **Column options.** `[Header("Player Name")]` (a column title that is not the parameter name),
-  `[DefaultValue]`, `[SelectionValues]`/`SelectionList` and Storyteller's per-table column defaults
-  (`-> b = False`, which let a table omit a column entirely) all have no counterpart. A Bobcat column
-  binds to the parameter whose **name** it matches, every column must be present, and nothing
-  constrains a cell's values. The selection lists mattered most to Storyteller's *editor*; the headers
-  and defaults matter to the document.
+  collection capture — the closest thing is a table, which is now a set of plain values.
+- **A header for a set's columns.** `[Header]` titles a *parameter*'s column. A set verification's
+  columns are the result type's properties, so the equivalent alias would be an attribute on the
+  property — Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built; no sample
+  needed it once the document could name the columns itself.
 - **Relative dates.** Storyteller read `TODAY`, `TODAY-1`, `TODAY+2` in any date cell. `SetsFixture`
   here keeps `Date` as a `string` for that reason — with a `DateTime` the samples' own data would be
   BOBCAT030. This is a cell-conversion concern, so `CellLiterals` is now the one place it would go.
 - **Paragraphs.** `Paragraph("Divide numbers", …).AsTable(…)` composed a table row out of several
-  grammars. Deliberately out of scope: it is the same decision the projected lane took about
+  grammars. Deliberately out of scope: the same decision the projected lane took about
   Storyteller's paragraphs.
 
-## One rendering decision worth a second opinion
+## Where the two lanes still differ
 
-**A `[Table]` step renders one step line per row, not a grid.** An arrange table reads
-`✓ Given the invoice details are (row 1)` three times, and the values it set up are nowhere in the
-report — so the specification cannot be read back from its own output, which is the whole point of a
-grid. `[TableGrammar]`, `[DecisionTable]` and `[SetVerification]` all render one grid with a verdict
-per row; only the per-row `[Table]` step does not, and Storyteller rendered every table as a grid.
-
-The counterweight is that one step per row is what gives a failing row its own line and its own
-`✗`. Changing it would change the shape of every existing report, so it is Jeremy's call rather than
-a defect.
+The projected lane has no table syntax yet, so none of this is reachable from a C# test. The plan of
+record is a pipe-delimited table literal in the test itself, which would let one grammar body serve
+both lanes — the feature file supplies the table, or the caller does. See the handoff.

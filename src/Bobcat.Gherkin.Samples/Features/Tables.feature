@@ -64,14 +64,23 @@ Feature: Tables
       | Chris  | Paul   |
     Then the batch was saved once as "James, LeBron; Harden, James; Paul, Chris"
 
-  # Samples/Specs/Tables/Table_with_Options.md
-  Scenario: A table whose columns have headers and defaults
+  # Samples/Specs/Tables/Table_with_Options.md — the column is titled, not named after the parameter
+  Scenario: A table whose column has a header of its own
     Given the roster is
-      | player       | position |
+      | Player Name  | position |
       | Nolan Ryan   | Pitcher  |
       | Willy Mays   | Outfield |
       | Johnny Bench | Catcher  |
     Then the roster reads "Nolan Ryan (Pitcher), Willy Mays (Outfield), Johnny Bench (Catcher)"
+
+  # StoryTeller.Samples/Specs/Tables/Table with Optional Columns.md — `position` is left out
+  # entirely and every row takes the parameter's own default
+  Scenario: A table that leaves an optional column out
+    Given the roster is
+      | Player Name  |
+      | Willy Mays   |
+      | Johnny Bench |
+    Then the roster reads "Willy Mays (Outfield), Johnny Bench (Outfield)"
 
   # StoryTeller.Samples/Specs/Tables/Tables with Errors.md
   Scenario: The batch cannot be opened

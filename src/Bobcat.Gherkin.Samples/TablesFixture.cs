@@ -9,6 +9,17 @@ namespace Bobcat.Gherkin.Samples;
 /// <see cref="DecisionTableAttribute"/> on a step method and <see cref="TableGrammarAttribute"/>
 /// on a class.
 /// </summary>
+/// <summary>
+/// Storyteller wrote this as <c>[SelectionValues("Pitcher", "Outfield", "Catcher")]</c> on a
+/// <c>string</c>. An enum says the same thing to the compiler, the reader and the editor.
+/// </summary>
+public enum Position
+{
+    Pitcher,
+    Outfield,
+    Catcher
+}
+
 public class TablesFixture : Fixture
 {
     /// <summary>
@@ -61,13 +72,21 @@ public class TablesFixture : Fixture
     /// <summary>
     /// Storyteller's <c>TableWithLotsOfOptions</c>, which decorated its parameters with
     /// <c>[Header("Player Name")]</c>, <c>[DefaultValue("Outfield")]</c> and
-    /// <c>[SelectionValues(...)]</c>. Bobcat has none of the three: a column binds to the parameter
-    /// whose NAME it matches, every column must be present, and nothing constrains its values.
-    /// See the README — this grammar is here to show the shape that survives.
+    /// <c>[SelectionValues(...)]</c>.
     /// </summary>
+    /// <remarks>
+    /// Two of the three are here. <c>[Header]</c> is the same attribute doing the same job: the
+    /// column is prose in a document and the parameter is code, so they need not be the same word.
+    /// The default is a plain C# optional parameter — the column may be left out of the table
+    /// entirely and the language says what happens then, in the one place a reader of the fixture
+    /// looks. The selection list is not here and is not planned: it existed for Storyteller's
+    /// editor, and where it constrained a value an enum parameter now does it better — a cell
+    /// outside the list is BOBCAT030 at build time. See <see cref="Position"/> below.
+    /// </remarks>
     [Table]
     [Given("the roster is")]
-    public void TheRosterIs(string player, string position) => Roster.Add($"{player} ({position})");
+    public void TheRosterIs([Header("Player Name")] string player, Position position = Position.Outfield)
+        => Roster.Add($"{player} ({position})");
 
     [Then("the roster reads {string}")]
     public string TheRosterReads() => string.Join(", ", Roster);

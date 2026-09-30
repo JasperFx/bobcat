@@ -859,6 +859,11 @@ public class BobcatGenerator : IIncrementalGenerator
                     info.IsSetVerification = true;
                     var keyProp = attr.NamedArguments.FirstOrDefault(a => a.Key == "KeyColumns");
                     info.SetVerificationKeyColumns = keyProp.Value.Value?.ToString() ?? "";
+                    info.SetVerificationOrdered =
+                        attr.NamedArguments.FirstOrDefault(a => a.Key == "Ordered").Value.Value is true;
+                    info.SetVerificationColumn =
+                        attr.NamedArguments.FirstOrDefault(a => a.Key == "Column").Value.Value?.ToString() ?? "";
+                    info.SetVerificationElementIsScalar = elementIsScalar(method.ReturnType);
                     break;
                 case "DecisionTableAttribute":
                     info.IsDecisionTable = true;
@@ -1050,7 +1055,13 @@ public class BobcatGenerator : IIncrementalGenerator
             IsOut = param.RefKind == RefKind.Out,
             IsSimpleType = IsSimpleType(param.Type),
             EnumMembers = enumMembers(param.Type),
+            IsOptional = param.HasExplicitDefaultValue,
         };
+
+        var header = param.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.Name == "HeaderAttribute");
+        if (header is { ConstructorArguments.Length: > 0 })
+            info.Header = header.ConstructorArguments[0].Value?.ToString();
 
         foreach (var attr in param.GetAttributes())
         {
@@ -1127,6 +1138,35 @@ public class BobcatGenerator : IIncrementalGenerator
     /// True for types a Gherkin cell can be converted into: string, primitives, enums,
     /// decimal, Guid, and the date/time types (plus their nullable forms).
     /// </summary>
+    /// <summary>
+    /// Whether the elements of a returned collection are plain values rather than objects — the
+    /// question <c>[SetVerification(Column = "…")]</c> answers. Null when no element type could be
+    /// found, in which case nothing is claimed either way.
+    /// </summary>
+    private static bool? elementIsScalar(ITypeSymbol returnType)
+    {
+        var type = returnType;
+
+        // Task<IEnumerable<T>> / ValueTask<IEnumerable<T>>
+        if (type is INamedTypeSymbol { IsGenericType: true } awaited
+            && awaited.Name is "Task" or "ValueTask"
+            && awaited.TypeArguments.Length == 1)
+        {
+            type = awaited.TypeArguments[0];
+        }
+
+        if (type is IArrayTypeSymbol array) return IsSimpleType(array.ElementType);
+
+        if (type is not INamedTypeSymbol named) return null;
+
+        var enumerable = named.AllInterfaces
+            .Concat(named.IsGenericType ? new[] { named } : Array.Empty<INamedTypeSymbol>())
+            .FirstOrDefault(i => i.IsGenericType
+                                 && i.ConstructedFrom.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>");
+
+        return enumerable == null ? null : IsSimpleType(enumerable.TypeArguments[0]);
+    }
+
     /// <summary>
     /// The member names of an enum type — through a nullable wrapper — and nothing for anything
     /// else. What <see cref="CellLiterals"/> needs to turn the cell "Blue" into a real member
@@ -1251,6 +1291,19 @@ public class BobcatGenerator : IIncrementalGenerator
                         // pass — a verification that verifies nothing.
                         spc.ReportDiagnostic(Diagnostic.Create(
                             Diagnostics.SetVerificationNeedsTable, Microsoft.CodeAnalysis.Location.None,
+                            step.Text, match.Method.MethodName));
+                        hasErrors = true;
+                    }
+
+                    if (match.Method.IsSetVerification
+                        && match.Method.SetVerificationElementIsScalar == true
+                        && match.Method.SetVerificationColumn.Length == 0)
+                    {
+                        // Without a column name the comparer reads the properties of `string` —
+                        // Length and Chars — so every row reads as missing and extra at once and
+                        // the report says nothing about what actually disagreed.
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.SetOfValuesNeedsColumn, Microsoft.CodeAnalysis.Location.None,
                             step.Text, match.Method.MethodName));
                         hasErrors = true;
                     }
@@ -2027,6 +2080,26 @@ internal static class Diagnostics
         "BOBCAT030",
         "A value cannot be read as its parameter's type",
         "Feature '{0}', step '{1}': the value for '{2}' cannot be read — {3}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// A set verification over a collection of plain values, with no column named for them.
+    /// </summary>
+    /// <remarks>
+    /// A set of objects takes its columns from the properties its headers name; a set of values has
+    /// none, so <c>[SetVerification(Column = "…")]</c> has to say what the one column is called.
+    /// Left unsaid, the comparison reads the properties of the value type — <c>Length</c> and
+    /// <c>Chars</c> for a string — and every row comes back missing AND extra, which is a report
+    /// that describes nothing. Storyteller had a separate grammar for this shape,
+    /// <c>VerifyStringList</c>, whose second argument named the column.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor SetOfValuesNeedsColumn = new(
+        "BOBCAT031",
+        "A set of values needs a column name",
+        "Step '{0}' verifies a set of plain values, so '{1}' needs [SetVerification(Column = \"...\")] " +
+        "to say what the single column is called — a set of values has no properties to read columns from",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
