@@ -8,10 +8,12 @@
 
     <!-- A self-executing xUnit v3 / MTP application, like every *.Tests project — but the name
          does not end in .Tests, so the properties src/Directory.Build.props applies by convention
-         have to be stated here. -->
+         have to be stated here. All but one: TestingPlatformDotnetTestSupport is deliberately NOT
+         set. It is the property that hands a project to `dotnet test`, and setting it here opted
+         the samples straight back into the root run that IsTestProject below opts them out of —
+         16 deliberate failures painting CI red. The peers below never set it either. -->
     <OutputType>Exe</OutputType>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
-    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
 
     <!--
       Driven directly (`./Bobcat.Xunit.Samples`), never collected by `dotnet test`. Storyteller's
