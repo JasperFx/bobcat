@@ -16,9 +16,23 @@ namespace Bobcat;
 /// place — the one thing a consumer could not see, and the one thing nobody could review.
 /// </para>
 /// <para>
-/// <b>Opt-in, and silent otherwise.</b> A test runner's output belongs to the runner; a suite that
-/// did not ask for a second report must not get one. Set <c>BOBCAT_SPEC_CONSOLE=1</c>, or call
-/// <see cref="Enable"/>.
+/// <b>On by default when a terminal is attached and nothing is listening on the wire</b> — which is
+/// precisely the case where the run would otherwise say nothing at all (issue #384). It was opt-in
+/// first, and that was the wrong default for a lane people adopt one class at a time: the first thing
+/// an author does after decorating a helper is look at what it renders, and there was nowhere to look
+/// that did not involve knowing an environment variable existed.
+/// </para>
+/// <para>
+/// The two conditions are what keep it from being a nuisance. <b>A terminal</b>, because a captured
+/// stream belongs to whoever captured it — under <c>dotnet test</c> or on a CI runner the platform
+/// owns the output and a second report would interleave with it. <b>Nothing on the wire</b>, because
+/// a console already renders these specifications far better than Spectre can, and printing them
+/// twice reads as two reports of one run.
+/// </para>
+/// <para>
+/// <c>BOBCAT_SPEC_CONSOLE</c> overrides the default <b>in both directions</b>: <c>1</c> prints even
+/// into a captured stream with a console listening, and <c>0</c> stays silent even in a terminal with
+/// nothing listening. An unset variable is the third state, and the only one the default decides.
 /// </para>
 /// <para>
 /// <b>Written at process exit, not after the last test.</b> Nothing here knows which test is the
@@ -28,7 +42,10 @@ namespace Bobcat;
 /// </remarks>
 public static class ProjectedSpecConsole
 {
-    /// <summary>Set this to <c>1</c> or <c>true</c> to have a projected run print its specs.</summary>
+    /// <summary>
+    /// Set this to <c>1</c>/<c>true</c> to have a projected run print its specs, or <c>0</c>/
+    /// <c>false</c> to stay silent. Unset leaves the decision to <see cref="WouldEnableByDefault"/>.
+    /// </summary>
     public const string EnvironmentVariable = "BOBCAT_SPEC_CONSOLE";
 
     /// <summary>
@@ -102,14 +119,47 @@ public static class ProjectedSpecConsole
     /// </summary>
     public static void EnableIfRequested()
     {
-        if (requested(PreviewEnvironmentVariable)) EnablePreview();
-        if (requested(EnvironmentVariable)) Enable();
+        if (Setting(PreviewEnvironmentVariable) == true) EnablePreview();
+        if (Setting(EnvironmentVariable) == true) Enable();
     }
 
-    private static bool requested(string variable)
+    /// <summary>
+    /// Switch on unless something says otherwise — called once the run knows whether a console
+    /// answered, which <see cref="EnableIfRequested"/> cannot: it runs first, deliberately, so an
+    /// explicitly requested report survives a wire probe that hangs.
+    /// </summary>
+    /// <param name="wireIsLive">Whether a monitor answered the publisher's probe.</param>
+    public static void EnableByDefault(bool wireIsLive)
+    {
+        if (WouldEnableByDefault(Setting(EnvironmentVariable), TerminalAttached, wireIsLive)) Enable();
+    }
+
+    /// <summary>
+    /// Whether a projected run prints its specifications, given the three facts that decide it. Pure,
+    /// so the rule can be read and tested without a process, a terminal or a console.
+    /// </summary>
+    /// <param name="setting">
+    /// <c>BOBCAT_SPEC_CONSOLE</c> as a tri-state: true, false, or null for unset. An explicit setting
+    /// always wins — the default is only consulted when nobody said.
+    /// </param>
+    public static bool WouldEnableByDefault(bool? setting, bool terminalAttached, bool wireIsLive)
+        => setting ?? (terminalAttached && !wireIsLive);
+
+    /// <summary>
+    /// Whether standard output is a terminal rather than a captured stream. A redirected stream
+    /// belongs to whoever redirected it — a test platform, a CI runner, a pipe — and is the one case
+    /// where an unasked-for second report is in the way rather than useful.
+    /// </summary>
+    public static bool TerminalAttached => !Console.IsOutputRedirected;
+
+    /// <summary>
+    /// A <c>BOBCAT_*</c> switch as a tri-state: null when unset, so "nobody said" stays
+    /// distinguishable from "somebody said no".
+    /// </summary>
+    public static bool? Setting(string variable)
     {
         var setting = Environment.GetEnvironmentVariable(variable);
-        if (string.IsNullOrWhiteSpace(setting)) return false;
+        if (string.IsNullOrWhiteSpace(setting)) return null;
 
         return setting.Trim() is not ("0" or "false" or "False" or "FALSE");
     }

@@ -164,6 +164,12 @@ public static class MarkerStepRun
             // with a tight timeout and hands back null when nothing answers.
             _sink = MonitorPublisher.TryConnect().GetAwaiter().GetResult();
 
+            // Now that we know whether anything answered, the local report can take its default:
+            // on in a terminal with nothing listening, which is exactly the run that would otherwise
+            // produce no specification anywhere (issue #384). An explicit BOBCAT_SPEC_CONSOLE, in
+            // either direction, was already honoured above and is not revisited.
+            ProjectedSpecConsole.EnableByDefault(wireIsLive: _sink is not null);
+
             if (_sink is not null && !info.HasExternalOwner)
             {
                 // TotalScenarios is null on purpose. The runner owns discovery here and has not
