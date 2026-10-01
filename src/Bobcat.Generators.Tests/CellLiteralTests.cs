@@ -57,6 +57,9 @@ public class CellLiteralTests
 
             [Given("a bool cell {word}")]
             public void BoolCell(bool b) { }
+
+            [Given("a string cell {word}")]
+            public void StringCell(string s) { }
         }
         """;
 
@@ -119,11 +122,59 @@ public class CellLiteralTests
     }
 
     [Fact]
-    public void a_date_is_parsed_with_the_invariant_culture_so_the_build_machine_does_not_decide()
+    public void a_date_is_read_at_run_time_so_TODAY_means_the_day_of_the_run()
     {
-        var source = run("a datetime cell 2026-01-01").GeneratedSource("Probe_Feature");
-        source.ShouldContain("global::System.DateTime.Parse(\"2026-01-01\", " +
-                             "global::System.Globalization.CultureInfo.InvariantCulture)");
+        // Validated at compile time and read at run time. Baking the date in would give a build
+        // cached overnight yesterday's answer on every later run, with nothing to say so.
+        run("a datetime cell 2026-01-01").GeneratedSource("Probe_Feature")
+            .ShouldContain("global::Bobcat.Runtime.CellValues.Read<global::System.DateTime>(\"2026-01-01\")");
+    }
+
+    [Fact]
+    public void a_relative_date_cell_reads_as_one()
+    {
+        var outcome = run("a datetime cell TODAY+2");
+
+        outcome.WithId("BOBCAT030").ShouldBeEmpty();
+        outcome.GeneratedSource("Probe_Feature")
+            .ShouldContain("global::Bobcat.Runtime.CellValues.Read<global::System.DateTime>(\"TODAY+2\")");
+    }
+
+    [Fact]
+    public void a_relative_time_against_a_string_is_just_the_text()
+    {
+        // A string cell is text. A table entitled to keep its dates as text says TODAY and means it.
+        run("a string cell TODAY").GeneratedSource("Probe_Feature").ShouldContain("StringCell(\"TODAY\")");
+    }
+
+    [Fact]
+    public void a_relative_time_against_a_number_is_refused_as_a_number()
+    {
+        run("an int cell TODAY").WithId("BOBCAT030").ShouldHaveSingleItem()
+            .GetMessage().ShouldContain("'TODAY' is not an int");
+    }
+
+    [Fact]
+    public void the_reserved_tokens_mean_on_the_input_side_what_they_mean_on_the_expected_side()
+    {
+        var source = run("a nullable int cell NULL", "a string cell EMPTY").GeneratedSource("Probe_Feature");
+
+        source.ShouldContain("NullableIntCell(null)");
+        source.ShouldContain("StringCell(\"\")");
+    }
+
+    [Fact]
+    public void a_quoted_token_is_the_literal_text_of_it()
+    {
+        run("a string cell \"NULL\"").GeneratedSource("Probe_Feature")
+            .ShouldContain("global::Bobcat.Runtime.CellValues.Read<string>");
+    }
+
+    [Fact]
+    public void NULL_against_a_type_that_cannot_be_null_says_so()
+    {
+        run("an int cell NULL").WithId("BOBCAT030").ShouldHaveSingleItem()
+            .GetMessage().ShouldContain("int cannot be null");
     }
 
     [Fact]
