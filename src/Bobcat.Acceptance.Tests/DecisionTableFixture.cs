@@ -6,7 +6,11 @@ public class DecisionTableFixture : Fixture
 {
     [DecisionTable]
     [Then("the line totals are calculated")]
-    public decimal LineTotal(int quantity, decimal price) => quantity * price;
+    public decimal LineTotal(int quantity, decimal price)
+    {
+        if (quantity < 0) throw new InvalidOperationException("a line cannot have a negative quantity");
+        return quantity * price;
+    }
 
     [DecisionTable]
     [Then("the divmod results are")]

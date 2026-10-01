@@ -42,7 +42,11 @@ public static class RelativeTimeResolver
         }
 
         resolved = value;
-        note = $"{t} → {format(isToday, value)}";
+
+        // The token as written, and nothing more. The resolved value is what the cell itself shows —
+        // a note repeating it read "2026-09-28 (TODAY-2 → 2026-09-28)", saying the same date twice.
+        // What the note is FOR is telling the reader the document said TODAY-2 rather than a date.
+        note = t;
         return true;
     }
 
@@ -57,9 +61,4 @@ public static class RelativeTimeResolver
 
         return FriendlyTimeSpanParser.TryParse(operand, out offset);
     }
-
-    private static string format(bool isToday, DateTime value)
-        => isToday
-            ? value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-            : value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 }

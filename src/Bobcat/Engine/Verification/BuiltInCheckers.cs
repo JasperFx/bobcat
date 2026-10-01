@@ -11,6 +11,16 @@ internal static class CheckFormat
     public static string Of(object? value) => value switch
     {
         null => CellTokens.Null,
+
+        // ISO, not the invariant culture's short date. Invariant renders a DateOnly as
+        // "09/28/2026", which reads as one thing to an American and another to everyone else, and
+        // disagreed with the ISO form a relative token's own note resolved to — the same value
+        // printed two ways in one cell. The projected lane already formats dates with "O".
+        DateTime at => at.ToString("O", CultureInfo.InvariantCulture),
+        DateTimeOffset at => at.ToString("O", CultureInfo.InvariantCulture),
+        DateOnly on => on.ToString("O", CultureInfo.InvariantCulture),
+        TimeOnly at => at.ToString("O", CultureInfo.InvariantCulture),
+
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? ""
     };

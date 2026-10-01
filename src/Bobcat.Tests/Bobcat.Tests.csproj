@@ -35,6 +35,11 @@
       the two together — a divergence costs the suite both its rendered steps (DeclaredSteps is
       keyed on this string) and its join to the design-time model, silently. -->
     <Compile Include="..\Bobcat.Generators\MarkerSpecNaming.cs" Link="Generators\MarkerSpecNaming.cs" />
+    <!-- And for the cell expressions: the generator decides at compile time whether a cell is a
+      relative time or a reserved token, and CellValues decides the same thing at run time.
+      CellExpressionAgreementTests pins them — the generator rejecting a cell the runtime could
+      read is a build error over legal input, which the author cannot work around. -->
+    <Compile Include="..\Bobcat.Generators\CellExpressions.cs" Link="Generators\CellExpressions.cs" />
   </ItemGroup>
 
 </Project>

@@ -29,8 +29,6 @@ namespace Bobcat.Generators;
 /// </remarks>
 internal static class StepInterceptors
 {
-    internal const string StepAttribute = "BobcatStepAttribute";
-
     internal sealed class InterceptedCall
     {
         public string InterceptsLocation = "";
@@ -39,8 +37,42 @@ internal static class StepInterceptors
         public string ReturnType = "";
         public string Keyword = "";
         public string StepText = "";
+
+        /// <summary>
+        /// The step text as the attribute declares it, placeholders unresolved. What a PREVIEW shows
+        /// — at preview time no argument has been evaluated, and a preview that filled the
+        /// placeholders in would be describing a run that never happened.
+        /// </summary>
+        public string Template = "";
         public bool ReturnsTask;
         public bool ReturnsVoid;
+
+        /// <summary>
+        /// The helper answers <c>bool</c> (or <c>Task&lt;bool&gt;</c>) — a Storyteller Fact, whose
+        /// answer IS the step's verdict.
+        /// </summary>
+        /// <remarks>
+        /// Unconditional here, unlike the Gherkin lane, and the asymmetry is the point: a feature file
+        /// can put an expected value in a cell, so there a bool return might be something to compare
+        /// against. A C# call site cannot supply one implicitly — the caller wrote the arguments and
+        /// read the answer — so a bool-returning step called from a test is always a fact.
+        /// </remarks>
+        public bool ReturnsBool;
+
+        /// <summary>
+        /// A projected ASSERTION rather than a declared step — <c>x.ShouldBe(7)</c>. Emitted only when
+        /// the project opted in, and gathered rather than thrown so a run of them all get evaluated.
+        /// </summary>
+        public bool IsProjectedAssertion;
+
+        /// <summary>The last assertion of its run: the point the run's failures are thrown at.</summary>
+        public bool FlushesRun;
+
+        /// <summary>The method's ORIGINAL definition, whose signature an interceptor must match.</summary>
+        public IMethodSymbol? Definition;
+
+        /// <summary>The receiver expression as written — the sentence's subject and the cell's name.</summary>
+        public string Subject = "";
         public List<string> ParameterTypes = new();
 
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
@@ -76,6 +108,23 @@ internal static class StepInterceptors
         /// or -1 when it sits under none (issue #304).
         /// </summary>
         public int DeclaredIndex = -1;
+
+        /// <summary>
+        /// The <c>{Feature}/{Scenario}</c> identity of the test this call sits in, or null when it
+        /// sits somewhere that is not a projected test — a helper calling another helper, a
+        /// constructor, a class no <c>[BobcatFeature]</c> marks.
+        /// </summary>
+        public string? Uid;
+
+        /// <summary>1-based line of the call site, so a preview can point at the source.</summary>
+        public int Line;
+
+        /// <summary>
+        /// 0-based position of this call among the <c>[BobcatStep]</c> calls in its test method,
+        /// filled once every call in the assembly is known — which is why it is not decided in
+        /// <see cref="Extract"/>: one call site cannot see its siblings.
+        /// </summary>
+        public int PlannedIndex = -1;
     }
 
     public static InterceptedCall? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
@@ -83,9 +132,13 @@ internal static class StepInterceptors
         if (ctx.Node is not InvocationExpressionSyntax invocation) return null;
         if (ctx.SemanticModel.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method) return null;
 
-        var attribute = method.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.Name == StepAttribute);
-        if (attribute is null) return null;
+        // Any step attribute, not just the legacy [BobcatStep]: [Given], [When], [Then], [Check] and
+        // the keywordless [Step] all reach a C# call site the same way (the merge).
+        var recognized = StepAttributes.On(method);
+
+        // ...or an ordinary assertion the project asked to have projected. Extracted unconditionally
+        // and gated at emit time, because the transform cannot see MSBuild properties.
+        if (recognized is null) return ExtractAssertion(ctx, invocation, method, ct);
 
         // RSEXPERIMENTAL002: GetInterceptableLocation and GetInterceptsLocationAttributeSyntax are
         // marked experimental by Roslyn, and there is no supported alternative — hand-writing the
@@ -96,9 +149,11 @@ internal static class StepInterceptors
 #pragma warning restore RSEXPERIMENTAL002
         if (location is null) return null;
 
-        var template = attribute.ConstructorArguments.FirstOrDefault().Value as string ?? method.Name;
-        var keyword = attribute.NamedArguments
-            .FirstOrDefault(a => a.Key == "Keyword").Value.Value as string ?? "";
+        var template = recognized.Expression.Length > 0 ? recognized.Expression : method.Name;
+
+        // `Check` is not a word anyone writes in a sentence — it is Bobcat's name for a Then that
+        // asserts on a bool. The step reads as Then.
+        var keyword = recognized.Keyword == "Check" ? "Then" : recognized.Keyword;
 
         var call = new InterceptedCall
         {
@@ -110,8 +165,11 @@ internal static class StepInterceptors
             ReturnType = method.ReturnType.ToDisplayString(),
             ReturnsTask = method.ReturnType.Name is "Task" or "ValueTask",
             ReturnsVoid = method.ReturnsVoid,
+            ReturnsBool = returnsBool(method.ReturnType),
             Keyword = keyword,
             DeclaredIndex = DeclaredIndexOf(invocation),
+            Uid = UidOf(invocation, ctx.SemanticModel, ct),
+            Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             Location = invocation.GetLocation()
         };
 
@@ -122,7 +180,20 @@ internal static class StepInterceptors
             call.ParameterIdentifiers.Add(Identifier(parameter.Name));
         }
 
+        call.Template = template;
         call.StepText = Render(template, method, invocation, call.RuntimeArguments, call.UnknownPlaceholders);
+
+        // A table is always handed over, whether or not the template names it. Every other argument
+        // reaches the recorder because it is a word in the sentence; a StepTable is the step's DATA,
+        // which renders as a grid under the sentence and never inside it — so a template that
+        // mentions it is not the trigger, having one is.
+        foreach (var parameter in method.Parameters)
+        {
+            if (parameter.Type.ToDisplayString().TrimEnd('?') != "Bobcat.StepTable") continue;
+            if (call.RuntimeArguments.Contains(parameter.Name)) continue;
+
+            call.RuntimeArguments.Add(parameter.Name);
+        }
 
         return call;
     }
@@ -246,6 +317,91 @@ internal static class StepInterceptors
     /// marked, and the runtime bounds-checks the index against what was actually registered.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The <c>{Feature}/{Scenario}</c> identity of the projected test a call sits in, or null.
+    /// </summary>
+    /// <remarks>
+    /// The same derivation <c>MarkerSpecNaming</c> performs at runtime, applied to the syntax rather
+    /// than to reflection — so a planned step and the recorded step it turns into key on the same
+    /// string with no mapping table, the rule the whole projected lane rests on.
+    /// </remarks>
+    internal static string? UidOf(InvocationExpressionSyntax invocation, SemanticModel model, CancellationToken ct)
+    {
+        var method = invocation.FirstAncestorOrSelf<MethodDeclarationSyntax>();
+        if (method is null || !MarkerCommentSpecs.IsTestMethod(method)) return null;
+
+        var declaration = method.FirstAncestorOrSelf<ClassDeclarationSyntax>();
+        if (declaration is null) return null;
+
+        if (!MarkerCommentSpecs.TryFeatureTitle(declaration, model, ct, out var feature)) return null;
+
+        return feature + "/" + MarkerSpecNaming.ScenarioTitle(method.Identifier.ValueText);
+    }
+
+    /// <summary>
+    /// A statement-level Shouldly call, as a step that gathers rather than throws.
+    /// </summary>
+    private static InterceptedCall? ExtractAssertion(
+        GeneratorSyntaxContext ctx, InvocationExpressionSyntax invocation, IMethodSymbol method,
+        CancellationToken ct)
+    {
+        if (ProjectedAssertions.DialectFor(method) is not { } dialect) return null;
+
+        // Never a call whose value is consumed: see ProjectedAssertions for why chaining must be left
+        // alone.
+        if (ProjectedAssertions.StatementOf(invocation) is not { } statement) return null;
+
+        var uid = UidOf(invocation, ctx.SemanticModel, ct);
+        if (uid is null) return null;
+
+#pragma warning disable RSEXPERIMENTAL002
+        var location = ctx.SemanticModel.GetInterceptableLocation(invocation, ct);
+#pragma warning restore RSEXPERIMENTAL002
+        if (location is null) return null;
+
+        // `x.ShouldBe(7)` resolves to the REDUCED extension method, whose Parameters omit the receiver
+        // — so an interceptor built from it is one parameter short and CS9144's. ReducedFrom is the
+        // declared method, receiver included, which is the signature an interceptor has to match.
+        var definition = (method.ReducedFrom ?? method).OriginalDefinition;
+
+        var call = new InterceptedCall
+        {
+#pragma warning disable RSEXPERIMENTAL002
+            InterceptsLocation = location.GetInterceptsLocationAttributeSyntax(),
+#pragma warning restore RSEXPERIMENTAL002
+            DeclaringType = definition.ContainingType.ToDisplayString(),
+            MethodName = definition.Name,
+            ReturnType = definition.ReturnType.ToDisplayString(),
+            ReturnsVoid = definition.ReturnsVoid,
+            Keyword = "Then",
+            IsProjectedAssertion = true,
+            FlushesRun = ProjectedAssertions.IsLastOfRun(statement, ctx.SemanticModel, ct),
+            Definition = definition,
+            Uid = uid,
+            DeclaredIndex = DeclaredIndexOf(invocation),
+            Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+            Location = invocation.GetLocation()
+        };
+
+        call.Subject = dialect.Subject(method, invocation);
+        call.Template = dialect.Sentence(method, invocation);
+        call.StepText = call.Template;
+
+        return call;
+    }
+
+    /// <summary>Whether the method answers <c>bool</c>, through a <c>Task</c>/<c>ValueTask</c> or not.</summary>
+    private static bool returnsBool(ITypeSymbol returnType)
+    {
+        if (returnType is INamedTypeSymbol { Name: "Task" or "ValueTask" } awaitable
+            && awaitable.TypeArguments.Length == 1)
+        {
+            returnType = awaitable.TypeArguments[0];
+        }
+
+        return returnType.SpecialType == SpecialType.System_Boolean;
+    }
+
     internal static int DeclaredIndexOf(InvocationExpressionSyntax invocation)
     {
         var method = invocation.FirstAncestorOrSelf<MethodDeclarationSyntax>();
@@ -272,6 +428,200 @@ internal static class StepInterceptors
     /// </summary>
     internal const string Namespace = "Bobcat.Generated";
 
+    /// <summary>
+    /// Number every call by its position among the <c>[BobcatStep]</c> calls in its own test method,
+    /// in source order. Must run before <see cref="Emit"/>, which writes the ordinal into the
+    /// interceptor, and before <see cref="EmitPlan"/>, which writes the plan it indexes into.
+    /// </summary>
+    /// <remarks>
+    /// Source order is by LINE, not by the order the incremental generator happened to hand the
+    /// call sites over — that order is an implementation detail of Roslyn's caching and would make a
+    /// scenario's plan reshuffle between builds of unchanged source.
+    /// </remarks>
+    public static void Number(IReadOnlyList<InterceptedCall> calls)
+    {
+        foreach (var scenario in calls.Where(c => c.Uid != null).GroupBy(c => c.Uid))
+        {
+            var index = 0;
+            foreach (var call in scenario.OrderBy(c => c.Line))
+            {
+                call.PlannedIndex = index++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The plan a projected test's grammar calls make up, registered for
+    /// <see cref="Bobcat.PlannedSteps"/> to serve — what a preview shows, and what tells a stopped
+    /// scenario which steps it never reached.
+    /// </summary>
+    public static string EmitPlan(IReadOnlyList<InterceptedCall> calls)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine($"namespace {Namespace}");
+        sb.AppendLine("{");
+        sb.AppendLine("    internal static class BobcatPlannedStepRegistration");
+        sb.AppendLine("    {");
+        sb.AppendLine("        [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("        internal static void Register()");
+        sb.AppendLine("        {");
+
+        // Armed here rather than when the first scenario starts, because a PREVIEW runs no
+        // scenarios: `--list-tests` discovers and exits, and module initializers are the only thing
+        // that has run by then. Idempotent, and a no-op unless the environment asks for it.
+        sb.AppendLine("            global::Bobcat.ProjectedSpecConsole.EnableIfRequested();");
+        sb.AppendLine();
+
+        foreach (var scenario in calls.Where(c => c.Uid != null)
+                     .GroupBy(c => c.Uid!)
+                     .OrderBy(g => g.Key, System.StringComparer.Ordinal))
+        {
+            var steps = string.Join(", ", scenario.OrderBy(c => c.PlannedIndex).Select(call =>
+                "new global::Bobcat.PlannedStep("
+                + $"{Quote(call.Keyword)}, {Quote(call.Template)}, "
+                + $"{Quote(ShortTypeName(call.DeclaringType) + "." + call.MethodName)}, "
+                + (call.DeclaredIndex >= 0 ? (call.DeclaredIndex + 1).ToString() : "null")
+                + $", {call.Line})"));
+
+            sb.AppendLine($"            global::Bobcat.PlannedSteps.Register({Quote(scenario.Key)}, {steps});");
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    /// <summary>True when any call site sits in a projected test — the gate on emitting the plan.</summary>
+    public static bool HasPlan(IEnumerable<InterceptedCall> calls) => calls.Any(c => c.Uid != null);
+
+    /// <summary>The declaring type without its namespace, which is how a binding reads best.</summary>
+    internal static string ShortTypeName(string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
+    }
+
+    /// <summary>
+    /// An interceptor for a projected assertion. Its signature has to match the ASSERTION's, not
+    /// Bobcat's — type parameters, constraints, optional arguments and all — because that is what the
+    /// interceptor feature requires.
+    /// </summary>
+    /// <remarks>
+    /// The original is called STATICALLY through its declaring type rather than as an extension method.
+    /// Generated code is not itself intercepted, so recursion was never possible, but the static call
+    /// says so at a glance and cannot be broken by a later change to what gets intercepted.
+    /// </remarks>
+    private static void emitAssertion(StringBuilder sb, InterceptedCall call, int index)
+    {
+        var definition = call.Definition!;
+
+        var typeParameters = definition.TypeParameters.Length == 0
+            ? ""
+            : "<" + string.Join(", ", definition.TypeParameters.Select(t => t.Name)) + ">";
+
+        var parameters = definition.Parameters.Select((p, i) => parameterOf(p, i == 0)).ToList();
+        var arguments = definition.Parameters.Select(p => Identifier(p.Name)).ToList();
+
+        sb.AppendLine($"        {call.InterceptsLocation}");
+        sb.AppendLine($"        internal static void __BobcatAssert{index}{typeParameters}(");
+        sb.AppendLine($"            {string.Join(", ", parameters)})");
+
+        foreach (var clause in constraintsOf(definition))
+        {
+            sb.AppendLine($"            {clause}");
+        }
+
+        sb.AppendLine("        {");
+        sb.AppendLine(
+            $"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, "
+            + $"{Quote(call.StepText)}, {call.DeclaredIndex}, {call.PlannedIndex});");
+        // The receiver is the subject; the first parameter after it that is not a custom message is the
+        // expectation, when there is one. Both as VALUES, so the cell is data rather than parsed prose.
+        var receiver = arguments.Count > 0 ? arguments[0] : "null";
+        var expectation = definition.Parameters
+            .Select((p, i) => (p, i))
+            .Where(x => x.i > 0 && x.p.Name is not ("customMessage" or "customMessageFunc"))
+            .Select(x => Identifier(x.p.Name))
+            .FirstOrDefault() ?? "null";
+
+        sb.AppendLine(
+            $"            global::Bobcat.AssertionRun.Gather(() => global::{call.DeclaringType}."
+            + $"{call.MethodName}{typeParameters}({string.Join(", ", arguments)}), step, "
+            + (call.FlushesRun ? "true" : "false")
+            + $", {Quote(call.Subject)}, {receiver}, {expectation});");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Fully qualified AND nullability-annotated. The plain fully-qualified form drops <c>?</c>, and an
+    /// interceptor whose <c>string</c> should have been <c>string?</c> is CS9159 in the consumer's build
+    /// — a warning in a file they cannot edit.
+    /// </summary>
+    private static readonly SymbolDisplayFormat interceptorFormat =
+        SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+            SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+            | SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
+    /// <summary>One parameter of the intercepted signature, reproduced exactly.</summary>
+    private static string parameterOf(IParameterSymbol parameter, bool isReceiver)
+    {
+        var modifiers = isReceiver ? "this " : parameter.IsParams ? "params " : "";
+        var text = $"{modifiers}{parameter.Type.ToDisplayString(interceptorFormat)} " + Identifier(parameter.Name);
+
+        // `this T actual = default` is CS1743 — a receiver cannot carry one even when the original
+        // declares it, and the call site always supplies it anyway.
+        if (isReceiver || !parameter.HasExplicitDefaultValue) return text;
+
+        return text + " = " + defaultOf(parameter);
+    }
+
+    /// <summary>
+    /// An optional parameter's default, which the interceptor must repeat or the call site no longer
+    /// matches.
+    /// </summary>
+    private static string defaultOf(IParameterSymbol parameter)
+        => parameter.ExplicitDefaultValue switch
+        {
+            null => "default",
+            bool flag => flag ? "true" : "false",
+            string text => Quote(text),
+            char character => "'" + character + "'",
+
+            // Anything else — an enum, a decimal, a number whose literal form differs by locale — as
+            // `default`, which is legal for every optional parameter and is what the value is in every
+            // case that matters here.
+            var value when value.GetType().IsPrimitive => value.ToString()!.ToLowerInvariant(),
+            _ => "default"
+        };
+
+    /// <summary>
+    /// The <c>where</c> clauses of the intercepted signature. Omitting a constraint the original
+    /// declares is a build error in the consumer's own compilation, so they are reproduced rather than
+    /// hoped about.
+    /// </summary>
+    private static IEnumerable<string> constraintsOf(IMethodSymbol definition)
+    {
+        foreach (var parameter in definition.TypeParameters)
+        {
+            var constraints = new List<string>();
+
+            if (parameter.HasReferenceTypeConstraint) constraints.Add("class");
+            if (parameter.HasValueTypeConstraint) constraints.Add("struct");
+            if (parameter.HasUnmanagedTypeConstraint) constraints.Add("unmanaged");
+            if (parameter.HasNotNullConstraint) constraints.Add("notnull");
+
+            constraints.AddRange(parameter.ConstraintTypes.Select(t => t.ToDisplayString(interceptorFormat)));
+
+            if (parameter.HasConstructorConstraint) constraints.Add("new()");
+
+            if (constraints.Count > 0) yield return $"where {parameter.Name} : {string.Join(", ", constraints)}";
+        }
+    }
+
     public static string Emit(IEnumerable<InterceptedCall> calls)
     {
         const string ns = Namespace;
@@ -295,6 +645,12 @@ internal static class StepInterceptors
         var index = 0;
         foreach (var call in calls)
         {
+            if (call.IsProjectedAssertion)
+            {
+                emitAssertion(sb, call, index++);
+                continue;
+            }
+
             var parameters = string.Join("", call.ParameterTypes
                 .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
             var arguments = string.Join(", ", call.ParameterIdentifiers);
@@ -311,12 +667,24 @@ internal static class StepInterceptors
                   + string.Join(", ", call.RuntimeArguments.Select(name => $"new({Quote(name)}, {Identifier(name)})"))
                   + " }";
 
-            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)}, {call.DeclaredIndex}{values});");
+            sb.AppendLine($"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, {Quote(call.StepText)}, {call.DeclaredIndex}, {call.PlannedIndex}{values});");
 
-            if (call.ReturnsTask)
+            if (call.ReturnsTask && call.ReturnsBool)
+            {
+                // An asynchronous Fact: the answer decides the verdict, and the step ends when the
+                // work ends so it still carries a real duration.
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact(receiver.{call.MethodName}({arguments}), step);");
+            }
+            else if (call.ReturnsTask)
             {
                 // End the step when the helper's work ends, not when it hands back a Task.
                 sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}({arguments}), step);");
+            }
+            else if (call.ReturnsBool)
+            {
+                // A synchronous Fact. The answer flows through to the caller untouched.
+                emitSynchronousCall(sb,
+                    $"return global::Bobcat.MarkerStepRuntime.Fact(receiver.{call.MethodName}({arguments}), step);");
             }
             else if (call.ReturnsVoid)
             {
@@ -324,13 +692,11 @@ internal static class StepInterceptors
                 // a file they cannot edit. It went unnoticed until #304's end-to-end test compiled
                 // the first interceptor inside this repository: every earlier check read the
                 // generated text, and Marten's helpers all return Task.
-                sb.AppendLine("            using (step)");
-                sb.AppendLine($"                receiver.{call.MethodName}({arguments});");
+                emitSynchronousCall(sb, $"receiver.{call.MethodName}({arguments});");
             }
             else
             {
-                sb.AppendLine("            using (step)");
-                sb.AppendLine($"                return receiver.{call.MethodName}({arguments});");
+                emitSynchronousCall(sb, $"return receiver.{call.MethodName}({arguments});");
             }
 
             sb.AppendLine("        }");
@@ -341,6 +707,43 @@ internal static class StepInterceptors
         sb.AppendLine("    }");
         sb.AppendLine("}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A synchronous helper call, bracketed so that an exception becomes the STEP's verdict and not
+    /// only the test's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why not <c>using (step)</c>.</b> It was, and a step that threw rendered green. Disposal
+    /// runs on the way out of a <c>using</c> either way, and disposal alone means "the step ended" —
+    /// nothing in it says the step ended badly. The scenario was still reported red by the runner, so
+    /// the only visible symptom was a specification whose failing line was the one line marked
+    /// <c>✓</c>; it surfaced the first time a projected spec was rendered to a console rather than
+    /// only published. The asynchronous path never had the bug because
+    /// <c>MarkerStepRuntime.Track</c> has always caught and reported — this is the same two lines,
+    /// inline, for the path that cannot await.
+    /// </para>
+    /// <para>
+    /// Rethrown unchanged: whether a failed step ends the test is the test framework's decision, and
+    /// swallowing here would quietly turn every projected step into a continue-on-error one.
+    /// </para>
+    /// </remarks>
+    private static void emitSynchronousCall(StringBuilder sb, string invocation)
+    {
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine($"                {invocation}");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::System.Exception e)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                (step as global::Bobcat.IStepHandle)?.Fail(e);");
+        sb.AppendLine("                throw;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                step.Dispose();");
+        sb.AppendLine("            }");
     }
 
     /// <summary>The name as it can be written in generated code.</summary>

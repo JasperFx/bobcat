@@ -97,46 +97,101 @@ public class IncludeGrammarsAttribute : Attribute
 }
 
 /// <summary>
-/// Marks a fixture method as a Given step (data setup).
-/// Uses Gherkin Expression syntax for the pattern.
+/// Marks a method as a Given step (data setup).
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public class GivenAttribute : StepAttribute
 {
     public GivenAttribute(string expression) : base(expression) { }
+
+    public override string Keyword => "Given";
 }
 
 /// <summary>
-/// Marks a fixture method as a When step (action under test).
+/// Marks a method as a When step (action under test).
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public class WhenAttribute : StepAttribute
 {
     public WhenAttribute(string expression) : base(expression) { }
+
+    public override string Keyword => "When";
 }
 
 /// <summary>
-/// Marks a fixture method as a Then step (assertion).
+/// Marks a method as a Then step (assertion).
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public class ThenAttribute : StepAttribute
 {
     public ThenAttribute(string expression) : base(expression) { }
+
+    public override string Keyword => "Then";
 }
 
 /// <summary>
-/// Base class for step attributes. Carries the Gherkin expression pattern
-/// and maps to a StepKind for failure classification.
+/// A step that spells <b>no keyword</b> — <c>[Step("Multiply by {multiplier} then add {delta}")]</c>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>One family, both lanes.</b> This is also the base class of <see cref="GivenAttribute"/>,
+/// <see cref="WhenAttribute"/>, <see cref="ThenAttribute"/> and <see cref="CheckAttribute"/>, and
+/// every one of them works in <b>both</b> authoring styles: matched against a <c>.feature</c> file's
+/// step text on a fixture, and intercepted at the call site when an ordinary xUnit or TUnit test
+/// calls the method directly. There used to be a second vocabulary for the second case
+/// (<c>[BobcatStep]</c>) and the split had no reason behind it — a step's text and keyword are the
+/// same facts whichever way the step is reached.
+/// </para>
+/// <para>
+/// <b>Keywordless is a real choice, not a default.</b> Storyteller sentences and Gauge steps read as
+/// prose, and "Multiply by 3 then add 4" is not a Given, a When or a Then. In the Gherkin lane a
+/// keywordless step matches under <em>any</em> keyword — the same rule <c>[TableGrammar]</c> has
+/// always followed — so the feature file decides, which is where that decision belongs.
+/// </para>
+/// <para>
+/// <b>Two expression syntaxes, both first class.</b> See <see cref="StepAttribute.Expression"/>.
+/// </para>
+/// </remarks>
 [AttributeUsage(AttributeTargets.Method)]
-public abstract class StepAttribute : Attribute
+public class StepAttribute : Attribute
 {
+    public StepAttribute(string expression) => Expression = expression;
+
+    /// <summary>
+    /// The step's text, in <b>either</b> of two syntaxes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Cucumber expressions</b> capture by TYPE and position: <c>"the left operand is {int}"</c>,
+    /// plus <c>{string}</c>, <c>{word}</c>, the Event Modeling type words (<c>{aggregate}</c>,
+    /// <c>{command}</c>, <c>{event}</c>, …), optional text and raw regex.
+    /// </para>
+    /// <para>
+    /// <b>Named templates</b> — Storyteller's <c>[FormatAs]</c> syntax — capture by PARAMETER NAME:
+    /// <c>"Adding {x} to {y} should equal {sum}"</c> over <c>double Adding(double x, double y, double
+    /// sum)</c>. The parameter's own type decides how the cell is read, so the step text says what the
+    /// value <i>is</i> rather than merely what type it has, and the same string renders the sentence
+    /// when the method is called from C#.
+    /// </para>
+    /// <para>
+    /// <b>Which one is in force is decided per expression, not per project:</b> when every
+    /// placeholder names a parameter of the method, it is a named template; otherwise it is a
+    /// Cucumber expression. An expression with no placeholders reads identically either way. Mixing
+    /// the two in one expression is <c>BOBCAT028</c> — there is no reading of <c>{int} plus {y}</c>
+    /// that is not a guess.
+    /// </para>
+    /// </remarks>
     public string Expression { get; }
 
-    protected StepAttribute(string expression)
-    {
-        Expression = expression;
-    }
+    /// <summary>
+    /// Given / When / Then / Check, or the empty string for a step that spells no keyword.
+    /// </summary>
+    /// <remarks>
+    /// Read by the generator from the attribute's TYPE, never by instantiating it — so a project's
+    /// own <c>[GivenEvents]</c> deriving from <see cref="GivenAttribute"/> inherits the keyword with
+    /// no registration anywhere.
+    /// </remarks>
+    public virtual string Keyword => "";
 }
 
 /// <summary>
@@ -199,6 +254,8 @@ public class AfterAllAttribute : Attribute { }
 public class CheckAttribute : StepAttribute
 {
     public CheckAttribute(string expression) : base(expression) { }
+
+    public override string Keyword => "Then";
 }
 
 /// <summary>
@@ -246,6 +303,57 @@ public class SetVerificationAttribute : Attribute
     /// Comma-separated column names that uniquely identify a row for matching.
     /// </summary>
     public string KeyColumns { get; set; } = "";
+
+    /// <summary>
+    /// When true the rows must also appear in the order the specification writes them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, because most sets have no meaningful order and asserting one the system
+    /// never promised is how a suite acquires a test that fails when nothing broke. Turn it on when
+    /// the order is part of what the specification claims — an event stream, a sorted report, a
+    /// queue.
+    /// </para>
+    /// <para>
+    /// Rows are still matched by <see cref="KeyColumns"/> first and the order of the matches is
+    /// then checked, so an inserted row reads as one extra row rather than as every row after it
+    /// disagreeing. See <c>SetVerificationComparer.Compare</c> for why that matters and for what
+    /// naming no key columns costs.
+    /// </para>
+    /// </remarks>
+    public bool Ordered { get; set; }
+
+    /// <summary>
+    /// For a set of plain values — <c>IEnumerable&lt;string&gt;</c>, <c>IEnumerable&lt;int&gt;</c>,
+    /// a set of enum values — the name of the single column each value is compared under.
+    /// </summary>
+    /// <remarks>
+    /// A set of objects takes its columns from the properties the document's headers name; a set of
+    /// values has no properties to read, so the fixture says what the one column is called. This is
+    /// Storyteller's <c>VerifyStringList(...).Titled("The names in order should be", "Name")</c>,
+    /// whose second argument did the same job. Without it a set of strings is compared against the
+    /// properties of <c>string</c> — <c>Length</c> and <c>Chars</c> — and every row reads as missing
+    /// and extra at once, which is why BOBCAT031 asks for it at build time.
+    /// </remarks>
+    public string Column { get; set; } = "";
+}
+
+/// <summary>
+/// The data-table column this parameter binds to, when the document should not have to call it by
+/// the parameter's own name.
+/// </summary>
+/// <remarks>
+/// Storyteller's <c>[Header("Player Name")]</c>, and for the same reason: the column heading is
+/// prose in a document people read, while the parameter name is code. Without it a table that wants
+/// to say "Player Name" forces the parameter to be called <c>Player_Name</c> or the column to be
+/// called <c>player</c>.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Parameter)]
+public class HeaderAttribute : Attribute
+{
+    public HeaderAttribute(string name) => Name = name;
+
+    public string Name { get; }
 }
 
 /// <summary>

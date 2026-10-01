@@ -22,3 +22,10 @@ Feature: Decision Table
     Then the divmod results are
       | dividend | divisor | quotient | remainder |
       | 17       | 5       | 3        | 9         |
+
+  Scenario: A row that throws still leaves the rows before it on the grid
+    Then the line totals are calculated
+      | quantity | price | LineTotal |
+      | 2        | 10.00 | 20.00     |
+      | -1       | 5.00  | 0.00      |
+      | 3        | 5.00  | 15.00     |

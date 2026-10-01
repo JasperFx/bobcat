@@ -195,6 +195,28 @@ real HTTP without one.
      events into a channel that drops on backpressure, crowding out the `StepFinished` that
      matters more. Consumers upsert per step; only the latest matters, and a finished step
      ignores late (hydration-replayed) progress.
+   - **`step_progress.Cells` — the cells so far** (built 2026-09-30, issue #387, Stoat's
+     `#62` part 1). A slow specification fills in cell by cell while it runs, the way
+     Storyteller's did, instead of showing nothing until `step_finished`. One optional trailing
+     member carrying the same `StepCell` record `StepFinished.Cells` uses, so there is no second
+     cell shape. Three semantics a consumer relies on:
+     - **The whole set, not a delta.** A receiver upserts per step, latest wins, so a coalesced
+       or dropped update costs nothing — the next one restates everything. A delta would turn the
+       coalescing that protects the channel into a correctness problem.
+     - **`null` means "this update says nothing about cells"**, never "there are none". The
+       receiver keeps the last set it had, which is what lets a `[TableGrammar]` row tick — rows
+       and no cells — interleave with cell-bearing updates without blanking them.
+     - **`step_finished.Cells` stays the authority.** Interim cells are replaced by the final set,
+       so an interim update the coalescer threw away can never leave a wrong final picture.
+
+     Both lanes feed it and both had a gap. The engine lane already had the cells on the seam —
+     `StepUpdate.Cells`, which `WaitForRunner` fills — and dropped them at the wire, so a poll
+     loop could say a step was still running but never what it had established. The projected lane
+     published nothing until the step ended, so a step making twenty `SpecAssert.Check` calls over
+     thirty seconds showed nothing; `ScenarioRecorder.RecordCell` now posts the open step's cells,
+     coalesced on the same 100 ms interval per step, and a table a projected step is handed posts
+     its grid once as the step opens. Silent outside a scenario, deliberately: `SpecAssert` is
+     called from plenty of helpers that are not specifications.
    - **The tap.** `IWorkerClient.OnTestUpdate(handler)` (default no-op) and
      `ISupervisorObserver.TestUpdated(WorkerLaunchContext, WorkerTestUpdate)` — every node
      change a worker streams, in-progress included, stamped with the lane and purpose it came

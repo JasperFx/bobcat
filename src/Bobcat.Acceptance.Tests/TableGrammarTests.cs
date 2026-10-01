@@ -85,6 +85,26 @@ public class TableGrammarTests
     }
 
     [Fact]
+    public async Task a_throwing_row_keeps_the_grid_up_to_where_it_got()
+    {
+        ThrowingRowGrammar.Reset();
+
+        var results = await Specs.Run(Table_Grammar_Feature.Define(),
+            "A throwing row still leaves the rows before it on the grid");
+        var step = results.Step("the tally runs");
+
+        step.StepStatus.ShouldBe(ResultStatus.error);
+        step.FailureLevel.ShouldBe(FailureLevel.Critical);
+        ThrowingRowGrammar.AfterRan.ShouldBeTrue();
+
+        // The first row's cells survive the throw; the rows at and after it contribute nothing,
+        // because nothing ran to describe them.
+        step.IsSetVerification.ShouldBeTrue();
+        step.Cells.ShouldNotBeEmpty();
+        step.Cells.ShouldAllBe(c => c.RowIndex == 0);
+    }
+
+    [Fact]
     public async Task the_whole_envelope_shares_one_scoped_service_instance()
     {
         OrderSetupGrammar.Reset();

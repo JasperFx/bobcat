@@ -1,4 +1,5 @@
 using System.Reflection;
+using Bobcat.Engine;
 using Bobcat.Monitoring;
 using Bobcat.Resilience;
 
@@ -78,10 +79,29 @@ public static class MarkerStepRun
     /// held its own reference would be keeping per-test state on an attribute instance the runner
     /// is free to share.
     /// </remarks>
-    public static void EndScenario(ScenarioVerdict verdict)
+    /// <returns>
+    /// The exception the adapter must throw to make the runner agree with the specification, or
+    /// null when the two already agree.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a verdict can come back OUT of here.</b> <see cref="SpecAssert"/> records a wrong
+    /// without throwing, so that a spec shows every disagreement instead of only its first — which
+    /// means a scenario can finish red while the test method finished without an exception and the
+    /// runner is about to call it green. The gathered failures are the specification's verdict, and
+    /// the only way to hand them to the runner is to throw where the runner is still listening: an
+    /// adapter's after-test hook.
+    /// </para>
+    /// <para>
+    /// The runner's verdict still wins whenever it HAS one — a thrown assertion, an error, a skip —
+    /// because that is the contract this whole lane rests on. This only speaks up for the case the
+    /// runner cannot see.
+    /// </para>
+    /// </remarks>
+    public static Exception? EndScenario(ScenarioVerdict verdict)
     {
         var recording = ScenarioRecorder.Current;
-        if (recording is null) return;
+        if (recording is null) return null;
 
         switch (verdict.Kind)
         {
@@ -89,19 +109,22 @@ public static class MarkerStepRun
                 // A skipped test asserted nothing. Publishing CleanPass for it would be the same
                 // lie as publishing CleanPass for a failure, so the scenario is withdrawn instead.
                 recording.Cancel();
-                return;
+                return null;
 
             case ScenarioVerdictKind.Failed:
                 recording.FailureDescription = verdict.Describe();
                 Interlocked.Increment(ref _failed);
-                break;
+                recording.Dispose();
+                return null;
 
             default:
-                Interlocked.Increment(ref _passed);
-                break;
-        }
+                var gathered = recording.GatheredFailures();
+                if (gathered is null) Interlocked.Increment(ref _passed);
+                else Interlocked.Increment(ref _failed);
 
-        recording.Dispose();
+                recording.Dispose();
+                return gathered is null ? null : new SpecAssertionException(gathered);
+        }
     }
 
     /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived.</summary>
@@ -128,6 +151,11 @@ public static class MarkerStepRun
         lock (_gate)
         {
             if (_info is not null) return _info;
+
+            // Before anything else: the local spec report is the one output that has to survive a
+            // run with no console listening, and this is the first moment a projected run announces
+            // itself.
+            ProjectedSpecConsole.EnableIfRequested();
 
             var info = MonitorRunInfo.Discover(mode);
             _info = info;

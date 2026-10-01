@@ -59,7 +59,8 @@ public class PreviewBindingTests
     {
         var render = preview(Di_Scoping_Feature.Define(), "ScopePerRow isolates each table row");
 
-        var rowStep = render.Steps.First(s => s.StepText.Contains("(row 1)"));
+        // One step for the whole table — its rows are a grid, not a step each.
+        var rowStep = render.Steps.First(s => s.StepText.Contains("each of these rows captures the session"));
         var binding = rowStep.Binding.ShouldNotBeNull();
         binding.Method.ShouldBe("CaptureRow");
         binding.Arguments.Select(a => (a.Name, a.Source)).ShouldBe(

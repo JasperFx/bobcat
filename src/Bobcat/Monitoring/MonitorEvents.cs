@@ -69,7 +69,27 @@ public record ScenarioStarted(
     // marker-comment test's narrative, which is known at compile time and reaches the viewer
     // here rather than as steps, because publishing it as StepStarted would be claiming it ran.
     // Null from a publisher that predates it, and from a scenario that declares nothing.
-    IReadOnlyList<DeclaredStepInfo>? DeclaredSteps = null) : MonitorEvent(RunId);
+    IReadOnlyList<DeclaredStepInfo>? DeclaredSteps = null,
+    // Every step the scenario is GOING to take, in source order — what a preview shows, and what
+    // lets a watcher render the steps an aborted scenario never reached instead of them simply
+    // vanishing. Known before the run because it is a compile-time fact (Bobcat.PlannedSteps).
+    // Null from a publisher that predates it, and from a scenario with no plan behind it.
+    IReadOnlyList<PlannedStepInfo>? PlannedSteps = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// One step a scenario plans to take, on the wire.
+/// </summary>
+/// <param name="Keyword">Given / When / Then, or empty for a step that spells no keyword.</param>
+/// <param name="Template">
+/// The step text with its placeholders UNRESOLVED. At plan time no argument has been evaluated, and
+/// filling them in would describe a run that has not happened.
+/// </param>
+/// <param name="Grammar">The step method this call binds to, as <c>Type.Method</c>.</param>
+/// <param name="DeclaredStepNumber">
+/// 1-based index into <see cref="ScenarioStarted.DeclaredSteps"/> of the marker comment this step
+/// sits under, or null.
+/// </param>
+public record PlannedStepInfo(string Keyword, string Template, string Grammar, int? DeclaredStepNumber = null);
 
 /// <summary>
 /// One step a scenario declared — a marker comment, on the wire (issue #304).
@@ -132,8 +152,37 @@ public record StepStarted(
     // inside (issue #304), decided by the generator from the call site's line — never inferred
     // at runtime. Null when the call sits outside every declared region, which includes every
     // test that declares nothing at all.
-    int? DeclaredStepNumber = null) : MonitorEvent(RunId);
+    int? DeclaredStepNumber = null,
+    // 1-based index into ScenarioStarted.PlannedSteps of the call site this step came from, so a
+    // watcher can tell which planned steps were reached. Null for a step with no plan behind it.
+    int? PlannedStepNumber = null,
+    // Which runs of Text came from the step's INPUT values, so a viewer can set them apart the way
+    // Storyteller italicised a sentence's input cells. Cannot be recomputed from the text — a value
+    // that also occurs in the prose would mark the wrong characters — so it travels. Null when the
+    // step has no substituted values.
+    IReadOnlyList<StepValueSpan>? Values = null) : MonitorEvent(RunId);
 
+/// <summary>Where one substituted input value sits in a step's rendered sentence.</summary>
+public record StepValueSpan(int Start, int Length);
+
+/// <summary>
+/// A step's own report, at the end of it — everything Storyteller put on a specification line.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b><see cref="Cells"/> is the field this record existed without for too long.</b> Before it, a
+/// failed comparison reached a viewer as one flattened <see cref="ErrorMessage"/> string, so the
+/// single most valuable thing in a specification report — <i>expected 6, got 8</i>, per named cell,
+/// with the right cells green beside the wrong one — could not be rendered at all, in either
+/// authoring lane. A red row with no detail is not a report.
+/// </para>
+/// <para>
+/// <b><see cref="Columns"/> turns cells back into a table.</b> A set-verification or decision-table
+/// step reports one cell per (row, column); the column order is the only thing cells cannot carry
+/// themselves, so it rides alongside and a viewer reassembles the grid from
+/// <see cref="StepCell.RowIndex"/>.
+/// </para>
+/// </remarks>
 public record StepFinished(
     Guid RunId,
     string Uid,
@@ -142,7 +191,47 @@ public record StepFinished(
     long DurationMs,
     string? ErrorMessage,
     // Milliseconds into the scenario's wall clock when this step finished. Optional and additive.
-    long? ScenarioElapsedMs = null) : MonitorEvent(RunId);
+    long? ScenarioElapsedMs = null,
+    // The step's value comparisons, each judged on its own. Null when the step made none.
+    IReadOnlyList<StepCell>? Cells = null,
+    // Column order for a step whose cells form a table (set verification, decision table).
+    IReadOnlyList<string>? Columns = null,
+    // What the step logged, in order — Storyteller's Context.Reporting.Log.
+    IReadOnlyList<string>? Logs = null,
+    // Named diagnostics the step attached.
+    IReadOnlyDictionary<string, string>? Diagnostics = null,
+    // The exception's type name and stack, when the step ended in one. Separate from ErrorMessage
+    // so a viewer can render an exception as an exception — a foldable block, a yellow panel — and
+    // NOT show a stack for an assertion that merely disagreed, which has none.
+    string? ExceptionType = null,
+    string? StackTrace = null,
+    // The same stack with the frames nobody wants taken out — Bobcat's own plumbing, the test
+    // runner's, and the reflection and async machinery between them — plus how many were removed.
+    //
+    // Carried rather than left for the viewer to work out, because the rule is Bobcat's knowledge:
+    // which frames are its own interceptors and step brackets is not something a console can be
+    // expected to know, and two copies of that list would drift the moment either side moved a type.
+    // The raw StackTrace stays, so a viewer can always offer "show every frame".
+    IReadOnlyList<string>? StackFrames = null,
+    int HiddenStackFrames = 0) : MonitorEvent(RunId);
+
+/// <summary>
+/// One value comparison a step reported — Storyteller's expected/actual cell.
+/// </summary>
+/// <param name="Status">
+/// The framework's own word: <c>success</c>, <c>failed</c>, <c>error</c>, <c>ok</c>. Verbatim, never
+/// re-labelled by the publisher — two enums meaning the same thing is how a vocabulary drifts.
+/// </param>
+/// <param name="RowIndex">
+/// 0-based row for a cell that belongs to a table, or -1 for a cell in an ordinary sentence.
+/// </param>
+public record StepCell(
+    string Name,
+    string Status,
+    string? Expected = null,
+    string? Actual = null,
+    string? Note = null,
+    int RowIndex = -1);
 
 /// <summary>
 /// Interim progress from a step still running — the wire form of
@@ -152,6 +241,27 @@ public record StepFinished(
 /// <see cref="ElapsedMs"/> is time since the step started. Coalesced by the publisher, so a
 /// 200-row grammar does not cost 200 HTTP payloads; the last row always posts.
 /// </summary>
+/// <param name="Cells">
+/// The cells the step has produced <b>so far</b> — the whole set, not a delta — or <c>null</c> when
+/// this update says nothing about cells (issue #387).
+/// </param>
+/// <remarks>
+/// <para>
+/// <b>Why the whole set and not a delta.</b> A consumer upserts per step, latest wins, so a dropped
+/// or coalesced update costs nothing: the next one restates everything. A delta would make the
+/// coalescing that protects the channel into a correctness problem.
+/// </para>
+/// <para>
+/// <b><c>null</c> means "nothing to say about cells", never "there are none".</b> A receiver keeps
+/// the last set it had. That is what lets a <c>[TableGrammar]</c> row tick — which carries rows and
+/// no cells — interleave with cell-bearing updates without blanking them.
+/// </para>
+/// <para>
+/// <b><see cref="StepFinished.Cells"/> stays the authority.</b> Interim cells are replaced by the
+/// final set when the step finishes, so an interim update the coalescer throws away can never leave
+/// a wrong final picture.
+/// </para>
+/// </remarks>
 public record StepProgress(
     Guid RunId,
     string Uid,
@@ -159,7 +269,8 @@ public record StepProgress(
     string? Message,
     int? Row,
     int? TotalRows,
-    long ElapsedMs) : MonitorEvent(RunId);
+    long ElapsedMs,
+    IReadOnlyList<StepCell>? Cells = null) : MonitorEvent(RunId);
 
 // The supervisor's lane topology, recycles and worker faults (issue #84) — posted by
 // SupervisorRunPublisher, which is the only publisher that knows them.

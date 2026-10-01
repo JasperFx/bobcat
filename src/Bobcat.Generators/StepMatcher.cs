@@ -35,7 +35,13 @@ public static class StepMatcher
         {
             // Check kind match — "Check" methods match as "Then"
             var methodKind = method.StepKind == "Check" ? "Then" : method.StepKind;
-            if (!string.Equals(methodKind, targetKind, StringComparison.OrdinalIgnoreCase))
+
+            // A keywordless [Step] matches under WHATEVER keyword the feature file wrote. Storyteller
+            // and Gauge sentences carry no keyword, and [TableGrammar] has always matched this way:
+            // the document decides, which is where that decision belongs.
+            var keywordless = methodKind.Length == 0;
+
+            if (!keywordless && !string.Equals(methodKind, targetKind, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             if (method.ParsedExpression == null)
@@ -44,7 +50,10 @@ public static class StepMatcher
             var values = CucumberExpressionParser.TryMatch(method.ParsedExpression, step.Text);
             if (values != null)
             {
-                candidates.Add((method, values));
+                // Named placeholders bind by name; the emitter consumes values positionally. Reordered
+                // once, here, so nothing downstream has to know there are two binding models.
+                candidates.Add((method, CucumberExpressionParser.OrderForParameters(
+                    method.ParsedExpression, values, valueParametersOf(method), resultParametersOf(method))));
             }
         }
 
@@ -99,4 +108,18 @@ public static class StepMatcher
 
         return candidates[0];
     }
+
+    /// <summary>
+    /// The parameters a step's captures can fill, in declaration order — what
+    /// <c>OrderForParameters</c> reorders into and what the emitter walks.
+    /// </summary>
+    /// <summary>A tuple return's elements, in declaration order — where their expected values go.</summary>
+    private static List<StepParameter> resultParametersOf(StepMethodInfo method)
+        => method.ReturnTupleElements.Select(e => new StepParameter(e.Name, e.Type)).ToList();
+
+    private static List<StepParameter> valueParametersOf(StepMethodInfo method)
+        => method.Parameters
+            .Where(p => !p.IsInjected && p.Binding != ParameterBinding.Table)
+            .Select(p => new StepParameter(p.Name, p.Type))
+            .ToList();
 }

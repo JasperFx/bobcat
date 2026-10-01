@@ -1,4 +1,5 @@
 using Bobcat.Engine;
+using Bobcat.Engine.Verification;
 using Bobcat.Monitoring;
 using Bobcat.Runtime;
 using Shouldly;
@@ -63,6 +64,64 @@ public class StepProgressPublishingTests
 
         // StepFinished rides the step's own end stamp, not a second reading.
         sink.Events.OfType<StepFinished>().Single().ScenarioElapsedMs.ShouldBe(5);
+    }
+
+    // --- issue #387: the cells a step has made so far ---
+
+    [Fact]
+    public void interim_progress_carries_the_cells_the_step_has_made_so_far()
+    {
+        var sink = new RecordingSink();
+        var observer = unthrottled(sink);
+
+        observer.StepStarted("s1", StepKind.Then, "the totals are", scenarioElapsedMs: 0);
+
+        // A [WaitFor] poll loop reporting what it last saw — the shape that already filled
+        // StepUpdate.Cells and had it dropped at the wire.
+        observer.StepProgress("s1", new StepUpdate("still waiting")
+        {
+            Cells = [CellCheck.ForValue("total", 4, "5")]
+        });
+
+        var progress = sink.Events.OfType<StepProgress>().Single();
+        var cell = progress.Cells.ShouldHaveSingleItem();
+        cell.Name.ShouldBe("total");
+        cell.Expected.ShouldBe("5");
+        cell.Actual.ShouldBe("4");
+        cell.Status.ShouldBe(nameof(ResultStatus.failed));
+    }
+
+    [Fact]
+    public void an_update_with_no_cells_says_nothing_about_them_rather_than_that_there_are_none()
+    {
+        var sink = new RecordingSink();
+        var observer = unthrottled(sink);
+
+        observer.StepStarted("s1", StepKind.Given, "the rows are", scenarioElapsedMs: 0);
+        observer.StepProgress("s1", StepUpdate.ForRow(1, 3));
+
+        // Null, not empty. A receiver keeps the last set it had, so a row tick interleaved with a
+        // cell-bearing update cannot blank the cells that update showed.
+        sink.Events.OfType<StepProgress>().Single().Cells.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_whole_set_is_restated_every_time_so_a_dropped_update_costs_nothing()
+    {
+        var sink = new RecordingSink();
+        var observer = unthrottled(sink);
+
+        observer.StepStarted("s1", StepKind.Then, "the totals are", scenarioElapsedMs: 0);
+
+        var first = CellCheck.ForValue("a", 1, "1");
+        var second = CellCheck.ForValue("b", 2, "2");
+
+        observer.StepProgress("s1", new StepUpdate(null) { Cells = [first] });
+        observer.StepProgress("s1", new StepUpdate(null) { Cells = [first, second] });
+
+        var updates = sink.Events.OfType<StepProgress>().ToArray();
+        updates[0].Cells!.Select(c => c.Name).ShouldBe(["a"]);
+        updates[1].Cells!.Select(c => c.Name).ShouldBe(["a", "b"]);
     }
 
     [Fact]

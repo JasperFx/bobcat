@@ -246,38 +246,16 @@ internal static class EventTypeResolver
 }
 
 /// <summary>
-/// Converts a Gherkin cell string to a target type — the runtime twin of the generator's
-/// compile-time literal conversion, for the grammars' reflective record building. Handles the
-/// primitives, string, enums, Guid, decimal and the date/time types, plus their nullable forms.
+/// Converts a Gherkin cell string to a target type, for the grammars' reflective record building.
 /// </summary>
+/// <remarks>
+/// Delegates to <see cref="Bobcat.Runtime.CellValues"/>, which is the one runtime authority on what a
+/// cell means. It used to be a third copy of the rules beside the generator's literal emission and the
+/// expected-side checkers, and the copies had drifted: this one could not read <c>TODAY+2</c> or
+/// <c>NULL</c>, so a table that supplied a date and a table that asserted one disagreed about what the
+/// same word meant.
+/// </remarks>
 internal static class GherkinValue
 {
-    public static object? Convert(string raw, Type target)
-    {
-        var underlying = Nullable.GetUnderlyingType(target);
-        if (underlying != null)
-        {
-            if (string.IsNullOrEmpty(raw)) return null;
-            target = underlying;
-        }
-
-        if (target == typeof(string)) return raw;
-        if (target.IsEnum) return Enum.Parse(target, raw, ignoreCase: true);
-        if (target == typeof(Guid)) return Guid.Parse(raw);
-        if (target == typeof(bool)) return bool.Parse(raw);
-        if (target == typeof(int)) return int.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(long)) return long.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(short)) return short.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(byte)) return byte.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(double)) return double.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(float)) return float.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(decimal)) return decimal.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(DateTime)) return DateTime.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        if (target == typeof(DateTimeOffset)) return DateTimeOffset.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        if (target == typeof(DateOnly)) return DateOnly.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(TimeOnly)) return TimeOnly.Parse(raw, CultureInfo.InvariantCulture);
-        if (target == typeof(TimeSpan)) return TimeSpan.Parse(raw, CultureInfo.InvariantCulture);
-
-        return System.Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
-    }
+    public static object? Convert(string raw, Type target) => Bobcat.Runtime.CellValues.Read(raw, target);
 }

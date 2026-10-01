@@ -95,6 +95,36 @@ public static class CucumberExpressionParser
         /// </remarks>
         public string? ParameterName { get; }
 
+        /// <summary>
+        /// The METHOD parameter this capture binds to, when the placeholder named one — the
+        /// Storyteller <c>[FormatAs]</c> reading of <c>{sum}</c>. Null for a Cucumber capture, which
+        /// binds positionally.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <c>ParameterName</c>, which holds the placeholder's TYPE word (<c>int</c>,
+        /// <c>aggregate</c>) and is what the Event Model emitter reads to tell a <c>{command}</c>
+        /// from an <c>{event}</c>. Two different questions about the same placeholder, and folding
+        /// them together would make a parameter called <c>event</c> stamp an Event Modeling role.
+        /// </remarks>
+        public string? BoundParameterName { get; set; }
+
+        /// <summary>
+        /// True when the placeholder named no parameter and stands for the method's RETURN value —
+        /// Storyteller's <c>[return: AliasAs("sum")]</c> cell, written into the sentence.
+        /// </summary>
+        /// <remarks>
+        /// The Cucumber form of the same thing is positional: a capture beyond the method's
+        /// parameters is the expected value. A named template has to say it outright, because a
+        /// name cannot be counted.
+        /// </remarks>
+        public bool IsExpected { get; set; }
+
+        /// <summary>
+        /// Which part of the return value this capture is the expected value of — a tuple element's
+        /// name. Null for the single-return case, where there is only one thing it could be.
+        /// </summary>
+        public string? ExpectedName { get; set; }
+
         public ParameterCapture(string csharpType, int groupIndex, string? parameterName = null)
         {
             CSharpType = csharpType;
@@ -107,14 +137,59 @@ public static class CucumberExpressionParser
     /// Parse a step expression (Cucumber Expression or raw regex) into a regex pattern
     /// and parameter type list.
     /// </summary>
-    public static ParsedExpression Parse(string expression)
+    public static ParsedExpression Parse(string expression) => Parse(expression, []);
+
+    /// <summary>
+    /// Parse a step expression into a regex and its captures, resolving any placeholder that names
+    /// one of <paramref name="parameters"/> against that parameter's own type.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two syntaxes, one parser.</b> A Cucumber expression captures by TYPE — <c>{int}</c> — and
+    /// binds positionally. A Storyteller <c>[FormatAs]</c> template captures by PARAMETER NAME —
+    /// <c>{sum}</c> — and the parameter's declared type says how to read the cell, which means the
+    /// step text says what the value <i>is</i> rather than merely what type it has.
+    /// </para>
+    /// <para>
+    /// <b>Decided per placeholder, and the built-in word wins.</b> <c>{int}</c> stays a Cucumber
+    /// capture even on a method with a parameter called <c>int</c>, so no expression that compiled
+    /// before means anything different now. A placeholder that is not a built-in type word and does
+    /// name a parameter is the named form; one that is neither is still an error, as it was.
+    /// </para>
+    /// <para>
+    /// <b>Mixing them is allowed, deliberately.</b> <c>"the {aggregate} has {count} events"</c> is a
+    /// natural thing to write, and there is no ambiguity in it: each placeholder is resolved on its
+    /// own and a named one binds by name whatever the regex came from.
+    /// </para>
+    /// </remarks>
+    public static ParsedExpression Parse(string expression, IReadOnlyList<StepParameter> parameters)
+        => Parse(expression, parameters, null);
+
+    /// <param name="returnType">
+    /// The method's return type, so a placeholder naming no parameter can be read as the EXPECTED
+    /// return value — <c>"The value should be {value}"</c> over a <c>double</c>-returning method,
+    /// which is the single most common Storyteller grammar there is. Null for a method with nothing
+    /// to compare, where such a placeholder stays an error.
+    /// </param>
+    public static ParsedExpression Parse(
+        string expression, IReadOnlyList<StepParameter> parameters, string? returnType)
+        => Parse(expression, parameters, returnType, []);
+
+    /// <param name="results">
+    /// The comparable parts of the return value — a named tuple's elements. A placeholder naming one
+    /// is that element's expected cell, typed from the element rather than from the tuple, which is
+    /// what lets one sentence make several assertions on an <c>async</c> method.
+    /// </param>
+    public static ParsedExpression Parse(
+        string expression, IReadOnlyList<StepParameter> parameters, string? returnType,
+        IReadOnlyList<StepParameter> results)
     {
         if (isRawRegex(expression))
         {
             return parseRawRegex(expression);
         }
 
-        return parseCucumberExpression(expression);
+        return parseCucumberExpression(expression, parameters, returnType, results);
     }
 
     private static bool isRawRegex(string expression)
@@ -122,9 +197,11 @@ public static class CucumberExpressionParser
         return expression.StartsWith("^") || expression.Contains("\\d") || expression.Contains("(?");
     }
 
-    private static ParsedExpression parseCucumberExpression(string expression)
+    private static ParsedExpression parseCucumberExpression(
+        string expression, IReadOnlyList<StepParameter> parameters, string? returnType,
+        IReadOnlyList<StepParameter> results)
     {
-        var parameters = new List<ParameterCapture>();
+        var captures = new List<ParameterCapture>();
         var regex = new StringBuilder();
         regex.Append('^');
 
@@ -141,11 +218,52 @@ public static class CucumberExpressionParser
 
                 var typeName = expression.Substring(i + 1, end - i - 1).Trim();
 
-                if (!builtInTypes.TryGetValue(typeName, out var typeInfo))
-                    throw new ArgumentException($"Unknown parameter type '{{{typeName}}}' in expression: {expression}");
+                if (builtInTypes.TryGetValue(typeName, out var typeInfo))
+                {
+                    regex.Append(typeInfo.Regex);
 
-                regex.Append(typeInfo.Regex);
-                parameters.Add(new ParameterCapture(typeInfo.CSharpType, groupIndex, typeName));
+                    var capture = new ParameterCapture(typeInfo.CSharpType, groupIndex, typeName);
+
+                    // A built-in word that ALSO names a parameter binds by name — strictly more
+                    // robust than by position, and it costs nothing.
+                    if (named(typeName, parameters) is not null) capture.BoundParameterName = typeName;
+
+                    captures.Add(capture);
+                }
+                else if (named(typeName, parameters) is { } parameter)
+                {
+                    regex.Append(regexForType(parameter.CSharpType));
+                    captures.Add(new ParameterCapture(parameter.CSharpType, groupIndex, typeName)
+                    {
+                        BoundParameterName = typeName
+                    });
+                }
+                else if (named(typeName, results) is { } element)
+                {
+                    // One element of a tuple return, named in the sentence: "the Sum should be {sum}
+                    // and the Product should be {product}".
+                    regex.Append(regexForType(element.CSharpType));
+                    captures.Add(new ParameterCapture(element.CSharpType, groupIndex, typeName)
+                    {
+                        IsExpected = true,
+                        ExpectedName = element.Name
+                    });
+                }
+                else if (returnType is { Length: > 0 } && returnType != "void")
+                {
+                    // The return-value cell, named. Storyteller wrote it as [return: AliasAs("sum")]
+                    // plus a {sum} in the format; here the name in the sentence IS the alias.
+                    regex.Append(regexForType(returnType));
+                    captures.Add(new ParameterCapture(returnType, groupIndex, typeName) { IsExpected = true });
+                }
+                else
+                {
+                    throw new ArgumentException(
+                        $"'{{{typeName}}}' in expression '{expression}' is neither a built-in parameter type, "
+                        + "nor the name of a parameter on the method, nor usable as the expected return "
+                        + "value (the method returns nothing)");
+                }
+
                 groupIndex++;
                 i = end + 1;
             }
@@ -183,8 +301,38 @@ public static class CucumberExpressionParser
 
         regex.Append('$');
 
-        return new ParsedExpression(regex.ToString(), parameters, false);
+        return new ParsedExpression(regex.ToString(), captures, false);
     }
+
+    private static StepParameter? named(string name, IReadOnlyList<StepParameter> parameters)
+    {
+        foreach (var parameter in parameters)
+        {
+            if (parameter.Name == name) return parameter;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The regex a named placeholder gets, from the parameter's own declared type.
+    /// </summary>
+    /// <remarks>
+    /// A string gets a NON-GREEDY run rather than <c>(\S+)</c>: a Storyteller sentence routinely puts
+    /// a phrase in a cell ("Start with the number twenty one"), and with the expression anchored at
+    /// both ends the literal text between placeholders is what bounds it. Numbers get the tighter
+    /// digit patterns, so a sentence ending in a number cannot swallow the words before it.
+    /// </remarks>
+    internal static string regexForType(string csharpType)
+        => csharpType switch
+        {
+            "int" or "long" or "short" or "byte" or "sbyte" or "uint" or "ulong" or "ushort" => @"(-?\d+)",
+            "float" or "double" or "decimal" => @"(-?[\d.]+)",
+            "bool" => "(true|false|True|False)",
+            TypeCSharpType => TypeNameRegex,
+            "string" => "(.+?)",
+            _ => @"(\S+)"
+        };
 
     private static ParsedExpression parseRawRegex(string expression)
     {
@@ -254,26 +402,124 @@ public static class CucumberExpressionParser
     }
 
     /// <summary>
+    /// The matched values in the order <b>the method's parameters</b> want them, when every
+    /// value-bearing parameter was named by a placeholder. Otherwise the values unchanged.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A Cucumber capture binds positionally and a named one binds by name, and the emitter consumes
+    /// values positionally — so the reordering happens here, once, rather than every caller learning
+    /// about two binding models.
+    /// </para>
+    /// <para>
+    /// <b>Only when the cover is complete.</b> A partly-named expression falls back to positional,
+    /// which is correct whenever the placeholders are in parameter order — and they are, in every
+    /// natural sentence. Reordering a partial cover would have to invent a slot for the parameters no
+    /// placeholder named, and inventing a slot shifts every value after it.
+    /// </para>
+    /// </remarks>
+    public static List<string> OrderForParameters(
+        ParsedExpression parsed, List<string> values, IReadOnlyList<StepParameter> valueParameters)
+        => OrderForParameters(parsed, values, valueParameters, []);
+
+    /// <param name="results">
+    /// The return's comparable parts, in declaration order. Their expected values land after the
+    /// parameters' — which is where the emitter reads them, mirroring how <c>out</c> parameters
+    /// consume trailing captures today.
+    /// </param>
+    public static List<string> OrderForParameters(
+        ParsedExpression parsed, List<string> values, IReadOnlyList<StepParameter> valueParameters,
+        IReadOnlyList<StepParameter> results)
+    {
+        if (values.Count != parsed.Parameters.Count) return values;
+
+        var byName = new Dictionary<string, string>();
+        for (var i = 0; i < parsed.Parameters.Count; i++)
+        {
+            var name = parsed.Parameters[i].BoundParameterName;
+            if (name != null) byName[name] = values[i];
+        }
+
+        if (byName.Count == 0) return values;
+
+        var ordered = new List<string>(values.Count);
+        foreach (var parameter in valueParameters)
+        {
+            if (!byName.TryGetValue(parameter.Name, out var value)) return values;
+            ordered.Add(value);
+        }
+
+        // Expected values last. For a tuple return they are ordered by the ELEMENTS' declaration
+        // order rather than by where they appear in the sentence, so the emitter can keep reading them
+        // positionally — the same model `out` parameters already use.
+        if (results.Count > 0)
+        {
+            foreach (var element in results)
+            {
+                var found = false;
+                for (var i = 0; i < parsed.Parameters.Count && !found; i++)
+                {
+                    if (parsed.Parameters[i].ExpectedName != element.Name) continue;
+
+                    ordered.Add(values[i]);
+                    found = true;
+                }
+
+                // A sentence that names only some of the elements is not a partial comparison — it is
+                // an expression the author has not finished writing, and guessing at the rest would
+                // report cells nobody asked for.
+                if (!found) return values;
+            }
+
+            return ordered;
+        }
+
+        for (var i = 0; i < parsed.Parameters.Count; i++)
+        {
+            if (parsed.Parameters[i].IsExpected) ordered.Add(values[i]);
+        }
+
+        return ordered;
+    }
+
+    /// <summary>
     /// Generate a C# literal expression for a captured value with the given type.
     /// </summary>
+    /// <summary>
+    /// The C# expression for one written value as <paramref name="csharpType"/>. Delegates to
+    /// <see cref="CellLiterals"/>, which is the one place that decides how a cell is read — and
+    /// the only one that knows an enum's members, so prefer the <see cref="ParameterInfo"/>
+    /// overload wherever the parameter is in hand.
+    /// </summary>
     public static string ToCSharpLiteral(string value, string csharpType)
-    {
-        return csharpType switch
-        {
-            "int" => value,
-            "long" => $"{value}L",
-            "float" => $"{value}f",
-            "double" => $"{value}d",
-            "decimal" => $"{value}m",
-            "string" => $"\"{escapeCSharpString(value)}\"",
-            // The value has already been resolved to a global::-qualified name by the generator.
-            TypeCSharpType => $"typeof({value})",
-            _ => $"\"{escapeCSharpString(value)}\""
-        };
-    }
+        => CellLiterals.Convert(value, csharpType);
+
+    /// <inheritdoc cref="ToCSharpLiteral(string,string)"/>
+    public static string ToCSharpLiteral(string value, ParameterInfo parameter)
+        => CellLiterals.Convert(value, parameter);
 
     private static string escapeCSharpString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
     }
+}
+
+/// <summary>
+/// One parameter of a step method, as the expression parser needs to see it: a name a placeholder
+/// may match, and the type that says how its cell is read.
+/// </summary>
+/// <remarks>
+/// A plain struct, not a record: the generator targets netstandard2.0, which has no
+/// <c>IsExternalInit</c>, so a positional record does not compile here.
+/// </remarks>
+public readonly struct StepParameter
+{
+    public StepParameter(string name, string csharpType)
+    {
+        Name = name;
+        CSharpType = csharpType;
+    }
+
+    public string Name { get; }
+    public string CSharpType { get; }
 }

@@ -34,9 +34,12 @@ public class ClockTests
         var due = results.Step("the computed due date should be");
         due.StepStatus.ShouldBe(ResultStatus.success);
 
-        // The token and its resolved value are shown in the cell note.
+        // The cell shows the resolved date and the note says what the document wrote. The note used
+        // to repeat the date — "2026-06-08 (TODAY+3 → 2026-06-08)" — which printed one value twice.
         var cell = due.Cells.Single();
-        cell.Note.ShouldBe("TODAY+3 → 2026-06-08");
+        cell.Expected.ShouldBe("2026-06-08");
+        cell.Note.ShouldBe("TODAY+3");
+        cell.DisplayText.ShouldBe("2026-06-08 (TODAY+3)");
 
         results.Step("the reminder time should be").StepStatus.ShouldBe(ResultStatus.success);
         results.Step("the clock date should be").StepStatus.ShouldBe(ResultStatus.success);

@@ -20,4 +20,16 @@
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
+  <!--
+    Projected assertions (opt-in): with this true, an ordinary statement-level Shouldly call inside a
+    [BobcatFeature] test renders as a specification step, and a RUN of consecutive assertions is all
+    evaluated before the next action rather than the first failure ending the test.
+
+    Off by default, and deliberately per project rather than per class: it changes what a test body
+    MEANS, which is not something to switch on for somebody.
+  -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="BobcatProjectAssertions" />
+  </ItemGroup>
+
 </Project>

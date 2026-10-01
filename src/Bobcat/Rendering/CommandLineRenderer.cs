@@ -19,7 +19,12 @@ public class CommandLineRenderer
 
     public void Render(SpecRender spec)
     {
-        var statusIcon = spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
+        // A scenario with no steps is Bobcat's pending-specification hotspot everywhere else, and the
+        // build already warns about it (BOBCAT028). Calling it OK here was the one place that did not
+        // agree — a test that declares nothing has not passed anything.
+        var statusIcon = spec.Steps.Count == 0 && spec.Succeeded
+            ? "[yellow]PENDING[/]"
+            : spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"  {Markup.Escape(spec.Title)} {statusIcon}");
@@ -30,8 +35,41 @@ public class CommandLineRenderer
             RenderStep(step);
         }
 
+        if (spec.Steps.Count == 0)
+        {
+            // A scenario with no steps is Bobcat's pending-specification hotspot everywhere else,
+            // so it says so here rather than rendering as a blank that reads like a clean pass.
+            AnsiConsole.MarkupLine("    [dim]○ this specification declares no steps[/]");
+        }
+
+        RenderExceptions(spec);
+
+        if (spec.ScenarioFailure is { } failure)
+        {
+            AnsiConsole.WriteLine();
+
+            // When the failure's renderer recovered a cell from its message, show the CELL — it says
+            // the same thing in one line that the message says in five, and in the same shape every
+            // other comparison in the report uses.
+            if (spec.ScenarioFailureCells.Count > 0)
+            {
+                foreach (var cell in spec.ScenarioFailureCells)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"    [red]✗[/] {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+                }
+            }
+            else
+            {
+                foreach (var line in failure.Split('\n'))
+                {
+                    AnsiConsole.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
+                }
+            }
+        }
+
         AnsiConsole.WriteLine();
-        RenderCounts(spec.Counts);
+        RenderCounts(spec.Counts, spec.Succeeded);
 
         if (spec.DurationMs > 0)
         {
@@ -39,6 +77,70 @@ public class CommandLineRenderer
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// The exceptions a specification's steps ended in, at the bottom, formatted by Spectre.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>At the bottom, not on the step.</b> A stack trace is the longest thing in a specification
+    /// report and the least useful part of scanning it: the reader wants to know WHICH step broke,
+    /// and then, separately, why. Inline, one exception pushes the rest of the specification off the
+    /// screen. Storyteller collected them into a block for exactly this reason.
+    /// </para>
+    /// <para>
+    /// Only real throws appear. A gathered wrong carries a <c>SpecAssertionException</c> that was
+    /// never thrown, and it has no stack — its message belongs on the step's own line, where it is.
+    /// </para>
+    /// <para>
+    /// <b>Rendered here rather than through Spectre's own formatter</b> for one reason: the formatter
+    /// cannot be told which frames to leave out, and three of the five frames in a projected step's
+    /// stack are Bobcat's plumbing and the test runner's. <see cref="SpecStackTrace"/> is the rule,
+    /// and the number of frames it removed is always reported.
+    /// </para>
+    /// </remarks>
+    public void RenderExceptions(SpecRender spec)
+    {
+        var errored = spec.Steps.Where(x => x.Exception is not null).ToList();
+        if (errored.Count == 0) return;
+
+        foreach (var step in errored)
+        {
+            var exception = step.Exception!;
+            var filtered = SpecStackTrace.Filter(exception);
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"    [yellow]{Markup.Escape(step.StepText)}[/]");
+            AnsiConsole.MarkupLine(
+                $"    [red]{Markup.Escape(exception.GetType().Name)}[/]: {Markup.Escape(exception.Message)}");
+
+            foreach (var frame in filtered.Frames)
+            {
+                AnsiConsole.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
+            }
+
+            if (filtered.Hidden > 0)
+            {
+                // Said out loud. A stack that was quietly edited is a stack a reader cannot trust.
+                AnsiConsole.MarkupLine($"      [dim]({filtered.Hidden} framework frames hidden)[/]");
+            }
+
+            // An inner exception is usually the real story — a handler wrapping a validation failure,
+            // a Task wrapping what actually threw — and Spectre's own formatter is the thing that
+            // used to show it. Its stack gets the same treatment.
+            for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+            {
+                AnsiConsole.MarkupLine(
+                    $"    [dim]---[/] [red]{Markup.Escape(inner.GetType().Name)}[/]: {Markup.Escape(inner.Message)}");
+
+                var innerFrames = SpecStackTrace.Filter(inner);
+                foreach (var frame in innerFrames.Frames)
+                {
+                    AnsiConsole.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -63,30 +165,52 @@ public class CommandLineRenderer
 
         foreach (var step in preview.Steps)
         {
-            var kindLabel = step.Kind switch
+            var kindLabel = step.Keyword switch
             {
-                StepKind.Given => "[dim]Given[/] ",
-                StepKind.When => "[dim]When[/]  ",
-                StepKind.Then => "[dim]Then[/]  ",
-                StepKind.SetUp => "[dim]Setup[/] ",
-                StepKind.TearDown => "[dim]Teardown[/] ",
-                _ => ""
+                { Length: > 0 } keyword => $"[dim]{Markup.Escape(keyword.PadRight(5))}[/] ",
+                "" => "",
+                _ => step.Kind switch
+                {
+                    StepKind.Given => "[dim]Given[/] ",
+                    StepKind.When => "[dim]When[/]  ",
+                    StepKind.Then => "[dim]Then[/]  ",
+                    StepKind.SetUp => "[dim]Setup[/] ",
+                    StepKind.TearDown => "[dim]Teardown[/] ",
+                    _ => ""
+                }
             };
 
-            AnsiConsole.MarkupLine($"    [dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
+            var indent = step.IsNarrative ? "    " : "      ";
+            AnsiConsole.MarkupLine($"{indent}[dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
+
+            if (step.IsNarrative)
+            {
+                // A marker comment is the narrative the steps below it sit under. It has no binding
+                // and saying "(no binding metadata)" about prose would read as a problem.
+                continue;
+            }
 
             if (step.Binding == null)
             {
                 // Code-first specs and hand-built definitions carry no generated metadata —
                 // that is not an error, so say so quietly rather than implying a broken match.
-                AnsiConsole.MarkupLine("      [dim]↳ (no binding metadata)[/]");
+                AnsiConsole.MarkupLine($"{indent}  [dim]↳ (no binding metadata)[/]");
                 continue;
             }
 
             var binding = step.Binding;
+
+            // The expression only earns a line when it differs from the step text. In the Gherkin
+            // lane it always does — the text is the author's sentence and the expression is the
+            // pattern it matched. In the projected lane the step text IS the template, and printing
+            // it twice is the kind of noise that makes a tool look like it has nothing to say.
+            var expression = binding.Expression == step.StepText
+                ? ""
+                : $" [dim]— \"{Markup.Escape(binding.Expression)}\"[/]";
+
             AnsiConsole.MarkupLine(
-                $"      [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]" +
-                $" [dim]— \"{Markup.Escape(binding.Expression)}\"[/]");
+                $"{indent}  [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]"
+                + expression);
 
             foreach (var argument in binding.Arguments)
             {
@@ -100,7 +224,7 @@ public class CommandLineRenderer
                     Runtime.StepArgumentSource.Expected => $"\"{Markup.Escape(argument.Value)}\" [dim](expected)[/]",
                     _ => "[dim]default[/]"
                 };
-                AnsiConsole.MarkupLine($"        {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
+                AnsiConsole.MarkupLine($"{indent}    {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
             }
         }
     }
@@ -116,67 +240,164 @@ public class CommandLineRenderer
             _ => "[dim]?[/]"
         };
 
-        var kindLabel = step.Kind switch
+        // The keyword as the specification wrote it wins over the kind, because `And` and `But`
+        // are keywords with no kind: StepKind has no member for them, and rendering a continuation
+        // as a second `Given` is a small lie the projected lane can avoid telling.
+        //
+        // An EMPTY keyword is a third state, and a deliberate one: a grammar may spell no keyword at
+        // all, the way Storyteller and Gauge sentences read, and such a step gets no label rather
+        // than falling back to a kind it never claimed.
+        var kindLabel = step.Keyword switch
         {
-            StepKind.Given => "[dim]Given[/] ",
-            StepKind.When => "[dim]When[/]  ",
-            StepKind.Then => "[dim]Then[/]  ",
-            StepKind.SetUp => "[dim]Setup[/] ",
-            StepKind.TearDown => "[dim]Teardown[/] ",
-            _ => ""
+            { Length: > 0 } keyword => $"[dim]{Markup.Escape(keyword.PadRight(5))}[/] ",
+            "" => "",
+            _ => step.Kind switch
+            {
+                StepKind.Given => "[dim]Given[/] ",
+                StepKind.When => "[dim]When[/]  ",
+                StepKind.Then => "[dim]Then[/]  ",
+                StepKind.SetUp => "[dim]Setup[/] ",
+                StepKind.TearDown => "[dim]Teardown[/] ",
+                _ => ""
+            }
         };
 
         var duration = step.DurationMs > 0 ? $" [dim]({step.DurationMs}ms)[/]" : "";
+        var indent = new string(' ', 4 + step.Depth * 2);
+        var sentence = Sentence(step);
 
-        AnsiConsole.MarkupLine($"    {icon} {kindLabel}{Markup.Escape(step.StepText)}{duration}");
-
-        if (step.Status is (ResultStatus.error or ResultStatus.failed) && step.ErrorMessage != null)
+        if (step.NotRun)
         {
-            var exType = step.ExceptionType != null ? $"{Markup.Escape(step.ExceptionType)}: " : "";
-            AnsiConsole.MarkupLine($"      [yellow]{exType}{Markup.Escape(step.ErrorMessage)}[/]");
+            // Greyed out whole, Storyteller's rendering for a step the run never reached.
+            AnsiConsole.MarkupLine($"{indent}[dim]{icon} {kindLabel}{sentence} — not run[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"{indent}{icon} {kindLabel}{sentence}{duration}");
+
+        if (step.Status == ResultStatus.failed && step.ErrorMessage != null)
+        {
+            // A wrong says what it is, on the line, with no stack. Storyteller's whole argument for
+            // StoryTellerAssert over an exception.
+            foreach (var line in step.ErrorMessage.Split('\n'))
+            {
+                AnsiConsole.MarkupLine($"{indent}  [red]{Markup.Escape(line.TrimEnd())}[/]");
+            }
+        }
+        else if (step.Status == ResultStatus.error && step.ErrorMessage != null)
+        {
+            // An ERROR gets one line here and its detail at the bottom of the specification — the
+            // stack is the longest thing in the report and the least useful to the reader scanning
+            // for which step broke. Storyteller collected exceptions in a block for the same reason.
+            var exType = step.ExceptionType != null ? Markup.Escape(step.ExceptionType) : "exception";
+            AnsiConsole.MarkupLine($"{indent}  [yellow]{exType} — see below[/]");
         }
 
         if (step.SetVerification != null)
         {
             RenderSetVerification(step.SetVerification);
         }
-        else if (step.Status == ResultStatus.failed && step.SetVerification == null)
-        {
-            AnsiConsole.MarkupLine($"      [red]Assertion failed[/]");
-        }
 
-        foreach (var cell in step.Cells)
+        // No "Assertion failed" line for a step with nothing else to show. The red ✗ already says the
+        // step failed, and a bare Fact has nothing to add — that manufactured sentence is the noise
+        // Storyteller's own StoryTellerAssert existed to replace.
+
+
+        // A grid has already shown every one of them, in the rows they belong to. Listing them again
+        // underneath reads as a second, flatter report of the same comparison.
+        if (step.SetVerification == null)
         {
-            var cellIcon = cell.Status switch
+            foreach (var cell in step.Cells)
             {
-                ResultStatus.success => "[green]✓[/]",
-                ResultStatus.failed => "[red]✗[/]",
-                ResultStatus.error => "[yellow]![/]",
-                _ => " "
-            };
-            AnsiConsole.MarkupLine(
-                $"        {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+                var cellIcon = cell.Status switch
+                {
+                    ResultStatus.success => "[green]✓[/]",
+                    ResultStatus.failed => "[red]✗[/]",
+                    ResultStatus.error => "[yellow]![/]",
+                    _ => " "
+                };
+                AnsiConsole.MarkupLine(
+                    $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+            }
         }
 
         // Render correlated logs
         if (step.Logs.Count > 0)
         {
-            AnsiConsole.MarkupLine("      [dim]Logs:[/]");
+            AnsiConsole.MarkupLine($"{indent}  [dim]Logs:[/]");
             foreach (var log in step.Logs)
             {
-                AnsiConsole.MarkupLine($"      [dim]  {Markup.Escape(log)}[/]");
+                AnsiConsole.MarkupLine($"{indent}    [dim]{Markup.Escape(log)}[/]");
             }
         }
 
         // Render diagnostics
         if (step.Diagnostics.Count > 0)
         {
-            AnsiConsole.MarkupLine("      [dim]Diagnostics:[/]");
+            AnsiConsole.MarkupLine($"{indent}  [dim]Diagnostics:[/]");
             foreach (var (key, value) in step.Diagnostics)
             {
-                AnsiConsole.MarkupLine($"      [dim]  {Markup.Escape(key)}: {Markup.Escape(value)}[/]");
+                AnsiConsole.MarkupLine($"{indent}    [dim]{Markup.Escape(key)}: {Markup.Escape(value)}[/]");
             }
         }
+    }
+
+    /// <summary>
+    /// A step's sentence as markup, with its input values in <b>italics</b>.
+    /// </summary>
+    /// <remarks>
+    /// Storyteller set a sentence's input cells apart from its prose, and it earns its keep: a step
+    /// reads as a sentence and the one thing anyone scans for is which parts of it were the data.
+    /// The spans come from the substitution itself rather than from searching the finished text for
+    /// the values, so a value that also occurs in the prose cannot mark the wrong run of characters.
+    /// </remarks>
+    public static string Sentence(StepRender step)
+    {
+        if (step.ValueSpans.Count == 0) return Markup.Escape(step.StepText);
+
+        var markup = new System.Text.StringBuilder();
+        var at = 0;
+
+        foreach (var span in step.ValueSpans.OrderBy(x => x.Start))
+        {
+            if (span.Start < at || span.Start + span.Length > step.StepText.Length) continue;
+
+            markup.Append(Markup.Escape(step.StepText[at..span.Start]));
+            markup.Append("[italic]")
+                .Append(Markup.Escape(step.StepText.Substring(span.Start, span.Length)))
+                .Append("[/]");
+
+            at = span.Start + span.Length;
+        }
+
+        markup.Append(Markup.Escape(step.StepText[at..]));
+        return markup.ToString();
+    }
+
+    /// <summary>
+    /// One line of the grid for a row present on only one side: its own values where it has
+    /// them, and a placeholder per column when the producer carried only a description.
+    /// </summary>
+    private static List<string> absentRow(SetVerificationRender sv, SetVerificationRowRender row,
+        int rowNum, string colour, string label, string placeholder)
+    {
+        var cols = new List<string> { $"[dim]{rowNum}[/]" };
+
+        if (row.Cells.Count > 0)
+        {
+            foreach (var cell in row.Cells)
+            {
+                var text = string.IsNullOrEmpty(cell.DisplayText) ? placeholder : cell.DisplayText;
+                cols.Add($"[{colour}]{Markup.Escape(text)}[/]");
+            }
+        }
+        else
+        {
+            cols.AddRange(sv.Columns.Select(_ => $"[{colour}]{placeholder}[/]"));
+        }
+
+        cols.Add($"[{colour}]{label}[/]");
+        return cols;
     }
 
     public void RenderSetVerification(SetVerificationRender sv)
@@ -200,28 +421,14 @@ public class CommandLineRenderer
             {
                 case SetVerificationRowType.Missing:
                 {
-                    var cols = sv.Columns.Select(_ => "[red]-[/]").ToList();
-                    cols.Insert(0, $"[dim]{rowNum}[/]");
-                    cols.Add("[red]MISSING[/]");
-                    table.AddRow(cols.ToArray());
+                    // The expected values of the row that never showed up — a row of dashes
+                    // told you a row was missing but never which one.
+                    table.AddRow(absentRow(sv, row, rowNum, "red", "MISSING", "-").ToArray());
                     break;
                 }
                 case SetVerificationRowType.Extra:
                 {
-                    var cols = new List<string> { $"[dim]{rowNum}[/]" };
-                    if (row.Cells.Count > 0)
-                    {
-                        foreach (var cell in row.Cells)
-                        {
-                            cols.Add($"[yellow]{Markup.Escape(cell.DisplayText)}[/]");
-                        }
-                    }
-                    else
-                    {
-                        cols.AddRange(sv.Columns.Select(_ => "[yellow]...[/]"));
-                    }
-                    cols.Add("[yellow]EXTRA[/]");
-                    table.AddRow(cols.ToArray());
+                    table.AddRow(absentRow(sv, row, rowNum, "yellow", "EXTRA", "...").ToArray());
                     break;
                 }
                 default:
@@ -233,10 +440,18 @@ public class CommandLineRenderer
                         {
                             ResultStatus.success => $"[green]{Markup.Escape(cell.DisplayText)}[/]",
                             ResultStatus.failed => $"[red]{Markup.Escape(cell.DisplayText)}[/]",
+                            // A compared column whose row threw produced nothing to compare.
+                            ResultStatus.error when cell.DisplayText.Length == 0 => "[red]![/]",
                             _ => Markup.Escape(cell.DisplayText)
                         });
                     }
-                    values.Add(row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]");
+
+                    values.Add(row.RowType switch
+                    {
+                        SetVerificationRowType.Errored => "[red]ERROR[/]",
+                        SetVerificationRowType.OutOfOrder => "[red]ORDER[/]",
+                        _ => row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]"
+                    });
                     table.AddRow(values.ToArray());
                     break;
                 }
@@ -244,6 +459,19 @@ public class CommandLineRenderer
         }
 
         AnsiConsole.Write(table);
+
+        // A row's own reason — the exception it threw, or where an out-of-order row really was —
+        // under the grid rather than squeezed into a cell, because it is a sentence and the cell
+        // is as wide as its column.
+        var rowNumber = 0;
+        foreach (var row in sv.Rows)
+        {
+            rowNumber++;
+            if (row.RowType is not (SetVerificationRowType.Errored or SetVerificationRowType.OutOfOrder)) continue;
+            if (string.IsNullOrEmpty(row.Description)) continue;
+
+            AnsiConsole.MarkupLine($"  [red]row {rowNumber}:[/] {Markup.Escape(row.Description!)}");
+        }
     }
 
     // --- Legacy ExecutionResults-based rendering (bridge) ---
@@ -309,10 +537,24 @@ public class CommandLineRenderer
         }
     }
 
-    public void RenderCounts(Counts counts)
+    public void RenderCounts(Counts counts) => RenderCounts(counts, counts.Succeeded);
+
+    /// <summary>
+    /// The counts, with the verdict word supplied by the caller rather than derived from the
+    /// figures.
+    /// </summary>
+    /// <remarks>
+    /// A specification can fail with every count at zero — an assertion library threw between steps,
+    /// or nothing got far enough to make a claim — and <c>Counts.Succeeded</c> reads "no wrongs, no
+    /// errors" and says <i>Succeeded</i>. Printing that in green under a red heading is the one
+    /// contradiction a report must never contain, so the outcome is passed in by whoever knows it.
+    /// </remarks>
+    public void RenderCounts(Counts counts, bool succeeded)
     {
-        var color = counts.Succeeded ? "green" : "red";
-        AnsiConsole.MarkupLine($"  [{color}]{counts}[/]");
+        var color = succeeded ? "green" : "red";
+        var word = succeeded ? "Succeeded" : "Failed";
+        AnsiConsole.MarkupLine(
+            $"  [{color}]{word} with Rights: {counts.Rights}, Wrongs: {counts.Wrongs}, Errors: {counts.Errors}[/]");
     }
 
     // --- Retry reporting ---

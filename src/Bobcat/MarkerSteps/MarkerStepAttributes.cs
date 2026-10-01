@@ -88,7 +88,8 @@ public sealed class BobcatSliceAttribute : Attribute
 }
 
 /// <summary>
-/// Marks a helper method as a specification step. Calling it renders — and reports — that step.
+/// The legacy spelling of a projected step. Prefer <see cref="StepAttribute"/> and its
+/// Given/When/Then/Check subclasses, which now do the same job in both authoring lanes.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -110,12 +111,13 @@ public sealed class BobcatSliceAttribute : Attribute
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method)]
-public sealed class BobcatStepAttribute : Attribute
+public sealed class BobcatStepAttribute : StepAttribute
 {
-    public BobcatStepAttribute(string text) => Text = text;
+    public BobcatStepAttribute(string text) : base(text) => Text = text;
 
+    /// <summary>The step's text. The same value as <see cref="StepAttribute.Expression"/>.</summary>
     public string Text { get; }
 
     /// <summary>Given / When / Then, when the text alone does not say. Optional.</summary>
-    public string? Keyword { get; set; }
+    public new string? Keyword { get; set; }
 }

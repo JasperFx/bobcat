@@ -47,8 +47,18 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(c => c != null)
             .Select((c, _) => c!);
 
-        context.RegisterSourceOutput(stepCalls.Collect(), (spc, calls) =>
+        context.RegisterSourceOutput(
+            stepCalls.Collect().Combine(context.AnalyzerConfigOptionsProvider), (spc, pair) =>
         {
+            var (extracted, config) = pair;
+
+            // Projected assertions are opt-in per PROJECT: extracted always (a transform cannot see
+            // MSBuild properties), kept only when the project asked for them. Off, a suite behaves
+            // exactly as it did — every Shouldly call throws where it always threw.
+            var calls = ProjectedAssertions.Enabled(config)
+                ? extracted
+                : extracted.Where(c => !c.IsProjectedAssertion).ToImmutableArray();
+
             if (calls.Length == 0) return;
 
             // Reported once per (method, placeholder) rather than once per call site: the mistake
@@ -72,7 +82,19 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
+            // Numbered before either output: the interceptor writes each call's ordinal into the
+            // recorder, and the plan is the list that ordinal indexes into. They have to agree.
+            StepInterceptors.Number(calls);
+
             spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));
+
+            // The plan a projected test's grammar calls make up (preview, and the grey steps a
+            // stopped scenario never reached). Only when some call site sits in a projected test —
+            // a suite using [BobcatStep] helpers outside one gains no initializer.
+            if (StepInterceptors.HasPlan(calls))
+            {
+                spc.AddSource("BobcatPlannedSteps.g.cs", StepInterceptors.EmitPlan(calls));
+            }
         });
 
         // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
@@ -139,6 +161,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     var descriptor = problem.Id switch
                     {
                         "RecordsNothing" => Diagnostics.SpecRecordsNothing,
+                        "ProseKeyword" => Diagnostics.ProseReadAsComment,
                         _ => problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType
                     };
 
@@ -223,7 +246,24 @@ public class BobcatGenerator : IIncrementalGenerator
                     var matched = matchScenarios(feature, fixture, grammars, resolver, spc);
                     if (matched == null) continue;
 
-                    var source = CodeEmitter.EmitFeature(feature, fixture, matched);
+                    var source = CodeEmitter.EmitFeature(feature, fixture, matched, out var unreadable);
+
+                    if (unreadable.Count > 0)
+                    {
+                        // The emitted source would not compile: a value the binder decided to read
+                        // from the document is one the generator cannot write as its parameter's
+                        // type. Reported here and the feature dropped, rather than handed to the
+                        // compiler as a CS error in a file the author cannot open.
+                        foreach (var value in unreadable)
+                        {
+                            spc.ReportDiagnostic(Diagnostic.Create(
+                                Diagnostics.UnreadableValue, Microsoft.CodeAnalysis.Location.None,
+                                feature.Title, value.Step, value.Parameter, value.Problem));
+                        }
+
+                        continue;
+                    }
+
                     var fileName = CodeEmitter.SanitizeIdentifier(feature.Title) + "_Feature.g.cs";
                     spc.AddSource(fileName, source);
 
@@ -720,27 +760,80 @@ public class BobcatGenerator : IIncrementalGenerator
     private static string stepKey(StepMethodInfo step)
         => (step.StepKind == "Check" ? "Then" : step.StepKind) + "|" + step.Expression;
 
-    private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
-    {
-        string? expression = null;
-        string? kind = null;
+    /// <summary>
+    /// The step method's parameters as the expression parser needs them — so a placeholder naming one
+    /// resolves against its declared type. Injected parameters are excluded: a scoped service is not
+    /// something a sentence can name.
+    /// </summary>
+    private static List<StepParameter> stepParametersOf(StepMethodInfo info)
+        => info.Parameters
+            .Where(p => !p.IsInjected && p.Binding != ParameterBinding.Table)
+            .Select(p => new StepParameter(p.Name, p.Type))
+            .ToList();
 
-        // [Check] wins over [Then] when both sit on one method, in either order. Editor tooling
-        // (the VS Code Cucumber extension, Rider's Reqnroll plugin) only recognises the
-        // Given/When/Then short names, so stacking a [Then] with the same expression beside a
-        // [Check] is the documented way to make a check navigable — see docs/editor-integration.md.
-        // Without this rule the outcome would depend on attribute order, and a [Check]
-        // silently downgraded to a [Then] discards the bool instead of asserting on it.
-        foreach (var attr in method.GetAttributes())
+    private static int countValueParameters(StepMethodInfo info)
+    {
+        var count = 0;
+        foreach (var p in info.Parameters) if (!p.IsInjected) count++;
+        return count;
+    }
+
+    /// <summary>
+    /// The named elements of a tuple return type, or nothing. <c>Task&lt;(int Sum, int Product)&gt;</c>
+    /// counts — the awaitable has already been unwrapped by the time the return type is read.
+    /// </summary>
+    /// <remarks>
+    /// Only a NAMED tuple. <c>(int, int)</c>'s elements are called Item1 and Item2, which no sentence
+    /// would ever name, so treating it as a comparison would produce two cells nobody asked for.
+    /// </remarks>
+    private static void collectReturnTupleElements(IMethodSymbol method, StepMethodInfo info)
+    {
+        var returnType = method.ReturnType;
+        if (returnType is INamedTypeSymbol { Name: "Task" or "ValueTask" } awaitable
+            && awaitable.TypeArguments.Length == 1)
         {
-            var attrName = attr.AttributeClass?.Name;
-            if (attrName == "GivenAttribute") { kind = "Given"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "WhenAttribute") { kind = "When"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "ThenAttribute" && kind != "Check") { kind = "Then"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
-            else if (attrName == "CheckAttribute") { kind = "Check"; expression = attr.ConstructorArguments[0].Value?.ToString(); }
+            returnType = awaitable.TypeArguments[0];
         }
 
-        if (expression == null || kind == null) return null;
+        if (returnType is not INamedTypeSymbol { IsTupleType: true } tuple) return;
+
+        foreach (var element in tuple.TupleElements)
+        {
+            // An unnamed element reports Item1/Item2 as its name AND says so through
+            // CorrespondingTupleField, which is how a deliberately-named "Item1" is told apart.
+            if (element.CorrespondingTupleField is null
+                || SymbolEqualityComparer.Default.Equals(element, element.CorrespondingTupleField))
+            {
+                info.ReturnTupleElements.Clear();
+                return;
+            }
+
+            info.ReturnTupleElements.Add(new ParameterInfo
+            {
+                Name = element.Name,
+                Type = element.Type.ToDisplayString(),
+                QualifiedType = qualified(element.Type)
+            });
+        }
+    }
+
+    /// <summary>The return's comparable parts: a tuple's elements, or nothing.</summary>
+    private static List<StepParameter> resultParametersOf(StepMethodInfo info)
+        => info.ReturnTupleElements.Select(e => new StepParameter(e.Name, e.Type)).ToList();
+
+    private static StepMethodInfo? extractStepMethod(IMethodSymbol method)
+    {
+        // One recognizer for both lanes (StepAttributes) — including the keywordless [Step], which
+        // matches under whatever keyword the feature file wrote, and a consumer's own attribute
+        // deriving from [Given]. [Check] beats [Then] when both sit on one method, in either order:
+        // editor tooling only knows the Given/When/Then short names, so stacking a [Then] beside a
+        // [Check] is the documented way to make a check navigable, and a [Check] silently downgraded
+        // to a [Then] would discard the bool instead of asserting on it.
+        var recognized = StepAttributes.On(method);
+        if (recognized is null) return null;
+
+        var expression = recognized.Expression;
+        var kind = recognized.Keyword;
 
         var (returnType, qualifiedReturnType, isAwaitable) = unwrapReturnType(method.ReturnType);
 
@@ -766,6 +859,11 @@ public class BobcatGenerator : IIncrementalGenerator
                     info.IsSetVerification = true;
                     var keyProp = attr.NamedArguments.FirstOrDefault(a => a.Key == "KeyColumns");
                     info.SetVerificationKeyColumns = keyProp.Value.Value?.ToString() ?? "";
+                    info.SetVerificationOrdered =
+                        attr.NamedArguments.FirstOrDefault(a => a.Key == "Ordered").Value.Value is true;
+                    info.SetVerificationColumn =
+                        attr.NamedArguments.FirstOrDefault(a => a.Key == "Column").Value.Value?.ToString() ?? "";
+                    info.SetVerificationElementIsScalar = elementIsScalar(method.ReturnType);
                     break;
                 case "DecisionTableAttribute":
                     info.IsDecisionTable = true;
@@ -803,15 +901,32 @@ public class BobcatGenerator : IIncrementalGenerator
             info.Parameters.Add(ExtractParameter(param));
         }
 
-        // Parse the expression
+        // A tuple return is compared element by element — the async-safe replacement for `out`
+        // parameters, which an async method cannot have at all.
+        collectReturnTupleElements(method, info);
+
+        // Parse the expression, WITH the method's parameters — a placeholder that names one is the
+        // Storyteller [FormatAs] reading and binds to that parameter's own type — and with the
+        // return's shape, so a placeholder naming a tuple element becomes that element's expected cell.
         try
         {
-            info.ParsedExpression = CucumberExpressionParser.Parse(expression);
+            info.ParsedExpression = CucumberExpressionParser.Parse(
+                expression, stepParametersOf(info), info.ReturnType, resultParametersOf(info));
         }
         catch
         {
             // Will be reported as diagnostic later
         }
+
+        // Storyteller's Fact: a bool-returning step whose return value is NOT in the sentence. The
+        // answer is the verdict. [Check] says so outright; this is the inference for everything else,
+        // and without it a [Then] returning bool had its answer silently thrown away.
+        //
+        // "Not in the sentence" is the same test the emitter uses to decide it has an expected value:
+        // one more capture than the method has value parameters.
+        var captureCount = info.ParsedExpression?.Parameters.Count ?? 0;
+        info.IsFact = info.StepKind == "Check"
+                      || (info.ReturnType == "bool" && captureCount <= countValueParameters(info));
 
         return info;
     }
@@ -939,7 +1054,14 @@ public class BobcatGenerator : IIncrementalGenerator
             QualifiedType = qualified(param.Type),
             IsOut = param.RefKind == RefKind.Out,
             IsSimpleType = IsSimpleType(param.Type),
+            EnumMembers = enumMembers(param.Type),
+            IsOptional = param.HasExplicitDefaultValue,
         };
+
+        var header = param.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.Name == "HeaderAttribute");
+        if (header is { ConstructorArguments.Length: > 0 })
+            info.Header = header.ConstructorArguments[0].Value?.ToString();
 
         foreach (var attr in param.GetAttributes())
         {
@@ -1016,6 +1138,58 @@ public class BobcatGenerator : IIncrementalGenerator
     /// True for types a Gherkin cell can be converted into: string, primitives, enums,
     /// decimal, Guid, and the date/time types (plus their nullable forms).
     /// </summary>
+    /// <summary>
+    /// Whether the elements of a returned collection are plain values rather than objects — the
+    /// question <c>[SetVerification(Column = "…")]</c> answers. Null when no element type could be
+    /// found, in which case nothing is claimed either way.
+    /// </summary>
+    private static bool? elementIsScalar(ITypeSymbol returnType)
+    {
+        var type = returnType;
+
+        // Task<IEnumerable<T>> / ValueTask<IEnumerable<T>>
+        if (type is INamedTypeSymbol { IsGenericType: true } awaited
+            && awaited.Name is "Task" or "ValueTask"
+            && awaited.TypeArguments.Length == 1)
+        {
+            type = awaited.TypeArguments[0];
+        }
+
+        if (type is IArrayTypeSymbol array) return IsSimpleType(array.ElementType);
+
+        if (type is not INamedTypeSymbol named) return null;
+
+        var enumerable = named.AllInterfaces
+            .Concat(named.IsGenericType ? new[] { named } : Array.Empty<INamedTypeSymbol>())
+            .FirstOrDefault(i => i.IsGenericType
+                                 && i.ConstructedFrom.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>");
+
+        return enumerable == null ? null : IsSimpleType(enumerable.TypeArguments[0]);
+    }
+
+    /// <summary>
+    /// The member names of an enum type — through a nullable wrapper — and nothing for anything
+    /// else. What <see cref="CellLiterals"/> needs to turn the cell "Blue" into a real member
+    /// reference instead of a string literal the consumer's build rejects.
+    /// </summary>
+    private static List<string> enumMembers(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable
+            && nullable.IsGenericType
+            && nullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+
+        if (type.TypeKind != TypeKind.Enum) return new List<string>();
+
+        return type.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(f => f.HasConstantValue)
+            .Select(f => f.Name)
+            .ToList();
+    }
+
     internal static bool IsSimpleType(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol nullable
@@ -1117,6 +1291,19 @@ public class BobcatGenerator : IIncrementalGenerator
                         // pass — a verification that verifies nothing.
                         spc.ReportDiagnostic(Diagnostic.Create(
                             Diagnostics.SetVerificationNeedsTable, Microsoft.CodeAnalysis.Location.None,
+                            step.Text, match.Method.MethodName));
+                        hasErrors = true;
+                    }
+
+                    if (match.Method.IsSetVerification
+                        && match.Method.SetVerificationElementIsScalar == true
+                        && match.Method.SetVerificationColumn.Length == 0)
+                    {
+                        // Without a column name the comparer reads the properties of `string` —
+                        // Length and Chars — so every row reads as missing and extra at once and
+                        // the report says nothing about what actually disagreed.
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            Diagnostics.SetOfValuesNeedsColumn, Microsoft.CodeAnalysis.Location.None,
                             step.Text, match.Method.MethodName));
                         hasErrors = true;
                     }
@@ -1806,7 +1993,7 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor UnknownStepPlaceholder = new(
         "BOBCAT027",
         "Step template names no parameter",
-        "[BobcatStep] on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
+        "Step attribute on '{0}' has the placeholder '{{{1}}}', but the method has no parameter named " +
         "'{1}'{2}. Nothing can fill it, so the step renders as '{{{1}}}'.",
         "Bobcat",
         DiagnosticSeverity.Warning,
@@ -1843,6 +2030,78 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Warning,
+        true);
+
+    /// <summary>
+    /// A comment that opens with <c>And</c> or <c>But</c> where no narrative is open: ordinary prose,
+    /// reported so the author is never left wondering where their step went.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rule it explains exists because English sentences begin "And …" and "But …" constantly, and
+    /// a comment in a test body is overwhelmingly NOT a step. A keyword that can only continue a
+    /// narrative must not be able to start one — otherwise switching the marker lane on silently turns
+    /// a note to a reader into a specification step, and wraps the real steps underneath it.
+    /// </para>
+    /// <para>
+    /// <b>Info, not a warning.</b> The overwhelmingly common case is that the comment really is prose
+    /// and everything is fine; a warning would train people to ignore it. It is here for the one
+    /// author who meant a step and cannot see why it is missing.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor ProseReadAsComment = new(
+        "BOBCAT029",
+        "Comment read as prose, not a step",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Info,
+        true);
+
+    /// <summary>
+    /// A written value — a capture or a data-table cell — that cannot be read as the type of the
+    /// parameter it binds to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An error, and it suppresses the feature, because the alternative is what happened before it
+    /// existed: the generator emitted the value's text and the <b>consumer's</b> build failed with
+    /// <c>CS0103: the name 'oops' does not exist</c> or <c>CS1503: cannot convert from 'string' to
+    /// 'Colour'</c>, at a line inside a generated file, over a step that matched its method
+    /// perfectly. The author's own files had no error in them at all.
+    /// </para>
+    /// <para>
+    /// Storyteller reported this as a yellow cell at run time and carried on with the rest of the
+    /// row, because it bound values by reflection when the specification ran. Bobcat binds at
+    /// compile time, so the row cannot run at all — and the compile-time answer is better: the
+    /// value is wrong in the document whether or not anybody runs the suite.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnreadableValue = new(
+        "BOBCAT030",
+        "A value cannot be read as its parameter's type",
+        "Feature '{0}', step '{1}': the value for '{2}' cannot be read — {3}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// A set verification over a collection of plain values, with no column named for them.
+    /// </summary>
+    /// <remarks>
+    /// A set of objects takes its columns from the properties its headers name; a set of values has
+    /// none, so <c>[SetVerification(Column = "…")]</c> has to say what the one column is called.
+    /// Left unsaid, the comparison reads the properties of the value type — <c>Length</c> and
+    /// <c>Chars</c> for a string — and every row comes back missing AND extra, which is a report
+    /// that describes nothing. Storyteller had a separate grammar for this shape,
+    /// <c>VerifyStringList</c>, whose second argument named the column.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor SetOfValuesNeedsColumn = new(
+        "BOBCAT031",
+        "A set of values needs a column name",
+        "Step '{0}' verifies a set of plain values, so '{1}' needs [SetVerification(Column = \"...\")] " +
+        "to say what the single column is called — a set of values has no properties to read columns from",
+        "Bobcat",
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor InvalidArrangement = new(

@@ -254,11 +254,15 @@ public class StepInterceptorTests
         // value exists — and the ARGUMENTS now travel with it.
         // Raw string literals: the expected text contains the same \" escapes the generated
         // file does, and doubling them here would only hide what is being asserted.
+        //
+        // The two ordinals are the declared-comment index and the PLANNED index, both -1 here:
+        // `a_test` carries no runner attribute, so it is not a test method, so it has neither a
+        // narrative to sit under nor a plan to be part of.
         code.ShouldContain(
-            """Step("Given", "{aggregate} \"{id}\" has already recorded these events", -1, new global::Bobcat.StepArgument[] { new("aggregate", aggregate), new("id", id) })""");
+            """Step("Given", "{aggregate} \"{id}\" has already recorded these events", -1, -1, new global::Bobcat.StepArgument[] { new("aggregate", aggregate), new("id", id) })""");
 
         code.ShouldContain(
-            """Step("Then", "{event} is emitted", -1, new global::Bobcat.StepArgument[] { new("event", @event) })""");
+            """Step("Then", "{event} is emitted", -1, -1, new global::Bobcat.StepArgument[] { new("event", @event) })""");
     }
 
     [Fact]
@@ -268,7 +272,7 @@ public class StepInterceptorTests
 
         // `the response is 400` was one of the 22 that already worked. It is the same string on
         // every run, so it stays a compile-time fact and the call allocates no array.
-        code.ShouldContain("""Step("Then", "the response is 400", -1);""");
+        code.ShouldContain("""Step("Then", "the response is 400", -1, -1);""");
     }
 
     [Fact]
@@ -279,7 +283,7 @@ public class StepInterceptorTests
         var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
 
         code.ShouldContain(
-            """Step("When", "{command} is posted to \"/api/scheduling/confirmappointment\"", -1, new global::Bobcat.StepArgument[] { new("command", command) })""");
+            """Step("When", "{command} is posted to \"/api/scheduling/confirmappointment\"", -1, -1, new global::Bobcat.StepArgument[] { new("command", command) })""");
     }
 
     [Fact]

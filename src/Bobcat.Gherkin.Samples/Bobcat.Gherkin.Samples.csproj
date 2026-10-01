@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+
+        <!--
+          Driven directly (`./Bobcat.Gherkin.Samples`). Storyteller's Tables and Sets samples fail
+          ON PURPOSE — a wrong cell, a missing row, a throwing Before — because they exist to show
+          how each outcome renders. The sibling Bobcat.Xunit.Samples opts out of `dotnet test` for
+          the same reason; this project is a plain BobcatRunner console, so nothing collects it.
+        -->
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+      <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <AdditionalFiles Include="Features\**\*.feature" />
+    </ItemGroup>
+
+</Project>

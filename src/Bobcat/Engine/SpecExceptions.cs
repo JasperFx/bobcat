@@ -44,3 +44,20 @@ public class SpecAssertionException : Exception
     public SpecAssertionException(string message) : base(message) { }
     public SpecAssertionException(string message, Exception inner) : base(message, inner) { }
 }
+
+/// <summary>
+/// A written cell that cannot be read as the type it binds to.
+/// </summary>
+/// <remarks>
+/// <b>Deliberately outside the <c>Spec*</c> tier vocabulary.</b> Those three words mean something to
+/// the runner — assertion, critical, catastrophic — and a bad cell is none of them: it is one row's
+/// problem, which <c>DecisionTableComparer.IsRowFailure</c> therefore admits so the row fails, the
+/// grid shows which cell, and the remaining rows still run. In the Gherkin lane the same mistake is
+/// BOBCAT030 at build time; this is what it looks like when the table only exists at run time.
+/// </remarks>
+public class BadCellException : Exception
+{
+    public BadCellException(string message) : base(message)
+    {
+    }
+}
