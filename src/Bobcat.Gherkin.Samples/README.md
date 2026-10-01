@@ -10,8 +10,8 @@ Sources: [`storyteller/Storyteller`](https://github.com/storyteller/Storyteller)
 and `src/StoryTeller.Samples/Specs/{Tables,Sets}`. (**Not** `~/code/storyteller`, which is the abandoned
 v6 skeleton with no specifications in it.)
 
-The sibling project `Bobcat.Xunit.Samples` does the same job for the **projected** lane and covers
-Sentence and Fact grammars. This one is the Gherkin lane, and covers tables and sets.
+The sibling project `Bobcat.Xunit.Samples` does the same job for the **projected** lane — Sentence and
+Fact grammars, and now the Tables and Sets documents from the C# side. This one is the Gherkin lane.
 
 ## Running it
 
@@ -254,13 +254,52 @@ its row, names the column and the alternatives, and lets the other rows run:
 - **A header for a set's columns.** `[Header]` titles a *parameter*'s column. A set verification's
   columns are the result type's properties, so the equivalent alias would be an attribute on the
   property — Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built; no sample
-  needed it once the document could name the columns itself.
+  needed it once the document could name the columns itself. It would have to work for `VerifySet`
+  too, where the columns are read off the result type reflectively rather than by the generator.
 - **Paragraphs.** `Paragraph("Divide numbers", …).AsTable(…)` composed a table row out of several
   grammars. Deliberately out of scope: the same decision the projected lane took about
   Storyteller's paragraphs.
 
+## A set the step verifies itself
+
+`[SetVerification]` is declarative: the method returns the **actual** collection and the generator
+supplies the **expected** rows from the document. That is what makes it readable by a tool — and what
+puts it out of reach of a C# test, which has no way to hand it an expectation. `VerifySet` is the
+other half, for a step that takes its table as an argument:
+
+```csharp
+[Then("the inventory should be")]
+public void TheInventoryShouldBe(StepTable expected)
+    => VerifySet(_inventory.Values, expected, keyColumns: "Sku");
+```
+
+```gherkin
+Then the inventory should be
+  | Sku     | ProductName | Quantity |
+  | SKU-001 | Widget      | 90       |
+```
+
+The comparison is identical — the same `SetVerificationComparer`, the same key matching, the same
+order-after-matching rule, the same four row markers, the same grid. Only where the expected rows come
+from differs, and that is the whole point: the document supplies them here, and a C# test supplies them
+as a table literal. `Bobcat.Xunit.Samples/Grammars/SetsGrammar.cs` recreates these same Storyteller
+documents that way.
+
+**Prefer `[SetVerification]` where it reaches.** `KeyColumns`, `Ordered` and `Column` are compile-time
+facts there, which is what lets the preview and the editor read them and what makes BOBCAT014 (no
+table) and BOBCAT031 (a set of plain values with no column named) compile errors. As arguments nothing
+can see them before the step runs. One thing the argument form does better: a set of plain values needs
+no column named at all, because the table is in view and has exactly one.
+
+`SetVerificationComparer.Verify` is the engine for a grammar that is not a `Fixture`, and
+`SetVerificationComparer.Cells` is the comparison with no step of any kind in its signature — the same
+split `TableRunner` has, and the reason the grid can be reported to a Gherkin step result, a step
+context or the projected lane's recorder without the comparison knowing which.
+
 ## Where the two lanes still differ
 
-The projected lane has no table syntax yet, so none of this is reachable from a C# test. The plan of
-record is a pipe-delimited table literal in the test itself, which would let one grammar body serve
-both lanes — the feature file supplies the table, or the caller does. See the handoff.
+Tables and sets both reach the projected lane now — a table literal in the test for one, a `StepTable`
+argument for the other — so a single grammar body serves a `.feature` file and a C# test, and the two
+lanes cannot render the same table two ways. What is left is in the projected lane's own README: an
+exception ends a test method rather than skipping to the next step, a marker comment cannot carry a
+cell, and a projected step has no logs or diagnostics.

@@ -158,4 +158,27 @@ public class ProjectedVerifySetTests
         // the table lane makes, so a spec reports every disagreement it found rather than the first.
         spec.Counts.Wrongs.ShouldBeGreaterThan(0);
     }
+
+    [Fact]
+    public void a_missing_row_alone_still_costs_the_scenario_its_verdict()
+    {
+        var fixture = new VerifySetFixture();
+        using var recording = ScenarioRecorder.Begin("Verify Set", "a row the system never had", null, Guid.Empty);
+
+        fixture.TheInventoryIs("""
+            | Sku     | ProductName | Quantity |
+            | SKU-001 | Widget      | 90       |
+            """);
+
+        fixture.TheInventoryShouldBe("""
+            | Sku     | ProductName | Quantity |
+            | SKU-001 | Widget      | 90       |
+            | SKU-002 | Gadget      | 12       |
+            """);
+
+        // A missing row is the one marker cell whose status is neither `failed` nor `invalid`, so it
+        // was the one disagreement a projected step could report while the test stayed green. The
+        // Gherkin lane has always failed the step for it.
+        recording.GatheredFailures().ShouldNotBeNull().ShouldContain("the inventory should be");
+    }
 }

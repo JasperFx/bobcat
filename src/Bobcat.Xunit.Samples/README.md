@@ -25,10 +25,10 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Seventeen of the thirty-two specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Twenty-four of the forty-one specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
-## This pass covers Sentence and Fact grammars
+## What is covered
 
 | Storyteller sample | Recreated as | Outcome |
 |---|---|---|
@@ -44,10 +44,15 @@ BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 | `Fixtures/LoggingFixture.cs` | `ActionSpecs.custom_logging_from_a_step` | green (see gap 3) |
 | `Specs/Currying/Currying.md` | `CurryingSpecs.currying` | green, nested grammar |
 | `Fixtures/AsyncOperationsFixture.cs` | `AsyncSpecs.*` | green / wrong / error |
+| `Specs/Tables/Table_with_Options.md` | `TableSpecs.a_table_of_setup_data` | green, one column left out |
+| `StoryTeller.Samples/Specs/Tables/Tables.md` | `TableSpecs.a_decision_table_with_a_wrong_answer` | one wrong row |
+| `Specs/Sets/Object_Sets.md` | `SetSpecs.an_unordered_set_*` / `every_cell_*` / `an_ordered_set_*` | green / two wrong cells + a mismatch / a reordering |
+| `Specs/Sets/Data_Tables.md` | `SetSpecs.every_row_*` / `the_database_has_*` / `the_specification_expects_*` / `a_row_whose_key_*` | green / extra row / missing row / mismatch |
+| `Specs/Sets/String_Lists.md` | `SetSpecs.a_set_of_names_*` | a reordering, and a name nobody has |
 | — | `NarratedSpecs.*` | the marker-comment style, for contrast |
 
-Not yet: Sets (`SetVerification`), `create_object`/`verify_object`, `ApiFixture`, `ModelFixture`,
-selection lists, Paragraphs (deliberately out of scope).
+Not yet: `create_object`/`verify_object`, `ApiFixture`, `ModelFixture`, selection lists, `Arrays.md`
+(no collection capture — see the Gherkin lane's README), Paragraphs (deliberately out of scope).
 
 ## Tables: a table literal in the test
 
@@ -90,6 +95,69 @@ A **decision table** works the same way, with the grammar reporting one cell per
 `SpecAssert.Check(name, actual, expected, rowIndex: i)` — so the grid carries a verdict per row. The
 comparison supersedes the value the literal wrote for that column, which is why a wrong row reads
 `expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
+
+## Sets: a set verification the grammar makes itself
+
+`[SetVerification]` cannot be reached from a C# test, and that is a fact about the feature rather
+than a limitation worth working around. The attribute goes on a `[Then]` returning the **actual**
+collection, and the **expected** rows come from the generator — so there is no argument for a test to
+supply them through. It is the same wall a named-tuple return hits.
+
+A step taking a `StepTable` has no such problem: the expected rows are an argument, and the document
+or the call site supplies it. See `Grammars/SetsGrammar.cs` and `Specs/SetSpecs.cs`:
+
+```csharp
+[Then("the unordered details should be")]
+internal void TheUnorderedDetailsShouldBe(StepTable expected)
+    => SetVerificationComparer.Verify(_details, expected, keyColumns: "Name");
+```
+
+```csharp
+_sets.TheUnorderedDetailsShouldBe("""
+    | Amount | Date    | Name       |
+    | 10     | TODAY-2 | Socks      |
+    | 200    | TODAY-1 | The Pants  |
+    | 100    | TODAY   | The Shirts |
+    """);
+```
+
+**One grammar body, both lanes**, exactly as for tables: `Bobcat.Gherkin.Samples/SetsFixture.cs`
+recreates these same documents declaratively, and the grids are identical because the comparison is
+the same `SetVerificationComparer`. On a grammar that inherits `Fixture` the call is `VerifySet(...)`
+directly — the sibling of `RunTable` and `BuildRows`.
+
+**Which form to prefer, and why both ship.** `[SetVerification]` stays canonical where it reaches:
+`KeyColumns`, `Ordered` and `Column` are compile-time facts, which is what lets the preview and the
+editor read them and what makes BOBCAT014 (a set verification with no table) and BOBCAT031 (a set of
+plain values with no column named) compile errors. In the `StepTable` form they are arguments, and
+nothing can see an argument before the step runs. The trade is deliberate: a declaration a tool can
+read, or a step a test can call.
+
+One thing the argument form does better: a set of plain values needs no `Column` at all. The table has
+one column, so there is only one thing it could be — an inference `[SetVerification]` cannot make,
+because at compile time there is no table in view.
+
+The four outcomes in `Data_Tables.md` are the reason it is worth recreating: a happy path, an extra
+row, a missing row and a mismatch, all through one grammar, which is how the row verdicts get read
+side by side.
+
+```
+    ✗ Then  the unordered details should be
+╭───┬─────────────────────────┬──────────────────────┬────────────┬─────────╮
+│ # │ Amount                  │ Date                 │ Name       │ Status  │
+├───┼─────────────────────────┼──────────────────────┼────────────┼─────────┤
+│ 1 │ expected '11', got '10' │ 2026-09-29 (TODAY-2) │ Socks      │  FAIL   │
+│ 2 │ 200                     │ expected …, got …    │ The Pants  │  FAIL   │
+│ 3 │ 100                     │ TODAY                │ Sweatpants │ MISSING │
+│ 4 │ 100                     │ 2026-10-01           │ The Shirts │  EXTRA  │
+╰───┴─────────────────────────┴──────────────────────┴────────────┴─────────╯
+```
+
+A **mismatch reads as one missing row beside one extra**, not as a row with a wrong cell, whenever
+the disagreeing column is a key column — row 3 and row 4 above are the single `Sweatpants`/`The
+Shirts` disagreement. That is `KeyColumns` doing its job: naming fewer of them is what turns a
+mismatch back into a cell-level difference, and `Data_Tables.md`'s "Mismatch in Rows" is the sample
+that shows it.
 
 ## One attribute family, two expression syntaxes
 
@@ -226,7 +294,7 @@ assertion is a maintenance burden with no ceiling.
 
 ## What this pass found
 
-Two defects, both fixed here, and three gaps still open.
+Five defects, all fixed here, and three gaps still open.
 
 **Fixed — a synchronous step that threw rendered green.** The emitted interceptor wrapped a
 synchronous call in `using (step)`; disposal alone means "the step ended", not "the step failed", so
@@ -239,6 +307,20 @@ specification locally for anyone to read.
 **Fixed — `Succeeded with Rights: 0, Wrongs: 0` printed in green under a `FAILED` heading.** A
 specification can fail with every count at zero, and `Counts.Succeeded` then says *Succeeded*. The
 verdict word now comes from the caller that knows it.
+
+**Fixed — a missing row rendered red and left the test green.** `RecordedStep.Status` counted a
+`failed` or `invalid` cell and not a `missing` one, and `missing` is exactly what a set
+verification's missing-row marker carries. So a specification whose only disagreement was a row the
+system never produced reported `MISSING` in the grid and passed as a test. The Gherkin lane's
+`IStepContext.RecordCells` had always counted it; this is the kind of divergence only a grammar
+driven from both lanes can surface, which is why `Bobcat.Acceptance.Tests/VerifySetFixture` is run
+twice.
+
+**Fixed — an absent row rendered as a row of blanks, in this lane only.** The renderer took the
+first cell per column, and in the projected lane a step is handed the table as written *before* it
+compares anything — so each column already had an input cell, and the comparer's cell carrying the
+value to show in place was never reached. Reading a feature file it was correct, because there is no
+input cell there.
 
 **Gap 1 — an exception ends the test, so the steps after it are never judged.** `Facts_in_Action.md`
 reached all five of its lines; the projected version reaches four. This is the one irreducible

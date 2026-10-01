@@ -684,7 +684,13 @@ public static class ScenarioRecorder
             get
             {
                 if (Failure is not null) return ProjectedFailure.StatusOf(Failure);
-                if (Cells.Any(x => x.Status == ResultStatus.failed)) return ResultStatus.failed;
+                // `missing` is here because a set verification's missing-row marker carries it, and
+                // a missing row is a disagreement with the document exactly as a wrong cell is. Left
+                // out, it was the one bad cell a projected step could carry while reporting success —
+                // a red grid under a green test, which is the failure mode this lane exists to avoid.
+                // The Gherkin lane's IStepContext.RecordCells has always counted it.
+                if (Cells.Any(x => x.Status is ResultStatus.failed or ResultStatus.missing))
+                    return ResultStatus.failed;
                 if (Cells.Any(x => x.Status is ResultStatus.error or ResultStatus.invalid)) return ResultStatus.error;
 
                 // A step whose inner step failed has failed. The outer sentence is the claim the

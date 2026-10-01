@@ -352,10 +352,11 @@ public static class SetVerificationComparer
         return rows;
     }
 
-    private static string format(object? value) => value switch
-    {
-        null => "NULL",
-        IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? ""
-    };
+    /// <summary>
+    /// An actual value as text, through the same formatter the per-cell comparison uses — so an
+    /// extra row's values and a compared cell's actual value read the same way in one grid. Its own
+    /// copy rendered a <c>DateOnly</c> as the invariant culture's "10/01/2026" beside a compared
+    /// cell's ISO "2026-09-26", which is the same value printed two ways in one table.
+    /// </summary>
+    private static string format(object? value) => CheckFormat.Of(value);
 }
