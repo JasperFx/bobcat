@@ -1,11 +1,11 @@
-# Handoff — working through SetVerification
+# Handoff — SetVerification, and what is left after it
 
-Written 2026-09-30, at the end of the session that finished Tables. Tables are done in both lanes;
-this file is the working document for Sets.
+Written 2026-09-30, rewritten at the end of the session that closed the Sets gap. Tables and Sets are
+now both done in both lanes.
 
 ## Where things stand
 
-Branch **`projected-spec-rendering`**, thirteen commits ahead of `main`:
+Branch **`projected-spec-rendering`**, fifteen commits ahead of `main`:
 
 ```
 b4a3dc3 Render a projected specification, and merge the step attributes        ← session 1
@@ -21,22 +21,26 @@ d6d1bf6 A table row is a case of its own: a grid, a failed row, and ordered sets
 7a56bcf One runtime authority on what a cell means, tokens and relative dates included
 44afcfc A table the step runs itself: RunTable, BuildRows, and the hooks that turned out to be code
 342e22e StepProgress carries the cells made so far, in both lanes (#387)
+1952d54 Handoff for the SetVerification pass
+07f91a2 A set verification a C# test can make: VerifySet over a StepTable          ← session 3
+4269588 The Sets half of the corpus in the projected lane, and two things it caught
 ```
 
-**1575 tests green across 12 suites** (`docker compose up -d` first — `Bobcat.CritterStack.Tests`
+**1595 tests green across 12 suites** (`docker compose up -d` first — `Bobcat.CritterStack.Tests`
 needs Postgres on 5445). `main` has not been merged in and nobody has opened a PR. Issue **#387 is
 closed by 342e22e** and Stoat is waiting on a release to bump its pin.
 
 `src/Bobcat/notes.md` is modified in the working tree and was **already** modified before any of this
-started. Leave it alone. Same for the untracked `src/Bobcat.EventModel.FrontEnd/` and
-`src/Bobcat.Monitor.FrontEnd/`.
+started. Leave it alone. Same for the untracked `src/Bobcat.EventModel.FrontEnd/`,
+`src/Bobcat.Monitor.FrontEnd/` and the modified `src/Bobcat.Generators.Tests/CellLiteralTests.cs`.
 
 ## Read first
 
 - `src/Bobcat.Gherkin.Samples/README.md` — the Gherkin lane's decision record: the
   Storyteller→Bobcat mapping for Tables and Sets, the defects fixed, the decisions taken and what
   each cost, and the gaps that remain.
-- `src/Bobcat.Xunit.Samples/README.md` — the projected lane, including the table literal.
+- `src/Bobcat.Xunit.Samples/README.md` — the projected lane, including the table literal and the
+  argument form of a set verification.
 - `docs/monitor-design.md` — the wire, including `step_progress.Cells` from #387.
 
 The corpus is `github.com/storyteller/Storyteller` at `master` (v5.4.0) — `src/Samples/Specs/Sets`
@@ -45,7 +49,11 @@ with `src/Samples/Fixtures/SetsFixture.cs`, and `src/StoryTeller.Samples/Specs/S
 
 ## What SetVerification does today
 
-`[SetVerification]` on a `[Then]` returning a collection, compared against the step's table:
+Two forms, both shipped, neither replacing the other.
+
+**Declarative** — `[SetVerification]` on a `[Then]` returning a collection, compared against the
+step's table. Canonical where it reaches, because its settings are compile-time facts the preview and
+the editor can read, and BOBCAT014/BOBCAT031 are compile errors because of it:
 
 ```csharp
 [Then("the ordered details should be")]
@@ -53,109 +61,97 @@ with `src/Samples/Fixtures/SetsFixture.cs`, and `src/StoryTeller.Samples/Specs/S
 public IEnumerable<InvoiceDetail> TheOrderedDetailsShouldBe() => _details;
 ```
 
-| Capability | State |
-|---|---|
-| Unordered comparison, matched by `KeyColumns` (all columns when none named) | works |
-| Every non-key column compared once the row is matched | works |
-| `Ordered = true` — matched first, order of the matches then checked | works |
-| A set of plain values: `Column = "Name"` over `IEnumerable<string>` | works |
-| Missing row, with its expected values shown in place | works |
-| Extra row, with its actual values shown in place, and it fails the step | works |
-| Out-of-order row, saying where it actually was | works |
-| A row whose comparison throws → `row-error`, other rows still judged | works |
-| An expected cell that will not parse → an `invalid` cell naming it | works |
-| Tokens and relative dates in an expected cell (`TODAY+2`, `NULL`, `EMPTY`, `"NULL"`) | works |
-| A set whose fetch throws | works (critical, as a step's exception is) |
-| A non-primitive column (enum) | works |
-| BOBCAT014 — a set verification step with no table | works |
-| BOBCAT031 — a set of values with no `Column` named | works |
-
-Four row-level marker cells now share one vocabulary, and a viewer has to know all four:
-`missing-row`, `extra-row`, `out-of-order` (`SetVerificationComparer`) and `row-error`
-(`DecisionTableComparer`). Each sits beside per-column cells carrying the row's values.
-
-Fourteen scenarios in `src/Bobcat.Gherkin.Samples/Features/Sets.feature` cover every
-`Specs/Sets/*.md` in both Storyteller sample trees except `Arrays.md` (see the gaps).
-
-## The work: a set verification a C# test can make
-
-This is the one real gap, and the last difference between the lanes.
-
-### The shape, and why — verified, not guessed
-
-A set verification needs two things: the **actual** collection, which the method returns, and the
-**expected** rows, which the document supplies. `[SetVerification]` gets the expected rows from the
-generator, which is why it cannot be called from C# — the same wall BOBCAT027 correctly refuses the
-tuple grammars at.
-
-A step taking a `StepTable` has no such problem, and **already compiles and binds in the Gherkin lane
-today** (probed on 2026-09-30 with `GeneratorHarness`: no diagnostics, no compile errors, the
-generator emits `f.TheInventoryShouldBe(new StepTable(...))`). The projected lane already renders a
-`StepTable` argument as a grid. So the dual-lane shape is reachable now and needs only the comparison:
+**By argument** — a `StepTable` parameter and `VerifySet`. The only form a C# test can call, so it is
+what puts one grammar body in both lanes; the price is that `keyColumns`/`ordered`/`column` are
+arguments nothing can see before the step runs:
 
 ```csharp
-// one body, both lanes
 [Then("the inventory should be")]
 public void TheInventoryShouldBe(StepTable expected)
     => VerifySet(_inventory.Values, expected, keyColumns: "Sku");
 ```
 
-```gherkin
-Then the inventory should be
-  | Sku     | ProductName | Quantity |
-  | SKU-001 | Widget      | 90       |
-```
+| Capability | State |
+|---|---|
+| Unordered comparison, matched by key columns (all columns when none named) | both forms |
+| Every non-key column compared once the row is matched | both forms |
+| `Ordered` — matched first, order of the matches then checked | both forms |
+| A set of plain values under one column | both forms |
+| …with the column **inferred** from a one-column table | `VerifySet` only — the table is in view |
+| Missing row, with its expected values shown in place | both forms |
+| Extra row, with its actual values shown in place, and it fails the step | both forms |
+| Out-of-order row, saying where it actually was | both forms |
+| A row whose comparison throws → `row-error`, other rows still judged | both forms |
+| An expected cell that will not parse → an `invalid` cell naming it | both forms |
+| Tokens and relative dates in an expected cell (`TODAY+2`, `NULL`, `EMPTY`, `"NULL"`) | both forms |
+| A header row with no rows under it ("the set is empty") names the columns | `VerifySet` only — see the gaps |
+| A set whose fetch throws | both forms (critical, as a step's exception is) |
+| A non-primitive column (enum) | both forms |
+| BOBCAT014 / BOBCAT031 (no table / no column named) | `[SetVerification]` only, by design |
+| Callable from a C# test | `VerifySet` only, by design |
 
-```csharp
-_inventory.TheInventoryShouldBe("""
-    | Sku     | ProductName | Quantity |
-    | SKU-001 | Widget      | 90       |
-    """);
-```
+Four row-level marker cells share one vocabulary, and a viewer has to know all four: `missing-row`,
+`extra-row`, `out-of-order` (`SetVerificationComparer`) and `row-error` (`DecisionTableComparer`).
+Each sits beside per-column cells carrying the row's values.
 
-**`[SetVerification]` stays** and is still the canonical declarative form: it is what the preview and
-the editor can see, and it carries `KeyColumns`/`Ordered`/`Column` as compile-time facts. The
-`StepTable` form is the escape hatch that also works from C#, at the cost of those settings being
-arguments rather than declarations. Recommend documenting them that way round rather than replacing
-one with the other.
+### The shape of the code
 
-### The step that makes it possible
+`TableRunner` was the precedent and `SetVerificationComparer` now matches it:
 
-`SetVerificationComparer.Compare` writes straight onto a `StepResult`: it sets `IsSetVerification`,
-`SetVerificationColumns`, `MarkCells` and `MarkFailed`/`MarkSuccess`. A hand-written step has no
-`StepResult` — it has a context or a recorder.
+- `SetVerificationComparer.Cells(...)` — the comparison, returning a `TableRun` (cells + columns +
+  `Succeeded`), with no step of any kind in the signature.
+- `Compare(..., StepResult)` — the thin adapter the generated code still calls, so nothing that
+  compiled before changed.
+- `Verify(actual, StepTable, context, …)` — the argument form, for a grammar that is not a `Fixture`.
+- `Fixture.VerifySet<T>(...)` — the `protected` wrapper, sibling of `RunTable` and `BuildRows`.
+- **`TableRun.Report(IStepContext?)` is the dual sink both engines report through** —
+  `IStepContext.RecordCells` in the Gherkin lane and `ScenarioRecorder`'s open step in the projected
+  one, *both*, because a step executing under `BobcatRunner` has a context and no recorder and one
+  called from a test has a recorder and no context.
 
-**Split it**, the way `TableRunner` is already split:
+`hasFailure` is gone from the comparer: `TableRun.Succeeded` reads the verdict off the cells, and
+`CellCheck` only ever answers success/failed/invalid, so the two readings were provably equal.
 
-1. A pure `SetVerificationComparer.Cells(actual, expectedRows, keyColumns, ordered, scalarColumn)`
-   returning cells + columns + a verdict — no `StepResult` in the signature.
-2. `Compare(..., StepResult)` stays, as the thin adapter the generated code calls, so nothing that
-   compiles today changes.
-3. `Fixture.VerifySet<T>(...)` reports through the sink `TableRunner.report` already uses:
-   `IStepContext.RecordCells` (added by #387's neighbour work) in the Gherkin lane, and
-   `ScenarioRecorder`'s open step in the projected lane. That dual sink exists and is tested.
+### Coverage
 
-`TableRunner` is the precedent for all of it — engine in `Bobcat.Runtime`, public so a grammar that is
-not a `Fixture` can use it, thin `protected` wrappers on `Fixture` for the common case.
+- `Bobcat.Acceptance.Tests/VerifySetFixture` is driven from **both** lanes — `VerifySetTests` through
+  the generated feature, `ProjectedVerifySetTests` by constructing it and calling the same methods
+  with table literals. That is the shape worth keeping: it is the only way the two divergences below
+  were visible.
+- `Bobcat.Tests/Runtime/SetVerificationComparerTests` covers the new seams, including the
+  scalar-column inference and the exception when nothing can infer it.
+- Fourteen scenarios in `src/Bobcat.Gherkin.Samples/Features/Sets.feature` and nine in
+  `src/Bobcat.Xunit.Samples/Specs/SetSpecs.cs` cover every `Specs/Sets/*.md` in both Storyteller
+  sample trees except `Arrays.md` (see the gaps).
 
-### Suggested order
+## What the dual-lane tests caught
 
-1. Split `Compare` as above, with the existing tests unchanged as the proof nothing moved.
-2. `Fixture.VerifySet<T>(IEnumerable<T> actual, StepTable expected, string keyColumns = "",
-   bool ordered = false, string column = "")` plus a `TableRunner`-style static for non-fixtures.
-3. A Gherkin scenario and a projected test over **one grammar body**, the way
-   `Bobcat.Acceptance.Tests/ProjectedTableTests` and `RunTableTests` pin the table equivalents.
-4. `Bobcat.Xunit.Samples`: the Sets half of the corpus, which that project's README currently lists
-   as not yet covered. `Object_Sets.md` and `Data_Tables.md` are the ones worth recreating — they are
-   the four outcomes (happy, extra, missing, mismatch) in one document.
-5. Both READMEs.
+Both of these were invisible from one lane alone, which is the argument for running one grammar twice:
+
+- **A missing row rendered red and left the projected test green.** `RecordedStep.Status` counted a
+  `failed` or `invalid` cell and not a `missing` one, and `missing` is exactly what the missing-row
+  marker carries. The Gherkin lane's `IStepContext.RecordCells` had always counted it.
+- **An absent row rendered as a row of blanks, in the projected lane only.** `rowOfAbsent` took the
+  *first* cell per column, and there a step is handed the table as written *before* it compares
+  anything — so every column already had an input cell and the comparer's cell was never reached. The
+  matched branch next door had already learned this ("LAST wins"); `rowOfAbsent` had not.
+
+Plus one cosmetic one: an extra row's values and a compared cell's actual value went through two
+different formatters, so one grid read `expected '2026-09-26'` beside `10/01/2026`.
+`CheckFormat.Of`'s own comment exists to prevent exactly that, and the comparer's private copy is now
+a call to it.
 
 ## Gaps, and what Storyteller did
 
+- **A header-only table is columnless on the generated path.** `Cells` takes the column order
+  explicitly now and `Verify` passes `StepTable.Headers`, so "the set should be empty" renders its
+  extra rows properly — but `emitSetVerificationStep` still emits only the rows, so a
+  `[SetVerification]` step with a header and nothing under it produces a grid with no columns. One
+  line in `CodeEmitter` (`step.TableHeaders` is right there) plus a generator test.
 - **A header for a set's columns.** `[Header]` titles a *parameter*'s column. A set verification's
   columns are the result type's **properties**, so the equivalent is an attribute on the property —
-  Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built. Note it would also want
-  to work on the `StepTable` form, where the columns are read reflectively.
+  Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built. It would have to work for
+  `VerifySet` too, where the columns are read reflectively.
 - **Inline list captures.** `[FormatAs("The array of names should be {names}")]` with
   `Han, Luke, Chewie` in one cell compared a whole array (`Arrays.md`, the one `Specs/Sets` file not
   recreated). Bobcat has no collection capture. The nearest thing is a set of plain values, which
@@ -165,18 +161,21 @@ not a `Fixture` can use it, thin `protected` wrappers on `Fixture` for the commo
   every column the document names. Bobcat's reading is better — the document decides what it cares
   about — but it means there is no way to say "compare these columns and ignore that one" from the
   fixture. No sample needed it.
-- **A set of values and `Ordered` together already work**; `String_Lists.md` and
-  `Unsuccessful Ordering.md` are covered. `OrderedStringsSuccess.md` is the same shape passing.
+- **`ParseKeyColumns` is a second reading of the generator's own split.** Nothing pins them together
+  (unlike `ResourceParsingAgreementTests` / `SliceTagParsingAgreementTests`). The split is "split on
+  commas and trim" in both places, so the risk is low; the other option is to have the generator emit
+  `SetVerificationComparer.ParseKeyColumns("…")` instead of a materialized array, which collapses
+  them to one at the cost of a compile-time fact.
 
 ## Decisions owed
 
-Carried forward, none of them blocking the work above:
+Carried forward:
 
-- **Tell Stoat about the four row-level marker cells.** `StepFinished.Cells` and (now)
-  `StepProgress.Cells` carry `Name/Status/Expected/Actual/Note/RowIndex` plus `Columns`, so a viewer
-  can reassemble any of these grids — but only if it knows that `missing-row`, `extra-row`,
-  `row-error` and `out-of-order` are row verdict markers whose siblings are the row's values. Worth a
-  comment on **JasperFx/stoat#58**; nothing has been posted from here.
+- **Tell Stoat about the four row-level marker cells.** `StepFinished.Cells` and `StepProgress.Cells`
+  carry `Name/Status/Expected/Actual/Note/RowIndex` plus `Columns`, so a viewer can reassemble any of
+  these grids — but only if it knows that `missing-row`, `extra-row`, `row-error` and `out-of-order`
+  are row verdict markers whose siblings are the row's values. Worth a comment on
+  **JasperFx/stoat#58**; nothing has been posted from here.
 - **A passing narrated spec is vacuously green** — three grey `○` and `Rights: 0`. `SuiteTiming` flags
   "asserts nothing" for the Gherkin lane; the projected lane has no equivalent.
 - **A comparison assertion's cell label** reads oddly: `should be greater than 10` produces
@@ -186,7 +185,7 @@ Carried forward, none of them blocking the work above:
   counterpart. See `BatchProcessGrammar.DoSomethingWorthLogging`.
 - **Scenarios sort alphabetically** within a feature in the console report. Source order would be
   better and is a compile-time fact the generator knows and does not register.
-- **`main` vs the branch** — nobody has merged or opened a PR, and thirteen commits is a lot to land
+- **`main` vs the branch** — nobody has merged or opened a PR, and fifteen commits is a lot to land
   in one go.
 
 ## How to run everything
@@ -199,8 +198,12 @@ for d in src/*.Tests; do p=$(basename $d); ./$d/bin/Debug/net10.0/$p; done
 
 dotnet run --project src/Bobcat.Gherkin.Samples/ -- run                  # 18 of 30 red on purpose
 dotnet run --project src/Bobcat.Gherkin.Samples/ -- run --feature "Sets"
-BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
+BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples  # 24 of 41 red
 ```
 
 One flake seen once in an earlier session and green on two reruns:
 `Bobcat.Tests.Runtime.DockerComposeIntegrationTests.a_recycle_replaces_the_container_and_waits_for_it_again`.
+
+**Relative dates are resolved in UTC.** Running this in the evening US Central, `TODAY` is tomorrow's
+date — the Sets grids read `2026-10-01` on 2026-09-30. Not a bug in the samples; worth knowing before
+chasing an off-by-one.
