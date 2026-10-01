@@ -1,4 +1,5 @@
 using Bobcat.Engine;
+using Bobcat.Runtime;
 
 namespace Bobcat.CritterStack;
 
@@ -86,29 +87,22 @@ public class DocumentGrammars : Fixture
 
         Ctx.RecordTouchedType(document);
 
-        var row = expected.AsDictionaries().FirstOrDefault()
-                  ?? throw new SpecCriticalException(
-                      $"'Then the {document.Name} with id \"{id}\" has' needs at least one table row.");
-
-        var failures = new List<string>();
-        foreach (var (column, value) in row)
+        if (expected.Count == 0)
         {
-            var property = document.GetProperty(column);
-            if (property == null)
-            {
-                failures.Add($"{column}: no such property on {document.Name}");
-                continue;
-            }
-
-            var actual = property.GetValue(stored);
-            var expectedValue = GherkinValue.Convert(value, property.PropertyType);
-            if (!Equals(actual, expectedValue))
-                failures.Add($"{column}: expected {value}, was {actual}");
+            throw new SpecCriticalException(
+                $"'Then the {document.Name} with id \"{id}\" has' needs at least one table row.");
         }
 
-        if (failures.Count > 0)
+        // The same comparison the read-model step makes, through the same helper — these two were
+        // line-for-line copies of each other, each flattening every column into one sentence.
+        var run = PropertyCells.Verify(stored, expected, Ctx);
+
+        if (!run.Succeeded)
+        {
             throw new SpecAssertionException(
-                $"{document.Name} document '{id}' did not match: {string.Join("; ", failures)}");
+                $"{document.Name} document '{id}' did not match on "
+                + string.Join(", ", PropertyCells.Disagreeing(run)));
+        }
     }
 
     /// <summary>

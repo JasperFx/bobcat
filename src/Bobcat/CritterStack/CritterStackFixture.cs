@@ -1,5 +1,6 @@
 using System.Reflection;
 using Bobcat.Engine;
+using Bobcat.Runtime;
 using JasperFx.Events;
 
 namespace Bobcat.CritterStack;
@@ -675,28 +676,24 @@ public abstract class CritterStackFixture : Fixture
 
         Ctx.RecordTouchedType(readmodel);
 
-        // One expected row of column = value; compare against the document's properties.
-        var row = expected.AsDictionaries().FirstOrDefault()
-                  ?? throw new SpecCriticalException($"'{string.Format(step, readmodel.Name)}' needs at least one table row.");
-
-        var failures = new List<string>();
-        foreach (var (column, value) in row)
+        // One expected row of column = value, compared against the document's properties and
+        // reported as a grid with a verdict per column (issue #384). The message stays short because
+        // the grid has already said it at length — and says WHICH columns, because a CI log tailing
+        // one line still has to know where to look.
+        if (expected.Count == 0)
         {
-            var property = readmodel.GetProperty(column);
-            if (property == null)
-            {
-                failures.Add($"{column}: no such property on {readmodel.Name}");
-                continue;
-            }
-
-            var actual = property.GetValue(document);
-            var expectedValue = GherkinValue.Convert(value, property.PropertyType);
-            if (!Equals(actual, expectedValue))
-                failures.Add($"{column}: expected {value}, was {actual}");
+            throw new SpecCriticalException(
+                $"'{string.Format(step, readmodel.Name)}' needs at least one table row.");
         }
 
-        if (failures.Count > 0)
-            throw new SpecAssertionException($"{readmodel.Name} read model did not match: {string.Join("; ", failures)}");
+        var run = PropertyCells.Verify(document, expected, Ctx);
+
+        if (!run.Succeeded)
+        {
+            throw new SpecAssertionException(
+                $"{readmodel.Name} read model did not match on "
+                + string.Join(", ", PropertyCells.Disagreeing(run)));
+        }
     }
 
     /// <summary>
