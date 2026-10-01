@@ -682,8 +682,12 @@ public class SetVerificationRender
             Description = marker.DisplayText
         };
 
+        // LAST wins, for the reason the matched branch gives: in the projected lane the step was
+        // handed the table as written BEFORE it compared anything, so each column has an input cell
+        // carrying the text and then the comparer's cell carrying the value to show in place. Taking
+        // the first left every absent row rendering as a row of blanks in the projected lane only.
         var byColumn = columns
-            .Select(col => (col, cell: cells.FirstOrDefault(c => c.Name == col)))
+            .Select(col => (col, cell: cells.LastOrDefault(c => c.Name == col)))
             .ToList();
 
         if (byColumn.All(x => x.cell == null)) return row;

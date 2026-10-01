@@ -96,6 +96,61 @@ public abstract partial class Fixture
     protected T[] BuildRows<T>(StepTable table) => TableRunner.BuildRows<T>(table, Context);
 
     /// <summary>
+    /// Compare a collection against a table of expected rows and render the comparison as a grid —
+    /// <c>[SetVerification]</c> as a method call, for a step that is handed its table.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one shape of set verification a <b>C# test</b> can make, and therefore the one that puts
+    /// a single grammar body in both lanes. <c>[SetVerification]</c> gets its expected rows from the
+    /// generator, which is why a projected test cannot call such a step; a <c>StepTable</c> parameter
+    /// takes them as an argument, and the document or the call site supplies it:
+    /// </para>
+    /// <code>
+    /// [Then("the inventory should be")]
+    /// public void TheInventoryShouldBe(StepTable expected)
+    ///     =&gt; VerifySet(_inventory.Values, expected, keyColumns: "Sku");
+    /// </code>
+    /// <code>
+    /// // the feature file                       // and the C# test
+    /// Then the inventory should be              TheInventoryShouldBe("""
+    ///   | Sku     | Quantity |                      | Sku     | Quantity |
+    ///   | SKU-001 | 90       |                      | SKU-001 | 90       |
+    ///                                               """);
+    /// </code>
+    /// <para>
+    /// <b><c>[SetVerification]</c> is still the declarative form to prefer</b> where it reaches:
+    /// its <c>KeyColumns</c>/<c>Ordered</c>/<c>Column</c> are compile-time facts the preview and the
+    /// editor can read, and BOBCAT014 and BOBCAT031 are compile errors because of it. Here they are
+    /// arguments, which no tool can see before the step runs.
+    /// </para>
+    /// <para>
+    /// Everything about the comparison itself is identical — rows matched by
+    /// <paramref name="keyColumns"/>, every column the table names compared once a row is matched,
+    /// a missing row shown with its expected values and an extra one with its actual values, both
+    /// failing the step, <paramref name="ordered"/> checked after matching rather than instead of
+    /// it, and tokens and relative dates read by <see cref="Runtime.CellValues"/> — because it is
+    /// the same comparison.
+    /// </para>
+    /// </remarks>
+    /// <param name="keyColumns">
+    /// The columns that identify a row, comma-separated. Empty matches on every column the table
+    /// names, which makes a row with one wrong value a missing row beside an extra one rather than a
+    /// row with one wrong cell.
+    /// </param>
+    /// <param name="ordered">
+    /// Also require the matched rows to appear in the order the table writes them.
+    /// </param>
+    /// <param name="column">
+    /// For a collection of plain values, the column they are compared under. Inferred from a
+    /// one-column table.
+    /// </param>
+    /// <returns>The grid reported, whose <c>Succeeded</c> is the comparison's verdict.</returns>
+    protected TableRun VerifySet<T>(IEnumerable<T> actual, StepTable expected,
+        string keyColumns = "", bool ordered = false, string column = "")
+        => SetVerificationComparer.Verify(actual, expected, Context, keyColumns, ordered, column);
+
+    /// <summary>
     /// Derive a feature title from a fixture type. Uses [FixtureTitle] if present,
     /// otherwise strips "Fixture" suffix and inserts spaces before capitals.
     /// </summary>

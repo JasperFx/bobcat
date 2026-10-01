@@ -76,7 +76,7 @@ public static class TableRunner
             addInputCells(run, table, row, r, expectedColumn);
         }
 
-        report(run, context);
+        run.Report(context);
         return run;
     }
 
@@ -105,7 +105,7 @@ public static class TableRunner
         }
 
         built = results.ToArray();
-        report(run, context);
+        run.Report(context);
         return run;
     }
 
@@ -162,23 +162,6 @@ public static class TableRunner
             run.Cells.Add(new CellResult(header, ResultStatus.ok,
                 row.TryGetValue(header, out var value) ? value : "") { RowIndex = rowIndex });
         }
-    }
-
-    private static void report(TableRun run, IStepContext? context)
-    {
-        context?.RecordCells(run.Cells, run.Columns);
-
-        // The projected lane's step, when one is open. A grammar called from a C# test has no step
-        // context — the recorder is what holds its step.
-        var step = ScenarioRecorder.CurrentStep;
-        if (step is null) return;
-
-        step.TableColumns = run.Columns;
-        foreach (var cell in run.Cells) step.Cells.Add(cell);
-
-        // The grid reaches a watcher while the step is still running (issue #387). Coalesced there,
-        // so one call is one post at most.
-        ScenarioRecorder.PublishCellsSoFar();
     }
 
     private static object?[] bind(ParameterInfo[] parameters,
@@ -254,7 +237,12 @@ public static class TableRunner
         => returnType == typeof(Task) || returnType == typeof(ValueTask);
 }
 
-/// <summary>What one table run reported: the grid's cells and its column order.</summary>
+/// <summary>What one grid reported: its cells, each carrying its row, and its column order.</summary>
+/// <remarks>
+/// A table a step ran (<see cref="TableRunner"/>) and a set a step verified
+/// (<see cref="SetVerificationComparer"/>) both produce one of these, because both render as one
+/// grid under one sentence. <see cref="Report"/> is the sink they share.
+/// </remarks>
 public sealed class TableRun(List<string> columns)
 {
     public List<string> Columns { get; } = columns;
@@ -263,4 +251,30 @@ public sealed class TableRun(List<string> columns)
 
     /// <summary>True when no row failed and no comparison disagreed.</summary>
     public bool Succeeded => Cells.All(c => c.Status is ResultStatus.ok or ResultStatus.success);
+
+    /// <summary>
+    /// Report this grid on whichever step is open — the Gherkin lane's through
+    /// <paramref name="context"/>, the projected lane's through <c>ScenarioRecorder</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both, not either</b>, and that is what makes one grammar body serve both lanes: a step
+    /// executing under <c>BobcatRunner</c> has a context and no recorder, one called from a C# test
+    /// has a recorder and no context, and neither has to know which it is.
+    /// </remarks>
+    public void Report(IStepContext? context)
+    {
+        context?.RecordCells(Cells, Columns);
+
+        // The projected lane's step, when one is open. A grammar called from a C# test has no step
+        // context — the recorder is what holds its step.
+        var step = ScenarioRecorder.CurrentStep;
+        if (step is null) return;
+
+        step.TableColumns = Columns;
+        foreach (var cell in Cells) step.Cells.Add(cell);
+
+        // The grid reaches a watcher while the step is still running (issue #387). Coalesced there,
+        // so one call is one post at most.
+        ScenarioRecorder.PublishCellsSoFar();
+    }
 }

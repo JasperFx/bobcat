@@ -255,4 +255,101 @@ public class SetVerificationComparerTests
         missing.Cells.ShouldBeEmpty();
         missing.Description.ShouldBe("Expected row not found: Sku=SKU-1");
     }
+
+    // ---- the split: a comparison with no StepResult in it, and the StepTable entry point ----
+
+    [Fact]
+    public void cells_is_the_comparison_with_no_step_in_the_signature()
+    {
+        var actual = new[] { new Item("SKU-1", "Widget", 90) };
+
+        var run = SetVerificationComparer.Cells(actual, [row("SKU-1", "Widget", "85")], ["Sku"]);
+
+        run.Columns.ShouldBe(new[] { "Sku", "Name", "Quantity" });
+        run.Succeeded.ShouldBeFalse();
+        run.Cells.Single(c => c.Name == "Quantity").Actual.ShouldBe("90");
+    }
+
+    [Fact]
+    public void the_adapter_and_the_pure_function_agree_on_the_verdict()
+    {
+        var actual = new[] { new Item("SKU-1", "Widget", 90) };
+        var expected = new[] { row("SKU-2", "Gadget", "1") };
+
+        var result = new StepResult("step", 0);
+        SetVerificationComparer.Compare(actual, expected, ["Sku"], result);
+
+        var run = SetVerificationComparer.Cells(actual, expected, ["Sku"]);
+
+        // The cells ARE the verdict — the step's own status is read off them, not computed twice.
+        run.Succeeded.ShouldBeFalse();
+        result.StepStatus.ShouldBe(ResultStatus.failed);
+        result.Cells.Count.ShouldBe(run.Cells.Count);
+    }
+
+    [Fact]
+    public void a_header_row_with_nothing_under_it_still_names_the_columns()
+    {
+        var run = SetVerificationComparer.Cells(
+            new[] { new Item("SKU-1", "Widget", 90) },
+            [],
+            [],
+            columns: ["Sku", "Name", "Quantity"]);
+
+        // "the set should be empty" is a real expectation, and the one extra row has to render
+        // under columns that no expected row exists to supply.
+        run.Columns.ShouldBe(new[] { "Sku", "Name", "Quantity" });
+        run.Cells.Single(c => c.Name == "Sku").Actual.ShouldBe("SKU-1");
+    }
+
+    [Fact]
+    public void verify_reads_the_expected_rows_off_a_step_table()
+    {
+        var run = SetVerificationComparer.Verify(
+            new[] { new Item("SKU-1", "Widget", 90) },
+            """
+            | Sku   | Name   | Quantity |
+            | SKU-1 | Widget | 90       |
+            """,
+            keyColumns: "Sku");
+
+        run.Succeeded.ShouldBeTrue();
+        run.Columns.ShouldBe(new[] { "Sku", "Name", "Quantity" });
+    }
+
+    [Fact]
+    public void verify_infers_the_column_a_set_of_plain_values_compares_under()
+    {
+        var run = SetVerificationComparer.Verify(new[] { "Han", "Luke" },
+            """
+            | Name |
+            | Han  |
+            | Luke |
+            """);
+
+        run.Succeeded.ShouldBeTrue();
+        run.Cells.Where(c => c.Name == "Name").Select(c => c.Actual).ShouldBe(new[] { "Han", "Luke" });
+    }
+
+    [Fact]
+    public void a_set_of_plain_values_against_a_wider_table_says_which_column_it_wanted()
+    {
+        // Nothing can infer it, and comparing a string against Length and Chars would read every
+        // row as missing and extra at once — which is the bug this replaced.
+        Should.Throw<SpecCriticalException>(() => SetVerificationComparer.Verify(
+                new[] { "Han" },
+                """
+                | Name | Ship    |
+                | Han  | Falcon  |
+                """))
+            .Message.ShouldContain("Name, Ship");
+    }
+
+    [Fact]
+    public void key_columns_split_on_commas_and_trim()
+    {
+        SetVerificationComparer.ParseKeyColumns("Sku, Name").ShouldBe(new[] { "Sku", "Name" });
+        SetVerificationComparer.ParseKeyColumns("").ShouldBeEmpty();
+        SetVerificationComparer.ParseKeyColumns("   ").ShouldBeEmpty();
+    }
 }
