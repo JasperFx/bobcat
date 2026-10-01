@@ -42,7 +42,13 @@ public record RunStarted(
     // An opaque correlation tag from BOBCAT_RUN_TAG, passed through verbatim and never
     // interpreted here — an external tool (a ticket id, a coordination plan node) uses it to
     // find this run among the rest. Optional and additive: old publishers simply omit it.
-    string? Tag = null) : MonitorEvent(RunId);
+    string? Tag = null,
+    // The agent session that launched this run, from CLAUDE_CODE_SESSION_ID (issue #389). Opaque
+    // exactly like Tag: stored and echoed, never interpreted. It exists because the alternatives
+    // for joining a run to an agent are both weak — a plan node tag only covers runs something
+    // tagged, and matching a working tree is ambiguous precisely when two agents share a checkout,
+    // which is the case worth seeing. Null when the run was not launched from a session.
+    string? Session = null) : MonitorEvent(RunId);
 
 public record RunHeartbeat(Guid RunId, DateTimeOffset At) : MonitorEvent(RunId);
 

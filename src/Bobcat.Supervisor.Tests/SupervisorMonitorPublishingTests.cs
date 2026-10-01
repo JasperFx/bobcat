@@ -63,6 +63,14 @@ public class SupervisorMonitorPublishingTests
         started.Suite.ShouldBe("fake");
         started.TotalScenarios.ShouldBe(3);
 
+        // Issue #389: a supervised run stamps whatever session launched it, and null when none did.
+        // Its workers inherit the variable for free — they are launched with this environment — but
+        // only the bracket owner publishes run_started, so this is the one place it is read.
+        started.Session.ShouldBe(Environment.GetEnvironmentVariable(MonitorRunInfo.SessionVariable)
+            is { Length: > 0 } session
+            ? session
+            : null);
+
         var finished = sink.Events.Last().ShouldBeOfType<RunFinished>();
         finished.RunId.ShouldBe(started.RunId);
         finished.ExitCode.ShouldBe(results.ExitCode);

@@ -108,6 +108,23 @@ public class MonitorPublishingObserverTests
     }
 
     [Fact]
+    public async Task the_in_process_bracket_carries_the_agent_session()
+    {
+        // Issue #389, at the third of the publishing sites. Each one reads the field off
+        // MonitorRunInfo itself, so each one is a place it could be dropped.
+        var sink = new RecordingSink();
+        var attributed = new MonitorRunInfo(Guid.NewGuid(), "TestResources", "/repo", "main", "in-process")
+        {
+            Session = "session_019U1ut5qK9"
+        };
+
+        await using var observer = new MonitorPublishingObserver(sink, attributed);
+        observer.RunStarted(1);
+
+        sink.Events.OfType<RunStarted>().ShouldHaveSingleItem().Session.ShouldBe("session_019U1ut5qK9");
+    }
+
+    [Fact]
     public async Task heartbeats_flow_between_run_started_and_run_finished_and_then_stop()
     {
         var sink = new RecordingSink();

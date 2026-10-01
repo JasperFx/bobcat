@@ -14,6 +14,13 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     public const string RunTagVariable = "BOBCAT_RUN_TAG";
 
     /// <summary>
+    /// The agent session id, which Claude Code puts in the environment of everything it launches.
+    /// Deliberately NOT a <c>BOBCAT_*</c> variable: Bobcat does not ask for this one, it reads what
+    /// is already there, so a run launched from a session is attributable with no configuration.
+    /// </summary>
+    public const string SessionVariable = "CLAUDE_CODE_SESSION_ID";
+
+    /// <summary>
     /// True when whatever set <c>BOBCAT_RUN_OWNER</c> owns the run bracket — RunStarted,
     /// heartbeats, RunFinished. A participant process (a supervisor's worker) publishes only
     /// its scenario and step events; without this split, the first worker to finish would
@@ -32,6 +39,20 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     /// </summary>
     public string? Tag { get; init; }
 
+    /// <summary>
+    /// The agent session that launched this run, from <see cref="SessionVariable"/> — opaque and
+    /// uninterpreted, like <see cref="Tag"/>, and travelling on <c>run_started</c> beside it.
+    /// </summary>
+    /// <remarks>
+    /// A viewer can then attach a run to the agent that ran it exactly, instead of inferring it: a
+    /// plan node tag only covers runs something thought to tag, and matching the run's repository
+    /// path against a session's working tree is ambiguous exactly when two agents share a checkout —
+    /// the case most worth seeing. Inherited by a supervisor's workers for free, because it is in
+    /// the environment they are launched with; only the bracket owner publishes
+    /// <c>run_started</c> anyway (see <see cref="HasExternalOwner"/>).
+    /// </remarks>
+    public string? Session { get; init; }
+
     public static MonitorRunInfo Discover(string mode)
     {
         var runId = Guid.TryParse(Environment.GetEnvironmentVariable(RunIdVariable), out var id)
@@ -48,6 +69,9 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
                 !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RunOwnerVariable)),
             Tag = Environment.GetEnvironmentVariable(RunTagVariable) is { Length: > 0 } tag
                 ? tag
+                : null,
+            Session = Environment.GetEnvironmentVariable(SessionVariable) is { Length: > 0 } session
+                ? session
                 : null
         };
     }

@@ -1393,7 +1393,11 @@ sweep:
   the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
   viewer without either side acquiring a reference to the other.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
-  and the reserved `Monitor:*` configuration keys. Every one is user-facing or on the wire. The
+  and the reserved `Monitor:*` configuration keys. **`CLAUDE_CODE_SESSION_ID` is read as well**
+  (issue #389) — `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to
+  the agent that ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*`
+  variable: Bobcat reads what an agent session already put in the environment instead of asking for
+  it, so attribution needs no configuration. Every one is user-facing or on the wire. The
   `Monitor:*` keys that were ever *read* (`DataPath`, `RetentionDays`, `RetentionRuns`,
   `IdleMinutes`) belonged to the console and went with it, along with their
   `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved rather

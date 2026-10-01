@@ -62,7 +62,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
         _sink.Post(new RunStarted(
             _info.RunId, _info.Suite, _info.Repository, _info.Branch, _info.Mode,
-            DateTimeOffset.UtcNow, totalScenarios, _info.Tag));
+            DateTimeOffset.UtcNow, totalScenarios, _info.Tag, _info.Session));
 
         _heartbeat = new Timer(
             _ => _sink.Post(new RunHeartbeat(_info.RunId, DateTimeOffset.UtcNow)),

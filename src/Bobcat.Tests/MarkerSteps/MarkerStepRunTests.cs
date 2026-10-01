@@ -127,6 +127,34 @@ public class MarkerStepRunTests : IDisposable
     }
 
     [Fact]
+    public void the_run_carries_the_agent_session_that_launched_it()
+    {
+        // Issue #389. A viewer can then attach this run to the agent that ran it exactly, rather
+        // than matching a working tree — which is ambiguous precisely when two agents share a
+        // checkout, the case most worth seeing.
+        var info = new MonitorRunInfo(Guid.NewGuid(), "DaemonTests", "/repo", "main", "xunit")
+        {
+            Session = "session_019U1ut5qK9",
+            Tag = "event-modeling-wave-2/daemon"
+        };
+
+        MarkerStepRun.StartForTesting(info);
+
+        var started = _sink.Events.OfType<RunStarted>().ShouldHaveSingleItem();
+        started.Session.ShouldBe("session_019U1ut5qK9");
+        started.Tag.ShouldBe("event-modeling-wave-2/daemon");
+    }
+
+    [Fact]
+    public void a_run_with_no_session_says_so_rather_than_inventing_one()
+    {
+        MarkerStepRun.StartForTesting(
+            new MonitorRunInfo(Guid.NewGuid(), "DaemonTests", "/repo", "main", "xunit"));
+
+        _sink.Events.OfType<RunStarted>().ShouldHaveSingleItem().Session.ShouldBeNull();
+    }
+
+    [Fact]
     public void a_participant_does_not_publish_a_bracket_it_does_not_own()
     {
         // The supervisor owns the run. A worker posting its own RunStarted would overwrite the
