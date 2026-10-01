@@ -352,4 +352,30 @@ public class SetVerificationComparerTests
         SetVerificationComparer.ParseKeyColumns("").ShouldBeEmpty();
         SetVerificationComparer.ParseKeyColumns("   ").ShouldBeEmpty();
     }
+
+    public record Titled([property: Header("The SKU")] string Sku, [property: Header("How Many")] int Quantity);
+
+    [Fact]
+    public void a_header_on_a_property_titles_the_column_it_is_compared_under()
+    {
+        var run = SetVerificationComparer.Cells(
+            new[] { new Titled("SKU-1", 90) },
+            [new Dictionary<string, string> { ["The SKU"] = "SKU-1", ["How Many"] = "90" }],
+            ["The SKU"]);
+
+        run.Succeeded.ShouldBeTrue();
+        run.Cells.Single(c => c.Name == "How Many").Actual.ShouldBe("90");
+    }
+
+    [Fact]
+    public void the_property_name_is_not_a_second_spelling_of_a_titled_column()
+    {
+        var run = SetVerificationComparer.Cells(
+            new[] { new Titled("SKU-1", 90) },
+            [new Dictionary<string, string> { ["Sku"] = "SKU-1", ["Quantity"] = "90" }],
+            ["Sku"]);
+
+        run.Succeeded.ShouldBeFalse();
+        run.Cells.ShouldContain(c => c.Name == "missing-row");
+    }
 }

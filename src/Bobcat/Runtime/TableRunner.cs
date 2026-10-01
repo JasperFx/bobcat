@@ -195,8 +195,7 @@ public static class TableRunner
         return arguments;
     }
 
-    private static string columnNameOf(ParameterInfo parameter)
-        => parameter.GetCustomAttribute<HeaderAttribute>()?.Name ?? parameter.Name ?? "";
+    private static string columnNameOf(ParameterInfo parameter) => ColumnNames.Of(parameter);
 
     private static async Task<object?> invoke(object target, MethodInfo method, object?[] arguments)
     {

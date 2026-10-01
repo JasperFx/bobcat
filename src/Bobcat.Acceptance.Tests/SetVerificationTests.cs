@@ -86,4 +86,52 @@ public class SetVerificationTests
         // arrived instead.
         results.Step("the roster reads").StepStatus.ShouldBe(ResultStatus.success);
     }
+
+    [Fact]
+    public async Task a_header_with_no_rows_under_it_still_names_the_columns()
+    {
+        var results = await Specs.Run(Set_Verification_Feature.Define(),
+            "A table with a header and no rows says the set is empty");
+        var step = results.Step("the details should be");
+
+        step.StepStatus.ShouldBe(ResultStatus.failed);
+
+        // The header row says what the columns are even with nothing under it. Read off the first
+        // expected row — which is what the generated path used to do — there is no first row, and the
+        // one extra row rendered under no headings at all.
+        step.SetVerificationColumns.ShouldBe(new[] { "Name", "Amount" });
+
+        var extra = SetVerificationRender.FromStepResult(step).Rows.Single();
+        extra.RowType.ShouldBe(SetVerificationRowType.Extra);
+        extra.Cells.Select(c => c.DisplayText).ShouldBe(new[] { "Cord", "100" });
+    }
+
+    [Fact]
+    public async Task a_property_titled_for_the_document_is_compared_under_its_title()
+    {
+        var results = await Specs.Run(Set_Verification_Feature.Define(),
+            "A property titled for the document is compared under its title");
+        var step = results.Step("the ledger should be");
+
+        step.StepStatus.ShouldBe(ResultStatus.success);
+        step.SetVerificationColumns.ShouldBe(new[] { "Line Item", "The Amount" });
+
+        // Matched on "Line Item", so KeyColumns named the column the document writes.
+        step.Cells.Where(c => c.Name == "The Amount").Select(c => c.Actual).ShouldBe(new[] { "200", "100" });
+    }
+
+    [Fact]
+    public async Task a_title_replaces_the_property_name_rather_than_aliasing_it()
+    {
+        var results = await Specs.Run(Set_Verification_Feature.Define(),
+            "A titled column is not also known by the property name");
+        var step = results.Step("the ledger should be");
+
+        // The cost of titling a column, stated: the property name now matches nothing, so the row is
+        // missing and the real one is extra. One column with two spellings would be two columns, and
+        // adding a header is a change to the vocabulary of every document that compares it.
+        step.StepStatus.ShouldBe(ResultStatus.failed);
+        SetVerificationRender.FromStepResult(step).Rows.Select(r => r.RowType)
+            .ShouldBe(new[] { SetVerificationRowType.Missing, SetVerificationRowType.Extra });
+    }
 }

@@ -54,3 +54,28 @@ Feature: Set Verification
       | Player Name |
       | Willy Mays  |
     Then the roster reads "Willy Mays:Bronze"
+
+  Scenario: A table with a header and no rows says the set is empty
+    Given the details are
+      | name   | amount |
+      | Cord   | 100    |
+    Then the details should be
+      | Name   | Amount |
+
+  Scenario: A property titled for the document is compared under its title
+    Given the ledger is
+      | name   | amount |
+      | Cord   | 100    |
+      | Drill  | 200    |
+    Then the ledger should be
+      | Line Item | The Amount |
+      | Drill     | 200        |
+      | Cord      | 100        |
+
+  Scenario: A titled column is not also known by the property name
+    Given the ledger is
+      | name   | amount |
+      | Cord   | 100    |
+    Then the ledger should be
+      | Name   | Amount |
+      | Cord   | 100    |

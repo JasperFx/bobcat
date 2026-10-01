@@ -49,15 +49,21 @@ public static class SetVerificationComparer
     /// <c>[SetVerification(Column = "…")]</c>. Null for a collection of objects, whose columns are
     /// read off its properties.
     /// </param>
+    /// <param name="columns">
+    /// The column order the document wrote, independently of its rows. A header row says what the
+    /// columns are even with nothing under it, and "the set should be empty" is a real expectation.
+    /// Null reads them off the first expected row, which is columnless when there are none.
+    /// </param>
     public static void Compare(
         IEnumerable actual,
         IReadOnlyList<Dictionary<string, string>> expectedRows,
         string[] keyColumns,
         StepResult result,
         bool ordered = false,
-        string? scalarColumn = null)
+        string? scalarColumn = null,
+        IReadOnlyList<string>? columns = null)
     {
-        var run = Cells(actual, expectedRows, keyColumns, ordered, scalarColumn);
+        var run = Cells(actual, expectedRows, keyColumns, ordered, scalarColumn, columns);
 
         result.IsSetVerification = true;
         result.SetVerificationColumns = run.Columns;
@@ -343,7 +349,10 @@ public static class SetVerificationComparer
             {
                 foreach (var prop in item.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 {
-                    row[prop.Name] = prop.GetValue(item);
+                    // [Header] on the property titles the column it is compared under — Storyteller's
+                    // _.Compare(o => o.Amount).Header("The Amount"). The title REPLACES the name, so a
+                    // document writes the title; see HeaderAttribute for why it is not an alias.
+                    row[ColumnNames.Of(prop)] = prop.GetValue(item);
                 }
             }
 

@@ -4,6 +4,15 @@ namespace Bobcat.Acceptance.Tests;
 
 public record Detail(string Name, decimal Amount);
 
+/// <summary>
+/// Storyteller's <c>_.Compare(o =&gt; o.Amount).Header("The Amount")</c>: a set's columns are its
+/// result type's properties, so the title goes on the property. On a record that means targeting the
+/// property explicitly, since the parameter and the property share a declaration.
+/// </summary>
+public record Ledger(
+    [property: Header("Line Item")] string Name,
+    [property: Header("The Amount")] decimal Amount);
+
 public enum Grade
 {
     Gold,
@@ -24,6 +33,7 @@ public class SetVerificationFixture : Fixture
     {
         _details.Clear();
         _names.Clear();
+        _ledger.Clear();
         Roster.Clear();
     }
 
@@ -47,6 +57,20 @@ public class SetVerificationFixture : Fixture
     [Then("the names in order should be")]
     [SetVerification(Column = "Name", Ordered = true)]
     public IEnumerable<string> TheNamesShouldBe() => _names;
+
+    private readonly List<Ledger> _ledger = new();
+
+    [Given("the ledger is")]
+    [Table]
+    public void TheLedgerIs(string name, decimal amount) => _ledger.Add(new Ledger(name, amount));
+
+    /// <summary>
+    /// The document names both columns by their titles. <c>KeyColumns</c> does too, because it names
+    /// columns as the document writes them.
+    /// </summary>
+    [Then("the ledger should be")]
+    [SetVerification(KeyColumns = "Line Item")]
+    public IEnumerable<Ledger> TheLedgerShouldBe() => _ledger;
 
     internal readonly List<string> Roster = new();
 

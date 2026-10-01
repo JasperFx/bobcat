@@ -556,9 +556,15 @@ public static class CodeEmitter
 
     private static void emitSetVerificationStep(StringBuilder sb, StepInfo step, StepMethodInfo method, string stepId, string stepKind, string target, string ctxStmt, List<string> values, string binding)
     {
+        // The key list is read by the runtime's own parser rather than split here, so "Sku, Name"
+        // cannot mean one thing in an attribute and another as a VerifySet argument. Same move as
+        // emitting CellValues.Read for a cell instead of deciding its value at compile time: the
+        // generated code runs in an assembly that references Bobcat, so there is no reason for a
+        // second reading to exist. (The agreement-test pattern elsewhere exists for the opposite
+        // case — a split the netstandard2.0 generator has to perform itself.)
         var keyColumns = string.IsNullOrEmpty(method.SetVerificationKeyColumns)
-            ? "Array.Empty<string>()"
-            : "new[] { " + string.Join(", ", method.SetVerificationKeyColumns.Split(',').Select(k => $"\"{escapeString(k.Trim())}\"")) + " }";
+            ? "global::System.Array.Empty<string>()"
+            : $"global::Bobcat.Runtime.SetVerificationComparer.ParseKeyColumns(\"{escapeString(method.SetVerificationKeyColumns)}\")";
 
         sb.AppendLine($"                    plan.Add(new DelegateExecutionStep(");
         sb.AppendLine($"                        \"{escapeString(stepId)}\",");
@@ -604,7 +610,17 @@ public static class CodeEmitter
         var scalarColumn = string.IsNullOrEmpty(method.SetVerificationColumn)
             ? ""
             : $", scalarColumn: \"{escapeString(method.SetVerificationColumn)}\"";
-        sb.AppendLine($"                        SetVerificationComparer.Compare(actual, expected, {keyColumns}, result{ordered}{scalarColumn});");
+
+        // The header row, passed separately from the rows. Read off the first expected row instead,
+        // a table with a header and nothing under it has no columns at all — and "the set should be
+        // empty" is a real expectation whose extra rows then render under no headings.
+        var columns = step.TableHeaders != null
+            ? ", columns: new[] { "
+              + string.Join(", ", step.TableHeaders.Select(h => $"\"{escapeString(h)}\""))
+              + " }"
+            : "";
+
+        sb.AppendLine($"                        SetVerificationComparer.Compare(actual, expected, {keyColumns}, result{ordered}{scalarColumn}{columns});");
 
         if (!method.IsAsync)
         {

@@ -339,16 +339,36 @@ public class SetVerificationAttribute : Attribute
 }
 
 /// <summary>
-/// The data-table column this parameter binds to, when the document should not have to call it by
-/// the parameter's own name.
+/// The data-table column this parameter or property is known by, when the document should not have
+/// to call it by its own code name.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Storyteller's <c>[Header("Player Name")]</c>, and for the same reason: the column heading is
 /// prose in a document people read, while the parameter name is code. Without it a table that wants
 /// to say "Player Name" forces the parameter to be called <c>Player_Name</c> or the column to be
 /// called <c>player</c>.
+/// </para>
+/// <para>
+/// <b>On a parameter</b> it names the column the parameter binds to — a <c>[Table]</c> step's row
+/// method, or a row method <c>Fixture.RunTable</c> calls. <b>On a property</b> it names the column a
+/// set verification compares that property under, which is Storyteller's
+/// <c>_.Compare(o =&gt; o.Amount).Header("The Amount")</c>; a set's columns are the result type's
+/// properties, so a property is the only thing there is to put it on. On a record, target the
+/// property explicitly: <c>record Detail([property: Header("The Amount")] decimal Amount)</c>.
+/// </para>
+/// <para>
+/// <b>The title replaces the name — it is not an alias.</b> A document that titles a column writes
+/// the title, and the property name then matches nothing; one column with two spellings is how a
+/// grid would end up with two columns for one property. Adding a header to a property is a change to
+/// the vocabulary of every document that compares it, exactly as renaming the property would be.
+/// </para>
+/// <para>
+/// <c>KeyColumns</c> names columns as the <em>document</em> writes them, so a titled property is
+/// named there by its title.
+/// </para>
 /// </remarks>
-[AttributeUsage(AttributeTargets.Parameter)]
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
 public class HeaderAttribute : Attribute
 {
     public HeaderAttribute(string name) => Name = name;
