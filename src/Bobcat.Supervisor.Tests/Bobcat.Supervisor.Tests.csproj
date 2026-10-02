@@ -23,6 +23,12 @@
          the supervisor works against a framework that is not Bobcat. -->
     <ProjectReference Include="..\Bobcat.Tests\Bobcat.Tests.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- Build ordering only, for the issue #394 investigation: a PROJECTED suite driven through
+         server mode, which is the only xUnit v3 host in the repository that publishes projected
+         scenarios to the monitor wire. -->
+    <ProjectReference Include="..\Bobcat.Xunit.Samples\Bobcat.Xunit.Samples.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

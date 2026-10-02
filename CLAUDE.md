@@ -1581,6 +1581,19 @@ never becomes a test host at all.
   - **A cold command closes the warm session first.** They cannot coexist: a booted host holds the
     port, the database and the queues a second one would ask for, so "fresh everything" has to
     include tearing down what is up.
+  - **The projected lane is cold-only, and that is measured rather than assumed (issue #394,
+    `docs/warm-projected-runs.md`).** Server mode takes repeated run requests in one live process
+    on MTP 1.9.1 (72ms → 11ms → 4ms for the same work), and an identity maps to a platform uid
+    through one join — xUnit v3's discovery display name is `Namespace.Class.method`, exactly what
+    #391's manifest spells. **The blocker is Bobcat's own run bracket**: a projected suite opens
+    its run on the first scenario and closes it from a `ProcessExit` handler, so two run requests
+    in one process yield **one** `run_started`, one `RunId`, **no** `run_finished`, and the second
+    command's scenarios land on the first command's card — a run with no finish being exactly what
+    #195 was opened for. Closing it means a per-request bracket in `MarkerStepRun`, which needs a
+    platform extension (`ITestSessionLifetimeHandler`) in `Bobcat.Xunit`/`Bobcat.TUnit` — the first
+    either package would ship, and `Bobcat.TUnit` deliberately references only `TUnit.Core`.
+    `WarmProjectedRunTests` pins all four measurements, **two as tripwires on the broken
+    behaviour**, so a fix tells its author the blocker is gone.
   - Any suite-level catastrophe counts as damage, not only a reset that threw. The narrower rule
     would have to tell a broken resource from a `SpecCatastrophicException` a step raised
     deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer
@@ -1677,6 +1690,9 @@ the correlation hook — an opaque string Bobcat stamps on a run and never inter
 - `docs/composing-grammars.md` — User-facing guide to grammar composition: parameterized
   `[IncludeGrammars]` and scenario state (check its HTTP section against the code — the
   `CritterStackHttpFixture` vocabulary it describes was deleted on 2026-09-21)
+- `docs/warm-projected-runs.md` — Issue #394's findings: why the projected lane is cold-only in
+  the resident runner, what MTP server mode actually does on 1.9.1, and what closing the gap would
+  cost
 - `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
   code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
   and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which
