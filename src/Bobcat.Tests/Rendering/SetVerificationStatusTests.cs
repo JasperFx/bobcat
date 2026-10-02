@@ -124,4 +124,46 @@ public class SetVerificationStatusTests
             SetVerificationRowType.Extra
         });
     }
+
+    // ---- when the column appears at all ----
+
+    private static SetVerificationRender inputTable()
+    {
+        // What an arrange step produces: one `ok` echo per cell, nothing compared. The shape
+        // TableRunner and the interceptor's RecordTable both report.
+        var run = new TableRun(["Name"]);
+        run.Cells.Add(new CellResult("Name", ResultStatus.ok, "Luke") { RowIndex = 0 });
+        run.Cells.Add(new CellResult("Name", ResultStatus.ok, "Han") { RowIndex = 1 });
+
+        return SetVerificationRender.FromCells(run.Columns, run.Cells);
+    }
+
+    [Fact]
+    public void an_arrange_table_has_no_status_column_because_nothing_was_judged()
+    {
+        // Three rows of OK said only that the table was read. The column cannot draw a distinction
+        // if it is always there.
+        CommandLineRenderer.ShowsStatusColumn(inputTable()).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void a_comparison_that_agreed_still_gets_the_column()
+    {
+        // `success` is a verdict — something was compared and it matched. Only `ok`, the status an
+        // input echo carries, is silent.
+        var grid = compare([new Row("Cord", 100)], [("Cord", "100")], ordered: false);
+
+        CommandLineRenderer.ShowsStatusColumn(grid).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_row_marker_alone_is_enough_to_earn_the_column()
+    {
+        var run = new TableRun(["Name"]);
+        run.Cells.Add(new CellResult("missing-row", ResultStatus.missing, "Expected row not found: Name=Leia")
+            { RowIndex = 0 });
+
+        CommandLineRenderer.ShowsStatusColumn(SetVerificationRender.FromCells(run.Columns, run.Cells))
+            .ShouldBeTrue();
+    }
 }

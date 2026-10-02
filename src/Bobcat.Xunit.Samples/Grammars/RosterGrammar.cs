@@ -55,9 +55,14 @@ public class RosterGrammar
         }
     }
 
-    [Then("the roster reads {expected}")]
-    internal void TheRosterReads(string expected)
-        => SpecAssert.Check("roster", string.Join(", ", _roster), expected);
+    /// <summary>
+    /// The cell is named for the placeholder it belongs to, so its verdict renders in the sentence
+    /// where the value sits rather than on a line underneath — the join between a comparison and its
+    /// place in the sentence is that name.
+    /// </summary>
+    [Then("the roster reads {roster}")]
+    internal void TheRosterReads(string roster)
+        => SpecAssert.Check("roster", string.Join(", ", _roster), roster);
 
     /// <summary>
     /// Storyteller's <c>CreateNewObject&lt;T&gt;</c> from the C# side: the rows ARE the input, built
@@ -76,9 +81,9 @@ public class RosterGrammar
         _signings.AddRange(TableRunner.BuildRows<Signing>(table));
     }
 
-    [Then("the signings read {expected}")]
-    internal void TheSigningsRead(string expected)
-        => SpecAssert.Check("signings", string.Join(", ", _signings.Select(s => s.Describe())), expected);
+    [Then("the signings read {signings}")]
+    internal void TheSigningsRead(string signings)
+        => SpecAssert.Check("signings", string.Join(", ", _signings.Select(s => s.Describe())), signings);
 
     private readonly List<Signing> _signings = new();
 

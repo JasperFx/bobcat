@@ -461,9 +461,30 @@ public class CommandLineRenderer
         return cols;
     }
 
+    /// <summary>
+    /// Whether a grid has anything to report in a Status column: a row present on only one side, a
+    /// row that threw or turned up in the wrong place, or any cell carrying a verdict of its own.
+    /// </summary>
+    /// <remarks>
+    /// <b>An arrange table is data, not a judgement.</b> <c>Given the names are</c> hands a grammar
+    /// three names; every cell is an echo of what the document wrote and nothing has been compared,
+    /// so a Status column reading <c>OK</c> three times says only that the table was read. Dropping
+    /// it is what lets an input table read as data and a comparison grid read as verdicts — which is
+    /// the distinction the column exists to draw, and it cannot draw it if it is always there.
+    /// <para>
+    /// A <see cref="ResultStatus.success"/> cell is a verdict and keeps the column: something agreed.
+    /// Only <see cref="ResultStatus.ok"/> — the status an input echo carries — is silent.
+    /// </para>
+    /// </remarks>
+    public static bool ShowsStatusColumn(SetVerificationRender sv)
+        => sv.Rows.Any(row => row.RowType != SetVerificationRowType.Matched
+                              || row.Cells.Any(cell => cell.Status != ResultStatus.ok));
+
     public void RenderSetVerification(SetVerificationRender sv)
     {
         if (sv.Columns.Count == 0) return;
+
+        var judged = ShowsStatusColumn(sv);
 
         var table = new Spectre.Console.Table();
         table.Border(TableBorder.Rounded);
@@ -472,7 +493,8 @@ public class CommandLineRenderer
         {
             table.AddColumn(new TableColumn(Markup.Escape(col)));
         }
-        table.AddColumn(new TableColumn("[dim]Status[/]").Centered());
+
+        if (judged) table.AddColumn(new TableColumn("[dim]Status[/]").Centered());
 
         var rowNum = 0;
         foreach (var row in sv.Rows)
@@ -523,12 +545,15 @@ public class CommandLineRenderer
                     // comparer has always failed the step for it. ORDER keeps yellow for the opposite
                     // reason: every value agreed, which is a different finding from a wrong value and
                     // reads differently when strict ordering is the claim being tested.
-                    values.Add(row.RowType switch
+                    if (judged)
                     {
-                        SetVerificationRowType.Errored => "[red]ERROR[/]",
-                        SetVerificationRowType.OutOfOrder => "[yellow]ORDER[/]",
-                        _ => row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]"
-                    });
+                        values.Add(row.RowType switch
+                        {
+                            SetVerificationRowType.Errored => "[red]ERROR[/]",
+                            SetVerificationRowType.OutOfOrder => "[yellow]ORDER[/]",
+                            _ => row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]"
+                        });
+                    }
                     table.AddRow(values.ToArray());
                     break;
                 }
