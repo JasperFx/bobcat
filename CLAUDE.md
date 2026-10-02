@@ -1464,8 +1464,9 @@ sweep:
   console is changed to read it, and nothing warns either party.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
   `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
-  to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`), and
-  the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
+  to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`),
+  `BOBCAT_RUNNER_ID` (issue #397 — the stable runner id a parent hands over, so the same checkout
+  is the same runner across every relaunch), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
   (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
   its own button press to the run it produced. Opaque like the tag, and deliberately independent of
   it: the tag says what work a run speaks for, the command says which request produced it, and a
@@ -1476,7 +1477,9 @@ sweep:
   (issue #389) — `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to
   the agent that ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*`
   variable: Bobcat reads what an agent session already put in the environment instead of asking for
-  it, so attribution needs no configuration. Every one is user-facing or on the wire. The
+  it, so attribution needs no configuration. **It loses to the command (issue #401): a run carrying
+  a `Command` reports no `Session` at all**, because a resident runner holds its launching agent's
+  session for life and would otherwise claim every button press a person made. Every one is user-facing or on the wire. The
   `Monitor:*` keys that were ever *read* (`DataPath`, `RetentionDays`, `RetentionRuns`,
   `IdleMinutes`) belonged to the console and went with it, along with their
   `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved rather
@@ -1556,6 +1559,17 @@ A suite kept available to a monitor, running specifications **when the monitor a
 half of Stoat's interactive execution. `MySpecs --resident` (or `BOBCAT_RESIDENT=1`) and the host
 never becomes a test host at all.
 
+**Both Gherkin entry points check it, and `ResidentMode` lives in core for that reason (issue
+#398).** It was in `Bobcat.Mtp` when `BobcatTestApplication.Run` was the only caller, but nothing
+in it was ever about the test platform, and `BobcatRunner.Run` — the JasperFx command family — read
+`--resident` as an unknown flag and ignored `BOBCAT_RESIDENT` entirely, so every suite written
+against the runner before the MTP host existed (Stoat's own `Stoat.Specs` among them) ran all its
+specs and exited 0 instead of going resident. The check is before the parser in both, because
+`--resident` is not one of the command family's options. `ConsolePreview` is the proof host — a
+`BobcatRunner.Run` `Main` with no Bobcat.Mtp reference anywhere — pinned from
+`ResidentModeEndToEndTests` beside the MTP one rather than from a class of its own, the same
+"both from one place" reasoning as `SpecIdentityEndToEndTests`.
+
 - **The runner is a client, and that is the whole security model.** It connects *out* to the same
   5525 origin every publisher already probes and *asks* for work; a monitor can only answer a
   runner that asked. Nothing listens on a port, so there is nothing to secure — and a command can
@@ -1581,6 +1595,13 @@ never becomes a test host at all.
   a command naming *no* specification is refused rather than read as "run everything", since the
   whole suite is what an ordinary run already does. Every refusal carries a reason, because a
   command that is simply never answered is indistinguishable from a runner that died.
+  - **And a machine-readable `refusal` beside the reason (issue #400)** — `RunnerRefusal.Busy` /
+    `UnknownSpec` / `UnsupportedMode` / `Empty` on `RunnerAcknowledgement`, trailing and optional
+    so an older console ignores it. The split it encodes is that **busy means *not now*** and the
+    other three mean *not this*: busy is the ordinary answer to a command sent the instant
+    `run_finished` arrives, and the right response is to send again. With only the prose to go on,
+    Stoat was matching the sentence "already running a command" — so a rewording here would have
+    quietly turned every busy into a hard rejection a person reads as a failed button.
 - **Cold by default** — a fresh `BobcatRunner` per command, so a command always runs the current
   code and a second cannot see the first's state because none of it survived.
 - **Warm keeps one booted runner between commands (issue #393)**, opted into per command and
@@ -1630,9 +1651,21 @@ never becomes a test host at all.
     dereferences the null. The compiler is happy and the call means something else.
 - **`restart` means "exit so I can be relaunched"**, and it **cuts an in-flight run short** rather
   than waiting: a wedged run is the main reason someone restarts a runner, so a restart that waited
-  would be useless in exactly the case it exists for. Exit code 0 either way — a resident runner's
-  exit says nothing about any test, and a parent deciding whether to relaunch should not have to
-  tell a red suite from a crashed runner.
+  would be useless in exactly the case it exists for. **A restart exits 75 (`EX_TEMPFAIL`), an
+  orderly stop exits 0 (issue #397).** Neither says anything about any test — the verdicts went out
+  on the ingest stream as they happened, so a parent deciding whether to relaunch never has to tell
+  a red suite from a crashed runner. But it does have to tell "relaunch me" from "I'm done", and
+  0 could not: **0 is also what a non-resident host returns after running its whole suite**, so a
+  parent relaunching on 0 would run such a suite in a loop forever. Stoat had to ask the monitor
+  whether the launch had registered to work it out. `ResidentMode.RestartExitCode`.
+- **`BOBCAT_RUNNER_ID`, when set, *is* the runner's id (issue #397)** — `ResidentRunnerOptions`
+  defaults to it and only then to a fresh GUID. A runner lives under a watch and is relaunched on
+  every source change, so a minted id per start meant a new runner per rebuild: a command a person
+  pressed while the runner was rebuilding waited on an id that never came back, the monitor's
+  picker filled with dead runners, and a parent's status reports named an id the runner never
+  registered under. Stoat worked around all three by superseding a disconnected runner from the
+  same checkout and polling `GET /api/runners` for the minted id; handing the id over is the exact
+  version of the same thing. Re-registering is idempotent, which is what makes a stable id safe.
 - **Signals go through `PosixSignalRegistration`, not `ProcessExit`.** A `ProcessExit` handler runs
   after `ResidentMode.Run` has returned and disposed the `CancellationTokenSource` it would cancel,
   so the `ObjectDisposedException` aborts the process: **exit 134 from a runner that had done
@@ -1660,6 +1693,15 @@ never becomes a test host at all.
   `BOBCAT_RUN_COMMAND`: a resident runner holds one process open across many commands, so putting
   each id in the process environment would make it mutable global state for no gain. The variable
   stays for the case it was built for — a cold command that launches a child host.
+- **A commanded run leaves `Session` null, and that is one rule rather than a flag (issue #401).**
+  A resident runner started from an agent's terminal inherits `CLAUDE_CODE_SESSION_ID` and holds it
+  for its whole life, so every run it made for a monitor command was stamped with the session that
+  launched the *runner* — and Stoat's agent page said "started by this session" about runs a person
+  had pressed in the UI. The fix is on `MonitorRunInfo`: `Session`'s getter returns null whenever
+  `Command` is set, so a `with { Command = … }` anywhere honours it, and a child host reading
+  `BOBCAT_RUN_COMMAND` gets it for free. `Command` (#392) is the true answer to who asked;
+  **`Tag` is unaffected**, because it answers a different question — what work the run speaks for —
+  and a commanded re-run of a slice's specs is still that slice's node's.
 
 `ResidentRunnerTests` drives the whole loop against `FakeMonitorHost` over **real HTTP**, because
 the invariant under test is about an absent, slow or hostile monitor and a seam in front of the

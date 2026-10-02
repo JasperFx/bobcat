@@ -50,16 +50,37 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     /// <summary>
     /// The agent session that launched this run, from <see cref="SessionVariable"/> — opaque and
     /// uninterpreted, like <see cref="Tag"/>, and travelling on <c>run_started</c> beside it.
+    /// <b>Null whenever <see cref="Command"/> is set</b>, however the session was discovered.
     /// </summary>
     /// <remarks>
-    /// A viewer can then attach a run to the agent that ran it exactly, instead of inferring it: a
+    /// <para>
+    /// A viewer can attach a run to the agent that ran it exactly, instead of inferring it: a
     /// plan node tag only covers runs something thought to tag, and matching the run's repository
     /// path against a session's working tree is ambiguous exactly when two agents share a checkout —
     /// the case most worth seeing. Inherited by a supervisor's workers for free, because it is in
     /// the environment they are launched with; only the bracket owner publishes
     /// <c>run_started</c> anyway (see <see cref="HasExternalOwner"/>).
+    /// </para>
+    /// <para>
+    /// <b>A commanded run has no session, and that is one rule rather than a flag</b> (issue #401).
+    /// A resident runner started from an agent's terminal inherits that agent's
+    /// <see cref="SessionVariable"/> and holds it for its whole life, so every run it makes for a
+    /// monitor command would otherwise be stamped with the session that launched the <i>runner</i>
+    /// — and a viewer would say "started by this session" about runs a person pressed in the UI.
+    /// <see cref="Command"/> is the true answer to who asked, so its presence is what suppresses
+    /// the session. Written as a getter that consults <see cref="Command"/> rather than as
+    /// something a caller remembers to clear, because a <c>with { Command = … }</c> anywhere has
+    /// to honour it — the resident suite sets the command on the runner, and
+    /// <c>BOBCAT_RUN_COMMAND</c> carries it into a child host, and both are commanded runs.
+    /// </para>
     /// </remarks>
-    public string? Session { get; init; }
+    public string? Session
+    {
+        get => Command is { Length: > 0 } ? null : _session;
+        init => _session = value;
+    }
+
+    private readonly string? _session;
 
     /// <summary>
     /// The command this run was started to satisfy, from <see cref="RunCommandVariable"/> — the

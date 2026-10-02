@@ -34,6 +34,7 @@ public class MonitorRunInfoTests : IDisposable
         // Not a BOBCAT_* variable: Claude Code puts this in the environment of everything it
         // launches, so a run started from a session is attributable with no configuration at all.
         Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_019U1ut5qK9");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
 
         MonitorRunInfo.Discover("in-process").Session.ShouldBe("session_019U1ut5qK9");
     }
@@ -100,19 +101,66 @@ public class MonitorRunInfoTests : IDisposable
     }
 
     [Fact]
-    public void the_command_the_tag_and_the_session_are_three_independent_strings()
+    public void the_command_and_the_tag_are_independent_strings()
     {
         // The reason Command is not a reuse of Tag: a slice's specs re-run from a console carry
-        // the command that asked AND the plan node they are still attributed to, and the agent
-        // session is a third answer again.
+        // the command that asked AND the plan node they are still attributed to.
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "cmd-7");
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunTagVariable, "wave-2/daemon");
-        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_abc");
 
         var info = MonitorRunInfo.Discover("in-process");
 
         info.Command.ShouldBe("cmd-7");
         info.Tag.ShouldBe("wave-2/daemon");
-        info.Session.ShouldBe("session_abc");
+    }
+
+    // --- Issue #401: a commanded run is not the launching session's run.
+
+    [Fact]
+    public void a_commanded_run_carries_no_session_even_when_the_variable_is_set()
+    {
+        // Found live driving a 0.29.0 resident runner from Stoat. A resident runner started from
+        // an agent's terminal inherits that agent's session id and holds it for its whole life, so
+        // every run it made for a monitor command was stamped with it — and the agent page said
+        // "started by this session" about runs a person had pressed in the UI.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_that_launched_me");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "cmd-7");
+
+        var info = MonitorRunInfo.Discover("resident");
+
+        info.Command.ShouldBe("cmd-7", "which is the true answer to who asked");
+        info.Session.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_tag_survives_a_command_even_though_the_session_does_not()
+    {
+        // Only the session is suppressed, and only because the command answers the same question
+        // better. The tag answers a different one — what work the run speaks for — so a commanded
+        // re-run of a slice's specs is still attributed to that slice's plan node.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_abc");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "cmd-7");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunTagVariable, "wave-2/daemon");
+
+        var info = MonitorRunInfo.Discover("resident");
+
+        info.Tag.ShouldBe("wave-2/daemon");
+        info.Session.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_command_set_after_the_fact_suppresses_the_session_too()
+    {
+        // The rule is a getter consulting Command rather than something a caller clears, because
+        // the resident runner does not use the variable at all: it sets BobcatRunner.MonitorCommand
+        // and the info is rebuilt with `with { Command = … }`. A rule that only ran inside
+        // Discover would miss exactly the case the issue was filed for.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_abc");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+
+        var discovered = MonitorRunInfo.Discover("resident");
+        discovered.Session.ShouldBe("session_abc", "nothing commanded this one");
+
+        (discovered with { Command = "cmd-9" }).Session.ShouldBeNull();
     }
 }

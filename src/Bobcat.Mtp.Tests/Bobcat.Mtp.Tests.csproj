@@ -40,6 +40,12 @@
          purpose, and only named specifications are ever run from here. -->
     <ProjectReference Include="..\Bobcat.Xunit.Samples\Bobcat.Xunit.Samples.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- Issue #398's subject: a Gherkin host whose Main is BobcatRunner.Run, with no reference to
+         Bobcat.Mtp. Build ordering only, like the three above — it is launched as an executable. -->
+    <ProjectReference Include="..\ConsolePreview\ConsolePreview.csproj"
+                      ReferenceOutputAssembly="false" />
+
   </ItemGroup>
 
 </Project>

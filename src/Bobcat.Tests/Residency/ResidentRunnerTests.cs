@@ -137,6 +137,9 @@ public class ResidentRunnerTests
         var ack = eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>().ShouldNotBeNull();
         ack.Accepted.ShouldBeFalse();
         ack.Reason.ShouldContain("the database reset threw");
+        ack.Refusal.ShouldBe(
+            RunnerRefusal.UnsupportedMode,
+            "a withdrawn mode is still a mode this runner does not offer");
 
         suite.Runs.ShouldBeEmpty();
     }
@@ -360,7 +363,8 @@ public class ResidentRunnerTests
         await eventually(() => suite.Runs.Count == 2, "the runner stopped taking commands");
     }
 
-    // --- The three refusals.
+    // --- The four refusals. Each carries the word a monitor acts on (issue #400) beside the
+    //     sentence a person reads, because only one of the four — busy — means "send it again".
 
     [Fact]
     public async Task a_specification_outside_this_runners_set_is_refused_by_name()
@@ -376,6 +380,7 @@ public class ResidentRunnerTests
         var ack = eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>().ShouldNotBeNull();
         ack.Accepted.ShouldBeFalse();
         ack.Reason.ShouldContain("'Nope/not here'");
+        ack.Refusal.ShouldBe(RunnerRefusal.UnknownSpec);
 
         suite.Runs.ShouldBeEmpty("not even the identity it did have");
     }
@@ -403,6 +408,10 @@ public class ResidentRunnerTests
         second.Accepted.ShouldBeFalse();
         second.Reason.ShouldContain("already running");
 
+        // The one refusal a monitor answers by sending again — and the only reason this field
+        // exists, since Stoat was matching on the sentence to tell it apart.
+        second.Refusal.ShouldBe(RunnerRefusal.Busy);
+
         gate.SetResult();
         await eventually(() => !runner.Busy, "the first command never finished");
         suite.Runs.Select(r => r.CommandId).ShouldBe(["c1"]);
@@ -424,6 +433,7 @@ public class ResidentRunnerTests
         var ack = eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>().ShouldNotBeNull();
         ack.Accepted.ShouldBeFalse();
         ack.Reason.ShouldContain("'warm' is not a mode this runner offers");
+        ack.Refusal.ShouldBe(RunnerRefusal.UnsupportedMode);
 
         suite.Runs.ShouldBeEmpty();
     }
@@ -439,8 +449,9 @@ public class ResidentRunnerTests
         await using var runner = new ResidentRunner(suite, optionsFor(host));
         await runner.Handle(command(RunnerWire.RunCommandType, new RunCommand("c1", [])));
 
-        eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>()!
-            .Reason.ShouldContain("at least one specification");
+        var empty = eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>().ShouldNotBeNull();
+        empty.Reason.ShouldContain("at least one specification");
+        empty.Refusal.ShouldBe(RunnerRefusal.Empty);
 
         suite.Runs.ShouldBeEmpty();
     }

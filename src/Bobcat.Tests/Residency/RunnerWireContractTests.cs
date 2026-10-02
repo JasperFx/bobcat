@@ -103,6 +103,56 @@ public class RunnerWireContractTests
         RunnerWire.CommandsRoute("a runner/one").ShouldBe("/api/runners/a%20runner%2Fone/commands");
     }
 
+    // --- Issue #397: the parent owns the runner's identity.
+
+    [Fact]
+    public void a_handed_runner_id_is_the_runner_id()
+    {
+        // A resident runner lives under a watch and is relaunched on every source change, so a
+        // minted id per start meant a new runner per rebuild: a command pressed while the runner
+        // was rebuilding waits on an id that never comes back, and the monitor's picker fills with
+        // dead runners. A parent that derives one stable id from the checkout fixes all of it —
+        // provided the runner uses what it was handed.
+        var previous = Environment.GetEnvironmentVariable(ResidentRunnerOptions.IdVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                ResidentRunnerOptions.IdVariable, "runner-for-this-checkout");
+
+            new ResidentRunnerOptions().RunnerId.ShouldBe("runner-for-this-checkout");
+
+            // Explicit still wins, so a caller constructing options in code is unaffected by a
+            // variable something else in the environment set.
+            new ResidentRunnerOptions { RunnerId = "mine" }.RunnerId.ShouldBe("mine");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ResidentRunnerOptions.IdVariable, previous);
+        }
+    }
+
+    [Fact]
+    public void a_runner_nobody_named_still_has_an_addressable_id()
+    {
+        var previous = Environment.GetEnvironmentVariable(ResidentRunnerOptions.IdVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(ResidentRunnerOptions.IdVariable, null);
+
+            Guid.TryParse(new ResidentRunnerOptions().RunnerId, out _).ShouldBeTrue();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ResidentRunnerOptions.IdVariable, previous);
+        }
+    }
+
+    [Fact]
+    public void the_runner_id_variable_is_the_spelling_a_parent_sets()
+    {
+        ResidentRunnerOptions.IdVariable.ShouldBe("BOBCAT_RUNNER_ID");
+    }
+
     // --- The payloads.
 
     [Fact]
@@ -129,12 +179,41 @@ public class RunnerWireContractTests
     public void an_acknowledgement_carries_the_command_it_answers_and_a_reason_when_it_refuses()
     {
         var root = parse(JsonSerializer.Serialize(
-            new RunnerAcknowledgement("r1", "c1", false, "busy"), RunnerWire.Json));
+            new RunnerAcknowledgement(
+                "r1", "c1", false, "this runner is already running a command", RunnerRefusal.Busy),
+            RunnerWire.Json));
 
         root.GetProperty("runnerId").GetString().ShouldBe("r1");
         root.GetProperty("commandId").GetString().ShouldBe("c1");
         root.GetProperty("accepted").GetBoolean().ShouldBeFalse();
-        root.GetProperty("reason").GetString().ShouldBe("busy");
+        root.GetProperty("reason").GetString().ShouldBe("this runner is already running a command");
+        root.GetProperty("refusal").GetString().ShouldBe("busy");
+    }
+
+    [Fact]
+    public void the_refusal_words_are_the_ones_a_monitor_switches_on()
+    {
+        // Issue #400. Stoat owns the command queue and has to tell "not now" from "not this": with
+        // only the reason to go on it matched the sentence "already running a command", so a
+        // rewording here would quietly turn every busy into a hard rejection a person sees as a
+        // failed button. These four strings are the contract that replaced that.
+        RunnerRefusal.Busy.ShouldBe("busy");
+        RunnerRefusal.UnknownSpec.ShouldBe("unknown-spec");
+        RunnerRefusal.UnsupportedMode.ShouldBe("unsupported-mode");
+        RunnerRefusal.Empty.ShouldBe("empty");
+    }
+
+    [Fact]
+    public void an_acknowledgement_from_a_monitor_that_predates_the_refusal_field_still_reads()
+    {
+        // Additive and trailing, which is the only kind of change this wire can take: the
+        // receiving side has no assembly reference to tell it a field appeared.
+        var ack = parse("""{"runnerId":"r1","commandId":"c1","accepted":false,"reason":"busy"}""")
+            .Deserialize<RunnerAcknowledgement>(RunnerWire.Json)
+            .ShouldNotBeNull();
+
+        ack.Reason.ShouldBe("busy");
+        ack.Refusal.ShouldBeNull();
     }
 
     [Fact]

@@ -15,11 +15,35 @@ public sealed record ResidentRunnerOptions
     public string? Url { get; init; }
 
     /// <summary>
-    /// Stable for the life of the process. A fresh one per start is correct: a restarted runner is
-    /// a different process over possibly different code, and registering as the old one would let
-    /// a monitor hold a stream open to something that no longer exists.
+    /// This runner's id, and the address of its command stream — <c>BOBCAT_RUNNER_ID</c> when a
+    /// parent set one, otherwise a fresh GUID.
     /// </summary>
-    public string RunnerId { get; init; } = Guid.NewGuid().ToString();
+    /// <remarks>
+    /// <para>
+    /// <b>A parent that launches the runner owns its identity</b> (issue #397). A
+    /// resident runner lives under a watch and is relaunched on every source change, so a minted
+    /// id means a new runner per rebuild: a command a person pressed while the runner was
+    /// rebuilding waits on an id that never comes back, the monitor's picker fills with dead
+    /// runners, and a parent's status reports name an id the runner never registers under. A
+    /// parent that derives one stable id from the checkout — <c>stoat runner</c> does — fixes all
+    /// three by handing it over, and the runner uses what it was handed, unchanged.
+    /// </para>
+    /// <para>
+    /// A fresh GUID stays the fallback, because a runner nobody named still has to be addressable,
+    /// and re-registering is idempotent: a monitor holding a stream open to a dead process of the
+    /// same id simply has it replaced by the live one's registration.
+    /// </para>
+    /// </remarks>
+    public string RunnerId { get; init; }
+        = Environment.GetEnvironmentVariable(IdVariable) is { Length: > 0 } handed
+            ? handed
+            : Guid.NewGuid().ToString();
+
+    /// <summary>
+    /// The variable a parent puts a stable runner id in. A <c>BOBCAT_*</c> variable because Bobcat
+    /// really is the thing asking for it, exactly like <c>BOBCAT_RUN_ID</c>.
+    /// </summary>
+    public const string IdVariable = "BOBCAT_RUNNER_ID";
 
     /// <summary>The checkout this runner speaks for. Discovered from the working directory when null.</summary>
     public string? Repository { get; init; }
@@ -300,11 +324,11 @@ public sealed class ResidentRunner : IAsyncDisposable
         if (refusal is not null)
         {
             await acknowledge(command.CommandId, accepted: false, refusal, token);
-            log($"refused command {command.CommandId}: {refusal}");
+            log($"refused command {command.CommandId} ({refusal.Kind}): {refusal.Reason}");
             return;
         }
 
-        await acknowledge(command.CommandId, accepted: true, reason: null, token);
+        await acknowledge(command.CommandId, accepted: true, refusal: null, token);
 
         var selection = SpecSelection.Of(command.Specs ?? []);
         var mode = command.ResolvedMode;
@@ -356,7 +380,7 @@ public sealed class ResidentRunner : IAsyncDisposable
         var command = @event.DataAs<RestartCommand>();
         var commandId = command?.CommandId ?? "";
 
-        if (commandId.Length > 0) await acknowledge(commandId, accepted: true, reason: null, token);
+        if (commandId.Length > 0) await acknowledge(commandId, accepted: true, refusal: null, token);
 
         RestartRequested = true;
         log("restart requested — exiting so a parent can relaunch");
@@ -372,12 +396,16 @@ public sealed class ResidentRunner : IAsyncDisposable
     }
 
     /// <summary>
-    /// Why this command is refused, or null to accept it. The three rules issue #390 names, in the
-    /// order a person would want to hear them.
+    /// Why this command is refused, or null to accept it. The four rules issue #390 names, in the
+    /// order a person would want to hear them, each carrying the word a monitor acts on
+    /// (issue #400) beside the sentence a person reads.
     /// </summary>
-    private string? refuse(RunCommand command)
+    private Refusal? refuse(RunCommand command)
     {
-        if (Busy) return "this runner is already running a command";
+        if (Busy)
+        {
+            return new Refusal(RunnerRefusal.Busy, "this runner is already running a command");
+        }
 
         if (!AvailableModes.Contains(command.ResolvedMode))
         {
@@ -390,11 +418,15 @@ public sealed class ResidentRunner : IAsyncDisposable
             if (command.ResolvedMode == RunnerWire.WarmMode
                 && _suite.WarmUnavailable is { Length: > 0 } damage)
             {
-                return $"warm mode is no longer available on this runner: {damage}";
+                return new Refusal(
+                    RunnerRefusal.UnsupportedMode,
+                    $"warm mode is no longer available on this runner: {damage}");
             }
 
-            return $"'{command.ResolvedMode}' is not a mode this runner offers "
-                   + $"(it offers {string.Join(", ", AvailableModes)})";
+            return new Refusal(
+                RunnerRefusal.UnsupportedMode,
+                $"'{command.ResolvedMode}' is not a mode this runner offers "
+                + $"(it offers {string.Join(", ", AvailableModes)})");
         }
 
         var selection = SpecSelection.Of(command.Specs ?? []);
@@ -403,22 +435,28 @@ public sealed class ResidentRunner : IAsyncDisposable
             // Deliberately refused rather than read as "run everything": a command carrying no
             // identities is far more likely to be a mistake on the asking side than a request for
             // the whole suite, and the whole suite is what an ordinary run already does.
-            return "a command has to name at least one specification";
+            return new Refusal(RunnerRefusal.Empty, "a command has to name at least one specification");
         }
 
         var unknown = selection.NotIn(_suite.SpecIdentities);
         if (unknown.Count > 0)
         {
-            return $"this runner has no specification named {string.Join(", ", unknown.Select(x => $"'{x}'"))}";
+            return new Refusal(
+                RunnerRefusal.UnknownSpec,
+                $"this runner has no specification named {string.Join(", ", unknown.Select(x => $"'{x}'"))}");
         }
 
         return null;
     }
 
-    private Task acknowledge(string commandId, bool accepted, string? reason, CancellationToken token)
+    /// <summary>One refusal, in both the words it has to be said in.</summary>
+    private sealed record Refusal(string Kind, string Reason);
+
+    private Task acknowledge(string commandId, bool accepted, Refusal? refusal, CancellationToken token)
         => post(
             RunnerWire.AcknowledgedType,
-            new RunnerAcknowledgement(_options.RunnerId, commandId, accepted, reason),
+            new RunnerAcknowledgement(
+                _options.RunnerId, commandId, accepted, refusal?.Reason, refusal?.Kind),
             token);
 
     private async Task<bool> post<T>(string type, T data, CancellationToken token)

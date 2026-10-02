@@ -1214,6 +1214,19 @@ public class BobcatRunner
     /// </summary>
     public static async Task<int> Run(string[] args, Action<BobcatRunner> configure)
     {
+        // Issue #398: asked to stay resident, this process never runs a command at all — it
+        // registers with a monitor and runs specifications when the monitor asks. Checked before
+        // the parser, because --resident is not one of the command family's options and reaching
+        // JasperFx it would be an unknown flag; and before configure(), because the resident suite
+        // calls that delegate itself, once per cold command.
+        //
+        // Fully qualified: Bobcat.Residency has its own RunCommand — the wire payload a monitor
+        // sends — and Bobcat.Runtime.Commands has the JasperFx command registered below.
+        if (Bobcat.Residency.ResidentMode.Requested(args))
+        {
+            return await Bobcat.Residency.ResidentMode.Run(configure);
+        }
+
         var runner = new BobcatRunner
         {
             // A real spec-host entry point (not a unit test driving the runner directly), so

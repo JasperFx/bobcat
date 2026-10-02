@@ -28,7 +28,12 @@ public class ResidentModeEndToEndTests
 {
     private static readonly string hostPath = locateHost();
 
-    private static string locateHost()
+    /// <summary>The issue #398 subject: a host whose Main is <c>BobcatRunner.Run</c>.</summary>
+    private static readonly string previewPath = locate("ConsolePreview");
+
+    private static string locateHost() => locate("Bobcat.Mtp.GeneratedHost");
+
+    private static string locate(string project)
     {
         var configuration = Path.GetFileName(Path.GetDirectoryName(
             AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))!);
@@ -39,11 +44,12 @@ public class ResidentModeEndToEndTests
         if (directory is null) throw new InvalidOperationException("Could not locate the src directory.");
 
         return Path.Combine(
-            directory.FullName, "Bobcat.Mtp.GeneratedHost", "bin", configuration, "net10.0",
-            OperatingSystem.IsWindows() ? "Bobcat.Mtp.GeneratedHost.exe" : "Bobcat.Mtp.GeneratedHost");
+            directory.FullName, project, "bin", configuration, "net10.0",
+            OperatingSystem.IsWindows() ? project + ".exe" : project);
     }
 
-    private static Process launch(FakeMonitorHost monitor)
+    private static Process launch(
+        FakeMonitorHost monitor, IReadOnlyDictionary<string, string>? environment = null)
     {
         File.Exists(hostPath).ShouldBeTrue($"The generated host was not built at {hostPath}");
 
@@ -67,6 +73,11 @@ public class ResidentModeEndToEndTests
         // feature working perfectly and the test asserting against a publisher that was switched
         // off. Three tests failed that way on the v0.29.0 tag.
         info.Environment["BOBCAT_MONITOR"] = "1";
+
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
+        {
+            info.Environment[name] = value;
+        }
 
         var process = Process.Start(info)!;
 
@@ -159,7 +170,17 @@ public class ResidentModeEndToEndTests
     public async Task a_real_host_registers_runs_a_named_specification_and_restarts_on_command()
     {
         using var monitor = new FakeMonitorHost();
-        using var process = launch(monitor);
+        using var process = launch(monitor, new Dictionary<string, string>
+        {
+            // Issue #397: a parent hands the runner its id, so the same checkout is the same
+            // runner across every rebuild.
+            ["BOBCAT_RUNNER_ID"] = "runner-for-this-checkout",
+
+            // Issue #401: the runner is launched from an agent's terminal, which is how this
+            // variable gets into a resident runner in the first place. Everything it runs from
+            // here is for somebody else's button press.
+            ["CLAUDE_CODE_SESSION_ID"] = "the-session-that-launched-the-runner"
+        });
 
         try
         {
@@ -167,6 +188,10 @@ public class ResidentModeEndToEndTests
             var registration = await eventually(
                 () => payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType),
                 "the host never registered");
+
+            registration.RunnerId.ShouldBe(
+                "runner-for-this-checkout",
+                "the runner registers under the id its parent handed it, not a minted one");
 
             registration.Suite.ShouldBe("Bobcat.Mtp.GeneratedHost");
             registration.Lane.ShouldBe("gherkin");
@@ -192,6 +217,10 @@ public class ResidentModeEndToEndTests
             refusal.Accepted.ShouldBeFalse();
             refusal.Reason.ShouldContain("'Nope/not here'");
 
+            // And the machine's half of the same answer (issue #400), so a monitor owning the
+            // queue knows this one is "not this" rather than "not now" without reading the prose.
+            refusal.Refusal.ShouldBe(RunnerRefusal.UnknownSpec);
+
             // 3. A command it does have is accepted and run — and the run's events reach the
             //    ingest stream carrying the command that caused it (issue #392).
             monitor.Send("2", CloudEvent.From(
@@ -206,6 +235,7 @@ public class ResidentModeEndToEndTests
                 "the command was never acknowledged");
 
             accepted.Accepted.ShouldBeTrue(accepted.Reason);
+            accepted.Refusal.ShouldBeNull("an acceptance refuses nothing");
 
             var started = await eventuallyValue(
                 () => runStarted(monitor),
@@ -216,13 +246,23 @@ public class ResidentModeEndToEndTests
             started.GetProperty("totalScenarios").GetInt32()
                 .ShouldBe(1, "the run was narrowed to the one specification the command named");
 
-            // 4. Restart means exit, so a parent can relaunch. Exit code 0: a resident runner's
-            //    exit says nothing about any test.
+            // ...and NOT the session that launched the runner (issue #401). The variable is in
+            // this process's environment — it is how an agent's terminal marks everything it
+            // starts — but a person pressed this button, and `command` above is the true answer
+            // to who asked.
+            started.GetProperty("session").ValueKind.ShouldBe(
+                JsonValueKind.Null,
+                "a commanded run is not attributed to the session that launched the runner");
+
+            // 4. Restart means exit, so a parent can relaunch. Exit code 75 (EX_TEMPFAIL), which
+            //    still says nothing about any test (issue #397) but does say "relaunch me" — a
+            //    thing 0 could not say, because 0 is what a non-resident host returns after
+            //    running its whole suite.
             monitor.Send("3", CloudEvent.From(
                 "stoat", RunnerWire.RestartCommandType, new RestartCommand("c-restart")));
 
             await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
-            process.ExitCode.ShouldBe(0);
+            process.ExitCode.ShouldBe(ResidentMode.RestartExitCode);
         }
         finally
         {
@@ -340,6 +380,81 @@ public class ResidentModeEndToEndTests
             runs.Select(r => r.GetProperty("runId").GetString()).Distinct().Count()
                 .ShouldBe(2, "two commands are two runs, not one long one");
             runs.ShouldAllBe(r => r.GetProperty("mode").GetString() == "resident");
+        }
+        finally
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch { /* already gone */ }
+        }
+    }
+
+    /// <summary>
+    /// Issue #398: the other Gherkin entry point goes resident too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ConsolePreview</c>'s <c>Main</c> is <c>BobcatRunner.Run</c> — the JasperFx command
+    /// family, with no reference to Bobcat.Mtp anywhere. That is the shape of every suite written
+    /// against the runner before the MTP host existed, Stoat's own specs among them, and in 0.29.0
+    /// none of them could be driven from a console's run buttons: <c>--resident</c> reached the
+    /// JasperFx parser as an unknown flag and <c>BOBCAT_RESIDENT</c> was ignored, so the suite ran
+    /// every spec and exited 0.
+    /// </para>
+    /// <para>
+    /// Pinned from this class rather than a new one, deliberately: it is the same claim about a
+    /// second entry point, and splitting it is how one of them gains a rule the other never hears
+    /// about — the reasoning <c>SpecIdentityEndToEndTests</c> uses for its two lanes.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task the_command_family_entry_point_goes_resident_too()
+    {
+        using var monitor = new FakeMonitorHost();
+
+        var info = new ProcessStartInfo(previewPath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(previewPath)!
+        };
+
+        // Through the environment, not the argument, because that is the half 0.29.0 silently
+        // ignored: an unknown flag at least errors, while BOBCAT_RESIDENT=1 ran the whole suite
+        // and exited 0 — which a parent relaunching on 0 would run in a loop forever.
+        info.Environment[ResidentMode.Variable] = "1";
+        info.Environment["BOBCAT_MONITOR_URL"] = monitor.Url;
+        info.Environment["BOBCAT_MONITOR"] = "1";
+
+        using var process = Process.Start(info)!;
+        try
+        {
+            var registration = await eventually(
+                () => payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType),
+                "the command-family host never registered");
+
+            registration.Suite.ShouldBe("ConsolePreview");
+            registration.Lane.ShouldBe("gherkin");
+            registration.Specs.ShouldContain("Calculator/Add two numbers");
+
+            // It is a resident runner in full, not a flag that merely parses: it takes a command,
+            // runs the one specification named, and exits on a restart with the code that means
+            // relaunch me.
+            await sendUntilAccepted(
+                monitor, "1", new RunCommand("p-1", ["Calculator/Add two numbers"]));
+
+            var started = await eventuallyValue(
+                () => runStarted(monitor),
+                "the commanded run never published run_started");
+
+            started.GetProperty("command").GetString().ShouldBe("p-1");
+            started.GetProperty("totalScenarios").GetInt32().ShouldBe(1);
+
+            monitor.Send("2", CloudEvent.From(
+                "stoat", RunnerWire.RestartCommandType, new RestartCommand("p-restart")));
+
+            await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+            process.ExitCode.ShouldBe(ResidentMode.RestartExitCode);
         }
         finally
         {

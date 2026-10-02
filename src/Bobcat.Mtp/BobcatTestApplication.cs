@@ -1,3 +1,4 @@
+using Bobcat.Residency;
 using Bobcat.Runtime;
 using Microsoft.Testing.Platform.Builder;
 using Microsoft.Testing.Platform.Capabilities.TestFramework;

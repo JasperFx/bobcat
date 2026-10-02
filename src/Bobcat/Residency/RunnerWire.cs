@@ -69,6 +69,39 @@ public static class RunnerWire
 }
 
 /// <summary>
+/// Why a command was refused, as one word a monitor can act on (issue #400).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The point is that one of the four refusals means something different from the other
+/// three.</b> <see cref="Busy"/> means <i>not now</i>: it is the ordinary answer to a command sent
+/// the instant <c>run_finished</c> arrives (the in-flight slot clears a hair later), and the right
+/// response is to send it again. The other three mean <i>not this</i>, and resending is pointless.
+/// </para>
+/// <para>
+/// <b>It exists because the alternative was a monitor matching on prose.</b> Stoat owns the
+/// command queue and has to tell busy apart to know whether to resend; with only
+/// <see cref="RunnerAcknowledgement.Reason"/> to go on it matched the sentence, which means a
+/// reworded sentence here would quietly turn every busy into a hard rejection a person reads as a
+/// failed button. The reason stays the human sentence; this is the machine's half.
+/// </para>
+/// </remarks>
+public static class RunnerRefusal
+{
+    /// <summary>A command is already in flight. Not now — send it again.</summary>
+    public const string Busy = "busy";
+
+    /// <summary>The command named a specification this runner does not have.</summary>
+    public const string UnknownSpec = "unknown-spec";
+
+    /// <summary>The command asked for a mode this runner does not offer, or no longer offers.</summary>
+    public const string UnsupportedMode = "unsupported-mode";
+
+    /// <summary>The command named no specification at all.</summary>
+    public const string Empty = "empty";
+}
+
+/// <summary>
 /// What a runner says about itself when it registers.
 /// </summary>
 /// <param name="RunnerId">
@@ -111,11 +144,18 @@ public sealed record RunnerRegistration(
 /// <paramref name="Reason"/>, because the alternative — a command that is simply never answered —
 /// is indistinguishable from a runner that died.
 /// </param>
+/// <param name="Reason">The human sentence, written to be shown to whoever pressed the button.</param>
+/// <param name="Refusal">
+/// The machine's half of the same answer: one of <see cref="RunnerRefusal"/>'s words, or null on
+/// an acceptance (issue #400). Trailing and optional, so a monitor that predates it is unaffected
+/// and goes on reading <paramref name="Reason"/>.
+/// </param>
 public sealed record RunnerAcknowledgement(
     string RunnerId,
     string CommandId,
     bool Accepted,
-    string? Reason = null);
+    string? Reason = null,
+    string? Refusal = null);
 
 /// <summary>
 /// "Run these specifications" — a command names identities and nothing else.
