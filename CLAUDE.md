@@ -1459,7 +1459,9 @@ sweep:
   publisher's copy of the wire records in `src/Bobcat/Monitoring/MonitorEvents.cs`. **Two copies
   of those records is a decision, not drift** (issue #65) — the receiver's lives in Stoat, and
   the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
-  viewer without either side acquiring a reference to the other.
+  viewer without either side acquiring a reference to the other. The cost is that an additive field
+  is **invisible** to the other side: `StepCell.Value` (issue #396) is read by nobody until a
+  console is changed to read it, and nothing warns either party.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
   `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
   to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`), and
