@@ -51,11 +51,65 @@ partial class Build : NukeBuild
     Target Test => _ => _
         .DependsOn(Compile)
         .After(Docker)
-        .Executes(() => DotNetTest(s => s
-            .SetProjectFile(Solution)
-            .SetConfiguration(Configuration)
-            .EnableNoBuild()
-            .EnableNoRestore()));
+        .Executes(() =>
+        {
+            try
+            {
+                DotNetTest(s => s
+                    .SetProjectFile(Solution)
+                    .SetConfiguration(Configuration)
+                    .EnableNoBuild()
+                    .EnableNoRestore());
+            }
+            catch
+            {
+                // A failed run through the solution prints only a per-assembly count — "Failed: 1,
+                // Passed: 56" — and nothing about WHICH test or why. On a laptop that is fine,
+                // because the run is repeatable; on CI it is the whole diagnosis, and chasing a
+                // failure that only happens there meant instrumenting a test and pushing a tag to
+                // find out. Microsoft.Testing.Platform writes the detail to a log beside each
+                // assembly, so print it rather than leave a reader to guess.
+                reportFailedTestLogs();
+                throw;
+            }
+        });
+
+    /// <summary>
+    /// Prints the tail of every MTP test log that recorded a failure. Best effort by design: this
+    /// runs while a build is already failing, and a problem reading a log must not replace the
+    /// real failure with its own.
+    /// </summary>
+    private void reportFailedTestLogs()
+    {
+        try
+        {
+            // This configuration's logs only. The other one's are left over from an earlier run and
+            // reporting them would name tests that are not failing now.
+            var logs = (RootDirectory / "src")
+                .GlobFiles($"**/bin/{Configuration}/**/TestResults/*.log")
+                .ToList();
+
+            foreach (var log in logs)
+            {
+                var lines = File.ReadAllLines(log);
+
+                // The summary count, not the word: every log says "failed: 0" when it passed.
+                if (!lines.Any(line => Regex.IsMatch(line, @"failed:\s*[1-9]"))) continue;
+
+                // From the first failing test's own line, which is where the message and the stack
+                // are. Capped, because a wedged suite can log a great deal after it.
+                var first = Array.FindIndex(
+                    lines, line => Regex.IsMatch(line, @"^\s*failed\s+\S"));
+
+                Log.Error("───── {Log} ─────", log);
+                foreach (var line in lines.Skip(Math.Max(0, first)).Take(150)) Log.Error("{Line}", line);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Warning("Could not read the test logs: {Message}", e.Message);
+        }
+    }
 
     // Bobcat specs running THROUGH `dotnet test` is a supported path that the root run covers
     // only implicitly. Same guard as tests.yml: a run that collected zero tests is a failure,
