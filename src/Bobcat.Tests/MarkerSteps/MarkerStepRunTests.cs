@@ -155,6 +155,31 @@ public class MarkerStepRunTests : IDisposable
     }
 
     [Fact]
+    public void the_run_names_the_command_that_asked_for_it()
+    {
+        // Issue #392. A projected suite is cold-only in the resident runner, so this run IS a
+        // child process launched per command — which is exactly why the command id has to survive
+        // the process boundary rather than being held in the runner's memory.
+        MarkerStepRun.StartForTesting(
+            new MonitorRunInfo(Guid.NewGuid(), "DaemonTests", "/repo", "main", "xunit")
+            {
+                Command = "0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7"
+            });
+
+        _sink.Events.OfType<RunStarted>().ShouldHaveSingleItem().Command
+            .ShouldBe("0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7");
+    }
+
+    [Fact]
+    public void a_run_nobody_asked_for_carries_no_command()
+    {
+        MarkerStepRun.StartForTesting(
+            new MonitorRunInfo(Guid.NewGuid(), "DaemonTests", "/repo", "main", "xunit"));
+
+        _sink.Events.OfType<RunStarted>().ShouldHaveSingleItem().Command.ShouldBeNull();
+    }
+
+    [Fact]
     public void a_participant_does_not_publish_a_bracket_it_does_not_own()
     {
         // The supervisor owns the run. A worker posting its own RunStarted would overwrite the

@@ -1393,7 +1393,14 @@ sweep:
   the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
   viewer without either side acquiring a reference to the other.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
-  and the reserved `Monitor:*` configuration keys. **`CLAUDE_CODE_SESSION_ID` is read as well**
+  `BOBCAT_RUN_COMMAND`, and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
+  (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
+  its own button press to the run it produced. Opaque like the tag, and deliberately independent of
+  it: the tag says what work a run speaks for, the command says which request produced it, and a
+  commanded run routinely carries both. It *is* a `BOBCAT_*` variable, unlike the session below,
+  because here Bobcat is the thing asking — a cold command launches a child test host and the id
+  travels down to it exactly as `BOBCAT_RUN_ID` does.
+  **`CLAUDE_CODE_SESSION_ID` is read as well**
   (issue #389) — `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to
   the agent that ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*`
   variable: Bobcat reads what an agent session already put in the environment instead of asking for

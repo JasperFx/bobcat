@@ -80,7 +80,7 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
     {
         _sink.Post(new RunStarted(
             _info.RunId, _info.Suite, _info.Repository, _info.Branch, _info.Mode,
-            DateTimeOffset.UtcNow, totalTests, _info.Tag, _info.Session));
+            DateTimeOffset.UtcNow, totalTests, _info.Tag, _info.Session, _info.Command));
 
         _heartbeat = new Timer(
             _ => _sink.Post(new RunHeartbeat(_info.RunId, DateTimeOffset.UtcNow)),

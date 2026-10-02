@@ -71,6 +71,13 @@ public class SupervisorMonitorPublishingTests
             ? session
             : null);
 
+        // Issue #392: and the command that asked for it, by the same rule — a supervised run
+        // started from a console command is still that command's run.
+        started.Command.ShouldBe(
+            Environment.GetEnvironmentVariable(MonitorRunInfo.RunCommandVariable) is { Length: > 0 } command
+                ? command
+                : null);
+
         var finished = sink.Events.Last().ShouldBeOfType<RunFinished>();
         finished.RunId.ShouldBe(started.RunId);
         finished.ExitCode.ShouldBe(results.ExitCode);

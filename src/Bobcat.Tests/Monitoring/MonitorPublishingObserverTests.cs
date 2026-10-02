@@ -125,6 +125,24 @@ public class MonitorPublishingObserverTests
     }
 
     [Fact]
+    public async Task the_in_process_bracket_names_the_command_that_asked_for_the_run()
+    {
+        // Issue #392, at the publishing site a warm Gherkin runner uses: command after command in
+        // one booted host, each its own run on the wire, each naming the request that caused it.
+        var sink = new RecordingSink();
+        var commanded = new MonitorRunInfo(Guid.NewGuid(), "TestResources", "/repo", "main", "in-process")
+        {
+            Command = "0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7"
+        };
+
+        await using var observer = new MonitorPublishingObserver(sink, commanded);
+        observer.RunStarted(1);
+
+        sink.Events.OfType<RunStarted>().ShouldHaveSingleItem().Command
+            .ShouldBe("0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7");
+    }
+
+    [Fact]
     public async Task heartbeats_flow_between_run_started_and_run_finished_and_then_stop()
     {
         var sink = new RecordingSink();

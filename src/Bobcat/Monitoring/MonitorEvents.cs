@@ -48,7 +48,14 @@ public record RunStarted(
     // for joining a run to an agent are both weak — a plan node tag only covers runs something
     // tagged, and matching a working tree is ambiguous precisely when two agents share a checkout,
     // which is the case worth seeing. Null when the run was not launched from a session.
-    string? Session = null) : MonitorEvent(RunId);
+    string? Session = null,
+    // The monitor command that asked for this run, from BOBCAT_RUN_COMMAND (issue #392) — the
+    // resident runner's command id. Opaque like Tag and Session: stored, echoed, never
+    // interpreted, and it exists so a viewer can follow its own button press to the run it
+    // produced. Independent of Tag rather than a reuse of it: the tag says what work a run speaks
+    // for, the command says which request produced it, and a commanded run routinely has both.
+    // Null when no command asked, which is every run started any other way.
+    string? Command = null) : MonitorEvent(RunId);
 
 public record RunHeartbeat(Guid RunId, DateTimeOffset At) : MonitorEvent(RunId);
 

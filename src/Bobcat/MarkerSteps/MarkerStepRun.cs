@@ -176,7 +176,8 @@ public static class MarkerStepRun
                 // told us how many tests it intends to run — and a wrong total is worse than none.
                 _sink.Post(new RunStarted(
                     info.RunId, info.Suite, info.Repository, info.Branch, info.Mode,
-                    DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session));
+                    DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session,
+                    Command: info.Command));
 
                 _heartbeat = new Timer(
                     _ => _sink?.Post(new RunHeartbeat(info.RunId, DateTimeOffset.UtcNow)),
@@ -266,7 +267,8 @@ public static class MarkerStepRun
             {
                 _sink.Post(new RunStarted(
                     info.RunId, info.Suite, info.Repository, info.Branch, info.Mode,
-                    DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session));
+                    DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session,
+                    Command: info.Command));
                 _started = true;
             }
         }

@@ -18,10 +18,14 @@ public class MonitorRunInfoTests : IDisposable
     private readonly string? _previousTag
         = Environment.GetEnvironmentVariable(MonitorRunInfo.RunTagVariable);
 
+    private readonly string? _previousCommand
+        = Environment.GetEnvironmentVariable(MonitorRunInfo.RunCommandVariable);
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, _previousSession);
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunTagVariable, _previousTag);
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, _previousCommand);
     }
 
     [Fact]
@@ -64,5 +68,51 @@ public class MonitorRunInfoTests : IDisposable
 
         info.Session.ShouldBe("session_abc");
         info.Tag.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_command_that_asked_for_the_run_is_read_from_the_environment()
+    {
+        // Issue #392. A BOBCAT_* variable, unlike the session: Bobcat is the thing asking for this
+        // one. A cold command launches a child test host, and the id travels down to it exactly as
+        // BOBCAT_RUN_ID does.
+        Environment.SetEnvironmentVariable(
+            MonitorRunInfo.RunCommandVariable, "0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7");
+
+        MonitorRunInfo.Discover("in-process").Command
+            .ShouldBe("0f2b6c5e-9b6f-4f0a-9f42-6d4d7f1a02c7");
+    }
+
+    [Fact]
+    public void no_command_variable_is_null_rather_than_empty()
+    {
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+
+        MonitorRunInfo.Discover("in-process").Command.ShouldBeNull();
+    }
+
+    [Fact]
+    public void an_empty_command_variable_is_also_null()
+    {
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "");
+
+        MonitorRunInfo.Discover("in-process").Command.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_command_the_tag_and_the_session_are_three_independent_strings()
+    {
+        // The reason Command is not a reuse of Tag: a slice's specs re-run from a console carry
+        // the command that asked AND the plan node they are still attributed to, and the agent
+        // session is a third answer again.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "cmd-7");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunTagVariable, "wave-2/daemon");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_abc");
+
+        var info = MonitorRunInfo.Discover("in-process");
+
+        info.Command.ShouldBe("cmd-7");
+        info.Tag.ShouldBe("wave-2/daemon");
+        info.Session.ShouldBe("session_abc");
     }
 }

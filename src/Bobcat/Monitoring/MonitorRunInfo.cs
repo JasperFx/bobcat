@@ -14,6 +14,14 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     public const string RunTagVariable = "BOBCAT_RUN_TAG";
 
     /// <summary>
+    /// The monitor command that asked for this run, from <c>BOBCAT_RUN_COMMAND</c> (issue #392).
+    /// A <c>BOBCAT_*</c> variable, unlike <see cref="SessionVariable"/>, because Bobcat really is
+    /// the thing asking for it: the resident runner sets it per command, and a cold command that
+    /// launches a child test host passes it down the same way <see cref="RunIdVariable"/> travels.
+    /// </summary>
+    public const string RunCommandVariable = "BOBCAT_RUN_COMMAND";
+
+    /// <summary>
     /// The agent session id, which Claude Code puts in the environment of everything it launches.
     /// Deliberately NOT a <c>BOBCAT_*</c> variable: Bobcat does not ask for this one, it reads what
     /// is already there, so a run launched from a session is attributable with no configuration.
@@ -53,6 +61,25 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     /// </remarks>
     public string? Session { get; init; }
 
+    /// <summary>
+    /// The command this run was started to satisfy, from <see cref="RunCommandVariable"/> — the
+    /// resident runner's command id (issue #392), opaque and uninterpreted exactly like
+    /// <see cref="Tag"/> and <see cref="Session"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is a third independent string and not a reuse of <see cref="Tag"/>, because the two
+    /// answer different questions and a command's run routinely needs both: the tag says what work
+    /// the run speaks for (a plan node), the command says which button press produced it. A slice's
+    /// specs re-run from a console should still be attributed to that slice's node.
+    /// </para>
+    /// <para>
+    /// Null when no command asked — which is every run started any other way, so an ordinary run is
+    /// unaffected.
+    /// </para>
+    /// </remarks>
+    public string? Command { get; init; }
+
     public static MonitorRunInfo Discover(string mode)
     {
         var runId = Guid.TryParse(Environment.GetEnvironmentVariable(RunIdVariable), out var id)
@@ -72,6 +99,9 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
                 : null,
             Session = Environment.GetEnvironmentVariable(SessionVariable) is { Length: > 0 } session
                 ? session
+                : null,
+            Command = Environment.GetEnvironmentVariable(RunCommandVariable) is { Length: > 0 } command
+                ? command
                 : null
         };
     }

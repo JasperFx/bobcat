@@ -19,7 +19,7 @@ What did *not* move is the vocabulary a publisher speaks, and none of it is obso
 - **`Bobcat.Monitoring`**, `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, the
   `Monitor:*` config keys, and the mirror records in `src/Bobcat/Monitoring/MonitorEvents.cs`.
 - **`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`,
-  `BOBCAT_RUN_OWNER`** — every one a user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
+  `BOBCAT_RUN_OWNER`, `BOBCAT_RUN_COMMAND`** — every one a user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
   (issue #389) and is deliberately *not* a `BOBCAT_*` variable: Bobcat does not ask for it, it reads
   what an agent session already put in the environment.
 - **Port 5525**, the address a publisher probes. It was deliberately kept rather than collapsed
@@ -58,23 +58,31 @@ string, so ingestion JSON and the SignalR envelope agree by construction. Identi
 repository path + branch, the board's grouping key for parallel suites on one box.
 `RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
 
-**`RunStarted` carries two opaque attribution strings, and Bobcat interprets neither** — `Tag`
-from `BOBCAT_RUN_TAG`, and `Session` from `CLAUDE_CODE_SESSION_ID` (issue #389). They answer
-different questions and a run routinely has one without the other: the tag says what work the run
-speaks for, the session says which agent ran it. Both are stored and echoed verbatim; the meaning
-belongs entirely to whoever set them.
+**`RunStarted` carries three opaque attribution strings, and Bobcat interprets none of them** —
+`Tag` from `BOBCAT_RUN_TAG`, `Session` from `CLAUDE_CODE_SESSION_ID` (issue #389), and `Command`
+from `BOBCAT_RUN_COMMAND` (issue #392). They answer different questions and a run routinely has one
+without the others: the tag says what work the run speaks for, the session says which agent ran it,
+and the command says which request produced it. All three are stored and echoed verbatim; the
+meaning belongs entirely to whoever set them.
 
 The session exists because the alternatives for joining a run to an agent are weak. A plan-node tag
 only covers runs something thought to tag. Matching the run's repository path against a session's
 working tree is ambiguous exactly when two agents share a checkout — which is the case most worth
 seeing. The session id is what the rest of that system already keys on, so it joins exactly.
 
-`MonitorRunInfo.Discover` reads both the same way, and both are null when absent rather than empty —
-an empty string on the wire reads as "there was one" to anything checking for null. A supervisor's
-workers inherit the variables for free, being launched with that environment, but only the bracket
-owner publishes `run_started` (see `HasExternalOwner`), so the owner's value is the one that travels.
-Both are trailing optionals on the record, so a publisher that omits them is an older publisher and
-not a broken one.
+The command exists so a viewer can follow its own button press to the run it produced — the
+resident runner's command id (issue #390), stamped on the run that satisfies it. It is **not** a
+reuse of `Tag`, because the two are independent and a commanded run routinely wants both: a slice's
+specs re-run from the console are still attributed to that slice's plan node. Unlike the session it
+*is* a `BOBCAT_*` variable, because here Bobcat is the thing asking — a cold command launches a
+child test host and the id travels down to it exactly as `BOBCAT_RUN_ID` does.
+
+`MonitorRunInfo.Discover` reads all three the same way, and each is null when absent rather than
+empty — an empty string on the wire reads as "there was one" to anything checking for null. A
+supervisor's workers inherit the variables for free, being launched with that environment, but only
+the bracket owner publishes `run_started` (see `HasExternalOwner`), so the owner's value is the one
+that travels. All three are trailing optionals on the record, so a publisher that omits them is an
+older publisher and not a broken one.
 
 **There are two copies of these records and that is a decision, not drift** (issue #65). The
 publisher's copy is the one above, in `Bobcat.Monitoring`; the receiver's lives in Stoat as
