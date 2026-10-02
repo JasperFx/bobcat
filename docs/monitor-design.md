@@ -425,6 +425,14 @@ because a cold command starts over from whatever poisoned the warm host.
 `RunId`, its own `Command` — so a viewer cannot tell a warm run from a cold one except by its
 speed. A warm *session* is not a run; a run is what a person asked for and what carries a verdict.
 
+**`run_finished` does not mean the runner is free, and only the acknowledgement does.** The run
+bracket closes *inside* the run, a hair before the runner's in-flight slot clears, so a command
+sent the instant `run_finished` arrives can still come back refused as busy. That is the contract
+working — one command at a time, the monitor owns the queue — not a defect, and a client that wants
+a second run **sends again** rather than assuming the first answer was yes. On a fast machine the
+gap is invisible, which is exactly why it is written down: Bobcat's own end-to-end test failed on
+CI three tags in a row, with the product behaving as specified, before it was.
+
 **The run that follows is an ordinary run on the existing ingest stream**, carrying the command on
 `run_started.Command` (issue #392) and `mode` = `resident`. A viewer therefore follows its own
 button press to the run it produced with no new event type.

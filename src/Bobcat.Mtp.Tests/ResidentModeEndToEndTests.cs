@@ -113,6 +113,42 @@ public class ResidentModeEndToEndTests
         throw new Xunit.Sdk.XunitException(because);
     }
 
+    /// <summary>
+    /// Send a run command, and send it again while the runner answers "busy" — which is what a
+    /// monitor does, because the monitor owns the queue and the runner takes one at a time.
+    /// </summary>
+    private static async Task sendUntilAccepted(FakeMonitorHost monitor, string id, RunCommand command)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            monitor.Send(id, CloudEvent.From("stoat", RunnerWire.RunCommandType, command));
+
+            var answered = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < answered)
+            {
+                var answers = eventsOf(monitor)
+                    .Select(e => e.DataAs<RunnerAcknowledgement>())
+                    .Where(a => a?.CommandId == command.CommandId)
+                    .ToList();
+
+                // ANY acceptance is the answer, not the latest one: a resend that races an
+                // already-accepted command is itself refused as busy, and reading only the last
+                // answer would spin until the deadline over a command that is running fine.
+                if (answers.Any(a => a!.Accepted)) return;
+                if (answers.Count > 0) break;
+
+                await Task.Delay(50);
+            }
+
+            await Task.Delay(200);
+        }
+
+        throw new Xunit.Sdk.XunitException(
+            $"'{command.CommandId}' was never accepted. the runner said:\n  " + log());
+    }
+
     private static IEnumerable<CloudEvent> eventsOf(FakeMonitorHost monitor)
         => monitor.RunnerEvents.Select(json => CloudEvent.FromJson(json)!);
 
@@ -276,10 +312,19 @@ public class ResidentModeEndToEndTests
 
             runsStarted(monitor).Count.ShouldBe(1);
 
-            monitor.Send("2", CloudEvent.From(
-                "stoat",
-                RunnerWire.RunCommandType,
-                new RunCommand("w-2", ["Shipping/A shipment is labelled"], RunnerWire.WarmMode)));
+            // Sent the way a monitor has to send it: one command at a time is the contract, and
+            // "busy" is the runner's answer to a second one — so a client that wants two runs
+            // asks again rather than assuming the first answer was yes.
+            //
+            // This is not belt and braces. run_finished is published inside the run, a hair
+            // before the runner's in-flight slot clears, so a command sent the instant it
+            // arrives can still be refused. On a laptop the gap is invisible; on a loaded CI
+            // runner it is not, and this test failed there three tags in a row with the product
+            // behaving exactly as specified.
+            await sendUntilAccepted(
+                monitor,
+                "2",
+                new RunCommand("w-2", ["Shipping/A shipment is labelled"], RunnerWire.WarmMode));
 
             await eventuallyValue(
                 () => runsStarted(monitor).Count == 2 ? 2 : (int?)null,

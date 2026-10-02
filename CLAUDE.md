@@ -1570,7 +1570,11 @@ never becomes a test host at all.
   of a network blip would be worse than one quietly waiting, because its parent only relaunches it
   on a source change.
 - **One command at a time, rejected rather than queued.** The monitor owns the queue; a runner that
-  silently queued would leave a person waiting on a run whose turn they cannot see. The three
+  silently queued would leave a person waiting on a run whose turn they cannot see. **`run_finished`
+  does not mean the runner is free** — the bracket closes inside the run, a hair before the
+  in-flight slot clears, so a command sent the instant it arrives can still be refused as busy, and
+  a client that wants a second run sends again. Invisible on a fast machine, which is why it is
+  written down: the end-to-end test failed on CI three tags in a row over it. The three
   refusals are a foreign spec identity (**named**, from `SpecSelection.NotIn`), busy, and a mode
   this runner did not register — the last **never silently downgraded**, because someone who asked
   for warm and got cold would read the resulting wall clock as warm mode not working. A fourth:
