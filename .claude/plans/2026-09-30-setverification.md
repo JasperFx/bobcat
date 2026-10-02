@@ -1,3 +1,6 @@
+> **Superseded by `.claude/plans/2026-10-02-handoff.md`.** Sets are done in both lanes, three of
+> the gaps below are closed, and 0.28.0 is released. Kept for the Sets decision record.
+
 # Handoff — SetVerification, and what is left after it
 
 Written 2026-09-30, rewritten at the end of the session that closed the Sets gap. Tables and Sets are
