@@ -140,7 +140,7 @@ public sealed partial class SuiteTiming
 
                 if (r.Steps.Count > 0 && assertsNothing(r))
                 {
-                    withoutAssertions.Add($"{feature.Title}/{scenario.Title}");
+                    withoutAssertions.Add(SpecIdentity.Of(feature.Title, scenario.Title));
                 }
 
                 foreach (var step in r.Steps)

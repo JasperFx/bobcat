@@ -870,6 +870,74 @@ cost that an IDE single-scenario run still pays the suite's full resource `Start
 test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
 an executable instead.
 
+### Listing and running by specification identity, in either lane (issue #391)
+
+"Run this specification" has to mean the same thing whichever lane a suite is written in, because a
+monitor only ever names **identities** — `{Feature}/{Scenario}` — and never a test framework's own
+filter. Three pure pieces in core plus one artifact:
+
+- **`SpecIdentity`** finally names the string that was already being built in eight places
+  (`SpecNodeMapping.Uid`, the retry budget's test id, `DeclaredSteps`'s key, `scenario_finished`'s
+  uid, the ledger, the timing report, the generator's descriptor, `WorkPlan`'s key). Comparison is
+  **ordinal and exact**: this is a machine identity, not a search, so folding case would let two
+  scenarios differing only in case collide into one — silently running the wrong spec, which is
+  worse than a miss, because a miss is reported. Nothing offers to *parse* an identity: a feature
+  title may contain a `/`, so the pieces are read off the model, never out of the string.
+- **`SpecSelection`** is the set a run was asked for. **Empty means everything**, so a run path
+  takes one unconditionally; `NarrowsAnything` is how a caller tells "nothing in particular" from
+  "asked, and it covers the suite" — the distinction MTP forces, since it ignores a subset
+  parameter it does not understand and runs the whole suite (`GuardAgainstAnUnfilteredRun`'s
+  lesson). `NotIn(known)` is how a runner rejects a foreign identity **by name, before running**,
+  rather than running a narrowed suite that matched nothing and exiting 0.
+- **`SpecManifest`** is what a suite says it specifies, written to the path `BOBCAT_LIST_SPECS`
+  names and **only when something asked**. A file, not stdout, because the listing has to cross a
+  process boundary — a resident runner is not the suite, and for a projected suite it *cannot* be.
+  Not `--list-tests` either: that prints display names (`"Ordering: An order is accepted"`), not
+  identities, and deriving one from the other works until a feature title contains `": "`. Writing
+  it **can never fail the suite** — same invariant as the monitor probe. `Lane`
+  (gherkin/projected) and `Framework` (bobcat/xunit/tunit) are both on it, because the lane does
+  not settle the filter spelling: a projected suite is filtered by *its framework's*.
+- **`SpecFilterArguments.For(manifest, selection)`** is the translation, and the asymmetry is the
+  whole issue: a Gherkin host's platform uid **is** the identity, so `--filter-uid` takes it
+  unchanged, while a projected suite's uid is its framework's own (assembly + class + method +
+  arguments) and the identity becomes `--filter-method Ns.Class.method`. It **refuses rather than
+  guesses** — an unknown framework, an unbound entry, or an identity the manifest lacks all throw.
+  **TUnit is deliberately unsupported**: it filters by tree-node path and nothing here can run a
+  TUnit host to verify the spelling (`TUnit.Engine` needs MTP 2.4.0, src is pinned to 1.9.1), and an
+  unverified filter is exactly the run that looks filtered and is not.
+
+Where each lane answers:
+
+- **Gherkin**: `BobcatRunner.SpecIdentities` / `.Manifest()` / `.NarrowTo(selection)`, and
+  `BobcatTestFramework.discover` writes the manifest — discovery is the moment the features are
+  scanned and nothing has executed. `NarrowTo` **composes with** `ScenarioFilter` rather than
+  replacing it, because an MTP host has already set the platform's uid filter and a selection must
+  never widen past it. The listing is the **whole** suite, not the filtered subset: what a runner
+  registers is everything it could be asked for.
+- **Projected**: the generated module initializer calls `DeclaredSteps.Bind(uid, class, method)`
+  and then `SpecManifest.WriteIfRequested`, because that initializer is the only code Bobcat owns
+  in that process and the only moment sure to run — discovery loads the assembly, so `--list-tests`
+  reaches it without executing a test. The binding is **recorded, not re-derived**: the identity is
+  a one-way function of the names (`Prettify` reads underscores as spaces, a `Specs` suffix is
+  stripped) and an explicit `[BobcatFeature("…")]` title shares nothing with its class name.
+  `MarkerCommentSpecs.FrameworkOf` type-probes for `Bobcat.Xunit`/`Bobcat.TUnit`'s
+  `BobcatScenarioAttribute`, the same pattern as the `EventModelSliceDescriptor` gate.
+- **A projected binding is emitted on a wider rule than `DeclaredSteps.Register`**, and the
+  difference is load-bearing. A projected spec declares its steps by marker comments, by
+  `[BobcatStep]` interceptors, **or by grammar calls** — and only the first reaches `Register`
+  (an unmarked test is deliberately not a declared-steps entry). Keyed on that set, the first cut
+  of this listed **8 of `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and
+  published verdicts perfectly well. What makes a test a specification is that `[BobcatScenario]`
+  records it, so `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate
+  on emitting the initializer at all.
+
+`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests` pins **both lanes from one class** against the real
+hosts — one identity per lane, listed and then run. Deliberately not split across two test
+projects: that is how one lane gains a rule the other never hears about, the same reasoning as
+`MarkerSpecNamingAgreementTests`. It is the project that already launches a test host as a process,
+and both lanes genuinely are MTP hosts — which is the reason an identity can be a lane-neutral
+request at all.
+
 ### Supervisor (`src/Bobcat.Supervisor/`)
 The out-of-process half of #41: runs a suite across **worker processes** and applies the
 resilience policy at the only altitude that can act on it. `RetryInFreshProcess` and running an
@@ -1393,7 +1461,8 @@ sweep:
   the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
   viewer without either side acquiring a reference to the other.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
-  `BOBCAT_RUN_COMMAND`, and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
+  `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
+  to, and only when asked), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
   (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
   its own button press to the run it produced. Opaque like the tag, and deliberately independent of
   it: the tag says what work a run speaks for, the command says which request produced it, and a

@@ -75,6 +75,13 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
     {
         var runner = buildRunner();
 
+        // Issue #391: discovery is where a Gherkin suite can answer "what do you specify?" — the
+        // features are scanned and nothing has been executed. Deliberately the WHOLE suite and not
+        // the filtered subset below: what a resident runner registers is everything it could be
+        // asked for, and a listing narrowed by whatever filter happened to be on the command line
+        // would be a different question's answer. Nothing is written unless BOBCAT_LIST_SPECS asked.
+        SpecManifest.WriteIfRequested(runner.Manifest);
+
         foreach (var (feature, scenario) in scenarios(runner))
         {
             if (!matches(request.Filter, feature, scenario)) continue;

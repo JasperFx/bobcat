@@ -38,6 +38,66 @@ public class BobcatRunner
     public Func<FeatureDefinition, ScenarioDefinition, bool>? ScenarioFilter { get; set; }
 
     /// <summary>
+    /// Every specification this runner discovered, by <see cref="SpecIdentity"/> — the Gherkin
+    /// lane's answer to "what do you specify?" (issue #391), listed without executing anything.
+    /// </summary>
+    /// <remarks>
+    /// It reads straight off <see cref="Features"/>, so a caller could assemble it; it exists as
+    /// one member anyway because a resident runner registers this list and then rejects anything
+    /// outside it, and a second spelling of the identity is how those two quietly stop agreeing.
+    /// </remarks>
+    public IReadOnlyList<string> SpecIdentities =>
+        _features
+            .SelectMany(feature => feature.Scenarios.Select(s => SpecIdentity.Of(feature.Title, s.Title)))
+            .ToList();
+
+    /// <summary>
+    /// What this suite specifies, as the document a listing request writes (issue #391).
+    /// </summary>
+    /// <remarks>
+    /// A Gherkin suite's entries carry no test class or method: the identity already <i>is</i> the
+    /// platform's uid here, so there is nothing for a filter to be translated to.
+    /// </remarks>
+    public SpecManifest Manifest()
+        => new(
+            SpecManifest.GherkinLane,
+            SpecManifest.BobcatFramework,
+            Assembly.GetEntryAssembly()?.GetName().Name ?? "bobcat",
+            SpecIdentities
+                .OrderBy(identity => identity, SpecIdentity.Comparer)
+                .Select(identity => new SpecManifestEntry(identity))
+                .ToList());
+
+    /// <summary>
+    /// Narrow the run to the specifications a <see cref="SpecSelection"/> names, on top of
+    /// whatever <see cref="ScenarioFilter"/> already says (issue #391).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Composed with the existing filter rather than replacing it, because the two come from
+    /// different places and both are binding: an MTP host has already set the platform's uid
+    /// filter when the request arrived, and a selection that widened past it would run tests the
+    /// platform did not ask for.
+    /// </para>
+    /// <para>
+    /// A selection that narrows nothing changes nothing — <see cref="SpecSelection.Everything"/>
+    /// is the ordinary whole-suite run, so a caller may pass it unconditionally.
+    /// </para>
+    /// </remarks>
+    public BobcatRunner NarrowTo(SpecSelection selection)
+    {
+        if (!selection.NarrowsAnything) return this;
+
+        var previous = ScenarioFilter;
+        ScenarioFilter = previous == null
+            ? (feature, scenario) => selection.Includes(feature.Title, scenario.Title)
+            : (feature, scenario) => previous(feature, scenario)
+                                     && selection.Includes(feature.Title, scenario.Title);
+
+        return this;
+    }
+
+    /// <summary>
     /// Checks run once before any feature. A failure aborts the run in seconds rather than
     /// producing thousands of identical downstream failures.
     /// </summary>
@@ -766,7 +826,7 @@ public class BobcatRunner
     private async Task<ScenarioResult> runScenarioWithRetries(FeatureDefinition feature, ScenarioDefinition scenario)
     {
         var traits = ResilienceTags.ToTraits(scenario.Tags);
-        var testId = $"{feature.Title}/{scenario.Title}";
+        var testId = SpecIdentity.Of(feature.Title, scenario.Title);
         var policy = this.policy;
         var attempts = new List<AttemptRecord>();
 

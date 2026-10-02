@@ -24,6 +24,13 @@
          generator-emitted Main would otherwise collide with this test host's entry point. -->
     <ProjectReference Include="..\Bobcat.Mtp.GeneratedHost\Bobcat.Mtp.GeneratedHost.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- The projected lane's half of the issue #391 corpus. Both lanes are pinned from one test
+         class so they cannot drift apart, and this is the project that already launches a test
+         host as a real process. Build ordering only, like the two above: its tests fail on
+         purpose, and only named specifications are ever run from here. -->
+    <ProjectReference Include="..\Bobcat.Xunit.Samples\Bobcat.Xunit.Samples.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

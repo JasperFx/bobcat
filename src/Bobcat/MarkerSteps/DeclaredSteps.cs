@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Bobcat.Runtime;
 
 namespace Bobcat;
 
@@ -25,6 +26,8 @@ public static class DeclaredSteps
 {
     private static readonly ConcurrentDictionary<string, IReadOnlyList<DeclaredStep>> _byUid = new();
 
+    private static readonly ConcurrentDictionary<string, SpecManifestEntry> _bindings = new();
+
     /// <summary>
     /// Declare the ordered steps of one scenario. Called from generated code; last registration
     /// wins, so a rebuilt assembly loaded twice in one process does not accumulate.
@@ -38,7 +41,53 @@ public static class DeclaredSteps
     /// <summary>Every registered identity. Exists so a runner can report what it expected to find.</summary>
     public static IReadOnlyCollection<string> KnownScenarios => _byUid.Keys.ToList();
 
-    internal static void Clear() => _byUid.Clear();
+    /// <summary>
+    /// Bind an identity to the test method it was derived from (issue #391). Called from generated
+    /// code, beside <see cref="Register"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the binding is recorded rather than re-derived.</b> The identity is a one-way
+    /// function of the class and method names: <see cref="MarkerSpecNaming"/> reads
+    /// <c>a_proposal_is_confirmed</c> as a sentence and strips a <c>Specs</c> suffix, and an
+    /// explicit <c>[BobcatFeature("Booking appointments")]</c> title has no relationship to its
+    /// class name at all. So "run this specification" cannot be answered by inverting the string —
+    /// it needs the pair the generator saw, which is exactly what this is.
+    /// </para>
+    /// <para>
+    /// It is here and not in a registry of its own because the two facts have one source and one
+    /// lifetime: the generated module initializer declares a scenario's steps and its method in
+    /// the same breath, and a scenario with no marker comments is not registered either way.
+    /// </para>
+    /// </remarks>
+    public static void Bind(string uid, string testClass, string testMethod)
+        => _bindings[uid] = new SpecManifestEntry(uid, testClass, testMethod);
+
+    /// <summary>The test method an identity was derived from, or null when nothing bound it.</summary>
+    public static SpecManifestEntry? BindingFor(string uid)
+        => _bindings.TryGetValue(uid, out var binding) ? binding : null;
+
+    /// <summary>
+    /// What this assembly's projected tests specify, as the document a listing request writes
+    /// (issue #391) — every bound identity, with the method a filter can ask for.
+    /// </summary>
+    /// <remarks>
+    /// Built from the bindings rather than from <see cref="KnownScenarios"/>, so an identity whose
+    /// steps registered but whose method did not cannot reach a manifest as an entry nothing can
+    /// run. In practice they are registered together and the two sets are equal.
+    /// </remarks>
+    public static SpecManifest Manifest(string framework, string suite)
+        => new(
+            SpecManifest.ProjectedLane,
+            framework,
+            suite,
+            _bindings.Values.OrderBy(entry => entry.Identity, SpecIdentity.Comparer).ToList());
+
+    internal static void Clear()
+    {
+        _byUid.Clear();
+        _bindings.Clear();
+    }
 }
 
 /// <summary>

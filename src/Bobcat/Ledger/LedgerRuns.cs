@@ -29,7 +29,7 @@ public static class LedgerRuns
         {
             foreach (var scenario in feature.Scenarios)
             {
-                var uid = $"{feature.Title}/{scenario.Title}";
+                var uid = SpecIdentity.Of(feature.Title, scenario.Title);
                 var measured = scenario.Results.WallClockMs > 0 || scenario.Results.Timeline.Count > 0;
                 var totalMs = measured ? scenario.Results.WallClockMs : (long?)null;
 

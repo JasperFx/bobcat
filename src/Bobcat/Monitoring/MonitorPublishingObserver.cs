@@ -101,7 +101,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
     private void scenarioStarted(string featureTitle, string scenarioTitle, int? totalSteps)
     {
         // Same identity formula as SpecNodeMapping.Uid and the retry budget's test id.
-        _currentUid = $"{featureTitle}/{scenarioTitle}";
+        _currentUid = SpecIdentity.Of(featureTitle, scenarioTitle);
 
         var attempt = _attemptsByUid.TryGetValue(_currentUid, out var previous) ? previous + 1 : 1;
         _attemptsByUid[_currentUid] = attempt;
@@ -221,7 +221,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     public void ScenarioCompleted(string featureTitle, ScenarioResult result)
     {
-        var uid = $"{featureTitle}/{result.Title}";
+        var uid = SpecIdentity.Of(featureTitle, result.Title);
 
         // The final attempt's observations — the attempt whose outcome is being reported.
         // An empty ledger travels as null: nothing recorded is absence of evidence, not

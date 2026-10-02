@@ -22,7 +22,7 @@ public static class SpecNodeMapping
     /// budget's test id, deliberately — one identity for one scenario, everywhere.
     /// </remarks>
     public static string Uid(string featureTitle, string scenarioTitle)
-        => $"{featureTitle}/{scenarioTitle}";
+        => SpecIdentity.Of(featureTitle, scenarioTitle);
 
     public static string Uid(FeatureDefinition feature, ScenarioDefinition scenario)
         => Uid(feature.Title, scenario.Title);

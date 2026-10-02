@@ -108,11 +108,20 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(s => s != null)
             .Select((s, _) => s!);
 
-        context.RegisterSourceOutput(markedSpecs.Collect(), (spc, specs) =>
-        {
-            if (!MarkerCommentSpecs.HasSteps(specs)) return;
-            spc.AddSource("BobcatDeclaredSteps.g.cs", MarkerCommentSpecs.Emit(specs));
-        });
+        context.RegisterSourceOutput(
+            markedSpecs.Collect().Combine(context.CompilationProvider),
+            (spc, pair) =>
+            {
+                var (specs, compilation) = pair;
+                if (!MarkerCommentSpecs.HasAnything(specs)) return;
+
+                // The compilation is combined in only to name the test framework (issue #391):
+                // a projected suite is filtered by ITS framework's spelling, so a listing has to
+                // say which one owns the process rather than leaving a reader to assume.
+                spc.AddSource(
+                    "BobcatDeclaredSteps.g.cs",
+                    MarkerCommentSpecs.Emit(specs, MarkerCommentSpecs.FrameworkOf(compilation)));
+            });
 
         // 4. Combine features + fixtures + table grammars + code-first specs + the compilation
         //    (type-name captures such as {aggregate} are resolved against it — see
