@@ -58,10 +58,21 @@ public interface IResidentSuite
     Task Run(string commandId, SpecSelection selection, string mode, CancellationToken token);
 
     /// <summary>
-    /// Why this suite can no longer run anything, or null while it still can. Always null for a
-    /// cold runner, which starts over every time; a warm one answers once a reset has left a
-    /// resource broken (issue #393), and the runner then stops offering
-    /// <see cref="RunnerWire.WarmMode"/> rather than running the next command on a poisoned host.
+    /// Why <see cref="RunnerWire.WarmMode"/> is no longer on offer, or null while it still is
+    /// (issue #393).
     /// </summary>
-    string? UnusableReason => null;
+    /// <remarks>
+    /// <para>
+    /// Answered once a warm run has left the host damaged — a reset that threw, a teardown that
+    /// blew up. The runner then withdraws <c>warm</c> from the modes it registers and refuses a
+    /// warm command <i>with this reason</i>, rather than running the next one on a poisoned host.
+    /// </para>
+    /// <para>
+    /// It is specifically about the mode and not about the suite, because <b>cold is unaffected</b>:
+    /// a cold command builds a new runner over fresh resources, so whatever poisoned the warm host
+    /// is exactly what cold starts over from. A suite that could not run anything at all would
+    /// have nothing to report here — it would fail the command and say so.
+    /// </para>
+    /// </remarks>
+    string? WarmUnavailable => null;
 }

@@ -180,6 +180,32 @@ public class BobcatRunner
     }
 
     /// <summary>
+    /// Detaches an observer attached by <see cref="AddObserver"/>.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the warm session (issue #393), where each selection attaches its own monitor
+    /// publisher and must take it away again: a session that ran ten commands would otherwise hold
+    /// ten disposed publishers, every one of them still being handed every step of the eleventh.
+    /// </remarks>
+    public BobcatRunner RemoveObserver(IExecutionObserver observer)
+    {
+        _observer = _observer switch
+        {
+            CompositeObserver composite => composite.Observers.Where(o => !ReferenceEquals(o, observer)).ToArray()
+                switch
+                {
+                    [] => NullObserver.Instance,
+                    [var only] => only,
+                    var remaining => new CompositeObserver(remaining)
+                },
+            _ when ReferenceEquals(_observer, observer) => NullObserver.Instance,
+            _ => _observer
+        };
+
+        return this;
+    }
+
+    /// <summary>
     /// Opt-in publishing of live progress to a locally running Bobcat.Console host. Off by
     /// default so unit tests driving BobcatRunner directly never probe or publish; the real
     /// entry points (<see cref="Run"/>, the MTP host) turn it on. Even when on, an absent
@@ -504,11 +530,28 @@ public class BobcatRunner
     // so warmth never means dirty state — what changes hands is only who pays for StartAll.
 
     /// <summary>
+    /// Why this warm session can no longer be used, or null while it still can (issue #393).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set when a warm selection ends catastrophically — a <c>ResetBetweenScenarios</c> that threw,
+    /// a teardown that blew up, a <c>SpecCatastrophicException</c>. The next selection on the same
+    /// session would run over whatever that left behind, so a caller offering warm mode stops
+    /// offering it and says why, rather than running the next command on a poisoned host.
+    /// </para>
+    /// <para>
+    /// Deliberately not reset by anything. A warm session that broke is broken; a person who wants
+    /// a working one asks for a new runner, which is what the <c>restart</c> command is for.
+    /// </para>
+    /// </remarks>
+    public string? WarmSuiteUnusable { get; private set; }
+
+    /// <summary>
     /// Starts everything the run owns, and runs preflight, ONCE for a warm session.
     /// Returns a failure description — with whatever started already torn down — or null when
     /// the suite is up and <see cref="RunWarmSelection"/> may be called repeatedly.
     /// </summary>
-    internal async Task<string?> StartWarmSuite()
+    public async Task<string?> StartWarmSuite()
     {
         try
         {
@@ -534,9 +577,32 @@ public class BobcatRunner
     /// the already-started suite. Features with nothing selected are skipped entirely, so their
     /// BeforeAll/AfterAll never run for a selection that does not touch them.
     /// </summary>
-    internal async Task<SuiteResults> RunWarmSelection(
+    /// <summary>
+    /// Runs the specifications a <see cref="SpecSelection"/> names against the warm suite, as its
+    /// own run on the monitor wire (issue #393).
+    /// </summary>
+    /// <param name="commandId">
+    /// The monitor command this run satisfies, on <c>run_started</c> (issue #392), or null.
+    /// </param>
+    /// <remarks>
+    /// Named apart from <see cref="RunWarmSelection(string?, string?, Func{FeatureDefinition,
+    /// ScenarioDefinition, bool}?, string?)"/> rather than overloading it, because
+    /// <c>RunWarmSelection(null, null)</c> — which the interactive command writes to mean "no
+    /// feature filter, no tag filter" — binds to a <see cref="SpecSelection"/> overload instead
+    /// and dereferences the null. The compiler is happy and the call means something else.
+    /// </remarks>
+    public Task<SuiteResults> RunWarm(SpecSelection selection, string? commandId = null)
+        => RunWarmSelection(
+            null, null,
+            selection.NarrowsAnything
+                ? (feature, scenario) => selection.Includes(feature.Title, scenario.Title)
+                : null,
+            commandId);
+
+    public async Task<SuiteResults> RunWarmSelection(
         string? featureFilter, string? tagFilter,
-        Func<FeatureDefinition, ScenarioDefinition, bool>? selection = null)
+        Func<FeatureDefinition, ScenarioDefinition, bool>? selection = null,
+        string? commandId = null)
     {
         var suiteResults = new SuiteResults();
 
@@ -548,11 +614,22 @@ public class BobcatRunner
                 : (f, s) => previous(f, s) && selection(f, s);
         }
 
+        // Each warm selection is its OWN run on the wire — run_started … run_finished, carrying
+        // the command that caused it — so a viewer cannot tell a warm run from a cold one except
+        // by its speed. Attached per selection rather than once per session, because a session is
+        // not a run: a run is what a person asked for and what carries a verdict.
+        var previousCommand = MonitorCommand;
+        MonitorCommand = commandId ?? previousCommand;
+
+        var monitor = await tryAttachMonitor();
+
         try
         {
             var features = filteredFeatures(featureFilter)
                 .Where(f => filteredScenarios(f, tagFilter).Any())
                 .ToArray();
+
+            _observer.RunStarted(features.Sum(f => filteredScenarios(f, tagFilter).Count()));
 
             foreach (var feature in features)
             {
@@ -573,13 +650,51 @@ public class BobcatRunner
         finally
         {
             ScenarioFilter = previous;
+
+            _observer.RunFinished(suiteResults);
+
+            if (monitor != null)
+            {
+                // Detached before disposal so the next selection publishes its own bracket rather
+                // than a second one onto a chain of dead publishers.
+                RemoveObserver(monitor);
+                await monitor.DisposeAsync();
+            }
+
+            MonitorCommand = previousCommand;
+        }
+
+        // A warm session that ended a selection catastrophically may be holding a resource the
+        // next selection would run over. Noted here rather than left to the caller to infer from
+        // an exit code, because "is this host still fit to use?" is a different question from
+        // "did that run pass?" — and only the first one decides whether warm is still on offer.
+        if (WarmSuiteUnusable is null && describeWarmDamage(suiteResults) is { } damage)
+        {
+            WarmSuiteUnusable = damage;
         }
 
         return suiteResults;
     }
 
+    /// <summary>
+    /// Why a warm session is no longer fit for another selection, or null.
+    /// </summary>
+    /// <remarks>
+    /// Any suite-level catastrophe counts, not only a reset that threw. The narrower rule would
+    /// have to tell a broken resource from a <c>SpecCatastrophicException</c> a step raised
+    /// deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer
+    /// produces a run nobody can trust, while retiring a healthy one costs a boot.
+    /// </remarks>
+    private static string? describeWarmDamage(SuiteResults results)
+    {
+        if (results.CatastrophicFailure is { Length: > 0 } suite) return suite;
+
+        var feature = results.Features.FirstOrDefault(f => f.LifecycleFailure is { Length: > 0 });
+        return feature?.LifecycleFailure;
+    }
+
     /// <summary>Closes a warm session: everything torn down in reverse registration order.</summary>
-    internal Task StopWarmSuite() => _resources.DisposeAsync().AsTask();
+    public Task StopWarmSuite() => _resources.DisposeAsync().AsTask();
 
     /// <summary>
     /// Disposes the suite on the way out of a failed start, returning a note for the report

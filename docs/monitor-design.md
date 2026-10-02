@@ -391,8 +391,14 @@ them to its own lane's filter (issue #391) so a monitor never sends a framework-
 
 **Modes.** `cold` is always offered and is what an absent `mode` means; `warm` (issue #393) is
 offered only by a lane that can keep a host booted, and a command naming a mode the runner did not
-register is **refused, never downgraded**. A runner withdraws `warm` from its registration once its
-suite reports itself unusable.
+register is **refused, never downgraded**. A runner that loses `warm` — a warm run left the host
+damaged — withdraws it and **re-registers**, so a monitor stops offering a button that will now be
+refused; `registered` is idempotent precisely so that is safe mid-session. `cold` is unaffected,
+because a cold command starts over from whatever poisoned the warm host.
+
+**A warm command is still its own run.** `run_started` … `run_finished` per command, its own
+`RunId`, its own `Command` — so a viewer cannot tell a warm run from a cold one except by its
+speed. A warm *session* is not a run; a run is what a person asked for and what carries a verdict.
 
 **The run that follows is an ordinary run on the existing ingest stream**, carrying the command on
 `run_started.Command` (issue #392) and `mode` = `resident`. A viewer therefore follows its own

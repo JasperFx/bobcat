@@ -1556,7 +1556,39 @@ never becomes a test host at all.
   whole suite is what an ordinary run already does. Every refusal carries a reason, because a
   command that is simply never answered is indistinguishable from a runner that died.
 - **Cold by default** — a fresh `BobcatRunner` per command, so a command always runs the current
-  code and a second cannot see the first's state because none of it survived. Warm is #393.
+  code and a second cannot see the first's state because none of it survived.
+- **Warm keeps one booted runner between commands (issue #393)**, opted into per command and
+  offered only by a lane that can do it. The Gherkin lane can, because Bobcat owns the process; a
+  projected suite's test framework owns its own, which is why that lane is cold-only (#394). It is
+  built on #209's warm-session trio (`StartWarmSuite` / `RunWarmSelection` / `StopWarmSuite`, now
+  public), so what warmth buys is **only who pays for `StartAll`** — every selected scenario still
+  gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket, and warm never means
+  dirty. The test that would catch a leak records what each scenario *found* in the resource before
+  writing to it, so a leak reads as a value rather than having to be inferred.
+  - **Each command is its own run on the wire** — `run_started` … `run_finished`, its own `RunId`,
+    carrying its command (#392) — so a viewer cannot tell a warm run from a cold one except by its
+    speed. The monitor publisher is therefore attached and **detached** per selection, which is
+    what `BobcatRunner.RemoveObserver` exists for: a session that ran ten commands would otherwise
+    hold ten disposed publishers, every one still being handed every step of the eleventh.
+  - **A failed reset withdraws warm, not the suite.** `IResidentSuite.WarmUnavailable` carries the
+    damage (`BobcatRunner.WarmSuiteUnusable`, set on any suite-level catastrophe in a warm
+    selection), the runner drops `warm` from its registered modes, **re-registers** so the monitor
+    stops offering a button that will now be refused, and refuses a warm command *with that
+    reason* — "warm is not a mode this runner offers", from a runner that was offering it a minute
+    ago, explains nothing. **Cold is unaffected**, deliberately: a cold command starts over from
+    exactly the thing that poisoned the warm host. Never cleared — a broken session is broken, and
+    a person who wants a working one asks for `restart`.
+  - **A cold command closes the warm session first.** They cannot coexist: a booted host holds the
+    port, the database and the queues a second one would ask for, so "fresh everything" has to
+    include tearing down what is up.
+  - Any suite-level catastrophe counts as damage, not only a reset that threw. The narrower rule
+    would have to tell a broken resource from a `SpecCatastrophicException` a step raised
+    deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer
+    produces a run nobody can trust, while retiring a healthy one costs a boot.
+  - `BobcatRunner.RunWarm(selection, commandId)` is **named apart** from `RunWarmSelection` rather
+    than overloading it, because `RunWarmSelection(null, null)` — which the interactive command
+    writes to mean "no feature filter, no tag filter" — binds to a `SpecSelection` overload and
+    dereferences the null. The compiler is happy and the call means something else.
 - **`restart` means "exit so I can be relaunched"**, and it **cuts an in-flight run short** rather
   than waiting: a wedged run is the main reason someone restarts a runner, so a restart that waited
   would be useless in exactly the case it exists for. Exit code 0 either way — a resident runner's

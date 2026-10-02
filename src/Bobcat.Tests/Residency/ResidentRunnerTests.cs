@@ -24,18 +24,24 @@ public class ResidentRunnerTests
         public IReadOnlyList<string> SpecIdentities { get; init; } =
             ["Orders/places an order", "Stock/counts"];
 
-        public string? UnusableReason { get; set; }
+        public string? WarmUnavailable { get; set; }
 
         /// <summary>Held open so a test can have a run genuinely in flight.</summary>
         public TaskCompletionSource? Gate { get; set; }
 
         public Exception? Throws { get; set; }
 
+        /// <summary>Runs after a run completes, so a test can have one cost the suite its mode.</summary>
+        public Action? AfterRun { get; set; }
+
         public async Task Run(string commandId, SpecSelection selection, string mode, CancellationToken token)
         {
             lock (Runs) Runs.Add((commandId, mode, selection.Identities));
 
             if (Gate is not null) await Gate.Task.WaitAsync(token);
+
+            AfterRun?.Invoke();
+
             if (Throws is not null) throw Throws;
         }
     }
@@ -96,7 +102,7 @@ public class ResidentRunnerTests
     }
 
     [Fact]
-    public async Task warm_is_withdrawn_from_the_modes_once_the_suite_says_it_is_unusable()
+    public async Task warm_is_withdrawn_from_the_modes_once_the_suite_reports_it_damaged()
     {
         // Issue #393's rule, enforced here because the registration is where a monitor learns what
         // it may ask for. A runner that kept offering warm over a poisoned host would be inviting
@@ -107,8 +113,59 @@ public class ResidentRunnerTests
         await using var runner = new ResidentRunner(suite, optionsFor(host));
         runner.AvailableModes.ShouldBe(["cold", "warm"]);
 
-        suite.UnusableReason = "the database reset threw";
-        runner.AvailableModes.ShouldBe(["cold"]);
+        suite.WarmUnavailable = "the database reset threw";
+        runner.AvailableModes.ShouldBe(["cold"], "cold is unaffected — it starts over anyway");
+    }
+
+    [Fact]
+    public async Task a_withdrawn_warm_mode_is_refused_with_the_damage_that_withdrew_it()
+    {
+        // "warm is not a mode this runner offers", from a runner that was offering it a minute
+        // ago, explains nothing. This is the one case where the generic message is not enough.
+        using var host = new FakeMonitorHost();
+        var suite = new RecordingSuite
+        {
+            Modes = [RunnerWire.ColdMode, RunnerWire.WarmMode],
+            WarmUnavailable = "the database reset threw"
+        };
+
+        await using var runner = new ResidentRunner(suite, optionsFor(host));
+
+        await runner.Handle(command(
+            RunnerWire.RunCommandType, new RunCommand("c1", ["Stock/counts"], RunnerWire.WarmMode)));
+
+        var ack = eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>().ShouldNotBeNull();
+        ack.Accepted.ShouldBeFalse();
+        ack.Reason.ShouldContain("the database reset threw");
+
+        suite.Runs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_run_that_cost_the_runner_a_mode_re_announces_itself()
+    {
+        // So the monitor stops offering a person a button that will now be refused. Registration
+        // is idempotent, which is what makes a mid-session re-register safe.
+        using var host = new FakeMonitorHost();
+        var suite = new RecordingSuite { Modes = [RunnerWire.ColdMode, RunnerWire.WarmMode] };
+
+        await using var runner = new ResidentRunner(suite, optionsFor(host));
+        (await runner.Register()).ShouldBeTrue();
+
+        suite.AfterRun = () => suite.WarmUnavailable = "the database reset threw";
+
+        await runner.Handle(command(
+            RunnerWire.RunCommandType, new RunCommand("c1", ["Stock/counts"], RunnerWire.WarmMode)));
+
+        await eventually(
+            () => eventsOf(host).Count(e => e.Type == RunnerWire.RegisteredType) == 2,
+            "the runner never re-registered after losing warm mode");
+
+        eventsOf(host)
+            .Where(e => e.Type == RunnerWire.RegisteredType)
+            .Last()
+            .DataAs<RunnerRegistration>()!
+            .Modes.ShouldBe(["cold"]);
     }
 
     // --- The invariant: an absent or hostile monitor never matters.
@@ -389,16 +446,22 @@ public class ResidentRunnerTests
     }
 
     [Fact]
-    public async Task an_unusable_suite_refuses_every_command_and_says_why()
+    public async Task a_cold_command_is_still_taken_after_warm_has_been_withdrawn()
     {
+        // Because cold is what starting over means: whatever poisoned the warm host is exactly
+        // what a cold run starts from.
         using var host = new FakeMonitorHost();
-        var suite = new RecordingSuite { UnusableReason = "the database reset threw" };
+        var suite = new RecordingSuite
+        {
+            Modes = [RunnerWire.ColdMode, RunnerWire.WarmMode],
+            WarmUnavailable = "the database reset threw"
+        };
 
         await using var runner = new ResidentRunner(suite, optionsFor(host));
         await runner.Handle(command(RunnerWire.RunCommandType, new RunCommand("c1", ["Stock/counts"])));
 
-        eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>()!
-            .Reason.ShouldContain("the database reset threw");
+        await eventually(() => suite.Runs.Count == 1, "the cold command was refused too");
+        eventsOf(host).ShouldHaveSingleItem().DataAs<RunnerAcknowledgement>()!.Accepted.ShouldBeTrue();
     }
 
     [Fact]

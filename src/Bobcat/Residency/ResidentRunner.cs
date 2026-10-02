@@ -116,10 +116,10 @@ public sealed class ResidentRunner : IAsyncDisposable
 
     /// <summary>
     /// The modes on offer right now — <see cref="IResidentSuite.Modes"/>, minus
-    /// <see cref="RunnerWire.WarmMode"/> once the suite has said it is no longer usable.
+    /// <see cref="RunnerWire.WarmMode"/> once the suite has reported it damaged (issue #393).
     /// </summary>
     public IReadOnlyList<string> AvailableModes
-        => _suite.UnusableReason is null
+        => _suite.WarmUnavailable is null
             ? _suite.Modes
             : _suite.Modes.Where(mode => mode != RunnerWire.WarmMode).ToList();
 
@@ -311,6 +311,8 @@ public sealed class ResidentRunner : IAsyncDisposable
 
         // Run off the stream rather than on it, so the stream keeps being read while a run is in
         // flight — which is what lets a restart arrive mid-run and be acted on.
+        var modesBefore = AvailableModes;
+
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         var work = Task.Run(async () =>
         {
@@ -329,6 +331,15 @@ public sealed class ResidentRunner : IAsyncDisposable
                 // suite could not be run at all — which is the runner's news to report, and must
                 // not be the runner's death.
                 log($"command {command.CommandId} could not be run: {e.Message}");
+            }
+
+            // A run that cost this runner a mode (issue #393) re-announces itself, so the monitor
+            // stops offering a person a button that will now be refused. Registration is
+            // idempotent, which is what makes this safe to do mid-session.
+            if (!AvailableModes.SequenceEqual(modesBefore))
+            {
+                log($"modes changed to {string.Join("/", AvailableModes)}: {_suite.WarmUnavailable}");
+                await Register(CancellationToken.None);
             }
         }, CancellationToken.None);
 
@@ -366,17 +377,22 @@ public sealed class ResidentRunner : IAsyncDisposable
     /// </summary>
     private string? refuse(RunCommand command)
     {
-        if (_suite.UnusableReason is { Length: > 0 } unusable)
-        {
-            return $"this runner can no longer run anything: {unusable}";
-        }
-
         if (Busy) return "this runner is already running a command";
 
         if (!AvailableModes.Contains(command.ResolvedMode))
         {
             // Never silently downgraded. A person who asked for warm and got cold would read the
             // resulting wall clock as warm mode not working.
+            //
+            // A withdrawn warm mode answers with the damage that withdrew it (issue #393), because
+            // "warm is not offered" from a runner that was offering it a minute ago is the one
+            // case where the generic message explains nothing.
+            if (command.ResolvedMode == RunnerWire.WarmMode
+                && _suite.WarmUnavailable is { Length: > 0 } damage)
+            {
+                return $"warm mode is no longer available on this runner: {damage}";
+            }
+
             return $"'{command.ResolvedMode}' is not a mode this runner offers "
                    + $"(it offers {string.Join(", ", AvailableModes)})";
         }

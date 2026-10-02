@@ -108,7 +108,7 @@ public class ResidentModeEndToEndTests
 
             registration.Suite.ShouldBe("Bobcat.Mtp.GeneratedHost");
             registration.Lane.ShouldBe("gherkin");
-            registration.Modes.ShouldBe([RunnerWire.ColdMode]);
+            registration.Modes.ShouldBe([RunnerWire.ColdMode, RunnerWire.WarmMode]);
             registration.Specs.ShouldBe([
                 "Ordering/An order can be emptied",
                 "Ordering/An order is accepted",
@@ -169,9 +169,18 @@ public class ResidentModeEndToEndTests
         }
     }
 
-    /// <summary>The <c>run_started</c> event out of whatever batches reached the ingest route.</summary>
+    /// <summary>The first <c>run_started</c> out of whatever batches reached the ingest route.</summary>
     private static JsonElement? runStarted(FakeMonitorHost monitor)
     {
+        var all = runsStarted(monitor);
+        return all.Count > 0 ? all[0] : null;
+    }
+
+    /// <summary>Every <c>run_started</c>, in arrival order.</summary>
+    private static IReadOnlyList<JsonElement> runsStarted(FakeMonitorHost monitor)
+    {
+        var started = new List<JsonElement>();
+
         foreach (var batch in monitor.Batches)
         {
             using var document = JsonDocument.Parse(batch);
@@ -187,12 +196,64 @@ public class ResidentModeEndToEndTests
             {
                 if (@event.TryGetProperty("type", out var type) && type.GetString() == "run_started")
                 {
-                    return @event.Clone();
+                    started.Add(@event.Clone());
                 }
             }
         }
 
-        return null;
+        return started;
+    }
+
+    [Fact]
+    public async Task two_warm_commands_are_two_runs_on_the_wire_each_naming_its_own_command()
+    {
+        // Issue #393's wire rule: a viewer cannot tell a warm run from a cold one except by its
+        // speed, because each command opens and closes its own run_started … run_finished bracket.
+        // Checked against the real host because the bracket is attached per selection inside
+        // BobcatRunner, and a session that published once would look like one very long run.
+        using var monitor = new FakeMonitorHost();
+        using var process = launch(monitor);
+
+        try
+        {
+            var registration = await eventually(
+                () => payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType),
+                "the host never registered");
+
+            registration.Modes.ShouldBe(
+                [RunnerWire.ColdMode, RunnerWire.WarmMode],
+                "a Gherkin suite can keep its own host booted, so it offers warm");
+
+            monitor.Send("1", CloudEvent.From(
+                "stoat",
+                RunnerWire.RunCommandType,
+                new RunCommand("w-1", ["Ordering/An order is accepted"], RunnerWire.WarmMode)));
+
+            await eventuallyValue(
+                () => runsStarted(monitor).Count == 1 ? 1 : (int?)null,
+                "the first warm command never published a run");
+
+            monitor.Send("2", CloudEvent.From(
+                "stoat",
+                RunnerWire.RunCommandType,
+                new RunCommand("w-2", ["Shipping/A shipment is labelled"], RunnerWire.WarmMode)));
+
+            await eventuallyValue(
+                () => runsStarted(monitor).Count == 2 ? 2 : (int?)null,
+                "the second warm command did not publish a run of its own");
+
+            var runs = runsStarted(monitor);
+
+            runs.Select(r => r.GetProperty("command").GetString()).ShouldBe(["w-1", "w-2"]);
+            runs.Select(r => r.GetProperty("runId").GetString()).Distinct().Count()
+                .ShouldBe(2, "two commands are two runs, not one long one");
+            runs.ShouldAllBe(r => r.GetProperty("mode").GetString() == "resident");
+        }
+        finally
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch { /* already gone */ }
+        }
     }
 
     [Fact]
