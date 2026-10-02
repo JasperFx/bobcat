@@ -191,6 +191,18 @@ public class BobcatRunner
     public string MonitorMode { get; set; } = "in-process";
 
     /// <summary>
+    /// The monitor command this run satisfies, on <c>run_started</c> (issue #392) — set by a
+    /// resident runner, which has the command id in hand rather than in its environment.
+    /// </summary>
+    /// <remarks>
+    /// It overrides <c>BOBCAT_RUN_COMMAND</c> when both are present. A resident runner holds one
+    /// process open across many commands, so putting each command's id in the process environment
+    /// would make the id a piece of mutable global state for no gain; the variable stays for the
+    /// case it was built for, which is a cold command that launches a child host.
+    /// </remarks>
+    public string? MonitorCommand { get; set; }
+
+    /// <summary>
     /// Register a feature definition (typically from generated code).
     /// </summary>
     public BobcatRunner AddFeature(FeatureDefinition feature)
@@ -650,8 +662,11 @@ public class BobcatRunner
         var publisher = await MonitorPublisher.TryConnect();
         if (publisher == null) return null;
 
+        var discovered = MonitorRunInfo.Discover(MonitorMode);
         var observer = new MonitorPublishingObserver(
-            publisher, MonitorRunInfo.Discover(MonitorMode), ownedPublisher: publisher);
+            publisher,
+            discovered with { Command = MonitorCommand ?? discovered.Command },
+            ownedPublisher: publisher);
         AddObserver(observer);
 
         await SpecEventModelPublisher.PublishAll(

@@ -19,7 +19,8 @@ What did *not* move is the vocabulary a publisher speaks, and none of it is obso
 - **`Bobcat.Monitoring`**, `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, the
   `Monitor:*` config keys, and the mirror records in `src/Bobcat/Monitoring/MonitorEvents.cs`.
 - **`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`,
-  `BOBCAT_RUN_OWNER`, `BOBCAT_RUN_COMMAND`** — every one a user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
+  `BOBCAT_RUN_OWNER`, `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS`, `BOBCAT_RESIDENT`** — every one a
+  user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
   (issue #389) and is deliberately *not* a `BOBCAT_*` variable: Bobcat does not ask for it, it reads
   what an agent session already put in the environment.
 - **Port 5525**, the address a publisher probes. It was deliberately kept rather than collapsed
@@ -350,6 +351,57 @@ change is a compatibility question where this is not.
 Kept on the publisher's side of the record because **`stepNumber` is what makes it work**: it is
 published from here, one per scenario, and any consumer that keys step identity on `stepId`
 instead will collapse the same rows again.
+
+## The resident runner wire (issue #390, built 2026-10-02)
+
+A second wire on the same origin, and the only one that runs in the other direction. Everything so
+far is a run **telling** a monitor what happened; this is a suite **asking** a monitor for work.
+
+**The runner is a client.** It connects out to the same 5525 origin and asks; a monitor can only
+answer a runner that asked, and can never make one do anything. Nothing listens on a port. Every
+message is a CloudEvent in structured mode (`application/cloudevents+json`, `specversion` 1.0,
+**GUID ids**), written and read by hand on this side for the same reason the monitor events are:
+no package, the wire shape is the contract, and the shapes are pinned by `RunnerWireContractTests`.
+
+| `type` | Direction | Transport | `data` |
+|---|---|---|---|
+| `bobcat.runner.registered` | runner → monitor | `POST /api/runners/events` | `{ runnerId, repository, branch, suite, lane, modes[], specs[] }` |
+| `bobcat.runner.command.acknowledged` | runner → monitor | `POST /api/runners/events` | `{ runnerId, commandId, accepted, reason? }` |
+| `stoat.runner.command.run` | monitor → runner | SSE on `GET /api/runners/{runnerId}/commands` | `{ commandId, specs[], mode }` |
+| `stoat.runner.command.restart` | monitor → runner | same stream | `{ commandId }` |
+
+On the stream, **the whole CloudEvent goes in `data`**, with its `type` as the SSE `event` name and
+its id as the SSE `id` — which is what `Last-Event-ID` resumes from. Correlation lives in `data`
+(`commandId`), never in the event id alone: the receiving side's mapper replaces an id it cannot
+read as a GUID with a fresh one, so an id is for de-duplication and resumption and nothing else.
+`keepalive` events say nothing and are skipped.
+
+That `data` rule is worth stating twice, because getting it wrong is silent: a bare *payload*
+deserializes into a CloudEvent whose every attribute is its default, so a runner reports "ignored a
+command of type ''" and the correct code looks broken. The first version of this repository's own
+test helper framed the payload.
+
+**`source`** is `bobcat/runner/{runnerId}` from a runner and `stoat` from the monitor.
+
+**A command names identities and nothing else** — no arguments, paths or flags. Everything it can
+ask for is something the runner already said it has, which is what makes the open channel safe:
+the worst a hostile monitor can do is ask for a test run. The identities are
+`{Feature}/{Scenario}`, the same string `scenario_finished.Uid` carries, and the runner translates
+them to its own lane's filter (issue #391) so a monitor never sends a framework-specific one.
+
+**Modes.** `cold` is always offered and is what an absent `mode` means; `warm` (issue #393) is
+offered only by a lane that can keep a host booted, and a command naming a mode the runner did not
+register is **refused, never downgraded**. A runner withdraws `warm` from its registration once its
+suite reports itself unusable.
+
+**The run that follows is an ordinary run on the existing ingest stream**, carrying the command on
+`run_started.Command` (issue #392) and `mode` = `resident`. A viewer therefore follows its own
+button press to the run it produced with no new event type.
+
+**The never-slow-never-fail invariant covers this wire too.** No monitor → an idle process that
+keeps asking on a capped backoff. A dropped stream → reconnect with `Last-Event-ID`. Anything
+unparseable → ignored, not fatal. The one message that can end the process is `restart`, which
+means exactly that.
 
 ## Not built yet
 

@@ -1462,7 +1462,8 @@ sweep:
   viewer without either side acquiring a reference to the other.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
   `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
-  to, and only when asked), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
+  to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`), and
+  the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
   (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
   its own button press to the run it produced. Opaque like the tag, and deliberately independent of
   it: the tag says what work a run speaks for, the command says which request produced it, and a
@@ -1526,6 +1527,77 @@ foreign specs into the Bobcat model is #110, not this.
   measured on the supervisor's own clock and is null when it never saw the start — unmeasured is
   never zero. `Lane` is null for a one-test isolated or recycled process, and discovery is never
   tapped.
+
+### The resident runner (`src/Bobcat/Residency/`, issue #390)
+
+A suite kept available to a monitor, running specifications **when the monitor asks** — the Bobcat
+half of Stoat's interactive execution. `MySpecs --resident` (or `BOBCAT_RESIDENT=1`) and the host
+never becomes a test host at all.
+
+- **The runner is a client, and that is the whole security model.** It connects *out* to the same
+  5525 origin every publisher already probes and *asks* for work; a monitor can only answer a
+  runner that asked. Nothing listens on a port, so there is nothing to secure — and a command can
+  only name specifications the runner already told the monitor it has, so the worst a hostile
+  monitor can do is ask for a test run.
+- **The publisher's invariant applies unchanged**: a monitor that is absent, slow or hostile never
+  matters. No monitor means an idle process that keeps asking on a **capped** backoff (it may come
+  up later, and nothing will relaunch the runner just because it did). A dropped stream reconnects
+  with `Last-Event-ID`. Anything unparseable — a proxy's HTML error page, a command type from a
+  newer console — is *ignored*, which is why `CloudEvent.FromJson` and `DataAs<T>` both return null
+  rather than throwing. `ResidentRunner.Run` returns and never throws: a resident runner that died
+  of a network blip would be worse than one quietly waiting, because its parent only relaunches it
+  on a source change.
+- **One command at a time, rejected rather than queued.** The monitor owns the queue; a runner that
+  silently queued would leave a person waiting on a run whose turn they cannot see. The three
+  refusals are a foreign spec identity (**named**, from `SpecSelection.NotIn`), busy, and a mode
+  this runner did not register — the last **never silently downgraded**, because someone who asked
+  for warm and got cold would read the resulting wall clock as warm mode not working. A fourth:
+  a command naming *no* specification is refused rather than read as "run everything", since the
+  whole suite is what an ordinary run already does. Every refusal carries a reason, because a
+  command that is simply never answered is indistinguishable from a runner that died.
+- **Cold by default** — a fresh `BobcatRunner` per command, so a command always runs the current
+  code and a second cannot see the first's state because none of it survived. Warm is #393.
+- **`restart` means "exit so I can be relaunched"**, and it **cuts an in-flight run short** rather
+  than waiting: a wedged run is the main reason someone restarts a runner, so a restart that waited
+  would be useless in exactly the case it exists for. Exit code 0 either way — a resident runner's
+  exit says nothing about any test, and a parent deciding whether to relaunch should not have to
+  tell a red suite from a crashed runner.
+- **Signals go through `PosixSignalRegistration`, not `ProcessExit`.** A `ProcessExit` handler runs
+  after `ResidentMode.Run` has returned and disposed the `CancellationTokenSource` it would cancel,
+  so the `ObjectDisposedException` aborts the process: **exit 134 from a runner that had done
+  everything right**. SIGINT/SIGTERM/SIGQUIT are each an orderly stop.
+- **The wire is CloudEvents, structured mode, hand-written** (`CloudEvent`, `RunnerWire`). No
+  package: six scalar attributes and a payload, and the *wire shape* is the contract — the same
+  standing as `Bobcat.Monitoring.MonitorEvents`, pinned by `RunnerWireContractTests` rather than by
+  an assembly reference. **Ids are GUIDs** because the receiving side's mapper replaces an id it
+  cannot read as one with a fresh one, which would silently break a correlation; correlation
+  therefore lives in `data` (`commandId`) and never in the event id alone. Payloads are camelCase,
+  because the reader is a .NET web host whose default is camelCase.
+- **`ServerSentEvents` is hand-rolled**, and the reason is the TFM matrix:
+  `System.Net.ServerSentEvents` is in the box on **net10.0 only** and Bobcat also targets net9.0, so
+  the choice was a package on one target and a framework type on the other, or one implementation of
+  the four fields used. It honours `id` (persisting across events that omit it), `event`, repeated
+  `data` joined with newlines, comment lines, one optional space after each colon, and a trailing
+  event with no blank line after it. **`retry` is read and dropped** — the reconnect delay is the
+  runner's own backoff, so a monitor cannot make a runner reconnect in a tight loop.
+- **`IResidentSuite` is the lane seam**, the same shape of decision as the supervisor's
+  `IWorkerClient`: the protocol knows identities and modes, the lane knows how to run anything.
+  `BobcatResidentSuite` is the Gherkin lane (in-process, cold), and its spec identities are read
+  **once at construction** — not a cache to invalidate, because a source change restarts the runner,
+  so the list describes exactly the code this process was built from.
+- **The command id reaches `run_started` through `BobcatRunner.MonitorCommand`**, not through
+  `BOBCAT_RUN_COMMAND`: a resident runner holds one process open across many commands, so putting
+  each id in the process environment would make it mutable global state for no gain. The variable
+  stays for the case it was built for — a cold command that launches a child host.
+
+`ResidentRunnerTests` drives the whole loop against `FakeMonitorHost` over **real HTTP**, because
+the invariant under test is about an absent, slow or hostile monitor and a seam in front of the
+transport would test the seam instead. `Bobcat.Mtp.Tests/ResidentModeEndToEndTests` goes further:
+the real `Bobcat.Mtp.GeneratedHost` process, launched `--resident` through its *generated* `Main`,
+registering, refusing a foreign identity, running a named one, and exiting on `restart`. The fake
+host is `<Compile Link>`-ed into that project rather than copied — one source, two compilations, the
+same arrangement `SliceTagParsingAgreementTests` uses. **Still owed from #390's acceptance: a run
+against a live Stoat.** Everything here is proved against a stand-in console.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 

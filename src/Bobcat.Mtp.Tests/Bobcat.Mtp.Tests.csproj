@@ -13,6 +13,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- One source, two compilations — the same arrangement SliceTagParsingAgreementTests uses.
+         The resident runner (issue #390) is driven against the real HTTP stand-in for a console,
+         and that stand-in already exists; a second copy would be a second thing to keep correct,
+         and its port-binding and double-dispose notes were both paid for once already. -->
+    <Compile Include="..\Bobcat.Tests\Monitoring\FakeMonitorHost.cs"
+             Link="Monitoring\FakeMonitorHost.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Bobcat.Mtp\Bobcat.Mtp.csproj" />
 
     <!-- Build ordering only. The sample host is launched as an executable, not linked — its

@@ -31,6 +31,13 @@ public static class BobcatTestApplication
     /// </summary>
     public static async Task<int> Run(string[] args, Action<BobcatRunner> configure)
     {
+        // Issue #390: asked to stay resident, this process never becomes a test host at all — it
+        // registers with a monitor and runs specifications when the monitor asks. Checked here, so
+        // the one entry point a consumer already has (hand-written or generated) is the entry point
+        // for resident mode too, and `dotnet watch --no-hot-reload run -- --resident` needs no
+        // change to a spec project.
+        if (ResidentMode.Requested(args)) return await ResidentMode.Run(configure);
+
         var builder = await TestApplication.CreateBuilderAsync(args);
 
         // The MSBuild extension is what `dotnet test` talks to: it launches the host with

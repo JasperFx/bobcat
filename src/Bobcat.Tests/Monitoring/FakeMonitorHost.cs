@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Channels;
 
 namespace Bobcat.Tests.Monitoring;
 
@@ -20,6 +21,12 @@ internal sealed class FakeMonitorHost : IDisposable
     private HttpListener _listener = new();
     private readonly List<string> _batches = new();
     private readonly List<(string Source, string Body)> _eventModelPushes = new();
+    private readonly List<string> _runnerEvents = new();
+
+    private readonly Channel<string> _commands =
+        Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = false });
+
+    private readonly List<string?> _lastEventIds = new();
 
     public string Url { get; }
 
@@ -67,6 +74,53 @@ internal sealed class FakeMonitorHost : IDisposable
 
     /// <summary>Refuse every push with the 400 the real store returns for a body it cannot parse.</summary>
     public bool RejectEventModelPushes { get; set; }
+
+    // --- The resident runner wire (issue #390).
+
+    /// <summary>Every CloudEvent a runner POSTed to <c>/api/runners/events</c>, as raw JSON.</summary>
+    public IReadOnlyList<string> RunnerEvents
+    {
+        get { lock (_runnerEvents) return _runnerEvents.ToArray(); }
+    }
+
+    /// <summary>
+    /// The <c>Last-Event-ID</c> header of every command-stream request, in arrival order — null
+    /// for a request that sent none. This is how a test sees that a reconnect resumed.
+    /// </summary>
+    public IReadOnlyList<string?> LastEventIds
+    {
+        get { lock (_lastEventIds) return _lastEventIds.ToArray(); }
+    }
+
+    /// <summary>Refuse the command stream, the way a monitor that does not know this runner would.</summary>
+    public bool RefuseCommandStream { get; set; }
+
+    /// <summary>
+    /// Close the command stream after this many events have been written to it, so a test can
+    /// exercise the reconnect. Zero means never.
+    /// </summary>
+    public int CloseCommandStreamAfter { get; set; }
+
+    /// <summary>Queue one already-framed SSE block for the next reader of the command stream.</summary>
+    public void SendRaw(string sse) => _commands.Writer.TryWrite(sse);
+
+    /// <summary>
+    /// Queue a CloudEvent as the real stream frames one: the <b>whole envelope</b> in
+    /// <c>data</c>, its type as the SSE event name and its id as the SSE id.
+    /// </summary>
+    /// <remarks>
+    /// The envelope is what goes in <c>data</c>, not the payload — the first version of this
+    /// helper framed the payload, and every runner test that read a command off the stream failed
+    /// with "ignored a command of type ''" because a bare payload deserializes into a CloudEvent
+    /// whose every attribute is its default. Worth the sentence: a test helper that frames the
+    /// wire wrongly makes correct code look broken.
+    /// </remarks>
+    public void Send(string id, Bobcat.Residency.CloudEvent @event)
+        => SendRaw($"id: {id}\nevent: {@event.Type}\ndata: {@event.ToJson()}\n\n");
+
+    /// <summary>A keepalive, which exists to hold the connection open and says nothing.</summary>
+    public void SendKeepalive(string id)
+        => SendRaw($"id: {id}\nevent: {Bobcat.Residency.RunnerWire.KeepaliveType}\ndata: {{}}\n\n");
 
     /// <summary>Every <c>PUT /api/event-model/{source}</c> this host took, in arrival order.</summary>
     public IReadOnlyList<(string Source, string Body)> EventModelPushes
@@ -125,6 +179,31 @@ internal sealed class FakeMonitorHost : IDisposable
                         context.Response.StatusCode = 204;
                     }
                 }
+                else if (path == "/api/runners/events" && context.Request.HttpMethod == "POST")
+                {
+                    using var reader = new StreamReader(context.Request.InputStream);
+                    var body = await reader.ReadToEndAsync();
+                    lock (_runnerEvents) _runnerEvents.Add(body);
+                    context.Response.StatusCode = 202;
+                }
+                else if (path.StartsWith("/api/runners/") && path.EndsWith("/commands"))
+                {
+                    lock (_lastEventIds) _lastEventIds.Add(context.Request.Headers["Last-Event-ID"]);
+
+                    if (RefuseCommandStream)
+                    {
+                        context.Response.StatusCode = 404;
+                    }
+                    else
+                    {
+                        // Served on its own task, deliberately: a command stream is held open for
+                        // as long as the runner is listening, and this loop has to keep taking the
+                        // acknowledgements that runner posts while it holds it. Serving it inline
+                        // deadlocks the first command.
+                        _ = Task.Run(() => serveCommands(context));
+                        continue;
+                    }
+                }
                 else
                 {
                     context.Response.StatusCode = 200;
@@ -137,6 +216,50 @@ internal sealed class FakeMonitorHost : IDisposable
         {
             // Listener disposed — test over.
         }
+    }
+
+    /// <summary>
+    /// Writes queued commands to one reader until the stream is closed — by
+    /// <see cref="CloseCommandStreamAfter"/>, or by the listener shutting down.
+    /// </summary>
+    private async Task serveCommands(HttpListenerContext context)
+    {
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.SendChunked = true;
+
+        var written = 0;
+
+        try
+        {
+            // A comment first, the way a real stream opens: it proves the connection without
+            // being an event, and it is what a reader has to learn to skip.
+            await write(context, ": connected\n\n");
+
+            while (_listener.IsListening)
+            {
+                using var idle = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var sse = await _commands.Reader.ReadAsync(idle.Token);
+
+                await write(context, sse);
+                written++;
+
+                if (CloseCommandStreamAfter > 0 && written >= CloseCommandStreamAfter) break;
+            }
+        }
+        catch
+        {
+            // The reader went away, or nothing arrived in time. Either way the stream is over.
+        }
+
+        try { context.Response.Close(); } catch { }
+    }
+
+    private static async Task write(HttpListenerContext context, string text)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        await context.Response.OutputStream.WriteAsync(bytes);
+        await context.Response.OutputStream.FlushAsync();
     }
 
     private static int freePort()
