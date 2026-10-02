@@ -236,17 +236,18 @@ internal static class StepInterceptors
             var placeholder = "{" + parameter.Name + "}";
             if (!template.Contains(placeholder)) continue;
 
-            // Positional only, which is what the literal shortcut can honestly see: a named or
-            // omitted argument has no expression at this index, and the runtime binding below
-            // covers it anyway — the interceptor receives every parameter by definition.
-            var positional = i < arguments.Count && arguments[i].NameColon == null;
-
-            if (positional && arguments[i].Expression is LiteralExpressionSyntax literal)
-            {
-                template = template.Replace(placeholder, literal.Token.ValueText);
-                continue;
-            }
-
+            // A literal used to be substituted right here, at compile time, because it is the same
+            // string on every run. It no longer is, and the reason is rendering: a value substituted
+            // here leaves no SPAN behind, and a span is how a renderer knows where in the sentence a
+            // value sits — which is where Storyteller put a comparison's verdict and where Bobcat now
+            // puts it too. With the shortcut in place, whether a cell rendered inside its sentence or
+            // on a line underneath came down to whether the CALLER happened to write a positional
+            // literal or a named argument, which is not a distinction any reader could be expected to
+            // see. Deferring every value also follows #339's own argument: the value at execution time
+            // is the thing worth showing, not the spelling at the call site.
+            //
+            // The cost is one StepArgument[] per step that used to allocate nothing. That is the
+            // price of a sentence that can carry its own verdicts.
             if (parameter.RefKind is RefKind.Out or RefKind.Ref) continue;
 
             runtimeArguments?.Add(parameter.Name);

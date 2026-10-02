@@ -61,9 +61,14 @@ public class StepInterceptorTests
     [Fact]
     public void the_step_text_binds_arguments_from_the_call_site()
     {
-        // The whole point of a template. Without this the step reads "on {threads} threads" and
-        // says less than the code it replaced.
-        Generated().ShouldContain("\"the events are published on 3 threads\"");
+        // The whole point of a template: without binding, the step reads "on {threads} threads" and
+        // says less than the code it replaced. It binds at RUN time now, even for a literal — the
+        // template travels with the value beside it and the recorder renders them together. See
+        // every_value_is_bound_at_run_time_so_it_leaves_a_span.
+        var code = Generated();
+
+        code.ShouldContain("""the events are published on {threads} threads""");
+        code.ShouldContain("""new global::Bobcat.StepArgument[] { new("threads", threads) }""");
     }
 
     [Fact]
@@ -266,24 +271,37 @@ public class StepInterceptorTests
     }
 
     [Fact]
-    public void a_literal_still_binds_at_compile_time_and_carries_nothing()
+    public void every_value_is_bound_at_run_time_so_it_leaves_a_span()
     {
         var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
 
-        // `the response is 400` was one of the 22 that already worked. It is the same string on
-        // every run, so it stays a compile-time fact and the call allocates no array.
-        code.ShouldContain("""Step("Then", "the response is 400", -1, -1);""");
+        // A literal used to be substituted at compile time, which was cheaper and left the call
+        // allocating nothing. It is deferred now, and the reason is rendering: a value substituted
+        // into the text leaves no SPAN behind, and a span is how a renderer knows where in the
+        // sentence a value sits — which is where a comparison's verdict is drawn.
+        //
+        // With the shortcut in place, whether a cell rendered inside its sentence or on a line
+        // underneath came down to whether the caller wrote a positional literal or a named argument.
+        // That is not a distinction any reader could be expected to see, and it was visible in the
+        // samples: `SumAndProduct(5, 6, sum: 11, ...)` rendered inline while
+        // `TheValueShouldBe(6)` did not.
+        code.ShouldContain(
+            """Step("Then", "the response is {status}", -1, -1, new global::Bobcat.StepArgument[] { new("status", status) });""");
     }
 
     [Fact]
-    public void a_step_mixing_a_literal_and_a_value_binds_each_where_it_can()
+    public void a_step_mixing_a_literal_and_a_constructed_value_defers_both()
     {
-        // The measured half-bound case: the route bound because it is a literal, {command} did
-        // not because the argument is `new ConfirmAppointment(id)`.
+        // Once the measured half-bound case: the route bound at compile time because it is a
+        // literal, and `{command}` did not because the argument is `new ConfirmAppointment(id)`.
+        // Both are deferred now, so both leave a span and the sentence can carry a verdict on
+        // either — and the rendered text is unchanged, because the recorder substitutes the same
+        // strings in one pass.
         var code = GeneratorHarness.Run(StoreVocabulary).GeneratedSource("BobcatStepInterceptors");
 
-        code.ShouldContain(
-            """Step("When", "{command} is posted to \"/api/scheduling/confirmappointment\"", -1, -1, new global::Bobcat.StepArgument[] { new("command", command) })""");
+        code.ShouldContain("""{command} is posted to""");
+        code.ShouldContain("""new("command", command)""");
+        code.ShouldContain("""new("route", route)""");
     }
 
     [Fact]

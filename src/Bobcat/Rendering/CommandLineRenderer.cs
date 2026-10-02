@@ -264,16 +264,16 @@ public class CommandLineRenderer
 
         var duration = step.DurationMs > 0 ? $" [dim]({step.DurationMs}ms)[/]" : "";
         var indent = new string(' ', 4 + step.Depth * 2);
-        var sentence = Sentence(step);
+        var (sentenceMarkup, inlineCells) = sentence(step);
 
         if (step.NotRun)
         {
             // Greyed out whole, Storyteller's rendering for a step the run never reached.
-            AnsiConsole.MarkupLine($"{indent}[dim]{icon} {kindLabel}{sentence} — not run[/]");
+            AnsiConsole.MarkupLine($"{indent}[dim]{icon} {kindLabel}{sentenceMarkup} — not run[/]");
             return;
         }
 
-        AnsiConsole.MarkupLine($"{indent}{icon} {kindLabel}{sentence}{duration}");
+        AnsiConsole.MarkupLine($"{indent}{icon} {kindLabel}{sentenceMarkup}{duration}");
 
         if (step.Status == ResultStatus.failed && step.ErrorMessage != null)
         {
@@ -309,6 +309,9 @@ public class CommandLineRenderer
         {
             foreach (var cell in step.Cells)
             {
+                // Already in the sentence, where its value was.
+                if (inlineCells.Contains(cell.Name)) continue;
+
                 var cellIcon = cell.Status switch
                 {
                     ResultStatus.success => "[green]✓[/]",
@@ -351,9 +354,47 @@ public class CommandLineRenderer
     /// The spans come from the substitution itself rather than from searching the finished text for
     /// the values, so a value that also occurs in the prose cannot mark the wrong run of characters.
     /// </remarks>
-    public static string Sentence(StepRender step)
+    public static string Sentence(StepRender step) => sentence(step).Markup;
+
+    /// <summary>
+    /// The names of the cells <see cref="Sentence"/> rendered inside the sentence, which therefore
+    /// need no line of their own underneath.
+    /// </summary>
+    public static ISet<string> CellsRenderedInline(StepRender step) => sentence(step).Inline;
+
+    /// <summary>
+    /// The sentence as markup, and which cells were written into it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A comparison renders where its value was, not on a line below.</b> Storyteller put the
+    /// verdict in the sentence's own cell, and the reason is that the sentence already says what the
+    /// value means: <c>the Sum should be 6</c> with <c>6</c> green has said everything a
+    /// <c>✓ Sum: 6</c> line underneath would, in a third of the space, and a step with two
+    /// comparisons stops being four lines.
+    /// </para>
+    /// <para>
+    /// A failure takes the value's place rather than sitting beside it, so
+    /// <c>the Sum should be expected '6', got '8'</c> reads as the correction to that exact word.
+    /// </para>
+    /// <para>
+    /// <b>A cell with nowhere to go keeps its line.</b> The join is the placeholder name, so a cell
+    /// whose name matches no placeholder — and every cell in a lane that records no spans at all —
+    /// still reports underneath. Dropping those would lose the only place the value appears.
+    /// </para>
+    /// </remarks>
+    private static (string Markup, HashSet<string> Inline) sentence(StepRender step)
     {
-        if (step.ValueSpans.Count == 0) return Markup.Escape(step.StepText);
+        var inline = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (step.ValueSpans.Count == 0) return (Markup.Escape(step.StepText), inline);
+
+        // Only a scalar comparison competes for a place in the sentence. A grid's cells belong to a
+        // row (RowIndex >= 0) and an input echo carries no verdict, so neither is a candidate.
+        var verdicts = step.Cells
+            .Where(c => c.RowIndex < 0
+                        && c.Status is ResultStatus.success or ResultStatus.failed or ResultStatus.error)
+            .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.OrdinalIgnoreCase);
 
         var markup = new System.Text.StringBuilder();
         var at = 0;
@@ -363,15 +404,35 @@ public class CommandLineRenderer
             if (span.Start < at || span.Start + span.Length > step.StepText.Length) continue;
 
             markup.Append(Markup.Escape(step.StepText[at..span.Start]));
-            markup.Append("[italic]")
-                .Append(Markup.Escape(step.StepText.Substring(span.Start, span.Length)))
-                .Append("[/]");
+
+            var written = step.StepText.Substring(span.Start, span.Length);
+
+            if (span.Name is { Length: > 0 } name
+                && verdicts.TryGetValue(name, out var cell)
+                && step.SetVerification == null)
+            {
+                inline.Add(cell.Name);
+
+                markup.Append(cell.Status switch
+                {
+                    // The value the specification wrote, in green: it is what happened.
+                    ResultStatus.success => $"[green]{Markup.Escape(written)}[/]",
+
+                    // The correction, in the value's place.
+                    ResultStatus.failed => $"[red]{Markup.Escape(cell.DisplayText)}[/]",
+                    _ => $"[yellow]{Markup.Escape(cell.DisplayText.Length > 0 ? cell.DisplayText : written)}[/]"
+                });
+            }
+            else
+            {
+                markup.Append("[italic]").Append(Markup.Escape(written)).Append("[/]");
+            }
 
             at = span.Start + span.Length;
         }
 
         markup.Append(Markup.Escape(step.StepText[at..]));
-        return markup.ToString();
+        return (markup.ToString(), inline);
     }
 
     /// <summary>
@@ -428,7 +489,7 @@ public class CommandLineRenderer
                 }
                 case SetVerificationRowType.Extra:
                 {
-                    table.AddRow(absentRow(sv, row, rowNum, "yellow", "EXTRA", "...").ToArray());
+                    table.AddRow(absentRow(sv, row, rowNum, "red", "EXTRA", "...").ToArray());
                     break;
                 }
                 default:
@@ -446,10 +507,26 @@ public class CommandLineRenderer
                         });
                     }
 
+                    // The Status column is the whole reason a set verification is worth reading as a
+                    // grid, so the four outcomes it can report have to be told apart at a glance.
+                    // The WORD says which kind, and the COLOUR says how bad:
+                    //
+                    //   OK       green   matched, and in the position the document wrote it
+                    //   ORDER    yellow  matched on every column — only the position is wrong, so the
+                    //                    row's own values stay green and the reader looks at the order
+                    //   MISSING  red     the document expects it and the system never produced it
+                    //   EXTRA    red     the system produced it and the document does not describe it
+                    //   FAIL     red     matched to a row, and a column disagreed
+                    //
+                    // EXTRA was yellow and is now red: a set verification says the set is exactly
+                    // this, so an unexpected row is as much a disagreement as an absent one — the
+                    // comparer has always failed the step for it. ORDER keeps yellow for the opposite
+                    // reason: every value agreed, which is a different finding from a wrong value and
+                    // reads differently when strict ordering is the claim being tested.
                     values.Add(row.RowType switch
                     {
                         SetVerificationRowType.Errored => "[red]ERROR[/]",
-                        SetVerificationRowType.OutOfOrder => "[red]ORDER[/]",
+                        SetVerificationRowType.OutOfOrder => "[yellow]ORDER[/]",
                         _ => row.AllCellsOk ? "[green]OK[/]" : "[red]FAIL[/]"
                     });
                     table.AddRow(values.ToArray());

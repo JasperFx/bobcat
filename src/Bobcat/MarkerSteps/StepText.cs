@@ -106,7 +106,7 @@ public static class StepText
             }
             else
             {
-                values.Add(new StepTextSpan(text.Length, rendered.Length));
+                values.Add(new StepTextSpan(text.Length, rendered.Length, name));
                 text.Append(rendered);
             }
 
@@ -205,7 +205,17 @@ public static class StepText
 /// <summary>Where one substituted value sits in a rendered step sentence.</summary>
 /// <param name="Start">0-based index into the rendered text.</param>
 /// <param name="Length">Length of the value's rendering.</param>
-public readonly record struct StepTextSpan(int Start, int Length);
+/// <param name="Name">
+/// The placeholder this span was substituted for — <c>sum</c> for <c>{sum}</c>. Null for a span from
+/// a producer that did not record one.
+/// </param>
+/// <remarks>
+/// The name is what lets a rendered cell find its place in the sentence: a comparison reported as
+/// <c>Check("Sum", …)</c> belongs where <c>{sum}</c> was, and Storyteller rendered the verdict there
+/// rather than on a line underneath. Matching by position would break the moment a template named
+/// its placeholders in a different order from the checks.
+/// </remarks>
+public readonly record struct StepTextSpan(int Start, int Length, string? Name = null);
 
 /// <summary>
 /// A rendered step sentence and the spans of it that came from the step's arguments — its input

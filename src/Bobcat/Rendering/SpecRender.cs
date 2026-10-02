@@ -562,6 +562,12 @@ public class CellRender
     public string? Actual { get; init; }
     public string? Note { get; init; }
 
+    /// <summary>
+    /// The row this cell belongs to, or -1 for a scalar comparison that belongs to the step itself.
+    /// Carried so a renderer can tell a grid's cell from a sentence's without consulting the step.
+    /// </summary>
+    public int RowIndex { get; init; } = -1;
+
     public static CellRender From(CellResult cell)
         => new()
         {
@@ -570,7 +576,8 @@ public class CellRender
             DisplayText = cell.DisplayText,
             Expected = cell.Expected,
             Actual = cell.Actual,
-            Note = cell.Note
+            Note = cell.Note,
+            RowIndex = cell.RowIndex
         };
 }
 
