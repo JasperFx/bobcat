@@ -46,6 +46,10 @@
     <ProjectReference Include="..\ConsolePreview\ConsolePreview.csproj"
                       ReferenceOutputAssembly="false" />
 
+    <!-- The `bobcat` tool, which is how issue #399's projected resident runner ships. Build
+         ordering only; it is launched as an executable. -->
+    <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -16,7 +16,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Bobcat.Console</RootNamespace>
-    <AssemblyName>bobcat</AssemblyName>
+    <!-- NOT `bobcat`: the tool references core Bobcat (for the resident runner, issue #399) and
+         `bobcat.dll` beside `Bobcat.dll` is ONE FILE on a case-insensitive filesystem. On macOS
+         the tool's own assembly silently overwrote core's in the output directory and every call
+         into it died with `Could not load type … from assembly 'bobcat'`; on Linux the same build
+         was fine, so this would have shipped green from CI. The command a person types is
+         ToolCommandName below and is unaffected. -->
+    <AssemblyName>Bobcat.Cli</AssemblyName>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>bobcat</ToolCommandName>
     <PackageId>Bobcat.Console</PackageId>
@@ -25,7 +31,7 @@
          in. Without this the tool packs NOTHING and the release ships without `bobcat`, silently
          — the pack succeeds and simply produces no nupkg. -->
     <IsPackable>true</IsPackable>
-    <Description>The bobcat command line tool: read, validate and convert Event Model files.</Description>
+    <Description>The bobcat command line tool: read, validate and convert Event Model files, and keep a spec suite available to a run console.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,6 +41,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
+
+    <!-- The resident runner for the out-of-process lane (issue #399) lives in core. The tool is
+         where it ships from, because the console at the other end references nothing in this
+         repository and so cannot be handed a class to host. -->
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
   </ItemGroup>
 
 </Project>

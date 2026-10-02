@@ -1423,7 +1423,7 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these t
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
 | **Bobcat.EventModel** | net9.0; net10.0 | The curated Event Model YAML format (a Declared-rung `IEventModelDefinitionSource`) and the eventmodelers.ai emlang importer |
 | **Bobcat.EventModel.Scaffolding** | net9.0; net10.0 | Deterministic slice scaffolding: JasperFx codegen frames for handler, endpoint, aggregate and `.feature` skeletons |
-| **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files; see below |
+| **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files, and runs the out-of-process resident runner; see below |
 
 **Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
 deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
@@ -1471,8 +1471,8 @@ sweep:
   its own button press to the run it produced. Opaque like the tag, and deliberately independent of
   it: the tag says what work a run speaks for, the command says which request produced it, and a
   commanded run routinely carries both. It *is* a `BOBCAT_*` variable, unlike the session below,
-  because here Bobcat is the thing asking — a cold command launches a child test host and the id
-  travels down to it exactly as `BOBCAT_RUN_ID` does.
+  because here Bobcat is the thing asking — a commanded run in the out-of-process lane is a child
+  test host and the id travels down to it exactly as `BOBCAT_RUN_ID` does.
   **`CLAUDE_CODE_SESSION_ID` is read as well**
   (issue #389) — `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to
   the agent that ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*`
@@ -1490,12 +1490,16 @@ sweep:
 - `Bobcat.Runtime.PortHolder`, which names the process holding a port when a resource fails to
   bind (appended to `TestResources.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
-**The `bobcat` tool is `src/Bobcat.Console/`, and it has exactly one command: `import-event-model`.**
-It carries the free, no-server half of the toolset — read and validate a curated event-model file,
-or convert an eventmodelers.ai board export into that format, optionally pushing the result at a
-console's `PUT /api/event-model`. It is a plain JasperFx command host and deliberately hosts
-nothing that outlives the process. **`watch-event-model` is not a command of this tool**; it lives
-in Stoat's `Stoat.Console`.
+**The `bobcat` tool is `src/Bobcat.Console/`, and it has two commands: `import-event-model` and
+`resident`.** It carries the free, no-server half of the toolset — read and validate a curated
+event-model file, or convert an eventmodelers.ai board export into that format, optionally pushing
+the result at a console's `PUT /api/event-model`; and (issue #399) keep a suite whose process
+Bobcat does not own available to a monitor, which has to ship from here because the console
+references nothing in this repository and so cannot be handed a class to host. It is a plain
+JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not `bobcat`** — see the
+resident-runner section for why that is load-bearing rather than cosmetic; the command a person
+types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it lives in Stoat's
+`Stoat.Console`.
 
 **The runner publishes the spec half of the Event Model** (issue #294,
 `Monitoring/SpecEventModelPublisher.cs`). A model has two producers compiled into different
@@ -1657,7 +1661,9 @@ specs and exited 0 instead of going resident. The check is before the parser in 
   a red suite from a crashed runner. But it does have to tell "relaunch me" from "I'm done", and
   0 could not: **0 is also what a non-resident host returns after running its whole suite**, so a
   parent relaunching on 0 would run such a suite in a loop forever. Stoat had to ask the monitor
-  whether the launch had registered to work it out. `ResidentMode.RestartExitCode`.
+  whether the launch had registered to work it out. `ResidentMode.RestartExitCode`, and the
+  `bobcat resident` command carries it out through its input rather than JasperFx's true/false,
+  which cannot say a third thing.
 - **`BOBCAT_RUNNER_ID`, when set, *is* the runner's id (issue #397)** — `ResidentRunnerOptions`
   defaults to it and only then to a fresh GUID. A runner lives under a watch and is relaunched on
   every source change, so a minted id per start meant a new runner per rebuild: a command a person
@@ -1686,20 +1692,55 @@ specs and exited 0 instead of going resident. The check is before the parser in 
   runner's own backoff, so a monitor cannot make a runner reconnect in a tight loop.
 - **`IResidentSuite` is the lane seam**, the same shape of decision as the supervisor's
   `IWorkerClient`: the protocol knows identities and modes, the lane knows how to run anything.
-  `BobcatResidentSuite` is the Gherkin lane (in-process, cold), and its spec identities are read
-  **once at construction** — not a cache to invalidate, because a source change restarts the runner,
-  so the list describes exactly the code this process was built from.
-- **The command id reaches `run_started` through `BobcatRunner.MonitorCommand`**, not through
-  `BOBCAT_RUN_COMMAND`: a resident runner holds one process open across many commands, so putting
-  each id in the process environment would make it mutable global state for no gain. The variable
-  stays for the case it was built for — a cold command that launches a child host.
+  `BobcatResidentSuite` is the Gherkin lane (in-process, cold or warm), and its spec identities are
+  read **once at construction** — not a cache to invalidate, because a source change restarts the
+  runner, so the list describes exactly the code this process was built from.
+- **`OutOfProcessResidentSuite` is the second implementation, and it is how the projected lane can
+  be resident at all (issue #399).** It holds the suite's `SpecManifest` and runs a command by
+  launching **the suite's own test host** with `SpecFilterArguments.For`'s translation of the
+  selection. A projected suite's entry point belongs to xUnit or TUnit, which will never learn
+  what `--resident` means — "a resident runner is not the suite" is a design note in the Gherkin
+  lane and a constraint here.
+  - **Named for the mechanism, not the lane, because it is lane-neutral** — everything it does is a
+    function of the manifest, and `SpecFilterArguments` switches on the *framework*, so pointing it
+    at a Gherkin host works and gets `--filter-uid`. Doing that is still the wrong call for a
+    Gherkin suite: the in-process runner can offer warm and this cannot, since warmth means holding
+    a booted host and here the host is a child that exits. **Cold-only, for #394's measured
+    reason** — the blocker is Bobcat's own run bracket, not the platform.
+  - **It ships as `bobcat resident <host>`, a command on the free tool**, because the console at
+    the other end references nothing in this repository and so cannot be handed a class to host.
+    That forced the tool's assembly to be renamed **`Bobcat.Cli`**: it now references core, and
+    `bobcat.dll` beside `Bobcat.dll` is **one file** on a case-insensitive filesystem — on macOS
+    the tool's own assembly overwrote core's in the output directory and every call into it died
+    with `Could not load type … from assembly 'bobcat'`, while the same build was fine on Linux and
+    would have shipped green from CI. `ToolCommandName` is still `bobcat`, so nothing a person
+    types changed.
+  - **A wiring mistake is refused at launch, not at the first button press**: a host that is not
+    built, a suite that lists no specifications (usually a spec project with no runner adapter
+    referenced), or a framework whose filter spelling Bobcat will not guess at (TUnit). A runner
+    that registered and then refused every command would look broken rather than unsupported.
+  - **What the child does *not* inherit is the substance of it** (`EnvironmentFor`). Four variables
+    a parent routinely sets break a commanded run silently: `BOBCAT_RUN_ID` collapses every command
+    into one ever-growing run card, `BOBCAT_RUN_OWNER` stops the child publishing a run bracket at
+    all, `BOBCAT_LIST_SPECS` turns a run into a listing, and `BOBCAT_RESIDENT` would have the child
+    register itself instead of running (no projected host reads it today, which is exactly why it
+    is cleared rather than relied upon). `BOBCAT_MONITOR=1` is *forced on* — a resident runner
+    exists to serve a console, and `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole
+    box — and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`, because a runner pointed at a
+    second console with `--url` would otherwise take that console's commands and publish the runs
+    to the default one.
+- **The command id reaches `run_started` through `BobcatRunner.MonitorCommand`** in the Gherkin
+  lane, not through `BOBCAT_RUN_COMMAND`: a resident runner holds one process open across many
+  commands, so putting each id in the process environment would make it mutable global state for no
+  gain. The variable is how it travels in the out-of-process lane, which is the case it was built
+  for — the runner and the run are different processes there.
 - **A commanded run leaves `Session` null, and that is one rule rather than a flag (issue #401).**
   A resident runner started from an agent's terminal inherits `CLAUDE_CODE_SESSION_ID` and holds it
   for its whole life, so every run it made for a monitor command was stamped with the session that
   launched the *runner* — and Stoat's agent page said "started by this session" about runs a person
   had pressed in the UI. The fix is on `MonitorRunInfo`: `Session`'s getter returns null whenever
-  `Command` is set, so a `with { Command = … }` anywhere honours it, and a child host reading
-  `BOBCAT_RUN_COMMAND` gets it for free. `Command` (#392) is the true answer to who asked;
+  `Command` is set, so a `with { Command = … }` anywhere honours it and the out-of-process lane's
+  child gets it for free from the variable. `Command` (#392) is the true answer to who asked;
   **`Tag` is unaffected**, because it answers a different question — what work the run speaks for —
   and a commanded re-run of a slice's specs is still that slice's node's.
 
@@ -1709,7 +1750,11 @@ transport would test the seam instead. `Bobcat.Mtp.Tests/ResidentModeEndToEndTes
 the real `Bobcat.Mtp.GeneratedHost` process, launched `--resident` through its *generated* `Main`,
 registering, refusing a foreign identity, running a named one, and exiting on `restart`. The fake
 host is `<Compile Link>`-ed into that project rather than copied — one source, two compilations, the
-same arrangement `SliceTagParsingAgreementTests` uses. **Still owed from #390's acceptance: a run
+same arrangement `SliceTagParsingAgreementTests` uses, and the same class now pins the command
+family's entry point (#398). `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` is the out-of-process
+lane's twin: the real `Bobcat.Xunit.Samples` xUnit host, listed and then filtered to one
+specification by identity, with the `bobcat resident` executable itself driven as a process so that
+a class nothing ships is not mistaken for a feature. **Still owed from #390's acceptance: a run
 against a live Stoat.** Everything here is proved against a stand-in console.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat

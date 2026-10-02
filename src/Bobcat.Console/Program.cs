@@ -13,10 +13,24 @@ using JasperFx.CommandLine;
 //
 // BobcatRunner.Run has always registered explicitly for the same reason, in its own words:
 // "nothing a consumer's assemblies carry can join this surface by accident."
+ResidentInput? resident = null;
+
 var executor = CommandExecutor.For(factory =>
 {
     factory.RegisterCommand<ImportEventModelCommand>();
+    factory.RegisterCommand<ResidentCommand>();
     factory.SetAppName("bobcat");
+
+    // `resident` decides its own exit code, and JasperFx's true/false cannot carry it: a restart
+    // is 75 (issue #397) so a parent relaunches on 75 and only on 75, and "the runner asked to be
+    // replaced" must never arrive as "the command failed". Held on the input and read back after,
+    // which is the arrangement BobcatRunner.Run already uses for the same reason.
+    factory.ConfigureRun = run =>
+    {
+        if (run.Input is ResidentInput input) resident = input;
+    };
 });
 
-return await executor.ExecuteAsync(args);
+var code = await executor.ExecuteAsync(args);
+
+return resident?.ExitCode ?? code;

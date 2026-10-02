@@ -57,10 +57,17 @@ public static class ResidentMode
            || Environment.GetEnvironmentVariable(Variable)?.ToLowerInvariant() is "1" or "on" or "true";
 
     /// <summary>
-    /// Register with the monitor and take commands until the process is asked to stop — by a
-    /// <c>restart</c> command, or by Ctrl+C / SIGTERM.
+    /// Run this Gherkin spec project as a resident runner, taking commands until the process is
+    /// asked to stop — by a <c>restart</c> command, or by Ctrl+C / SIGTERM.
     /// </summary>
-    public static async Task<int> Run(Action<BobcatRunner> configure, ResidentRunnerOptions? options = null)
+    public static Task<int> Run(Action<BobcatRunner> configure, ResidentRunnerOptions? options = null)
+        => Run(new BobcatResidentSuite(configure), options);
+
+    /// <summary>
+    /// The same, for a suite the caller built — the out-of-process lane (issue #399), whose runner
+    /// is a different process from the suite and so cannot be reached by a configure callback.
+    /// </summary>
+    public static async Task<int> Run(IResidentSuite suite, ResidentRunnerOptions? options = null)
     {
         using var stopping = new CancellationTokenSource();
 
@@ -73,8 +80,6 @@ public static class ResidentMode
         using var terminate = register(PosixSignal.SIGTERM, stopping);
         using var quit = register(PosixSignal.SIGQUIT, stopping);
 
-        var suite = new BobcatResidentSuite(configure);
-
         await using var runner = new ResidentRunner(
             suite,
             options ?? new ResidentRunnerOptions { Log = Console.WriteLine });
@@ -85,7 +90,7 @@ public static class ResidentMode
 
         await runner.Run(stopping.Token);
 
-        await suite.DisposeAsync();
+        if (suite is IAsyncDisposable disposable) await disposable.DisposeAsync();
 
         return runner.RestartRequested ? RestartExitCode : 0;
     }

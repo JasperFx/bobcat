@@ -130,8 +130,15 @@ by cold runs.
 ## Decision
 
 **The projected lane stays cold-only in the resident runner.** `BobcatResidentSuite` offers
-`cold` and `warm`; a projected suite would offer `cold` alone, and `ResidentRunner` refuses a
-`warm` command it never registered rather than quietly downgrading it.
+`cold` and `warm`; `OutOfProcessResidentSuite` — the projected lane, built in issue #399 on the
+back of this finding — offers `cold` alone, and `ResidentRunner` refuses a `warm` command it never
+registered rather than quietly downgrading it.
+
+Cold, note, needed none of what is owed below: a command launches the suite's own host with
+`SpecFilterArguments.For`'s filter, that host opens and closes exactly one run bracket because it
+is exactly one process, and the whole blocker measured here is about a *second* request arriving in
+a process that already published `run_started`. The price of being cold is one process per command,
+which is the thing warmth would buy back.
 
 Reopen this when someone has a projected suite whose boot is expensive enough to pay for the
 bracket work — a collection fixture standing up a real database is the shape to look for. The
