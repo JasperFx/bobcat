@@ -257,4 +257,93 @@ public class StepReportWireTests : IDisposable
             get { lock (_events) return _events.ToArray(); }
         }
     }
+
+    // --- issue #396: a literal cell's text reaches the wire ---
+
+    [Fact]
+    public void a_decision_tables_literal_cells_carry_their_text_on_step_finished()
+    {
+        // The bug: an input cell's text lived only in CellResult.DisplayText, and the projection
+        // sent Expected/Actual/Note and never that — so every literal arrived as
+        // {"name":"x","status":"ok","expected":null,"actual":null} and a monitor's grid rendered
+        // the x and y columns empty, while the console showed them perfectly.
+        using var recording = begin();
+
+        using (var step = ScenarioRecorder.Step("Then", "adding numbers"))
+        {
+            recording.RecordTable(new StepTable(
+                ["x", "y", "sum"],
+                [["1", "1", "2"], ["2", "2", "5"]]));
+
+            SpecAssert.Check("sum", 4, 5);
+        }
+
+        var finished = _sink.Events.OfType<StepFinished>().ShouldHaveSingleItem();
+        finished.Columns.ShouldBe(["x", "y", "sum"]);
+
+        var literals = finished.Cells!.Where(c => c.Status == "ok").ToList();
+
+        literals.Where(c => c.RowIndex == 0).Select(c => c.Value).ShouldBe(["1", "1", "2"]);
+        literals.Where(c => c.RowIndex == 1).Select(c => c.Value).ShouldBe(["2", "2", "5"]);
+    }
+
+    [Fact]
+    public void a_literal_cell_carries_a_value_and_not_an_expected_actual_pair()
+    {
+        // Value is a FOURTH field and not a reuse of Actual, and that is the point: a cell with no
+        // expected and no actual is how the JSON report decides an input column earns no Status
+        // column at all (issue #384). Writing a value into Actual would make every input cell look
+        // judged — it broke that very test when tried.
+        using var recording = begin();
+
+        using (ScenarioRecorder.Step("Then", "adding numbers"))
+        {
+            recording.RecordTable(new StepTable(["x"], [["7"]]));
+        }
+
+        var cell = _sink.Events.OfType<StepFinished>().ShouldHaveSingleItem().Cells!.ShouldHaveSingleItem();
+
+        cell.Value.ShouldBe("7");
+        cell.Expected.ShouldBeNull();
+        cell.Actual.ShouldBeNull();
+        cell.Note.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_judged_cell_carries_its_pair_and_no_value()
+    {
+        // The other half of the one-thing rule: a reader is never choosing between two fields that
+        // mean the same thing.
+        using var recording = begin();
+
+        using (ScenarioRecorder.Step("Then", "the sum is"))
+        {
+            SpecAssert.Check("sum", 4, 5);
+        }
+
+        var cell = _sink.Events.OfType<StepFinished>().ShouldHaveSingleItem()
+            .Cells!.Single(c => c.Name == "sum");
+
+        cell.Expected.ShouldBe("5");
+        cell.Actual.ShouldBe("4");
+        cell.Value.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_running_steps_interim_cells_carry_the_literals_too()
+    {
+        // The case the bug was found in (stoat#62): cells filling in while a SLOW table step runs.
+        // step_progress goes through the same projection, so it had the same hole.
+        using var recording = begin();
+
+        using (ScenarioRecorder.Step("Then", "adding numbers slowly"))
+        {
+            recording.RecordTable(new StepTable(["x", "y"], [["1", "2"]]));
+        }
+
+        var progress = _sink.Events.OfType<StepProgress>().Where(p => p.Cells is not null).ToArray();
+        progress.ShouldNotBeEmpty();
+
+        progress[^1].Cells!.Select(c => c.Value).ShouldBe(["1", "2"]);
+    }
 }

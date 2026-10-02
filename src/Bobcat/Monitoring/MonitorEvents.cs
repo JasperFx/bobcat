@@ -238,13 +238,40 @@ public record StepFinished(
 /// <param name="RowIndex">
 /// 0-based row for a cell that belongs to a table, or -1 for a cell in an ordinary sentence.
 /// </param>
+/// <param name="Expected">What the specification said, for a cell that was judged.</param>
+/// <param name="Actual">What the system produced, for a cell that was judged.</param>
+/// <param name="Note">Supplementary text — a tolerance, or why a row is missing or extra.</param>
+/// <param name="Value">
+/// The plain text of a cell that was <b>not judged</b> — an input column of a decision table, an
+/// echoed value (issue #396). Null whenever <paramref name="Expected"/>, <paramref name="Actual"/>
+/// or <paramref name="Note"/> says something, so a reader never has to choose between two fields
+/// that mean the same thing.
+/// </param>
+/// <remarks>
+/// <para>
+/// <b><c>Value</c> is a fourth field and not a reuse of <c>Actual</c>, and the difference is
+/// load-bearing.</b> "Nothing was judged here" is a fact the report already depends on: a cell with
+/// neither an expected nor an actual is how <c>JsonRenderer</c> decides an input column earns no
+/// Status column at all (issue #384). Writing an input value into <c>Actual</c> would make every
+/// input cell look judged — it broke that very test when tried — so the wire gains the field the
+/// report has had all along rather than the two of them disagreeing about what <c>Actual</c> means.
+/// </para>
+/// <para>
+/// Before this, such a cell reached a consumer as
+/// <c>{"name":"x","status":"ok","expected":null,"actual":null}</c> and a grid rendered the column
+/// empty, because the text lived only in <c>CellResult.DisplayText</c> and nothing on the wire
+/// carried it. Both lanes were affected: the projected lane's table literal and the Gherkin lane's
+/// <c>[Table]</c> and <c>[TableGrammar]</c> rows all build input cells the same way.
+/// </para>
+/// </remarks>
 public record StepCell(
     string Name,
     string Status,
     string? Expected = null,
     string? Actual = null,
     string? Note = null,
-    int RowIndex = -1);
+    int RowIndex = -1,
+    string? Value = null);
 
 /// <summary>
 /// Interim progress from a step still running — the wire form of

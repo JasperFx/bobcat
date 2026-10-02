@@ -168,10 +168,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
 
     /// <summary>The cells as the wire carries them, or null when there are none to speak of.</summary>
     private static List<StepCell>? toWire(IReadOnlyList<CellResult> cells)
-        => cells.Count == 0
-            ? null
-            : cells.Select(c => new StepCell(
-                c.Name, c.Status.ToString(), c.Expected, c.Actual, c.Note, c.RowIndex)).ToList();
+        => cells.Count == 0 ? null : cells.Select(StepCells.From).ToList();
 
     /// <summary>
     /// The Gherkin lane's step report, now including its <b>cells</b>.

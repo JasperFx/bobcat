@@ -453,7 +453,10 @@ public static class CodeEmitter
                 }
                 else
                 {
-                    // Input (or otherwise unconsumed) column — rendered plain.
+                    // Input (or otherwise unconsumed) column — rendered plain. The plain-value
+                    // constructor on purpose: nothing was judged here, which is what the report
+                    // reads to decide the column earns no Status. Its text travels as
+                    // StepCell.Value (issue #396).
                     sb.AppendLine($"                                cells__.Add(new CellResult(\"{escapeString(header)}\", ResultStatus.ok, \"{escapeString(value)}\") {{ RowIndex = {r} }});");
                 }
             }

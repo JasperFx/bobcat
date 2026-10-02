@@ -68,6 +68,12 @@ public class CellResult
         return Status switch
         {
             ResultStatus.success or ResultStatus.ok => (Expected ?? Actual ?? "") + note,
+
+            // A failed cell with no pair has nothing to compare and only its note to say — the
+            // set comparer's out-of-order cell is the case (issue #396). Without this branch it
+            // read "expected '', got '' (Out of order: …)", which is why that cell was still
+            // being built through the legacy constructor and so never reached the wire at all.
+            ResultStatus.failed when Expected is null && Actual is null => Note ?? "",
             ResultStatus.failed => $"expected '{Expected}', got '{Actual}'" + note,
             _ => Note ?? Expected ?? Actual ?? ""
         };

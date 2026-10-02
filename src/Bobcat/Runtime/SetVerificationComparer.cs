@@ -130,10 +130,14 @@ public static class SetVerificationComparer
 
                 if (ordered && matchIndex < furthestMatched)
                 {
-                    cells.Add(new CellResult(OutOfOrderCell, ResultStatus.failed,
-                            $"Out of order: found at position {matchIndex + 1}; a row written " +
-                            $"earlier is at position {furthestMatched + 1}")
-                        { RowIndex = rowIndex });
+                    // Note, not the legacy display text (issue #396): this cell's text is a
+                    // sentence rather than a value, and Note is the field the wire carries it in.
+                    cells.Add(new CellResult(OutOfOrderCell, ResultStatus.failed)
+                    {
+                        Note = $"Out of order: found at position {matchIndex + 1}; a row written "
+                               + $"earlier is at position {furthestMatched + 1}",
+                        RowIndex = rowIndex
+                    });
                 }
 
                 furthestMatched = Math.Max(furthestMatched, matchIndex);
@@ -149,9 +153,11 @@ public static class SetVerificationComparer
             else
             {
                 var keyDesc = string.Join(", ", expected.Select(kv => $"{kv.Key}={kv.Value}"));
-                cells.Add(new CellResult("missing-row", ResultStatus.missing,
-                    $"Expected row not found: {keyDesc}")
-                    { RowIndex = rowIndex });
+                cells.Add(new CellResult("missing-row", ResultStatus.missing)
+                {
+                    Note = $"Expected row not found: {keyDesc}",
+                    RowIndex = rowIndex
+                });
 
                 // The row's expected values, one cell per column, so a renderer can show
                 // WHICH row was missing in place instead of a row of dashes. Status is `ok`
@@ -180,9 +186,11 @@ public static class SetVerificationComparer
             // not describe is a disagreement, and the run already counted it as an error — only the
             // step's own verdict once said otherwise, which read as a green step under a red
             // scenario.
-            cells.Add(new CellResult("extra-row", ResultStatus.invalid,
-                $"Extra row: {desc}")
-                { RowIndex = rowIndex });
+            cells.Add(new CellResult("extra-row", ResultStatus.invalid)
+            {
+                Note = $"Extra row: {desc}",
+                RowIndex = rowIndex
+            });
 
             // The same treatment as a missing row: the actual values per column, uncounted,
             // so the grid shows the row rather than the renderer re-parsing the description.

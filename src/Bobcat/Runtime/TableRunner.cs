@@ -159,6 +159,9 @@ public static class TableRunner
             if (expectedColumn != null
                 && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase)) continue;
 
+            // The plain-value constructor: an input column was not judged, which is what the
+            // report reads to decide it earns no Status. Its text travels as StepCell.Value
+            // (issue #396).
             run.Cells.Add(new CellResult(header, ResultStatus.ok,
                 row.TryGetValue(header, out var value) ? value : "") { RowIndex = rowIndex });
         }

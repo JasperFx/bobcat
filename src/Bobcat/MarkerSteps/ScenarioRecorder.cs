@@ -286,6 +286,10 @@ public static class ScenarioRecorder
                 var row = table.Rows[r];
                 for (var c = 0; c < table.Headers.Count; c++)
                 {
+                    // The plain-value constructor, deliberately: an input cell was not judged, so
+                    // it has no expected/actual pair, and the JSON report keys off exactly that to
+                    // decide whether a column earns a Status (issue #384). Its text reaches the
+                    // wire as StepCell.Value — issue #396, where it reached it as nothing at all.
                     step.Cells.Add(new CellResult(table.Headers[c], ResultStatus.ok,
                         c < row.Count ? row[c] : "") { RowIndex = r });
                 }
@@ -467,8 +471,7 @@ public static class ScenarioRecorder
         }
 
         /// <summary>A cell as the wire carries it — the framework's own status word, verbatim.</summary>
-        private static StepCell toWire(CellResult cell)
-            => new(cell.Name, cell.Status.ToString(), cell.Expected, cell.Actual, cell.Note, cell.RowIndex);
+        private static StepCell toWire(CellResult cell) => StepCells.From(cell);
 
         /// <summary>
         /// The one-line failure for a step: the exception's message, else the first failed cell's

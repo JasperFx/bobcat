@@ -1528,6 +1528,26 @@ foreign specs into the Bobcat model is #110, not this.
   never zero. `Lane` is null for a one-test isolated or recycled process, and discovery is never
   tapped.
 
+### A cell says exactly one thing on the wire (issue #396)
+
+`StepCell` carries four content fields and a cell fills **one** of them: `Expected`/`Actual` for a
+judged cell, `Note` for one that says a sentence (the set comparer's missing/extra/out-of-order
+rows), and **`Value`** for one that was *not judged* — a decision table's input column.
+`Bobcat.Monitoring.StepCells.From` is the single projection that decides, and it being single is
+half the fix: there were two copies (`ScenarioRecorder` for projected, `MonitorPublishingObserver`
+for Gherkin) and **both dropped a literal's text**, because both sent
+`Expected`/`Actual`/`Note` and neither had anywhere to put `CellResult.DisplayText`. A literal
+reached a consumer as `{"name":"x","status":"ok","expected":null,"actual":null}` and the column
+rendered empty in every grid, in both lanes, while the console showed it perfectly.
+
+**`Value` is not a reuse of `Actual`, and that is load-bearing.** A cell with neither an expected
+nor an actual is how `JsonRenderer` decides an input column earns no Status column (#384) — so
+borrowing `Actual` for a value makes every input cell look judged, and broke that test when tried.
+The plain-value `CellResult` constructor therefore stays the right one for an input cell; what was
+missing was a field on the wire, not a different field in the model. `CellResult.DisplayText` also
+gained a branch: a `failed` cell with no pair renders its `Note` rather than `expected '', got ''`,
+which is what had kept the set comparer's out-of-order cell on the legacy constructor.
+
 ### The resident runner (`src/Bobcat/Residency/`, issue #390)
 
 A suite kept available to a monitor, running specifications **when the monitor asks** — the Bobcat

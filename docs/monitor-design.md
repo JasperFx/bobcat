@@ -352,6 +352,31 @@ Kept on the publisher's side of the record because **`stepNumber` is what makes 
 published from here, one per scenario, and any consumer that keys step identity on `stepId`
 instead will collapse the same rows again.
 
+## A cell says exactly one thing (issue #396, 2026-10-02)
+
+`StepCell` gained a fourth content field, **`Value`** — the plain text of a cell that was *not
+judged*: a decision table's input column, an echoed value. It is null whenever `Expected`,
+`Actual` or `Note` says something, so a reader is never choosing between two fields that mean the
+same thing.
+
+Before it, such a cell reached a consumer as
+`{"name":"x","status":"ok","expected":null,"actual":null}` and a grid rendered the column empty,
+because the text lived only in `CellResult.DisplayText` and **nothing on the wire carried it**.
+Both lanes were affected — the projected lane's table literal, and the Gherkin lane's `[Table]`
+and `[TableGrammar]` rows — because both build input cells the same way and there were *two copies*
+of the cell projection, each dropping it. There is one now, `Bobcat.Monitoring.StepCells.From`.
+
+**Why a new field and not `Actual`.** "Nothing was judged here" is a fact the report already
+depends on: a cell with neither an expected nor an actual is how `JsonRenderer` decides an input
+column earns no Status column at all (issue #384, and the reason an arrange table has no Status
+column). Writing an input value into `Actual` makes every input cell look judged — it broke that
+very test when tried. So the wire gained the field the JSON report has had all along (`value`)
+rather than the two of them disagreeing about what `Actual` means.
+
+**A consumer has to read it.** This is the additive-but-invisible case the two-copies decision
+lives with: a console that only reads `expected`/`actual` keeps rendering input columns empty, with
+nothing to tell it a field appeared. Trailing optional, so an older publisher is not a broken one.
+
 ## The resident runner wire (issue #390, built 2026-10-02)
 
 A second wire on the same origin, and the only one that runs in the other direction. Everything so

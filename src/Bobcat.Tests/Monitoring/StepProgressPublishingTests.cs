@@ -253,4 +253,61 @@ public class StepProgressPublishingTests
     }
 
     public class CountedFixture : Fixture;
+
+    // --- issue #396: the Gherkin lane's literal cells reach the wire too ---
+
+    [Fact]
+    public void a_gherkin_table_steps_input_cells_carry_their_value()
+    {
+        // The issue asked whether the Gherkin [Table] path had the same gap as the projected
+        // lane's table literal. It did: the generated input cells and a [TableGrammar]'s row cells
+        // are both built with the plain-value constructor, and the projection sent
+        // Expected/Actual/Note and never DisplayText. One shared projection now, so neither lane
+        // can lose a value the other keeps.
+        var sink = new RecordingSink();
+        var observer = unthrottled(sink);
+
+        var result = new StepResult("s1", 0, StepKind.Given) { StepText = "the following rows" };
+        result.MarkCells(
+            new CellResult("x", ResultStatus.ok, "1") { RowIndex = 0 },
+            new CellResult("y", ResultStatus.ok, "2") { RowIndex = 0 });
+        result.MarkSuccess();
+        result.MarkEnded(5);
+
+        observer.ScenarioStarted("Orders", "ships", totalSteps: 1);
+        observer.StepStarted("s1", StepKind.Given, "the following rows", scenarioElapsedMs: 0);
+        observer.StepFinished(result);
+
+        var cells = sink.Events.OfType<StepFinished>().ShouldHaveSingleItem().Cells!;
+
+        cells.Select(c => c.Name).ShouldBe(["x", "y"]);
+        cells.Select(c => c.Value).ShouldBe(["1", "2"]);
+        cells.ShouldAllBe(c => c.Expected == null && c.Actual == null);
+    }
+
+    [Fact]
+    public void a_noted_cell_carries_its_note_and_no_value()
+    {
+        // The set comparer's missing-row and extra-row cells say a sentence rather than hold a
+        // value, so Note is their field and Value stays empty — a cell says exactly one thing.
+        var sink = new RecordingSink();
+        var observer = unthrottled(sink);
+
+        var result = new StepResult("s1", 0, StepKind.Then);
+        result.MarkCells(new CellResult("missing-row", ResultStatus.missing)
+        {
+            Note = "Expected row not found: id=7",
+            RowIndex = 0
+        });
+        result.MarkEnded(5);
+
+        observer.ScenarioStarted("Orders", "ships", totalSteps: 1);
+        observer.StepStarted("s1", StepKind.Then, "the rows are", scenarioElapsedMs: 0);
+        observer.StepFinished(result);
+
+        var cell = sink.Events.OfType<StepFinished>().ShouldHaveSingleItem().Cells!.ShouldHaveSingleItem();
+
+        cell.Note.ShouldBe("Expected row not found: id=7");
+        cell.Value.ShouldBeNull();
+    }
 }

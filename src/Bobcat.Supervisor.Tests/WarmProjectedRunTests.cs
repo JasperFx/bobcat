@@ -105,9 +105,7 @@ public class WarmProjectedRunTests
         // a discovery that opened a run would put an empty card on the board every time.
         using var sink = new IngestSink();
 
-        await using var client = await MtpWorkerClient.Launch(
-            projectedHost,
-            new Dictionary<string, string> { ["BOBCAT_MONITOR_URL"] = sink.Url });
+        await using var client = await MtpWorkerClient.Launch(projectedHost, wiredTo(sink));
 
         await client.Discover();
         await Task.Delay(500);
@@ -131,9 +129,7 @@ public class WarmProjectedRunTests
         // WHEN THIS FAILS, THE BLOCKER IS GONE. Read docs/warm-projected-runs.md, not this comment.
         using var sink = new IngestSink();
 
-        await using var client = await MtpWorkerClient.Launch(
-            projectedHost,
-            new Dictionary<string, string> { ["BOBCAT_MONITOR_URL"] = sink.Url });
+        await using var client = await MtpWorkerClient.Launch(projectedHost, wiredTo(sink));
 
         var discovered = await client.Discover();
         var first = discovered.First(t => t.DisplayName.EndsWith("CalculatorSpecs.using_sentences"));
@@ -153,6 +149,20 @@ public class WarmProjectedRunTests
         sink.EventTypes().ShouldNotContain(
             "run_finished", "TRIPWIRE: the run never closes while the process lives");
     }
+
+    /// <summary>
+    /// A worker environment pointed at <paramref name="sink"/>, with publishing switched ON
+    /// explicitly.
+    /// </summary>
+    /// <remarks>
+    /// The explicit <c>BOBCAT_MONITOR=1</c> is load-bearing: CI sets <c>BOBCAT_MONITOR=0</c> for
+    /// the whole job so that spec hosts in the suite do not probe 5525, the worker inherits it,
+    /// <c>MonitorPublisher.Disabled</c> short-circuits before the probe, and a test about what a
+    /// worker published then fails against a publisher that was switched off. A test that wants
+    /// the wire has to say so rather than trust the ambient value.
+    /// </remarks>
+    private static Dictionary<string, string> wiredTo(IngestSink sink)
+        => new() { ["BOBCAT_MONITOR_URL"] = sink.Url, ["BOBCAT_MONITOR"] = "1" };
 
     /// <summary>
     /// The smallest thing that can stand in for a console's ingest route. Deliberately not the

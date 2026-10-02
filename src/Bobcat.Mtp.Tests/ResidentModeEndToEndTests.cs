@@ -60,7 +60,33 @@ public class ResidentModeEndToEndTests
         info.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
         info.Environment["BOBCAT_MONITOR_URL"] = monitor.Url;
 
-        return Process.Start(info)!;
+        // Said explicitly, because a test that wants the wire must not depend on the ambient
+        // value: CI sets BOBCAT_MONITOR=0 for the whole job (so that spec hosts in the suite do
+        // not probe 5525), the child inherits it, MonitorPublisher.Disabled short-circuits before
+        // the probe, and this reads as "the commanded run never published run_started" — the
+        // feature working perfectly and the test asserting against a publisher that was switched
+        // off. Three tests failed that way on the v0.29.0 tag.
+        info.Environment["BOBCAT_MONITOR"] = "1";
+
+        var process = Process.Start(info)!;
+
+        // Kept so a failure can say what the runner itself thought was happening. Without it a
+        // timed-out poll says only "nothing arrived", which is the same sentence for a refused
+        // command, an absent publisher and a runner that never registered.
+        _output.Clear();
+        process.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (_output) _output.Add(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (_output) _output.Add("ERR " + e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        return process;
+    }
+
+    private static readonly List<string> _output = new();
+
+    private static string log()
+    {
+        lock (_output) return string.Join("\n  ", _output);
     }
 
     private static async Task<T> eventually<T>(Func<T?> read, string because) where T : class
@@ -147,7 +173,7 @@ public class ResidentModeEndToEndTests
 
             var started = await eventuallyValue(
                 () => runStarted(monitor),
-                "the commanded run never published run_started");
+                "the commanded run never published run_started. the runner said:\n  " + log());
 
             started.GetProperty("command").GetString().ShouldBe("c-good");
             started.GetProperty("mode").GetString().ShouldBe(BobcatResidentSuite.Mode);
@@ -178,8 +204,15 @@ public class ResidentModeEndToEndTests
 
     /// <summary>Every <c>run_started</c>, in arrival order.</summary>
     private static IReadOnlyList<JsonElement> runsStarted(FakeMonitorHost monitor)
+        => eventsNamed(monitor, "run_started");
+
+    /// <summary>Every <c>run_finished</c>, in arrival order.</summary>
+    private static IReadOnlyList<JsonElement> runsFinished(FakeMonitorHost monitor)
+        => eventsNamed(monitor, "run_finished");
+
+    private static IReadOnlyList<JsonElement> eventsNamed(FakeMonitorHost monitor, string name)
     {
-        var started = new List<JsonElement>();
+        var found = new List<JsonElement>();
 
         foreach (var batch in monitor.Batches)
         {
@@ -194,14 +227,14 @@ public class ResidentModeEndToEndTests
 
             foreach (var @event in events)
             {
-                if (@event.TryGetProperty("type", out var type) && type.GetString() == "run_started")
+                if (@event.TryGetProperty("type", out var type) && type.GetString() == name)
                 {
-                    started.Add(@event.Clone());
+                    found.Add(@event.Clone());
                 }
             }
         }
 
-        return started;
+        return found;
     }
 
     [Fact]
@@ -229,9 +262,19 @@ public class ResidentModeEndToEndTests
                 RunnerWire.RunCommandType,
                 new RunCommand("w-1", ["Ordering/An order is accepted"], RunnerWire.WarmMode)));
 
+            // Waited on run_FINISHED, not run_started, and the difference is the whole race this
+            // test first had. run_started is the beginning of the first run, so sending the second
+            // command there finds the runner still busy — and a busy runner REFUSES, by design
+            // (the monitor owns the queue). Six runs in eight failed that way, with the product
+            // behaving exactly as specified and the test asking for the impossible.
+            //
+            // Waiting for the close also pins half of #393's claim on the way past: a warm
+            // command's run opens AND closes its own bracket.
             await eventuallyValue(
-                () => runsStarted(monitor).Count == 1 ? 1 : (int?)null,
-                "the first warm command never published a run");
+                () => runsFinished(monitor).Count == 1 ? 1 : (int?)null,
+                "the first warm command's run never closed. the runner said:\n  " + log());
+
+            runsStarted(monitor).Count.ShouldBe(1);
 
             monitor.Send("2", CloudEvent.From(
                 "stoat",
@@ -240,7 +283,11 @@ public class ResidentModeEndToEndTests
 
             await eventuallyValue(
                 () => runsStarted(monitor).Count == 2 ? 2 : (int?)null,
-                "the second warm command did not publish a run of its own");
+                "the second warm command did not publish a run of its own. the runner said:\n  " + log());
+
+            await eventuallyValue(
+                () => runsFinished(monitor).Count == 2 ? 2 : (int?)null,
+                "the second warm command's run never closed. the runner said:\n  " + log());
 
             var runs = runsStarted(monitor);
 
@@ -273,6 +320,10 @@ public class ResidentModeEndToEndTests
         info.ArgumentList.Add(ResidentMode.Option);
         info.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
         info.Environment["BOBCAT_MONITOR_URL"] = "http://127.0.0.1:1";
+
+        // "Nothing is listening" is the case under test, which is not the same case as "the
+        // publisher is switched off" — so say which one this is.
+        info.Environment["BOBCAT_MONITOR"] = "1";
 
         using var process = Process.Start(info)!;
         try
