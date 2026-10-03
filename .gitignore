@@ -369,3 +369,11 @@ samples/**/*.db-shm
 
 # Nuke
 .nuke/temp/
+
+# Leftover build output from the frontends that moved to Stoat on 2026-09-18
+# (commit 3ee3db9, "Carve the console out of Bobcat"). Only dist/ and
+# node_modules/ survive here — the source lives in Stoat — so there is nothing
+# in these to track, and dist/ carries compiled BSL coordination views that must
+# not land in an MIT repository.
+src/Bobcat.EventModel.FrontEnd/
+src/Bobcat.Monitor.FrontEnd/
