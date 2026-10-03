@@ -144,10 +144,15 @@ Two consequences worth budgeting for:
 
 When you are iterating rather than running once,
 [`interactive`](integrating-gherkin.md#interactive) keeps resources warm between runs — `StartAll`
-once, the full per-scenario bracket every time.
+once, the full per-scenario bracket every time. A
+[resident runner's warm mode](resident-runner.md#cold-and-warm) is the same trade for runs a console
+asks for: **warmth only changes who pays for `StartAll`**, never the per-scenario bracket, so warm
+never means dirty. If a suite-level catastrophe damages a warm session, the runner withdraws warm
+rather than the suite — a cold command starts over from exactly the thing that poisoned it.
 
 ## See also
 
 - [Resources](resources.md) — the four verbs, hosts, and Docker
 - [Integrating Bobcat Gherkin](integrating-gherkin.md) — making the project executable
 - [Bobcat with Alba](integrations/alba.md) — the host resource most suites start from
+- [The Resident Runner](resident-runner.md) — this bracket, run on demand from a console

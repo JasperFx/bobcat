@@ -149,6 +149,15 @@ extra row rather than every row after it disagreeing — which is the difference
 report and a useless one for an event stream with one unexpected event. A row that turns up behind
 one written before it is an `out-of-order` cell, renders as `ORDER`, and says where it actually was.
 
+**A set's column can be titled too.** `[Header]` goes on the *property*, since a set's columns are
+the result type's properties — `record Ledger([property: Header("The Amount")] decimal Amount)`,
+which is Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. The title **replaces** the
+name rather than aliasing it: one column with two spellings is how a grid ends up with two columns
+for one property, so `KeyColumns` names a titled property by its title. Both readings of "what is
+this column called" go through `Runtime/ColumnNames` — `TableRunner` asking it of a row method's
+parameter, `SetVerificationComparer` of a result type's property — because a column titled one thing
+on the way in and another on the way out would be two columns.
+
 **A set of plain values names its column.** `[SetVerification(Column = "Name")]` over an
 `IEnumerable<string>`, which is Storyteller's `VerifyStringList(...).Titled(title, "Name")` with the
 same second argument doing the same job — no wrapper record and no second grammar. Left unsaid it is
@@ -251,11 +260,6 @@ its row, names the column and the alternatives, and lets the other rows run:
 - **Inline list captures.** `[FormatAs("The array of names should be {names}")]` with
   `Han, Luke, Chewie` in the cell compared a whole array from one capture (`Arrays.md`). Bobcat has no
   collection capture — the closest thing is a table, which is now a set of plain values.
-- **A header for a set's columns.** `[Header]` titles a *parameter*'s column. A set verification's
-  columns are the result type's properties, so the equivalent alias would be an attribute on the
-  property — Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`. Not built; no sample
-  needed it once the document could name the columns itself. It would have to work for `VerifySet`
-  too, where the columns are read off the result type reflectively rather than by the generator.
 - **Paragraphs.** `Paragraph("Divide numbers", …).AsTable(…)` composed a table row out of several
   grammars. Deliberately out of scope: the same decision the projected lane took about
   Storyteller's paragraphs.

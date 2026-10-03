@@ -43,7 +43,7 @@ Red spec to working slice: the command handler, the aggregate, the events, the p
 
 ### 5. Keeping the model and the code honest
 
-- `[BobcatSlice]` binds a projected test to a slice — [Specs from tests you already have](../marker-steps.md#binding-a-projected-test-to-a-slice-bobcatslice).
+- `[BobcatSlice]` binds a projected test to a slice — [Specs from tests you already have](../marker-steps.md#bobcatslice).
 - The spec-ownership manifest says which slices are specified where, with `coveredBy` so the rule
   cannot rot, validated in both directions.
 - [Checking Spec Identities Against the Model](../spec-identities.md) is the gate.

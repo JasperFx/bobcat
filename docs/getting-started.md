@@ -125,9 +125,10 @@ alongside Gherkin ones.
 
 - **[The Tutorials](tutorials/)** — the whole documentation set organized by what you are trying to accomplish, rather than by what Bobcat is made of. Start there if you are not sure which page you want
 - [Integrating Bobcat Gherkin](integrating-gherkin.md) — the two ways to make a spec project executable, and when to pick each
-- [Specs From Existing Tests](marker-steps.md) — marker comments and `[BobcatStep]` helpers, for a suite you would rather not rewrite
+- [Specs From Existing Tests](marker-steps.md) — marker comments and decorated step helpers, for a suite you would rather not rewrite
 - [The Run Lifecycle](run-lifecycle.md) and [Resources](resources.md) — what Bobcat does to your application, and when
 - [Editor Integration](editor-integration.md) — step completion and go-to-definition in VS Code and Rider
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) — the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) — the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
-- [The `bobcat` Tool](bobcat-tool.md) — reading, validating and importing Event Model files
+- [The Resident Runner](resident-runner.md) — keeping a suite available to a run console, so specs run when somebody asks
+- [The `bobcat` Tool](bobcat-tool.md) — reading, validating and importing Event Model files, and a resident runner for a projected suite

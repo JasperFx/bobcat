@@ -13,11 +13,15 @@ Sources: [`storyteller/Storyteller`](https://github.com/storyteller/Storyteller)
 ```bash
 dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
 
-# the test runner's own output only
+# the test runner's own output, plus the rendered specifications — a terminal with nothing
+# listening on the wire prints them by default now (issue #384)
 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
 
-# ...plus the rendered specifications
-BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
+# ...the runner's output only
+BOBCAT_SPEC_CONSOLE=0 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
+
+# ...the specifications even into a pipe, or with a console listening
+BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples | less -R
 ```
 
 ```bash

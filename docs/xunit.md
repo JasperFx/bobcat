@@ -47,6 +47,31 @@ It derives from xUnit v3's `BeforeAfterTestAttribute`, opening a scenario around
 closing it with **the verdict xUnit reported** — a failing test is published as a failure, and a
 skipped one is withdrawn rather than reported as anything at all.
 
+## What the lane renders now
+
+With the adapter in place, a projected suite does rather more than publish a verdict. All of it is
+covered in [Specs From Existing Tests](marker-steps.md); the short list, so you know what to look
+for:
+
+| | |
+|---|---|
+| [A rendered specification on the console](marker-steps.md#reading-the-specification-the-run-produced) | on by default in a terminal with no console listening; `BOBCAT_SPEC_CONSOLE` overrides in both directions, and `BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests` previews without running |
+| [Expected/actual cells](marker-steps.md#checks-that-gather-instead-of-throwing) | `SpecAssert.Check(name, actual, expected)` records instead of throwing, so a specification shows *every* disagreement rather than only its first. The adapter turns the gathered wrongs into the test's verdict at the end |
+| [Tables and sets](marker-steps.md#tables-and-sets-from-a-c-test) | a table literal in the test — pipe-delimited text that `StepTable` reads by an implicit conversion — so one grammar body serves a `.feature` file and a test, and both lanes render the same grid |
+| [Projected assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in) | with `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, ordinary statement-level Shouldly calls render as steps and a *run* of them is all evaluated before the next action |
+| [Listing and running one specification](spec-identities.md#listing-and-running-by-identity) | `BOBCAT_LIST_SPECS` writes what the suite specifies; an identity is translated to `--filter-method Ns.Class.method`, which is what [the resident runner](resident-runner.md) drives |
+
+One step-attribute family covers both lanes: `[Given]`, `[When]`, `[Then]`, `[Check]` and the
+keywordless `[Step]` are matched against a `.feature` file on a fixture *and* intercepted at the call
+site when a test calls the method directly. `[BobcatStep]` is the legacy spelling of the same thing.
+
+::: tip The sample corpus
+`src/Bobcat.Xunit.Samples` recreates Storyteller 5's own sample suites as ordinary xUnit v3 tests —
+sentences, facts, output parameters, tables, sets, decision tables and narrated tests. Twenty-four of
+its forty-one specifications **fail on purpose**, because the samples exist to show what each outcome
+looks like.
+:::
+
 ## Use this package rather than writing forty lines
 
 Bobcat deliberately shipped no adapter at first, on the theory that forty lines were cheaper than
@@ -76,7 +101,7 @@ adapters small.
 
 ## Turning the test into a readable specification
 
-The attribute publishes the test. Marker comments and `[BobcatStep]` helpers are what make it
+The attribute publishes the test. Marker comments and decorated step helpers are what make it
 *read* as a specification — a `// Given …` comment becomes a step, and a decorated shared helper
 declares its step once for every test that calls it.
 

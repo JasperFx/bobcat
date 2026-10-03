@@ -437,6 +437,39 @@ CI three tags in a row, with the product behaving as specified, before it was.
 `run_started.Command` (issue #392) and `mode` = `resident`. A viewer therefore follows its own
 button press to the run it produced with no new event type.
 
+**A refusal carries a machine word beside the sentence** (issue #400). `refusal` on the
+acknowledgement is one of `busy` / `unknown-spec` / `unsupported-mode` / `empty`, trailing and
+optional so an older console ignores it. The split it encodes is that **busy means *not now*** and
+the other three mean *not this*: busy is the ordinary answer to a command sent the instant
+`run_finished` arrives, and the right response is to send again. With only the prose to go on, a
+console has to match on the sentence — so a rewording here would quietly turn every busy into a hard
+rejection a person reads as a failed button.
+
+**The launch contract a parent sees** (issue #397). `BOBCAT_RUNNER_ID`, when set, **is** the
+runner's id — a runner lives under a watch and is relaunched on every source change, so a minted id
+per start meant a new runner per rebuild, a picker full of dead runners, and commands waiting on an
+id that never came back. Re-registering is idempotent, which is what makes a stable id safe. And the
+exit code is how a parent tells "relaunch me" from "I'm done": **75 (`EX_TEMPFAIL`) after a
+`restart`, 0 on an orderly stop.** 0 could not carry both, because 0 is also what a *non-resident*
+host returns after running its whole suite — a parent relaunching on 0 would run such a suite in a
+loop forever.
+
+**A commanded run reports no `Session`** (issue #401). `MonitorRunInfo.Session`'s getter returns null
+whenever `Command` is set, so a `with { Command = … }` anywhere honours it. A resident runner started
+from an agent's terminal holds that agent's `CLAUDE_CODE_SESSION_ID` for its whole life, and without
+the rule every run it made for a button press was attributed to the session that launched the
+*runner*. `Tag` is unaffected: it answers a different question.
+
+**A second lane, out of process** (issue #399). A projected suite's entry point belongs to its test
+framework, so its runner lives outside the suite and runs a command by launching the suite's own test
+host, narrowed by #391's filter translation. It ships as `bobcat resident <host>` because the console
+at the other end references nothing in this repository and so cannot be handed a class to host.
+Cold-only, for the measured reason above. The child's environment is **pruned on purpose**:
+`BOBCAT_RUN_ID` would collapse every command into one run card, `BOBCAT_RUN_OWNER` would stop the
+child publishing a bracket at all, `BOBCAT_LIST_SPECS` would turn the run into a listing, and
+`BOBCAT_RESIDENT` would have the child register itself instead of running; `BOBCAT_MONITOR=1` is
+forced on and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`.
+
 **The never-slow-never-fail invariant covers this wire too.** No monitor → an idle process that
 keeps asking on a capped backoff. A dropped stream → reconnect with `Last-Event-ID`. Anything
 unparseable → ignored, not fatal. The one message that can end the process is `restart`, which
@@ -444,12 +477,13 @@ means exactly that.
 
 ## Not built yet
 
+**Step result cells are no longer on this list.** `StepFinished.Cells` and `StepProgress.Cells`
+carry them in both lanes, and `StepCell.Value` (issue #396) completed the shape — so a table step's
+failure travels as a marked-up grid rather than the sentence it used to be flattened into.
+
 - **Elapsed-vs-expected per step.** Step progress (Bobcat-side seams item 5) carries elapsed;
   "expected" needs a duration history across runs, which is the same committed ledger #44 layer 2
   and #56 layer 3 want — one store, not three. See `design/ledger-design.md`.
-- **Step result cells.** `label / expected / actual / comparison / verdict` on a step result, so a
-  table step's failure travels as a marked-up table instead of the sentence it is flattened into
-  today. That is issue #324, left out of #322 deliberately rather than bundled in.
 - **Supervisor-side test updates beyond progress.** `ISupervisorObserver.TestUpdated` (item 5's
   tap) is supervisor-side only; item 7 forwards the part of it that a progress bar needs and no
   more.

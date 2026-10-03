@@ -1801,14 +1801,27 @@ the correlation hook — an opaque string Bobcat stamps on a run and never inter
 - `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
 - `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
 - `docs/composing-grammars.md` — User-facing guide to grammar composition: parameterized
-  `[IncludeGrammars]` and scenario state (check its HTTP section against the code — the
-  `CritterStackHttpFixture` vocabulary it describes was deleted on 2026-09-21)
+  `[IncludeGrammars]`, scenario state, and why the HTTP lane is a hand-written act over
+  `WhenTracked` rather than the shipped vocabulary deleted on 2026-09-21
+- `docs/marker-steps.md` — The projected lane, user-facing: the one step-attribute family across
+  both lanes and its two expression syntaxes, the rendered spec console (`BOBCAT_SPEC_CONSOLE` /
+  `BOBCAT_SPEC_PREVIEW`), `SpecAssert`, tables and sets from a table literal, projected Shouldly
+  assertions, `[BobcatSlice]`, the spec-ownership manifest, and BOBCAT027–031
+- `docs/tutorials/data-intensive-specifications.md` — Tables, table grammars, set verification and
+  decision tables in **both** lanes, the cell expressions (`NULL`/`EMPTY`/relative times) and the
+  four row markers. Written from the two sample corpora; was an outline until 2026-10-02
+- `docs/resident-runner.md` — The resident runner, user-facing: `--resident` on both Gherkin entry
+  points, the four refusals, cold vs warm, the 75/0 exit contract, `BOBCAT_RUNNER_ID`, and
+  `bobcat resident <host>` for the out-of-process lane
+- `docs/spec-identities.md` — Both halves: #391's listing and running by identity
+  (`BOBCAT_LIST_SPECS`, `SpecSelection`, `SpecFilterArguments`) and #338's `SpecIdentityAudit`
 - `docs/warm-projected-runs.md` — Issue #394's findings: why the projected lane is cold-only in
   the resident runner, what MTP server mode actually does on 1.9.1, and what closing the gap would
   cost
 - `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
   code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
   and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which
-  attribute shapes each editor sees — `[Check]` and `[TableGrammar]` are invisible — and why a
-  `[Then]` stacked on a `[Check]` is now guaranteed to stay a check.
+  attribute shapes each editor sees — `[Check]`, `[Step]` and `[TableGrammar]` are invisible, and
+  so is a named-template expression's `{sum}` — and why a `[Then]` stacked on a `[Check]` is now
+  guaranteed to stay a check (`StepAttributes.On` picks the strongest claim, not the last one).
 - Alba source at ~/code/alba, JasperFx source at ~/code/jasperfx

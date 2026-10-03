@@ -174,11 +174,13 @@ public class StepAttribute : Attribute
     /// when the method is called from C#.
     /// </para>
     /// <para>
-    /// <b>Which one is in force is decided per expression, not per project:</b> when every
-    /// placeholder names a parameter of the method, it is a named template; otherwise it is a
-    /// Cucumber expression. An expression with no placeholders reads identically either way. Mixing
-    /// the two in one expression is <c>BOBCAT028</c> — there is no reading of <c>{int} plus {y}</c>
-    /// that is not a guess.
+    /// <b>Which one is in force is decided per PLACEHOLDER, not per expression and not per
+    /// project:</b> a built-in type word wins, so <c>{int}</c> stays a Cucumber capture even on a
+    /// method with a parameter called <c>int</c> and nothing that compiled before means anything
+    /// different; a placeholder that is not a built-in word and does name a parameter is the named
+    /// form. An expression with no placeholders reads identically either way, and <b>mixing the two
+    /// is allowed</b> — <c>"the {aggregate} has {count} events"</c> is a natural thing to write and
+    /// there is no ambiguity in it, because each placeholder is resolved on its own.
     /// </para>
     /// </remarks>
     public string Expression { get; }

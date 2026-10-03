@@ -53,7 +53,8 @@ export default defineConfig({
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
-          { text: 'Checking Spec Identities', link: '/spec-identities' },
+          { text: 'Spec Identities', link: '/spec-identities' },
+          { text: 'The Resident Runner', link: '/resident-runner' },
           { text: 'Editor Integration', link: '/editor-integration' }
         ]
       },
@@ -72,7 +73,8 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Parallel-Ready Suites', link: '/parallel-ready-suites' },
-          { text: 'What a Run Publishes', link: '/monitor-design' }
+          { text: 'What a Run Publishes', link: '/monitor-design' },
+          { text: 'Warm Runs for Projected Suites', link: '/warm-projected-runs' }
         ]
       }
     ],

@@ -31,7 +31,16 @@ public async Task deposit_increases_the_balance()
 }
 ```
 
-A `[BobcatStep]` on a shared helper declares it once, so every test that calls it reads as that step.
+A step attribute on a shared helper declares it once, so every test that calls it reads as that
+step — `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` all work here and in
+the Gherkin lane alike. (`[BobcatStep]` is the legacy spelling of the same thing.)
+
+What that buys you beyond a verdict: the run
+[prints the specification it produced](../marker-steps.md#reading-the-specification-the-run-produced),
+a step can report an [expected/actual cell](../marker-steps.md#checks-that-gather-instead-of-throwing)
+without ending the test, and
+[tables and sets](../marker-steps.md#tables-and-sets-from-a-c-test) grid up from a table literal in
+the test exactly as they do from a `.feature` file's trailing `|...|` block.
 
 Three things to know before you start:
 

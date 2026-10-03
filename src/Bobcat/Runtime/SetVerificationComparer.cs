@@ -265,11 +265,11 @@ public static class SetVerificationComparer
     }
 
     /// <summary>
-    /// A comma-separated key column list, read the way the generator reads
-    /// <c>[SetVerification(KeyColumns = "…")]</c> — split on commas, each name trimmed. The
-    /// generator materializes that split at compile time into the array it emits; this is the same
-    /// reading for a list that arrives as an argument, so the two forms cannot mean different
-    /// things over the same string.
+    /// A comma-separated key column list — split on commas, each name trimmed. <b>The one authority
+    /// on that reading:</b> generated code for <c>[SetVerification(KeyColumns = "…")]</c> calls this
+    /// too rather than splitting the string itself at compile time, exactly as it calls
+    /// <see cref="CellValues.Read{T}"/> for a cell, so the declarative form and a list that arrives
+    /// as an argument cannot mean different things over the same string.
     /// </summary>
     public static string[] ParseKeyColumns(string keyColumns)
         => string.IsNullOrWhiteSpace(keyColumns)

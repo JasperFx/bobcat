@@ -10,6 +10,15 @@ The compile-time discipline holds throughout. The generator reads every module's
 type symbol, so an unmatched step is still a compile error, type captures still resolve at
 compile time (BOBCAT011/012), and an ambiguous step is still BOBCAT013.
 
+::: tip One grammar body, both lanes
+`[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` all work in **both** authoring
+styles: matched against a `.feature` file's step text here, and intercepted at the call site when an
+ordinary xUnit or TUnit test calls the method directly. A grammar whose steps take a `StepTable`
+parameter is callable from either — the document supplies the table in one lane and the caller
+supplies it as a table literal in the other, and nothing in the grammar knows which. See
+[Specs from tests you already have](marker-steps.md#tables-and-sets-from-a-c-test).
+:::
+
 ## Parameterized modules
 
 Constructor arguments after the module type flow to the module's construction:
@@ -115,7 +124,6 @@ grammar before it could write its first scenario (issue #270).
 ```csharp
 [FixtureTitle("Shipments")]
 [IncludeGrammars(typeof(DocumentGrammars))]
-[IncludeGrammars(typeof(DocumentGrammars))]
 public class ShipmentsFixture : WolverineCritterStackFixture;
 ```
 
@@ -138,6 +146,19 @@ followed rather than replaced with a second convention. A document has fields th
 care about, and demanding a column for each makes the table say things the scenario does not mean.
 The arrange is partial for the same reason; a column matching nothing is still refused by name.
 
+**The assertion renders as a grid, not a sentence.** `Then the {document} with id {string} has` and
+`Then the {readmodel} read model contains` both used to flatten the whole comparison into one
+exception message — `"AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0,
+was 1; Confirmed: expected 0, was -1"` — a sentence a reader has to parse to find the one column that
+disagreed, with three green columns nobody ever saw. As cells it is a one-row grid with a verdict per
+column (`Runtime.PropertyCells`, issue #384).
+
+It is deliberately **not** a set verification of one row: a set matches rows by key columns, so a
+single wrong value there is a missing row beside an extra one, where here the subject is known and
+the columns *are* the claim, so a wrong value is one failed cell. Different question, different
+comparison — but the same `CellCheck` underneath, so a document column and a set column disagree in
+the same words, and the same `ColumnNames`, so a property titled by `[Header]` is titled here too.
+
 Three things worth knowing:
 
 - **`{document}` is a capture word of its own**, beside `{type}`/`{aggregate}`/`{command}`/
@@ -145,9 +166,9 @@ Three things worth knowing:
   stamps **no Event Modeling role** — a document-backed application has no stream, and putting an
   aggregate or read model on the canvas for it would describe nothing. Inert by construction: the
   emitter switches on the role words and lets this one fall through, as it does `{type}`.
-- **The base class above is for the messaging vocabulary, not for event sourcing.**
-  the base fixture's stream steps simply go unused; `Then {message} is sent` and the refusal
-  checks work with no stream at all. `DocumentGrammars` itself derives from `Fixture`, so a project
+- **The base class above is for the messaging vocabulary, not for event sourcing.** On a
+  document-backed application the base fixture's stream steps simply go unused; `Then {message} is
+  sent` and the refusal checks work with no stream at all. `DocumentGrammars` itself derives from `Fixture`, so a project
   that only wants documents composes it onto a bare fixture and references no event-sourcing
   vocabulary.
 - **Store-agnostic, like everything else here.** The steps reach the store through

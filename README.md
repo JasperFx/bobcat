@@ -26,7 +26,8 @@ systems with databases, message brokers, background processing, and many moving 
   xUnit.net or TUnit, and let Bobcat render them as readable specifications.
 - **Supervise** a large suite so its results can be trusted. It can split the suite across worker
   processes, isolate resources per lane, retry within budgets, and report flakiness honestly
-  instead of burying it.
+  instead of burying it. A suite can also stay *resident*, running the specifications a run console
+  asks for — in either authoring lane.
 - **Specify** end to end. Executable specifications still read as requirements, and they can be
   scaffolded slice by slice from an Event Model. Bobcat has first-class support for the Critter
   Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher)
@@ -66,7 +67,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 | [`Bobcat.EntityFrameworkCore`](https://www.nuget.org/packages/Bobcat.EntityFrameworkCore/) | The `[EfCoreEntities]` persistence recipe for data-setup tables |
 | [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) | Renders an existing xUnit.net v3 or TUnit suite as specifications, without changing how it runs |
 | [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) / [`Bobcat.EventModel.Scaffolding`](https://www.nuget.org/packages/Bobcat.EventModel.Scaffolding/) | Curated Event Model files, and scaffolding slices from them |
-| [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files |
+| [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files, and keeps a suite Bobcat does not own available to a run console |
 
 ```bash
 dotnet add package Bobcat

@@ -3,8 +3,10 @@
 Issue #110. The other two authoring styles ask you to write a specification: a `.feature` file
 bound to a fixture. This one asks for
 almost nothing. You point Bobcat at tests that already exist, in whatever runner they already use,
-and they start reporting themselves as specifications — ordered steps, a `{Feature}/{Scenario}`
-identity, and live progress [on the wire a run publishes](monitor-design.md).
+and they start reporting themselves as specifications — ordered steps with their own verdicts, a
+`{Feature}/{Scenario}` identity, [a rendered specification on the console](#reading-the-specification-the-run-produced),
+tables and sets that grid up the same way a `.feature` file's do, and live progress
+[on the wire a run publishes](monitor-design.md).
 
 The constraint that shaped it: a large existing suite has to be able to adopt this **one class at
 a time**, without a base class, a signature change, or a rewrite. Anything more expensive than
@@ -50,11 +52,11 @@ is the property that makes this usable on a real suite full of explanatory comme
 steps at compile time, but without the adapter no scenario is ever opened, so nothing publishes —
 you get the half of the feature that is invisible.
 
-**`[BobcatStep]`** goes the other way. Decorate a shared helper once and *every* test that already
-calls it renders that step:
+**A step attribute on a shared helper** goes the other way. Decorate it once and *every* test that
+already calls it renders that step:
 
 ```csharp
-[BobcatStep("the events are published on {threads} threads", Keyword = "Given")]
+[Given("the events are published on {threads} threads")]
 internal Task PublishMultiThreaded(int threads) => …
 ```
 
@@ -64,6 +66,49 @@ internal Task PublishMultiThreaded(int threads) => …
 The two compose. Comments give a test its narrative; decorated helpers give real per-step timing
 across every test in the suite that touches them.
 
+### One attribute family, both lanes
+
+`[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` all derive from one
+`StepAttribute`, and **every one of them works in both authoring styles**: matched against a
+`.feature` file's step text on a fixture, and intercepted at the call site when an ordinary xUnit or
+TUnit test calls the method directly. There used to be a second vocabulary for the second case —
+`[BobcatStep]` — and the split had no reason behind it: a step's text and keyword are the same facts
+whichever way the step is reached.
+
+`[BobcatStep]` is still accepted and still means the same thing. Prefer the keyword attributes in new
+code; its `Keyword = "Given"` property is what `[Given]` says in one word.
+
+Each expression may be written in **either** of two syntaxes:
+
+| | |
+|---|---|
+| a **Cucumber expression** | captures by *type* and position — `"the left operand is {int}"`, plus `{string}`, `{word}`, the Event Modeling type words (`{aggregate}`, `{command}`, `{event}`, …), optional text and raw regex |
+| a **named template** | Storyteller's `[FormatAs]` syntax, capturing by *parameter name* — `"Adding {x} to {y} should equal {sum}"` over `double Adding(double x, double y, double sum)` |
+
+Which one is in force is decided **per placeholder**, built-in word first: `{int}` stays a Cucumber
+capture even on a method with a parameter called `int`, so nothing that compiled before means
+anything different. A placeholder that is not a built-in type word and does name a parameter is the
+named form. The two mix freely in one expression — `"the {aggregate} has {count} events"` is a
+natural thing to write and there is no ambiguity in it, because each placeholder is resolved on its
+own.
+
+In the named form the parameter's own declared type decides how a cell is read, so the step text says
+what the value *is* rather than merely what type it has — and the same string renders the sentence
+when the method is called from C#.
+
+**Keywordless is a real choice, not a default.** Storyteller sentences and Gauge steps read as prose,
+and "Multiply by 3 then add 4" is not a Given, a When or a Then:
+
+```csharp
+[Step("Multiply by {multiplier} then add {delta}")]
+internal void MultiplyThenAdd(int multiplier, int delta) { … }
+```
+
+In the Gherkin lane a keywordless step matches under *any* keyword — the rule `[TableGrammar]` has
+always followed — so the feature file decides, which is where that decision belongs. An empty keyword
+is a third state distinct from "unknown": it renders no label, and it is never promoted to `And`,
+because `And` is a word the author never wrote.
+
 ### A placeholder binds from the value, not from the syntax (issue #339)
 
 A literal argument is substituted at build time. Everything else binds **at execution time**, from
@@ -71,10 +116,10 @@ the value the helper was actually called with — which matters because a typed 
 almost no literals in it:
 
 ```csharp
-[BobcatStep("{aggregate} \"{id}\" has already recorded these events", Keyword = "Given")]
+[Given("{aggregate} \"{id}\" has already recorded these events")]
 internal Task GivenEvents(Type aggregate, Guid id) => …
 
-[BobcatStep("{command} is posted to \"{route}\"", Keyword = "When")]
+[When("{command} is posted to \"{route}\"")]
 internal Task WhenPosted(object command, string route) => …
 ```
 
@@ -160,7 +205,7 @@ Marker comments reach the runtime through a module initializer, which is why opt
 only comments -- nothing in a test body could have been made to carry them, and an assembly with no
 marked class gains no initializer and no startup cost.
 
-### `[BobcatStep]` helpers cannot be `protected`
+### A decorated helper cannot be `protected`
 
 A C# interceptor must be an extension method, and an extension method cannot see a `protected`
 member. So every decorated helper has to be `internal` or `public`. This is a language rule rather
@@ -207,6 +252,311 @@ read at that point at all -- reporting one would mean replacing the test framewo
 hooking it. v3 and TUnit both hand the result over at the end of a test, which is what makes their
 adapters small.
 
+## Reading the specification the run produced
+
+Everything a projected test records leaves the process over the monitor wire, and for a long time
+that was the *only* way out — so the rendering, which is the whole point of projecting tests in the
+first place, was the one thing a consumer could not see without a console running somewhere.
+
+**A projected run now prints its specifications itself**, grouped by feature, in the same Spectre
+output a `.feature` suite gets:
+
+```
+Feature: Calculator
+════════════════════
+
+  arithmetic holds OK
+    ✓ Start with the number 5
+    ✓ Multiply by 3 then add 4
+    ✓ The number should now be 17
+        ✓ number: 17
+
+  asserting values FAILED
+    ✓ For X=2 and Y=3, the Sum should be 5 and the Product should be 6
+    ✗ For X=4 and Y=4, the Sum should be 6 and the Product should be 8
+        ✗ Sum: expected '6', got '8'
+        ✓ Product: 8
+    ✓ For X=1 and Y=1, the Sum should be 2 and the Product should be 1
+
+2 specification(s) — not green
+```
+
+It is on **when a terminal is attached and nothing is listening on the wire** — precisely the case
+where the run would otherwise say nothing at all. Those two conditions are what keep it from being a
+nuisance: a redirected stream belongs to whoever redirected it (a test platform, a CI runner, a
+pipe), and a console on the wire already renders these specifications better than Spectre can, so
+printing them twice would read as two reports of one run.
+
+| | |
+|---|---|
+| `BOBCAT_SPEC_CONSOLE=1` | print anyway — into a captured stream, with a console listening |
+| `BOBCAT_SPEC_CONSOLE=0` | stay silent — in a terminal, with nothing listening |
+| unset | the default above decides |
+
+The variable is deliberately a **tri-state**. Collapsed to a bool, "somebody said no" and "nobody
+said" are the same value, and `BOBCAT_SPEC_CONSOLE=0` would have printed anyway.
+
+`BOBCAT_SPEC_PREVIEW=1` is the other half — every projected specification **without** its results,
+the projected lane's answer to [`preview`](integrating-gherkin.md#preview),
+including which helper each step binds to. Pair it with the platform's own `--list-tests` to preview
+without executing anything at all: the plan is registered by a module initializer, so it is known
+before a single test runs.
+
+```bash
+BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests
+```
+
+Both are written at **process exit**, not after the last test — nothing here knows which test is the
+last one, and the runner does not say. `ProjectedSpecConsole.Captured` is the seam for a consumer
+that would rather render or assert on the specifications itself.
+
+Two things worth knowing about the report's shape. Scenarios are ordered **alphabetically within a
+feature**, because a test runner is free to run tests in any order and in parallel, so finish order
+changes between runs of an unchanged suite and makes two reports impossible to diff — source order
+would be better still, and is a compile-time fact the generator does not currently register. And a
+scenario that declares no steps renders as `OK` with a dim "declares no steps" line, where Bobcat
+treats a zero-step scenario as a pending-specification hotspot everywhere else.
+
+## Checks that gather instead of throwing
+
+An assertion library throws, and a throw ends the test method — so a projected specification could
+only ever show its *first* disagreement, with every later step unrun. Storyteller's
+`Asserting_Values.md` sample is the case that makes it concrete: it reaches five sentences and shows
+five verdicts, and its own comment says the middle one was written wrong on purpose.
+
+`SpecAssert` is how a step reports a comparison without ending the test:
+
+```csharp
+[Then("The value should be {value}")]
+internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
+```
+
+| | |
+|---|---|
+| `SpecAssert.Check(name, actual, expected)` | one expected/actual cell, named for the placeholder it belongs to — so the verdict renders *in* the sentence where the value sits. Takes `rowIndex:` for a table row |
+| `SpecAssert.Fact(condition, because)` | a boolean verdict with no pair of values |
+| `SpecAssert.Fail(message)` | a failure the step describes itself |
+| `SpecAssert.Gather(action)` | run an assertion that *does* throw — Shouldly, xUnit, NUnit — and record it as this step's failure instead of ending the test. **Only an assertion** is gathered; anything else is rethrown unchanged, because swallowing a `NullReferenceException` would turn a broken test into a merely red one |
+
+`Check` runs the same `CellCheck` comparison the Gherkin lane's return-value verification runs, so a
+projected check and a `.feature` check on the same value agree and render identically.
+
+**The runner still has to be told**, or a red specification would be reported as a green test. The
+gathered wrongs become the test's verdict once, at the end, when the adapter's after-test hook throws
+them — xUnit and TUnit both fold an exception from there into the test's own result:
+
+```
+failed CalculatorSpecs.asserting_values
+  SpecAssertionException : 1 specification step failed:
+    And For X=4 and Y=4, the Sum should be 6 and the Product should be 8 => Sum: expected '6', got '8'
+```
+
+A `bool`-returning step is the other shape, unchanged from Storyteller: the answer *is* the verdict,
+with no `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real
+duration.
+
+## Tables and sets from a C# test
+
+A C# test has no trailing `|...|` block, so a table arrives as **pipe-delimited text** that
+`StepTable` reads by an implicit conversion:
+
+```csharp
+[Given("the roster is")]
+internal void TheRosterIs(StepTable roster) { /* … */ }
+```
+
+```csharp
+_roster.TheRosterIs("""
+    | player       | position |
+    | Nolan Ryan   | Pitcher  |
+    | Johnny Bench | Catcher  |
+    """);
+```
+
+**One grammar body serves both lanes.** `TheRosterIs(StepTable roster)` is the same method a
+`.feature` file binds to; the document supplies the table there and the caller supplies it here, and
+nothing in the grammar knows which. Both lanes then render the same grid, because a table becomes
+cells carrying a row index plus the column order either way.
+
+A markdown table pastes in unchanged — the alignment row is recognised and dropped, outer pipes are
+optional, cells are trimmed — so the table in the specification, the table in the pull request and
+the table in the test are the same text. What is deliberately not supported is markdown's escaping
+and inline formatting: a cell is the text between pipes, because that is what a Gherkin cell is, and
+two rules for reading a cell is how the lanes would drift.
+
+The two alternatives were both worse. Calling a row helper once per row renders as N steps and loses
+the grid. A collection-of-tuples argument (`void Sum((int x, int y, int sum)[] rows)`) grids up fine
+but is a second signature written for the C# lane beside the one the document binds to, so a change
+to the vocabulary has to be made twice.
+
+### A table of objects, and a decision table
+
+`BuildRows<T>` is Storyteller's `CreateNewObject<T>` — the rows *are* the input, built through the
+same cell conversion the Gherkin lane uses, so `TODAY+30` is a date and a field the record defaults
+need not appear in the table at all:
+
+```csharp
+[Given("the signings are")]
+internal void TheSigningsAre(StepTable table)
+{
+    _signings.Clear();                                         // before all rows
+    _signings.AddRange(TableRunner.BuildRows<Signing>(table));
+    // one save, here                                          // after all rows
+}
+
+public record Signing(string Player, Position Position, DateOnly StartsOn, int Years = 1);
+```
+
+```csharp
+_roster.TheSigningsAre("""
+    | Player       | Position | StartsOn |
+    | Nolan Ryan   | Pitcher  | TODAY    |
+    | Johnny Bench | Catcher  | TODAY+30 |
+    """);
+```
+
+A **decision table** is the same shape with the grammar reporting one cell per row, so the grid
+carries a verdict per row:
+
+```csharp
+[Then("adding numbers together")]
+internal void AddingNumbersTogether(StepTable sums)
+{
+    var rows = sums.AsDictionaries();
+
+    for (var i = 0; i < rows.Count; i++)
+        SpecAssert.Check("sum", int.Parse(rows[i]["x"]) + int.Parse(rows[i]["y"]),
+            int.Parse(rows[i]["sum"]), rowIndex: i);
+}
+```
+
+The comparison supersedes the value the literal wrote for that column, which is why a wrong row reads
+`expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
+
+On a grammar that inherits `Fixture`, `BuildRows<T>(table)` and `RunTable(nameof(rowMethod), table)`
+are there directly; `TableRunner` is public so a grammar that is a plain class can reach the same two.
+Everything these share with the Gherkin lane — cell tokens, `[Header]`, optional columns, a row that
+throws — is in [Data Intensive Specifications](tutorials/data-intensive-specifications.md).
+
+### A set verification a C# test can make
+
+`[SetVerification]` is declarative: the method returns the **actual** collection and the generator
+supplies the **expected** rows from the document. That is what makes it readable by a tool — and what
+puts it out of reach of a C# test, which has no way to hand it an expectation. It is the same wall a
+named-tuple return hits.
+
+A step taking a `StepTable` has no such problem, because the expected rows are an argument:
+
+```csharp
+[Then("the unordered details should be")]
+internal void TheUnorderedDetailsShouldBe(StepTable expected)
+    => SetVerificationComparer.Verify(_details, expected, keyColumns: "Name");
+```
+
+```csharp
+_sets.TheUnorderedDetailsShouldBe("""
+    | Amount | Date    | Name       |
+    | 10     | TODAY-2 | Socks      |
+    | 200    | TODAY-1 | The Pants  |
+    | 100    | TODAY   | The Shirts |
+    """);
+```
+
+```
+    ✗ Then  the unordered details should be
+╭───┬─────────────────────────┬──────────────────────┬────────────┬─────────╮
+│ # │ Amount                  │ Date                 │ Name       │ Status  │
+├───┼─────────────────────────┼──────────────────────┼────────────┼─────────┤
+│ 1 │ expected '11', got '10' │ 2026-09-29 (TODAY-2) │ Socks      │  FAIL   │
+│ 2 │ 200                     │ expected …, got …    │ The Pants  │  FAIL   │
+│ 3 │ 100                     │ TODAY                │ Sweatpants │ MISSING │
+│ 4 │ 100                     │ 2026-10-01           │ The Shirts │  EXTRA  │
+╰───┴─────────────────────────┴──────────────────────┴────────────┴─────────╯
+```
+
+The comparison is identical to the declarative form — the same comparer, the same key matching, the
+same order-after-matching rule, the same four row markers, the same grid. Only where the expected
+rows come from differs. On a `Fixture` the call is `VerifySet(actual, expected, keyColumns: "Name")`.
+
+**Prefer `[SetVerification]` where it reaches.** Its `KeyColumns`, `Ordered` and `Column` are
+compile-time facts, which is what lets the preview and the editor read them and what makes BOBCAT014
+and BOBCAT031 compile errors; as arguments, nothing can see them before the step runs. One thing the
+argument form does better: a set of plain values needs no `Column` at all, because the table is in
+view and has exactly one.
+
+## Projecting the assertions you already wrote (opt-in)
+
+With `<BobcatProjectAssertions>true</BobcatProjectAssertions>` in the project, an ordinary
+statement-level Shouldly call inside a `[BobcatFeature]` test renders as a step — no attribute, no
+helper, nothing moved:
+
+```csharp
+[Fact]
+public void every_assertion_in_a_run_is_evaluated()
+{
+    var calculator = new Calculator { Value = 3 };
+
+    // Then the calculator agrees about its value
+    calculator.Value.ShouldBe(3);
+    calculator.Value.ShouldBeGreaterThan(10);
+    calculator.Value.ShouldBeLessThan(2);
+    calculator.Value.ShouldBe(3);
+}
+```
+
+```
+  every assertion in a run is evaluated FAILED
+    ✗ Then  the calculator agrees about its value
+      ✓ Then  calculator.Value should be 3
+      ✗ And   calculator.Value should be greater than 10
+          ✗ calculator.Value: expected '10', got '3'
+      ✗ And   calculator.Value should be less than 2
+          ✗ calculator.Value: expected '2', got '3'
+      ✓ And   calculator.Value should be 3
+```
+
+A **run** of consecutive assertions is all evaluated before the next action, and the run's failures
+are thrown at its end — the point just before the next action, which would be operating on state the
+assertions have already shown to be wrong. Everything after that renders as never reached. A plain
+Shouldly test reports the first failure and leaves three blanks; here all four reach the report and
+the test still fails, once.
+
+**Only a statement-level call is projected.** `x.ShouldNotBeNull().Name.ShouldBe("a")` consumes the
+first assertion's result, so gathering it would dereference null and report a
+`NullReferenceException` instead of the assertion that failed. A call whose value is used is left
+alone, which also means a fluent chain is safe by construction.
+
+**Shouldly is the dialect Bobcat supports for 1.0.** `IAssertionDialect` in the generator is the
+seam, and FluentAssertions is the intended second. `Assert.*` is *not* planned: its subject is an
+argument whose position differs per assertion, so a sentence built from one rule reads backwards, and
+a per-method table of every xUnit assertion is a maintenance burden with no ceiling.
+
+## Listing and running one specification
+
+A projected suite answers the same two lane-neutral questions a Gherkin one does — *what do you
+specify*, and *run exactly this* — because a monitor only ever names identities and never a test
+framework's own filter:
+
+```bash
+BOBCAT_LIST_SPECS=/tmp/specs.json ./MySpecs --list-tests
+```
+
+The manifest it writes carries the lane (`projected`), the framework (`xunit`), and every
+`{Feature}/{Scenario}` with the class and method it binds to — which is the fact a framework's filter
+needs and the identity cannot supply. Bobcat then translates an identity into
+`--filter-method Ns.Class.method`, where the Gherkin lane's identity *is* the platform uid and goes
+through unchanged. See [Spec Identities](spec-identities.md#listing-and-running-by-identity)
+for the whole rule, and [The Resident Runner](resident-runner.md) for the loop a console drives it
+from.
+
+Two details matter if you are reading the manifest yourself. The binding is **recorded, not
+re-derived** — the identity is a one-way function of the names, and an explicit
+`[BobcatFeature("…")]` title shares nothing with its class name. And it is emitted on a wider rule
+than declared steps: what makes a test a specification is that `[BobcatScenario]` records it, not that
+it declared any steps. Keyed on declared steps, the first cut of this listed **8 of
+`Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and published verdicts
+perfectly well.
+
 ## Declared is not executed
 
 Two different things, kept apart on purpose:
@@ -215,7 +565,7 @@ Two different things, kept apart on purpose:
   and known before a line of it runs. That is what lets a scenario announce "step 2 of 4" up
   front, and it is trustworthy precisely because it was never inferred from what happened.
 - **Recorded steps** are what actually ran, with a duration and a verdict. They come from
-  `[BobcatStep]` interceptors.
+  step-attribute interceptors.
 
 `DeclaredSteps.For("{Feature}/{Scenario}")` reads the first at runtime; every `DeclaredStep`
 carries the source line its comment came from.
@@ -268,7 +618,7 @@ The runtime needed no change for this: `DeclaredStep.ToString()` already omitted
 rather than emitting a leading space. What was missing was any way to *write* one — and four
 rendering sites that would have shown an empty `<strong>`.
 
-## Binding a projected test to a slice — `[BobcatSlice]` (issue #324)
+## Binding a projected test to a slice — `[BobcatSlice]` (issue #324) {#bobcatslice}
 
 `[BobcatFeature]` makes a projected test *readable*. It said nothing about **which slice the test is
 evidence for**, so the slice stayed unbound on the Event Model however green the test was, and no
@@ -516,5 +866,46 @@ method. The fix is to rename the scenario in the model to something a method nam
   attributed to it, exactly, from the call site's line.
 - **A step outside a scenario is silent.** Decorated helpers get called from plenty of places that
   are not specifications, and reporting from them would be noise.
+- **An exception ends the test, so the steps after it are never judged.** This is the one
+  irreducible difference between a spec engine and a test method: Storyteller's
+  `Facts_in_Action.md` reaches all five of its lines and the projected version reaches four. It is a
+  design question rather than a bug — a continue-past-an-exception step bracket would have to
+  swallow and record, which changes what a test body means. `SpecAssert` is the way around it for a
+  comparison you *expect* might disagree.
+- **A marker comment cannot carry a cell.** A comment *declares* a step; it does not execute one, so
+  there is no step object for a comparison to attach to. A narrated test's finest available verdict
+  is its own exception — one failure, with no expected/actual pair. A decorated helper reporting
+  through `SpecAssert.Check` is what gets the cell.
+- **A projected step has no logs and no diagnostics.** The Gherkin lane renders both; a recorded step
+  carries neither, so Storyteller's `Context.Reporting.Log(...)` has no equivalent yet.
 - **Test methods are matched by attribute name** — `Fact`, `Theory`, `Test`, `TestCase` — so the
   generator needs no reference to a runner it is trying to stay neutral about.
+
+## The diagnostics this lane adds
+
+| | |
+|---|---|
+| **BOBCAT027** (warning) | A step template names no parameter of its method. Nothing can fill it, so the step renders as `{thread}` forever — before this it looked identical to a placeholder that was merely deferred |
+| **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording, because no `[BobcatScenario]` is on it. Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** — a suite that records nothing is indistinguishable at run time from a suite with nothing to record — which is why it is a compiler diagnostic |
+| **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose — it is here for the one author who meant a step and cannot see why it is missing |
+| **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
+| **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
+
+The honest limit on BOBCAT029, pinned by
+`Bobcat.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,
+`And …` is taken at its word. There is no way to tell that sentence from a step, and guessing from
+its wording would be worse than a rule an author can learn.
+
+## The sample corpus
+
+`src/Bobcat.Xunit.Samples` is Storyteller 5's own sample suites recreated one specification at a
+time as ordinary xUnit v3 tests — sentences, facts, output parameters, tables, sets, decision
+tables, narrated tests, and the projected-assertion style. **Twenty-four of its forty-one
+specifications fail on purpose**, because the samples exist to show what each outcome *looks* like.
+`src/Bobcat.Gherkin.Samples` is the same documents in the Gherkin lane, which is what keeps the two
+renderings honest about each other.
+
+```bash
+dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
+./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
+```

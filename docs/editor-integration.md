@@ -146,6 +146,18 @@ Two smaller findings from the same run:
   undefined, and go-to-definition has nowhere to go. Workaround below.
 - **`[TableGrammar]` steps are invisible.** Class-level attribute, unknown name — nothing the
   current query can see.
+- **`[Step]` — the keywordless attribute — is invisible**, for exactly the same reason as
+  `[Check]`: the query gates on the short names `Given` / `When` / `Then` / `And` / `But` /
+  `StepDefinition`, and `Step` is not one of them. Stacking is *not* the workaround here, because
+  one method yields one step and the stronger claim wins outright — a `[Then]` beside a `[Step]`
+  makes the method a Then and the `[Step]` is simply dropped, so the step stops matching under any
+  keyword. In the Gherkin lane prefer a keyword attribute; keep `[Step]` for the projected lane,
+  where no editor is reading a feature file anyway.
+- **A named-template expression reads as an unknown parameter type.** `"Adding {x} to {y} should
+  equal {sum}"` binds by parameter name at build time, but the extension knows only Cucumber's
+  parameter types, so it reports `{x}` as undefined. The expression is legal and compiles; the
+  editor simply cannot resolve it. A Cucumber expression (`{int}`) is the one to write where
+  editor support matters.
 - **Steps defined only in a referenced assembly** (see above).
 - **Raw string literals, constants, interpolated strings** as the expression.
 - Test running and debugging — the extension offers neither for C#; use the MTP host
@@ -167,9 +179,11 @@ public bool TheResultIsNotNegative() => Result >= 0;
 Before this change the generator's attribute loop let the *last* attribute win, so that stack
 was a check only if `[Check]` came second — and a `[Then]` returning `bool` with no expected
 capture is a plain sentence step that **discards the bool**, which would have turned a failing
-check into a silent pass. `BobcatGenerator.extractStepMethod` now lets `[Check]` win in either
-order; `Bobcat.Acceptance.Tests/EditorVisibleCheckTests` pins it from both directions. The
-stack is therefore a supported idiom, not an accident of ordering.
+check into a silent pass. `StepAttributes.On` now picks the **strongest claim rather than the last
+one written** — `[Check]` outranks `[Then]`, and a keyword named outright outranks one inherited
+from a base — so the outcome never depends on attribute order;
+`Bobcat.Acceptance.Tests/EditorVisibleCheckTests` pins it from both directions. The stack is
+therefore a supported idiom, not an accident of ordering.
 
 The alternative the issue floated — writing checks as `[Then]` directly — is exactly the
 bool-discarding footgun above, so do not.

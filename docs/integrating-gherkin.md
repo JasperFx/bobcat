@@ -284,7 +284,7 @@ Feature: Calculator
 The fixture is named because a feature binding to the wrong one — or to none — is the most common
 wiring mistake, and this is where it shows.
 
-#### `preview` — see the bindings, not just the prose
+#### `preview` — see the bindings, not just the prose {#preview}
 
 ```bash
 dotnet run -- preview
@@ -426,9 +426,42 @@ someone reads the output.
 
 ---
 
+## A third thing either surface can do: stay resident
+
+Both entry points answer `--resident`, and it is checked **before** either one's argument parser:
+
+```bash
+./MySpecs --resident                        # the MTP host, generated Main included
+dotnet run -- --resident                    # the command line runner
+```
+
+The host then never runs its specs at all. It registers with a run console and runs the
+specifications that console asks for, one command at a time — which is what makes a run button in a
+browser produce an ordinary run on the ordinary run board. `BOBCAT_RESIDENT=1` is the same request
+for a parent that cannot add an argument.
+
+This is the one capability that is *not* a choice between the two surfaces above: a suite written
+against `BobcatRunner.Run` before the MTP host existed gets it too. See
+[The Resident Runner](resident-runner.md).
+
+## Saying what the suite specifies
+
+Either surface writes a manifest of its specification identities when asked, and only when asked:
+
+```bash
+BOBCAT_LIST_SPECS=/tmp/specs.json ./MySpecs --list-tests
+```
+
+That is a different question from `--list-tests`, which prints *display* names. See
+[Spec Identities](spec-identities.md#listing-and-running-by-identity).
+
+---
+
 ## See also
 
 - [Integrating Bobcat with Your IDE](tutorials/ide-integration.md) — scenarios in the test explorer, end to end
 - [Integrating Bobcat with CI](tutorials/continuous-integration.md) — putting either surface in a pipeline
 - [Parallel-Ready Suites](parallel-ready-suites.md) — what the supervisor needs on top of an MTP host
-- [The `bobcat` Tool](bobcat-tool.md) — a separate global tool for Event Model files, unrelated to running specs
+- [The Resident Runner](resident-runner.md) — keeping a suite available to a run console
+- [Spec Identities](spec-identities.md) — listing and running one specification by name
+- [The `bobcat` Tool](bobcat-tool.md) — the global tool for Event Model files, and a resident runner for a suite Bobcat does not own

@@ -70,7 +70,9 @@ breath.
 
 ## Open questions for the author
 
-- Is there a Bobcat-side API to build here, or is this purely a guidance document? An
-  `IStepContext` seam for "attach this diagnostic to the current step" would be the obvious shape,
-  and does not exist today.
+- Is there a Bobcat-side API to build here, or is this purely a guidance document? The obvious
+  shape — `IStepContext.AttachDiagnostic(key, data)` — **does** exist; the open question is what
+  structure a consumer should put through it and how the report should render one. Note that a
+  *projected* step carries neither logs nor diagnostics today, so whatever this recommends has to
+  say which lane it applies to.
 - Does the JSON report already carry enough for an agent, or does this tutorial imply extending it?
