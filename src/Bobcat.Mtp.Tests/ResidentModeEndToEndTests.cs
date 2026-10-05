@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Bobcat.Residency;
 using Bobcat.Tests.Monitoring;
@@ -462,6 +463,71 @@ public class ResidentModeEndToEndTests
             catch { /* already gone */ }
         }
     }
+
+    /// <summary>
+    /// Issue #397's other half: an orderly stop exits <b>0</b>, where a restart exits 75.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The restart side of that pair is pinned twice above. This side was not, and it is the side
+    /// a parent is coded against in the dangerous direction: <c>stoat runner</c> relaunches on 75
+    /// <i>unconditionally</i>. So if anything ever made a signal return 75 — a
+    /// <c>RestartRequested</c> that cancellation also sets, say — a parent would relaunch a runner
+    /// an operator had deliberately stopped, and go on doing it forever. Nothing else in the suite
+    /// would notice: every other exit-code assertion here is about the restart path, which would
+    /// still be perfectly correct.
+    /// </para>
+    /// <para>
+    /// SIGTERM rather than SIGINT because that is what a parent and a container actually send, and
+    /// <c>Process.Kill()</c> is no use here — it sends SIGKILL, which the runner cannot handle by
+    /// construction and which reports 137 rather than an exit code of the runner's choosing. The
+    /// signal is sent through libc so the test needs no assumption about where <c>kill</c> lives.
+    /// </para>
+    /// <para>
+    /// It stops the runner <b>after</b> it has registered, because that is the state an operator
+    /// stops one in — a process still resolving its monitor is a different path, and the one this
+    /// is not about.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task an_orderly_stop_exits_zero_so_a_parent_does_not_relaunch_it()
+    {
+        Assert.SkipWhen(
+            OperatingSystem.IsWindows(),
+            "SIGTERM cannot be sent to another process on Windows; the runner's signal handling is POSIX");
+
+        using var monitor = new FakeMonitorHost();
+        using var process = launch(monitor);
+
+        try
+        {
+            await eventually(
+                () => payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType),
+                "the host never registered, so it was never in the state an operator stops");
+
+            kill(process.Id, SIGTERM).ShouldBe(0, "SIGTERM could not be delivered");
+
+            await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+
+            process.ExitCode.ShouldBe(
+                0,
+                "an orderly stop says 'I am done'. the runner said:\n  " + log());
+
+            process.ExitCode.ShouldNotBe(
+                ResidentMode.RestartExitCode,
+                "75 means 'relaunch me', and a parent relaunches on it unconditionally");
+        }
+        finally
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch { /* already gone */ }
+        }
+    }
+
+    private const int SIGTERM = 15;
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int kill(int pid, int sig);
 
     [Fact]
     public async Task a_resident_host_with_no_monitor_stays_up_rather_than_exiting()
