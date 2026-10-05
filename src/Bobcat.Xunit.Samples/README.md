@@ -29,7 +29,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Twenty-four of the forty-one specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Twenty-six of the forty-five specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 ## What is covered
@@ -53,9 +53,13 @@ BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 | `Specs/Sets/Object_Sets.md` | `SetSpecs.an_unordered_set_*` / `every_cell_*` / `an_ordered_set_*` | green / two wrong cells + a mismatch / a reordering |
 | `Specs/Sets/Data_Tables.md` | `SetSpecs.every_row_*` / `the_database_has_*` / `the_specification_expects_*` / `a_row_whose_key_*` | green / extra row / missing row / mismatch |
 | `Specs/Sets/String_Lists.md` | `SetSpecs.a_set_of_names_*` | a reordering, and a name nobody has |
+| `Specs/Create Objects/Using_VerifyObject.md` | `ObjectSpecs.only_the_properties_the_document_names_are_compared` | green, three of six fields |
+| `StoryTeller.Samples/Specs/General/Check properties.md` | `ObjectSpecs.every_named_property_agrees` / `one_property_disagrees` / `every_property_disagrees` | green / one wrong column / every column wrong |
 | — | `NarratedSpecs.*` | the marker-comment style, for contrast |
 
-Not yet: `create_object`/`verify_object`, `ApiFixture`, `ModelFixture`, selection lists, `Arrays.md`
+Not yet: the five `Create Objects` documents about *constructing* an object rather than checking one
+(`Set_Up_a_Single_Address`, `As_Table`, `Using_ObjectIs`, `Using_WithInput`, `Using_LoadObjectBy` —
+`BuildRows<T>` covers the table form), `ApiFixture`, `ModelFixture`, selection lists, `Arrays.md`
 (no collection capture — see the Gherkin lane's README), Paragraphs (deliberately out of scope).
 
 ## Tables: a table literal in the test
@@ -162,6 +166,32 @@ the disagreeing column is a key column — row 3 and row 4 above are the single 
 Shirts` disagreement. That is `KeyColumns` doing its job: naming fewer of them is what turns a
 mismatch back into a cell-level difference, and `Data_Tables.md`'s "Mismatch in Rows" is the sample
 that shows it.
+
+## Objects: one object against one row
+
+Storyteller's `VerifyObject` from the C# side — `Grammars/ObjectsGrammar.cs` and `Specs/ObjectSpecs.cs`:
+
+```csharp
+[Then("the address should be")]
+internal void TheAddressShouldBe(StepTable expected) => PropertyCells.Verify(_address, expected);
+```
+
+```csharp
+_objects.TheAddressShouldBe("""
+    | Address1     | Address2 | City   |
+    | 3 1st Street | EMPTY    | Dallas |
+    """);
+```
+
+**One grammar body, both lanes**, exactly as for tables and sets:
+`Bobcat.Gherkin.Samples/ObjectsFixture.cs` recreates these same documents declaratively and the grids
+are identical, because the comparison is — `PropertyCells` underneath and `CellCheck` under that, so
+a property column and a set column disagree in the same words. On a `Fixture` the call is
+`VerifyObject(...)` directly, the sibling of `VerifySet`, `RunTable` and `BuildRows`.
+
+Only the columns the row names are compared. This is also the one grammar family with **no
+declarative twin**, and deliberately: there is nothing to configure, so an attribute would carry no
+information — see the Gherkin lane's README for why that is worth saying out loud.
 
 ## One attribute family, two expression syntaxes
 

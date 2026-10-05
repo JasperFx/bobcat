@@ -5,7 +5,7 @@ before anything happens, and a whole collection verified afterwards instead of a
 one `Given` line per row, those specifications stop being readable long before they stop being
 useful.
 
-Bobcat inherited four mechanisms from Storyteller for exactly this, and they all render as **one
+Bobcat inherited these mechanisms from Storyteller for exactly this, and they all render as **one
 grid per step**:
 
 | | |
@@ -14,6 +14,7 @@ grid per step**:
 | **[A table the step runs itself](#a-table-the-step-runs-itself)** | the same, with the before/after envelope written in the step's own body |
 | **[A set verification](#set-verification)** | a collection compared against expected rows, matched by key rather than by position |
 | **[A decision table](#decision-tables)** | one row per case, inputs and expected outputs in the same table |
+| **[One object against one row](#one-object-against-one-row)** | a single object's properties checked against the columns a row names |
 
 Everything on this page works in **both lanes**. The Gherkin examples come from
 `src/Bobcat.Gherkin.Samples`, the C# ones from `src/Bobcat.Xunit.Samples`, and the two projects are
@@ -382,6 +383,73 @@ The escape hatch is Bobcat's existing failure vocabulary rather than a new one. 
 `SpecCriticalException` still aborts the scenario and a `SpecCatastrophicException` still stops the
 suite, so a fixture that means "stop here" can still say so, and cancellation propagates untouched.
 The rows already reached stay on the grid even then.
+
+## One object against one row
+
+The three mechanisms above are about *many* rows. This one is about a single object, and the columns
+the row names are compared against the properties of those names — Storyteller's `VerifyObject`:
+
+```csharp
+[Then("the address should be")]
+public void TheAddressShouldBe(StepTable expected) => VerifyObject(_address, expected);
+```
+
+```gherkin
+Then the address should be
+  | Address1     | Address2 | City   |
+  | 3 1st Street | EMPTY    | Dallas |
+```
+
+**Only the columns the row names are compared.** An address has six fields and a specification that
+names three means nothing by the other three, which is the same partial rule set verification and the
+event-store grammars follow rather than a second convention. Cell tokens read as they do anywhere
+else, so `EMPTY` above is the empty string.
+
+From a C# test, where the grammar is a plain class rather than a `Fixture`, the static is
+`PropertyCells.Verify(subject, expected)` — the same split `VerifySet` and `RunTable` have.
+
+It renders as a one-row grid with a verdict per column:
+
+```
+    ✗ Then  the address should be
+╭───┬─────────────────────┬─────────────────────┬─────────────────────┬────────╮
+│ # │ Address1            │ City                │ StateOrProvince     │ Status │
+├───┼─────────────────────┼─────────────────────┼─────────────────────┼────────┤
+│ 1 │ expected '9 Ninth   │ expected 'Houston', │ expected 'OK', got  │  FAIL  │
+│   │ Way', got '2 Second │ got 'Austin'        │ 'TX'                │        │
+│   │ Lane'               │                     │                     │        │
+╰───┴─────────────────────┴─────────────────────┴─────────────────────┴────────╯
+```
+
+That grid is also what the two shipped event-store assertions now render —
+`Then the {readmodel} read model contains` and `Then the {document} with id {string} has`. They used
+to flatten the whole comparison into one exception message:
+
+```
+AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0, was 1; Confirmed: expected 0, was -1
+```
+
+Three cells green, two red, rendered as a sentence a reader has to parse.
+
+### It is not a set verification of one row
+
+A set matches rows by key columns, so a single wrong value there becomes a missing row beside an
+extra one. Here the subject is known and the columns *are* the claim, so a wrong value is one failed
+cell. Different question, different comparison — but the same `CellCheck` underneath, so a property
+column and a set column disagree in the same words, and the same `ColumnNames`, so a property titled
+by `[Header]` is titled here too.
+
+### The one family with no declarative twin
+
+Everywhere else the declarative form is canonical where it reaches — `[SetVerification]` over
+`VerifySet`, `[Table]` over `RunTable` — because those carry settings that are compile-time facts the
+preview and the editor can read. This one has **nothing to configure**: the columns come from the
+table and the subject from the method, so an attribute would carry no information and buy nothing.
+
+One consequence follows from that rather than being a separate decision: a column naming no property
+is an `invalid` cell **at run time**, listing what the type does have. It cannot be a compile-time
+diagnostic, because the generator would need the subject's type in view and in this form the subject
+is a value the step chooses.
 
 ## Comparison options
 

@@ -151,6 +151,51 @@ public abstract partial class Fixture
         => SetVerificationComparer.Verify(actual, expected, Context, keyColumns, ordered, column);
 
     /// <summary>
+    /// Compare one object against one table row — Storyteller's <c>VerifyObject</c> /
+    /// <c>CheckPropertyGrammar</c>, as a method call (issue #395).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The columns the row names are compared against the properties of those names, and
+    /// <b>only those</b>: a table naming three of an Address's six fields means nothing by the
+    /// other three. That is the same partial rule <c>VerifySet</c> and the event-store grammars
+    /// follow (#241), rather than a second convention.
+    /// </para>
+    /// <code>
+    /// [Then("the address should be")]
+    /// public void TheAddressShouldBe(StepTable expected) => VerifyObject(_address, expected);
+    /// </code>
+    /// <code>
+    /// // the feature file                        // and the C# test
+    /// Then the address should be                 TheAddressShouldBe("""
+    ///   | Address1       | City   |                  | Address1       | City   |
+    ///   | 3 1st Street   | Dallas |                  | 3 1st Street   | Dallas |
+    ///                                                """);
+    /// </code>
+    /// <para>
+    /// <b>The argument form is the only form here, and that is deliberate.</b> Every other grammar
+    /// family in Bobcat has a declarative twin that is canonical where it reaches —
+    /// <c>[SetVerification]</c> over <c>VerifySet</c>, <c>[Table]</c> over <c>RunTable</c> — because
+    /// those twins carry settings (<c>KeyColumns</c>, <c>Ordered</c>, <c>Column</c>) that are
+    /// compile-time facts the preview and the editor can read. This one has nothing to configure:
+    /// the columns come from the table and the subject from the method, so an attribute would carry
+    /// no information and buy nothing.
+    /// </para>
+    /// <para>
+    /// One consequence of that, worth knowing rather than discovering: a column naming no property
+    /// is an <c>invalid</c> cell at run time listing what the type does have, and it cannot be a
+    /// compile-time diagnostic. The generator would need the subject's type in view to say so, and
+    /// in the argument form the subject is a value the step chooses — so there is nothing for a
+    /// diagnostic to read. It is the same trade <c>VerifySet</c>'s <c>keyColumns</c> makes.
+    /// </para>
+    /// </remarks>
+    /// <param name="subject">The object whose properties the row describes.</param>
+    /// <param name="expected">The expected row. Only its first row is read.</param>
+    /// <returns>The grid reported, whose <c>Succeeded</c> is the comparison's verdict.</returns>
+    protected TableRun VerifyObject(object subject, StepTable expected)
+        => PropertyCells.Verify(subject, expected, Context);
+
+    /// <summary>
     /// Derive a feature title from a fixture type. Uses [FixtureTitle] if present,
     /// otherwise strips "Fixture" suffix and inserts spaces before capitals.
     /// </summary>

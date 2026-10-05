@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Bobcat.Runtime;
 using Shouldly;
 
@@ -148,8 +149,21 @@ public class SpecIdentityEndToEndTests : IDisposable
         var manifest = await list(projectedHost);
         var (_, output) = await run(projectedHost, null, "--list-tests");
 
-        manifest.Specs.Count.ShouldBe(41);
-        output.ShouldContain("found 41 test(s)");
+        // The count comes from the platform rather than from a literal, because the claim is that
+        // the listing covers EVERY specification — so the right number is whatever the suite has,
+        // and the test should hold as the sample corpus grows. Two literals had to be edited the
+        // first time it did (adding the VerifyObject samples took it to 45), and that edit is
+        // indistinguishable from someone quietly relaxing the assertion to match a regression.
+        var found = int.Parse(Regex.Match(output, @"found (\d+) test\(s\)").Groups[1].Value);
+
+        found.ShouldBeGreaterThan(
+            8,
+            "the suite should have far more specifications than the 8 that declare marker steps, "
+            + "or this test cannot tell the two rules apart");
+
+        manifest.Specs.Count.ShouldBe(
+            found,
+            "every test [BobcatScenario] records is a specification, however its steps are declared");
     }
 
     [Fact]

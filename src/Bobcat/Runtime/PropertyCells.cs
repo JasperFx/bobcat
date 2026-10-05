@@ -10,8 +10,14 @@ namespace Bobcat.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The shape behind "this document has these values": <c>Then the {readmodel} read model contains</c>
-/// and <c>Then the {document} with id {string} has</c>. Both grammars used to flatten the whole
+/// <b>Storyteller's <c>VerifyObject</c> / <c>CheckPropertyGrammar</c>, and general-purpose</b>: any
+/// step with an object and a row can call it, and <c>Fixture.VerifyObject</c> is the wrapper
+/// (issue #395). It arrived as the engine behind two event-store grammars, which is where it came
+/// from and not what it is.
+/// </para>
+/// <para>
+/// Those two are <c>Then the {readmodel} read model contains</c> and
+/// <c>Then the {document} with id {string} has</c>. Both used to flatten the whole
 /// comparison into one exception message —
 /// <c>"AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0, was 1;
 /// Confirmed: expected 0, was -1"</c> — which is a sentence a reader has to parse to find the one

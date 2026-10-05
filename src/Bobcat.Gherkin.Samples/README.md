@@ -23,8 +23,9 @@ dotnet run --project src/Bobcat.Gherkin.Samples/ -- run --feature "Sets"
 dotnet run --project src/Bobcat.Gherkin.Samples/ -- list
 ```
 
-**Eighteen of the thirty specifications fail on purpose**, which is why this is a plain `BobcatRunner`
-console and not a test project: nothing collects it, and a red run here is the samples working.
+**Twenty of the thirty-four specifications fail on purpose**, which is why this is a plain
+`BobcatRunner` console and not a test project: nothing collects it, and a red run here is the samples
+working.
 
 ## The Storyteller → Bobcat mapping
 
@@ -34,6 +35,7 @@ console and not a test project: nothing collects it, and a red run here is the s
 | `DecisionTableGrammar` with several computed properties | `[DecisionTable]` on a method with `out` parameters — one column each |
 | `this["BuildUser"].AsTable("…").Before(…).After(…)` | `[TableGrammar("…")]` class with `Before` / `Row` / `After` |
 | `VerifySetOf(…).MatchOn(o => o.A, o => o.B)` | `[SetVerification(KeyColumns = "A,B")]` on a `[Then]` returning the collection |
+| `VerifyObject` / `CheckPropertyGrammar` | `VerifyObject(subject, table)` on a step taking a `StepTable` — no declarative twin, see below |
 | `Paragraph(…).AsTable(…)` | no equivalent, and deliberately none — see the gaps |
 | a `bool`-returning `[ExposeAsTable]` | the same `[DecisionTable]`; a `bool` compares like any other value |
 
@@ -177,6 +179,39 @@ no Gherkin spelling and is not built.
 genuinely constrained a value an enum parameter now does the job better: `Position position` makes a
 cell outside the list a BOBCAT030 build error naming the alternatives, which a runtime selection list
 never could.
+
+## One object against one row
+
+Storyteller's `VerifyObject` (`Create Objects/Using_VerifyObject.md`) and `CheckPropertyGrammar`
+(`General/Check properties.md`), as `Fixture.VerifyObject` — see `ObjectsFixture.cs` and
+`Features/Objects.feature`:
+
+```csharp
+[Then("the address should be")]
+public void TheAddressShouldBe(StepTable expected) => VerifyObject(_address, expected);
+```
+
+```gherkin
+Then the address should be
+  | Address1     | Address2 | City   |
+  | 3 1st Street | EMPTY    | Dallas |
+```
+
+The columns the row names are compared against the properties of those names, and **only those** —
+`Using_VerifyObject.md` names three of the Address's six fields and means nothing by the other three.
+That is #241's partial rule again rather than a convention of its own, and `EMPTY` reads here exactly
+as it does in any other cell.
+
+**This is the one family where the argument form is the only form**, and it is worth stating rather
+than leaving as silence. Everywhere else the declarative twin is canonical where it reaches —
+`[SetVerification]` over `VerifySet`, `[Table]` over `RunTable` — because those twins carry settings
+(`KeyColumns`, `Ordered`, `Column`) that are compile-time facts the preview and the editor can read.
+Here there is nothing to configure: the columns come from the table and the subject from the method,
+so an attribute would carry no information.
+
+One consequence: a column naming no property is an `invalid` cell at run time listing what the type
+does have, and it cannot be a compile-time diagnostic — the generator would need the subject's type
+in view, and in the argument form the subject is a value the step chooses.
 
 ## Cell expressions, on both sides of a table
 
