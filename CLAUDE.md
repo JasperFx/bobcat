@@ -1754,8 +1754,16 @@ same arrangement `SliceTagParsingAgreementTests` uses, and the same class now pi
 family's entry point (#398). `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` is the out-of-process
 lane's twin: the real `Bobcat.Xunit.Samples` xUnit host, listed and then filtered to one
 specification by identity, with the `bobcat resident` executable itself driven as a process so that
-a class nothing ships is not mistaken for a feature. **Still owed from #390's acceptance: a run
-against a live Stoat.** Everything here is proved against a stand-in console.
+a class nothing ships is not mistaken for a feature. **Everything in this repository is proved
+against a stand-in console** (`FakeMonitorHost` — real HTTP, not a real consumer), which is the
+honest limit of what can be pinned here: Stoat references nothing in this repository and this
+repository references nothing in Stoat, so neither side's CI can boot the other. The live
+half was done once, on Stoat's side (stoat@0ecd122, 2026-10-04): `Stoat.Specs` resident on
+`BobcatRunner.Run` at cold 1.0s / warm 0.3s / 0.1s, restarting under the same id with its runs
+carrying the command and no session, and `Stoat.ProjectedSpecs` through `bobcat resident` running
+a feature's 7 scenarios exactly. Two things only a live run could surface came out of it, both
+fixed: a runner id that was per checkout rather than per project (Stoat's side), and
+`run_finished` not meaning the runner is free.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 
