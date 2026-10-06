@@ -577,6 +577,74 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     `Enum.GetNames<Comparison>()`.
   - On the wire it is a trailing optional camelCase word on `StepCell`, **null meaning equality** —
     so a consumer that ignores it is exactly as correct as it was.
+- **A scenario can report an account of itself, not only a verdict (`Engine/ScenarioReport.cs`,
+  issue #408).** `IScenarioReport` is a titled grid of cells describing what the system *did* —
+  Storyteller's custom logging (`ISpecContext.Reporting`, `Report.ToHtml()`) answered with the Cell
+  model instead of HTML. Built for asynchronous messaging specs, where the evidence that diagnoses
+  a failure is a tracked session's envelope record and belongs to no single step.
+  - **Scenario-scoped is the whole point.** `Log`, `AttachDiagnostic` and `RecordCells` all route
+    through `SpecExecutionContext.CurrentStep` and are no-ops between steps. `ReportFor<T>()`
+    accumulates onto `ExecutionResults.Reports` (Gherkin) and `ScenarioRecorder.Recording.Reports`
+    (projected), one instance per report type per scenario — which is how several grammars append
+    to one table agreeing on nothing but the type, Storyteller's `ReporterFor<T>()`.
+  - **Not on the scenario blackboard, and #107 already settled why.** `SetState<T>` is
+    `ReporterFor<T>()` minus the rendering and is the obvious reach. Run evidence deliberately does
+    not ride it, because `TouchedTypes` must reach the wire; a report must reach the wire for
+    exactly the same reason, so it sits beside `TouchedTypes` and `Timeline` on the results.
+  - **`SpecReport` is static, and that is load-bearing rather than convenient.** A producer in
+    another package (`WolverineFx.Bobcat`) must compile **once** and work in a `.feature` fixture
+    *and* in a projected `[BobcatSpec]` test. The projected lane has no `IStepContext` and cannot be
+    given one — there is no Bobcat DI scope or `TestResources` behind an xUnit test, so
+    `GetService<T>()` would have to throw, and a context whose half throws is worse than no context.
+    So the surface is `AsyncLocal`-backed and ambient (`ScenarioReports`), the same answer
+    `ScenarioRecorder.Current`, `BobcatClock` and `SpecAssert` already give to the same problem.
+    `IStepContext.ReportFor<T>` is a default member delegating to it, so the two cannot resolve to
+    different scenarios. `BothLanesReportTests` pins the equivalence **from one class** — split in
+    two, one lane gains a rule the other never hears about.
+  - **Rows are unjudged `Value` cells (#396), so a log table cannot claim it checked anything.** A
+    report that *does* want to judge one row — the envelope that was dead-lettered among a dozen
+    that were fine — builds an ordinary judged `CellResult` for it, so a red row inside an
+    informational table needs no second mechanism. The grid folds through
+    `SetVerificationRender.FromCells` and renders through `CommandLineRenderer.RenderSetVerification`,
+    so a report's table and a set verification's table cannot look different, and
+    `ShowsStatusColumn` already drops the Status column for an all-unjudged grid.
+  - **No declarative twin**, by #395's rule: the declarative form is canonical where it carries
+    settings a compile-time reader needs (`KeyColumns`, `Ordered`, `Column`). A report carries none —
+    its columns come from its rows and its rows come from running code.
+  - **`ReportVisibility` is `OnFailure` by default and `run --json --verbose` is the only thing that
+    lifts it** (decided 2026-10-06). `ScenarioReportVisibility` is the one rule all three surfaces
+    ask — console, JSON report and wire — so they cannot disagree about what a run reported, the
+    same discipline `CellResult.derive()` follows. The rejected alternative was JSON always carrying
+    everything on the argument that an agent reads the archive afterwards and volume there is cheap:
+    it makes JSON an exception to the uniform rule, and an agent that wants everything can ask and
+    then gets it everywhere at once. `BOBCAT_VERBOSE_REPORTS` is the environment's spelling, read as
+    a tri-state through `ProjectedSpecConsole.Setting` so "nobody said" stays distinguishable from
+    "somebody said no". An **empty** report is dropped whatever its visibility — a grammar that was
+    never exercised legitimately produces one, and an empty grid under a heading says less than no
+    heading.
+  - **200 rows per report, capped, with "…and N more" — never a silent truncation.**
+    `docs/tutorials/agent-friendly-tests.md` records what happens without a cap: a suite dumped a
+    698MB tracked-session log into test output, faulted the worker, and turned every unreported test
+    indeterminate — a run that read as a crash because something tried to say too much. The cap is
+    in `TableReport` rather than left to each producer to remember.
+  - **`AttachDiagnostic` stays, with its boundary written down.** It is the hook that *looks* like
+    the answer and destroys the payload: `MonitorPublishingObserver` and `SpecRender` both project
+    it as `kv.Value?.ToString() ?? ""`, so `AttachDiagnostic("messages", session.AllRecordsInOrder())`
+    reaches a console as `System.Collections.Generic.List'1[…EnvelopeRecord]`. Kept for the one
+    scalar fact about one step its wire shape can honestly carry — a correlation id, a resolved
+    route — and **not** the vehicle for a table.
+  - **On the wire: `ScenarioFinished.Reports`, trailing and optional**, carrying `ScenarioReportInfo`
+    whose cells are `StepCell` — one cell shape on this wire, not a sibling record. `MonitorReports.From`
+    is the single projection and applies the visibility rule itself, the `StepCells.From` lesson from
+    #396: two copies of one projection is what silently dropped a literal's text in both lanes at once.
+    Null rather than an empty list when there is nothing, so "reported nothing" and "a publisher too
+    old to know about reports" look the same — because they mean the same thing.
+  - **One core fix fell out of building it.** `CellResult.WithNote` copied through the *structured*
+    constructor and so dropped a legacy-constructed cell's private `_displayText`, leaving
+    `DisplayText` to derive the empty string for a plain value cell. That is #396's defect in the
+    model rather than in a projection, and it went unnoticed because every existing caller happened
+    to pass structured cells. `WithNote` and the new `WithRowIndex` now share one private `copy`,
+    and any future "a copy of this cell, but…" belongs there.
 - **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
 - **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
 - **`StepKind`** / **`FailureLevel`** — drives automatic failure classification

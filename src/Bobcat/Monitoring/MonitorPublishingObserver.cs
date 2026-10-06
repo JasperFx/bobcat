@@ -237,7 +237,9 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
             (long)(result.Results.EndTime - result.Results.StartTime).TotalMilliseconds,
             result.Results.DescribeFailure(),
             TouchedTypes: touched,
-            At: DateTimeOffset.UtcNow));
+            At: DateTimeOffset.UtcNow,
+            Reports: MonitorReports.From(
+                result.Results.Reports, scenarioFailed: !result.Results.Counts.Succeeded)));
     }
 
     public void FeatureStarted(string featureTitle) { }

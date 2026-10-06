@@ -68,6 +68,8 @@ public class CommandLineRenderer
             }
         }
 
+        RenderReports(spec);
+
         AnsiConsole.WriteLine();
         RenderCounts(spec.Counts, spec.Succeeded);
 
@@ -77,6 +79,38 @@ public class CommandLineRenderer
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// The scenario's reports, after the verdict and before the figures (issue #408) — Storyteller
+    /// rendered custom logging at the bottom of the specification page, for the same reason: a
+    /// reader wants the verdict, then the account that explains it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SpecRender.Reports"/> is already filtered by
+    /// <see cref="Engine.ScenarioReportVisibility"/>, so this renders what it is handed and holds no
+    /// opinion about whether a passing scenario's report belongs on screen. The grid goes through
+    /// <see cref="RenderSetVerification"/>, so a report's table and a set verification's table
+    /// cannot look different.
+    /// </remarks>
+    public void RenderReports(SpecRender spec)
+    {
+        foreach (var report in spec.Reports)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(report.Title)}[/]");
+
+            RenderSetVerification(report.Grid);
+
+            if (report.SuppressedRows > 0)
+            {
+                // Said, never silent. A truncation nobody mentions is how a report becomes
+                // misleading rather than merely short.
+                AnsiConsole.MarkupLine(
+                    $"  [dim]…and {report.SuppressedRows} more "
+                    + $"{(report.SuppressedRows == 1 ? "row" : "rows")} not shown[/]");
+            }
+        }
     }
 
     /// <summary>
