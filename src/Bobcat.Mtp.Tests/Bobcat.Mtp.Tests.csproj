@@ -50,6 +50,18 @@
          ordering only; it is launched as an executable. -->
     <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!--
+      A real reference, not build ordering: WarmProjectedResidentSuite (issue #402 item 4) lives
+      in Bobcat.Supervisor, because warmth means holding a live MTP client and that client cannot
+      go in core without taxing every spec project.
+
+      The warm tests belong HERE rather than in Bobcat.Supervisor.Tests even so, with the cold
+      ones: the two modes of one lane tested from one class, the same reasoning as
+      SpecIdentityEndToEndTests. Split across two projects is how one mode gains a rule the other
+      never hears about.
+    -->
+    <ProjectReference Include="..\Bobcat.Supervisor\Bobcat.Supervisor.csproj" />
   </ItemGroup>
 
 </Project>

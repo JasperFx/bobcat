@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Bobcat.Residency;
+using Bobcat.Supervisor;
 using Bobcat.Runtime;
 using Bobcat.Tests.Monitoring;
 using Shouldly;
@@ -63,9 +64,32 @@ public class ProjectedResidentRunnerTests : IDisposable
 
     private const string knownSpec = "Calculator/using sentences";
 
+    private const string secondSpec = "Facts/facts in action";
+
     private async Task<OutOfProcessResidentSuite> suiteFor(FakeMonitorHost monitor)
         => await OutOfProcessResidentSuite.For(
             projectedHost, monitorUrl: monitor.Url, listingDirectory: _directory);
+
+    private async Task<WarmProjectedResidentSuite> warmSuiteFor(FakeMonitorHost monitor)
+        => await WarmProjectedResidentSuite.For(
+            projectedHost, monitorUrl: monitor.Url, listingDirectory: _directory);
+
+    /// <summary>
+    /// Hand the runner a run command, waiting first until it is free.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>run_finished</c> does not mean the runner is free.</b> The run bracket closes INSIDE
+    /// the run, a hair before the in-flight slot clears, so a command sent the instant
+    /// <c>run_finished</c> arrives is legitimately refused as busy — and busy means "not now",
+    /// not "not this", so a client that wants a second run sends again. Writing this test without
+    /// the wait reproduced exactly that: <c>accepted=False refusal=busy</c> on the second command.
+    /// Invisible on a slow machine and reliable on a fast one, which is the wrong way round.
+    /// </remarks>
+    private static async Task handleWhenFree(ResidentRunner runner, string commandId, RunCommand command)
+    {
+        await eventually(() => runner.Busy ? null : "free", "the runner never became free");
+        await runner.Handle(CloudEvent.From("stoat", RunnerWire.RunCommandType, command));
+    }
 
     private static async Task<T> eventually<T>(Func<T?> read, string because) where T : class
     {
@@ -115,7 +139,7 @@ public class ProjectedResidentRunnerTests : IDisposable
     // --- The suite: what it says it is, and what a command does to it.
 
     [Fact]
-    public async Task a_projected_suite_registers_its_identities_and_offers_only_cold()
+    public async Task a_projected_suite_registers_its_identities_and_offers_cold()
     {
         using var monitor = new FakeMonitorHost();
         var suite = await suiteFor(monitor);
@@ -124,10 +148,131 @@ public class ProjectedResidentRunnerTests : IDisposable
         suite.Lane.ShouldBe(SpecManifest.ProjectedLane);
         suite.SpecIdentities.ShouldContain(knownSpec);
 
-        // Warm is withheld for a measured reason, not an unimplemented one: issue #394 found the
-        // platform takes repeated run requests fine, and the blocker is Bobcat's own run bracket,
-        // which a projected suite closes at process exit.
+        // The in-core suite is the cold one and stays so: warmth means holding a live MTP client,
+        // which lives in Bobcat.Supervisor because core is what every spec project references.
+        // WarmProjectedResidentSuite is what offers both; see the warm tests below.
         suite.Modes.ShouldBe([RunnerWire.ColdMode]);
+    }
+
+    [Fact]
+    public async Task the_warm_capable_suite_offers_both_modes()
+    {
+        using var monitor = new FakeMonitorHost();
+        await using var suite = await warmSuiteFor(monitor);
+
+        suite.Suite.ShouldBe("Bobcat.Xunit.Samples");
+        suite.Lane.ShouldBe(SpecManifest.ProjectedLane);
+        suite.Modes.ShouldBe([RunnerWire.ColdMode, RunnerWire.WarmMode]);
+
+        // Every launch-time refusal the cold suite makes still happens, and still at launch:
+        // this delegates construction to it rather than reimplementing the checks.
+        suite.SpecIdentities.ShouldContain(knownSpec);
+    }
+
+    [Fact]
+    public async Task two_warm_commands_are_two_runs_in_one_live_host()
+    {
+        // #402 item 4, end to end against the real xUnit host. The two halves this proves
+        // together are what the issue is about: the host STAYS UP across commands (warmth), and
+        // each command is nonetheless its own run on the wire (#393's requirement, which the
+        // per-request run bracket is what makes possible).
+        using var monitor = new FakeMonitorHost();
+        await using var suite = await warmSuiteFor(monitor);
+
+        await using var runner = new ResidentRunner(suite, new ResidentRunnerOptions
+        {
+            Url = monitor.Url,
+            RunnerId = "warm-projected-runner"
+        });
+
+        (await runner.Register()).ShouldBeTrue();
+
+        payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType).ShouldNotBeNull()
+            .Modes.ShouldContain(RunnerWire.WarmMode);
+
+        await handleWhenFree(runner, "c-warm-1", new RunCommand("c-warm-1", [knownSpec], RunnerWire.WarmMode));
+
+        await eventually(
+            () => eventsNamed(monitor, "run_finished").Count >= 1 ? "yes" : null,
+            "the first warm command never closed its run");
+
+        await handleWhenFree(runner, "c-warm-2", new RunCommand("c-warm-2", [secondSpec], RunnerWire.WarmMode));
+
+        await eventually(
+            () => eventsNamed(monitor, "run_finished").Count >= 2 ? "yes" : null,
+            "the second warm command never closed its run");
+
+        var started = eventsNamed(monitor, "run_started");
+        started.Count.ShouldBe(2, "each command is its own run");
+
+        started.Select(e => e.GetProperty("runId").GetString()).Distinct().Count()
+            .ShouldBe(2, "and its own RunId — a shared one collapses the two cards into one");
+
+        // THE per-request command id, which is the thing a warm child cannot be told through its
+        // environment: it is fixed at launch, so the first command's id would have been stamped on
+        // both. BOBCAT_RUN_COMMAND_FILE is the channel, rewritten before each request.
+        started.Select(e => e.GetProperty("command").GetString())
+            .ShouldBe(["c-warm-1", "c-warm-2"]);
+
+        // And each command ran its own specification, not the whole suite.
+        eventsNamed(monitor, "scenario_finished")
+            .Select(e => e.GetProperty("uid").GetString())
+            .ShouldBe([knownSpec, secondSpec]);
+    }
+
+    [Fact]
+    public async Task a_warm_command_naming_an_identity_the_suite_does_not_have_is_refused_by_name()
+    {
+        using var monitor = new FakeMonitorHost();
+        await using var suite = await warmSuiteFor(monitor);
+
+        await using var runner = new ResidentRunner(suite, new ResidentRunnerOptions
+        {
+            Url = monitor.Url,
+            RunnerId = "warm-refusal-runner"
+        });
+
+        (await runner.Register()).ShouldBeTrue();
+
+        await runner.Handle(CloudEvent.From(
+            "stoat", RunnerWire.RunCommandType,
+            new RunCommand("c-foreign", ["Nothing/at all"], RunnerWire.WarmMode)));
+
+        var acknowledgement = await eventually(
+            () => payload<RunnerAcknowledgement>(monitor, RunnerWire.AcknowledgedType) is { Accepted: false } no
+                ? no
+                : null,
+            "the runner never refused the foreign identity");
+
+        acknowledgement.Reason.ShouldContain("Nothing/at all");
+        acknowledgement.Refusal.ShouldBe(RunnerRefusal.UnknownSpec);
+
+        // Refused BEFORE anything ran, which is the whole point of refusing by name: a narrowed
+        // run that matched nothing exits 0 and looks like a pass.
+        eventsNamed(monitor, "run_started").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_cold_command_closes_the_warm_session_first()
+    {
+        // They cannot coexist for the same reason they cannot in the Gherkin lane: the booted host
+        // holds the port, the database and the queues a second one would ask for, so "fresh
+        // everything" has to include tearing down what is up.
+        using var monitor = new FakeMonitorHost();
+        await using var suite = await warmSuiteFor(monitor);
+
+        await suite.Run("c-warm", SpecSelection.Of(knownSpec), RunnerWire.WarmMode, default);
+        await suite.Run("c-cold", SpecSelection.Of(knownSpec), RunnerWire.ColdMode, default);
+
+        // Two runs, two ids, and the cold one is a fresh process — which is observable only in
+        // that it published its own bracket like any other run.
+        await eventually(
+            () => eventsNamed(monitor, "run_finished").Count >= 2 ? "yes" : null,
+            "both commands should have closed their runs");
+
+        eventsNamed(monitor, "run_started")
+            .Select(e => e.GetProperty("command").GetString())
+            .ShouldBe(["c-warm", "c-cold"]);
     }
 
     [Fact]
@@ -287,7 +432,11 @@ public class ProjectedResidentRunnerTests : IDisposable
             registration.RunnerId.ShouldBe("the-projected-checkout");
             registration.Suite.ShouldBe("Bobcat.Xunit.Samples");
             registration.Lane.ShouldBe(SpecManifest.ProjectedLane);
-            registration.Modes.ShouldBe([RunnerWire.ColdMode]);
+
+            // The tool offers both now (issue #402 item 4). It used to be cold alone, and the
+            // blocker was Bobcat's own run bracket rather than the platform — closing that is what
+            // let the warm mode be registered honestly rather than registered and then refused.
+            registration.Modes.ShouldBe([RunnerWire.ColdMode, RunnerWire.WarmMode]);
             registration.Specs.ShouldContain(knownSpec);
 
             monitor.Send("1", CloudEvent.From(

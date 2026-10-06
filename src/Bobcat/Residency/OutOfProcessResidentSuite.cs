@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Bobcat.Monitoring;
 using Bobcat.Runtime;
 
 namespace Bobcat.Residency;
@@ -252,6 +253,13 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     /// today, which is exactly why it is cleared here rather than relied upon: a child that one
     /// day did read it would register itself with the monitor and never run the command.
     /// </item>
+    /// <item>
+    /// <c>BOBCAT_RUN_COMMAND_FILE</c> (issue #402) names a file whose contents are the CURRENT
+    /// request's command id, and it WINS over <c>BOBCAT_RUN_COMMAND</c>. A cold child has no such
+    /// request, so a parent's stale file must never be read as this command — it would overwrite
+    /// the correct id with whatever some other runner last wrote. The warm path sets it
+    /// deliberately, per request.
+    /// </item>
     /// </list>
     /// <para>
     /// What is <i>added</i> is one variable: <c>BOBCAT_RUN_COMMAND</c>, so the run the child
@@ -264,11 +272,12 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     public static IReadOnlyDictionary<string, string?> EnvironmentFor(string? command)
         => new Dictionary<string, string?>
         {
-            ["BOBCAT_RUN_ID"] = null,
-            ["BOBCAT_RUN_OWNER"] = null,
+            [MonitorRunInfo.RunIdVariable] = null,
+            [MonitorRunInfo.RunOwnerVariable] = null,
             [SpecManifest.PathVariable] = null,
             [ResidentMode.Variable] = null,
-            ["BOBCAT_RUN_COMMAND"] = command,
+            [MonitorRunInfo.RunCommandFileVariable] = null,
+            [MonitorRunInfo.RunCommandVariable] = command,
             ["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1",
             ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
         };

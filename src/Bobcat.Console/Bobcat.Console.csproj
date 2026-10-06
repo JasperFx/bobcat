@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The `bobcat` global tool. It carries the FREE, no-server half of the toolset: reading and
-    validating an event-model file, and converting an eventmodelers.ai board export into the
-    curated format.
+    The `bobcat` global tool. It carries the FREE, no-server half of the toolset: converting an
+    eventmodelers.ai board export into C# (stub records plus an EventModelDefinition), and keeping
+    a suite whose process Bobcat does not own available to a run console.
 
     It deliberately does NOT host a web console. The run board, the model store and the design-time
     canvas moved to Stoat, because every one of them remembers something across a process and this
@@ -46,6 +46,23 @@
          where it ships from, because the console at the other end references nothing in this
          repository and so cannot be handed a class to host. -->
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+
+    <!--
+      Warm runs for the projected lane (issue #402 item 4). Warmth means holding the suite's test
+      host open in MTP server mode, and the JSON-RPC client that does that is MtpWorkerClient, in
+      Bobcat.Supervisor.
+
+      This reference rather than moving that client down into core, which was the alternative:
+      core is what EVERY spec project references, so putting the MTP client there would tax all of
+      them for a capability only this tool uses. IWorkerClient is documented as THE seam for
+      exactly this case, so the second caller belongs on the supervisor's side of it. And the
+      dependency is honest in the other direction too — driving a test host as a process is this
+      tool's whole job in the projected lane.
+
+      Note the AssemblyName above: Bobcat.Supervisor.dll lands beside Bobcat.Cli.dll, which is
+      fine, where `bobcat.dll` beside `Bobcat.dll` was not.
+    -->
+    <ProjectReference Include="..\Bobcat.Supervisor\Bobcat.Supervisor.csproj" />
   </ItemGroup>
 
 </Project>

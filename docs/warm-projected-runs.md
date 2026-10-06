@@ -21,8 +21,10 @@ per **process**, and warm mode needs it per **command**.
 > tripwires did their job and are retired; `WarmProjectedRunTests` asserts the fixed behaviour, and
 > removing the registration is enough to make it red again (checked).
 >
-> **The projected lane is still cold-only in the resident runner**, for reasons the blocker was
-> hiding rather than causing. See "What is still owed for warm" at the end of this file.
+> **And the lane runs warm.** `WarmProjectedResidentSuite` holds the suite's test host open in
+> server mode; `bobcat resident` registers `cold` and `warm`, and a console chooses per command.
+> Two warm commands in one live host measured **2.9s for the whole test class** against a cold
+> launch per command. See "Warm, as built" below.
 
 Everything below was measured, not read from docs. The measurements are
 `src/Bobcat.Supervisor.Tests/WarmProjectedRunTests.cs` — four tests, two of them **tripwires that
@@ -156,32 +158,73 @@ The three complications were real, and each resolved differently from the guess:
    receives (measured — they are unrelated GUIDs). So "read per request" is now true, and in the
    out-of-process lane there is still nothing new to read.
 
-## What is still owed for warm in the projected lane
+## Warm, as built
 
-The bracket is no longer the obstacle. Three things are, and none of them was visible from #394:
+`WarmProjectedResidentSuite` (in **`Bobcat.Supervisor`**) wraps `OutOfProcessResidentSuite`: cold is
+delegated to it unchanged, and warm holds an `MtpWorkerClient` open across commands. The three
+things the finding above said were owed resolved like this:
 
-1. **A per-request command channel.** Per the measurement above, a warm child cannot be told which
-   command it is serving. The shape that would work is the one `BOBCAT_LIST_SPECS` already uses in
-   the other direction — a file whose path is fixed at launch and whose contents the parent rewrites
-   before each request. That is a new public `BOBCAT_*` variable, so it is a decision, not a detail.
-2. **Package layering.** `OutOfProcessResidentSuite` lives in core; the server-mode client
-   (`MtpWorkerClient`) lives in `Bobcat.Supervisor`, which references core. Warm means holding a
-   live client, so either the client moves down into core or the warm suite lives up in
-   `Bobcat.Supervisor` — and then the `bobcat` tool depends on the supervisor.
-3. **The identity → uid join**, which is the easy one: #394 already proved it is one lookup through
-   the discovery display name.
+### 1. The per-request command channel — `BOBCAT_RUN_COMMAND_FILE`
 
-Until those are settled the lane stays cold, which costs one process per command and is correct.
+A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
+command after the first would be stamped with the first one's id, which is exactly the
+mis-attribution [#401](https://github.com/JasperFx/bobcat/issues/401) was opened to fix. Nor is
+there a slot in the protocol — measured on 1.9.1, the `runId` a client sends on
+`testing/runTests` is the client's own and **is not** the `SessionUid` the session handler receives.
 
----
+So: a path fixed at launch, whose contents the parent rewrites **before** each request and the
+child reads when its session opens. It is the exact inverse of `BOBCAT_LIST_SPECS`, where a path is
+fixed at launch and the *child* writes what the *parent* reads. No race arises, because a resident
+runner runs one command at a time and refuses rather than queues.
+
+It **wins over `BOBCAT_RUN_COMMAND`**, being the narrower claim, and every failure to read it falls
+back to the variable and then to null — run attribution must never be able to fail a run.
+`OutOfProcessResidentSuite.EnvironmentFor` **clears** it for a cold child, alongside the four it
+already clears: a parent's stale file must never be read as this command.
+
+### 2. Layering: the warm suite moved up, the client did not move down
+
+`MtpWorkerClient` stays in `Bobcat.Supervisor`. Moving it down into core was the alternative and
+was refused: **core is what every spec project references**, so putting an MTP JSON-RPC client
+there would tax all of them for a capability only the resident tool uses. `IWorkerClient` is
+documented as *the* seam for exactly this, and this issue anticipated "a second caller of
+`IWorkerClient` rather than a new transport" — so the second caller belongs on the supervisor's
+side of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest: driving a test host as a process is
+that tool's whole job in this lane.
+
+### 3. The identity → uid join
+
+One lookup, as Q3 established: the manifest's `TestClass` + `TestMethod` (its `QualifiedTestMethod`)
+against the discovery display name. A nested class is `Ns.Outer+Inner` in the manifest and may be
+dotted in a display name, so that is tried as a *fallback* after the exact match this file verified.
+An identity whose uid cannot be named is **refused**, not dropped from the subset — a request for
+three specs that silently ran two looks exactly like a pass.
+
+### What warmth buys here, and what it does not
+
+It keeps the **CLR** warm: the JIT, the loaded assemblies, the codegen — the 72ms → 11ms → 4ms
+above. It does **not** keep the suite's own fixtures up, because xUnit's assembly and collection
+fixtures are created and disposed *within* a run request. That is the opposite of the Gherkin lane,
+where what warms is Bobcat's own `TestResources.StartAll`. So the Q2 caveat stands word for word
+and is worth repeating to anyone choosing a mode: for a suite whose database lives in a collection
+fixture, warm saves the process and the JIT, not the boot.
+
+### Withdrawal, following the Gherkin lane's rule
+
+A warm session that faults takes `warm` off the registered modes, re-registers so the monitor stops
+offering a button that would now be refused, and refuses a warm command **with that reason** —
+because "warm is not a mode this runner offers", from a runner that was offering it a minute ago,
+explains nothing. **Cold is unaffected**: a cold command starts over from exactly the thing that
+poisoned the warm host. And a cold command **closes the warm session first**, since a booted host
+holds the port, the database and the queues a second one would ask for.
 
 ## Decision
 
-**The projected lane stays cold-only in the resident runner**, still — but for the three reasons
-listed under "What is still owed", not for the bracket. `BobcatResidentSuite` offers `cold` and
-`warm`; `OutOfProcessResidentSuite` — the projected lane, built in issue #399 on the back of this
-finding — offers `cold` alone, and `ResidentRunner` refuses a `warm` command it never registered
-rather than quietly downgrading it.
+**The projected lane runs warm**, as of #402. `BobcatResidentSuite` offers `cold` and `warm`
+in process; `WarmProjectedResidentSuite` offers both out of process, delegating cold to
+`OutOfProcessResidentSuite` (which itself still offers `cold` alone — it is in core, and warmth
+needs the supervisor's client). `ResidentRunner` still refuses a `warm` command a suite never
+registered rather than quietly downgrading it, which is what makes the withdrawal above safe.
 
 Cold, note, needed none of what is owed below: a command launches the suite's own host with
 `SpecFilterArguments.For`'s filter, that host opens and closes exactly one run bracket because it
@@ -189,9 +232,10 @@ is exactly one process, and the whole blocker measured here is about a *second* 
 a process that already published `run_started`. The price of being cold is one process per command,
 which is the thing warmth would buy back.
 
-Reopen this when someone has a projected suite whose boot is expensive enough to pay for the
-remaining work — a collection fixture standing up a real database is the shape to look for. The
-platform half is proved, the bracket is built, and what is left is the three items above.
+Nothing is owed here any more. The one thing worth measuring next is whether warmth is worth asking
+for on a real suite: it saves the process and the JIT, not the boot, so a suite whose cost is a
+collection fixture standing up a database will see less of a difference than the 72ms → 4ms above
+suggests.
 
 ## Reproduce
 

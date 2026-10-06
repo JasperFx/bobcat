@@ -525,6 +525,54 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `SessionUid` the handler receives (measured; unrelated GUIDs). A file whose path is fixed at
     launch, the way `BOBCAT_LIST_SPECS` works in the other direction, is the shape that would fit,
     and it is a new public variable rather than a detail.
+- **The projected lane runs warm too (issue #402 item 4): `WarmProjectedResidentSuite`, in
+  `Bobcat.Supervisor`.** It wraps `OutOfProcessResidentSuite` — **cold is delegated unchanged**,
+  so a cold command is byte-for-byte what it always was — and holds an `MtpWorkerClient` open for
+  warm, so a warm command is one `testing/runTests` request into the live process. `bobcat
+  resident` registers `cold` and `warm`; a console chooses per command, so nothing changes for
+  anyone who never asks for warm.
+  - **`BOBCAT_RUN_COMMAND_FILE` is the per-request command channel, and a new public variable.**
+    A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
+    command after the first would carry the first one's id — precisely the mis-attribution #401
+    was opened to fix. Nor is there a protocol slot: measured on MTP 1.9.1, the `runId` a client
+    sends on `testing/runTests` is the client's own and is **not** the `SessionUid` the session
+    handler receives (unrelated GUIDs). So the parent writes the id to a path fixed at launch
+    **before** sending each request — **the exact inverse of `BOBCAT_LIST_SPECS`**, where the child
+    writes what the parent reads. No race, because a resident runner runs one command at a time and
+    refuses rather than queues. It **wins over `BOBCAT_RUN_COMMAND`** as the narrower claim, every
+    read failure falls back to the variable and then to null (attribution must never fail a run),
+    and `EnvironmentFor` **clears** it for a cold child alongside the four it already clears — a
+    parent's stale file must never be read as this command.
+  - **Layering: the warm suite moved UP, the client did not move DOWN.** `MtpWorkerClient` stays in
+    `Bobcat.Supervisor`, because **core is what every spec project references** and an MTP JSON-RPC
+    client there would tax all of them for a capability only the resident tool uses. `IWorkerClient`
+    is documented as *the* seam for exactly this and #402 anticipated "a second caller of
+    `IWorkerClient` rather than a new transport", so the second caller sits on the supervisor's side
+    of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest — driving a test host as a process is
+    that tool's whole job in this lane. (Watch the `Bobcat.Cli` assembly name while in that csproj:
+    `Bobcat.Supervisor.dll` beside `Bobcat.Cli.dll` is fine, where `bobcat.dll` beside `Bobcat.dll`
+    was one file on a case-insensitive filesystem.)
+  - **The identity → uid join is one lookup**, per #394: the manifest's `QualifiedTestMethod`
+    against the discovery display name, with `Ns.Outer+Inner` → dotted tried as a *fallback* after
+    the exact match #394 verified. An identity whose uid cannot be named is **refused**, not dropped
+    from the subset — a request for three specs that silently ran two looks exactly like a pass.
+  - **What warmth buys is the CLR, not the boot**, and the Q2 caveat stands word for word: xUnit's
+    assembly and collection fixtures are created and disposed *within* a run request, so a second
+    request pays for them again. The Gherkin lane is the opposite — there what warms is Bobcat's own
+    `TestResources.StartAll`. A suite whose cost is a collection fixture standing up a database will
+    see far less than #394's 72ms → 4ms.
+  - **Withdrawal follows the Gherkin lane's rule**: a faulted warm session drops `warm` from the
+    registered modes, re-registers so the monitor stops offering a button that would now be
+    refused, and refuses a warm command *with that reason*. **Cold is unaffected** — it starts over
+    from exactly the thing that poisoned the warm host — and a cold command **closes the warm
+    session first**, since a booted host holds the port, the database and the queues.
+  - `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` holds the warm tests **beside the cold ones**,
+    which is why it now has a real `Bobcat.Supervisor` reference: two modes of one lane from one
+    class, the same reasoning as `SpecIdentityEndToEndTests`. One of them re-learned a documented
+    rule the hard way — **`run_finished` does not mean the runner is free**, the bracket closing a
+    hair before the in-flight slot clears — so a second command sent the instant it arrived was
+    refused `busy`. The test waits for `ResidentRunner.Busy` to clear, which is what a real client's
+    "send again" amounts to.
 - **`[BobcatSpec(…, Pending = true)]` is the projected lane's pending specification (issue
   #404).** The Gherkin lane already turns a step-less scenario into
   `HotspotDescriptor.PendingSpecification` (jasperfx#689) and `SpecIdentityAudit` reads it as
@@ -1634,8 +1682,11 @@ sweep:
   is **invisible** to the other side: `StepCell.Value` (issue #396) is read by nobody until a
   console is changed to read it, and nothing warns either party.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
-  `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
-  to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`),
+  `BOBCAT_RUN_COMMAND`, **`BOBCAT_RUN_COMMAND_FILE`** (issue #402 — a file whose contents are the
+  CURRENT request's command id, which **wins** over `BOBCAT_RUN_COMMAND`; see the warm projected
+  lane below for why a variable cannot serve), `BOBCAT_LIST_SPECS` (issue #391 — the path a suite
+  writes its spec manifest to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same
+  request as `--resident`),
   `BOBCAT_RUNNER_ID` (issue #397 — the stable runner id a parent hands over, so the same checkout
   is the same runner across every relaunch), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
   (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
@@ -1905,9 +1956,9 @@ specs and exited 0 instead of going resident. The check is before the parser in 
   - **Named for the mechanism, not the lane, because it is lane-neutral** — everything it does is a
     function of the manifest, and `SpecFilterArguments` switches on the *framework*, so pointing it
     at a Gherkin host works and gets `--filter-uid`. Doing that is still the wrong call for a
-    Gherkin suite: the in-process runner can offer warm and this cannot, since warmth means holding
-    a booted host and here the host is a child that exits. **Cold-only, for #394's measured
-    reason** — the blocker is Bobcat's own run bracket, not the platform.
+    Gherkin suite, whose in-process runner warms Bobcat's own `StartAll`. **This class is cold-only
+    and stays so** — it is in core, and warmth needs the supervisor's MTP client;
+    `WarmProjectedResidentSuite` is what offers both (below).
   - **It ships as `bobcat resident <host>`, a command on the free tool**, because the console at
     the other end references nothing in this repository and so cannot be handed a class to host.
     That forced the tool's assembly to be renamed **`Bobcat.Cli`**: it now references core, and
