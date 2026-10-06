@@ -97,6 +97,21 @@ internal static class MarkerCommentSpecs
         /// test — how one class covers several slices.</summary>
         public readonly List<string> Tags = new();
 
+        /// <summary>
+        /// <c>[BobcatSpec(…, Pending = true)]</c>: declared before the behaviour it describes
+        /// (issue #404), so the slice gets a <c>PendingSpecification</c> hotspot rather than a
+        /// specification.
+        /// </summary>
+        /// <remarks>
+        /// <b>Explicit, and NOT inferred from having no steps — unlike the Gherkin lane.</b> There a
+        /// step-less scenario IS the pending case, because a scenario with no steps says nothing. A
+        /// projected test with no marker comments says plenty: it runs real code and publishes a
+        /// real verdict, and 33 of this repository's own 41 projected samples declare no marker
+        /// steps at all. Reading "no steps" as "pending" would have turned most of a working suite
+        /// into open questions on the canvas.
+        /// </remarks>
+        public bool Pending;
+
         /// <summary>A test with no marker comments at all: it runs, but it renders as nothing.</summary>
         public bool IsUnmarked => Steps.Count == 0;
     }
@@ -148,7 +163,8 @@ internal static class MarkerCommentSpecs
             {
                 Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text),
                 TestMethod = method.Identifier.Text,
-                OpensRecording = HasScenarioAttribute(declaration) || HasScenarioAttribute(method)
+                OpensRecording = HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
+                Pending = isPending(method)
             };
 
             var prose = new List<MarkedStep>();
@@ -195,7 +211,8 @@ internal static class MarkerCommentSpecs
                     $"'{declaration.Identifier.Text}' binds a slice with [BobcatSlice] but nothing opens a " +
                     "scenario, so none of its steps are recorded and it reaches the Event Model as no " +
                     "specification at all. Add [BobcatScenario] to the class (Bobcat.Xunit, or Bobcat.TUnit " +
-                    "for a TUnit suite).",
+                    "for a TUnit suite), or on an xUnit suite replace [Fact] + [BobcatSlice] with one " +
+                    "[BobcatSpec(typeof(TheSlice))] on each test, which does both and cannot come apart.",
                 Where = declaration.Identifier.GetLocation()
             });
         }
@@ -204,59 +221,123 @@ internal static class MarkerCommentSpecs
     }
 
     /// <summary>
-    /// Does this class or method carry <c>[BobcatScenario]</c> — the attribute that opens the
-    /// recording its steps go into?
+    /// Does this class or method open the recording its steps go into — <c>[BobcatScenario]</c>,
+    /// or the <c>[BobcatSpec]</c> that implies it?
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Matched by short name, the way <c>[BobcatSlice]</c> is: the xUnit and TUnit adapters ship
     /// the same attribute under their own namespaces, and a suite may write it qualified. Matching
     /// the name rather than resolving the symbol also means this works in a compilation that
     /// references neither adapter — which is exactly the compilation worth warning.
+    /// </para>
+    /// <para>
+    /// <b><c>[BobcatSpec]</c> counts, and matching by name is why that needed saying out loud</b>
+    /// (issue #403). It implements the same bracket at run time, but a name check for
+    /// "BobcatScenario" sees nothing in <c>BobcatSpec</c>, so a suite written in the one-attribute
+    /// form would have tripped BOBCAT028 — "binds a slice but nothing opens a scenario" — about a
+    /// suite that records perfectly well. Every name check this attribute stands in for is listed
+    /// in <see cref="ScenarioOpeningAttributes"/>.
+    /// </para>
     /// </remarks>
     internal static bool HasScenarioAttribute(MemberDeclarationSyntax member)
         => member.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Any(a => shortName(a.Name.ToString()) == "BobcatScenario");
+            .Any(a => ScenarioOpeningAttributes.Contains(shortName(a.Name.ToString())));
 
     /// <summary>
-    /// <c>[BobcatSlice]</c> on a class or a method, rendered as tag strings (issue #324).
+    /// The attributes that open a scenario recording. <c>[BobcatSpec]</c> is here because it
+    /// IMPLIES <c>[BobcatScenario]</c> (issue #403) — it runs the same bracket.
+    /// </summary>
+    internal static readonly string[] ScenarioOpeningAttributes = { "BobcatScenario", SpecAttributeName };
+
+    /// <summary>The one-attribute projected spec (issue #403): a Fact, a scenario and a slice
+    /// binding at once.</summary>
+    internal const string SpecAttributeName = "BobcatSpec";
+
+    /// <summary>
+    /// The slice binding on a class or a method — <c>[BobcatSlice]</c>, or the <c>[BobcatSpec]</c>
+    /// that carries the same settings (issues #324, #403) — rendered as tag strings.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Rendered as tags rather than carried as its own shape so <see cref="GeneratorSliceTags"/>
     /// keeps being the single parser: the attribute is a typed front end over the vocabulary the
     /// Gherkin and code-first lanes already speak, not a third one to keep in step.
+    /// </para>
+    /// <para>
+    /// <b>Both attributes are read, not one in preference to the other.</b> They are the same
+    /// settings under two spellings, so a method carrying both is one binding stated twice — and
+    /// the existing BOBCAT023 rule already says what to do when two spellings disagree: refuse,
+    /// because one of them is wrong and no silent winner is the right answer. Preferring one
+    /// instead would make the loser's settings vanish without a word.
+    /// </para>
+    /// <para>
+    /// <b><c>[BobcatSpec(typeof(X))]</c> states the slice positionally</b>, which is the whole
+    /// ergonomic point of #403, so this reads an unnamed <c>typeof(…)</c> argument as
+    /// <c>SliceType</c>. Only a <c>typeof</c>: the constructor's other parameters are the
+    /// <c>[CallerFilePath]</c>/<c>[CallerLineNumber]</c> pair, which nobody writes by hand, and
+    /// requiring the <c>typeof</c> shape means a hand-written one cannot be mistaken for a slice.
+    /// </para>
     /// </remarks>
     private static IEnumerable<string> sliceTags(
         MemberDeclarationSyntax node, SemanticModel model, List<MarkedProblem> problems)
     {
-        var attribute = node.AttributeLists
+        var attributes = node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .FirstOrDefault(a => shortName(a.Name.ToString()) == "BobcatSlice");
+            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" or SpecAttributeName)
+            .ToList();
 
-        if (attribute?.ArgumentList is null) yield break;
+        if (attributes.Count == 0) yield break;
 
         string? fromName = null, fromType = null;
+        AttributeSyntax? where = null;
         var tags = new List<string>();
 
-        foreach (var argument in attribute.ArgumentList.Arguments)
+        foreach (var attribute in attributes)
         {
-            var member = argument.NameEquals?.Name.Identifier.Text;
-            if (member is null) continue;
+            where ??= attribute;
+            if (attribute.ArgumentList is null) continue;
 
-            switch (member)
+            var positional = shortName(attribute.Name.ToString()) == SpecAttributeName;
+
+            foreach (var argument in attribute.ArgumentList.Arguments)
             {
-                case "SliceName":
-                    fromName = literalOf(argument.Expression);
-                    break;
-                case "SliceType":
-                    fromType = typeNameOf(argument.Expression, model);
-                    break;
-                case "Domain":
-                case "Chapter":
-                case "Pattern":
-                    if (literalOf(argument.Expression) is { Length: > 0 } value)
-                        tags.Add($"{member.ToLowerInvariant()}:{value}");
-                    break;
+                var member = argument.NameEquals?.Name.Identifier.Text;
+
+                // [BobcatSpec(typeof(X))]: the slice type, stated positionally.
+                if (member is null)
+                {
+                    if (positional && typeNameOf(argument.Expression, model) is { Length: > 0 } named)
+                    {
+                        fromType ??= named;
+                        where = attribute;
+                    }
+
+                    continue;
+                }
+
+                switch (member)
+                {
+                    case "SliceName":
+                        fromName ??= literalOf(argument.Expression);
+                        if (fromName is not null) where = attribute;
+                        break;
+                    case "SliceType":
+                        fromType ??= typeNameOf(argument.Expression, model);
+                        if (fromType is not null) where = attribute;
+                        break;
+                    case "Domain":
+                    case "Chapter":
+                    case "Pattern":
+                        if (literalOf(argument.Expression) is { Length: > 0 } value)
+                        {
+                            var tag = $"{member.ToLowerInvariant()}:{value}";
+                            if (!tags.Contains(tag)) tags.Add(tag);
+                        }
+
+                        break;
+                }
             }
         }
 
@@ -268,10 +349,10 @@ internal static class MarkerCommentSpecs
             {
                 Id = "BOBCAT023",
                 IsError = true,
-                Where = attribute.GetLocation(),
+                Where = (where ?? attributes[0]).GetLocation(),
                 Message =
-                    $"[BobcatSlice] sets SliceName = \"{fromName}\" and SliceType = typeof({fromType}), which name "
-                    + "different slices. SliceType means exactly SliceName = type.Name — set one of them."
+                    $"SliceName = \"{fromName}\" and SliceType = typeof({fromType}) name different slices. "
+                    + "SliceType means exactly SliceName = type.Name — set one of them."
             });
         }
 
@@ -287,9 +368,10 @@ internal static class MarkerCommentSpecs
                 {
                     Id = "BOBCAT024",
                     IsError = false,
-                    Where = attribute.GetLocation(),
+                    Where = (where ?? attributes[0]).GetLocation(),
                     Message =
-                        $"[BobcatSlice(SliceName = \"{slice}\")] names a slice that IS a type in this compilation. "
+                        $"[{shortName((where ?? attributes[0]).Name.ToString())}(SliceName = \"{slice}\")] names a "
+                        + "slice that IS a type in this compilation. "
                         + $"Prefer SliceType = typeof({slice}): it is rename-safe the same way and the type survives "
                         + "to the generator, where a string cannot be checked against the model."
                 });
@@ -300,6 +382,25 @@ internal static class MarkerCommentSpecs
 
         foreach (var tag in tags) yield return tag;
     }
+
+    /// <summary>
+    /// <c>Pending = true</c> on this method's <c>[BobcatSpec]</c> (issue #404).
+    /// </summary>
+    /// <remarks>
+    /// Read with its own reader rather than through the slice-tag vocabulary, because pending is a
+    /// property of one SPECIFICATION and the tags are slice grouping. Routing it through
+    /// <see cref="GeneratorSliceTags"/> would have meant a new tag in both copies of that parser —
+    /// the generator's and the runtime's — and a corresponding entry in the agreement test, to
+    /// carry something no slice has an opinion about.
+    /// </remarks>
+    private static bool isPending(MemberDeclarationSyntax node)
+        => node.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .Where(a => shortName(a.Name.ToString()) == SpecAttributeName)
+            .SelectMany(a => a.ArgumentList?.Arguments ?? default)
+            .Any(argument =>
+                argument.NameEquals?.Name.Identifier.Text == "Pending"
+                && argument.Expression.IsKind(SyntaxKind.TrueLiteralExpression));
 
     private static string? literalOf(ExpressionSyntax expression)
         => expression is LiteralExpressionSyntax { Token.Value: string text } ? text : null;
@@ -329,11 +430,17 @@ internal static class MarkerCommentSpecs
     /// so the generator needs no reference to xUnit, TUnit or NUnit — Bobcat cannot depend on a
     /// runner it is trying to be neutral about.
     /// </summary>
+    /// <remarks>
+    /// <c>BobcatSpec</c> is in the list because it <em>is</em> a <c>FactAttribute</c> subclass
+    /// (issue #403) and xUnit discovers it as one. Matching by name is what makes that a separate
+    /// fact to record rather than something inheritance handles: the generator never sees the base
+    /// type.
+    /// </remarks>
     internal static bool IsTestMethod(MethodDeclarationSyntax method)
         => method.AttributeLists
             .SelectMany(list => list.Attributes)
             .Select(a => shortName(a.Name.ToString()))
-            .Any(n => n is "Fact" or "Theory" or "Test" or "TestCase");
+            .Any(n => n is "Fact" or "Theory" or "Test" or "TestCase" or SpecAttributeName);
 
     /// <summary>
     /// The marker comments in a method body, in source order.

@@ -13,6 +13,27 @@
          TestContext, and nothing in the runner or the assertion library. A consumer already has
          those from its own test project. -->
     <PackageReference Include="xunit.v3.extensibility.core" />
+
+    <!--
+      The FIRST test-platform reference either adapter package takes, and a deliberate decision
+      (issue #402). It is here for ITestSessionLifetimeHandler, which is how this package gives a
+      projected suite a run bracket per REQUEST instead of per process. xunit.v3.extensibility.core
+      depends only on xunit.v3.common, so nothing brought the platform in before.
+
+      It costs a consumer nothing: a consumer of this package is by definition an xUnit v3 MTP test
+      host, so it already resolves Microsoft.Testing.Platform through xunit.v3 — and at the same
+      1.9.1 the root header pins, because that is what xunit.v3 3.2.2 builds against.
+
+      Bobcat.TUnit deliberately does NOT follow. See the note in its csproj.
+    -->
+    <PackageReference Include="Microsoft.Testing.Platform" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ships the MSBuild half of the extension registration. buildAction None so a consumer
+         never compiles it; buildTransitive so a transitive reference still gets it. -->
+    <None Include="buildTransitive\Bobcat.Xunit.props"
+          Pack="true" PackagePath="buildTransitive\Bobcat.Xunit.props" />
   </ItemGroup>
 
   <ItemGroup>

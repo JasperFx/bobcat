@@ -1,4 +1,5 @@
 using Bobcat.Residency;
+using Bobcat.Supervisor;
 using JasperFx.CommandLine;
 
 namespace Bobcat.Console;
@@ -40,9 +41,14 @@ public class ResidentInput
 /// The <c>bobcat</c> tool is where a run-side executable with no server in it belongs.
 /// </para>
 /// <para>
-/// <b>Cold only.</b> Issue #394 measured what warmth would take in this lane and it is not the
-/// testing platform: it is Bobcat's own run bracket, which a projected suite opens on its first
-/// scenario and closes at process exit. See <c>docs/warm-projected-runs.md</c>.
+/// <b>Cold and warm (issue #402).</b> A cold command launches a fresh filtered host, which is what
+/// this command always did. A <b>warm</b> command runs in a host held open in the testing
+/// platform's server mode — Microsoft's platform takes repeated run requests in one live process,
+/// and the blocker was Bobcat's own run bracket, which is now per request rather than per process.
+/// Warmth here keeps the CLR warm (JIT, loaded assemblies, codegen) and not the suite's own
+/// fixtures, which its test framework creates and disposes inside each request; see
+/// <c>docs/warm-projected-runs.md</c>. A console chooses per command, so nothing changes for
+/// anyone who never asks for warm.
 /// </para>
 /// <para>
 /// <b>It exits 75 after a restart</b>, exactly as a resident spec host does (issue #397), so one
@@ -60,11 +66,13 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
 
     public override async Task<bool> Execute(ResidentInput input)
     {
-        OutOfProcessResidentSuite suite;
+        WarmProjectedResidentSuite suite;
 
         try
         {
-            suite = await OutOfProcessResidentSuite.For(
+            // Warm-capable, which subsumes cold: a cold command is delegated to
+            // OutOfProcessResidentSuite unchanged, so this is strictly additive.
+            suite = await WarmProjectedResidentSuite.For(
                 input.HostPath,
 
                 // The same origin the runner registers with, so a commanded run lands on the
@@ -101,7 +109,10 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
 
         if (input.IdFlag is { Length: > 0 } id) options = options with { RunnerId = id };
 
-        input.ExitCode = await ResidentMode.Run(suite, options);
+        await using (suite)
+        {
+            input.ExitCode = await ResidentMode.Run(suite, options);
+        }
 
         return true;
     }

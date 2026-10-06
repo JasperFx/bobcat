@@ -447,6 +447,161 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   segments), else split PascalCase. Scenario titles use the same reading of the method name.
   `ProjectedSpecNaming.RoundTrips` in `Bobcat.EventModel` is a third copy of the scenario half —
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
+- **`[BobcatSpec]` is the one-attribute projected spec, and it is three facts rather than one
+  (issue #403).** `Bobcat.Xunit.BobcatSpecAttribute` IS the `[Fact]`, opens the scenario recording
+  `[BobcatScenario]` opens, and carries the `[BobcatSlice]` settings — so
+  `[BobcatSpec(typeof(ConfirmAppointment))]` replaces three attributes, and **BOBCAT028 becomes
+  impossible by construction** because the attribute that claims the slice is the attribute that
+  opens the recording.
+  - **It can be both a Fact and a bracket because xUnit v3 collects hooks by the
+    `IBeforeAfterTestAttribute` INTERFACE**, not only from the `BeforeAfterTestAttribute` base
+    class. The two bases are siblings — both derive straight from `Attribute` — so inheriting from
+    both was never an option, and this is the only shape that collapses the pair. Undocumented
+    enough that `BobcatSpecAttributeTests` pins it against the real runner. `XunitScenarioBracket`
+    exists so the two attributes do not each own a copy of the bracket, the gathered-wrong rethrow
+    included.
+  - **The `[CallerFilePath]`/`[CallerLineNumber]` pair is re-declared and forwarded, and that is
+    load-bearing.** `FactAttribute`'s only constructor takes it and the compiler fills it at the
+    call site it SEES, so a subclass calling `base()` without re-declaring them hands over its own
+    file and the line of that `base` call — every test in a suite reporting one source location,
+    with IDE test navigation landing on the attribute. Measured both ways before being written.
+    The attribute is **unsealed** (`[PostgresFact]` is the shape to expect) and a subclass inherits
+    the same obligation.
+  - **The generator needed teaching in three separate places, because it matches by simple name and
+    never sees a base type**: `IsTestMethod` ("Fact"/"Theory"/"Test"/"TestCase"/**"BobcatSpec"**),
+    `HasScenarioAttribute` (now `ScenarioOpeningAttributes`), and `sliceTags`. Missing any one
+    fails differently — the method is skipped entirely, or BOBCAT028 fires at a suite that records
+    perfectly well, or the slice goes unbound.
+  - **`sliceTags` reads BOTH attributes rather than preferring one**, and an unnamed `typeof(…)`
+    argument is the positional `SliceType`. They are the same settings under two spellings, so a
+    method carrying both is one binding stated twice and the existing BOBCAT023 rule already
+    answers a disagreement: refuse, because one is wrong and no silent winner is right. Preferring
+    one would make the loser's slice vanish without a word. BOBCAT024 now names the attribute it
+    fired on.
+  - **TUnit's equivalent is deliberately a follow-up** (the issue says so): this subclasses
+    `Xunit.FactAttribute`. `[BobcatScenario]` stays for the class-level opt-in and for suites
+    already written against it. `Bobcat.Xunit.Samples/Specs/OneAttributeSpecs.cs` keeps one class
+    in each form, which is what makes
+    `SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
+    the generator recognises the attribute by name and xUnit by base class, two independent
+    mechanisms, and that test asserts the two counts agree.
+- **A projected run's bracket is per REQUEST, not per process (issue #402).**
+  `MarkerStepRun.OpenRun(mode)` / `CloseRun()` are the seam; `Bobcat.Xunit` ships an
+  `ITestSessionLifetimeHandler` (`BobcatSessionLifetime`) that drives them. Two run requests in one
+  live process now publish two `run_started`, two `RunId`s and two `run_finished`, each command's
+  scenarios under its own run — which is #393's requirement in as many words, and the absence of
+  `run_finished` was #195's definition of a wedged run.
+  - **A test SESSION is a run request, and that is measured on MTP 1.9.1.** Three
+    `testing/runTests` requests into one live process fire the handler three times with three
+    distinct `SessionUid`s, each properly bracketed; a one-shot direct run fires it once; and
+    **discovery opens no session at all**, which is what keeps `--list-tests` from putting an empty
+    card on the board.
+  - **Registration is half C# and half MSBuild.** The platform generates a
+    `SelfRegisteredExtensions` class calling `AddExtensions` on every type a
+    `TestingPlatformBuilderHook` item names, so `Bobcat.Xunit` ships
+    `buildTransitive/Bobcat.Xunit.props` — and **in-repo projects declare the item themselves**,
+    because a `ProjectReference` takes no build assets (the same rule as `Bobcat.Mtp.props` and
+    `GenerateTestingPlatformEntryPoint`).
+  - **`Bobcat.Xunit` takes a `Microsoft.Testing.Platform` reference; `Bobcat.TUnit` deliberately
+    does NOT.** `xunit.v3.extensibility.core` depends only on `xunit.v3.common`, so this is the
+    first platform reference either adapter has had — and it costs an xUnit consumer nothing, since
+    such a consumer already resolves the platform through `xunit.v3` at the same pinned 1.9.1.
+    `TUnit.Core` depends on no test platform at all, which is exactly what makes that package safe
+    to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm projected lane
+    for it to serve yet. Nothing regresses, because the backstop below is still its whole bracket.
+    The reasoning lives in `Bobcat.TUnit.csproj`, where whoever changes it will read it.
+  - **`ProcessExit` stays as the backstop and now drains unconditionally.** `CloseRun` is
+    idempotent, so a bracket the session hook already closed is found closed — but the old code
+    returned early when it had nothing to close, which after this refactor would have let the last
+    `run_finished` of every warm process die in the publisher's channel. **`CloseRun` keeps the
+    sink** (disposing it would stop the pump for the next request) and resets `_info`/counts so the
+    next bracket mints a fresh `RunId` with that request's own tallies; only process exit disposes.
+    Ordering needs no flush — one bounded channel, drained FIFO.
+  - **The command id is read per request** (`OpenRun` re-runs `MonitorRunInfo.Discover`), while the
+    sink is resolved once per process (`_sinkResolved`) so no command pays for a console handshake.
+    **For a warm out-of-process child the variable still cannot change**, and that is the finding
+    this uncovered: a child's environment is fixed at launch, and MTP 1.9.1 has no per-request
+    metadata slot — the `runId` on `testing/runTests` is the client's own and is **not** the
+    `SessionUid` the handler receives (measured; unrelated GUIDs). A file whose path is fixed at
+    launch, the way `BOBCAT_LIST_SPECS` works in the other direction, is the shape that would fit,
+    and it is a new public variable rather than a detail.
+- **The projected lane runs warm too (issue #402 item 4): `WarmProjectedResidentSuite`, in
+  `Bobcat.Supervisor`.** It wraps `OutOfProcessResidentSuite` — **cold is delegated unchanged**,
+  so a cold command is byte-for-byte what it always was — and holds an `MtpWorkerClient` open for
+  warm, so a warm command is one `testing/runTests` request into the live process. `bobcat
+  resident` registers `cold` and `warm`; a console chooses per command, so nothing changes for
+  anyone who never asks for warm.
+  - **`BOBCAT_RUN_COMMAND_FILE` is the per-request command channel, and a new public variable.**
+    A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
+    command after the first would carry the first one's id — precisely the mis-attribution #401
+    was opened to fix. Nor is there a protocol slot: measured on MTP 1.9.1, the `runId` a client
+    sends on `testing/runTests` is the client's own and is **not** the `SessionUid` the session
+    handler receives (unrelated GUIDs). So the parent writes the id to a path fixed at launch
+    **before** sending each request — **the exact inverse of `BOBCAT_LIST_SPECS`**, where the child
+    writes what the parent reads. No race, because a resident runner runs one command at a time and
+    refuses rather than queues. It **wins over `BOBCAT_RUN_COMMAND`** as the narrower claim, every
+    read failure falls back to the variable and then to null (attribution must never fail a run),
+    and `EnvironmentFor` **clears** it for a cold child alongside the four it already clears — a
+    parent's stale file must never be read as this command.
+  - **Layering: the warm suite moved UP, the client did not move DOWN.** `MtpWorkerClient` stays in
+    `Bobcat.Supervisor`, because **core is what every spec project references** and an MTP JSON-RPC
+    client there would tax all of them for a capability only the resident tool uses. `IWorkerClient`
+    is documented as *the* seam for exactly this and #402 anticipated "a second caller of
+    `IWorkerClient` rather than a new transport", so the second caller sits on the supervisor's side
+    of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest — driving a test host as a process is
+    that tool's whole job in this lane. (Watch the `Bobcat.Cli` assembly name while in that csproj:
+    `Bobcat.Supervisor.dll` beside `Bobcat.Cli.dll` is fine, where `bobcat.dll` beside `Bobcat.dll`
+    was one file on a case-insensitive filesystem.)
+  - **The identity → uid join is one lookup**, per #394: the manifest's `QualifiedTestMethod`
+    against the discovery display name, with `Ns.Outer+Inner` → dotted tried as a *fallback* after
+    the exact match #394 verified. An identity whose uid cannot be named is **refused**, not dropped
+    from the subset — a request for three specs that silently ran two looks exactly like a pass.
+  - **What warmth buys is the CLR, not the boot**, and the Q2 caveat stands word for word: xUnit's
+    assembly and collection fixtures are created and disposed *within* a run request, so a second
+    request pays for them again. The Gherkin lane is the opposite — there what warms is Bobcat's own
+    `TestResources.StartAll`. A suite whose cost is a collection fixture standing up a database will
+    see far less than #394's 72ms → 4ms.
+  - **Withdrawal follows the Gherkin lane's rule**: a faulted warm session drops `warm` from the
+    registered modes, re-registers so the monitor stops offering a button that would now be
+    refused, and refuses a warm command *with that reason*. **Cold is unaffected** — it starts over
+    from exactly the thing that poisoned the warm host — and a cold command **closes the warm
+    session first**, since a booted host holds the port, the database and the queues.
+  - `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` holds the warm tests **beside the cold ones**,
+    which is why it now has a real `Bobcat.Supervisor` reference: two modes of one lane from one
+    class, the same reasoning as `SpecIdentityEndToEndTests`. One of them re-learned a documented
+    rule the hard way — **`run_finished` does not mean the runner is free**, the bracket closing a
+    hair before the in-flight slot clears — so a second command sent the instant it arrived was
+    refused `busy`. The test waits for `ResidentRunner.Busy` to clear, which is what a real client's
+    "send again" amounts to.
+- **`[BobcatSpec(…, Pending = true)]` is the projected lane's pending specification (issue
+  #404).** The Gherkin lane already turns a step-less scenario into
+  `HotspotDescriptor.PendingSpecification` (jasperfx#689) and `SpecIdentityAudit` reads it as
+  **joined, not drift**; the projected lane had no equivalent, so a scaffolded skeleton *threw* and
+  a pending spec was indistinguishable from a failing one. `EventModelEmitter.Collect(MarkedSpec)`
+  now routes the identity to `PendingSpecifications` instead of `Specifications` — both arms put it
+  on the slice, which is what keeps it joined (not an orphan, and its slice not a hole) while
+  stopping a stub from looking like evidence.
+  - **Skipped, never swallowed.** `Pending = true` sets `FactAttribute.Skip`, so every runner and
+    IDE reports it the way it reports any skip: nobody ran it. Running the body and absorbing the
+    failure was the alternative and is exactly how red gets laundered into green — the same
+    guardrail as the ledger's refusal to feed proposals back into a policy. An explicit `Skip`
+    wins in either written order, which is two tests because property initializers run in written
+    order.
+  - **"No steps" is NOT read as pending in this lane, and that is the one place the two lanes
+    differ.** A Gherkin scenario with no steps says nothing; a projected test with no marker
+    comments says plenty, and **33 of this repo's own 41 projected samples declare no marker steps
+    at all**. Inferring it would have turned most of a working suite into open questions.
+  - **On `[BobcatSpec]` only, not on `[BobcatSlice]`.** Putting it on the slice attribute would let
+    a TUnit suite write it today, but that attribute is not the test: it would mint the hotspot
+    while the body still ran and still failed — the exact state #404 exists to end. A partial
+    capability that looks complete is worse than an absent one.
+  - **Carried on `MarkedScenario.Pending` with its own reader, not as a slice tag.** Pending is a
+    property of one specification; the tag vocabulary is slice grouping, and routing it through
+    `GeneratorSliceTags` would mean a new tag in both copies of that parser plus an entry in
+    `SliceTagParsingAgreementTests`, to carry something no slice has an opinion about.
+  - A pending spec **stays in the spec manifest and in `--list-tests`** — xUnit discovers a skipped
+    test like any other, and the `Bobcat.Mtp.Tests` manifest/platform agreement test covers the
+    sample corpus's pending spec, so the two halves cannot drift apart on it.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
@@ -1527,8 +1682,11 @@ sweep:
   is **invisible** to the other side: `StepCell.Value` (issue #396) is read by nobody until a
   console is changed to read it, and nothing warns either party.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
-  `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS` (issue #391 — the path a suite writes its spec manifest
-  to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same request as `--resident`),
+  `BOBCAT_RUN_COMMAND`, **`BOBCAT_RUN_COMMAND_FILE`** (issue #402 — a file whose contents are the
+  CURRENT request's command id, which **wins** over `BOBCAT_RUN_COMMAND`; see the warm projected
+  lane below for why a variable cannot serve), `BOBCAT_LIST_SPECS` (issue #391 — the path a suite
+  writes its spec manifest to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same
+  request as `--resident`),
   `BOBCAT_RUNNER_ID` (issue #397 — the stable runner id a parent hands over, so the same checkout
   is the same runner across every relaunch), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
   (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
@@ -1555,11 +1713,44 @@ sweep:
   bind (appended to `TestResources.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
 **The `bobcat` tool is `src/Bobcat.Console/`, and it has two commands: `import-event-model` and
-`resident`.** It carries the free, no-server half of the toolset — read and validate a curated
-event-model file, or convert an eventmodelers.ai board export into that format, optionally pushing
-the result at a console's `PUT /api/event-model`; and (issue #399) keep a suite whose process
-Bobcat does not own available to a monitor, which has to ship from here because the console
-references nothing in this repository and so cannot be handed a class to host. It is a plain
+`resident`.** It carries the free, no-server half of the toolset — convert an eventmodelers.ai
+board export into C#, optionally pushing the assembled model at a console's
+`PUT /api/event-model`; and (issue #399) keep a suite whose process Bobcat does not own available
+to a monitor, which has to ship from here because the console references nothing in this repository
+and so cannot be handed a class to host.
+
+- **`import-event-model` writes C#, not YAML (issue #405).** `CSharpModelWriter` emits two files:
+  `<Model>Stubs.cs`, one **field-less** record per command, event, aggregate, message and read
+  model the board named, and `<Model>.cs`, one `EventModelDefinition` declaring the slices through
+  JasperFx.Events 2.81's fluent API. `EmlangReader` and `EmlangImport` are untouched — only the
+  writer at the end of the pipe changed — and the command's **curated arm is gone**: a curated
+  file is refused with a sentence pointing at `EventModelDefinition`, which is more use than the
+  "unrecognized" it would otherwise fall through to. The curated *types* stay until #406.
+  - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
+    information at all (the board's props are intentionally omitted), so a name is the whole truth
+    it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
+  - **Everything goes through `ISourceWriter`**, the rule the issue states and the reason the bump
+    had to come first (jasperfx#956's whitespace fixes). Backticks are the writer's stand-in for
+    double quotes, so a literal backtick in a board label is swapped for a single quote rather than
+    silently becoming one.
+  - **Two mistakes the first cut made, both now pinned.** The definition class took the model name,
+    which is also the namespace's, so `namespace K9Crush { class K9Crush }` compiled and then
+    resolved every sibling stub reference against the CLASS first — `K9Crush.SwipeOnDog` stopped
+    meaning what it says. And a generic verb (`model.Command<SwipeOnDog>()`) names the slice after
+    the type, so using one where the board called the slice something else would have **split one
+    slice into two silently**, the slice name being the merge key; where they differ the slice now
+    opens by name and states its pattern and role separately.
+  - **A role whose type has no stub is declared by NAME** — `.HandledBy("SwipeEndpoint")`. A
+    handler is never stubbed (an empty handler is what Wolverine's `scaffold` command exists to
+    write), and a string becomes a `TypeDescriptor(name, name, "")` whose empty assembly makes the
+    merge compare by `Name` (jasperfx#798), so the two spellings mean the same thing — while
+    reaching for a generic over a type no stub declares simply would not compile.
+  - **`CSharpModelWriterTests` compiles its own output with Roslyn, loads it, runs `Configure` and
+    compares the descriptor to `CuratedModelMapper.ToDescriptor` of the same model.** Asserting on
+    the emitted text would pass for a file with a missing brace, a shadowed namespace or a generic
+    naming a type no stub declares — all three of which happened. The round-trip is a real guard,
+    checked by dropping `.Emits` and watching it go red; `Bobcat.EventModel.Tests` therefore
+    references `Microsoft.CodeAnalysis.CSharp`, which is new for that project. It is a plain
 JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not `bobcat`** — see the
 resident-runner section for why that is load-bearing rather than cosmetic; the command a person
 types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it lives in Stoat's
@@ -1700,15 +1891,12 @@ specs and exited 0 instead of going resident. The check is before the parser in 
     `docs/warm-projected-runs.md`).** Server mode takes repeated run requests in one live process
     on MTP 1.9.1 (72ms → 11ms → 4ms for the same work), and an identity maps to a platform uid
     through one join — xUnit v3's discovery display name is `Namespace.Class.method`, exactly what
-    #391's manifest spells. **The blocker is Bobcat's own run bracket**: a projected suite opens
-    its run on the first scenario and closes it from a `ProcessExit` handler, so two run requests
-    in one process yield **one** `run_started`, one `RunId`, **no** `run_finished`, and the second
-    command's scenarios land on the first command's card — a run with no finish being exactly what
-    #195 was opened for. Closing it means a per-request bracket in `MarkerStepRun`, which needs a
-    platform extension (`ITestSessionLifetimeHandler`) in `Bobcat.Xunit`/`Bobcat.TUnit` — the first
-    either package would ship, and `Bobcat.TUnit` deliberately references only `TUnit.Core`.
-    `WarmProjectedRunTests` pins all four measurements, **two as tripwires on the broken
-    behaviour**, so a fix tells its author the blocker is gone.
+    #391's manifest spells. The blocker #394 found was **Bobcat's own run bracket**, and **#402
+    fixed it** (below). The lane is still cold, now for three reasons #394 could not see: there is
+    no per-request channel for the command id, the server-mode client is in `Bobcat.Supervisor`
+    while `OutOfProcessResidentSuite` is in core, and warm would mean holding a live client across
+    that seam. `WarmProjectedRunTests` used to pin the broken behaviour with **two tripwires**;
+    they fired, and it now asserts the fixed behaviour.
   - Any suite-level catastrophe counts as damage, not only a reset that threw. The narrower rule
     would have to tell a broken resource from a `SpecCatastrophicException` a step raised
     deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer
@@ -1768,9 +1956,9 @@ specs and exited 0 instead of going resident. The check is before the parser in 
   - **Named for the mechanism, not the lane, because it is lane-neutral** — everything it does is a
     function of the manifest, and `SpecFilterArguments` switches on the *framework*, so pointing it
     at a Gherkin host works and gets `--filter-uid`. Doing that is still the wrong call for a
-    Gherkin suite: the in-process runner can offer warm and this cannot, since warmth means holding
-    a booted host and here the host is a child that exits. **Cold-only, for #394's measured
-    reason** — the blocker is Bobcat's own run bracket, not the platform.
+    Gherkin suite, whose in-process runner warms Bobcat's own `StartAll`. **This class is cold-only
+    and stays so** — it is in core, and warmth needs the supervisor's MTP client;
+    `WarmProjectedResidentSuite` is what offers both (below).
   - **It ships as `bobcat resident <host>`, a command on the free tool**, because the console at
     the other end references nothing in this repository and so cannot be handed a class to host.
     That forced the tool's assembly to be renamed **`Bobcat.Cli`**: it now references core, and

@@ -21,11 +21,112 @@ public class MonitorRunInfoTests : IDisposable
     private readonly string? _previousCommand
         = Environment.GetEnvironmentVariable(MonitorRunInfo.RunCommandVariable);
 
+    private readonly string? _previousCommandFile
+        = Environment.GetEnvironmentVariable(MonitorRunInfo.RunCommandFileVariable);
+
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(), "bobcat-run-info", Guid.NewGuid().ToString("n"));
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, _previousSession);
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunTagVariable, _previousTag);
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, _previousCommand);
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandFileVariable, _previousCommandFile);
+
+        try { if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
+        catch { /* a temp directory is not worth failing a test over */ }
+    }
+
+    /// <summary>A command file holding <paramref name="contents"/>, pointed at by the variable.</summary>
+    private string commandFile(string? contents)
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "current.command");
+
+        if (contents is not null) File.WriteAllText(path, contents);
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandFileVariable, path);
+
+        return path;
+    }
+
+    // --- BOBCAT_RUN_COMMAND_FILE (issue #402): the per-request command id.
+
+    [Fact]
+    public void the_command_file_is_read_as_this_request_s_command()
+    {
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+        commandFile("c-from-the-file");
+
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-from-the-file");
+    }
+
+    [Fact]
+    public void the_file_wins_over_the_variable_because_it_is_the_narrower_claim()
+    {
+        // This is the whole reason the file exists. A warm child inherits BOBCAT_RUN_COMMAND once,
+        // at launch, and keeps it for life — so a process serving several commands would report
+        // every one of them as the first, which is exactly the mis-attribution issue #401 fixed.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "c-from-launch");
+        commandFile("c-this-request");
+
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-this-request");
+    }
+
+    [Fact]
+    public void the_file_is_re_read_per_discover_so_a_warm_process_sees_each_command()
+    {
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+        var path = commandFile("c-one");
+
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-one");
+
+        // The parent rewrites it before the next request. Nothing is cached: Discover runs per
+        // run bracket, which is per request now (#402), so the new value is simply read.
+        File.WriteAllText(path, "c-two");
+
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-two");
+    }
+
+    [Fact]
+    public void trailing_whitespace_in_the_file_is_not_part_of_the_command()
+    {
+        // A parent writing with a shell redirect gets a newline for free, and a command id with a
+        // trailing newline joins against nothing on the console's side.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+        commandFile("c-one\n");
+
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-one");
+    }
+
+    [Fact]
+    public void a_missing_or_empty_file_falls_back_to_the_variable()
+    {
+        // A cold child has no per-request file, and an empty one is a parent that has not written
+        // yet. Neither is an error: run attribution must never be able to fail a run.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, "c-from-launch");
+
+        Environment.SetEnvironmentVariable(
+            MonitorRunInfo.RunCommandFileVariable, Path.Combine(_directory, "not-there.command"));
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-from-launch");
+
+        commandFile("   ");
+        MonitorRunInfo.Discover("xunit").Command.ShouldBe("c-from-launch");
+    }
+
+    [Fact]
+    public void a_command_from_the_file_suppresses_the_agent_session_like_any_other()
+    {
+        // Issue #401's rule is keyed on Command being set, not on how it was discovered — so it
+        // rides along for free, which is the point of having written it as a getter.
+        Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_019U1ut5qK9");
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+        commandFile("c-this-request");
+
+        var info = MonitorRunInfo.Discover("xunit");
+
+        info.Command.ShouldBe("c-this-request");
+        info.Session.ShouldBeNull();
     }
 
     [Fact]
@@ -35,6 +136,7 @@ public class MonitorRunInfoTests : IDisposable
         // launches, so a run started from a session is attributable with no configuration at all.
         Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_019U1ut5qK9");
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);
+        Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandFileVariable, null);
 
         MonitorRunInfo.Discover("in-process").Session.ShouldBe("session_019U1ut5qK9");
     }

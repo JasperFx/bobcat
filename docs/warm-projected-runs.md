@@ -9,10 +9,22 @@ and warm mode for Gherkin suites ([#393](https://github.com/JasperFx/bobcat/issu
 **Verdict: usable with caveats — and the caveat is Bobcat's, not the platform's.**
 
 Microsoft.Testing.Platform's server mode does everything the question needed it to do, on the
-version src pins. What stands in the way is the shape of a *projected* suite's run bracket: it is
-per **process**, and warm mode needs it per **command**. So the projected lane stays cold-only in
-the resident runner, and the work to change that is a day inside `MarkerStepRun`, not an
-investigation into somebody else's protocol.
+version src pins. What stood in the way was the shape of a *projected* suite's run bracket: it was
+per **process**, and warm mode needs it per **command**.
+
+> ## Update, 2026-10-06 — the bracket is fixed ([#402](https://github.com/JasperFx/bobcat/issues/402))
+>
+> **The blocker below is closed.** `Bobcat.Xunit` ships an `ITestSessionLifetimeHandler` that opens
+> and closes the Bobcat run bracket per run **request**, and `MarkerStepRun.OpenRun` / `CloseRun`
+> are the seam it drives. Two run requests in one live process now publish two `run_started`, two
+> `RunId`s and two `run_finished`, with each command's scenarios under its own run. The two
+> tripwires did their job and are retired; `WarmProjectedRunTests` asserts the fixed behaviour, and
+> removing the registration is enough to make it red again (checked).
+>
+> **And the lane runs warm.** `WarmProjectedResidentSuite` holds the suite's test host open in
+> server mode; `bobcat resident` registers `cold` and `warm`, and a console chooses per command.
+> Two warm commands in one live host measured **2.9s for the whole test class** against a cold
+> launch per command. See "Warm, as built" below.
 
 Everything below was measured, not read from docs. The measurements are
 `src/Bobcat.Supervisor.Tests/WarmProjectedRunTests.cs` — four tests, two of them **tripwires that
@@ -78,7 +90,9 @@ ignores a subset parameter it does not understand and runs the whole suite.
 
 ---
 
-## The blocker: the run bracket is per process
+## The blocker, as measured in 2026-10 — **now fixed, see the update above**
+
+## The run bracket was per process
 
 A projected suite opens its run on the **first scenario** of the process and closes it from a
 **`ProcessExit` handler** (`MarkerStepRun.ensureStarted` / `finish`). In a one-shot `dotnet test`
@@ -102,37 +116,115 @@ viewer cannot tell a warm run from a cold one except by its speed.* The Gherkin 
 that because `BobcatRunner.RunWarmSelection` attaches and detaches a monitor publisher **per
 selection**. The projected lane has nothing to attach it to.
 
-### What closing it would take
+### What closing it took — all three, and what each turned out to be
 
-A per-request bracket in `MarkerStepRun` — the latch (`_started`, `_info`, `_sink`) becomes
-something a caller can open and close rather than something the first scenario opens and
-`ProcessExit` closes. Three things make that less simple than it sounds, and all three are
-reasons to do it deliberately rather than as part of #390:
+A per-request bracket in `MarkerStepRun`: the latch (`_started`, `_info`, `_sink`) is now something
+a caller opens and closes rather than something the first scenario opens and `ProcessExit` closes.
+The three complications were real, and each resolved differently from the guess:
 
-1. **Nothing in the projected lane knows when a run request begins or ends.** The adapter sees
-   tests, not requests. An MTP extension — a `ITestSessionLifetimeHandler`, which is the hook the
-   platform has for exactly this — would have to be registered by `Bobcat.Xunit` / `Bobcat.TUnit`
-   and would be the first platform extension either package ships. That is a real dependency
-   decision: `Bobcat.TUnit` deliberately references only `TUnit.Core`, which depends on no test
-   platform at all, and that is what makes it safe to ship.
-2. **`ProcessExit` has to stay** for the one-shot case, so the bracket needs to be idempotent and
-   know whether anyone already closed it.
-3. **The command id has to reach it.** A resident runner holds the command, and in this lane the
-   runner is a *different process* — so `BOBCAT_RUN_COMMAND` is the channel, which is one of the
-   two cases it was built for (#392). But it is a process-wide variable, and a warm process takes
-   many commands, so it would have to be read per request instead of at `Discover` time.
+1. **Nothing in the projected lane knew when a run request begins or ends** — the adapter sees
+   tests, not requests. `ITestSessionLifetimeHandler` is the platform's hook, and **a session
+   really is a request**: measured on 1.9.1, three `testing/runTests` requests into one live
+   process fire it three times with three distinct `SessionUid`s, each properly bracketed; a
+   one-shot direct run fires it once; and **discovery opens no session at all**, which is what
+   keeps `--list-tests` from putting an empty card on the board.
 
-None of that is hard. It is simply not free, and it buys a lane that is already served correctly
-by cold runs.
+   It is registered half in C# and half in MSBuild — the platform generates a
+   `SelfRegisteredExtensions` class calling `AddExtensions` on every type a
+   `TestingPlatformBuilderHook` item names — so `Bobcat.Xunit` ships
+   `buildTransitive/Bobcat.Xunit.props`, and in-repo projects declare the item themselves because
+   a `ProjectReference` takes no build assets.
 
----
+   **The dependency decision went as the finding predicted, and `Bobcat.TUnit` does not follow.**
+   `Bobcat.Xunit` now references `Microsoft.Testing.Platform`, which costs its consumers nothing
+   (a consumer is by definition an xUnit v3 MTP host and already resolves it through `xunit.v3`).
+   `TUnit.Core` depends on no test platform at all — that is what makes *that* package safe to ship
+   beside a pinned 1.9.1, since `TUnit.Engine` wants 2.4.0 — so it keeps that property and keeps
+   the per-process bracket. Nothing regresses: the backstop below is still its whole bracket. The
+   reasoning is written into `Bobcat.TUnit.csproj`, where someone changing it will read it.
+2. **`ProcessExit` stays, and is now explicitly the backstop.** `CloseRun` is idempotent, so when
+   the session hook already closed the bracket the backstop finds nothing to close. One thing had
+   to change for that to be safe: it now **drains the publisher unconditionally**. The old code
+   returned early when it had no bracket to close, which after this refactor would have let the
+   last `run_finished` of every warm process die in the channel.
+3. **The command id is read per request** — `OpenRun` re-runs `MonitorRunInfo.Discover`, so a
+   process serving several commands reads the current `BOBCAT_RUN_COMMAND` each time instead of
+   stamping every run with the first. The sink is deliberately *not* re-resolved: that is a process
+   fact, and probing 5525 per request would charge every command for a console handshake.
+
+   **But for a warm child the variable cannot change, and that is the finding this uncovered.** A
+   child's environment is fixed at launch, and MTP 1.9.1 offers no per-request metadata slot: the
+   `runId` on `testing/runTests` is the client's own and **is not** the `SessionUid` the handler
+   receives (measured — they are unrelated GUIDs). So "read per request" is now true, and in the
+   out-of-process lane there is still nothing new to read.
+
+## Warm, as built
+
+`WarmProjectedResidentSuite` (in **`Bobcat.Supervisor`**) wraps `OutOfProcessResidentSuite`: cold is
+delegated to it unchanged, and warm holds an `MtpWorkerClient` open across commands. The three
+things the finding above said were owed resolved like this:
+
+### 1. The per-request command channel — `BOBCAT_RUN_COMMAND_FILE`
+
+A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
+command after the first would be stamped with the first one's id, which is exactly the
+mis-attribution [#401](https://github.com/JasperFx/bobcat/issues/401) was opened to fix. Nor is
+there a slot in the protocol — measured on 1.9.1, the `runId` a client sends on
+`testing/runTests` is the client's own and **is not** the `SessionUid` the session handler receives.
+
+So: a path fixed at launch, whose contents the parent rewrites **before** each request and the
+child reads when its session opens. It is the exact inverse of `BOBCAT_LIST_SPECS`, where a path is
+fixed at launch and the *child* writes what the *parent* reads. No race arises, because a resident
+runner runs one command at a time and refuses rather than queues.
+
+It **wins over `BOBCAT_RUN_COMMAND`**, being the narrower claim, and every failure to read it falls
+back to the variable and then to null — run attribution must never be able to fail a run.
+`OutOfProcessResidentSuite.EnvironmentFor` **clears** it for a cold child, alongside the four it
+already clears: a parent's stale file must never be read as this command.
+
+### 2. Layering: the warm suite moved up, the client did not move down
+
+`MtpWorkerClient` stays in `Bobcat.Supervisor`. Moving it down into core was the alternative and
+was refused: **core is what every spec project references**, so putting an MTP JSON-RPC client
+there would tax all of them for a capability only the resident tool uses. `IWorkerClient` is
+documented as *the* seam for exactly this, and this issue anticipated "a second caller of
+`IWorkerClient` rather than a new transport" — so the second caller belongs on the supervisor's
+side of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest: driving a test host as a process is
+that tool's whole job in this lane.
+
+### 3. The identity → uid join
+
+One lookup, as Q3 established: the manifest's `TestClass` + `TestMethod` (its `QualifiedTestMethod`)
+against the discovery display name. A nested class is `Ns.Outer+Inner` in the manifest and may be
+dotted in a display name, so that is tried as a *fallback* after the exact match this file verified.
+An identity whose uid cannot be named is **refused**, not dropped from the subset — a request for
+three specs that silently ran two looks exactly like a pass.
+
+### What warmth buys here, and what it does not
+
+It keeps the **CLR** warm: the JIT, the loaded assemblies, the codegen — the 72ms → 11ms → 4ms
+above. It does **not** keep the suite's own fixtures up, because xUnit's assembly and collection
+fixtures are created and disposed *within* a run request. That is the opposite of the Gherkin lane,
+where what warms is Bobcat's own `TestResources.StartAll`. So the Q2 caveat stands word for word
+and is worth repeating to anyone choosing a mode: for a suite whose database lives in a collection
+fixture, warm saves the process and the JIT, not the boot.
+
+### Withdrawal, following the Gherkin lane's rule
+
+A warm session that faults takes `warm` off the registered modes, re-registers so the monitor stops
+offering a button that would now be refused, and refuses a warm command **with that reason** —
+because "warm is not a mode this runner offers", from a runner that was offering it a minute ago,
+explains nothing. **Cold is unaffected**: a cold command starts over from exactly the thing that
+poisoned the warm host. And a cold command **closes the warm session first**, since a booted host
+holds the port, the database and the queues a second one would ask for.
 
 ## Decision
 
-**The projected lane stays cold-only in the resident runner.** `BobcatResidentSuite` offers
-`cold` and `warm`; `OutOfProcessResidentSuite` — the projected lane, built in issue #399 on the
-back of this finding — offers `cold` alone, and `ResidentRunner` refuses a `warm` command it never
-registered rather than quietly downgrading it.
+**The projected lane runs warm**, as of #402. `BobcatResidentSuite` offers `cold` and `warm`
+in process; `WarmProjectedResidentSuite` offers both out of process, delegating cold to
+`OutOfProcessResidentSuite` (which itself still offers `cold` alone — it is in core, and warmth
+needs the supervisor's client). `ResidentRunner` still refuses a `warm` command a suite never
+registered rather than quietly downgrading it, which is what makes the withdrawal above safe.
 
 Cold, note, needed none of what is owed below: a command launches the suite's own host with
 `SpecFilterArguments.For`'s filter, that host opens and closes exactly one run bracket because it
@@ -140,9 +232,10 @@ is exactly one process, and the whole blocker measured here is about a *second* 
 a process that already published `run_started`. The price of being cold is one process per command,
 which is the thing warmth would buy back.
 
-Reopen this when someone has a projected suite whose boot is expensive enough to pay for the
-bracket work — a collection fixture standing up a real database is the shape to look for. The
-platform half is proved; only Bobcat's half is owed.
+Nothing is owed here any more. The one thing worth measuring next is whether warmth is worth asking
+for on a real suite: it saves the process and the JIT, not the boot, so a suite whose cost is a
+collection fixture standing up a database will see less of a difference than the 72ms → 4ms above
+suggests.
 
 ## Reproduce
 

@@ -22,6 +22,41 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
     public const string RunCommandVariable = "BOBCAT_RUN_COMMAND";
 
     /// <summary>
+    /// A file whose contents are the command id for <em>this</em> request, from
+    /// <c>BOBCAT_RUN_COMMAND_FILE</c> (issue #402). It wins over
+    /// <see cref="RunCommandVariable"/> when both are set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a file, when a variable already carries this.</b> A warm projected suite is a child
+    /// process a resident runner holds open across many commands, and <b>a child's environment is
+    /// fixed at launch</b>. So <c>BOBCAT_RUN_COMMAND</c> cannot serve: every command after the
+    /// first would be stamped with the first one's id, which is precisely the mis-attribution
+    /// issue #401 was opened to fix — a run reported as "started by" something that did not ask
+    /// for it.
+    /// </para>
+    /// <para>
+    /// Nor is there a slot in the protocol. Measured on Microsoft.Testing.Platform 1.9.1: the
+    /// <c>runId</c> a client sends on <c>testing/runTests</c> is the client's own and is <b>not</b>
+    /// the <c>SessionUid</c> the session handler receives — they are unrelated GUIDs. A file is
+    /// the channel that is left.
+    /// </para>
+    /// <para>
+    /// <b>It is the inverse of <c>BOBCAT_LIST_SPECS</c></b>, and deliberately so: there a path is
+    /// fixed at launch and the <em>child</em> writes what the parent reads; here a path is fixed at
+    /// launch and the <em>parent</em> writes what the child reads. The race does not arise, because
+    /// a resident runner runs one command at a time and refuses rather than queues — the write
+    /// happens before the request is sent.
+    /// </para>
+    /// <para>
+    /// A missing or empty file means no command, not an error: a cold child never has one, and
+    /// anything that cannot be read falls back to the variable and then to null. This is run
+    /// attribution, and it must never be able to fail a run.
+    /// </para>
+    /// </remarks>
+    public const string RunCommandFileVariable = "BOBCAT_RUN_COMMAND_FILE";
+
+    /// <summary>
     /// The agent session id, which Claude Code puts in the environment of everything it launches.
     /// Deliberately NOT a <c>BOBCAT_*</c> variable: Bobcat does not ask for this one, it reads what
     /// is already there, so a run launched from a session is attributable with no configuration.
@@ -121,10 +156,41 @@ public record MonitorRunInfo(Guid RunId, string Suite, string Repository, string
             Session = Environment.GetEnvironmentVariable(SessionVariable) is { Length: > 0 } session
                 ? session
                 : null,
-            Command = Environment.GetEnvironmentVariable(RunCommandVariable) is { Length: > 0 } command
-                ? command
-                : null
+            Command = commandForThisRun()
         };
+    }
+
+    /// <summary>
+    /// The command this run is serving: the per-request file first, then the process-wide variable.
+    /// </summary>
+    /// <remarks>
+    /// The file wins because it is the narrower claim. A warm child inherits
+    /// <c>BOBCAT_RUN_COMMAND</c> once at launch and keeps it for life, so a process serving several
+    /// commands would otherwise report them all as the first — see
+    /// <see cref="RunCommandFileVariable"/>. Every failure reads as "no command": this is run
+    /// attribution, and it must not be able to fail a run.
+    /// </remarks>
+    private static string? commandForThisRun()
+    {
+        var path = Environment.GetEnvironmentVariable(RunCommandFileVariable);
+
+        if (path is { Length: > 0 })
+        {
+            try
+            {
+                if (File.Exists(path) && File.ReadAllText(path).Trim() is { Length: > 0 } fromFile)
+                    return fromFile;
+            }
+            catch
+            {
+                // Unreadable, locked, vanished between the two calls — fall through to the
+                // variable. A run is never failed by its own attribution.
+            }
+        }
+
+        return Environment.GetEnvironmentVariable(RunCommandVariable) is { Length: > 0 } command
+            ? command
+            : null;
     }
 }
 

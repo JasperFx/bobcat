@@ -8,17 +8,17 @@ namespace Bobcat.Console;
 
 public class ImportEventModelInput
 {
-    [Description("An event-model file: the curated format (schema/model/slices), or an eventmodelers.ai emlang board export")]
+    [Description("An eventmodelers.ai emlang board export")]
     public string FilePath { get; set; } = string.Empty;
 
-    [Description("Model name for an emlang import; defaults to the file name. The curated format carries its own")]
+    [Description("Model name; defaults to the file name. It is the merge key, so it must match what the code-derived sources call the model")]
     [FlagAlias("model", 'm')]
     public string? ModelFlag { get; set; }
 
-    [Description("Root namespace recorded for synthesized type names on an emlang import")]
+    [Description("Namespace for the generated stubs and definition; defaults to the model name")]
     public string? NamespaceFlag { get; set; }
 
-    [Description("Where an emlang import writes the reviewable curated file; defaults beside the input")]
+    [Description("Directory the generated C# is written to; defaults beside the input")]
     [FlagAlias("out", 'o')]
     public string? OutFlag { get; set; }
 
@@ -28,20 +28,40 @@ public class ImportEventModelInput
 }
 
 /// <summary>
-/// Issue #202 — <c>bobcat import-event-model &lt;file&gt;</c>: load a declared event model from a
-/// file and optionally push it to a run console's viewer. That console lives in Stoat since the
-/// 2026-09-18 fold; this side is unchanged, because it was only ever an HTTP client of it. An emlang board export goes through
-/// segmentation first and lands as a curated file to review — the segmentation is a set of
-/// reported guesses, and a wrong guess should be a one-line diff in that file, not a re-import.
-/// Every decision lives in <c>Bobcat.EventModel</c> and is unit-tested; what remains here is
-/// file and HTTP orchestration, kept deliberately thin (the <c>watch-event-model</c> precedent).
+/// <c>bobcat import-event-model &lt;file&gt;</c> — read an eventmodelers.ai board export, segment it,
+/// and write the design out as <b>C#</b>: field-less stub records plus one
+/// <c>EventModelDefinition</c> (issues #202, #405). Optionally pushes the assembled model to a run
+/// console, which lives in Stoat since the 2026-09-18 fold; this side is only ever an HTTP client
+/// of it.
 /// </summary>
-[Description("Import a declared event-model file (curated YAML or an emlang board export) and optionally push it to a console", Name = "import-event-model")]
+/// <remarks>
+/// <para>
+/// <b>It writes code now, not YAML (issue #405).</b> jasperfx#955 settled that YAML is not an
+/// authoring syntax — the only YAML Bobcat reads is the platform's own, on import. So the output
+/// is the code the design starts from: specs can be written against the stubs immediately, they
+/// are red until the behaviour exists, and a Wolverine <c>scaffold</c> command fills in the
+/// slices the model declares but the code does not yet implement.
+/// </para>
+/// <para>
+/// <b>The curated arm is gone.</b> This command no longer reads a curated <c>.emodel.yaml</c>; a
+/// file in that shape is refused with a sentence saying where to go instead, which is strictly
+/// more use than the "unrecognized" it would otherwise get. <c>EmlangReader</c> and
+/// <c>EmlangImport</c> are unchanged — only the writer at the end of the pipe changed.
+/// </para>
+/// <para>
+/// Segmentation is still a set of reported guesses, and a wrong guess is still meant to be a
+/// one-line edit rather than a re-import — the difference is that the line is now C#, and
+/// <b>nothing regenerates the file</b>, so an edit cannot be clobbered. Every decision lives in
+/// <c>Bobcat.EventModel</c> and is unit-tested; what remains here is file and HTTP orchestration,
+/// kept deliberately thin (the <c>watch-event-model</c> precedent).
+/// </para>
+/// </remarks>
+[Description("Import an eventmodelers.ai board export as C# stubs and an EventModelDefinition, and optionally push it to a console", Name = "import-event-model")]
 public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInput>
 {
     public ImportEventModelCommand()
     {
-        Usage("Validate and summarize an event-model file").Arguments(x => x.FilePath);
+        Usage("Import a board export as C# and summarize the model").Arguments(x => x.FilePath);
     }
 
     public override async Task<bool> Execute(ImportEventModelInput input)
@@ -56,8 +76,8 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var curated = EventModelFileSniffer.Sniff(yaml) switch
         {
-            EventModelFileKind.Curated => readCurated(yaml),
             EventModelFileKind.Emlang => importEmlang(input, yaml),
+            EventModelFileKind.Curated => refuseCurated(input.FilePath),
             _ => describeUnrecognized(input.FilePath),
         };
 
@@ -72,33 +92,32 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     }
 
     /// <summary>
-    /// The file exists and is neither shape. Issue #369: this arm used to return null with no
-    /// message at all, so the command exited 1 having printed nothing — where a missing file and
-    /// an invalid curated file both reported properly. Naming the two shapes it tried is the
-    /// whole fix.
+    /// The file exists and is not a board export. Issue #369: this arm used to return null with no
+    /// message at all, so the command exited 1 having printed nothing. Naming the shape it wanted
+    /// is the whole fix.
     /// </summary>
     private static CuratedModelFile? describeUnrecognized(string path)
     {
         System.Console.Error.WriteLine(
-            $"{path} is not an event-model file. Expected either the curated format (a `schema:`, "
-            + "`model:` and `slices:` document) or an eventmodelers.ai emlang board export (a "
-            + "`slices:` map of chapters with `steps:`).");
+            $"{path} is not an eventmodelers.ai board export. Expected a `slices:` map of chapters, "
+            + "each with `steps:`.");
         return null;
     }
 
-    private static CuratedModelFile? readCurated(string yaml)
+    /// <summary>
+    /// A curated <c>.emodel.yaml</c>, which this command used to read and no longer does (issue
+    /// #405). Refused with somewhere to go, rather than falling through to "unrecognized" — the
+    /// file IS an event model and the person is not confused about that, so the useful answer says
+    /// what changed and what to do.
+    /// </summary>
+    private static CuratedModelFile? refuseCurated(string path)
     {
-        var reading = CuratedModelReader.Read(yaml);
-
-        // Warnings print whether or not the file validated (issue #318). Printing them only on
-        // failure would hide every one of them, since a file carrying nothing but warnings
-        // validates — which is exactly the silence the warning exists to break.
-        foreach (var warning in reading.Warnings) System.Console.WriteLine($"⚠ {warning}");
-
-        if (reading.Succeeded) return reading.File;
-
-        System.Console.Error.WriteLine("The curated file did not validate:");
-        foreach (var problem in reading.Problems) System.Console.Error.WriteLine($"  - {problem}");
+        System.Console.Error.WriteLine(
+            $"{path} is a curated event-model file, which is no longer an authoring format "
+            + "(jasperfx#955). The event model is declared in code now: write an "
+            + "EventModelDefinition over stub types and register it with "
+            + "services.AddEventModel<TDefinition>(). What this command imports is the "
+            + "eventmodelers.ai board export, and what it writes is that C#.");
         return null;
     }
 
@@ -121,18 +140,25 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         foreach (var line in result.Report) System.Console.WriteLine(line);
 
-        var outPath = input.OutFlag
-                      ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!, $"{model}.emodel.yaml");
+        var generated = CSharpModelWriter.Write(result.Model, input.NamespaceFlag);
 
-        // --out names a file, and its directory may not exist yet. Letting File.WriteAllText throw
-        // dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the segmentation report had
-        // already printed and looked like success (issue #369). Creating it is the friendlier
-        // reading of "write the reviewable file here".
-        var outDirectory = Path.GetDirectoryName(Path.GetFullPath(outPath));
-        if (!string.IsNullOrEmpty(outDirectory)) Directory.CreateDirectory(outDirectory);
+        // --out names a DIRECTORY now, because the import writes two files. It may not exist yet:
+        // letting File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack
+        // AFTER the segmentation report had printed and looked like success (issue #369), so
+        // creating it is the friendlier reading of "write the generated code here".
+        var outDirectory = input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!;
+        Directory.CreateDirectory(outDirectory);
 
-        File.WriteAllText(outPath, CuratedModelWriter.Write(result.Model), Encoding.UTF8);
-        System.Console.WriteLine($"Curated model written to {outPath} — review the segmentation there before building against it.");
+        var stubsPath = Path.Combine(outDirectory, $"{model}Stubs.cs");
+        var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
+
+        File.WriteAllText(stubsPath, generated.Stubs, Encoding.UTF8);
+        File.WriteAllText(definitionPath, generated.Definition, Encoding.UTF8);
+
+        System.Console.WriteLine(
+            $"Wrote {generated.StubCount} stub record(s) to {stubsPath} and the event model to "
+            + $"{definitionPath}. Nothing regenerates either file \u2014 the segmentation above is a set of "
+            + "guesses, so correct one with an edit rather than a re-import.");
 
         return result.Model;
     }

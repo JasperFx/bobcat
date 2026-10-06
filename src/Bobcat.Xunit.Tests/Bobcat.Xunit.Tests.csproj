@@ -8,6 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The platform-extension registration the Bobcat.Xunit PACKAGE carries in buildTransitive;
+         a ProjectReference does not consume another project's build assets, so in-repo it is
+         stated here. Without it MarkerStepRun's run bracket falls back to per-process, which is
+         issue #402's whole subject. -->
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Shouldly" />
   </ItemGroup>
