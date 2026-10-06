@@ -485,6 +485,35 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
     the generator recognises the attribute by name and xUnit by base class, two independent
     mechanisms, and that test asserts the two counts agree.
+- **`[BobcatSpec(…, Pending = true)]` is the projected lane's pending specification (issue
+  #404).** The Gherkin lane already turns a step-less scenario into
+  `HotspotDescriptor.PendingSpecification` (jasperfx#689) and `SpecIdentityAudit` reads it as
+  **joined, not drift**; the projected lane had no equivalent, so a scaffolded skeleton *threw* and
+  a pending spec was indistinguishable from a failing one. `EventModelEmitter.Collect(MarkedSpec)`
+  now routes the identity to `PendingSpecifications` instead of `Specifications` — both arms put it
+  on the slice, which is what keeps it joined (not an orphan, and its slice not a hole) while
+  stopping a stub from looking like evidence.
+  - **Skipped, never swallowed.** `Pending = true` sets `FactAttribute.Skip`, so every runner and
+    IDE reports it the way it reports any skip: nobody ran it. Running the body and absorbing the
+    failure was the alternative and is exactly how red gets laundered into green — the same
+    guardrail as the ledger's refusal to feed proposals back into a policy. An explicit `Skip`
+    wins in either written order, which is two tests because property initializers run in written
+    order.
+  - **"No steps" is NOT read as pending in this lane, and that is the one place the two lanes
+    differ.** A Gherkin scenario with no steps says nothing; a projected test with no marker
+    comments says plenty, and **33 of this repo's own 41 projected samples declare no marker steps
+    at all**. Inferring it would have turned most of a working suite into open questions.
+  - **On `[BobcatSpec]` only, not on `[BobcatSlice]`.** Putting it on the slice attribute would let
+    a TUnit suite write it today, but that attribute is not the test: it would mint the hotspot
+    while the body still ran and still failed — the exact state #404 exists to end. A partial
+    capability that looks complete is worse than an absent one.
+  - **Carried on `MarkedScenario.Pending` with its own reader, not as a slice tag.** Pending is a
+    property of one specification; the tag vocabulary is slice grouping, and routing it through
+    `GeneratorSliceTags` would mean a new tag in both copies of that parser plus an entry in
+    `SliceTagParsingAgreementTests`, to carry something no slice has an opinion about.
+  - A pending spec **stays in the spec manifest and in `--list-tests`** — xUnit discovers a skipped
+    test like any other, and the `Bobcat.Mtp.Tests` manifest/platform agreement test covers the
+    sample corpus's pending spec, so the two halves cannot drift apart on it.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.

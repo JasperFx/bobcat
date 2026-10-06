@@ -95,6 +95,56 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute
     /// <inheritdoc cref="BobcatSliceAttribute.Pattern"/>
     public string? Pattern { get; set; }
 
+    /// <summary>
+    /// This specification exists before the behaviour it describes (issue #404). It reaches the
+    /// Event Model as a <c>PendingSpecification</c> hotspot on the slice rather than as a
+    /// specification, and xUnit SKIPS it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why stub-first work needs this.</b> In the Gherkin lane a scenario with no steps is
+    /// already a pending-specification hotspot (jasperfx#689), and <c>SpecIdentityAudit</c> treats
+    /// it as joined rather than as drift. The projected lane had no equivalent, so a scaffolded
+    /// skeleton <em>threw</em> — and a pending spec was indistinguishable from a failing one, in the
+    /// test report and on the canvas both.
+    /// </para>
+    /// <para>
+    /// <b>Skipped, never swallowed.</b> It sets <see cref="FactAttribute.Skip"/>, so every runner
+    /// and IDE reports it the way they report any skip: nobody ran it. The alternative — running
+    /// the body and absorbing the failure — would launder red into green, which is the one thing a
+    /// pending marker must not do. An explicit <c>Skip</c> of your own wins, whichever order the
+    /// two are written in.
+    /// </para>
+    /// <para>
+    /// <b>It disappears on its own.</b> Delete <c>Pending = true</c> and the spec is an ordinary
+    /// one again — no second place to update, which is what keeps a stub from outliving its stub
+    /// phase.
+    /// </para>
+    /// <para>
+    /// <b>Only here, and not on <see cref="BobcatSliceAttribute"/>.</b> It was tempting to put it
+    /// there so a TUnit suite could use it too, but that attribute is not the test: it would
+    /// produce the hotspot while the body still ran and still failed, which is precisely the
+    /// "indistinguishable from a failing one" state this exists to end. A TUnit suite gets it with
+    /// TUnit's own equivalent of this attribute.
+    /// </para>
+    /// </remarks>
+    public bool Pending
+    {
+        get => _pending;
+        set
+        {
+            _pending = value;
+            if (value && Skip is null) Skip = PendingSkipReason;
+        }
+    }
+
+    /// <summary>What a skipped pending specification says it is waiting for.</summary>
+    public const string PendingSkipReason =
+        "Pending: this specification is declared before the behaviour it describes. "
+        + "Remove Pending = true when the behaviour exists.";
+
+    private bool _pending;
+
     public virtual void Before(MethodInfo methodUnderTest, IXunitTest test)
         => XunitScenarioBracket.Open(methodUnderTest);
 

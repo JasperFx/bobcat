@@ -762,6 +762,43 @@ two cannot come apart.
 that is a follow-up. `[BobcatScenario]` stays for a class-level opt-in covering every test in a
 class, and for suites already written against it.
 
+### Stub-first: `Pending = true` (issue #404)
+
+Stub-first work produces specifications that exist before their behaviour does. In the Gherkin lane
+a scenario with **no steps** is already a `PendingSpecification` hotspot (jasperfx#689) and
+`SpecIdentityAudit` treats it as *joined*, not drift. The projected lane had no equivalent: a
+scaffolded skeleton **threw**, so a pending spec was indistinguishable from a failing one — in the
+test report and on the canvas both.
+
+```csharp
+[BobcatSpec(typeof(ConfirmAppointment), Pending = true)]
+public async Task a_confirmed_appointment_cannot_be_confirmed_twice()
+    => throw new NotImplementedException();   // never runs
+```
+
+Three things follow, and they are the issue's acceptance:
+
+| | |
+|---|---|
+| **A hotspot, not a specification** | The identity lands on the slice as `HotspotDescriptor.PendingSpecification`, so the slice does not look *verified* by a stub — while still being **joined**, so the audit reports neither an orphan nor a hole |
+| **Skipped, never swallowed** | It sets `FactAttribute.Skip`, so every runner and IDE reports it as a skip: nobody ran it. Running the body and absorbing the failure would launder red into green, which is the one thing a pending marker must not do. An explicit `Skip` of your own wins, in either written order |
+| **It disappears on its own** | Delete `Pending = true` and it is an ordinary specification again. There is no second place to update, which is what keeps a stub from outliving its stub phase |
+
+**"No steps" does NOT mean pending here**, deliberately, and that is the one place the two lanes
+differ. A Gherkin scenario with no steps says nothing. A projected test with no marker comments says
+plenty — it runs real code and publishes a real verdict — and **33 of this repository's own 41
+projected samples declare no marker steps at all**. Inferring pending from an empty step list would
+have turned most of a working suite into open questions on the canvas.
+
+**It is on `[BobcatSpec]` and not on `[BobcatSlice]`.** Putting it there would let a TUnit suite
+write it, but that attribute is not the test: it would produce the hotspot while the body still ran
+and still failed — precisely the "indistinguishable from a failing one" state this exists to end. A
+TUnit suite gets it with TUnit's own equivalent of `[BobcatSpec]`.
+
+A pending spec **stays in the spec manifest and in `--list-tests`**, because xUnit discovers a
+skipped test like any other. That is the right answer rather than an accident: a resident runner can
+be asked to run it, and gets a skip.
+
 Two implementation facts worth knowing, both pinned by tests rather than left as comments:
 
 - **It is both a Fact and a test-bracket hook because xUnit v3 collects hooks by the

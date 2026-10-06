@@ -97,6 +97,21 @@ internal static class MarkerCommentSpecs
         /// test — how one class covers several slices.</summary>
         public readonly List<string> Tags = new();
 
+        /// <summary>
+        /// <c>[BobcatSpec(…, Pending = true)]</c>: declared before the behaviour it describes
+        /// (issue #404), so the slice gets a <c>PendingSpecification</c> hotspot rather than a
+        /// specification.
+        /// </summary>
+        /// <remarks>
+        /// <b>Explicit, and NOT inferred from having no steps — unlike the Gherkin lane.</b> There a
+        /// step-less scenario IS the pending case, because a scenario with no steps says nothing. A
+        /// projected test with no marker comments says plenty: it runs real code and publishes a
+        /// real verdict, and 33 of this repository's own 41 projected samples declare no marker
+        /// steps at all. Reading "no steps" as "pending" would have turned most of a working suite
+        /// into open questions on the canvas.
+        /// </remarks>
+        public bool Pending;
+
         /// <summary>A test with no marker comments at all: it runs, but it renders as nothing.</summary>
         public bool IsUnmarked => Steps.Count == 0;
     }
@@ -148,7 +163,8 @@ internal static class MarkerCommentSpecs
             {
                 Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text),
                 TestMethod = method.Identifier.Text,
-                OpensRecording = HasScenarioAttribute(declaration) || HasScenarioAttribute(method)
+                OpensRecording = HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
+                Pending = isPending(method)
             };
 
             var prose = new List<MarkedStep>();
@@ -366,6 +382,25 @@ internal static class MarkerCommentSpecs
 
         foreach (var tag in tags) yield return tag;
     }
+
+    /// <summary>
+    /// <c>Pending = true</c> on this method's <c>[BobcatSpec]</c> (issue #404).
+    /// </summary>
+    /// <remarks>
+    /// Read with its own reader rather than through the slice-tag vocabulary, because pending is a
+    /// property of one SPECIFICATION and the tags are slice grouping. Routing it through
+    /// <see cref="GeneratorSliceTags"/> would have meant a new tag in both copies of that parser —
+    /// the generator's and the runtime's — and a corresponding entry in the agreement test, to
+    /// carry something no slice has an opinion about.
+    /// </remarks>
+    private static bool isPending(MemberDeclarationSyntax node)
+        => node.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .Where(a => shortName(a.Name.ToString()) == SpecAttributeName)
+            .SelectMany(a => a.ArgumentList?.Arguments ?? default)
+            .Any(argument =>
+                argument.NameEquals?.Name.Identifier.Text == "Pending"
+                && argument.Expression.IsKind(SyntaxKind.TrueLiteralExpression));
 
     private static string? literalOf(ExpressionSyntax expression)
         => expression is LiteralExpressionSyntax { Token.Value: string text } ? text : null;

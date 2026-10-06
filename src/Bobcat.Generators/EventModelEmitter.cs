@@ -269,7 +269,17 @@ internal static class EventModelEmitter
             slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(tags);
 
             // No roles: the identity is the whole contribution.
-            slice.Specifications.Add(($"{spec.FeatureTitle}/{scenario.Title}", new List<string>()));
+            var identity = $"{spec.FeatureTitle}/{scenario.Title}";
+
+            // Issue #404. A pending spec is declared before the behaviour it describes, so it is a
+            // hotspot — the same PendingSpecification the Gherkin lane's step-less scenario
+            // produces, and the same reason: the design states a question nothing answers yet.
+            // Both arms put the identity on the slice, which is what keeps SpecIdentityAudit
+            // reading it as JOINED rather than as drift: a pending spec is not an orphan (a test
+            // claiming an identity the model lacks) and the slice it names is not a hole (a
+            // declared behaviour no test covers). It is one declaration, not yet answered.
+            if (scenario.Pending) slice.PendingSpecifications.Add(identity);
+            else slice.Specifications.Add((identity, new List<string>()));
         }
     }
 

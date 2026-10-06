@@ -57,4 +57,18 @@ public class OneAttributeSpecs
 
         uid.ShouldBe("Facts, in one attribute/the implied scenario is the one the steps land on");
     }
+
+    /// <summary>
+    /// Stub-first (issue #404): the specification is written before the behaviour exists. It is
+    /// SKIPPED, so the throw below never happens, and it reaches the Event Model as a
+    /// <c>PendingSpecification</c> hotspot rather than as evidence the slice is verified.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately left in the corpus rather than written and deleted: a skipped test is a shape
+    /// the listing, the manifest and the identity audit all have to keep handling, and nothing
+    /// here would notice if one of them stopped.
+    /// </remarks>
+    [BobcatSpec(Pending = true)]
+    public void a_pending_specification_is_declared_before_its_behaviour_exists()
+        => throw new NotImplementedException("the behaviour this specification describes");
 }
