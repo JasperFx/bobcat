@@ -447,6 +447,44 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   segments), else split PascalCase. Scenario titles use the same reading of the method name.
   `ProjectedSpecNaming.RoundTrips` in `Bobcat.EventModel` is a third copy of the scenario half —
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
+- **`[BobcatSpec]` is the one-attribute projected spec, and it is three facts rather than one
+  (issue #403).** `Bobcat.Xunit.BobcatSpecAttribute` IS the `[Fact]`, opens the scenario recording
+  `[BobcatScenario]` opens, and carries the `[BobcatSlice]` settings — so
+  `[BobcatSpec(typeof(ConfirmAppointment))]` replaces three attributes, and **BOBCAT028 becomes
+  impossible by construction** because the attribute that claims the slice is the attribute that
+  opens the recording.
+  - **It can be both a Fact and a bracket because xUnit v3 collects hooks by the
+    `IBeforeAfterTestAttribute` INTERFACE**, not only from the `BeforeAfterTestAttribute` base
+    class. The two bases are siblings — both derive straight from `Attribute` — so inheriting from
+    both was never an option, and this is the only shape that collapses the pair. Undocumented
+    enough that `BobcatSpecAttributeTests` pins it against the real runner. `XunitScenarioBracket`
+    exists so the two attributes do not each own a copy of the bracket, the gathered-wrong rethrow
+    included.
+  - **The `[CallerFilePath]`/`[CallerLineNumber]` pair is re-declared and forwarded, and that is
+    load-bearing.** `FactAttribute`'s only constructor takes it and the compiler fills it at the
+    call site it SEES, so a subclass calling `base()` without re-declaring them hands over its own
+    file and the line of that `base` call — every test in a suite reporting one source location,
+    with IDE test navigation landing on the attribute. Measured both ways before being written.
+    The attribute is **unsealed** (`[PostgresFact]` is the shape to expect) and a subclass inherits
+    the same obligation.
+  - **The generator needed teaching in three separate places, because it matches by simple name and
+    never sees a base type**: `IsTestMethod` ("Fact"/"Theory"/"Test"/"TestCase"/**"BobcatSpec"**),
+    `HasScenarioAttribute` (now `ScenarioOpeningAttributes`), and `sliceTags`. Missing any one
+    fails differently — the method is skipped entirely, or BOBCAT028 fires at a suite that records
+    perfectly well, or the slice goes unbound.
+  - **`sliceTags` reads BOTH attributes rather than preferring one**, and an unnamed `typeof(…)`
+    argument is the positional `SliceType`. They are the same settings under two spellings, so a
+    method carrying both is one binding stated twice and the existing BOBCAT023 rule already
+    answers a disagreement: refuse, because one is wrong and no silent winner is right. Preferring
+    one would make the loser's slice vanish without a word. BOBCAT024 now names the attribute it
+    fired on.
+  - **TUnit's equivalent is deliberately a follow-up** (the issue says so): this subclasses
+    `Xunit.FactAttribute`. `[BobcatScenario]` stays for the class-level opt-in and for suites
+    already written against it. `Bobcat.Xunit.Samples/Specs/OneAttributeSpecs.cs` keeps one class
+    in each form, which is what makes
+    `SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
+    the generator recognises the attribute by name and xUnit by base class, two independent
+    mechanisms, and that test asserts the two counts agree.
 
 ### Step Attributes (`src/Bobcat/Attributes.cs`)
 `[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.

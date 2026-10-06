@@ -734,6 +734,46 @@ method rebinding to another slice dragged the class's `Domain` / `Chapter` / `Pa
 stamping them on a slice that already had its own answers. So a test that wants the class's domain as
 well restates it.
 
+### One attribute instead of three — `[BobcatSpec]` (issue #403) {#bobcatspec}
+
+A projected xUnit spec used to carry three attributes: the `[Fact]`, the `[BobcatSlice]` that binds
+it, and the `[BobcatScenario]` that opens the recording. `[BobcatSpec]` is all three:
+
+```csharp
+// Before
+[Fact, BobcatSlice(SliceType = typeof(ConfirmAppointment))]   // plus [BobcatScenario] on the class
+
+// After
+[BobcatSpec(typeof(ConfirmAppointment))]
+public async Task a_proposed_appointment_is_confirmed() { /* … */ }
+```
+
+`typeof(X)` positionally means exactly `SliceName = "X"`, the same rule `SliceType` follows.
+`SliceName`, `SliceType`, `Domain`, `Chapter` and `Pattern` are all settable by name as well, with
+BOBCAT023 and BOBCAT024 unchanged — including **across the two attributes**, because they are the
+same settings under two spellings and a method carrying both is one binding stated twice.
+
+**It closes the BOBCAT028 trap by construction.** That diagnostic exists because a class can bind a
+slice and open no recording — green tests, an unbound slice, and nothing at run time able to tell you
+why. The attribute that *claims* the slice is now the attribute that *opens* the recording, so the
+two cannot come apart.
+
+**xUnit-only, for now.** It subclasses `Xunit.FactAttribute`, so TUnit needs its own equivalent;
+that is a follow-up. `[BobcatScenario]` stays for a class-level opt-in covering every test in a
+class, and for suites already written against it.
+
+Two implementation facts worth knowing, both pinned by tests rather than left as comments:
+
+- **It is both a Fact and a test-bracket hook because xUnit v3 collects hooks by the
+  `IBeforeAfterTestAttribute` *interface***, not only from the `BeforeAfterTestAttribute` base
+  class. Those two are siblings — both derive straight from `Attribute` — so inheriting from both
+  was never possible.
+- **It re-declares and forwards `[CallerFilePath]`/`[CallerLineNumber]`, and a subclass of it must
+  too.** `FactAttribute`'s only constructor takes that pair and the compiler fills them at the call
+  site it sees; a subclass that calls `base()` without re-declaring them hands over *its own* file
+  and line, so every test in the suite reports one source location and IDE test navigation lands on
+  the attribute instead of the test.
+
 ## Saying a slice is specified here — the spec-ownership manifest (issue #324)
 
 `[BobcatSlice]` binds a test that already exists. The manifest is the other half: it says, **before
@@ -938,7 +978,7 @@ method. The fix is to rename the scenario in the model to something a method nam
 | | |
 |---|---|
 | **BOBCAT027** (warning) | A step template names no parameter of its method. Nothing can fill it, so the step renders as `{thread}` forever — before this it looked identical to a placeholder that was merely deferred |
-| **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording, because no `[BobcatScenario]` is on it. Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** — a suite that records nothing is indistinguishable at run time from a suite with nothing to record — which is why it is a compiler diagnostic |
+| **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording, because neither `[BobcatScenario]` nor `[BobcatSpec]` is on it. Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** — a suite that records nothing is indistinguishable at run time from a suite with nothing to record — which is why it is a compiler diagnostic |
 | **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose — it is here for the one author who meant a step and cannot see why it is missing |
 | **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
 | **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |

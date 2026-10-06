@@ -26,6 +26,12 @@ namespace Bobcat.Xunit;
 /// }
 /// </code>
 /// <para>
+/// <b>Prefer <see cref="BobcatSpecAttribute"/> on the test itself</b> (issue #403): it is the
+/// <c>[Fact]</c>, it opens this same recording, and it carries the slice binding, so the three
+/// attributes a projected spec used to need collapse into one. This one stays for a class-level
+/// opt-in covering every test in it, and for a suite already written against it.
+/// </para>
+/// <para>
 /// <b>The verdict is the runner's.</b> <c>TestContext.Current.TestState</c> is null in
 /// <see cref="Before"/> and populated in <see cref="After"/>, which is the whole reason this
 /// attribute can report a truthful outcome and a hand-rolled one generally did not.
@@ -39,25 +45,17 @@ namespace Bobcat.Xunit;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
 public sealed class BobcatScenarioAttribute : BeforeAfterTestAttribute
 {
-    internal const string Mode = "xunit";
+    internal const string Mode = XunitScenarioBracket.Mode;
 
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
-        => MarkerStepRun.BeginScenario(methodUnderTest, Mode);
+        => XunitScenarioBracket.Open(methodUnderTest);
 
     /// <remarks>
-    /// <b>Throwing here is how a gathered wrong reaches the runner.</b>
-    /// <see cref="SpecAssert"/> records a failed value check without throwing, so that a
-    /// specification shows every disagreement rather than only its first — and a test whose
-    /// checks all gathered would otherwise finish without an exception and be reported green
-    /// over a red specification. xUnit folds an exception from an after-test hook into the
-    /// test's own result, which is precisely the window needed: the spec's verdict lands on
-    /// the test, once, at the end.
+    /// The rethrow of a gathered wrong lives in <see cref="XunitScenarioBracket.Close"/>, which
+    /// <see cref="BobcatSpecAttribute"/> shares.
     /// </remarks>
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
-    {
-        var gathered = MarkerStepRun.EndScenario(VerdictFrom(TestContext.Current.TestState));
-        if (gathered is not null) throw gathered;
-    }
+        => XunitScenarioBracket.Close();
 
     /// <summary>
     /// Translate xUnit's verdict into Bobcat's. Public because it is the only part of this
