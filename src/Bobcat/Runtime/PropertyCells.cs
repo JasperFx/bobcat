@@ -54,31 +54,127 @@ public static class PropertyCells
         var row = expected.AsDictionaries().FirstOrDefault();
         if (row is null) return run;
 
-        var properties = subject.GetType()
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .ToDictionary(ColumnNames.Of, p => p, StringComparer.OrdinalIgnoreCase);
-
         foreach (var column in expected.Headers)
         {
             if (!row.TryGetValue(column, out var value)) value = "";
 
-            if (!properties.TryGetValue(column, out var property))
+            run.Cells.Add(Resolve(subject, column) switch
             {
-                // `invalid`, the same status an unreadable expected cell carries: the document did
+                { Kind: PathResultKind.Found } found =>
+                    CellCheck.ForValue(column, found.Value, value, CheckOptions.Default, 0),
+
+                // `invalid`, the same status an unreadable expected cell carries: the subject did
                 // not disagree, the specification asked about something that does not exist. Naming
                 // what IS there is the reader's next move — usually a typo or a renamed property.
-                run.Cells.Add(new CellResult(column, ResultStatus.invalid,
-                    $"no '{column}' on {subject.GetType().Name} — it has "
-                    + string.Join(", ", properties.Keys.OrderBy(k => k)))
-                    { RowIndex = 0 });
-                continue;
-            }
+                { Kind: PathResultKind.NoSuchProperty } missing =>
+                    new CellResult(column, ResultStatus.invalid, missing.Message!) { RowIndex = 0 },
 
-            run.Cells.Add(CellCheck.ForValue(column, property.GetValue(subject), value,
-                CheckOptions.Default, 0));
+                // A null partway along the path is the SUBJECT disagreeing, not the specification
+                // being wrong — so it is a failed comparison naming the segment that was null,
+                // which is decidable only at run time and is a different claim from `invalid`.
+                var stopped =>
+                    new CellResult(column, ResultStatus.failed)
+                    {
+                        Expected = value, Actual = CellTokens.Null,
+                        Note = stopped.Message, RowIndex = 0
+                    }
+            });
         }
 
         return run;
+    }
+
+    /// <summary>How deep a dotted column may reach, so a cyclic graph cannot hang a comparison.</summary>
+    public const int MaxDepth = 8;
+
+    /// <summary>What resolving a column against a subject produced.</summary>
+    public enum PathResultKind
+    {
+        /// <summary>The path resolved; <see cref="PathResult.Value"/> is the value, possibly null.</summary>
+        Found,
+
+        /// <summary>A segment names no property on the type it was resolved against.</summary>
+        NoSuchProperty,
+
+        /// <summary>A segment resolved to null, so the rest of the path has nothing to read.</summary>
+        StoppedAtNull
+    }
+
+    /// <param name="Value">The resolved value, for <see cref="PathResultKind.Found"/> only.</param>
+    /// <param name="Message">The reader's next move, for everything else.</param>
+    public record PathResult(PathResultKind Kind, object? Value, string? Message);
+
+    /// <summary>
+    /// Resolve <paramref name="column"/> against <paramref name="subject"/>, following <c>.</c> into
+    /// nested properties — <c>Address.City</c> (issue #411).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Public, and here rather than in any one grammar</b>, because four callers share this
+    /// lookup: the two shipped event-store grammars, <c>Fixture.VerifyObject</c>, and the Wolverine
+    /// side's event and HTTP-response assertions. Solving it in one of them would leave the others
+    /// with a different rule for what a column name means — the drift <see cref="ColumnNames"/> and
+    /// <see cref="CellCheck"/> exist to prevent.
+    /// </para>
+    /// <para>
+    /// <b>Titling applies per segment</b>, through <see cref="ColumnNames.Of(PropertyInfo)"/>, so a
+    /// property renamed by <c>[Header]</c> stays addressable by its header at every depth rather
+    /// than only at the top.
+    /// </para>
+    /// <para>
+    /// <b>Collection indexers are deliberately unsupported.</b> <c>Items[0].Sku</c> is a question a
+    /// set verification answers properly: it matches rows by key columns, where a path into a
+    /// collection would make one wrong value read as a missing row beside an extra one — the exact
+    /// confusion this type's own notes warn about. The message says so rather than failing silently.
+    /// </para>
+    /// </remarks>
+    public static PathResult Resolve(object subject, string column)
+    {
+        if (column.Contains('[') || column.Contains(']'))
+        {
+            return new PathResult(PathResultKind.NoSuchProperty, null,
+                $"'{column}' indexes a collection, which a property check cannot follow — "
+                + "assert a collection with a set verification instead");
+        }
+
+        var segments = column.Split('.', StringSplitOptions.TrimEntries);
+
+        if (segments.Length > MaxDepth)
+        {
+            return new PathResult(PathResultKind.NoSuchProperty, null,
+                $"'{column}' is {segments.Length} levels deep and the limit is {MaxDepth}");
+        }
+
+        object? current = subject;
+
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var owner = current!.GetType();
+            var properties = owner
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .ToDictionary(ColumnNames.Of, p => p, StringComparer.OrdinalIgnoreCase);
+
+            if (!properties.TryGetValue(segments[i], out var property))
+            {
+                // Named at the depth that failed, not at the top: "no 'City' on Address" is the
+                // reader's next move, where the subject's own property list would be the least
+                // useful half of the sentence.
+                return new PathResult(PathResultKind.NoSuchProperty, null,
+                    $"no '{segments[i]}' on {owner.Name} — it has "
+                    + string.Join(", ", properties.Keys.OrderBy(k => k)));
+            }
+
+            current = property.GetValue(current);
+
+            var isLast = i == segments.Length - 1;
+            if (current is null && !isLast)
+            {
+                return new PathResult(PathResultKind.StoppedAtNull, null,
+                    $"{string.Join('.', segments.Take(i + 1))} was null");
+            }
+        }
+
+        return new PathResult(PathResultKind.Found, current, null);
     }
 
     /// <summary>

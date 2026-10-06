@@ -431,6 +431,36 @@ AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0, wa
 
 Three cells green, two red, rendered as a sentence a reader has to parse.
 
+### A column may reach into a nested object
+
+A column name containing `.` follows the path, property by property:
+
+```
+| Id    | Customer.Name | Customer.Address.City |
+| ORD-1 | Hannah        | Austin                |
+```
+
+`[Header]` titling applies at **every** segment, so a property renamed for the table stays
+addressable nested as well as at the top.
+
+Two failures that look similar and are not:
+
+- **A segment that names no property is `invalid`** — the specification asked about something that
+  does not exist, which is decidable without running anything. The message names what is there *at
+  the depth that failed*: `no 'Town' on Address — it has City, Line1, zip`. The subject's own
+  top-level properties would be the least useful half of the sentence, because the typo is in the
+  last segment.
+- **A segment that is null partway along is `failed`** — the path is legal and the graph was empty,
+  which only run time can tell. The cell reads `expected 'Austin', got 'NULL' (Customer.Address was
+  null)`. A null at the *end* of a path is just a value, and `NULL` is a cell expression a
+  specification may legitimately assert.
+
+**Collection indexers are not supported**, deliberately: `Items[0].Sku` is a question a set
+verification answers properly, matching rows by key columns. A path into a collection would make one
+wrong value read as a missing row beside an extra one — the confusion the next section is about. The
+cell says so rather than failing silently. Depth is capped at 8, so a cyclic graph cannot hang a
+comparison.
+
 ### It is not a set verification of one row
 
 A set matches rows by key columns, so a single wrong value there becomes a missing row beside an

@@ -651,6 +651,27 @@ model contains`, `Then the {document} with id {string} has`) and is general-purp
 set verification of one row, because a set matches by key columns so one wrong value becomes a
 missing row beside an extra one, where here the subject is known and the columns *are* the claim.
 
+**A column may be a dotted path into a nested object (issue #411).** `Customer.Address.City` resolves
+left to right over public instance properties, with `[Header]` titling applied **per segment** so a
+renamed property stays addressable at every depth. Put in the shared lookup rather than in any one
+grammar because four callers share it — the two shipped event-store grammars, `Fixture.VerifyObject`,
+and the Wolverine side's event and HTTP-response assertions (wolverine#4835/#4836) — and solving it
+in one would leave the others with a different rule for what a column name means. Three decisions
+worth keeping:
+
+- **A missing segment is `invalid`; a null partway along is `failed`.** The first is the
+  specification asking about something that does not exist, decidable without running anything; the
+  second is the subject disagreeing, decidable only at run time. Collapsing them would make a legal
+  spec over an empty graph read as an authoring mistake. A null at the *end* of a path is an
+  ordinary value — `NULL` is a cell expression a spec may assert.
+- **`invalid` names what is there at the depth that failed** — `no 'Town' on Address — it has City,
+  Line1, zip` — not the subject's own top-level properties, which is what a naive extension prints
+  and is the least useful half of the sentence.
+- **Collection indexers are refused with a message, not supported.** `Items[0].Sku` is a set
+  verification's question: a set matches by key columns, where a path into a collection makes one
+  wrong value read as a missing row beside an extra one — the exact confusion the paragraph above
+  warns about. Depth is capped (`PropertyCells.MaxDepth`) so a cyclic graph cannot hang a comparison.
+
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
 persistence sink, so a data-setup table needs almost no code. `[EfCoreEntities]`
