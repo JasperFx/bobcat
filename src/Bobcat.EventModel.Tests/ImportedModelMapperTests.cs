@@ -4,9 +4,9 @@ using Shouldly;
 
 namespace Bobcat.EventModel.Tests;
 
-public class CuratedModelMapperTests
+public class ImportedModelMapperTests
 {
-    private static CuratedModelFile parse(string yaml)
+    private static ImportedEventModel parse(string yaml)
     {
         var reading = CuratedModelReader.Read(yaml);
         reading.Problems.ShouldBeEmpty();
@@ -63,7 +63,7 @@ public class CuratedModelMapperTests
         // produces. A View's inputs and an Automation's read-before-deciding both had nowhere to
         // live in the curated file, so the State View and Automation-input arrows could not be
         // declared before code existed.
-        var descriptor = CuratedModelMapper.ToDescriptor(parse(ViewWithInputs));
+        var descriptor = ImportedModelMapper.ToDescriptor(parse(ViewWithInputs));
 
         var view = descriptor.Slices.Single(x => x.Name == "MatchList");
         view.ConsumedEvents.Select(t => t.Name).ShouldBe(["DogLiked", "MutualMatchDetected"]);
@@ -100,33 +100,20 @@ public class CuratedModelMapperTests
                 readModels: [MatchList]
             """);
 
-        var descriptor = CuratedModelMapper.ToDescriptor(file);
+        var descriptor = ImportedModelMapper.ToDescriptor(file);
         var swipe = descriptor.Slices.Single(x => x.Name == "SwipeOnDog");
         swipe.Chapter.ShouldBe("The Swiper");
         swipe.Domain.ShouldBe("Discovery");
         swipe.Claims(EventModelRole.Chapter).ShouldBeTrue();
         descriptor.Slices.Single(x => x.Name == "MatchList").Chapter.ShouldBeNull();
 
-        var written = CuratedModelWriter.Write(file);
-        written.ShouldContain("chapter: The Swiper");
-        CuratedModelWriter.Write(parse(written)).ShouldBe(written);
     }
 
-    [Fact]
-    public void consumed_events_and_reads_from_round_trip_through_the_writer_byte_for_byte()
-    {
-        var once = CuratedModelWriter.Write(parse(ViewWithInputs));
-        once.ShouldContain("consumedEvents:");
-        once.ShouldContain("readsFrom:");
-
-        var twice = CuratedModelWriter.Write(parse(once));
-        twice.ShouldBe(once);
-    }
 
     [Fact]
     public void every_declared_role_is_stamped()
     {
-        var descriptor = CuratedModelMapper.ToDescriptor(parse(Full));
+        var descriptor = ImportedModelMapper.ToDescriptor(parse(Full));
 
         descriptor.Name.ShouldBe("CritterCrush");
         var slice = descriptor.Slices.Single();
@@ -147,7 +134,7 @@ public class CuratedModelMapperTests
     [Fact]
     public void declared_types_are_name_only_with_a_synthesized_full_name()
     {
-        var slice = CuratedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
+        var slice = ImportedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
 
         // The type does not exist yet: the FullName is {namespace}.{name} so drift matching can
         // join it to the generated CLR type later, and the assembly is deliberately empty.
@@ -159,13 +146,13 @@ public class CuratedModelMapperTests
     {
         var file = parse("schema: 1\nmodel: X\nslices: [{ name: A, command: DoIt }]");
 
-        CuratedModelMapper.ToDescriptor(file).Slices.Single().CommandType!.FullName.ShouldBe("DoIt");
+        ImportedModelMapper.ToDescriptor(file).Slices.Single().CommandType!.FullName.ShouldBe("DoIt");
     }
 
     [Fact]
     public void specification_identities_are_feature_slash_scenario()
     {
-        var slice = CuratedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
+        var slice = ImportedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
 
         // ⚠️ THE load-bearing assertion of this type: this exact string is what joins the
         // descriptor binding, Bobcat run evidence, and a Stoat spec-identity gate.
@@ -185,14 +172,14 @@ public class CuratedModelMapperTests
                   scenarios: [{ name: S }]
             """);
 
-        CuratedModelMapper.ToDescriptor(file).Slices.Single()
+        ImportedModelMapper.ToDescriptor(file).Slices.Single()
             .Specifications.Single().Identity.ShouldBe("SwipeOnDog/S");
     }
 
     [Fact]
     public void hotspots_arrive_as_prose()
     {
-        var slice = CuratedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
+        var slice = ImportedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
 
         slice.Hotspots.Single().ShouldBe(HotspotDescriptor.Prose("Simultaneous swipes?"));
     }
@@ -202,7 +189,7 @@ public class CuratedModelMapperTests
     {
         // Not a tautology: Elements/Edges being non-empty here proves the mapper never needed
         // to stamp a graph — the computed-on-read contract renders declared roles by itself.
-        var slice = CuratedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
+        var slice = ImportedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
 
         slice.Elements.ShouldContain(x => x.Kind == EventModelElementKind.Command);
         slice.Edges.ShouldNotBeEmpty();

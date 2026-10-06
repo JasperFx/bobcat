@@ -83,7 +83,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         if (curated is null) return false;
 
-        var descriptor = CuratedModelMapper.ToDescriptor(curated);
+        var descriptor = ImportedModelMapper.ToDescriptor(curated);
         System.Console.WriteLine(
             $"Model '{descriptor.Name}': {descriptor.Slices.Count} slice(s), "
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
@@ -96,7 +96,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     /// message at all, so the command exited 1 having printed nothing. Naming the shape it wanted
     /// is the whole fix.
     /// </summary>
-    private static CuratedModelFile? describeUnrecognized(string path)
+    private static ImportedEventModel? describeUnrecognized(string path)
     {
         System.Console.Error.WriteLine(
             $"{path} is not an eventmodelers.ai board export. Expected a `slices:` map of chapters, "
@@ -110,7 +110,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     /// file IS an event model and the person is not confused about that, so the useful answer says
     /// what changed and what to do.
     /// </summary>
-    private static CuratedModelFile? refuseCurated(string path)
+    private static ImportedEventModel? refuseCurated(string path)
     {
         System.Console.Error.WriteLine(
             $"{path} is a curated event-model file, which is no longer an authoring format "
@@ -121,7 +121,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         return null;
     }
 
-    private static CuratedModelFile? importEmlang(ImportEventModelInput input, string yaml)
+    private static ImportedEventModel? importEmlang(ImportEventModelInput input, string yaml)
     {
         EmlangBoard board;
         try

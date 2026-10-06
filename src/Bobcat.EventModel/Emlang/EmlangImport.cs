@@ -2,7 +2,7 @@ using System.Text;
 
 namespace Bobcat.EventModel.Emlang;
 
-public sealed record EmlangImportResult(CuratedModelFile Model, IReadOnlyList<string> Report);
+public sealed record EmlangImportResult(ImportedEventModel Model, IReadOnlyList<string> Report);
 
 /// <summary>
 /// Segments an emlang board into curated slices (issue #202). An emlang chapter is a persona
@@ -34,7 +34,7 @@ public static class EmlangImport
 
     public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace = null)
     {
-        var model = new CuratedModelFile { Schema = 1, Model = modelName, Namespace = @namespace };
+        var model = new ImportedEventModel { Schema = 1, Model = modelName, Namespace = @namespace };
         var report = new List<string>();
         var byName = new Dictionary<string, CuratedSlice>(StringComparer.Ordinal);
 
@@ -52,7 +52,7 @@ public static class EmlangImport
         return new EmlangImportResult(model, report);
     }
 
-    private static void segmentChapter(EmlangChapter chapter, CuratedModelFile model,
+    private static void segmentChapter(EmlangChapter chapter, ImportedEventModel model,
         Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         string? pendingScreen = null;
@@ -110,7 +110,7 @@ public static class EmlangImport
     }
 
     private static CuratedSlice commandSlice(EmlangChapter chapter, EmlangStep step, string? pendingScreen,
-        CuratedModelFile model, Dictionary<string, CuratedSlice> byName, List<string> report)
+        ImportedEventModel model, Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         var name = PascalName(step.Label);
         if (byName.TryGetValue(name, out var existing))
@@ -155,7 +155,7 @@ public static class EmlangImport
     }
 
     private static void viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
-        CuratedModelFile model, Dictionary<string, CuratedSlice> byName, List<string> report)
+        ImportedEventModel model, Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         var readModel = PascalName(step.Label);
         if (byName.TryGetValue(readModel, out var existing))

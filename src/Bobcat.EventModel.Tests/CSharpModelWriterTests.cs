@@ -22,7 +22,7 @@ namespace Bobcat.EventModel.Tests;
 /// </para>
 /// <para>
 /// So the shape is: emit → compile in memory → load → <c>Configure</c> → compare the descriptor to
-/// the one <c>CuratedModelMapper</c> builds from the same model. That second half is what makes it
+/// the one <c>ImportedModelMapper</c> builds from the same model. That second half is what makes it
 /// a round-trip rather than a smoke test: it says the generated code <em>means</em> what the board
 /// said, not merely that it parses.
 /// </para>
@@ -49,7 +49,7 @@ public class CSharpModelWriterTests
                 then: [{ e: Member/Dog Liked }]
         """;
 
-    private static CuratedModelFile imported(string yaml = SwipeChapter, string model = "K9Crush")
+    private static ImportedEventModel imported(string yaml = SwipeChapter, string model = "K9Crush")
         => EmlangImport.ToCurated(EmlangReader.Read(yaml), model).Model;
 
     [Fact]
@@ -120,7 +120,7 @@ public class CSharpModelWriterTests
         var generated = CSharpModelWriter.Write(model);
 
         var fromCode = describe(build(generated));
-        var fromModel = describe(CuratedModelMapper.ToDescriptor(model));
+        var fromModel = describe(ImportedModelMapper.ToDescriptor(model));
 
         // The whole claim of #405 in one assertion: the generated C# says what the board said.
         fromCode.ShouldBe(fromModel);
@@ -206,7 +206,7 @@ public class CSharpModelWriterTests
     [Fact]
     public void a_board_that_names_nothing_still_writes_files_that_compile()
     {
-        var generated = CSharpModelWriter.Write(new CuratedModelFile { Schema = 1, Model = "Empty" });
+        var generated = CSharpModelWriter.Write(new ImportedEventModel { Schema = 1, Model = "Empty" });
 
         generated.StubCount.ShouldBe(0);
         compile(generated).ShouldBeEmpty();

@@ -21,7 +21,7 @@ namespace Bobcat.EventModel;
 /// exactly <c>SlicePlan.OverHttp</c>.
 /// </para>
 /// </remarks>
-public static class CuratedSliceShape
+public static class ImportedSliceShape
 {
     /// <summary>
     /// Whether this slice's code is an HTTP endpoint — a Command slice triggered by Http or by a
@@ -29,7 +29,7 @@ public static class CuratedSliceShape
     /// </summary>
     /// <remarks>
     /// Case-insensitive, like every other enum-valued field in the format
-    /// (<c>CuratedModelReader.validateEnum</c> and <c>CuratedModelMapper.parse</c> both ignore
+    /// (<c>CuratedModelReader.validateEnum</c> and <c>ImportedModelMapper.parse</c> both ignore
     /// case). The predicate this replaced compared ordinally, so a file writing
     /// <c>pattern: command</c> validated and mapped as a Command slice and then scaffolded as a
     /// bus handler — a disagreement nobody would have looked for.

@@ -373,7 +373,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   and `GeneratorSliceTags` (agreement test extended), exposed as `FeatureDefinition.Chapter` and
   the `Chapter` trait, stamped by `EventModelEmitter` onto JasperFx 2.69's `Chapter` role (which
   merges like `Domain`: per claim, first wins on a tie, a genuine disagreement is a
-  `SourceDisagreement` hotspot). The curated file declares `chapter:`; `EmlangImport` stops
+  `SourceDisagreement` hotspot). The importer's model carries `Chapter`; `EmlangImport` stops
   discarding the board's chapter name — every slice carries the chapter it was segmented from,
   and a slice folded from a second chapter **keeps the first** with a report line saying so, since
   the descriptor carries one chapter per slice. The scaffolder follows the trigger's rule: one
@@ -398,12 +398,12 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   **Not stamped: the `Event` column of `Given events for {aggregate}`** — a table cell is a
   runtime lookup, not a capture, and resolving cells at compile time would give that step a
   second, softer type-checking rule; write `Given {event} occurred` when the model should see it.
-  The curated file declares `consumedEvents:` / `readsFrom:`, the emlang import fills a `v:`'s
+  The importer's model carries `ConsumedEvents` / `ReadsFrom`, the emlang import fills a `v:`'s
   `consumedEvents` from the `e:` steps since the chapter start or the previous `v:` (and reports
   a view with none), and a scaffolder must prefer a declared `consumedEvents:` over every inference
   it could make — the rule `SliceScaffolder.ViewSourcesFor` encoded before #406 retired it.
   `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
-  acting — so it is curated-only. Pinned by `EventModelDescriptorTests` (both halves, plus the
+  acting — so it reaches a model only through the importer. Pinned by `EventModelDescriptorTests` (both halves, plus the
   arrangement-inlined twins) and by `EventModel.feature` in the sample. **Type
   lists merge by equality, not union**: a View slice whose scenarios between them arrange fewer
   events than the store's projection applies is a `SourceDisagreement` hotspot — the same finding
@@ -1807,7 +1807,7 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these e
 | **Bobcat.EntityFrameworkCore** | net10.0 | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
-| **Bobcat.EventModel** | net9.0; net10.0 | The curated Event Model YAML format (a Declared-rung `IEventModelDefinitionSource`) and the eventmodelers.ai emlang importer |
+| **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files, and runs the out-of-process resident runner; see below |
 
 **Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
@@ -1891,7 +1891,30 @@ and so cannot be handed a class to host.
   JasperFx.Events 2.81's fluent API. `EmlangReader` and `EmlangImport` are untouched — only the
   writer at the end of the pipe changed — and the command's **curated arm is gone**: a curated
   file is refused with a sentence pointing at `EventModelDefinition`, which is more use than the
-  "unrecognized" it would otherwise fall through to. The curated *types* stay until #406.
+  "unrecognized" it would otherwise fall through to.
+
+- **The curated format is retired as an authoring surface (issue #406, 2026-10-06), and what
+  survives says what it is.** `CuratedModelWriter`, `FileEventModelSource` and `AddEventModelFile`
+  are **gone**: there is no way to write a curated file and no way to register one as a
+  Declared-rung source, which is what "YAML is not an authoring syntax" means in code. What was
+  `CuratedModelFile` / `CuratedSliceShape` / `CuratedModelMapper` is renamed
+  **`ImportedEventModel` / `ImportedSliceShape` / `ImportedModelMapper`**, because that is now what
+  they are — the emlang importer's in-memory model, which `CSharpModelWriter` writes from and
+  `ImportedModelMapper` projects to a descriptor for the `--url` push.
+  - **`CuratedModelReader` is internal, not deleted, and the distinction is deliberate.** Retiring
+    an authoring format means nobody can author or register one; it does not require destroying the
+    parser our own fixtures are written in. `ImportedModelMapperTests` is ten fixture-driven tests
+    of model-to-descriptor mapping, and rewriting them as hand-built object graphs is how coverage
+    quietly changes during a retirement. It goes when those fixtures do.
+  - **`EventModelFileSniffer` stays**, for one reason: it is how the import command recognises an
+    old curated file and refuses it *with a sentence pointing at `EventModelDefinition`*, rather
+    than reporting the "unrecognized" above. A helpful refusal is worth more than one fewer type.
+  - **Two tests lost their subject rather than their claim.** A byte-for-byte YAML round-trip and
+    an import-through-the-reader round-trip were both about the write/read hop; the first's
+    substance was already pinned by `consumed_events_and_reads_from_are_declared_roles_of_their_own`
+    (so it was deleted rather than weakened into a duplicate), and the second became
+    `the_import_maps_clean_to_a_descriptor`, dropping only the hop. The C# path that replaced the
+    YAML one is pinned by `CSharpModelWriterTests`, which compiles and runs its output.
   - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
     information at all (the board's props are intentionally omitted), so a name is the whole truth
     it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.

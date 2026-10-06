@@ -4,7 +4,7 @@ using JasperFx.Events.EventModeling;
 namespace Bobcat.EventModel;
 
 /// <summary>
-/// Maps a validated <see cref="CuratedModelFile"/> onto the JasperFx descriptor vocabulary.
+/// Maps a validated <see cref="ImportedEventModel"/> onto the JasperFx descriptor vocabulary.
 /// Roles only — elements and edges are computed upstream on every read, and stamping a graph
 /// here would be the "second opinion" the descriptor design exists to prevent.
 /// </summary>
@@ -16,9 +16,9 @@ namespace Bobcat.EventModel;
 /// declared list and the derived one surfaces as a <c>SourceDisagreement</c> hotspot rather than
 /// silently vanishing — which is the feature, not a bug: "the model says X, the code does Y".
 /// </remarks>
-public static class CuratedModelMapper
+public static class ImportedModelMapper
 {
-    public static EventModelDescriptor ToDescriptor(CuratedModelFile file)
+    public static EventModelDescriptor ToDescriptor(ImportedEventModel file)
     {
         var slices = file.Slices.Select(x => toSlice(x, file.Namespace)).ToList();
         return new EventModelDescriptor(file.Model, slices);

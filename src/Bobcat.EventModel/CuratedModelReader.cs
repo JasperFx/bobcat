@@ -11,8 +11,8 @@ namespace Bobcat.EventModel;
 /// parsed AND validated — mirroring <c>EventModelStore.TryStore</c>'s stance that a bad push
 /// should fail loudly at the door rather than draw a blank canvas later.
 /// </summary>
-public sealed record CuratedModelReading(
-    CuratedModelFile? File,
+internal sealed record CuratedModelReading(
+    ImportedEventModel? File,
     IReadOnlyList<string> Problems,
     IReadOnlyList<string> Warnings = null!)
 {
@@ -31,7 +31,25 @@ public sealed record CuratedModelReading(
 /// camelCase members; enum-valued fields are read as strings and validated here so a typo gets a
 /// named, positional problem instead of a serializer stack trace.
 /// </summary>
-public static class CuratedModelReader
+/// <summary>
+/// Parses the retired curated format (issue #406).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Internal, not deleted, and the distinction is the point.</b> Retiring an authoring format
+/// means nobody can author one or register one — <c>CuratedModelWriter</c>,
+/// <c>FileEventModelSource</c> and <c>AddEventModelFile</c> are gone, so there is no way to write a
+/// curated file and no way to hand one to a model. It does not require destroying the parser our
+/// own tests read their fixtures through: <c>ImportedModelMapperTests</c> is ten fixture-driven
+/// tests of model-to-descriptor mapping, and rewriting them as hand-built object graphs is how
+/// coverage quietly changes during a retirement.
+/// </para>
+/// <para>
+/// So this stays, unreachable from outside the assembly, and the format is no longer part of
+/// anything a consumer can see. It goes when those fixtures do.
+/// </para>
+/// </remarks>
+internal static class CuratedModelReader
 {
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
@@ -40,10 +58,10 @@ public static class CuratedModelReader
 
     public static CuratedModelReading Read(string yaml)
     {
-        CuratedModelFile? file;
+        ImportedEventModel? file;
         try
         {
-            file = Deserializer.Deserialize<CuratedModelFile>(yaml);
+            file = Deserializer.Deserialize<ImportedEventModel>(yaml);
         }
         catch (YamlException e)
         {
@@ -68,7 +86,7 @@ public static class CuratedModelReader
     /// Scenario values are deliberately not checked: there the sketch IS a sample and
     /// <c>string</c> is the right answer.
     /// </remarks>
-    public static IReadOnlyList<string> Warn(CuratedModelFile file)
+    public static IReadOnlyList<string> Warn(ImportedEventModel file)
     {
         var warnings = new List<string>();
 
@@ -114,7 +132,7 @@ public static class CuratedModelReader
         return warnings;
     }
 
-    public static IReadOnlyList<string> Validate(CuratedModelFile file)
+    public static IReadOnlyList<string> Validate(ImportedEventModel file)
     {
         var problems = new List<string>();
 
@@ -232,7 +250,7 @@ public static class CuratedModelReader
     {
         if (refusal is null) return;
 
-        if (!CuratedSliceShape.AnswersOverHttp(slice))
+        if (!ImportedSliceShape.AnswersOverHttp(slice))
         {
             problems.Add(
                 $"{where}: `refusedWith:` states an HTTP status, and this slice does not answer over HTTP "

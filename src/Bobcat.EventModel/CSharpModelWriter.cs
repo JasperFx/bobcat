@@ -61,7 +61,7 @@ public static class CSharpModelWriter
     /// name — never to the global namespace, because a stub record in the global namespace is a
     /// name collision waiting for the second import.
     /// </param>
-    public static Output Write(CuratedModelFile model, string? namespaceName = null)
+    public static Output Write(ImportedEventModel model, string? namespaceName = null)
     {
         var ns = namespaceName
                  ?? (string.IsNullOrWhiteSpace(model.Namespace) ? null : model.Namespace)
@@ -90,7 +90,7 @@ public static class CSharpModelWriter
     /// by string, and then quietly loses the type when someone switches to the generic overload.
     /// </para>
     /// </remarks>
-    public static IReadOnlyList<string> StubNames(CuratedModelFile model)
+    public static IReadOnlyList<string> StubNames(ImportedEventModel model)
     {
         var names = new List<string>();
 
@@ -116,7 +116,7 @@ public static class CSharpModelWriter
         return names;
     }
 
-    private static string writeStubs(string ns, CuratedModelFile model, IReadOnlyList<string> stubs)
+    private static string writeStubs(string ns, ImportedEventModel model, IReadOnlyList<string> stubs)
     {
         using var writer = new SourceWriter();
 
@@ -149,7 +149,7 @@ public static class CSharpModelWriter
     /// A stub's doc comment: what the board said this type is, which is the one thing the name
     /// alone does not carry.
     /// </summary>
-    private static IEnumerable<string> describe(CuratedModelFile model, string name)
+    private static IEnumerable<string> describe(ImportedEventModel model, string name)
     {
         var roles = new List<string>();
 
@@ -200,7 +200,7 @@ public static class CSharpModelWriter
         return string.Equals(name, last, StringComparison.Ordinal) ? name + "EventModel" : name;
     }
 
-    private static string writeDefinition(string ns, CuratedModelFile model, IReadOnlyList<string> stubs)
+    private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs)
     {
         var className = DefinitionClassName(model.Model, ns);
 

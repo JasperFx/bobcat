@@ -14,12 +14,12 @@ namespace Bobcat.EventModel;
 /// reader turns it into a warning only for declarations.
 /// </para>
 /// <para>
-/// This lives beside <see cref="CuratedModelFile"/> rather than in the scaffolder because both the
+/// This lives beside <see cref="ImportedEventModel"/> rather than in the scaffolder because both the
 /// reader (to warn) and the scaffolder (to emit) must answer "is this a type I know" the same way.
 /// Two copies of the list is two opinions about the same file.
 /// </para>
 /// </remarks>
-public static class CuratedFieldTypes
+internal static class CuratedFieldTypes
 {
     /// <summary>The scenario's own stream id, expanded by the feature writer (issue #235).</summary>
     public const string StreamIdToken = "{streamId}";

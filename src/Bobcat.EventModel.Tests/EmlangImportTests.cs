@@ -6,14 +6,14 @@ namespace Bobcat.EventModel.Tests;
 
 public class EmlangImportTests
 {
-    private static CuratedModelFile import(string yaml, out IReadOnlyList<string> report)
+    private static ImportedEventModel import(string yaml, out IReadOnlyList<string> report)
     {
         var result = EmlangImport.ToCurated(EmlangReader.Read(yaml), "K9Crush");
         report = result.Report;
         return result.Model;
     }
 
-    private static CuratedModelFile import(string yaml) => import(yaml, out _);
+    private static ImportedEventModel import(string yaml) => import(yaml, out _);
 
     private const string SwipeChapter =
         """
@@ -132,7 +132,6 @@ public class EmlangImportTests
         var model = import(SwipeChapter, out _);
 
         model.Slices.Select(x => x.Chapter).Distinct().ShouldBe(["TheSwiper"]);
-        CuratedModelWriter.Write(model).ShouldContain("chapter: TheSwiper");
     }
 
     [Fact]
@@ -301,14 +300,13 @@ public class EmlangImportTests
     }
 
     [Fact]
-    public void the_import_round_trips_through_the_curated_reader_and_maps_clean()
+    public void the_import_maps_clean_to_a_descriptor()
     {
-        var yaml = CuratedModelWriter.Write(import(SwipeChapter));
-        var reading = CuratedModelReader.Read(yaml);
-
-        reading.Problems.ShouldBeEmpty();
-
-        var descriptor = CuratedModelMapper.ToDescriptor(reading.File!);
+        // Went through a YAML write-then-read until issue #406 retired the writer. The hop was
+        // never the claim — "what the importer produced maps to a clean descriptor" is, and the
+        // C# path that replaced the YAML one is pinned by CSharpModelWriterTests, which compiles
+        // and runs its output.
+        var descriptor = ImportedModelMapper.ToDescriptor(import(SwipeChapter));
         descriptor.Name.ShouldBe("K9Crush");
         descriptor.Slices.Count.ShouldBe(3);
         descriptor.Slices.SelectMany(x => x.Specifications)

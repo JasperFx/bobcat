@@ -8,7 +8,7 @@ namespace Bobcat.EventModel;
 /// computed upstream on every read), and it never carries status or lifecycle — status is
 /// derived from drift, not asserted here.
 /// </summary>
-public sealed class CuratedModelFile
+public sealed class ImportedEventModel
 {
     /// <summary>Format version. Only <c>1</c> is understood today; required so a future shape can be told apart.</summary>
     public int Schema { get; set; }

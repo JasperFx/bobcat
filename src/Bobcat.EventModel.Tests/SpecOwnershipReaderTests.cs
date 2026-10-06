@@ -22,7 +22,7 @@ public class SpecOwnershipReaderTests
             coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
         """;
 
-    private static CuratedModelFile model() => new()
+    private static ImportedEventModel model() => new()
     {
         Schema = 1,
         Model = "CritterCrush",
@@ -158,7 +158,7 @@ public class SpecOwnershipReaderTests
     [Fact]
     public void the_feature_half_of_an_identity_defaults_to_the_slice_name()
     {
-        var identities = SpecOwnershipReader.DeclaredIdentities(new CuratedModelFile
+        var identities = SpecOwnershipReader.DeclaredIdentities(new ImportedEventModel
         {
             Slices =
             [
@@ -249,7 +249,7 @@ public class SpecOwnershipReaderTests
     [Fact]
     public void one_owner_cannot_cover_two_features_because_the_feature_is_class_level()
     {
-        var twoFeatures = new CuratedModelFile
+        var twoFeatures = new ImportedEventModel
         {
             Schema = 1,
             Model = "CritterCrush",
@@ -279,7 +279,7 @@ public class SpecOwnershipReaderTests
     {
         // A projected test's identity IS its method name, so punctuation silently publishes a
         // different identity — the same shape of silent degradation as issue #318.
-        var punctuated = new CuratedModelFile
+        var punctuated = new ImportedEventModel
         {
             Schema = 1,
             Model = "CritterCrush",

@@ -30,7 +30,7 @@ public sealed record SpecOwnershipReading(
 /// Validation is split in two because the two halves are available at different times.
 /// <see cref="Read"/> checks what the file can say about itself — schema, duplicates, the one
 /// impossible <c>kind</c>/<c>authoring</c> corner. <see cref="Validate(SpecOwnershipFile,
-/// CuratedModelFile)"/> checks the join to the event model, which needs both files in hand.
+/// ImportedEventModel)"/> checks the join to the event model, which needs both files in hand.
 /// </remarks>
 public static class SpecOwnershipReader
 {
@@ -57,7 +57,7 @@ public static class SpecOwnershipReader
     }
 
     /// <summary>Read the manifest and check it against the model it claims to describe, in one call.</summary>
-    public static SpecOwnershipReading Read(string yaml, CuratedModelFile model)
+    public static SpecOwnershipReading Read(string yaml, ImportedEventModel model)
     {
         var reading = Read(yaml);
         if (reading.File is null) return reading;
@@ -231,7 +231,7 @@ public static class SpecOwnershipReader
     /// Together they are the duplicate-identity guard; either alone leaves the gap that separating
     /// the manifest from the model would otherwise reintroduce.
     /// </remarks>
-    public static IReadOnlyList<string> Validate(SpecOwnershipFile file, CuratedModelFile model)
+    public static IReadOnlyList<string> Validate(SpecOwnershipFile file, ImportedEventModel model)
     {
         var problems = new List<string>();
 
@@ -307,7 +307,7 @@ public static class SpecOwnershipReader
     /// <c>defaults:</c> block most slices have no entry at all, and the warnings worth having —
     /// above all the projected method-name check — are about exactly those.
     /// </remarks>
-    public static IReadOnlyList<string> Warn(SpecOwnershipFile file, CuratedModelFile model)
+    public static IReadOnlyList<string> Warn(SpecOwnershipFile file, ImportedEventModel model)
     {
         var warnings = new List<string>();
 
@@ -370,7 +370,7 @@ public static class SpecOwnershipReader
     /// name, matching how the scaffolder groups features — a feature legally spans slices, so the
     /// two must agree or a valid <c>coveredBy</c> would be reported as naming nothing.
     /// </summary>
-    public static IReadOnlySet<string> DeclaredIdentities(CuratedModelFile model)
+    public static IReadOnlySet<string> DeclaredIdentities(ImportedEventModel model)
     {
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var slice in model.Slices)

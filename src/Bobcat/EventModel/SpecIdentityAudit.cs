@@ -79,7 +79,7 @@ public sealed record SpecIdentityAudit(
     /// </summary>
     /// <param name="declared">
     /// The design's model. A curated file becomes one through
-    /// <c>Bobcat.EventModel.CuratedModelMapper.ToDescriptor</c>.
+    /// <c>Bobcat.EventModel.ImportedModelMapper.ToDescriptor</c>.
     /// </param>
     /// <param name="tests">The spec assembly's generated descriptor.</param>
     /// <param name="excused">
