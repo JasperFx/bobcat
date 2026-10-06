@@ -48,6 +48,14 @@ public class SpecRender
     /// </summary>
     public List<CellRender> ScenarioFailureCells { get; init; } = new();
 
+    /// <summary>
+    /// The scenario's reports — accounts of the whole scenario as cell grids, rather than any one
+    /// step's claim (issue #408). Already filtered by
+    /// <see cref="ScenarioReportVisibility"/>, so a renderer shows what it is given and takes no
+    /// view of its own about whether a passing scenario's report belongs on screen.
+    /// </summary>
+    public List<ReportRender> Reports { get; init; } = new();
+
     public static SpecRender FromResults(string title, ExecutionResults results, string? featureTitle = null)
     {
         var steps = results.Steps.Select(StepRender.FromStepResult).ToList();
@@ -55,11 +63,17 @@ public class SpecRender
             ? results.WallClockMs
             : results.Steps.Where(s => s.End > 0).Select(s => s.End).DefaultIfEmpty(0).Max();
 
+        var succeeded = results.Counts.Succeeded;
+
         return new SpecRender
         {
             Title = title,
             FeatureTitle = featureTitle,
-            Succeeded = results.Counts.Succeeded,
+            Succeeded = succeeded,
+            Reports = ScenarioReportVisibility
+                .Filter(results.Reports, scenarioFailed: !succeeded)
+                .Select(ReportRender.From)
+                .ToList(),
             Steps = steps,
             Counts = results.Counts,
             DurationMs = durationMs,
@@ -120,11 +134,17 @@ public class SpecRender
                 : ResultStatus.error);
         }
 
+        var succeeded = counts.Succeeded && unexplained is null && recording.FailureDescription is null;
+
         return new SpecRender
         {
             Title = recording.Scenario,
             FeatureTitle = recording.Feature,
-            Succeeded = counts.Succeeded && unexplained is null && recording.FailureDescription is null,
+            Succeeded = succeeded,
+            Reports = ScenarioReportVisibility
+                .Filter(recording.Reports, scenarioFailed: !succeeded)
+                .Select(ReportRender.From)
+                .ToList(),
             Steps = steps,
             Counts = counts,
             ScenarioFailure = unexplained?.Message,
@@ -578,6 +598,39 @@ public class CellRender
             Actual = cell.Actual,
             Note = cell.Note,
             RowIndex = cell.RowIndex
+        };
+}
+
+/// <summary>
+/// Rendering model for one scenario report — a titled grid (issue #408).
+/// </summary>
+/// <remarks>
+/// <b>The grid is a <see cref="SetVerificationRender"/>, and the reuse is deliberate.</b> That type
+/// is named for where it was first needed, but what it is is the fold from cells-plus-a-column-order
+/// into rows — taken as cells precisely so more than one producer can use it — and
+/// <c>CommandLineRenderer.RenderSetVerification</c> is the matching Spectre grid, with
+/// <c>ShowsStatusColumn</c> already deciding that an all-unjudged grid earns no Status column
+/// (issue #384). A report rendering through its own fold would be a second opinion about how a grid
+/// of cells looks. The name is now too narrow for what it does; renaming it is a wide, unrelated
+/// diff and belongs in its own change.
+/// </remarks>
+public class ReportRender
+{
+    public string Title { get; init; } = "";
+    public string? ShortTitle { get; init; }
+
+    /// <summary>Rows past the cap that were not kept. Rendered as a line, never left silent.</summary>
+    public int SuppressedRows { get; init; }
+
+    public SetVerificationRender Grid { get; init; } = new();
+
+    public static ReportRender From(IScenarioReport report)
+        => new()
+        {
+            Title = report.Title,
+            ShortTitle = report.ShortTitle,
+            SuppressedRows = report.SuppressedRows,
+            Grid = SetVerificationRender.FromCells(report.Columns, report.Cells)
         };
 }
 
