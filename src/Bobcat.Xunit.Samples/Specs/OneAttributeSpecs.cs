@@ -48,13 +48,9 @@ public class OneAttributeSpecs
     {
         _facts.TheThingIsActivated();
 
-        // Deliberately not `ShouldNotBeNull()`: the Shouldly interceptor the generator emits for
-        // this corpus cannot currently intercept `ShouldNotBeNull<T>` over a nullable reference
-        // type (CS9144, signatures do not match) — a pre-existing generator limitation unrelated
-        // to this attribute, and not something a sample should carry a workaround comment for
-        // silently.
         var uid = ScenarioRecorder.Current?.Uid;
 
+        uid.ShouldNotBeNull();
         uid.ShouldBe("Facts, in one attribute/the implied scenario is the one the steps land on");
     }
 

@@ -744,7 +744,38 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     an all-equality group byte-identical output.
   - **Acceptance 4 is the overload the generator picks** (`StepInterceptors.emitAssertion`): no
     comparison means the cell-less `Gather`, so the decision is compile-time and the runtime never
-    judges whether a cell it was handed is describable. The Shouldly mapping is a pure function of
+    judges whether a cell it was handed is describable.
+  - **The interceptor's signature must match exactly, and two shapes did not (issue #410).** Both
+    broke the **consumer's** build, in a generated file the author cannot edit, over assertions that
+    compile perfectly without Bobcat.
+    - **The return type was always written `void`.** `ShouldNotBeNull<T>` and `ShouldBeOfType<T>`
+      return `T`, so a statement-level call to either was CS9144. Fixed by emitting the real return
+      type, capturing the result inside the `Gather` lambda and handing it back. Returning `default!`
+      after a *gathered* failure is safe for a reason that already existed: only a **statement-level**
+      call is intercepted (`ProjectedAssertions.StatementOf`), so the value is discarded at the call
+      site by definition — `x.ShouldNotBeNull().Name.ShouldBe("a")` consumes the result, is never
+      intercepted, and throws as it always did.
+    - **An enum default was emitted as its number.** `ExplicitDefaultValue` boxes an enum as its
+      *underlying primitive*, so `defaultOf`'s `IsPrimitive` guard caught it before the fallback its
+      own comment promised, and `Case caseSensitivity = Case.Insensitive` came out as `0` — CS1750.
+      That took out `ShouldContain`, `ShouldStartWith` and `ShouldEndWith` over a string. Emitted as
+      a **cast** rather than as `default`, which would be right only for a zero-valued member.
+    - **`CanReproduce` is the guard that keeps the next one from reaching a consumer**, extending
+      #384's degradation from "no comparison for this name" to "no signature that can match this
+      call": by-ref parameters and by-ref returns cannot survive the `Gather` lambda, so no
+      interceptor is emitted and the assertion runs as it always did. A lost cell is a small,
+      visible loss; a build that will not compile is not.
+    - **Why nothing caught any of it, and what now does.** `AssertionComparisonTests` pins the
+      dialect's mapping — a pure function from a method *name*, testable without a compilation, which
+      is the right design and stays. Nothing tested that a claimed name could be *intercepted*, and
+      the halves are in different assemblies, so the only thing that failed was somebody's build.
+      `ProjectedAssertionCompilationTests` now generates and **compiles** every claimed name through
+      the real generator. Two things the harness needed for that, each a trap in its own right:
+      projected assertions are **opt-in per project** (`build_property.BobcatProjectAssertions`), and
+      C#'s `interceptors` feature must be enabled for `Bobcat.Generated` — without either, the
+      generator emits nothing and a compile assertion passes over an empty file. **It did: the first
+      cut of that theory went green on 15 rows having generated nothing at all**, which is why every
+      row now asserts the interceptor exists before asserting it compiles. The Shouldly mapping is a pure function of
     method name plus has-a-tolerance (`ShouldlyDialect.ComparisonFor`), testable without a
     compilation — and `ShouldBe(x, 0.01)` is `Approximately`, the one case the name alone cannot
     settle. **The halves are in different assemblies** (the netstandard2.0 generator cannot
