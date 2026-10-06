@@ -468,6 +468,34 @@ keyword-agnostic, so a shared grammar drops into any feature.
   comparison failures gather and render the full table; `SpecCatastrophicException` stops the
   suite. `After` always runs in a `finally`.
 
+### The table/set/object helpers on `Fixture`
+
+Four `protected` wrappers over public statics, so a grammar that is **not** a `Fixture` (the
+projected lane's plain classes) can reach the same engine:
+
+| | |
+|---|---|
+| `RunTable(nameof(rowMethod), table)` | `TableRunner.Run` — Storyteller's `AsTable(...).Before(...).After(...)`, where the hooks are the lines either side of the call |
+| `BuildRows<T>(table)` | `TableRunner.BuildRows` — Storyteller's `CreateNewObject<T>` |
+| `VerifySet(actual, expected, keyColumns:, ordered:, column:)` | `SetVerificationComparer.Verify` |
+| `VerifyObject(subject, expected)` | `PropertyCells.Verify` — Storyteller's `VerifyObject` / `CheckPropertyGrammar` (issue #395) |
+
+**`VerifyObject` is the one family with no declarative twin, and that is a decision** (2026-10-06).
+Everywhere else the declarative form is canonical where it reaches — `[SetVerification]` over
+`VerifySet`, `[Table]` over `RunTable` — because those carry settings (`KeyColumns`, `Ordered`,
+`Column`) that are compile-time facts the preview and the editor read. A property check has nothing
+to configure: the columns come from the table and the subject from the method, so an attribute would
+carry no information. One consequence follows rather than being a separate choice — a column naming
+no property is an `invalid` cell **at run time**, because with no declarative form the generator
+never has the subject's type in view. **The cost knowingly paid:** a `[VerifyObject]`-style attribute
+*could* see the type and make an unknown column a BOBCAT030-style compile error. Revisit if a
+dogfooding pass wants that.
+
+`PropertyCells` arrived as the engine behind two event-store grammars (`Then the {readmodel} read
+model contains`, `Then the {document} with id {string} has`) and is general-purpose; it is **not** a
+set verification of one row, because a set matches by key columns so one wrong value becomes a
+missing row beside an extra one, where here the subject is known and the columns *are* the claim.
+
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
 persistence sink, so a data-setup table needs almost no code. `[EfCoreEntities]`
@@ -513,6 +541,42 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
 
 ### Engine (`src/Bobcat/Engine/`)
 - **`Executor`** — Sequential step execution with timeout, cancellation, `IContinuationRule[]`, `IExecutionObserver`
+- **A cell says what it compared (`Engine/Comparison.cs`, issue #384 part B).** `CellResult` was
+  equality-shaped by construction — `Expected` + `Actual`, rendered `expected 'x', got 'y'` — so a
+  cell produced by a non-equality assertion **stated something false**: Shouldly interception shipped
+  cells with no comparison, and `ShouldBeGreaterThan(10)` against 3 rendered `expected '10', got '3'`
+  where 10 is the bound. The *sentence* was right, because the dialect writes the comparison into the
+  step text, so the console read correctly and only a consumer rendering cells as a grid saw the
+  false half. That is why it survived.
+  - **The enum is closed, and being closed IS the whitelist** — `Equals` / `NotEquals` /
+    `GreaterThan` / `GreaterThanOrEqual` / `LessThan` / `LessThanOrEqual` / `Contains` /
+    `StartsWith` / `EndsWith` / `Approximately` / `IsNull` / `IsNotNull` / `IsEmpty` / `IsNotEmpty`.
+    An assertion Bobcat has no member for produces **no cell at all** and the step renders as a
+    plain line; a free string would let a producer invent a comparison nothing can render or check.
+  - **It EXTENDS `CellResult` rather than replacing it**, which was #384's open question. Every
+    existing producer is genuinely making an equality claim, so a **null default is honest** and
+    reads as `Equals`; `DisplayText`'s legacy constructor is load-bearing for the set-verification
+    path and must not be disturbed; and #396 settled that a cell says exactly one thing with its
+    *content* fields, where a comparison is not content but a statement about how `Expected` and
+    `Actual` relate — orthogonal, so it sits beside them. `WithNote` **carries it**, because without
+    that, appending a note turned a `GreaterThan` cell back into an equality claim.
+  - **Rendered in one place, `CellResult.derive()`**, which is what the Spectre grid, the inline
+    sentence, the JSON report and the wire all already read — so they cannot disagree about what a
+    comparison said. #384's acceptance asked for a two-column table only for an all-`Equals` group;
+    there is no separate two-column shape in this renderer to switch on, so the faithful reading is
+    that each cell states its own, which gives a mixed group per-row rendering by construction and
+    an all-equality group byte-identical output.
+  - **Acceptance 4 is the overload the generator picks** (`StepInterceptors.emitAssertion`): no
+    comparison means the cell-less `Gather`, so the decision is compile-time and the runtime never
+    judges whether a cell it was handed is describable. The Shouldly mapping is a pure function of
+    method name plus has-a-tolerance (`ShouldlyDialect.ComparisonFor`), testable without a
+    compilation — and `ShouldBe(x, 0.01)` is `Approximately`, the one case the name alone cannot
+    settle. **The halves are in different assemblies** (the netstandard2.0 generator cannot
+    reference the runtime), so a typo would emit `Comparison.GreatherThan` and break the
+    *consumer's* build in a generated file; a test checks every mapped name against
+    `Enum.GetNames<Comparison>()`.
+  - On the wire it is a trailing optional camelCase word on `StepCell`, **null meaning equality** —
+    so a consumer that ignores it is exactly as correct as it was.
 - **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
 - **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
 - **`StepKind`** / **`FailureLevel`** — drives automatic failure classification

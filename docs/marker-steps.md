@@ -484,6 +484,32 @@ and BOBCAT031 compile errors; as arguments, nothing can see them before the step
 argument form does better: a set of plain values needs no `Column` at all, because the table is in
 view and has exactly one.
 
+### One object against one row
+
+The same shape for a single object — Storyteller's `VerifyObject`, with the columns the row names
+compared against the properties of those names:
+
+```csharp
+[Then("the address should be")]
+internal void TheAddressShouldBe(StepTable expected) => PropertyCells.Verify(_address, expected);
+```
+
+```csharp
+_objects.TheAddressShouldBe("""
+    | Address1     | Address2 | City   |
+    | 3 1st Street | EMPTY    | Dallas |
+    """);
+```
+
+**Only the columns the row names are compared.** An address has six fields and a specification
+naming three means nothing by the other three — #241's partial rule again, not a second convention.
+On a `Fixture` the call is `VerifyObject(subject, expected)`, the sibling of `VerifySet`, `RunTable`
+and `BuildRows`.
+
+This is the one grammar family with **no declarative twin**, because there is nothing to configure:
+the columns come from the table and the subject from the method. See
+[Data Intensive Specifications](tutorials/data-intensive-specifications.md#one-object-against-one-row).
+
 ## Projecting the assertions you already wrote (opt-in)
 
 With `<BobcatProjectAssertions>true</BobcatProjectAssertions>` in the project, an ordinary
