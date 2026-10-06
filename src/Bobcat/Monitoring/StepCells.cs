@@ -41,6 +41,11 @@ public static class StepCells
             cell.RowIndex,
             // Empty is not a value. A cell genuinely holding "" and a cell holding nothing are the
             // same to a reader, and null is the honest one of the two.
-            string.IsNullOrEmpty(plain) ? null : plain);
+            string.IsNullOrEmpty(plain) ? null : plain,
+
+            // What the cell compared (issue #384). Null for equality, which is what every table,
+            // set and property cell makes — so a publisher that says nothing here means exactly
+            // what it meant before the field existed.
+            cell.Comparison.OnTheWire());
     }
 }

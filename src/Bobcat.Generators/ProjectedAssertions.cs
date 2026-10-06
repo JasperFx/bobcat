@@ -135,6 +135,26 @@ internal interface IAssertionDialect
 
     /// <summary>The whole claim as a sentence.</summary>
     string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation);
+
+    /// <summary>
+    /// Which of Bobcat's closed comparisons this assertion makes, or <b>null when it makes none
+    /// Bobcat has a member for</b> (issue #384).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Null is the whitelist doing its job, not a gap: the generator emits <b>no cell at all</b>
+    /// for such an assertion and the step renders as a plain line. That is the honest degradation,
+    /// and the closed enum is what makes it the only available one — a dialect cannot invent a
+    /// comparison the renderer has never heard of.
+    /// </para>
+    /// <para>
+    /// The overload matrix is the second reason to whitelist rather than generalise.
+    /// <c>ShouldBeEquivalentTo</c>, <c>ShouldBeOfType</c>, <c>ShouldSatisfyAllConditions</c> and
+    /// <c>ShouldThrow</c> all have expectations that are not a value to put beside an actual, and
+    /// each would need its own row shape to say anything true.
+    /// </para>
+    /// </remarks>
+    string? ComparisonOf(IMethodSymbol method);
 }
 
 /// <summary>
@@ -185,6 +205,53 @@ internal sealed class ShouldlyDialect : IAssertionDialect
         => invocation.Expression is MemberAccessExpressionSyntax access
             ? access.Expression.ToString()
             : method.Name;
+
+    /// <summary>
+    /// Shouldly's method name mapped onto Bobcat's closed comparison set (issue #384).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ShouldBe</c> with a <c>tolerance</c> parameter is <c>Approximately</c> and not
+    /// <c>Equals</c> — same method name, different claim, and the one case where the name alone is
+    /// not enough. Rendering it as exact equality is the lie the enum exists to make impossible,
+    /// and the tolerance itself already travels in the cell's note.
+    /// </para>
+    /// <para>
+    /// Everything absent from this switch deliberately produces <b>no cell</b>:
+    /// <c>ShouldBeTrue</c>/<c>ShouldBeFalse</c> (the subject IS the claim, so there is no pair),
+    /// <c>ShouldBeEquivalentTo</c>, <c>ShouldBeOfType</c>, <c>ShouldThrow</c>,
+    /// <c>ShouldSatisfyAllConditions</c>. The sentence still renders, with a verdict and a
+    /// duration; only the cell is withheld, because a cell would have to state a comparison
+    /// Bobcat cannot describe.
+    /// </para>
+    /// </remarks>
+    public string? ComparisonOf(IMethodSymbol method)
+        => ComparisonFor(method.Name, method.Parameters.Any(p => p.Name is "tolerance"));
+
+    /// <summary>
+    /// The mapping itself, as a pure function of the two facts it needs — so the whitelist can be
+    /// read and tested without a compilation, exactly as <see cref="Prose"/> is.
+    /// </summary>
+    internal static string? ComparisonFor(string methodName, bool hasTolerance)
+    {
+        return methodName switch
+        {
+            "ShouldBe" => hasTolerance ? "Approximately" : "Equals",
+            "ShouldNotBe" => "NotEquals",
+            "ShouldBeGreaterThan" => "GreaterThan",
+            "ShouldBeGreaterThanOrEqualTo" => "GreaterThanOrEqual",
+            "ShouldBeLessThan" => "LessThan",
+            "ShouldBeLessThanOrEqualTo" => "LessThanOrEqual",
+            "ShouldContain" => "Contains",
+            "ShouldStartWith" => "StartsWith",
+            "ShouldEndWith" => "EndsWith",
+            "ShouldBeNull" => "IsNull",
+            "ShouldNotBeNull" => "IsNotNull",
+            "ShouldBeEmpty" => "IsEmpty",
+            "ShouldNotBeEmpty" => "IsNotEmpty",
+            _ => null
+        };
+    }
 
     /// <summary><c>ShouldBeGreaterThan</c> → "should be greater than".</summary>
     internal static string Prose(string methodName)

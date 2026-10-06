@@ -55,9 +55,33 @@ public class CellResult
     public string? Note { get; init; }
 
     /// <summary>
+    /// What this cell actually compared (issue #384). <b>Null means the producer did not say</b>,
+    /// which is read as <see cref="Engine.Comparison.Equals"/> — correct for every table, set and
+    /// property cell, and what keeps every existing producer unchanged.
+    /// </summary>
+    /// <remarks>
+    /// It <b>extends</b> this type rather than replacing it, and that was the open question in
+    /// #384. Three things settled it. Every existing producer is genuinely making an equality
+    /// claim, so a null default is honest rather than a placeholder. <see cref="DisplayText"/>'s
+    /// legacy constructor is load-bearing for the set-verification path and must not be disturbed,
+    /// which rules out a new type that does not have it. And #396 established that a cell says
+    /// exactly one thing with its CONTENT fields — a comparison is not a fourth kind of content
+    /// but a statement about how <see cref="Expected"/> and <see cref="Actual"/> relate, so it is
+    /// orthogonal to that split and sits beside it.
+    /// </remarks>
+    public Comparison? Comparison { get; init; }
+
+    /// <summary>
+    /// Whether this cell's shape is the equality shape — the one <c>expected 'x', got 'y'</c>
+    /// states. True when nothing was said, because that is what unstated has always meant here.
+    /// </summary>
+    public bool IsEqualityShaped => Comparison is null or Engine.Comparison.Equals;
+
+    /// <summary>
     /// Derived/legacy single-line description. If a literal display text was supplied
     /// through the legacy constructor it is returned verbatim; otherwise it is composed
-    /// from <see cref="Expected"/>/<see cref="Actual"/>/<see cref="Note"/>.
+    /// from <see cref="Expected"/>/<see cref="Actual"/>/<see cref="Note"/> and
+    /// <see cref="Comparison"/>.
     /// </summary>
     public string DisplayText => _displayText ?? derive();
 
@@ -74,6 +98,17 @@ public class CellResult
             // read "expected '', got '' (Out of order: …)", which is why that cell was still
             // being built through the legacy constructor and so never reached the wire at all.
             ResultStatus.failed when Expected is null && Actual is null => Note ?? "",
+
+            // The comparison the cell actually made, so a non-equality assertion cannot state an
+            // equality it never checked (issue #384). A unary comparison has no expected value to
+            // show — "should not be null, got ''" — and everything else reads
+            // "<prose> '<expected>', got '<actual>'", which for Equals is the sentence this
+            // always produced.
+            ResultStatus.failed when !IsEqualityShaped =>
+                (Comparison!.Value.HasExpectedValue()
+                    ? $"{Comparison.Value.Prose()} '{Expected}', got '{Actual}'"
+                    : $"{Comparison.Value.Prose()}, got '{Actual}'") + note,
+
             ResultStatus.failed => $"expected '{Expected}', got '{Actual}'" + note,
             _ => Note ?? Expected ?? Actual ?? ""
         };
@@ -98,7 +133,11 @@ public class CellResult
             Actual = Actual,
             Note = combined,
             Exception = Exception,
-            RowIndex = RowIndex
+            RowIndex = RowIndex,
+
+            // Carried, because without it appending a note silently turns a GreaterThan cell back
+            // into an equality claim — the exact falsehood the comparison exists to prevent.
+            Comparison = Comparison
         };
     }
 }

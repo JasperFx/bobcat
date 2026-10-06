@@ -377,6 +377,31 @@ rather than the two of them disagreeing about what `Actual` means.
 lives with: a console that only reads `expected`/`actual` keeps rendering input columns empty, with
 nothing to tell it a field appeared. Trailing optional, so an older publisher is not a broken one.
 
+### A cell says what it compared (issue #384)
+
+`expected 'x', got 'y'` is a claim about **equality**. A cell produced by a non-equality assertion
+that rendered it was stating something false, so `StepCell` carries a fifth field, `Comparison`, as
+one word from a closed set:
+
+```
+equals · notEquals · greaterThan · greaterThanOrEqual · lessThan · lessThanOrEqual
+contains · startsWith · endsWith · approximately · isNull · isNotNull · isEmpty · isNotEmpty
+```
+
+**Null means equality**, which is what every table, set and property cell makes and what every
+publisher meant before the field existed — so a consumer that ignores it is exactly as correct as it
+was.
+
+**It is not a fifth *content* field**, and that distinction matters when folding these.
+`Expected`/`Actual`, `Note` and `Value` are four ways of saying what is *in* the cell, and a cell
+fills exactly one. The comparison says how the first pair **relates**, so it travels beside whichever
+one was filled rather than competing with it.
+
+**Being closed is the point.** A producer cannot describe a comparison Bobcat has no member for, so
+an assertion outside the set yields **no cell at all** — the step renders as a plain line with its
+verdict and duration. A free string would let a producer invent a comparison no renderer can render
+and nothing can check.
+
 ## The resident runner wire (issue #390, built 2026-10-02)
 
 A second wire on the same origin, and the only one that runs in the other direction. Everything so

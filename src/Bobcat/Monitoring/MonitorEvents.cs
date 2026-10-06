@@ -247,6 +247,30 @@ public record StepFinished(
 /// or <paramref name="Note"/> says something, so a reader never has to choose between two fields
 /// that mean the same thing.
 /// </param>
+/// <param name="Comparison">
+/// What the cell actually compared, as one word from Bobcat's closed set —
+/// <c>equals</c>, <c>notEquals</c>, <c>greaterThan</c>, <c>greaterThanOrEqual</c>,
+/// <c>lessThan</c>, <c>lessThanOrEqual</c>, <c>contains</c>, <c>startsWith</c>, <c>endsWith</c>,
+/// <c>approximately</c>, <c>isNull</c>, <c>isNotNull</c>, <c>isEmpty</c>, <c>isNotEmpty</c>
+/// (issue #384). <b>Null means equality</b>, which is what every table, set and property cell
+/// makes and what every publisher said before this field existed.
+/// </param>
+/// <remarks>
+/// <para>
+/// <b>The comparison is not a fifth content field</b>, and the distinction matters for a reader
+/// folding these. <see cref="Expected"/>/<see cref="Actual"/>, <see cref="Note"/> and
+/// <see cref="Value"/> are four ways of saying what is IN the cell, and a cell fills exactly one.
+/// This says how the first pair RELATES, so it travels beside whichever one was filled rather
+/// than competing with it.
+/// </para>
+/// <para>
+/// <b>Why a consumer wants it.</b> <c>expected '10', got '3'</c> is a claim about equality. A
+/// grid that renders an expected/actual pair under those headings states that claim on the cell's
+/// behalf — and for <c>ShouldBeGreaterThan(10)</c> it is false, because 10 is the bound. A
+/// consumer that reads this field can say what was checked; one that ignores it is exactly as
+/// correct as it was before, since the old behaviour was equality and so is the null.
+/// </para>
+/// </remarks>
 /// <remarks>
 /// <para>
 /// <b><c>Value</c> is a fourth field and not a reuse of <c>Actual</c>, and the difference is
@@ -271,7 +295,8 @@ public record StepCell(
     string? Actual = null,
     string? Note = null,
     int RowIndex = -1,
-    string? Value = null);
+    string? Value = null,
+    string? Comparison = null);
 
 /// <summary>
 /// Interim progress from a step still running — the wire form of

@@ -521,6 +521,32 @@ assertions have already shown to be wrong. Everything after that renders as neve
 Shouldly test reports the first failure and leaves three blanks; here all four reach the report and
 the test still fails, once.
 
+**A cell says which comparison it made**, so a non-equality assertion cannot claim an equality it
+never checked:
+
+```
+    ✗ Then  the value fails four different comparisons
+      ✗ Then  calculator.Value should be greater than 10
+          ✗ calculator.Value: should be greater than '10', got '3'
+      ✗ And   calculator.Value should be less than 2
+          ✗ calculator.Value: should be less than '2', got '3'
+      ✗ And   calculator.Value should not be 3
+          ✗ calculator.Value: should not be '3', got '3'
+      ✗ And   calculator.Value should be 3.5, 0.01
+          ✗ calculator.Value: should be approximately '3.5', got '3'
+```
+
+Each of those used to read `expected 'N', got '3'`, which is false for every one of them — `N` is a
+bound, not an expectation. The *sentence* was always right, because the dialect writes the comparison
+into the step text; only the cell lied, which is why it went unnoticed.
+
+**An assertion Bobcat cannot describe produces no cell at all.** The comparison comes from a closed
+set, and `ShouldBeTrue`, `ShouldBeEquivalentTo`, `ShouldBeOfType` and `ShouldBeInRange` are not in
+it — their expectation is not a value to put beside an actual, so any row shape would state something
+false. The step still renders, with its verdict and duration; only the cell is withheld. The choice
+is made at compile time, so the runtime never has to judge whether a cell it was handed is
+describable.
+
 **Only a statement-level call is projected.** `x.ShouldNotBeNull().Name.ShouldBe("a")` consumes the
 first assertion's result, so gathering it would dereference null and report a
 `NullReferenceException` instead of the assertion that failed. A call whose value is used is left

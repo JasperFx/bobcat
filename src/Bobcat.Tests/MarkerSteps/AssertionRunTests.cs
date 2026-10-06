@@ -115,6 +115,69 @@ public class AssertionRunTests
         cell.Actual.ShouldBe("6");
     }
 
+    [Fact]
+    public void the_cell_states_the_comparison_the_assertion_actually_made()
+    {
+        using var recording = begin();
+
+        Should.Throw<ShouldAssertException>(() => AssertionRun.Gather(
+            () => throw new ShouldAssertException("3 should be greater than 10"),
+            ScenarioRecorder.Step("Then", "calculator.Value should be greater than 10"),
+            flush: true,
+            subject: "calculator.Value", actual: 3, expected: 10,
+            comparison: Comparison.GreaterThan));
+
+        // Issue #384. The cell used to render "expected '10', got '3'", which is a claim about
+        // equality and false here — 10 is the bound. The sentence above it was right, because the
+        // dialect writes the comparison into the step text, so the console read correctly while
+        // the cell on its own did not.
+        var cell = recording.Steps.Single().Cells.ShouldHaveSingleItem();
+
+        cell.Comparison.ShouldBe(Comparison.GreaterThan);
+        cell.DisplayText.ShouldBe("should be greater than '10', got '3'");
+    }
+
+    [Fact]
+    public void an_assertion_outside_the_closed_set_produces_no_cell_at_all()
+    {
+        using var recording = begin();
+
+        // The cell-less overload, which is the ONE the generator emits when its dialect has no
+        // member for the assertion — ShouldBeTrue, ShouldBeEquivalentTo, ShouldBeOfType. The
+        // choice is made at compile time by picking the overload, so the runtime never has to
+        // decide whether a cell it was handed can be described.
+        Should.Throw<ShouldAssertException>(() => AssertionRun.Gather(
+            () => throw new ShouldAssertException("should be true but was false"),
+            ScenarioRecorder.Step("Then", "the flag should be true"),
+            flush: true));
+
+        var step = recording.Steps.Single();
+
+        step.Cells.ShouldBeEmpty(
+            "a cell would have to state a comparison Bobcat cannot describe, so the honest "
+            + "degradation is a plain step line");
+
+        // It is still a step, with a verdict. Withholding the cell is not withholding the failure.
+        step.Failure.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void the_comparison_defaults_to_equality_so_an_older_caller_is_unchanged()
+    {
+        using var recording = begin();
+
+        Should.Throw<ShouldAssertException>(() => AssertionRun.Gather(
+            () => throw new ShouldAssertException("7 should be 6"),
+            ScenarioRecorder.Step("Then", "calculator.Value should be 7"),
+            flush: true,
+            subject: "calculator.Value", actual: 6, expected: 7));
+
+        var cell = recording.Steps.Single().Cells.ShouldHaveSingleItem();
+
+        cell.Comparison.ShouldBe(Comparison.Equals);
+        cell.DisplayText.ShouldBe("expected '7', got '6'");
+    }
+
     /// <summary>Stands in for Shouldly's, which core cannot reference.</summary>
     private sealed class ShouldAssertException(string message) : Exception(message);
 }

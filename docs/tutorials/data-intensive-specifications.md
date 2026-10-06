@@ -535,8 +535,13 @@ A step's cells travel on `step_finished` (and, while a long table is still runni
 
 `Value` is a fourth field rather than a reuse of `Actual`, and the difference is load-bearing: a cell
 with neither an expected nor an actual is how the report decides an input column earns no Status
-column at all, so writing an input value into `Actual` would make every input cell look judged. See
-[What a Run Publishes](../monitor-design.md#a-cell-says-exactly-one-thing-issue-396-2026-10-02).
+column at all, so writing an input value into `Actual` would make every input cell look judged.
+
+A cell also carries **what it compared** — `equals` by default, and one of a closed set otherwise, so
+a non-equality assertion cannot state an equality it never checked. Every comparison on this page is
+equality, so they all leave it unstated. See
+[What a Run Publishes](../monitor-design.md#a-cell-says-exactly-one-thing-issue-396-2026-10-02) and
+[A cell says what it compared](../monitor-design.md#a-cell-says-what-it-compared-issue-384).
 
 ## Gaps worth knowing about
 

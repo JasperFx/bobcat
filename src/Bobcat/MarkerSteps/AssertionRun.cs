@@ -90,9 +90,16 @@ public static class AssertionRun
     /// <param name="subject">The receiver expression as written — the cell's name.</param>
     /// <param name="actual">The receiver's value.</param>
     /// <param name="expected">The expectation, when the assertion has exactly one.</param>
+    /// <param name="comparison">
+    /// What the assertion actually compared (issue #384). The generator only reaches this overload
+    /// when its dialect had a member for the assertion, so there is no "unknown" to represent: an
+    /// assertion outside the closed set goes through the cell-less overload instead and renders as
+    /// a plain step line.
+    /// </param>
     public static void Gather(
         Action assertion, IDisposable step, bool flush,
-        string subject, object? actual, object? expected)
+        string subject, object? actual, object? expected,
+        Comparison comparison = Comparison.Equals)
     {
         if (ScenarioRecorder.Current is not { } recording)
         {
@@ -108,7 +115,7 @@ public static class AssertionRun
         {
             if (step is IStepHandle handle)
             {
-                handle.AddCell(cellFor(subject, actual, expected));
+                handle.AddCell(cellFor(subject, actual, expected, comparison));
                 handle.Fail(e);
             }
 
@@ -126,13 +133,19 @@ public static class AssertionRun
         if (flush) recording.FlushAssertionRun();
     }
 
-    private static CellResult cellFor(string subject, object? actual, object? expected)
+    private static CellResult cellFor(
+        string subject, object? actual, object? expected, Comparison comparison)
         => new(subject, ResultStatus.failed)
         {
-            // Null when the assertion has no single expectation — ShouldBeTrue(), ShouldNotBeNull().
-            // The cell then reports only what the value WAS, which is all there is to say.
+            // Null when the assertion has no single expectation — ShouldNotBeNull(),
+            // ShouldBeEmpty(). The cell then reports only what the value WAS, which is all there
+            // is to say, and the comparison below is what says why that is enough.
             Expected = StepText.Value(expected),
-            Actual = StepText.Value(actual)
+            Actual = StepText.Value(actual),
+
+            // Without this the cell claimed an equality it never checked: ShouldBeGreaterThan(10)
+            // against 3 rendered "expected '10', got '3'", and 10 is the bound (issue #384).
+            Comparison = comparison
         };
 
     /// <summary>The same for an assertion that returns a value the caller discards.</summary>

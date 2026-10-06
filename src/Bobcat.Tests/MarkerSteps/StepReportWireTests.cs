@@ -330,6 +330,55 @@ public class StepReportWireTests : IDisposable
     }
 
     [Fact]
+    public void an_equality_cell_states_no_comparison_so_an_older_consumer_is_unaffected()
+    {
+        // The compatibility half of #384's cell comparison: null on the wire means equality, which
+        // is what every publisher meant before the field existed. A consumer that never reads it
+        // is exactly as correct as it was.
+        using var recording = begin();
+
+        using (ScenarioRecorder.Step("Then", "the sum is"))
+        {
+            SpecAssert.Check("sum", 4, 5);
+        }
+
+        var cell = _sink.Events.OfType<StepFinished>().ShouldHaveSingleItem()
+            .Cells!.Single(c => c.Name == "sum");
+
+        cell.Comparison.ShouldBeNull("equality is the default, and saying so would be noise");
+    }
+
+    [Fact]
+    public void a_non_equality_cell_carries_what_it_compared_as_one_word()
+    {
+        // Issue #384. Without this a consumer rendering an expected/actual grid states equality on
+        // the cell's behalf, and for a greater-than assertion that is false — 10 is the bound. The
+        // word is camelCase because the reader is a .NET web host whose default it is, the same
+        // reason the runner wire's payloads are.
+        using var recording = begin();
+
+        using (var step = ScenarioRecorder.Step("Then", "the value is big enough"))
+        {
+            ((IStepHandle)step!).AddCell(new CellResult("calculator.Value", ResultStatus.failed)
+            {
+                Expected = "10", Actual = "3", Comparison = Comparison.GreaterThan
+            });
+        }
+
+        var cell = _sink.Events.OfType<StepFinished>().ShouldHaveSingleItem()
+            .Cells!.ShouldHaveSingleItem();
+
+        cell.Comparison.ShouldBe("greaterThan");
+        cell.Expected.ShouldBe("10");
+        cell.Actual.ShouldBe("3");
+
+        // And the comparison is NOT a fifth content field: it travels beside whichever one was
+        // filled rather than competing with it, so the one-thing rule from #396 still holds.
+        cell.Value.ShouldBeNull();
+        cell.Note.ShouldBeNull();
+    }
+
+    [Fact]
     public void the_running_steps_interim_cells_carry_the_literals_too()
     {
         // The case the bug was found in (stoat#62): cells filling in while a SLOW table step runs.

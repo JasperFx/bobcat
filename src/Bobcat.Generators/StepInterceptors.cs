@@ -73,6 +73,12 @@ internal static class StepInterceptors
 
         /// <summary>The receiver expression as written — the sentence's subject and the cell's name.</summary>
         public string Subject = "";
+
+        /// <summary>
+        /// The Bobcat comparison this assertion makes, or null when it makes none Bobcat has a
+        /// member for — in which case NO cell is emitted at all (issue #384).
+        /// </summary>
+        public string? Comparison;
         public List<string> ParameterTypes = new();
 
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
@@ -385,6 +391,7 @@ internal static class StepInterceptors
         };
 
         call.Subject = dialect.Subject(method, invocation);
+        call.Comparison = dialect.ComparisonOf(method);
         call.Template = dialect.Sentence(method, invocation);
         call.StepText = call.Template;
 
@@ -548,11 +555,21 @@ internal static class StepInterceptors
             .Select(x => Identifier(x.p.Name))
             .FirstOrDefault() ?? "null";
 
-        sb.AppendLine(
-            $"            global::Bobcat.AssertionRun.Gather(() => global::{call.DeclaringType}."
-            + $"{call.MethodName}{typeParameters}({string.Join(", ", arguments)}), step, "
-            + (call.FlushesRun ? "true" : "false")
-            + $", {Quote(call.Subject)}, {receiver}, {expectation});");
+        var invoke = $"() => global::{call.DeclaringType}.{call.MethodName}{typeParameters}"
+                     + $"({string.Join(", ", arguments)})";
+        var flush = call.FlushesRun ? "true" : "false";
+
+        // No comparison means NO CELL, and that is the closed enum doing its work rather than a
+        // shortfall (issue #384). ShouldBeTrue, ShouldBeEquivalentTo and ShouldBeOfType have no
+        // expected/actual pair that any row shape could state truthfully, so the step renders as a
+        // plain line with its verdict and duration and says nothing it cannot support. The choice
+        // is made HERE, by picking the overload, so the runtime never has to decide whether a cell
+        // it was handed is describable.
+        sb.AppendLine(call.Comparison is null
+            ? $"            global::Bobcat.AssertionRun.Gather({invoke}, step, {flush});"
+            : $"            global::Bobcat.AssertionRun.Gather({invoke}, step, {flush}, "
+              + $"{Quote(call.Subject)}, {receiver}, {expectation}, "
+              + $"global::Bobcat.Engine.Comparison.{call.Comparison});");
         sb.AppendLine("        }");
         sb.AppendLine();
     }

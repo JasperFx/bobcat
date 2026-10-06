@@ -139,4 +139,44 @@ public class NarratedSpecs
         // Then this is never reached
         calculator.Value.ShouldBe(6);
     }
+
+    /// <summary>
+    /// Issue #384: a cell says what it actually compared, so a non-equality assertion cannot state
+    /// an equality it never checked.
+    /// </summary>
+    /// <remarks>
+    /// Each of these used to render <c>expected 'N', got '3'</c> — a claim about equality, and false
+    /// for every one of them, because N is a bound rather than an expectation. The sentence was
+    /// always right; only the cell lied, which is why it survived so long.
+    /// </remarks>
+    [Fact]
+    public void a_cell_says_which_comparison_it_made()
+    {
+        var calculator = new Calculator { Value = 3 };
+
+        // Then the value fails four different comparisons
+        calculator.Value.ShouldBeGreaterThan(10);
+        calculator.Value.ShouldBeLessThan(2);
+        calculator.Value.ShouldNotBe(3);
+        calculator.Value.ShouldBe(3.5, 0.01);
+    }
+
+    /// <summary>
+    /// Issue #384 acceptance 4: an assertion outside the closed set renders as a plain step line and
+    /// produces no cell at all.
+    /// </summary>
+    /// <remarks>
+    /// <c>ShouldBeTrue</c>'s subject IS its claim, so there is no expected/actual pair any row shape
+    /// could state truthfully. The honest degradation is to say nothing — the step still carries its
+    /// verdict and its duration, and the closed enum is what makes that the only option available
+    /// rather than one choice among several.
+    /// </remarks>
+    [Fact]
+    public void an_assertion_bobcat_cannot_describe_still_renders_as_a_step()
+    {
+        var calculator = new Calculator { Value = 3 };
+
+        // Then a comparison outside the closed set reports no cell
+        (calculator.Value > 10).ShouldBeTrue();
+    }
 }
