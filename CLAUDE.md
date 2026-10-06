@@ -201,14 +201,17 @@ Gherkin, no new keyword.
   ("did you mean …") or lists what the feature declares. A Given writing an arrangement's name bare
   is also BOBCAT021, saying how to reference it.
 - Scope is the feature file. An unused arrangement is not a warning (decided 2026-09-10).
-- **The scaffolder can write arrangements, but only when asked** (decided 2026-09-10: it changes
-  what a regenerated feature looks like, so the user decides). `HistoryArrangements.Plan` builds a
-  prefix tree of each feature's `given:` events; a node earns an arrangement when two or more
-  scenarios pass through it and they do not all continue into the same child, which on
-  BookingAppointments yields exactly the three written by hand. A value carrying `{streamId}` is
-  never shared. `SliceScaffolder.ScaffoldFeatures(model, arrangements: true)` applies it;
-  `FindRepeatedHistory(model)` reports what would change, for the caller to ask about. No CLI
-  command runs the scaffolder today, so there is not yet a prompt anywhere.
+- **Scaffolding arrangements was a Bobcat feature and is now Wolverine's problem** (issue #406,
+  retired 2026-10-06). `Bobcat.EventModel.Scaffolding` is gone; the capability moves to Wolverine's
+  `scaffold` command (wolverine#4832). Two decisions are worth carrying over rather than
+  rediscovering, because whoever writes that command meets both:
+  - **Write arrangements only when asked** (decided 2026-09-10): extracting repeated history
+    changes what a regenerated feature looks like, so the user decides, and the tool reports what
+    *would* change rather than doing it.
+  - **The rule that earned the right three on BookingAppointments**: build a prefix tree of each
+    feature's `given:` events, and a node earns an arrangement when two or more scenarios pass
+    through it **and they do not all continue into the same child**. A value carrying `{streamId}`
+    is never shared. Anything looser produced arrangements nobody wanted.
 
 ### Step discovery walks base classes — base class *or* `[IncludeGrammars]`, both ship (issue #104)
 The generator discovers `[Given]/[When]/[Then]/[Check]` methods declared on a fixture **and on its
@@ -301,8 +304,10 @@ feature's whatever order scenarios fold in (`SliceModel.TriggerLabelDeclaredOnSc
 feature line stays the fallback, correct when the feature's slices share a trigger. Found by the
 #258 equivalence experiment: one feature-level line had put a wrong trigger on 9 of the
 CritterCrush chapter's 10 slices, and the scaffolder produced it — it wrote the *first* slice's
-label at feature level. `SliceScaffolder` now writes the feature line only when every slice in the
-feature agrees, and per-scenario lines otherwise. The runtime `FeatureDefinition.TriggeredBy` is
+label at feature level. The rule that fixed it — **write the feature line only when every slice in
+the feature agrees, and per-scenario lines otherwise** — outlived the scaffolder it was written for
+(retired with #406) and is owed to Wolverine's `scaffold` command. The runtime
+`FeatureDefinition.TriggeredBy` is
 unchanged: scenario descriptions reach the generator's descriptor, not the runtime model.
 `ResilienceTags` projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a
 supervisor/viewer with no Bobcat reference.
@@ -395,8 +400,9 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   second, softer type-checking rule; write `Given {event} occurred` when the model should see it.
   The curated file declares `consumedEvents:` / `readsFrom:`, the emlang import fills a `v:`'s
   `consumedEvents` from the `e:` steps since the chapter start or the previous `v:` (and reports
-  a view with none), and `SliceScaffolder.ViewSourcesFor` prefers `consumedEvents:` over every
-  inference. `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
+  a view with none), and a scaffolder must prefer a declared `consumedEvents:` over every inference
+  it could make — the rule `SliceScaffolder.ViewSourcesFor` encoded before #406 retired it.
+  `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
   acting — so it is curated-only. Pinned by `EventModelDescriptorTests` (both halves, plus the
   arrangement-inlined twins) and by `EventModel.feature` in the sample. **Type
   lists merge by equality, not union**: a View slice whose scenarios between them arrange fewer
@@ -1788,7 +1794,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 ## Package Structure
 
 Every shipped package is `<IsPackable>true</IsPackable>` in its own csproj (src/ defaults to false)
-and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these twelve.
+and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these eleven.
 
 | Package | Target | Responsibility |
 |---------|--------|----------------|
@@ -1802,7 +1808,6 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these t
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
 | **Bobcat.EventModel** | net9.0; net10.0 | The curated Event Model YAML format (a Declared-rung `IEventModelDefinitionSource`) and the eventmodelers.ai emlang importer |
-| **Bobcat.EventModel.Scaffolding** | net9.0; net10.0 | Deterministic slice scaffolding: JasperFx codegen frames for handler, endpoint, aggregate and `.feature` skeletons |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files, and runs the out-of-process resident runner; see below |
 
 **Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was

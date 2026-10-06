@@ -16,8 +16,6 @@
     <Project Path="src/Bobcat.CritterStack.Tests/Bobcat.CritterStack.Tests.csproj" />
     <Project Path="src/Bobcat.EntityFrameworkCore.Tests/Bobcat.EntityFrameworkCore.Tests.csproj" />
     <Project Path="src/Bobcat.EntityFrameworkCore/Bobcat.EntityFrameworkCore.csproj" />
-    <Project Path="src/Bobcat.EventModel.Scaffolding.Tests/Bobcat.EventModel.Scaffolding.Tests.csproj" />
-    <Project Path="src/Bobcat.EventModel.Scaffolding/Bobcat.EventModel.Scaffolding.csproj" />
     <Project Path="src/Bobcat.EventModel.Tests/Bobcat.EventModel.Tests.csproj" />
     <Project Path="src/Bobcat.EventModel/Bobcat.EventModel.csproj" />
     <Project Path="src/Bobcat.Generators.Tests/Bobcat.Generators.Tests.csproj" />

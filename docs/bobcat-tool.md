@@ -211,7 +211,9 @@ carry can join this surface. A bare `bobcat` prints usage and exits 1.
 
 ## Where this fits
 
-The tool is the front door to the Event Modeling workflow: get a model in, review the segmentation,
-then scaffold specs and build slice by slice. See
+The tool is the front door to the Event Modeling workflow: get a model in as C#, review the
+segmentation, then write specs against the stubs and build slice by slice. Skeleton generation for
+declared-only slices is Wolverine's `scaffold` command (JasperFx/wolverine#4832), not this tool —
+Bobcat's own scaffolder was retired with issue #406. See
 [Event Modeling and Spec Driven Development](tutorials/event-modeling.md) for the whole path, and
 [Spec Identities](spec-identities.md) for the gate that keeps the model and the code honest.

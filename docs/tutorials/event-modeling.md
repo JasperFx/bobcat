@@ -22,30 +22,37 @@ more. The audience is a developer who wants the workflow, not the methodology.
 
 ### 2. Getting a model in
 
-Two shapes, both handled by `bobcat import-event-model`:
+**One shape, as of issue #406: an [eventmodelers.ai](https://eventmodelers.ai) emlang board
+export**, through `bobcat import-event-model`. It is segmented into slices and written out as
+**C#** — one field-less stub record per command, event, aggregate and view, plus one
+`EventModelDefinition` declaring the slices, patterns, triggers, chapters and domains through the
+JasperFx.Events fluent API.
 
-- **The curated format** (`schema` / `model` / `slices`) — read and validated in place.
-- **An [eventmodelers.ai](https://eventmodelers.ai) emlang board export** — segmented into slices
-  and written out as a curated file to review.
+**YAML is no longer an authoring syntax.** The curated `.emodel.yaml` format was retired with
+#406; the only YAML read anywhere is the Event Modeling platform's own, on import. The model you
+edit afterwards is C# — which is the point: a stub type is something the compiler, the specs and
+the derived model all already understand.
 
 The segmentation is a set of reported guesses, and a wrong guess should be a one-line diff in the
-generated file rather than a re-import. That framing is the point and should survive into the
+generated code rather than a re-import. That framing is the point and should survive into the
 tutorial. See [The `bobcat` Tool](../bobcat-tool.md#import-event-model).
 
-### 3. Scaffolding specs from a slice
+### 3. Writing specs against the stubs
 
-The generation path is proven — CritterCrush regenerates from a curated model with zero structural
-edits and runs 88 specs green. This section is the walkthrough of doing that on a small model.
+The specs are written against the stub types and are **red until the code exists, which is the
+point**. Bobcat's own scaffolder was retired with #406 — skeleton generation for declared-only
+slices is Wolverine's `scaffold` command (JasperFx/wolverine#4832), and the fallback is the AI
+skill that turns red specs into code.
 
-### 4. Implementing against the scaffolded spec
+### 4. Implementing against the red spec
 
-Red spec to working slice: the command handler, the aggregate, the events, the projection.
+Red spec to working slice: the command handler, the aggregate, the events, the projection. As the
+code grows the derived model takes over from the declared one, and any difference between them
+shows up as a hotspot — which is the design-first to-do list.
 
 ### 5. Keeping the model and the code honest
 
 - `[BobcatSlice]` binds a projected test to a slice — [Specs from tests you already have](../marker-steps.md#bobcatslice).
-- The spec-ownership manifest says which slices are specified where, with `coveredBy` so the rule
-  cannot rot, validated in both directions.
 - [Checking Spec Identities Against the Model](../spec-identities.md) is the gate.
 
 ### 6. What still needs a hand
@@ -54,9 +61,10 @@ Two things need editing after generation, and **neither is a defect** — both a
 limitations, stated plainly so nobody files them as bugs:
 
 - **`[property: Identity]` on command records.** The stream identity is a field of the command and
-  nothing in the curated format says which. The scaffold's own comment points at the fix.
-- **Status vocabularies are new files.** The format knows six scalar types, so every status arrives
-  as `string`; enums are the preference but that granularity may be beyond the generator's scope.
+  nothing on an emlang board says which.
+- **Stub records carry no fields at all.** A board's props are intentionally omitted, so a
+  field-less stub is exactly what an import can honestly produce — the fields are yours to write,
+  and that is not a gap in the importer.
 
 ## Where the material lives
 

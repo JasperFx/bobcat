@@ -66,7 +66,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 | [`Bobcat.Wolverine`](https://www.nuget.org/packages/Bobcat.Wolverine/) | Dispatches through Wolverine's tracked session, so assertions run after everything a message caused |
 | [`Bobcat.EntityFrameworkCore`](https://www.nuget.org/packages/Bobcat.EntityFrameworkCore/) | The `[EfCoreEntities]` persistence recipe for data-setup tables |
 | [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) | Renders an existing xUnit.net v3 or TUnit suite as specifications, without changing how it runs |
-| [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) / [`Bobcat.EventModel.Scaffolding`](https://www.nuget.org/packages/Bobcat.EventModel.Scaffolding/) | Curated Event Model files, and scaffolding slices from them |
+| [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) | Imports the Event Modeling platform's own format and writes it as C# stub types plus an `EventModelDefinition` |
 | [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files, and keeps a suite Bobcat does not own available to a run console |
 
 ```bash
