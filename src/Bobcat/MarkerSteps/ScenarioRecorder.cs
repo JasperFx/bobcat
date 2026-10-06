@@ -83,6 +83,11 @@ public static class ScenarioRecorder
     {
         var recording = new Recording(feature, scenario, publisher, runId);
         _current.Value = recording;
+
+        // The same scenario, as the ambient report sink (issue #408), so a grammar shared with the
+        // Gherkin lane reports here through one static surface and does not have to know which
+        // lane it is in.
+        recording.OpenReporting();
         return recording;
     }
 
@@ -163,7 +168,7 @@ public static class ScenarioRecorder
     /// <summary>A step with no keyword — a marker comment supplies its own.</summary>
     public static IDisposable Step(string text) => Step("", text);
 
-    public sealed class Recording : IDisposable
+    public sealed class Recording : IDisposable, IReportSink
     {
         private readonly List<RecordedStep> _steps = new();
         private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -212,6 +217,38 @@ public static class ScenarioRecorder
         public IReadOnlyList<PlannedStep> Planned { get; } = [];
 
         public IReadOnlyList<RecordedStep> Steps => _steps;
+
+        private readonly List<IScenarioReport> _reports = new();
+        private IDisposable? _reportScope;
+
+        /// <summary>
+        /// The scenario's reports (issue #408) — accounts of the whole scenario as cell tables, in
+        /// first-registration order.
+        /// </summary>
+        public IReadOnlyList<IScenarioReport> Reports => _reports;
+
+        internal void OpenReporting() => _reportScope = ScenarioReports.Open(this);
+
+        /// <inheritdoc />
+        public TReport ReportFor<TReport>() where TReport : IScenarioReport, new()
+        {
+            foreach (var existing in _reports)
+            {
+                if (existing is TReport found) return found;
+            }
+
+            var report = new TReport();
+            _reports.Add(report);
+            return report;
+        }
+
+        /// <inheritdoc />
+        public void AttachReport(IScenarioReport report)
+        {
+            var at = _reports.FindIndex(r => r.GetType() == report.GetType());
+            if (at >= 0) _reports[at] = report;
+            else _reports.Add(report);
+        }
 
         /// <summary>Set by the adapter when the test fails, so the verdict is the runner's.</summary>
         public Exception? Failure { get; set; }
@@ -580,6 +617,8 @@ public static class ScenarioRecorder
         {
             _clock.Stop();
             _current.Value = null;
+            _reportScope?.Dispose();
+            _reportScope = null;
 
             if (_cancelled) return;
 
@@ -593,7 +632,8 @@ public static class ScenarioRecorder
                 Attempts: 1,
                 DurationMs: _clock.ElapsedMilliseconds,
                 ErrorMessage: failure,
-                At: DateTimeOffset.UtcNow));
+                At: DateTimeOffset.UtcNow,
+                Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null)));
 
             ScenarioCompleted?.Invoke(this);
         }

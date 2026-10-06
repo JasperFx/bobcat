@@ -131,7 +131,41 @@ public record ScenarioFinished(
     IReadOnlyList<TouchedType>? TouchedTypes = null,
     // When the scenario finished — the stamp a consumer uses to age this evidence. Null from an
     // older publisher. Optional and additive.
-    DateTimeOffset? At = null) : MonitorEvent(RunId);
+    DateTimeOffset? At = null,
+    // The scenario's reports (issue #408) — accounts of the whole scenario as cell grids, not any
+    // one step's claim. Already filtered by visibility, so a passing scenario carries none unless
+    // the run asked for verbose. Null from an older publisher or a scenario that reported nothing.
+    // Optional and additive.
+    IReadOnlyList<ScenarioReportInfo>? Reports = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// One scenario report on the wire (issue #408): a titled grid of cells describing what the
+/// scenario's system actually did, as opposed to whether it matched.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>It carries <see cref="StepCell"/>, not a sibling cell record.</b> There is one cell shape on
+/// this wire and a consumer already knows how to read it — including the rule that a cell says
+/// exactly one thing, so a report's ordinary informational cell arrives with
+/// <see cref="StepCell.Value"/> set and its pair null (issue #396), which is also how a reader
+/// tells it from a cell that was judged.
+/// </para>
+/// <para>
+/// <b><see cref="Columns"/> for the same reason a step's grid needs it:</b> column order is the one
+/// thing cells cannot carry themselves, so a reader reassembles the grid from
+/// <see cref="StepCell.RowIndex"/> against this.
+/// </para>
+/// <para>
+/// <b><see cref="SuppressedRows"/> is on the wire rather than folded into the title</b> because a
+/// truncation a consumer cannot see is a report that misleads. Zero means nothing was dropped.
+/// </para>
+/// </remarks>
+public record ScenarioReportInfo(
+    string Title,
+    IReadOnlyList<string> Columns,
+    IReadOnlyList<StepCell> Cells,
+    string? ShortTitle = null,
+    int SuppressedRows = 0);
 
 /// <summary>
 /// A CLR type a scenario touched, on the wire (issue #107). Deliberately the same three fields

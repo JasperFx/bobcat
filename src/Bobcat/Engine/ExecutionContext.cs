@@ -48,6 +48,13 @@ public class SpecExecutionContext : IExecutionContext
     public void Log(string message)
     {
         CurrentStep?.AddLog(message);
+
+        // And through to the runner's own per-test output as it happens (issue #409), so a
+        // specification's log lines and the test's own writes read as one stream in source order
+        // rather than as two blocks. A no-op whenever no adapter opened a sink, which is every
+        // Gherkin run today — Bobcat.Mtp is its own test framework and has no output helper to
+        // hand over. Here so that the day one exists, nothing has to be remembered.
+        SpecOutput.Write(message);
     }
 
     public void AttachDiagnostic(string key, object data)

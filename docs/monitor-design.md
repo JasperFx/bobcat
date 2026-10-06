@@ -402,6 +402,47 @@ an assertion outside the set yields **no cell at all** — the step renders as a
 verdict and duration. A free string would let a producer invent a comparison no renderer can render
 and nothing can check.
 
+## A scenario reports an account of itself (issue #408, built 2026-10-06)
+
+`ScenarioFinished` gained a **trailing, optional** `Reports` — a list of `ScenarioReportInfo`, each
+a titled grid describing what the scenario's system actually *did*, as opposed to whether it
+matched. Bobcat's answer to Storyteller's custom logging, in the Cell model rather than in HTML.
+
+```
+ScenarioReportInfo(Title, Columns, Cells, ShortTitle = null, SuppressedRows = 0)
+```
+
+- **`Cells` are `StepCell`.** There is one cell shape on this wire and a consumer already knows how
+  to read it, including the rule that a cell says exactly one thing (#396): a report's ordinary
+  informational cell arrives with `value` set and `expected`/`actual` null, which is also how a
+  reader tells it from a cell that was judged. A report may carry a judged cell among unjudged ones —
+  the dead-lettered envelope among a dozen that were fine — so a grid can have exactly one red row
+  without a second mechanism.
+- **`Columns` for the same reason a step's grid needs it**: column order is the one thing cells
+  cannot carry themselves, so a reader reassembles the grid from `StepCell.RowIndex` against this.
+- **`SuppressedRows` is on the wire** rather than folded into the title, because a truncation a
+  consumer cannot see is a report that misleads. Bobcat caps a report at 200 rows. Zero means
+  nothing was dropped.
+- **Absent by default for a passing scenario.** The producer declares `OnFailure` or `Always`, and
+  only `--verbose` (or `BOBCAT_VERBOSE_REPORTS`) lifts the latch — on every surface at once, so the
+  wire never disagrees with the console about what a run reported. **Null, not an empty list**, when
+  there is nothing: "reported nothing" and "a publisher too old to know about reports" mean the same
+  thing to a consumer and should look the same.
+
+### The receiving-side fold
+
+Kept here deliberately, like every other fold in this document: a publisher that does not know how
+its events are read cannot tell an additive change from a breaking one.
+
+- A report is **per scenario, not per step**, so it belongs wherever a consumer renders a scenario's
+  verdict and detail — beneath the steps, which is where `CommandLineRenderer` puts it and where
+  Storyteller put its custom logging.
+- Fold by `Title`, which is a report type's stable heading. One scenario cannot send two reports
+  with the same title: Bobcat enforces one instance per report type per scenario, and `AttachReport`
+  replaces rather than appends for exactly that reason.
+- A consumer that ignores `Reports` entirely is exactly as correct as it was before the field
+  existed. Nothing else on `scenario_finished` changed.
+
 ## The resident runner wire (issue #390, built 2026-10-02)
 
 A second wire on the same origin, and the only one that runs in the other direction. Everything so

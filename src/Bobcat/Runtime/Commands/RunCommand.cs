@@ -14,6 +14,12 @@ public class RunCommand : JasperFxAsyncCommand<RunInput>
         var runner = input.Runner;
 
         runner.SuppressConsoleOutput = input.JsonFlag;
+
+        // The one switch that lifts the report latch, on every surface at once — console, JSON and
+        // the monitor wire all read it through ScenarioReportVisibility (issue #408). Set rather
+        // than threaded, because it is a property of how the run was invoked and not of any one
+        // scenario.
+        Engine.ScenarioReportVisibility.Verbose = input.VerboseFlag;
         var results = await runner.RunAll(input.FeatureFlag, input.TagFlag);
 
         if (input.JsonFlag)

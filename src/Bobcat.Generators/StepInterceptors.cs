@@ -371,6 +371,10 @@ internal static class StepInterceptors
         // declared method, receiver included, which is the signature an interceptor has to match.
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
 
+        // A signature this cannot reproduce exactly is left alone — no interceptor, and the
+        // assertion runs as it always did. See CanReproduce for why that is the right failure.
+        if (!CanReproduce(definition)) return null;
+
         var call = new InterceptedCall
         {
 #pragma warning disable RSEXPERIMENTAL002
@@ -533,8 +537,16 @@ internal static class StepInterceptors
         var parameters = definition.Parameters.Select((p, i) => parameterOf(p, i == 0)).ToList();
         var arguments = definition.Parameters.Select(p => Identifier(p.Name)).ToList();
 
+        // The RETURN TYPE has to match too, and for a long time this always wrote `void`.
+        // Shouldly's ShouldNotBeNull<T> and ShouldBeOfType<T> return T, so a statement-level call to
+        // either was CS9144 in the CONSUMER's build, inside a generated file they cannot edit, over
+        // an assertion that compiles perfectly without Bobcat.
+        var returnType = definition.ReturnsVoid
+            ? "void"
+            : definition.ReturnType.ToDisplayString(interceptorFormat);
+
         sb.AppendLine($"        {call.InterceptsLocation}");
-        sb.AppendLine($"        internal static void __BobcatAssert{index}{typeParameters}(");
+        sb.AppendLine($"        internal static {returnType} __BobcatAssert{index}{typeParameters}(");
         sb.AppendLine($"            {string.Join(", ", parameters)})");
 
         foreach (var clause in constraintsOf(definition))
@@ -543,6 +555,12 @@ internal static class StepInterceptors
         }
 
         sb.AppendLine("        {");
+
+        if (!definition.ReturnsVoid)
+        {
+            sb.AppendLine($"            {returnType} __result = default!;");
+        }
+
         sb.AppendLine(
             $"            var step = global::Bobcat.ScenarioRecorder.Step({Quote(call.Keyword)}, "
             + $"{Quote(call.StepText)}, {call.DeclaredIndex}, {call.PlannedIndex});");
@@ -555,8 +573,19 @@ internal static class StepInterceptors
             .Select(x => Identifier(x.p.Name))
             .FirstOrDefault() ?? "null";
 
-        var invoke = $"() => global::{call.DeclaringType}.{call.MethodName}{typeParameters}"
-                     + $"({string.Join(", ", arguments)})";
+        var original = $"global::{call.DeclaringType}.{call.MethodName}{typeParameters}"
+                       + $"({string.Join(", ", arguments)})";
+
+        // A value-returning assertion's result is captured and handed back, so the interceptor's
+        // signature matches and the call site behaves as it did.
+        //
+        // Returning `default!` after a GATHERED failure is safe, and it is safe for a reason that
+        // already exists rather than a new one: only a STATEMENT-level call is ever intercepted
+        // (ProjectedAssertions.StatementOf), so the value is discarded at the call site by
+        // definition. `x.ShouldNotBeNull().Name.ShouldBe("a")` consumes the result and is not
+        // intercepted at all — it throws as it always did, which is what keeps a chain from
+        // dereferencing null and reporting an NRE instead of the assertion that failed.
+        var invoke = definition.ReturnsVoid ? $"() => {original}" : $"() => __result = {original}";
         var flush = call.FlushesRun ? "true" : "false";
 
         // No comparison means NO CELL, and that is the closed enum doing its work rather than a
@@ -570,9 +599,45 @@ internal static class StepInterceptors
             : $"            global::Bobcat.AssertionRun.Gather({invoke}, step, {flush}, "
               + $"{Quote(call.Subject)}, {receiver}, {expectation}, "
               + $"global::Bobcat.Engine.Comparison.{call.Comparison});");
+
+        if (!definition.ReturnsVoid)
+        {
+            sb.AppendLine("            return __result;");
+        }
+
         sb.AppendLine("        }");
         sb.AppendLine();
     }
+
+    /// <summary>
+    /// Whether an interceptor matching <paramref name="definition"/> exactly can be written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The failure this prevents is a broken consumer build, which is the worst one available.</b>
+    /// C#'s interceptor feature requires an exact signature match; anything short of it is CS9144 in
+    /// a generated file the author cannot edit, over an assertion that compiles perfectly without
+    /// Bobcat. The honest degradation is the one issue #384 already chose for an assertion Bobcat
+    /// cannot describe — <i>produce no cell at all and let the step render as a plain line</i> — and
+    /// this extends it one step: from "no comparison for this name" to "no signature that can match
+    /// this call". A lost cell is a small, visible loss; a build that will not compile is not.
+    /// </para>
+    /// <para>
+    /// <b>Why a guard and not only the fix.</b> The return type was the actual defect and is fixed
+    /// (see <c>emitAssertion</c>). Without this, the next assertion whose shape cannot be reproduced
+    /// re-introduces exactly the same consumer-visible break, and it would again be discovered by
+    /// somebody's build rather than by this repository's tests.
+    /// </para>
+    /// <para>
+    /// By-reference parameters and by-reference returns are the shapes that cannot be reproduced
+    /// through the <c>Gather</c> lambda: a <c>ref</c>/<c>out</c> argument cannot be captured by a
+    /// closure, and a <c>ref</c> return cannot be stored in a local and handed back.
+    /// </para>
+    /// </remarks>
+    internal static bool CanReproduce(IMethodSymbol definition)
+        => !definition.ReturnsByRef
+           && !definition.ReturnsByRefReadonly
+           && definition.Parameters.All(p => p.RefKind == RefKind.None);
 
     /// <summary>
     /// Fully qualified AND nullability-annotated. The plain fully-qualified form drops <c>?</c>, and an
@@ -602,19 +667,48 @@ internal static class StepInterceptors
     /// matches.
     /// </summary>
     private static string defaultOf(IParameterSymbol parameter)
-        => parameter.ExplicitDefaultValue switch
+    {
+        var value = parameter.ExplicitDefaultValue;
+        if (value is null) return "default";
+
+        // An ENUM default first, and this is a real bug it is fixing rather than a tidy-up.
+        // ExplicitDefaultValue boxes an enum as its UNDERLYING primitive, so `value.GetType()
+        // .IsPrimitive` below is true for one and the bare number was emitted — CS1750, "a value
+        // of type 'int' cannot be used as a default parameter because there are no standard
+        // conversions to type 'Case'", in the CONSUMER's build. Shouldly's ShouldContain,
+        // ShouldStartWith and ShouldEndWith over a string all take `Case caseSensitivity =
+        // Case.Sensitive`, so three more assertions were unusable for the same reason
+        // ShouldNotBeNull was (issue #410). The comment on the old code said enums fell through to
+        // `default`; the guard order meant they never reached it.
+        //
+        // Cast rather than `default`, which would be right only for a zero-valued member.
+        var type = unwrapNullable(parameter.Type);
+        if (type.TypeKind == TypeKind.Enum)
         {
-            null => "default",
+            return $"({type.ToDisplayString(interceptorFormat)})({value})";
+        }
+
+        return value switch
+        {
             bool flag => flag ? "true" : "false",
             string text => Quote(text),
             char character => "'" + character + "'",
 
-            // Anything else — an enum, a decimal, a number whose literal form differs by locale — as
-            // `default`, which is legal for every optional parameter and is what the value is in every
-            // case that matters here.
-            var value when value.GetType().IsPrimitive => value.ToString()!.ToLowerInvariant(),
+            // A primitive as its literal. Anything else — a decimal, a struct default — as
+            // `default`, which is legal for every optional parameter.
+            var primitive when primitive.GetType().IsPrimitive => primitive.ToString()!.ToLowerInvariant(),
             _ => "default"
         };
+    }
+
+    /// <summary>
+    /// <c>T</c> for a <c>T?</c> value type, otherwise the type itself — so a nullable enum default is
+    /// recognised as the enum it is.
+    /// </summary>
+    private static ITypeSymbol unwrapNullable(ITypeSymbol type)
+        => type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+            ? nullable.TypeArguments[0]
+            : type;
 
     /// <summary>
     /// The <c>where</c> clauses of the intercepted signature. Omitting a constraint the original

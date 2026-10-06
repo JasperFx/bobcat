@@ -66,6 +66,22 @@ public interface IStepContext
     }
 
     /// <summary>
+    /// This scenario's <typeparamref name="TReport"/>, created on first ask (issue #408) — an
+    /// account of the whole scenario as a cell table, where <see cref="RecordCells"/> reports one
+    /// step's own grid.
+    /// </summary>
+    /// <remarks>
+    /// Delegates to <see cref="SpecReport"/> rather than reaching into an implementation, so the
+    /// context surface and the static one a cross-lane grammar writes against cannot resolve to
+    /// different scenarios — and so every <see cref="IStepContext"/> implementation, fakes
+    /// included, gets it working.
+    /// </remarks>
+    TReport ReportFor<TReport>() where TReport : IScenarioReport, new() => SpecReport.For<TReport>();
+
+    /// <summary>Attach a report built elsewhere to this scenario (issue #408).</summary>
+    void AttachReport(IScenarioReport report) => SpecReport.Attach(report);
+
+    /// <summary>
     /// Publish <paramref name="value"/> as this scenario's <typeparamref name="T"/> on the typed
     /// per-scenario blackboard (issue #212), replacing any earlier <typeparamref name="T"/>. State
     /// lives for exactly one scenario bracket — the runner builds a fresh context per attempt, so
