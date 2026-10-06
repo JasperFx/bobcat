@@ -1662,11 +1662,44 @@ sweep:
   bind (appended to `TestResources.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
 **The `bobcat` tool is `src/Bobcat.Console/`, and it has two commands: `import-event-model` and
-`resident`.** It carries the free, no-server half of the toolset — read and validate a curated
-event-model file, or convert an eventmodelers.ai board export into that format, optionally pushing
-the result at a console's `PUT /api/event-model`; and (issue #399) keep a suite whose process
-Bobcat does not own available to a monitor, which has to ship from here because the console
-references nothing in this repository and so cannot be handed a class to host. It is a plain
+`resident`.** It carries the free, no-server half of the toolset — convert an eventmodelers.ai
+board export into C#, optionally pushing the assembled model at a console's
+`PUT /api/event-model`; and (issue #399) keep a suite whose process Bobcat does not own available
+to a monitor, which has to ship from here because the console references nothing in this repository
+and so cannot be handed a class to host.
+
+- **`import-event-model` writes C#, not YAML (issue #405).** `CSharpModelWriter` emits two files:
+  `<Model>Stubs.cs`, one **field-less** record per command, event, aggregate, message and read
+  model the board named, and `<Model>.cs`, one `EventModelDefinition` declaring the slices through
+  JasperFx.Events 2.81's fluent API. `EmlangReader` and `EmlangImport` are untouched — only the
+  writer at the end of the pipe changed — and the command's **curated arm is gone**: a curated
+  file is refused with a sentence pointing at `EventModelDefinition`, which is more use than the
+  "unrecognized" it would otherwise fall through to. The curated *types* stay until #406.
+  - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
+    information at all (the board's props are intentionally omitted), so a name is the whole truth
+    it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
+  - **Everything goes through `ISourceWriter`**, the rule the issue states and the reason the bump
+    had to come first (jasperfx#956's whitespace fixes). Backticks are the writer's stand-in for
+    double quotes, so a literal backtick in a board label is swapped for a single quote rather than
+    silently becoming one.
+  - **Two mistakes the first cut made, both now pinned.** The definition class took the model name,
+    which is also the namespace's, so `namespace K9Crush { class K9Crush }` compiled and then
+    resolved every sibling stub reference against the CLASS first — `K9Crush.SwipeOnDog` stopped
+    meaning what it says. And a generic verb (`model.Command<SwipeOnDog>()`) names the slice after
+    the type, so using one where the board called the slice something else would have **split one
+    slice into two silently**, the slice name being the merge key; where they differ the slice now
+    opens by name and states its pattern and role separately.
+  - **A role whose type has no stub is declared by NAME** — `.HandledBy("SwipeEndpoint")`. A
+    handler is never stubbed (an empty handler is what Wolverine's `scaffold` command exists to
+    write), and a string becomes a `TypeDescriptor(name, name, "")` whose empty assembly makes the
+    merge compare by `Name` (jasperfx#798), so the two spellings mean the same thing — while
+    reaching for a generic over a type no stub declares simply would not compile.
+  - **`CSharpModelWriterTests` compiles its own output with Roslyn, loads it, runs `Configure` and
+    compares the descriptor to `CuratedModelMapper.ToDescriptor` of the same model.** Asserting on
+    the emitted text would pass for a file with a missing brace, a shadowed namespace or a generic
+    naming a type no stub declares — all three of which happened. The round-trip is a real guard,
+    checked by dropping `.Emits` and watching it go red; `Bobcat.EventModel.Tests` therefore
+    references `Microsoft.CodeAnalysis.CSharp`, which is new for that project. It is a plain
 JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not `bobcat`** — see the
 resident-runner section for why that is load-bearing rather than cosmetic; the command a person
 types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it lives in Stoat's

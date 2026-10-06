@@ -4,7 +4,7 @@ A global .NET tool with two commands, and they have almost nothing to do with ea
 
 | | |
 |---|---|
-| **[`import-event-model`](#import-event-model)** | read and validate a curated **Event Model file**, or convert an eventmodelers.ai board export into that format |
+| **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#** — stub records plus one `EventModelDefinition` |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
 
 Neither one *runs your suite the way you would*: `import-event-model` never loads a test assembly at
@@ -30,36 +30,11 @@ format and the run. Runs still publish to that console exactly as before; see
 ## `import-event-model` {#import-event-model}
 
 ```bash
-bobcat import-event-model Wallet.emodel.yaml
-```
-
-It sniffs the file and takes either shape.
-
-### The curated format
-
-A file with `schema` / `model` / `slices` is read and validated in place.
-
-```
-Model 'CritterCrush': 19 slice(s), 52 bound specification(s).
-```
-
-Warnings print whether or not it validated — a file carrying nothing but warnings **validates**,
-which is exactly the silence the warning exists to break. Validation problems go to stderr and the
-command fails:
-
-```
-The curated file did not validate:
-  - not parseable as a curated event-model file: Exception during deserialization
-```
-
-### An emlang board export
-
-An [eventmodelers.ai](https://eventmodelers.ai) board export is segmented into slices and **written
-out as a curated file for you to review**, `<Model>.emodel.yaml` beside the input by default:
-
-```bash
 bobcat import-event-model board.yaml --model K9Crush
 ```
+
+Reads an [eventmodelers.ai](https://eventmodelers.ai) board export, segments it into slices, and
+writes the design out as **C#**:
 
 ```
 chapter 'TheSwiper': Command slice 'SwipeOnDog' triggered by 'Discovery Feed'.
@@ -67,22 +42,106 @@ chapter 'TheSwiper': Automation slice 'DetectMutualMatch' triggered by 'Dog Like
 chapter 'TheSwiper': View slice 'MatchList'.
 chapter 'TheSwiper': View slice 'MatchList' consumes 3 event(s): DogLiked, DogPassed, MutualMatchDetected.
 3 slice(s) from 1 chapter(s).
-Curated model written to /path/to/K9Crush.emodel.yaml — review the segmentation there before building against it.
+Wrote 6 stub record(s) to ./K9CrushStubs.cs and the event model to ./K9Crush.cs. Nothing
+regenerates either file — the segmentation above is a set of guesses, so correct one with an edit
+rather than a re-import.
 Model 'K9Crush': 3 slice(s), 1 bound specification(s).
 ```
 
-**The segmentation is a set of reported guesses**, which is why it writes a file rather than acting
-on what it inferred. A wrong guess should be a one-line diff in that file, not a re-import.
+### Two files: the stubs and the definition
 
-Either shape prints the model name, the slice count, and how many specifications are bound.
+`<Model>Stubs.cs` is one field-less record per command, event, aggregate and view the board named:
+
+```csharp
+namespace K9Crush;
+
+/// <summary>
+/// emitted by SwipeOnDog.
+/// consumed by MatchList.
+/// </summary>
+public record DogLiked;
+```
+
+**Field-less is what a board can honestly produce.** An emlang export carries no field information
+at all — the board's props are intentionally omitted — so a name is the whole truth it can tell.
+Inventing an `Id` would be a guess with no basis that you would then have to un-guess.
+
+`<Model>.cs` is one `EventModelDefinition` declaring the slices through the JasperFx.Events fluent
+API, against those stubs:
+
+```csharp
+public class K9CrushEventModel : EventModelDefinition
+{
+    public override string Name => "K9Crush";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        model.Command<SwipeOnDog>()
+            .InChapter("TheSwiper")
+            .TriggeredBy("Discovery Feed", TriggerKind.Human)
+            .Emits<DogLiked>()
+            .Emits<DogPassed>()
+            .LinksToSpecification("SwipeOnDog/ALikeIsRecorded");
+
+        model.Automation("DetectMutualMatch")
+            .InDomain("Discovery")
+            .InChapter("TheSwiper")
+            .TriggeredBy("Dog Liked", TriggerKind.MessageHandler)
+            .Command<DetectMutualMatch>()
+            .Emits<MutualMatchDetected>();
+
+        model.View<MatchList>()
+            .InChapter("TheSwiper")
+            .On<DogLiked>()
+            .On<DogPassed>()
+            .On<MutualMatchDetected>()
+            .LinksToSpecification("MatchList/MatchesShow");
+    }
+}
+```
+
+Register it with `services.AddEventModel<K9CrushEventModel>()` and it joins the model on the
+**Declared** rung, where a claim the code derives always wins and any difference between the two
+shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do list.
+
+Write your Bobcat specs against the stubs straight away. They are red until the behaviour exists,
+and that is the point.
+
+### Nothing regenerates these files
+
+**The segmentation is a set of reported guesses** — which is why it writes files rather than acting
+on what it inferred. A wrong guess is a one-line edit in the generated C#, not a re-import, and
+since the command never rewrites a file it has already written, your edits cannot be clobbered.
+
+Two details the generated code is careful about, both of which failed loudly the first time:
+
+- **The definition class never shares its namespace's name.** The model name supplies both by
+  default, and `namespace K9Crush { class K9Crush }` compiles — then resolves every reference to a
+  sibling stub against the *class* first, so `K9Crush.SwipeOnDog` stops meaning what it says. An
+  `EventModel` suffix is added only where that collision is real.
+- **A generic verb is only used where it names the slice the board named.** `Command<SwipeOnDog>()`
+  names the slice after the type, and the slice name is the merge key — so where the board called
+  the slice something else, it opens by name and states its pattern and command separately.
+  Otherwise one slice would silently become two.
+
+Roles whose type has no stub — a handler, for instance, which is behaviour rather than data — are
+declared by **name**: `.HandledBy("SwipeEndpoint")`. That means the same thing to the merge, which
+compares a declared type by `Name`, and it keeps the output building.
+
+::: tip The curated `.emodel.yaml` format is retired
+This command used to read and validate a curated event-model file, and an import used to write one
+for you to review. **YAML is no longer an authoring syntax** (jasperfx#955): the only YAML Bobcat
+reads is the Event Modeling platform's own, on import. Hand a curated file to this command and it
+says so, and points at `EventModelDefinition`.
+:::
 
 ### Options
 
 | Flag | What it does |
 |---|---|
-| `-m, --model <name>` | Model name for an emlang import; defaults to the file name. The curated format carries its own |
-| `-n, --namespace <ns>` | Root namespace recorded for synthesized type names on an emlang import |
-| `-o, --out <path>` | Where an emlang import writes the reviewable curated file |
+| `-m, --model <name>` | Model name; defaults to the file name. It is the **merge key**, so it must match what the code-derived sources call the model (`opts.ServiceName` / `[assembly: EventModelName]`) or the import floats off as a second diagram |
+| `-n, --namespace <ns>` | Namespace for the generated stubs and definition; defaults to the model name |
+| `-o, --out <dir>` | **Directory** the generated C# is written to; defaults beside the input. Created if it does not exist |
 | `-u, --url <base>` | Push the assembled model to a run console at this base URL |
 
 #### `--url` takes the **base**, not the endpoint

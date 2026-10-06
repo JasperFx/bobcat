@@ -11,6 +11,15 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Shouldly" />
+    <!--
+      Issue #405. The importer writes C#, and the one failure a scaffolder must never have is
+      output that does not compile — so CSharpModelWriterTests compiles its own output in memory
+      with Roslyn, loads it, runs Configure and compares the descriptor to the one
+      CuratedModelMapper builds from the same model. Asserting the emitted TEXT alone would pass
+      for a file with a missing brace, a shadowed namespace or a generic overload naming a type no
+      stub declares, which are exactly the three mistakes the first cut made.
+    -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
