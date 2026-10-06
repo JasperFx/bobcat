@@ -133,8 +133,10 @@ can be a lane-neutral request at all — both lanes genuinely are MTP hosts.
 
 Nothing checked the identity against the design. A projected spec added under a scenario name the model did
 not declare produced a green suite, a clean build, no diagnostic, and no warning; it survived four
-commits. `BOBCAT025` and `BOBCAT026` compare **slice names**, so a test bound to the right slice
-under a scenario nobody designed passes both (issue #338).
+commits. The retired `BOBCAT025`/`BOBCAT026` manifest checks compared **slice names**, so a test
+bound to the right slice under a scenario nobody designed passed both (issue #338) — which is why
+this gate was needed even while they existed, and why retiring them in #406 took nothing away from
+it.
 
 `SpecIdentityAudit` is the join. Both facts already exist:
 

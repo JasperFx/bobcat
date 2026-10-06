@@ -29,7 +29,7 @@ namespace Bobcat.Tests.MarkerSteps;
 /// derivation won; see the commit. This test is the thing that would have said so.
 /// </para>
 /// <para>
-/// Same guard as <c>SliceTagParsingAgreementTests</c> and <c>SpecOwnershipParsingAgreementTests</c>,
+/// Same guard as <c>SliceTagParsingAgreementTests</c>,
 /// and duplicated for the same reason: Bobcat.Generators is netstandard2.0 and references nothing.
 /// </para>
 /// </remarks>

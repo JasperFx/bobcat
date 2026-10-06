@@ -1915,6 +1915,24 @@ and so cannot be handed a class to host.
     (so it was deleted rather than weakened into a duplicate), and the second became
     `the_import_maps_clean_to_a_descriptor`, dropping only the hop. The C# path that replaced the
     YAML one is pinned by `CSharpModelWriterTests`, which compiles and runs its output.
+  - **`*.spec-ownership.yaml` is retired with it, and this one removes a capability.** The manifest,
+    `SpecOwnershipManifest`/`SpecOwnershipDiagnostics` in the generator, `SpecOwnershipReader`/
+    `SpecOwnershipFile` in `Bobcat.EventModel`, the `SpecOwnershipParsingAgreementTests` guard that
+    pinned the two readers together, and **BOBCAT025/BOBCAT026** are all gone. Nothing in core ever
+    referenced it, so the removal was self-contained.
+    - **What it did and what is lost.** It declared *forward* — before any code existed — that a
+      slice would be specified as a projected test rather than a `.feature`, which mattered chiefly
+      so Bobcat's scaffolder wrote the right kind of skeleton; that scaffolder is now Wolverine's.
+      With it go two checks: a slice specified in two lanes (**BOBCAT025**, error — the
+      duplicate-identity guard, since two lanes means two specs claiming one `{Feature}/{Scenario}`)
+      and a manifest naming a slice nothing binds (**BOBCAT026**, warning, soft on purpose because
+      the owner may live in a sibling assembly). **The intent is that this content moves onto
+      attributes, and no such attribute exists yet** — so a slice's authoring lane is currently not
+      declarable before the spec exists. Written down rather than dropped quietly.
+    - **`[BobcatSlice]` is untouched**, and it was always the more useful half: binding a test that
+      already exists to a slice. `SpecIdentityAudit` (#338) is unaffected too and is now the only
+      gate of its kind — which it already had to be, because BOBCAT025/026 compared slice *names*,
+      so a test bound to the right slice under a scenario nobody designed passed both of them.
   - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
     information at all (the board's props are intentionally omitted), so a name is the whole truth
     it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
@@ -2255,7 +2273,7 @@ the correlation hook — an opaque string Bobcat stamps on a run and never inter
 - `docs/marker-steps.md` — The projected lane, user-facing: the one step-attribute family across
   both lanes and its two expression syntaxes, the rendered spec console (`BOBCAT_SPEC_CONSOLE` /
   `BOBCAT_SPEC_PREVIEW`), `SpecAssert`, tables and sets from a table literal, projected Shouldly
-  assertions, `[BobcatSlice]`, the spec-ownership manifest, and BOBCAT027–031
+  assertions, `[BobcatSlice]`, and BOBCAT027–031
 - `docs/tutorials/data-intensive-specifications.md` — Tables, table grammars, set verification and
   decision tables in **both** lanes, the cell expressions (`NULL`/`EMPTY`/relative times) and the
   four row markers. Written from the two sample corpora; was an outline until 2026-10-02

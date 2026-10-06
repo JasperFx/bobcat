@@ -811,180 +811,24 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
   and line, so every test in the suite reports one source location and IDE test navigation lands on
   the attribute instead of the test.
 
-## Saying a slice is specified here — the spec-ownership manifest (issue #324)
+## Saying a slice is specified here — retired (issue #406)
 
-`[BobcatSlice]` binds a test that already exists. The manifest is the other half: it says, **before
-any code exists**, that a slice is going to be specified as a projected test, so the scaffolder
-writes a skeleton for it instead of a `.feature`.
+The `*.spec-ownership.yaml` manifest, and its two build-time checks `BOBCAT025` and `BOBCAT026`, were
+retired on 2026-10-06 along with the rest of Bobcat's YAML authoring surfaces. The manifest existed to
+declare, before any code existed, that a slice would be specified as a projected test rather than a
+`.feature` — which mattered chiefly so that Bobcat's scaffolder wrote the right kind of skeleton, and
+that scaffolder is now Wolverine's `scaffold` command.
 
-It is a separate file from the event model, and deliberately so. Moving a test is a change to where
-work lives, not to the design record — putting it on the slice would churn the model, and its
-byte-for-byte regeneration claim, every time a suite is reorganized. The two files join on `model:`,
-the same merge key everything else folds by.
+`[BobcatSlice]` is unaffected: binding a test that already exists to a slice is the half that was
+always the more useful one, and it is still here.
 
-```yaml
-schema: 1
-model: CritterCrush                      # must match the event model's `model:`
-slices:
-  - slice: ProposeHomeCheckAppointment
-    kind: unit
-    authoring: projected
-    owner: CritterCrush.Specs.ProposalSpecs
-    coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
-```
+**What is genuinely gone, with no replacement yet:** declaring a slice's authoring lane *forward*, and
+the two checks that came with it — a slice specified in two lanes (an error, and the duplicate-identity
+guard), and a manifest naming a slice nothing binds (a warning). The intent is for that content to move
+onto attributes; until it does, nothing declares a slice's lane before the spec exists. The gate that
+still works is [Checking Spec Identities Against the Model](spec-identities.md), which compares spec
+identities rather than lanes.
 
-Name it `*.spec-ownership.yaml` and add it to the spec project's `AdditionalFiles` — that is the file
-name the generator looks for, and the diagnostics below are silent without it.
-
-### Absent means Gherkin
-
-A slice the manifest does not list keeps today's behaviour exactly. So the file is purely additive —
-CritterCrush needs **three entries, not nineteen** — and adopting it cannot silently change what an
-existing repo scaffolds.
-
-### `kind` and `authoring` are orthogonal
-
-`kind` says whether the specs go through the database. `authoring` says how they are written. They
-are independent, and the counter-example to collapsing them already ships: **Marten's `DaemonTests`
-are `integration` + `projected`** — real database tests, rendered through marker steps.
-
-| `kind` | `authoring` | what the scaffolder emits |
-|---|---|---|
-| `integration` | `gherkin` | a `.feature` — the default, and what every unlisted slice gets |
-| `integration` | `projected` | a projected test skeleton, or **nothing** — say which with `scaffold:` |
-| `unit` | `projected` | a projected test skeleton |
-| `unit` | `gherkin` | **invalid** — Gherkin runs through the fixture, and so through the store |
-
-That last row is a validation rule rather than a note: honouring the authoring would hand a
-`.feature` back to an author who asked for a unit test. `kind: unit` on its own resolves to
-`projected`, since that is the only pairing the format permits.
-
-### `scaffold:` — the one corner the format will not guess (issue #334)
-
-`integration` + `projected` means two different things, and they are not distinguishable:
-
-- **an existing suite already covers this slice** — Marten's `DaemonTests`, where the tests predate
-  the model and generating over them would overwrite a hand-written suite;
-- **generate me an integration test, authored as a projected test** — every slice of a repo being
-  built model-first.
-
-So that pairing must say `scaffold: true` or `scaffold: false`, and a missing one is a validation
-problem naming both choices. Nothing can derive it: the scaffolder is a CLI with no compilation and
-no view of the disk, so it can see neither whether a type binds the slice nor whether a file already
-exists. Defaulting either way fails silently in the case it is wrong — dropping a suite's worth of
-tests, or offering to overwrite one. Every other combination answers itself and needs no flag.
-
-A scaffolded projected skeleton is worth more than it looks. It is not boilerplate — it is **one
-method per scenario, named exactly as the model names it**, and a projected test's identity *is* its
-method name, so a hand-typed name that drifts publishes an identity that joins nothing, silently.
-The skeleton also carries the `[BobcatSlice]` binding (`SliceType` where a type bears the slice's
-name, `SliceName` where none does) and the derived step comments.
-
-What it does **not** carry is the store. An integration skeleton says so:
-
-```csharp
-[BobcatFeature("BookingAppointments")]
-// TODO — these are integration slices: give this class the store. Derive from (or
-// inject) this repository's host/store fixture; the arrange/act/assert helpers are in
-// Bobcat.CritterStack. A unit-tested slice needs none of that — see the model's
-// spec-ownership manifest for which slices are which.
-public class BookingAppointmentsSpecs
-```
-
-The same refusal to guess a base class the Gherkin skeleton already makes, for the same
-reason: the scaffolder does not know what this repository boots a store with.
-
-### `defaults:` — for a repo that is projected unless stated otherwise (issue #334)
-
-"Absent means Gherkin" makes the manifest cheap when the projected lane is the exception. A repo
-built model-first inverts that — 19 slices, 18 of them projected integration tests — and without a
-file-level default the exception is written nineteen times:
-
-```yaml
-schema: 1
-model: CritterCrush
-defaults:
-  kind: integration
-  authoring: projected
-  scaffold: true
-  owner: CritterCrush.Specs.{feature}Specs
-slices:
-  # the one exception in the whole file
-  - slice: ProposeHomeCheckAppointment
-    kind: unit
-    coveredBy: HomeChecks/Accepting an assignment books the home check as an appointment
-```
-
-An entry overrides whatever it states and inherits the rest. Three rules worth knowing:
-
-- **`owner:` is a template**, because it is the one field that is genuinely per slice — a literal
-  default would leave the file listing nineteen slices anyway. `{feature}` is the slice's feature
-  (the slice name when the model states none) and `{slice}` is the slice name; an unknown token is a
-  validation problem, never a literal left in a type name. A literal default that points slices from
-  several features at one type is refused, because `[BobcatFeature]` is class-level.
-- **An entry's own `kind: unit` implies `projected`** whatever the defaults say — unit is the one
-  kind the other styles cannot express — so a terse unit entry under `authoring: gherkin` defaults
-  is not made invalid for saying nothing.
-- **`defaults.kind: unit` is refused.** A unit slice must name the `coveredBy:` scenario that runs
-  its command end to end, and that is per slice by nature.
-
-Absent, the block changes nothing: a manifest with no `defaults:` resolves exactly as it did before
-the block existed.
-
-> [!NOTE]
-> With `defaults:`, most slices have no entry — so `BOBCAT026` ("the manifest names a slice nothing
-> binds") no longer has an entry to fire from for them. The stronger check for that repo is the
-> spec-identity audit, which compares *identities* rather than slice names and reports a model
-> scenario nothing covers as a hole: see [Checking Spec Identities](/spec-identities).
-
-### `coveredBy`, because the rule would otherwise rot
-
-"A unit-tested slice is fine as long as something runs the command end to end later" is a good rule
-that dies the first time somebody deletes that scenario. Naming the cover makes it checkable, and it
-is required exactly when `kind: unit`.
-
-Inferring it is not realistic — the chain from `AcceptHomeCheckAssignment` through the bus into
-`ProposeHomeCheckAppointment` is not expressible in the model, which is precisely why the declaration
-is the honest mechanism. Scenario names themselves stay in the model: the manifest says only *where*
-a slice is specified and *in what kind*, so a spec-identity gate reads identities from one file and
-location from the other.
-
-### It cannot be derived, so it is validated
-
-A manifest keyed on slice names is exposed to the rot CritterCrush already paid for once: its
-hand-written Stoat plan carried **eleven spec identities matching no scenario**, silently, because
-nothing joined them. That plan could be fixed by deriving it. This file records a human choice and
-cannot be, so validation is the only defence:
-
-- `model:` matches the event model, every `slice:` exists in it, and no slice is listed twice.
-- `coveredBy` names a `{Feature}/{Scenario}` the model actually declares.
-- One `owner:` is one authoring style and one feature — `[BobcatFeature]` and `[FixtureTitle]` are
-  both class-level, so a type cannot publish two of them.
-
-### The join, checked in both directions
-
-The manifest is the **forward** declaration; a slice tag in the code is the **backward** binding.
-Checking only forward leaves a manifest quietly disagreeing with the suite; checking only backward
-leaves a slice declared unit-tested that nobody ever wrote a test for.
-
-| | |
-|---|---|
-| **BOBCAT025** (error) | Some spec source in this compilation specifies a slice in a different lane than the manifest declares. Two lanes means two specs claiming one `{Feature}/{Scenario}` identity |
-| **BOBCAT026** (warning) | The manifest takes a slice out of the Gherkin lane and nothing in this compilation binds it. A warning rather than an error, because the owner may legitimately live in a sibling assembly |
-
-BOBCAT025 is the duplicate-identity guard, and the route into it is not exotic: switch a slice to
-`projected`, forget to delete the `.feature` the scaffolder wrote for it last time, and without this
-nothing says a word.
-
-### One thing the projected lane cannot spell
-
-A projected test's scenario title **is its method name**, with underscores read as spaces — there is
-no title attribute in that lane. So a scenario name with punctuation in it cannot round-trip: "an
-assignment, once accepted, books a visit" becomes `an_assignment_once_accepted_books_a_visit`, which
-publishes a *different* identity and joins nothing.
-
-Reading the manifest warns about it, and the scaffolded skeleton says so in a comment above the
-method. The fix is to rename the scenario in the model to something a method name can spell.
 
 ## The honest limits
 
