@@ -38,16 +38,31 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
 
     EventReceiverStage ITestEndEventReceiver.Stage => EventReceiverStage.Late;
 
+    /// <summary>
+    /// The per-test output scope, held per async context rather than on the attribute — TUnit is
+    /// free to share an attribute instance between tests, and tests run in parallel.
+    /// </summary>
+    private static readonly AsyncLocal<IDisposable?> _output = new();
+
     public ValueTask OnTestStart(TestContext context)
     {
         var details = context.Metadata.TestDetails;
         MarkerStepRun.BeginScenario(details.ClassType, details.MethodName, Mode);
+
+        // TUnit has no ITestOutputHelper — it hands out a TextWriter — which is exactly why
+        // SpecOutput's seam is an Action<string> and core names neither runner's types (issue #409).
+        _output.Value = SpecOutput.Open(context.OutputWriter.WriteLine);
         return default;
     }
 
     public ValueTask OnTestEnd(TestContext context)
     {
+        // Before the sink closes: EndScenario is what raises ScenarioCompleted, and that is where
+        // the scenario's reports are written.
         MarkerStepRun.EndScenario(VerdictFrom(context.Execution.Result));
+
+        _output.Value?.Dispose();
+        _output.Value = null;
         return default;
     }
 

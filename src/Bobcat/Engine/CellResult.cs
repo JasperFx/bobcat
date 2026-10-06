@@ -125,19 +125,51 @@ public class CellResult
     /// Return a copy of this cell with <paramref name="note"/> appended to any existing note.
     /// </summary>
     public CellResult WithNote(string note)
-    {
-        var combined = string.IsNullOrEmpty(Note) ? note : $"{Note}; {note}";
-        return new CellResult(Name, Status)
-        {
-            Expected = Expected,
-            Actual = Actual,
-            Note = combined,
-            Exception = Exception,
-            RowIndex = RowIndex,
+        => copy(RowIndex, string.IsNullOrEmpty(Note) ? note : $"{Note}; {note}");
 
-            // Carried, because without it appending a note silently turns a GreaterThan cell back
-            // into an equality claim — the exact falsehood the comparison exists to prevent.
-            Comparison = Comparison
-        };
-    }
+    /// <summary>
+    /// Return this cell at <paramref name="rowIndex"/> — for a producer that appends rows and so
+    /// cannot know a cell's row number when it builds the cell (issue #408's
+    /// <see cref="TableReport"/>).
+    /// </summary>
+    public CellResult WithRowIndex(int rowIndex)
+        => rowIndex == RowIndex ? this : copy(rowIndex, Note);
+
+    /// <summary>
+    /// The one copy routine, and the reason it exists rather than each caller writing an object
+    /// initializer: <see cref="_displayText"/> is private, so a copy built through the
+    /// <i>structured</i> constructor silently loses a legacy-constructed cell's text and
+    /// <see cref="DisplayText"/> falls through to <see cref="derive"/> — which, for a plain value
+    /// cell with no pair and no note, derives the empty string.
+    /// </summary>
+    /// <remarks>
+    /// That is issue #396's defect seen from the inside. #396 fixed two projections that dropped a
+    /// literal's text on the way to the wire; <see cref="WithNote"/> was dropping it in the model
+    /// itself, and nothing noticed because its only callers happened to pass structured cells.
+    /// Any future "a copy of this cell, but…" belongs here for the same reason.
+    /// </remarks>
+    private CellResult copy(int rowIndex, string? note)
+        => _displayText is null
+            ? new CellResult(Name, Status)
+            {
+                Expected = Expected,
+                Actual = Actual,
+                Note = note,
+                Exception = Exception,
+                RowIndex = rowIndex,
+
+                // Carried, because without it appending a note silently turns a GreaterThan cell
+                // back into an equality claim — the exact falsehood the comparison exists to
+                // prevent.
+                Comparison = Comparison
+            }
+            : new CellResult(Name, Status, _displayText)
+            {
+                Expected = Expected,
+                Actual = Actual,
+                Note = note,
+                Exception = Exception,
+                RowIndex = rowIndex,
+                Comparison = Comparison
+            };
 }

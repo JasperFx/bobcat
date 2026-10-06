@@ -1,6 +1,6 @@
 namespace Bobcat.Engine;
 
-public class ExecutionResults
+public class ExecutionResults : IReportSink
 {
     public string SpecId { get; }
     public DateTimeOffset StartTime { get; }
@@ -25,6 +25,42 @@ public class ExecutionResults
     public void Touch(Type type)
     {
         if (!_touchedTypes.Contains(type)) _touchedTypes.Add(type);
+    }
+
+    private readonly List<IScenarioReport> _reports = new();
+
+    /// <summary>
+    /// The scenario's reports — accounts of the whole scenario as cell tables, rather than any one
+    /// step's claim (issue #408). In first-registration order; empty when nothing reported.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than on the scenario blackboard for the reason #107 gives for
+    /// <see cref="TouchedTypes"/>: a report has to reach the wire, and
+    /// <c>IStepContext.SetState</c> is a cooperation channel between grammars that does not.
+    /// </remarks>
+    public IReadOnlyList<IScenarioReport> Reports => _reports;
+
+    /// <inheritdoc />
+    public TReport ReportFor<TReport>() where TReport : IScenarioReport, new()
+    {
+        foreach (var existing in _reports)
+        {
+            if (existing is TReport found) return found;
+        }
+
+        var report = new TReport();
+        _reports.Add(report);
+        return report;
+    }
+
+    /// <inheritdoc />
+    public void AttachReport(IScenarioReport report)
+    {
+        // One instance per report type, however it arrived: two tables under one heading is not a
+        // report, and ReportFor's get-or-create would otherwise disagree with Attach about it.
+        var at = _reports.FindIndex(r => r.GetType() == report.GetType());
+        if (at >= 0) _reports[at] = report;
+        else _reports.Add(report);
     }
 
     public IEnumerable<Exception> AllExceptions()

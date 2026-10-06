@@ -973,6 +973,12 @@ public class BobcatRunner
             var context = new SpecExecutionContext(scenario.Title, resources: _resources);
             fixture.Context = context;
 
+            // The scenario a report accumulates into, ambient for the whole attempt (issue #408) —
+            // opened here rather than around the steps so that reset and lifecycle code can report
+            // too, which is the same span WallClockMs covers. Disposed at the end of the attempt,
+            // so a retry starts with no reports, exactly as it starts with no state.
+            using var reporting = Engine.ScenarioReports.Open(context.Results);
+
             // Fresh controllable clock per scenario so time-travel never leaks between scenarios.
             Engine.BobcatClock.ResetToControllable();
 

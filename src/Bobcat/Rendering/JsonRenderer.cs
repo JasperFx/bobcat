@@ -123,7 +123,25 @@ public static class JsonRenderer
                     DurationMs = p.DurationMs
                 }).ToList()
                 : null,
-            Steps = spec.Steps.Select(stepToJson).ToList()
+            Steps = spec.Steps.Select(stepToJson).ToList(),
+
+            // The scenario's reports (issue #408) — the agent-readable half of the feature, in the
+            // same cell shape every other grid here uses. Already filtered by visibility, so a
+            // passing scenario carries none unless the run asked for verbose.
+            Reports = spec.Reports.Count > 0
+                ? spec.Reports.Select(reportToJson).ToList()
+                : null
+        };
+    }
+
+    private static JsonReportOutput reportToJson(ReportRender report)
+    {
+        return new JsonReportOutput
+        {
+            Title = report.Title,
+            ShortTitle = report.ShortTitle,
+            SuppressedRows = report.SuppressedRows > 0 ? report.SuppressedRows : null,
+            Grid = svToJson(report.Grid)
         };
     }
 
@@ -296,6 +314,8 @@ internal class JsonFeatureOutput
 
 internal class JsonScenarioOutput
 {
+    public List<JsonReportOutput>? Reports { get; set; }
+
     public string Title { get; set; } = "";
     public string? Feature { get; set; }
     public bool Succeeded { get; set; }
@@ -343,6 +363,17 @@ internal class JsonStepOutput
     public List<JsonCellOutput>? Cells { get; set; }
 
     public JsonSetVerificationOutput? SetVerification { get; set; }
+}
+
+internal class JsonReportOutput
+{
+    public string Title { get; set; } = "";
+    public string? ShortTitle { get; set; }
+
+    /// <summary>Rows past the cap. Null rather than 0, so "nothing was dropped" is not a figure.</summary>
+    public int? SuppressedRows { get; set; }
+
+    public JsonSetVerificationOutput? Grid { get; set; }
 }
 
 internal class JsonSetVerificationOutput

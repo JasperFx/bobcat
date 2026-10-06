@@ -37,4 +37,7 @@ public class RunInput : BobcatInput
 {
     [Description("Emit the machine-readable JSON report instead of the console rendering")]
     public bool JsonFlag { get; set; }
+
+    [Description("Write out every scenario report, not only a failing scenario's (issue #408)")]
+    public bool VerboseFlag { get; set; }
 }
