@@ -10,11 +10,11 @@ target the **same** set when wired up (issue #8).
 | Concern | Package(s) | Version |
 |---------|-----------|---------|
 | Target framework | — | `net10.0` (generator is `netstandard2.0`) |
-| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.38.0` |
-| Document/event store (Postgres) | `Marten` | `9.36.0` |
-| Event store (SQLite, inner loop) | `Fisher` | `1.10.0` |
-| Event store (SQL Server) | `Polecat` | `5.29.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.69.3` |
+| Messaging | `WolverineFx`, `WolverineFx.RuntimeCompilation`, `WolverineFx.Marten`, `WolverineFx.Fisher`, `WolverineFx.Http`, `WolverineFx.*` | `6.46.0` |
+| Document/event store (Postgres) | `Marten` | `9.46.0` |
+| Event store (SQLite, inner loop) | `Fisher` | `1.19.0` |
+| Event store (SQL Server) | `Polecat` | `5.36.0` |
+| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.80.2` |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `xunit.v3` / `Microsoft.Testing.Platform` / `Shouldly` / `NSubstitute` | `3.2.2` / `1.9.1` / `4.3.0` / `5.3.0` |
 | Second runner (adapter surface) | `TUnit.Core` | `1.66.27` |
@@ -45,10 +45,10 @@ samples; running `CqrsMinimalApi` is what surfaced it.
 The whole set is anchored by one compatibility chain:
 
 ```
-WolverineFx.Marten 6.38.0  →  Marten 9.35.0+   →  JasperFx(.Events) 2.69.3  (Marten 9.36.0's floor)
-WolverineFx.Fisher 6.38.0  →  Fisher 1.10.0+   →  JasperFx(.Events) 2.69.3  (Fisher 1.10.0's floor)
-WolverineFx 6.38.0         →  JasperFx(.Events) 2.69.3
-Polecat 5.29.0             →  JasperFx(.Events) 2.69.3
+WolverineFx.Marten 6.46.0  →  Marten 9.46.0    →  JasperFx(.Events) 2.80.2  (Marten 9.46.0's floor)
+WolverineFx.Fisher 6.46.0  →  Fisher 1.19.0    →  JasperFx(.Events) 2.80.2  (Fisher 1.19.0's floor)
+WolverineFx 6.46.0         →  JasperFx(.Events) 2.80.2
+Polecat 5.36.0             →  JasperFx(.Events) 2.80.2
 ```
 
 Every floor is at or below the pin, so taking the newest of each still lands on a single
@@ -57,7 +57,7 @@ when every package resolves the same one. Mixing (e.g. WolverineFx 5.30.x with M
 `JasperFx`/`JasperFx.Events` across major lines and they no longer unify.
 
 As of this set the alignment is **exact rather than merely compatible**: WolverineFx, Marten, Fisher
-and Polecat all floor at `JasperFx(.Events) 2.69.3`, which is also the pin. There is no headroom
+and Polecat all floor at `JasperFx(.Events) 2.80.2`, which is also the pin. There is no headroom
 between any floor and the pinned version, so nothing in the set can be moved on its own without
 first moving JasperFx — which is the safer arrangement, given the vtable rule below is what a floor
 cannot express.
@@ -85,10 +85,10 @@ Fisher 1.0.4 identically: 13 failures in `Bobcat.CritterStack.Tests`, 3 in `Bobc
 A nuspec cannot predict this: `>= 2.56.0` means the store can run against 2.67.1 *for members
 that existed when it was built*. An interface gaining an abstract member is a runtime break for
 every implementer. **The only safe signal is that the store itself was built against the JasperFx
-you are pinning** — which is why Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 are the versions
-here: each declares JasperFx(.Events) at *exactly* 2.69.3, so each was built against the runtime it
+you are pinning** — which is why Marten 9.46.0, Fisher 1.19.0 and Polecat 5.36.0 are the versions
+here: each declares JasperFx(.Events) at *exactly* 2.80.2, so each was built against the runtime it
 will load. WolverineFx used to be exempt from the rule, implementing none of the event-store
-interfaces; on this set it declares 2.69.3 itself and needs no exemption.
+interfaces; on this set it declares 2.80.2 itself and needs no exemption.
 
 The mirror-image hazard runs the other way and is why the set moves as a **unit**. On
 CritterWatch's bump, `EventQuery.TagValues` joined `EventQueryFilters.All`: a store *rebuilt*
@@ -99,24 +99,26 @@ much, not for an exception.
 
 Two wrinkles worth knowing:
 
-- Weasel unifies cleanly on this set: Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 each floor
-  their Weasel provider at 9.32.0, and `Weasel.Storage` resolves to 9.32.0 for all of them.
+- Weasel unifies cleanly on this set: Marten 9.46.0, Fisher 1.19.0 and Polecat 5.36.0 each floor
+  their Weasel provider at 9.41.0, and `Weasel.Storage` resolves to 9.41.0 for all of them.
 - Marten and Fisher each bundle `JasperFx.Events.SourceGenerator` inside their own nupkgs, so a
   project referencing both stores loads the generator twice and every projection's `Evolver`
   partial is emitted twice (CS0433 — jasperfx#462). The fix, ported from CritterWatch: a
   `DropDuplicateBundledEventSourceGenerator` target drops every store-bundled copy and the project
   references one explicit `JasperFx.Events.SourceGenerator` as an analyzer, so the generator always
   matches the runtime. `Bobcat.CritterStack.Tests` and `samples/BankAccountES` both carry it.
-  Note the trap: whether the two bundled copies collide depends on the set. On this one they are
-  **byte-identical again** (both SHA-256 `5d15fdf9…`), so they dedupe themselves and the target is
-  belt-and-braces today. That is not an all-clear — a project without it compiles fine now and
-  starts failing CS0433 the moment a bump puts the two stores on different JasperFx builds.
+  Note the trap: whether the two bundled copies collide depends on the set. On this one all three
+  stores' copies are **byte-identical** (Marten 9.46.0, Fisher 1.19.0 and Polecat 5.36.0 each ship
+  SHA-256 `3b9551b7…`), so they dedupe themselves and the target is belt-and-braces today. That is
+  not an all-clear — a project without it compiles fine now and starts failing CS0433 the moment a
+  bump puts two stores on different JasperFx builds.
 
 ### History
 
 | Date | Set | Why |
 |------|-----|-----|
-| current | WolverineFx 6.38.0 / Marten 9.36.0 / JasperFx 2.69.3 / Fisher 1.10.0 / Polecat 5.29.0 | **WolverineFx 6.38.0 is the recurring-schedule fixes.** GH-4436 (`c1c726469`, PR #4444) — a non-UTC recurring schedule recorded no tracking row, because Cronos hands back each occurrence carrying the *schedule's* offset and Npgsql's `timestamptz` binder refuses any `DateTimeOffset` whose offset is not zero; `RecurringMessageRecord` now normalizes in its `init` accessors, the way `Envelope.ScheduledTime` already did in its setter. GH-4437 (`2064a66e7`, PR #4451) — occurrence attribution and a manual trigger. The stores and JasperFx followed to keep the set coherent under it. Re-verified against the nuspecs on 2026-09-21: every store floors at exactly 2.69.3, a tighter guarantee than the set it replaced. |
+| current | WolverineFx 6.46.0 / Marten 9.46.0 / JasperFx 2.80.2 / Fisher 1.19.0 / Polecat 5.36.0 | **jasperfx#955's first train needs JasperFx 2.80.** Issue #405 rewrites the eventmodelers.ai import to emit C# — field-less stub records plus one `EventModelDefinition` — and that needs the fluent event-model API that declares roles by string or by type (jasperfx#957) and `SourceWriter`'s whitespace fixes, which #405 must write its output through (jasperfx#956). The stores and WolverineFx followed to keep the set coherent under it. Verified against the nuspecs on 2026-10-06: Marten, Fisher, Polecat and WolverineFx each declare JasperFx(.Events) at exactly 2.80.2, and `Bobcat.CritterStack.Tests` — which references Marten *and* Fisher — restores a single JasperFx.Events 2.80.2 with `Weasel.Storage` unifying at 9.41.0. No Bobcat source change was needed: the 2.69→2.80 interface ratchet (jasperfx#933/#937) only bites implementers of the store interfaces, and Bobcat consumes the abstractions. |
+| 2026-09-21 | WolverineFx 6.38.0 / Marten 9.36.0 / JasperFx 2.69.3 / Fisher 1.10.0 / Polecat 5.29.0 | **WolverineFx 6.38.0 is the recurring-schedule fixes.** GH-4436 (`c1c726469`, PR #4444) — a non-UTC recurring schedule recorded no tracking row, because Cronos hands back each occurrence carrying the *schedule's* offset and Npgsql's `timestamptz` binder refuses any `DateTimeOffset` whose offset is not zero; `RecurringMessageRecord` now normalizes in its `init` accessors, the way `Envelope.ScheduledTime` already did in its setter. GH-4437 (`2064a66e7`, PR #4451) — occurrence attribution and a manual trigger. The stores and JasperFx followed to keep the set coherent under it. Re-verified against the nuspecs on 2026-09-21: every store floors at exactly 2.69.3, a tighter guarantee than the set it replaced. |
 | 2026-09-09 | WolverineFx 6.35.0 / Marten 9.33.0 / JasperFx 2.67.1 / Fisher 1.3.0 / Polecat 5.25.0 | CritterWatch#1212 needs partial Event Model descriptors to round-trip (jasperfx#807, in 2.67.1). JasperFx was moved alone first and broke every store at runtime — `IReadOnlyEventStore.QueryStreamStates` became abstract in 2.67 — so the whole set re-aligned onto stores built against 2.67.0. Closes the samples/src pin gap (#191). |
 | 2026-08-28 | WolverineFx 6.30.1 / Marten 9.30.0 / JasperFx 2.56.0 / Fisher 1.0.4 / Polecat 5.20.0 | Issue #172: the four-source event-model vehicle needs Wolverine ≥ 6.30.1 (chains carry EM roles, `event-model` export with a push URL). JasperFx had already moved to 2.56.0 for descriptor provenance (jasperfx#703/#704). |
 | 2026-08-21 | WolverineFx 6.29.1 / Marten 9.28.0 / JasperFx 2.53.0 / Fisher 1.0.2 / Polecat 5.19.2 | Issue #125: every published Fisher needs JasperFx.Events ≥ 2.47.0, and `ProjectionScenario<,>` (JasperFx.Events.TestSupport) only ships from 2.38.0. (JasperFx then moved alone to 2.54.0 for #106's descriptor, and to 2.56.0 for provenance — floors permitted the solo moves.) |

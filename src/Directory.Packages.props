@@ -7,7 +7,7 @@
     SAME numbers — a sample project-references Bobcat, so it resolves this JasperFx.Events
     whatever its own store says:
 
-      WolverineFx 6.38.0  ↔  Marten 9.36.0  ↔  JasperFx(.Events) 2.69.3  ↔  Fisher 1.10.0  ↔  Polecat 5.29.0
+      WolverineFx 6.46.0  ↔  Marten 9.46.0  ↔  JasperFx(.Events) 2.80.2  ↔  Fisher 1.19.0  ↔  Polecat 5.36.0
 
     ⚠️ READ THIS BEFORE MOVING JasperFx(.Events) ON ITS OWN. It was tried, on 2026-09-09, and
     it does not work. The reasoning was that every store declares JasperFx(.Events) only as a
@@ -31,18 +31,20 @@
     `>= 2.56.0` says the store can RUN against 2.67.1 only for members that existed when it was
     compiled. An interface that gains an abstract member is a runtime break for every
     implementer, and no amount of nuspec reading predicts it — the only safe signal is that the
-    store itself was BUILT against the JasperFx you are pinning. The set above satisfies that
-    more tightly than the one it replaced: Marten 9.36.0, Fisher 1.10.0 and Polecat 5.29.0 each
-    declare JasperFx(.Events) at EXACTLY 2.69.3, the pin, rather than merely at or below it, so
-    each was built against the runtime it will load. WolverineFx 6.38.0 now declares 2.69.3
-    itself — it used to float, being free of the event-store interfaces, and no longer needs the
-    exemption.
+    store itself was BUILT against the JasperFx you are pinning. The set above satisfies that:
+    Marten 9.46.0, Fisher 1.19.0, Polecat 5.36.0 and WolverineFx 6.46.0 each declare
+    JasperFx(.Events) at EXACTLY 2.80.2, the pin, rather than merely at or below it, so each was
+    built against the runtime it will load.
 
-    Why JasperFx had to move at all: CritterWatch#1212 — the Event Model wire needs partial
-    descriptors from several producers to round-trip, and slice constructor collections arriving
-    null from System.Text.Json threw `ArgumentNullException` during serialization. jasperfx#807
-    is the fix, shipped in 2.67.1. That is the whole reason for the jump; everything else here
-    moved to keep the set coherent underneath it.
+    Why JasperFx had to move to 2.80.2: jasperfx#955's first train. Issue #405 writes the emlang
+    import out as C# — stub records plus one `EventModelDefinition` — and that needs two things
+    that only exist from 2.80: the fluent event-model API that declares roles by string or by
+    type (jasperfx#957) and `SourceWriter`'s whitespace fixes, which #405 is required to write
+    its output through (jasperfx#956). Everything else here moved to keep the set coherent
+    underneath it. The earlier 2.67.1 jump was CritterWatch#1212 — the Event Model wire needs
+    partial descriptors from several producers to round-trip, and slice constructor collections
+    arriving null from System.Text.Json threw `ArgumentNullException` during serialization
+    (jasperfx#807).
 
     ⚠️ The mirror-image hazard is still live and is why the set must move as a UNIT. On
     CritterWatch's own bump, `EventQuery.TagValues` joined `EventQueryFilters.All`: a store
@@ -53,21 +55,21 @@
     they must honour; that is upstream's contract to keep, but a silent wrong-results failure is
     the shape to look for if event queries start returning too much.
 
-    Re-read from the packages' own nuspecs on 2026-09-21, because this block had gone stale
-    against the pins below and a stale "canonical set" note is exactly the hazard it exists to
-    prevent:
-      WolverineFx 6.38.0        requires JasperFx and JasperFx.Events >= 2.69.3
-      WolverineFx.Marten 6.38.0 requires Marten >= 9.35.0
-      WolverineFx.Fisher 6.38.0 requires Fisher >= 1.10.0
-      Marten 9.36.0             requires JasperFx(.Events) >= 2.69.3, Weasel.Postgresql >= 9.32.0
-      Fisher 1.10.0             requires JasperFx(.Events) >= 2.69.3, Weasel.Sqlite >= 9.32.0
-      Polecat 5.29.0            requires JasperFx(.Events) >= 2.69.3, Weasel.SqlServer >= 9.32.0
+    Re-read from the packages' own nuspecs on 2026-10-06, because this block had gone stale
+    against the pins below once before and a stale "canonical set" note is exactly the hazard it
+    exists to prevent:
+      WolverineFx 6.46.0        requires JasperFx and JasperFx.Events >= 2.80.2
+      WolverineFx.Marten 6.46.0 requires Marten >= 9.46.0, Weasel.Storage >= 9.41.0
+      WolverineFx.Fisher 6.46.0 requires Fisher >= 1.19.0, Weasel.Storage >= 9.41.0
+      Marten 9.46.0             requires JasperFx(.Events) >= 2.80.2, Weasel.Postgresql >= 9.41.0
+      Fisher 1.19.0             requires JasperFx(.Events) >= 2.80.2, Weasel.Sqlite >= 9.41.0
+      Polecat 5.36.0            requires JasperFx(.Events) >= 2.80.2, Weasel.SqlServer >= 9.41.0
 
-    Every floor equals the pin, so taking the newest of each lands on ONE JasperFx (2.69.3),
+    Every floor equals the pin, so taking the newest of each lands on ONE JasperFx (2.80.2),
     which is the property that matters — the event types (IEvent, etc.) only unify when every
     package resolves the same JasperFx.Events. Confirmed in the resolved graph rather than
     inferred: Bobcat.CritterStack.Tests references Marten AND Fisher and restores a single
-    JasperFx.Events 2.69.3, with Weasel.Storage unifying at 9.32.0.
+    JasperFx.Events 2.80.2, with Weasel.Storage unifying at 9.41.0.
 
     One consequence of Marten + Fisher together: both nupkgs bundle the IDENTICAL
     JasperFx.Events.SourceGenerator (byte-for-byte), so a project referencing both stores loads
@@ -77,10 +79,11 @@
     the explicit JasperFx.Events.SourceGenerator pinned below, so the generator always matches
     the JasperFx.Events runtime whatever the stores happen to bundle.
 
-    On THIS set the two bundled copies are byte-identical again (both SHA-256 5d15fdf9…), so they
-    dedupe themselves and the target is currently belt-and-braces. That is the trap, not the
-    all-clear: a project without the target compiles fine today and starts failing CS0433 the
-    moment a bump puts the two stores on different JasperFx builds.
+    On THIS set all three stores' bundled copies are byte-identical (Marten 9.46.0, Fisher 1.19.0
+    and Polecat 5.36.0 each ship SHA-256 3b9551b7…), so they dedupe themselves and the target is
+    currently belt-and-braces. That is the trap, not the all-clear: a project without the target
+    compiles fine today and starts failing CS0433 the moment a bump puts two stores on different
+    JasperFx builds.
 
     JasperFx.Events.EventModeling is what issues #106/#107/#108 implement against; the semantic
     model (SpecificationDescriptor, HotspotDescriptor.PendingSpecification, SlicePattern,
@@ -96,12 +99,12 @@
 
   <ItemGroup>
     <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Marten" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Fisher" Version="6.38.0" />
-    <PackageVersion Include="Marten" Version="9.36.0" />
-    <PackageVersion Include="JasperFx" Version="2.69.3" />
+    <PackageVersion Include="WolverineFx" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.46.0" />
+    <PackageVersion Include="Marten" Version="9.46.0" />
+    <PackageVersion Include="JasperFx" Version="2.80.2" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
       IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
@@ -113,12 +116,12 @@
       acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
       documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
-    <PackageVersion Include="JasperFx.Events" Version="2.69.3" />
+    <PackageVersion Include="JasperFx.Events" Version="2.80.2" />
     <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
          with the store-bundled copies dropped — see the dual-store note in the header. -->
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.69.3" />
-    <PackageVersion Include="Fisher" Version="1.10.0" />
-    <PackageVersion Include="Polecat" Version="5.29.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.80.2" />
+    <PackageVersion Include="Fisher" Version="1.19.0" />
+    <PackageVersion Include="Polecat" Version="5.36.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />
     <!-- Bobcat.Tests only. AlbaContentRoot reads [WebApplicationFactoryContentRoot] reflectively
          by type name so the shipped package needs no ASP.NET reference; the test assembly carries
@@ -130,15 +133,15 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
 
     <!--
-      Wolverine host packages. Same 6.35.0 as the aligned set above — the earlier monitor-only
+      Wolverine host packages. Same 6.46.0 as the aligned set above — the earlier monitor-only
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
       collapsed when the alignment caught up.
     -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.SignalR" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.46.0" />
     <!-- Test-only: the real broker issue #282's transport-isolation tests need. No Bobcat.* library
          references it — the reset seam is transport-agnostic; only the proof is RabbitMQ-shaped. -->
-    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.38.0" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.46.0" />
         <!--
       TypeScript contract codegen for the monitor's Vue SPA (CritterWatch's GenerateCommand
       pattern): NJsonSchema reflects the MonitorEvents.cs records through the same STJ settings

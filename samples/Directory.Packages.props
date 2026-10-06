@@ -5,8 +5,8 @@
 
     The samples are outside bobcat.slnx, so nothing forced them onto one version set and they
     drifted into two generations: half on WolverineFx 6.29.1 / Marten 9.28.0, half on 6.38.0 /
-    9.36.0. That is not cosmetic. A sample project-references Bobcat, which pins
-    JasperFx.Events 2.69.3, and Marten 9.28 was compiled before 2.67 made `QueryStreamStates`
+    9.36.0. That is not cosmetic. A sample project-references Bobcat, which pinned
+    JasperFx.Events 2.69.3 at the time, and Marten 9.28 was compiled before 2.67 made `QueryStreamStates`
     an ABSTRACT member of IReadOnlyEventStore — so the older samples loaded fine, built fine,
     and died the first time anything opened a session:
 
@@ -28,19 +28,19 @@
 
   <ItemGroup>
     <!-- Critter Stack — must match src/Directory.Packages.props exactly -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Http.Marten" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Http.FluentValidation" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.FluentValidation" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Marten" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.Fisher" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.38.0" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.38.0" />
-    <PackageVersion Include="Marten" Version="9.36.0" />
-    <PackageVersion Include="Marten.AspNetCore" Version="9.36.0" />
-    <PackageVersion Include="Fisher" Version="1.10.0" />
-    <PackageVersion Include="JasperFx.Events" Version="2.69.3" />
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.69.3" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Http.Marten" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Http.FluentValidation" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.FluentValidation" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Marten" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Fisher" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
+    <PackageVersion Include="Marten" Version="9.46.0" />
+    <PackageVersion Include="Marten.AspNetCore" Version="9.46.0" />
+    <PackageVersion Include="Fisher" Version="1.19.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.80.2" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.80.2" />
   </ItemGroup>
 
   <ItemGroup>
