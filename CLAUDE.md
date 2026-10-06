@@ -485,6 +485,46 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
     the generator recognises the attribute by name and xUnit by base class, two independent
     mechanisms, and that test asserts the two counts agree.
+- **A projected run's bracket is per REQUEST, not per process (issue #402).**
+  `MarkerStepRun.OpenRun(mode)` / `CloseRun()` are the seam; `Bobcat.Xunit` ships an
+  `ITestSessionLifetimeHandler` (`BobcatSessionLifetime`) that drives them. Two run requests in one
+  live process now publish two `run_started`, two `RunId`s and two `run_finished`, each command's
+  scenarios under its own run — which is #393's requirement in as many words, and the absence of
+  `run_finished` was #195's definition of a wedged run.
+  - **A test SESSION is a run request, and that is measured on MTP 1.9.1.** Three
+    `testing/runTests` requests into one live process fire the handler three times with three
+    distinct `SessionUid`s, each properly bracketed; a one-shot direct run fires it once; and
+    **discovery opens no session at all**, which is what keeps `--list-tests` from putting an empty
+    card on the board.
+  - **Registration is half C# and half MSBuild.** The platform generates a
+    `SelfRegisteredExtensions` class calling `AddExtensions` on every type a
+    `TestingPlatformBuilderHook` item names, so `Bobcat.Xunit` ships
+    `buildTransitive/Bobcat.Xunit.props` — and **in-repo projects declare the item themselves**,
+    because a `ProjectReference` takes no build assets (the same rule as `Bobcat.Mtp.props` and
+    `GenerateTestingPlatformEntryPoint`).
+  - **`Bobcat.Xunit` takes a `Microsoft.Testing.Platform` reference; `Bobcat.TUnit` deliberately
+    does NOT.** `xunit.v3.extensibility.core` depends only on `xunit.v3.common`, so this is the
+    first platform reference either adapter has had — and it costs an xUnit consumer nothing, since
+    such a consumer already resolves the platform through `xunit.v3` at the same pinned 1.9.1.
+    `TUnit.Core` depends on no test platform at all, which is exactly what makes that package safe
+    to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm projected lane
+    for it to serve yet. Nothing regresses, because the backstop below is still its whole bracket.
+    The reasoning lives in `Bobcat.TUnit.csproj`, where whoever changes it will read it.
+  - **`ProcessExit` stays as the backstop and now drains unconditionally.** `CloseRun` is
+    idempotent, so a bracket the session hook already closed is found closed — but the old code
+    returned early when it had nothing to close, which after this refactor would have let the last
+    `run_finished` of every warm process die in the publisher's channel. **`CloseRun` keeps the
+    sink** (disposing it would stop the pump for the next request) and resets `_info`/counts so the
+    next bracket mints a fresh `RunId` with that request's own tallies; only process exit disposes.
+    Ordering needs no flush — one bounded channel, drained FIFO.
+  - **The command id is read per request** (`OpenRun` re-runs `MonitorRunInfo.Discover`), while the
+    sink is resolved once per process (`_sinkResolved`) so no command pays for a console handshake.
+    **For a warm out-of-process child the variable still cannot change**, and that is the finding
+    this uncovered: a child's environment is fixed at launch, and MTP 1.9.1 has no per-request
+    metadata slot — the `runId` on `testing/runTests` is the client's own and is **not** the
+    `SessionUid` the handler receives (measured; unrelated GUIDs). A file whose path is fixed at
+    launch, the way `BOBCAT_LIST_SPECS` works in the other direction, is the shape that would fit,
+    and it is a new public variable rather than a detail.
 - **`[BobcatSpec(…, Pending = true)]` is the projected lane's pending specification (issue
   #404).** The Gherkin lane already turns a step-less scenario into
   `HotspotDescriptor.PendingSpecification` (jasperfx#689) and `SpecIdentityAudit` reads it as
@@ -1767,15 +1807,12 @@ specs and exited 0 instead of going resident. The check is before the parser in 
     `docs/warm-projected-runs.md`).** Server mode takes repeated run requests in one live process
     on MTP 1.9.1 (72ms → 11ms → 4ms for the same work), and an identity maps to a platform uid
     through one join — xUnit v3's discovery display name is `Namespace.Class.method`, exactly what
-    #391's manifest spells. **The blocker is Bobcat's own run bracket**: a projected suite opens
-    its run on the first scenario and closes it from a `ProcessExit` handler, so two run requests
-    in one process yield **one** `run_started`, one `RunId`, **no** `run_finished`, and the second
-    command's scenarios land on the first command's card — a run with no finish being exactly what
-    #195 was opened for. Closing it means a per-request bracket in `MarkerStepRun`, which needs a
-    platform extension (`ITestSessionLifetimeHandler`) in `Bobcat.Xunit`/`Bobcat.TUnit` — the first
-    either package would ship, and `Bobcat.TUnit` deliberately references only `TUnit.Core`.
-    `WarmProjectedRunTests` pins all four measurements, **two as tripwires on the broken
-    behaviour**, so a fix tells its author the blocker is gone.
+    #391's manifest spells. The blocker #394 found was **Bobcat's own run bracket**, and **#402
+    fixed it** (below). The lane is still cold, now for three reasons #394 could not see: there is
+    no per-request channel for the command id, the server-mode client is in `Bobcat.Supervisor`
+    while `OutOfProcessResidentSuite` is in core, and warm would mean holding a live client across
+    that seam. `WarmProjectedRunTests` used to pin the broken behaviour with **two tripwires**;
+    they fired, and it now asserts the fixed behaviour.
   - Any suite-level catastrophe counts as damage, not only a reset that threw. The narrower rule
     would have to tell a broken resource from a `SpecCatastrophicException` a step raised
     deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer

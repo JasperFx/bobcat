@@ -12,6 +12,36 @@
     <!-- TUnit.Core, not TUnit: the adapter needs the event-receiver interfaces and TestContext,
          and nothing from the engine or the assertion library. -->
     <PackageReference Include="TUnit.Core" />
+
+    <!--
+      DELIBERATELY NO Microsoft.Testing.Platform reference (issue #402).
+
+      Bobcat.Xunit now ships an ITestSessionLifetimeHandler, which is what gives a projected suite
+      a run bracket per RUN REQUEST instead of per process. This package does not follow, for three
+      reasons:
+
+      1. TUnit.Core depends on NO test platform at all — checked in its nuspec: Microsoft.CSharp,
+         System.Collections.Immutable, System.Text.Json, System.Threading.Tasks.Extensions. That is
+         exactly what makes this package safe to ship beside a pinned platform, and it is the
+         property a platform reference here would spend. TUnit.Engine needs Microsoft.Testing
+         .Platform 2.4.0 while src pins 1.9.1 (because that is what xunit.v3 3.2.2 builds against),
+         so pulling the platform in here walks straight at the version collision that pin exists to
+         avoid.
+
+      2. There is nothing to serve yet. The per-request bracket exists for warm runs in the
+         resident runner, and the projected lane is cold-only — the remaining work there needs
+         decisions about package layering and a per-request command channel the protocol does not
+         offer (see docs/warm-projected-runs.md). A TUnit suite has no warm path to be the first
+         consumer of.
+
+      3. Nothing regresses by not doing it. MarkerStepRun's ProcessExit backstop is still the
+         bracket for any host with no session hook, so a TUnit suite behaves exactly as it did:
+         one run per process, which for a one-shot `dotnet test` is the correct answer anyway.
+
+      Revisit when a TUnit suite actually wants warm residency — and then the question is whether
+      the platform reference belongs here or in a separate Bobcat.TUnit.Platform package, so that
+      this one keeps the property described in (1).
+    -->
   </ItemGroup>
 
   <ItemGroup>

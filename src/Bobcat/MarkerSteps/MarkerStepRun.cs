@@ -38,6 +38,16 @@ public static class MarkerStepRun
     private static int _passed;
     private static int _failed;
 
+    /// <summary>
+    /// Whether the console probe has already run in this process. Separate from
+    /// <see cref="_info"/> because the sink is a PROCESS fact and the run is a REQUEST fact
+    /// (issue #402) — a warm process opens many brackets and must not re-probe 5525 for each.
+    /// </summary>
+    private static bool _sinkResolved;
+
+    /// <summary>Whether the process-exit backstop is subscribed. Once per process, not per run.</summary>
+    private static bool _exitHooked;
+
     /// <summary>How often the run posts a heartbeat while it owns the bracket.</summary>
     public static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
 
@@ -64,7 +74,7 @@ public static class MarkerStepRun
     /// </remarks>
     public static ScenarioRecorder.Recording BeginScenario(Type? declaringType, string methodName, string mode)
     {
-        var info = ensureStarted(mode);
+        var info = OpenRun(mode);
 
         return ScenarioRecorder.Begin(
             FeatureNameFor(declaringType), ScenarioNameFor(methodName), _sink, info.RunId);
@@ -146,29 +156,46 @@ public static class MarkerStepRun
     /// </summary>
     public static string Prettify(string name) => MarkerSpecNaming.Prettify(name);
 
-    private static MonitorRunInfo ensureStarted(string mode)
+    /// <summary>
+    /// Open a run bracket, for a caller that knows when a run <em>request</em> begins (issue #402).
+    /// Idempotent: a bracket already open is returned as it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is public now.</b> A projected suite used to open its run on the first scenario
+    /// and close it from <c>ProcessExit</c>. For a one-shot <c>dotnet test</c> that is exactly
+    /// right — one process, one run. In a live server-mode process it is wrong three ways at once:
+    /// two run requests published ONE <c>run_started</c>, shared one <c>RunId</c>, and produced NO
+    /// <c>run_finished</c>, so the second command's scenarios landed on the first command's card
+    /// and the run never closed. A run with no finish is the shape of a wedged one, which is
+    /// exactly what issue #195 was opened for.
+    /// </para>
+    /// <para>
+    /// The caller that knows is <c>Bobcat.Xunit</c>'s <c>ITestSessionLifetimeHandler</c>. Measured
+    /// on Microsoft.Testing.Platform 1.9.1: that hook fires <b>once per <c>testing/runTests</c>
+    /// request</b>, each with its own <c>SessionUid</c> — three requests in one process gave three
+    /// distinct, properly bracketed sessions — and <b>discovery opens no session at all</b>, which
+    /// is what keeps a listing from putting an empty card on the board.
+    /// </para>
+    /// <para>
+    /// <b>The run info is re-discovered per bracket, and that is the point.</b>
+    /// <c>BOBCAT_RUN_COMMAND</c> (issue #392) is read here rather than once per process, so a
+    /// process that serves several commands reads the current one each time instead of stamping
+    /// every run with the first. The sink is NOT re-resolved: that is a process fact, and probing
+    /// 5525 per request would charge every command for a console handshake.
+    /// </para>
+    /// </remarks>
+    /// <param name="mode">How the run was executed — "xunit", "tunit".</param>
+    public static MonitorRunInfo OpenRun(string mode)
     {
         lock (_gate)
         {
-            if (_info is not null) return _info;
+            ensureSink();
 
-            // Before anything else: the local spec report is the one output that has to survive a
-            // run with no console listening, and this is the first moment a projected run announces
-            // itself.
-            ProjectedSpecConsole.EnableIfRequested();
+            if (_info is not null) return _info;
 
             var info = MonitorRunInfo.Discover(mode);
             _info = info;
-
-            // Never let a missing or slow console matter to a test run: TryConnect probes once
-            // with a tight timeout and hands back null when nothing answers.
-            _sink = MonitorPublisher.TryConnect().GetAwaiter().GetResult();
-
-            // Now that we know whether anything answered, the local report can take its default:
-            // on in a terminal with nothing listening, which is exactly the run that would otherwise
-            // produce no specification anywhere (issue #384). An explicit BOBCAT_SPEC_CONSOLE, in
-            // either direction, was already honoured above and is not revisited.
-            ProjectedSpecConsole.EnableByDefault(wireIsLive: _sink is not null);
 
             if (_sink is not null && !info.HasExternalOwner)
             {
@@ -184,7 +211,6 @@ public static class MarkerStepRun
                     null, HeartbeatInterval, HeartbeatInterval);
 
                 _started = true;
-                AppDomain.CurrentDomain.ProcessExit += (_, _) => finish();
             }
 
             return info;
@@ -192,27 +218,97 @@ public static class MarkerStepRun
     }
 
     /// <summary>
-    /// Close the run bracket. Runs at process exit rather than after the last scenario, because
-    /// nothing here knows which scenario is the last one — the runner does, and it does not say.
+    /// Close the run bracket this process has open, if any (issue #402). Idempotent, and safe to
+    /// call from a caller that does not know whether anyone already closed it.
     /// </summary>
-    private static void finish()
+    /// <remarks>
+    /// <para>
+    /// <b>The sink survives.</b> Closing a bracket forgets the run — so the next
+    /// <see cref="OpenRun"/> mints a fresh <c>RunId</c> with fresh counts — but keeps the publisher,
+    /// because in a warm process the next request needs it. Disposing it here was the one-shot
+    /// code's behaviour and would have stopped the pump after the first command.
+    /// </para>
+    /// <para>
+    /// Ordering needs no flush: the publisher drains one bounded channel FIFO, so a
+    /// <c>run_finished</c> posted before the next <c>run_started</c> reaches the console in that
+    /// order.
+    /// </para>
+    /// </remarks>
+    public static void CloseRun()
     {
         lock (_gate)
         {
-            if (!_started || _info is null) return;
-            _started = false;
+            if (_info is null) return;
+
+            if (_started)
+            {
+                _sink?.Post(new RunFinished(
+                    _info.RunId,
+                    ExitCode: _failed > 0 ? 1 : 0,
+                    Passed: _passed,
+                    Failed: _failed,
+                    PassedOnRetry: 0,
+                    Indeterminate: 0,
+                    FinishedAt: DateTimeOffset.UtcNow));
+            }
 
             stopHeartbeat();
 
-            _sink?.Post(new RunFinished(
-                _info.RunId,
-                ExitCode: _failed > 0 ? 1 : 0,
-                Passed: _passed,
-                Failed: _failed,
-                PassedOnRetry: 0,
-                Indeterminate: 0,
-                FinishedAt: DateTimeOffset.UtcNow));
+            _started = false;
+            _info = null;
+            _passed = 0;
+            _failed = 0;
+        }
+    }
 
+    /// <summary>
+    /// Resolve the console once per process: the local spec report, then the probe.
+    /// </summary>
+    /// <remarks>
+    /// The local spec report is the one output that has to survive a run with no console listening,
+    /// and this is the first moment a projected run announces itself — so it comes before
+    /// everything, including the probe whose answer settles its default.
+    /// </remarks>
+    private static void ensureSink()
+    {
+        if (_sinkResolved) return;
+        _sinkResolved = true;
+
+        ProjectedSpecConsole.EnableIfRequested();
+
+        // Never let a missing or slow console matter to a test run: TryConnect probes once
+        // with a tight timeout and hands back null when nothing answers.
+        _sink = MonitorPublisher.TryConnect().GetAwaiter().GetResult();
+
+        // Now that we know whether anything answered, the local report can take its default:
+        // on in a terminal with nothing listening, which is exactly the run that would otherwise
+        // produce no specification anywhere (issue #384). An explicit BOBCAT_SPEC_CONSOLE, in
+        // either direction, was already honoured above and is not revisited.
+        ProjectedSpecConsole.EnableByDefault(wireIsLive: _sink is not null);
+
+        if (_exitHooked) return;
+        _exitHooked = true;
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => closeAtProcessExit();
+    }
+
+    /// <summary>
+    /// The backstop (issue #402). It <b>has to stay</b>: it is the whole bracket for a caller with
+    /// no session hook — a TUnit suite, or any host whose platform extension is not registered —
+    /// where the run really is the process, and nothing here knows which scenario is the last one.
+    /// </summary>
+    /// <remarks>
+    /// <b>It drains unconditionally, which the per-bracket close deliberately does not.</b> When a
+    /// session hook already closed the bracket there is nothing left to post, but the
+    /// <c>run_finished</c> it posted may still be sitting in the channel — and the old code's
+    /// early return (it only drained when it had a bracket to close) would have let the last run of
+    /// every warm process die there.
+    /// </remarks>
+    private static void closeAtProcessExit()
+    {
+        CloseRun();
+
+        lock (_gate)
+        {
             // Drain before the process goes away, or RunFinished dies in the channel with it.
             if (_sink is IAsyncDisposable disposable)
             {
@@ -247,6 +343,11 @@ public static class MarkerStepRun
             _started = false;
             _passed = 0;
             _failed = 0;
+
+            // The sink is whatever the caller just installed, so the probe must not run and
+            // overwrite it. _exitHooked is deliberately NOT reset: the handler is idempotent and
+            // unsubscribing a lambda nobody kept a reference to is not possible anyway.
+            _sinkResolved = true;
         }
     }
 
@@ -254,7 +355,7 @@ public static class MarkerStepRun
     internal static (int Passed, int Failed) Counts => (_passed, _failed);
 
     /// <summary>Test seam: publish the run bracket's close without waiting for process exit.</summary>
-    internal static void FinishForTesting() => finish();
+    internal static void FinishForTesting() => CloseRun();
 
     /// <summary>Test seam: start the bracket with whatever sink <see cref="Reset"/> installed.</summary>
     internal static void StartForTesting(MonitorRunInfo info)

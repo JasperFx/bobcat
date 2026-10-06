@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    Registers Bobcat.Xunit's test-platform extension (issue #402).
+
+    Microsoft.Testing.Platform's MSBuild task generates a `SelfRegisteredExtensions` class that
+    calls `AddExtensions` on every type named by a `TestingPlatformBuilderHook` item, and xUnit
+    v3's generated entry point calls that class. So the registration is half C# and half MSBuild,
+    and this is the MSBuild half — which is why a package consumer gets the per-request run
+    bracket with no code at all, and why an in-repo ProjectReference has to declare the item
+    itself (a ProjectReference does not consume another project's build assets).
+
+    The GUID is this hook's identity to the generator; it only has to be stable and unique.
+  -->
+  <ItemGroup>
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+  </ItemGroup>
+
+</Project>
