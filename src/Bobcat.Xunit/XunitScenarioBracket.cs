@@ -17,8 +17,28 @@ internal static class XunitScenarioBracket
 {
     internal const string Mode = "xunit";
 
+    /// <summary>
+    /// The per-test output sink opened alongside the scenario, so the adapter can close both.
+    /// </summary>
+    /// <remarks>
+    /// <c>AsyncLocal</c>-held in <see cref="SpecOutput"/> itself; this only keeps the scope so
+    /// <see cref="Close"/> can dispose it. Held per async context rather than on the attribute,
+    /// which xUnit is free to share between tests.
+    /// </remarks>
+    private static readonly AsyncLocal<IDisposable?> _output = new();
+
     internal static void Open(MethodInfo methodUnderTest)
-        => MarkerStepRun.BeginScenario(methodUnderTest, Mode);
+    {
+        MarkerStepRun.BeginScenario(methodUnderTest, Mode);
+
+        // TestOutputHelper is ambient in xUnit v3, which is what lets a [BobcatSpec] test get this
+        // without declaring an ITestOutputHelper constructor parameter — the one-attribute,
+        // no-ceremony goal of issue #403 would be spent by requiring one.
+        if (TestContext.Current.TestOutputHelper is { } helper)
+        {
+            _output.Value = SpecOutput.Open(helper.WriteLine);
+        }
+    }
 
     /// <remarks>
     /// <b>Throwing here is how a gathered wrong reaches the runner.</b> <see cref="SpecAssert"/>
@@ -30,8 +50,14 @@ internal static class XunitScenarioBracket
     /// </remarks>
     internal static void Close()
     {
+        // EndScenario closes the recording, which raises ScenarioCompleted, which is where the
+        // reports are written — so the sink has to still be open across this call and is disposed
+        // only afterwards.
         var gathered = MarkerStepRun.EndScenario(
             BobcatScenarioAttribute.VerdictFrom(TestContext.Current.TestState));
+
+        _output.Value?.Dispose();
+        _output.Value = null;
 
         if (gathered is not null) throw gathered;
     }

@@ -800,6 +800,47 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     model rather than in a projection, and it went unnoticed because every existing caller happened
     to pass structured cells. `WithNote` and the new `WithRowIndex` now share one private `copy`,
     and any future "a copy of this cell, but…" belongs there.
+- **A projected spec's logs and reports reach the runner's own test output (`SpecOutput`, issue
+  #409).** The one place a developer looks when `dotnet test` goes red is the platform's output
+  block for that test, and nothing Bobcat knew was reaching it: `ProjectedSpecConsole` deliberately
+  stays silent under a captured stream, because a captured stream belongs to whoever captured it.
+  - **Core names neither runner's types.** The seam is an `Action<string>` of lines, supplied by the
+    adapter — the third thing on the marker-step adapter seam after the two verdict callbacks.
+    `Bobcat.Xunit` hands over `TestContext.Current.TestOutputHelper.WriteLine`, which is **ambient
+    in xUnit v3** and so costs a `[BobcatSpec]` test no constructor parameter — requiring one would
+    spend #403's whole point. `Bobcat.TUnit` hands over `context.OutputWriter.WriteLine`, because
+    TUnit has no `ITestOutputHelper` at all; that asymmetry is why the seam is a delegate rather
+    than an interface borrowed from one of them.
+  - **`AsyncLocal`, because tests run in parallel.** A static sink would send one test's lines to
+    another test's output, which is worse than sending them nowhere.
+  - **Logs go through as they happen; reports go at the close.** A log line is written immediately,
+    so a test that also writes to its own output reads as one stream in source order rather than as
+    two blocks. A report is an account of the whole scenario and cannot exist until it closes, so it
+    is written from `ScenarioRecorder.ScenarioCompleted` — after the verdict is known, which is what
+    the visibility rule needs anyway. The adapters therefore dispose the sink **after**
+    `EndScenario`, not before.
+  - **`WriteReports` takes the `SpecRender`, not the reports.** `SpecRender.Reports` has already
+    applied `ScenarioReportVisibility` and already knows whether the scenario failed, so the output
+    block cannot reach a different answer than the console and the JSON report did.
+  - **Logs always, reports latched — and that asymmetry is deliberate.** Bobcat does not latch the
+    log line, because the platform already attaches per-test output to the result and shows it for
+    failures; a second opinion about the same question is how the two disagree, and withholding on a
+    pass would leave a *passing* test somebody is debugging with no output. A report is up to 200
+    rows a grammar produced whether or not anyone wanted them, so it honours `ReportVisibility`.
+    Where Bobcat owns the whole surface — the JSON report — it latches uniformly.
+  - **Writing can never fail a test.** Every call is guarded: a runner whose output helper has been
+    torn down throws, and a specification that reported something must not go red because the
+    reporting channel closed first. The monitor publisher's invariant, applied here.
+  - **`TextGrid` is a second renderer, not a reuse of the Spectre one.** `ITestOutputHelper` and
+    TUnit's writer are plain text captured by the platform, so markup would arrive as escape codes
+    in exactly the place a failure is read. The row that disagreed is marked `<-- FAILED` in text
+    rather than coloured, so it is findable by eye in a CI log and by grep — neither of which sees
+    an ANSI code. Same model, two outputs, which is the split `SpecRender` exists for.
+  - **Not done here:** `IStepContext.Log` forwards to `SpecOutput` but no Gherkin run opens a sink
+    today — `Bobcat.Mtp` is its own test framework and has no output helper to hand over. The
+    forward is in place so that the day one exists, nothing has to be remembered. And the projected
+    lane still carries no log lines on its *results* (they are output, not a result field), which is
+    a larger change than #409 needed.
 - **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
 - **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
 - **`StepKind`** / **`FailureLevel`** — drives automatic failure classification
