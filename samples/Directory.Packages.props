@@ -21,6 +21,14 @@
     property that matters is that every package in a sample resolves the SAME JasperFx.Events
     as the Bobcat it references, and the only safe signal is that each store was BUILT against
     that JasperFx.
+
+    ⚠️ JasperFx.Events is at 2.81.0 while the stores here are built against 2.80.2. That is a
+    deliberate, documented exception, not drift — read "THE 2.81.0 EXCEPTION" in
+    src/Directory.Packages.props before changing either number. The short version: issue #405
+    needs the fluent event-model API and the SourceWriter fixes, which ship in 2.81.0 only; the
+    abstract-interface-member ratchet positively excludes the TypeLoadException class of break for
+    this bump; and both these samples legs — BankAccountES on Marten and on Fisher — are green on
+    it. The exception ends when the stores ship against 2.81.0.
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
@@ -39,8 +47,8 @@
     <PackageVersion Include="Marten" Version="9.46.0" />
     <PackageVersion Include="Marten.AspNetCore" Version="9.46.0" />
     <PackageVersion Include="Fisher" Version="1.19.0" />
-    <PackageVersion Include="JasperFx.Events" Version="2.80.2" />
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.80.2" />
+    <PackageVersion Include="JasperFx.Events" Version="2.81.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.81.0" />
   </ItemGroup>
 
   <ItemGroup>
