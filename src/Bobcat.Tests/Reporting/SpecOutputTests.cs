@@ -66,6 +66,7 @@ public class TextGridTests
     }
 }
 
+[Collection(ReportVisibilityCollection.Name)]
 public class SpecOutputTests
 {
     private static List<string> capture(Action body)
@@ -111,7 +112,8 @@ public class SpecOutputTests
             SharedProducer.Report();
         });
 
-        quiet.ShouldBeEmpty();
+        // The scenario itself is written either way; it is the report that waits for verbose.
+        quiet.ShouldNotContain("Message activity");
 
         try
         {
@@ -130,6 +132,51 @@ public class SpecOutputTests
         finally
         {
             ScenarioReportVisibility.Reset();
+        }
+    }
+
+    [Fact]
+    public void a_closing_scenario_is_written_to_the_output_as_plain_text()
+    {
+        var lines = capture(() =>
+        {
+            using var recording = ScenarioRecorder.Begin(
+                "Appointments", "a proposal is confirmed", publisher: null, runId: Guid.NewGuid());
+
+            using (ScenarioRecorder.Step("Given", "a proposed appointment")) { }
+            using (ScenarioRecorder.Step("Then", "the appointment is confirmed")) { }
+        });
+
+        lines.ShouldContain("Feature: Appointments");
+        lines.ShouldContain(l => l.Contains("a proposal is confirmed") && l.Contains("OK"));
+        lines.ShouldContain(l => l.Contains("✓") && l.Contains("Given") && l.Contains("a proposed appointment"));
+        lines.ShouldContain(l => l.Contains("Then") && l.Contains("the appointment is confirmed"));
+
+        // A test pane shows text, never escape codes.
+        lines.ShouldAllBe(l => !l.Contains('\u001b'));
+    }
+
+    [Fact]
+    public void the_scenario_can_be_turned_off_leaving_only_the_reports()
+    {
+        var previous = Environment.GetEnvironmentVariable(SpecOutput.ScenarioVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(SpecOutput.ScenarioVariable, "0");
+
+            var lines = capture(() =>
+            {
+                using var recording = ScenarioRecorder.Begin(
+                    "Appointments", "a proposal is confirmed", publisher: null, runId: Guid.NewGuid());
+
+                using (ScenarioRecorder.Step("Given", "a proposed appointment")) { }
+            });
+
+            lines.ShouldBeEmpty();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SpecOutput.ScenarioVariable, previous);
         }
     }
 

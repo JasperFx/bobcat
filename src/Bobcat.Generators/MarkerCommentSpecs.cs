@@ -151,7 +151,14 @@ internal static class MarkerCommentSpecs
         //
         // Checked here rather than at runtime because at runtime there is nothing to check: a suite
         // that records nothing looks exactly like a suite with no steps to record.
-        var opensRecording = HasScenarioAttribute(declaration)
+        //
+        // [BobcatFeature] alone opens it too when the assembly carries Bobcat.Xunit's
+        // [assembly: RecordBobcatFeatures] hook, which the package applies by default — so the
+        // generator's idea of "records" has to follow the runtime's, or the listing would drop
+        // every one-attribute feature class.
+        var featuresRecord = RecordsFeaturesAssemblyWide(ctx.SemanticModel.Compilation);
+        var opensRecording = featuresRecord
+                             || HasScenarioAttribute(declaration)
                              || declaration.Members.OfType<MethodDeclarationSyntax>().Any(HasScenarioAttribute);
 
         foreach (var method in declaration.Members.OfType<MethodDeclarationSyntax>())
@@ -163,7 +170,7 @@ internal static class MarkerCommentSpecs
             {
                 Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text),
                 TestMethod = method.Identifier.Text,
-                OpensRecording = HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
+                OpensRecording = featuresRecord || HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
                 Pending = isPending(method)
             };
 
@@ -244,6 +251,15 @@ internal static class MarkerCommentSpecs
         => member.AttributeLists
             .SelectMany(list => list.Attributes)
             .Any(a => ScenarioOpeningAttributes.Contains(shortName(a.Name.ToString())));
+
+    /// <summary>
+    /// Does this assembly carry the runner hook that makes <c>[BobcatFeature]</c> open a recording on
+    /// its own — <c>[assembly: Bobcat.Xunit.RecordBobcatFeatures]</c>? Matched by name like every
+    /// other adapter attribute here, so the generator never references a runner.
+    /// </summary>
+    internal static bool RecordsFeaturesAssemblyWide(Compilation compilation)
+        => compilation.Assembly.GetAttributes()
+            .Any(a => a.AttributeClass?.Name is "RecordBobcatFeaturesAttribute" or "RecordBobcatFeatures");
 
     /// <summary>
     /// The attributes that open a scenario recording. <c>[BobcatSpec]</c> is here because it

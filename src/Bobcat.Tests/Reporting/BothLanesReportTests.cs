@@ -16,6 +16,7 @@ namespace Bobcat.Tests.Reporting;
 /// test classes, one lane gains a rule the other never hears about, and a cross-lane grammar is
 /// exactly the thing that would then break in only one of them.
 /// </remarks>
+[Collection(ReportVisibilityCollection.Name)]
 public class BothLanesReportTests
 {
     private static SpecRender fromTheGherkinLane()

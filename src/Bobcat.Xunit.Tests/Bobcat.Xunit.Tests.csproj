@@ -16,6 +16,9 @@
       <DisplayName>Bobcat.Xunit</DisplayName>
       <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
     </TestingPlatformBuilderHook>
+
+    <!-- Likewise the package's [BobcatFeature]-records-on-its-own hook. -->
+    <AssemblyAttribute Include="Bobcat.Xunit.RecordBobcatFeaturesAttribute" />
   </ItemGroup>
 
   <ItemGroup>

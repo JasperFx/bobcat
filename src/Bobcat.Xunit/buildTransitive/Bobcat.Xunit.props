@@ -19,4 +19,14 @@
     </TestingPlatformBuilderHook>
   </ItemGroup>
 
+  <!--
+    [BobcatFeature] on its own records every test in the class. The hook is an assembly-level xUnit
+    before/after attribute, applied here so a consuming suite writes nothing. Opt out with
+    <BobcatRecordFeatures>false</BobcatRecordFeatures>; a class carrying [BobcatScenario] or
+    [BobcatSpec] is unaffected either way.
+  -->
+  <ItemGroup Condition="'$(BobcatRecordFeatures)' != 'false'">
+    <AssemblyAttribute Include="Bobcat.Xunit.RecordBobcatFeaturesAttribute" />
+  </ItemGroup>
+
 </Project>
