@@ -27,7 +27,7 @@ public sealed record ValueDifference(string Path, object? Expected, object? Actu
 /// </para>
 /// <para>
 /// The grid has two columns, the item's type under <paramref name="noun"/> and its values on one line
-/// through <see cref="ScenarioValues.Describe"/>, so a heterogeneous stream — five event types with
+/// through <see cref="ScenarioValues.DescribeProperties"/>, so a heterogeneous stream — five event types with
 /// five shapes — is still one table.
 /// </para>
 /// </remarks>
@@ -101,7 +101,7 @@ public static class ObjectSetVerification
                     RowIndex = row
                 });
                 run.Cells.Add(new CellResult(noun, ResultStatus.ok) { Expected = item.GetType().Name, RowIndex = row });
-                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Expected = ScenarioValues.Describe(item), RowIndex = row });
+                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Expected = ScenarioValues.DescribeProperties(item), RowIndex = row });
                 continue;
             }
 
@@ -138,10 +138,10 @@ public static class ObjectSetVerification
             {
                 // Shows what HAPPENED. The two agree on everything the comparison judged, but a member
                 // the caller chose to ignore — a minted timestamp — only has a real value on this side.
-                var happened = ScenarioValues.Describe(actual[position]);
+                var happened = ScenarioValues.DescribeProperties(actual[position]);
                 run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success, happened)
                 {
-                    Expected = ScenarioValues.Describe(item),
+                    Expected = ScenarioValues.DescribeProperties(item),
                     Actual = happened,
                     RowIndex = row
                 });
@@ -158,7 +158,7 @@ public static class ObjectSetVerification
                 RowIndex = row
             });
             run.Cells.Add(new CellResult(noun, ResultStatus.ok) { Actual = actual[j].GetType().Name, RowIndex = row });
-            run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Actual = ScenarioValues.Describe(actual[j]), RowIndex = row });
+            run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Actual = ScenarioValues.DescribeProperties(actual[j]), RowIndex = row });
             row++;
         }
 
@@ -179,9 +179,9 @@ public static class ObjectSetVerification
                 => cells.FirstOrDefault(c => c.Name == column) is { } c ? expected ? c.Expected : c.Actual : null;
 
             if (cells.Any(c => c.Name == "missing-row"))
-                problems.Add($"MISSING {text(ValuesColumn, true)}");
+                problems.Add($"MISSING {text(noun, true)}({text(ValuesColumn, true)})");
             else if (cells.Any(c => c.Name == "extra-row"))
-                problems.Add($"EXTRA {text(ValuesColumn, false)}");
+                problems.Add($"EXTRA {text(noun, false)}({text(ValuesColumn, false)})");
             else if (cells.FirstOrDefault(c => c.Name == SetVerificationComparer.OutOfOrderCell) is { } order)
                 problems.Add($"ORDER {order.Note}");
             else if (cells.FirstOrDefault(c => c.Name == ValuesColumn && c.Status == ResultStatus.failed) is { } fail)

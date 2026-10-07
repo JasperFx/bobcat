@@ -157,3 +157,20 @@ public class ObjectSetVerificationTests
         verify([shipped, started], [started, shipped], ordered: false).Succeeded.ShouldBeTrue();
     }
 }
+
+public class DescribePropertiesTests
+{
+    [Fact]
+    public void the_properties_without_the_type_around_them()
+    {
+        using var _ = ScenarioRecorder.Begin("Values", "props", publisher: null, runId: Guid.NewGuid());
+        ScenarioValues.DescribeProperties(new OrderShipped(Guid.NewGuid(), "UPS")).ShouldBe("OrderId: Order, Carrier: \"UPS\"");
+    }
+
+    [Fact]
+    public void a_stub_or_a_scalar_reads_as_itself()
+    {
+        ScenarioValues.DescribeProperties(new Stub()).ShouldBe("Stub");
+        ScenarioValues.DescribeProperties(42).ShouldBe("42");
+    }
+}

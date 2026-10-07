@@ -80,6 +80,22 @@ public static class ScenarioValues
     /// </summary>
     public static string Describe(object? value) => describe(value, 0, learnOnly: false);
 
+    /// <summary>
+    /// <paramref name="value"/>'s properties without the type around them —
+    /// <c>OrderId: Order, Total: 100</c> — for a grid whose other column already names the type. A
+    /// value with no properties to show reads as <see cref="Describe"/> does.
+    /// </summary>
+    public static string DescribeProperties(object? value)
+    {
+        var described = describe(value, 0, learnOnly: false);
+        if (value is null || isScalar(value.GetType()) || value is IEnumerable) return described;
+
+        var prefix = displayName(value.GetType()) + "(";
+        return described.StartsWith(prefix, StringComparison.Ordinal) && described.EndsWith(')')
+            ? described[prefix.Length..^1]
+            : described;
+    }
+
     /// <summary>Several values described, comma-separated, or "nothing".</summary>
     public static string DescribeAll(IEnumerable<object?> values)
     {
