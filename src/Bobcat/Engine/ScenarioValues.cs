@@ -144,6 +144,27 @@ public static class ScenarioValues
         return builder.Append(')').ToString();
     }
 
+    /// <summary>
+    /// Learn a name for a partial object's specified value (bobcat#416), as describing the whole object
+    /// would have: <c>AppointmentId</c> names its Guid "Appointment". <paramref name="path"/> is dotted
+    /// from <paramref name="root"/>; a path that does not resolve to a property learns nothing.
+    /// </summary>
+    internal static void LearnMember(Type root, string path, object? value)
+    {
+        if (!SpecReport.IsRecording || value is null || !isNameable(value)) return;
+
+        var declaring = root;
+        PropertyInfo? property = null;
+        foreach (var segment in path.Split('.'))
+        {
+            if (property is not null) declaring = property.PropertyType;
+            property = readable(declaring).FirstOrDefault(x => x.Name.Equals(segment, StringComparison.OrdinalIgnoreCase));
+            if (property is null) return;
+        }
+
+        SpecReport.For<NamedValuesReport>().Assign(value, NameFor(property!, declaring), overwrite: false);
+    }
+
     /// <summary>The name a value takes from the property it is first seen under.</summary>
     internal static string NameFor(PropertyInfo property, Type declaring)
     {

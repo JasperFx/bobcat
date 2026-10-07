@@ -174,3 +174,30 @@ public class DescribePropertiesTests
         ScenarioValues.DescribeProperties(42).ShouldBe("42");
     }
 }
+
+// bobcat#416: a partial object names its values exactly as the whole object would
+public class PartialObjectValueNamesTests
+{
+    private static ScenarioRecorder.Recording scenario()
+        => ScenarioRecorder.Begin("Values", "a scenario", publisher: null, runId: Guid.NewGuid());
+
+    [Fact]
+    public void a_partial_object_names_its_specified_ids_as_the_whole_object_would()
+    {
+        using var _ = scenario();
+        var order = Guid.NewGuid();
+
+        PartialObjects.Describe(Specifications.Specify<OrderShipped>().With(x => x.OrderId, order))
+            .ShouldBe("OrderShipped(OrderId: Order)");
+        ScenarioValues.Describe(new OrderStarted(order, Guid.NewGuid(), 1m)).ShouldStartWith("OrderStarted(OrderId: Order,");
+    }
+
+    [Fact]
+    public void a_bare_id_in_a_partial_is_named_after_its_type()
+    {
+        using var _ = scenario();
+
+        PartialMatching.DescribeExpected(Specifications.Specify<Order>().With(x => x.Id, Guid.NewGuid()))
+            .ShouldBe("Id: Order");
+    }
+}

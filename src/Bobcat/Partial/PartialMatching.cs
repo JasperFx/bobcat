@@ -42,7 +42,7 @@ public static class PartialMatching
     /// </summary>
     public static string DescribeExpected(object expected) => expected switch
     {
-        IPartialObject partial => string.Join(", ", partial.Values.Select(v => $"{v.Path}: {format(v)}")),
+        IPartialObject partial => PartialObjects.DescribeValues(partial),
         IExpectedValue value => ScenarioValues.DescribeProperties(value.Value),
         Type => "",
         _ => ScenarioValues.DescribeProperties(expected)
@@ -109,6 +109,4 @@ public static class PartialMatching
         return ObjectComparison.Compare(actual, expected).All(x => x.Matched);
     }
 
-    private static string format(SpecifiedValue value)
-        => value.IsText ? ((string?)value.Value ?? "").Trim() : ScenarioValues.Format(value.Value);
 }

@@ -171,8 +171,20 @@ public static class PartialObjects
 
     /// <summary><c>ShipmentConfirmed(TrackingNumber: 1Z999)</c>: the type and only the members specified.</summary>
     public static string Describe(IPartialObject partial)
-        => $"{partial.Type.Name}({string.Join(", ", partial.Values.Select(v => $"{v.Path}: {formatValue(v)}"))})";
+        => $"{partial.Type.Name}({DescribeValues(partial)})";
 
-    private static string formatValue(SpecifiedValue value)
-        => value.IsText ? ((string?)value.Value ?? "").Trim() : ScenarioValues.Format(value.Value);
+    /// <summary>
+    /// <c>TrackingNumber: 1Z999</c>: only the members specified, each value named as describing the
+    /// whole object would name it, so a partial and a whole object read alike.
+    /// </summary>
+    public static string DescribeValues(IPartialObject partial)
+        => string.Join(", ", partial.Values.Select(v => $"{v.Path}: {formatValue(partial.Type, v)}"));
+
+    private static string formatValue(Type root, SpecifiedValue value)
+    {
+        if (value.IsText) return ((string?)value.Value ?? "").Trim();
+
+        ScenarioValues.LearnMember(root, value.Path, value.Value);
+        return ScenarioValues.Format(value.Value);
+    }
 }
