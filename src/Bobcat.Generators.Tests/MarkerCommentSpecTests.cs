@@ -107,6 +107,7 @@ public class MarkerCommentSpecTests
     [InlineData("   //   Then   it is confirmed  ", "Then", "it is confirmed")]
     [InlineData("// And the queue is empty", "And", "the queue is empty")]
     [InlineData("// But nothing was published", "But", "nothing was published")]
+    [InlineData("// Note: the timer is scheduled, not sent", "Note", "the timer is scheduled, not sent")]
     public void parses_a_marker(string comment, string keyword, string text)
     {
         var step = MarkerCommentSpecs.Parse(comment).ShouldNotBeNull();
@@ -117,6 +118,8 @@ public class MarkerCommentSpecTests
     [Theory]
     [InlineData("// just a comment")]
     [InlineData("// Givenchy is a fashion house")]
+    [InlineData("// Note that this is an ordinary comment")]
+    [InlineData("// Note:")]
     [InlineData("// TODO: Given this a better name")]
     [InlineData("// Given")]
     [InlineData("//")]

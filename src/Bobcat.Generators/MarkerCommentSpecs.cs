@@ -504,7 +504,7 @@ internal static class MarkerCommentSpecs
                 continue;
             }
 
-            if (!isContinuation(step.Keyword)) narrativeOpen = true;
+            if (!isContinuation(step.Keyword) && step.Keyword != "Note") narrativeOpen = true;
 
             yield return step;
         }
@@ -538,6 +538,15 @@ internal static class MarkerCommentSpecs
         {
             var bulleted = text.Substring(1).Trim();
             return bulleted.Length == 0 ? null : new MarkedStep { Keyword = "", Text = bulleted };
+        }
+
+        // `// Note: …` is text for the reader rather than a step — rendered, never judged, and never
+        // part of the Given/When/Then narrative. The colon is required: "Note that…" in an ordinary
+        // comment stays an ordinary comment.
+        if (text.StartsWith("Note:", StringComparison.Ordinal))
+        {
+            var note = text.Substring("Note:".Length).Trim();
+            return note.Length == 0 ? null : new MarkedStep { Keyword = "Note", Text = note };
         }
 
         foreach (var keyword in Keywords)

@@ -168,6 +168,23 @@ public static class ScenarioRecorder
     /// <summary>A step with no keyword — a marker comment supplies its own.</summary>
     public static IDisposable Step(string text) => Step("", text);
 
+    /// <summary>
+    /// The keyword a <see cref="Note"/> is recorded under. Not a step keyword: a note is never
+    /// promoted to <c>And</c>, never closes the block it sits in, and renders with no verdict.
+    /// </summary>
+    public const string NoteKeyword = "Note";
+
+    /// <summary>
+    /// Free text in the specification — an explanation for its reader, with no verdict of its own.
+    /// The projected twin of a <c>// Note: …</c> marker comment.
+    /// </summary>
+    public static void Note(string text)
+    {
+        using (Step(NoteKeyword, text))
+        {
+        }
+    }
+
     public sealed class Recording : IDisposable, IReportSink
     {
         private readonly List<RecordedStep> _steps = new();
@@ -405,7 +422,13 @@ public static class ScenarioRecorder
             // helper written for the second. `And` and `But` pass through and do not close the block
             // they sit in, so Given / And / Given still reads Given / And / And.
             var rendered = keyword;
-            if (keyword.Length == 0)
+            if (string.Equals(keyword, NoteKeyword, StringComparison.Ordinal))
+            {
+                // A note sits between steps without being one: the step after it still knows what
+                // block it is in, so Given / Note / Given reads Given / Note / And.
+                rendered = NoteKeyword;
+            }
+            else if (keyword.Length == 0)
             {
                 // A grammar that spells NO keyword — Storyteller and Gauge sentences read this way —
                 // has none to promote and opens no block. Treating the empty string as a keyword

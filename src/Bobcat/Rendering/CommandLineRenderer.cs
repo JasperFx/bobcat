@@ -244,6 +244,13 @@ public class CommandLineRenderer
             };
 
             var indent = step.IsNarrative ? "    " : "      ";
+
+            if (IsNote(step.Keyword))
+            {
+                output.MarkupLine($"{indent}[dim italic]» {Markup.Escape(step.StepText)}[/]");
+                continue;
+            }
+
             output.MarkupLine($"{indent}[dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
 
             if (step.IsNarrative)
@@ -327,6 +334,13 @@ public class CommandLineRenderer
 
         var duration = step.DurationMs > 0 ? $" [dim]({step.DurationMs}ms)[/]" : "";
         var indent = new string(' ', 4 + step.Depth * 2);
+
+        if (IsNote(step.Keyword))
+        {
+            // Text for the reader, with no verdict: no icon, no keyword column, no timing.
+            output.MarkupLine($"{indent}[dim italic]» {Markup.Escape(step.StepText)}[/]");
+            return;
+        }
         var (sentenceMarkup, inlineCells) = sentence(step);
 
         if (step.NotRun)
@@ -417,6 +431,10 @@ public class CommandLineRenderer
     /// The spans come from the substitution itself rather than from searching the finished text for
     /// the values, so a value that also occurs in the prose cannot mark the wrong run of characters.
     /// </remarks>
+    /// <summary>Whether a step is a note (<see cref="ScenarioRecorder.Note"/>) rather than a step.</summary>
+    public static bool IsNote(string? keyword)
+        => string.Equals(keyword, ScenarioRecorder.NoteKeyword, StringComparison.Ordinal);
+
     public static string Sentence(StepRender step) => sentence(step).Markup;
 
     /// <summary>
