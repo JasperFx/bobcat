@@ -136,7 +136,8 @@ public static class SpecOutput
                 Interactive = InteractionSupport.No,
                 Out = new AnsiConsoleOutput(writer)
             });
-            console.Profile.Width = 120;
+            // Wide, because a test pane wraps on its own and a hard wrap here splits a step from its timing.
+            console.Profile.Width = 240;
 
             // Reports go after, through TextGrid, as they always have here: a fixed-width grid with
             // the disagreeing row marked in text is what a CI log and grep can read.
