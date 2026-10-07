@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. `.feature` files are compiled to direct fixture method calls via a Roslyn source generator — no runtime reflection, compile-time step matching with compile errors for unmatched steps.
 
+## Every new capability ships with its ai-skills entry
+
+**Any new Bobcat capability — a step, attribute, diagnostic, runner option, env var, tool command
+or runtime behavior — also gets written up in [ai-skills](https://github.com/JasperFx/ai-skills)
+(local checkout `~/code/ai-skills`).** The point is teaching a *later agent* to troubleshoot
+Bobcat on its own: what an error or surprising result means, and the move that fixes it. An agent
+consuming Bobcat in another repo never sees this file or the source; the skill is all it has.
+
+- **Where:** `skills/critterstack-sdd-bobcat-authoring/SKILL.md` today. A new diagnostic goes in
+  its diagnostics table (`| BOBCATnnn | what triggers it | the fix |`). When the troubleshooting
+  material outgrows that skill, split it into a `critterstack-sdd-bobcat-troubleshooting` skill
+  rather than letting the authoring skill sprawl.
+- **What to write:** the symptom as the user sees it (the diagnostic id and message, the
+  run-time cell status such as `invalid` vs `failed`, the exit code, the console output), the
+  cause, and the fix — not a tour of the implementation. Include the "it is *not* this" cases that
+  cost us time, e.g. a check that is skipped and left to run time.
+- **When:** in the same piece of work as the capability, as a PR to ai-skills linked from the
+  Bobcat PR — not as a later clean-up. Follow ai-skills' own `CLAUDE.md` (quote YAML descriptions
+  containing colons, then `npm run docs:generate`) and update the skill's `description` when the
+  new capability is something an agent would search for.
+
 ## Build & Test Commands
 
 ```bash
