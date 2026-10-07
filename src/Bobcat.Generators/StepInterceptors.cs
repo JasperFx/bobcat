@@ -862,5 +862,5 @@ internal static class StepInterceptors
     internal static string Identifier(string name)
         => SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None ? name : "@" + name;
 
-    private static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    internal static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

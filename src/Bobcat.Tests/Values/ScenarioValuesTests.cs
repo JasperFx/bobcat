@@ -201,3 +201,58 @@ public class PartialObjectValueNamesTests
             .ShouldBe("Id: Order");
     }
 }
+
+// A value declared under the name of the variable it was assigned to (the generator's interceptor)
+public class DeclaredValueNamesTests
+{
+    private static ScenarioRecorder.Recording scenario()
+        => ScenarioRecorder.Begin("Values", "a scenario", publisher: null, runId: Guid.NewGuid());
+
+    [Fact]
+    public void a_declared_value_reads_as_its_variable_name()
+    {
+        using var _ = scenario();
+        var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
+
+        ScenarioValues.Describe(new OrderShipped(theOrder, "UPS")).ShouldBe("OrderShipped(OrderId: theOrder, Carrier: \"UPS\")");
+    }
+
+    [Fact]
+    public void a_value_declared_before_the_scenario_began_is_named_when_first_met()
+    {
+        // A field initialised when the test class is constructed, before its scenario begins
+        var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
+
+        using var _ = scenario();
+        ScenarioValues.Format(theOrder).ShouldBe("theOrder");
+    }
+
+    [Fact]
+    public void a_declared_name_beats_one_learned_from_a_property_even_when_the_property_came_first()
+    {
+        var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
+
+        using var _ = scenario();
+        ScenarioValues.Learn(theOrder, "Order");
+
+        ScenarioValues.Describe(new OrderStarted(theOrder, Guid.NewGuid(), 1m))
+            .ShouldStartWith("OrderStarted(OrderId: theOrder, CustomerId: Customer");
+    }
+
+    [Fact]
+    public void a_hand_given_name_still_beats_a_declared_one()
+    {
+        using var _ = scenario();
+        var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
+        ScenarioValues.Name(theOrder, "the big order");
+
+        ScenarioValues.Format(theOrder).ShouldBe("the big order");
+    }
+
+    [Fact]
+    public void outside_a_scenario_a_declared_guid_is_still_shortened()
+    {
+        var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
+        ScenarioValues.Format(theOrder).ShouldBe(theOrder.ToString()[..8] + "…");
+    }
+}

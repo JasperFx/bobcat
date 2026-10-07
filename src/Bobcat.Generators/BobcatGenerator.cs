@@ -97,6 +97,24 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         });
 
+        // 3c''. `var theOrderId = Guid.NewGuid();` in a test names that value theOrderId in the spec
+        var declaredValues = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => DeclaredValues.IsCandidate(node),
+                transform: DeclaredValues.Extract)
+            .Where(d => d != null)
+            .Select((d, _) => d!);
+
+        // Only where the project opted Bobcat.Generated into interceptors (buildTransitive does it for a
+        // package reference). A plain analyzer reference has not, and an interceptor there is a hard
+        // CS9137 — so the names quietly fall back to the learned ones instead.
+        context.RegisterSourceOutput(declaredValues.Collect().Combine(context.ParseOptionsProvider), (spc, pair) =>
+        {
+            var (declarations, parseOptions) = pair;
+            if (declarations.Length > 0 && DeclaredValues.InterceptorsEnabled(parseOptions))
+                spc.AddSource("BobcatDeclaredValues.g.cs", DeclaredValues.Emit(declarations));
+        });
+
         // 3c'. BOBCAT032 (bobcat#415, #420): a constant table, or a constant Specified<T>.With
         //      path, whose columns do not name members of the type it is about.
         var tableCalls = context.SyntaxProvider

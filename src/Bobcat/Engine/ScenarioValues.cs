@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -38,6 +39,35 @@ public static class ScenarioValues
     /// as a table of its properties instead.
     /// </summary>
     public const int InlineLimit = 120;
+
+    // Declared names outlive any one scenario: a field initialised when the test class is constructed
+    // is declared before its scenario begins. Values are unique (fresh Guids), so one map serves every
+    // scenario in the process; the cap only stops a suite that mints millions from growing it forever.
+    private static readonly ConcurrentDictionary<object, string> _declared = new();
+    private const int DeclaredLimit = 10_000;
+
+    /// <summary>
+    /// Name <paramref name="value"/> after the variable, field or property it was assigned to. The
+    /// generator calls this for <c>var theAppointmentId = Guid.NewGuid();</c> in a test, so the
+    /// specification reads <c>theAppointmentId</c> wherever that value appears. A declared name
+    /// beats one learned from a property (<c>AppointmentId</c> → "Appointment"), and loses only to
+    /// <see cref="Name"/>.
+    /// </summary>
+    /// <remarks>
+    /// Works outside a scenario too: the name waits until a scenario first meets the value.
+    /// </remarks>
+    public static T Declare<T>(T value, string name) where T : notnull
+    {
+        if (!isNameable(value)) return value;
+
+        if (_declared.Count >= DeclaredLimit) _declared.Clear();
+        _declared[value] = name;
+
+        if (SpecReport.IsRecording) SpecReport.For<NamedValuesReport>().Assign(value, name, overwrite: true);
+        return value;
+    }
+
+    internal static string? DeclaredNameOf(object value) => _declared.GetValueOrDefault(value);
 
     /// <summary>Name <paramref name="value"/> <paramref name="name"/> for the rest of the scenario.</summary>
     public static void Name(object value, string name)
@@ -224,13 +254,25 @@ public sealed class NamedValuesReport : TableReport
     public override string Title => "Named values";
 
     /// <summary>The name <paramref name="value"/> was given, or null.</summary>
-    public string? NameOf(object value) => _names.GetValueOrDefault(value);
+    public string? NameOf(object value)
+    {
+        if (_names.TryGetValue(value, out var name)) return name;
+
+        // A value declared before this scenario began (a field) takes its name the first time it is met
+        if (ScenarioValues.DeclaredNameOf(value) is not { } declared) return null;
+
+        Assign(value, declared, overwrite: false);
+        return _names[value];
+    }
 
     /// <summary>Every name and the value it stands for, in the order they were given.</summary>
     public IReadOnlyDictionary<object, string> Names => _names;
 
     internal void Assign(object value, string name, bool overwrite)
     {
+        // A name learned from a property gives way to the one the test declared it as
+        if (!overwrite && ScenarioValues.DeclaredNameOf(value) is { } declared) name = declared;
+
         if (_names.TryGetValue(value, out var existing))
         {
             if (!overwrite || existing == name) return;
