@@ -136,10 +136,13 @@ public static class ObjectSetVerification
             }
             else
             {
-                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success)
+                // Shows what HAPPENED. The two agree on everything the comparison judged, but a member
+                // the caller chose to ignore — a minted timestamp — only has a real value on this side.
+                var happened = ScenarioValues.Describe(actual[position]);
+                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success, happened)
                 {
                     Expected = ScenarioValues.Describe(item),
-                    Actual = ScenarioValues.Describe(actual[position]),
+                    Actual = happened,
                     RowIndex = row
                 });
             }
