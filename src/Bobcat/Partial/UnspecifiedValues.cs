@@ -102,3 +102,19 @@ public sealed class PredictableValues : IUnspecifiedValues
         return false;
     }
 }
+
+/// <summary>
+/// <c>default(T)</c> for every unspecified member — the rule a Gherkin arrange has had since
+/// issue #241, kept for <c>RecordBuilding</c> until bobcat#421 settles the policy, so the Gherkin
+/// lane's behaviour changes once rather than twice.
+/// </summary>
+public sealed class DefaultValues : IUnspecifiedValues
+{
+    public static DefaultValues Instance { get; } = new();
+
+    public bool TryValueFor(UnspecifiedMember member, out object? value)
+    {
+        value = member.Type.IsValueType ? Activator.CreateInstance(member.Type) : null;
+        return true;
+    }
+}

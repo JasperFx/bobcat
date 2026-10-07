@@ -236,3 +236,40 @@ Feature: Wallet
     Then the OwnerWallets read model with id "Gus" contains
       | Wallets |
       | 2       |
+
+  # bobcat#419: a group of events, named in an Event column and matched on only the columns each
+  # row names. "Exactly these" is the ordered, exclusive form; "in any order" drops the position.
+  @slice:CreditWallet
+  Scenario: Crediting a wallet emits exactly the credited event
+    Given no events for Wallet "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    And WalletOpened occurred
+      | Owner |
+      | Ida   |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | cccccccc-cccc-cccc-cccc-cccccccccccc | 15     |
+    Then exactly these events are emitted
+      | Event          | Amount |
+      | WalletCredited | 15     |
+    And these events are emitted in any order
+      | Event          | WalletId                             |
+      | WalletCredited | cccccccc-cccc-cccc-cccc-cccccccccccc |
+
+  # bobcat#419: "is not emitted" forbids a type outright, or — with a table — only the events that
+  # agree on the columns a row names, so a credit of 15 is not a credit of 99.
+  @slice:CreditWallet
+  Scenario: Crediting a wallet debits nothing
+    Given no events for Wallet "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    And WalletOpened occurred
+      | Owner |
+      | Jo    |
+    When CreditWallet is received
+      | WalletId                             | Amount |
+      | dddddddd-dddd-dddd-dddd-dddddddddddd | 15     |
+    Then WalletDebited is not emitted
+    And WalletCredited is not emitted
+      | Amount |
+      | 99     |
+    And WalletCredited is emitted
+      | field  | value |
+      | Amount | 15    |

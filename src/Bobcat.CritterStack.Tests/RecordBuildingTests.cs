@@ -53,16 +53,13 @@ public class RecordBuildingTests
     }
 
     [Fact]
-    public void a_missing_non_defaulted_column_still_refuses_by_name()
+    public void a_missing_non_defaulted_column_is_defaulted_now_that_an_act_is_partial()
     {
-        // SpecCriticalException rather than a bare InvalidOperationException: this is a step that
-        // cannot proceed, and the reader's next move is in the message (issue #233).
-        var ex = Should.Throw<SpecCriticalException>(() =>
-            RecordBuilding.Build(typeof(Claim), new Dictionary<string, string> { ["Plan"] = "p" }));
+        // Issue #233 refused this by name; bobcat#419 made the act partial, as #241 preferred. The
+        // refusal that remains is for a column matching nothing — the typo worth catching.
+        var claim = (Claim)RecordBuilding.Build(typeof(Claim), new Dictionary<string, string> { ["Plan"] = "p" });
 
-        ex.Message.ShouldContain(nameof(Claim));
-        ex.Message.ShouldContain("it needs (String Plan, String Node, String Agent");
-        ex.Message.ShouldContain("Give the step a one-row table");
+        claim.Plan.ShouldBe("p");
     }
 
     [Fact]
@@ -71,9 +68,9 @@ public class RecordBuildingTests
         // What the reader used to get instead was `NullReferenceException at
         // CritterStackFixture.WhenCommandIsReceived`, which names Bobcat's stack, not their spec.
         var ex = Should.Throw<SpecCriticalException>(() =>
-            RecordBuilding.Build(typeof(Claim), new Dictionary<string, string>(), "When Claim is received"));
+            RecordBuilding.Build(typeof(Claim), new Dictionary<string, string> { ["Plann"] = "p" }, "When Claim is received"));
 
-        ex.Message.ShouldStartWith("'When Claim is received': cannot build 'Claim'");
+        ex.Message.ShouldStartWith("'When Claim is received': the column [Plann] matches nothing on 'Claim'");
     }
 
     [Fact]

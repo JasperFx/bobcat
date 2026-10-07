@@ -521,6 +521,16 @@ public abstract class CritterStackFixture : Fixture
         return executeCommandCore(message);
     }
 
+    /// <summary>
+    /// At least one event of this type was emitted, and — when there is a table — each row is
+    /// matched by its own emitted event on <b>the columns the row names</b> (issue #241). Other
+    /// events may have been emitted too. Reported as a grid (bobcat#419): a row with no event of the
+    /// type is MISSING, one whose named columns disagree is a FAIL naming only those columns.
+    /// </summary>
+    /// <remarks>
+    /// Each row consumes the event it matches, so two identical rows need two events — "two
+    /// deposits of 50 were made" is a claim about two events, not one event seen twice.
+    /// </remarks>
     [Then("{event} is emitted")]
     public void ThenEventIsEmitted(Type @event, StepTable? fields)
     {
@@ -528,64 +538,82 @@ public abstract class CritterStackFixture : Fixture
             throw new SpecAssertionException(
                 $"Expected a {@event.Name} event, but the command failed: {LastError.Message}");
 
-        var emitted = LastEvents.Select(e => e.Data).Where(d => d.GetType() == @event).ToList();
-        if (emitted.Count == 0)
-            throw new SpecAssertionException(
-                $"Expected a {@event.Name} event, but the emitted events were: {describe(LastEvents.Select(e => e.Data))}");
+        IReadOnlyList<object> expected = fields is { Rows.Count: > 0 }
+            ? PartialObjects.FromTable(@event, fields)
+            : [new TablePartialObject(@event, [])];
 
-        if (fields == null || fields.Rows.Count == 0) return;
-
-        // Each expected row must be matched by one of the emitted events of this type — on the
-        // COLUMNS THE ROW NAMES, not by whole-record equality (issue #241). A `Then` row says
-        // "the event carries these values", never "the event equals this whole record"; comparing
-        // whole records forced every assertion to restate every field, including the ones the
-        // scenario is not about — and once a Given may arrange partially, an expected record built
-        // from a partial row is full of defaults that no real event will ever equal.
-        foreach (var row in fields.AsDictionaries())
-        {
-            var mismatches = new List<string>();
-            if (!emitted.Any(e => matchesRow(e, row, mismatches)))
-                throw new SpecAssertionException(
-                    $"No emitted {@event.Name} matches the expected row.\n"
-                    + $"  expected: {string.Join(", ", row.Select(c => $"{c.Key}={c.Value}"))}\n"
-                    + $"  emitted:  {describe(emitted)}"
-                    + (mismatches.Count == 0 ? "" : $"\n  differed on: {string.Join("; ", mismatches.Distinct())}"));
-        }
+        verifyEvents(expected, SetMode.Contains, $"Expected {@event.Name} was not emitted as specified");
     }
 
     /// <summary>
-    /// Does this emitted event carry the values the row names? Only the named columns are read, so
-    /// an assertion stays about what the scenario is about (issue #241). Column names match a
-    /// property or field case-insensitively; a column matching neither is a spec defect, not a
-    /// mismatch, so it is refused rather than quietly failing the comparison.
+    /// Exactly these events, in this order, and no others (bobcat#419). The table has an
+    /// <c>Event</c> column naming each row's type, as <c>Given events for</c> does; the other columns
+    /// are matched on what each row names, and a blank cell is not specified.
     /// </summary>
-    private static bool matchesRow(object emitted, IReadOnlyDictionary<string, string> row, List<string> mismatches)
+    [Then("exactly these events are emitted")]
+    public void ThenExactlyTheseEventsAreEmitted(StepTable events)
+        => verifyEvents(expectedEvents(events, "Then exactly these events are emitted"), SetMode.Ordered,
+            "The emitted events were not exactly these, in this order");
+
+    /// <summary>Exactly these events, in any order, and no others (bobcat#419). Same table as the ordered form.</summary>
+    [Then("these events are emitted in any order")]
+    public void ThenTheseEventsAreEmittedInAnyOrder(StepTable events)
+        => verifyEvents(expectedEvents(events, "Then these events are emitted in any order"), SetMode.AnyOrder,
+            "The emitted events were not exactly these");
+
+    /// <summary>
+    /// No event of this type was emitted — or, with a table, none matching any of its rows on the
+    /// columns each names (bobcat#419).
+    /// </summary>
+    [Then("{event} is not emitted")]
+    public void ThenEventIsNotEmitted(Type @event, StepTable? fields)
     {
-        var type = emitted.GetType();
-        var matched = true;
+        if (LastError != null)
+            throw new SpecAssertionException(
+                $"Expected no {@event.Name} event from a command that succeeded, but the command failed: {LastError.Message}");
 
-        foreach (var (column, cell) in row)
-        {
-            var member = (MemberInfo?)type.GetProperty(column,
-                             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-                         ?? type.GetField(column, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        IReadOnlyList<object> forbidden = fields is { Rows.Count: > 0 }
+            ? PartialObjects.FromTable(@event, fields)
+            : [@event];
 
-            if (member is null)
-                throw new SpecCriticalException(
-                    $"'Then {type.Name} is emitted' has a column '{column}', but {type.Name} has no such "
-                    + "property or field. Check the spelling, or the field may have been renamed.");
+        var run = ObjectSetVerification.Absent(LastEvents.Select(e => e.Data).ToList(), forbidden, "event");
+        run.Report(Context);
 
-            var memberType = member is PropertyInfo property ? property.PropertyType : ((FieldInfo)member).FieldType;
-            var actual = member is PropertyInfo p ? p.GetValue(emitted) : ((FieldInfo)member).GetValue(emitted);
-            var expected = GherkinValue.Convert(cell, memberType);
+        if (!run.Succeeded)
+            throw new SpecAssertionException(
+                $"{@event.Name} was emitted:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")));
+    }
 
-            if (Equals(actual, expected)) continue;
+    private void verifyEvents(IReadOnlyList<object> expected, SetMode mode, string headline)
+    {
+        if (LastError != null && mode != SetMode.Contains)
+            throw new SpecAssertionException($"Expected events, but the command failed: {LastError.Message}");
 
-            mismatches.Add($"{column}: expected {cell}, was {actual}");
-            matched = false;
-        }
+        var run = ObjectSetVerification.Verify(LastEvents.Select(e => e.Data).ToList(), expected, "event", mode);
+        run.Report(Context);
 
-        return matched;
+        if (!run.Succeeded)
+            throw new SpecAssertionException(
+                headline + ":" + Environment.NewLine
+                + string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")));
+    }
+
+    /// <summary>The partial events an <c>Event</c>-column table describes, one per row.</summary>
+    private IReadOnlyList<object> expectedEvents(StepTable table, string step)
+    {
+        var typeColumn = table.Headers.FirstOrDefault(h =>
+                             string.Equals(h, "Event", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(h, "Type", StringComparison.OrdinalIgnoreCase))
+                         ?? throw new SpecCriticalException(
+                             $"'{step}' needs an 'Event' column naming each row's event type; the other columns are its fields.");
+
+        return table.AsDictionaries()
+            .Select(row => (object)PartialObjects.FromCells(
+                EventTypeResolver.Resolve(row[typeColumn], AggregateType?.Assembly),
+                row.Where(kv => !string.Equals(kv.Key, typeColumn, StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
     }
 
     [Then("no events are emitted")]

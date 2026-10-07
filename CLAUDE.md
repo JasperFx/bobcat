@@ -744,8 +744,27 @@ union with one field (`OrderId of Guid`) is built from its wrapped value. Multi-
 supported yet. `src/Bobcat.Tests.FSharpTypes` holds real compiler-output shapes plus F#-authored
 `Specify` calls — test new shapes there, never with C# imitations.
 
-`RecordBuilding` (the Gherkin lane's builder) is **not yet** routed through this engine; that moves
-with the Gherkin child (#419). Matching on specified members only is #418.
+**Matching (#418, `PartialMatching`, `ObjectSetVerification`).** `PartialMatching.Differences(actual,
+expected)` judges a partial object on **only** the members it names (cell text through `CellCheck`,
+typed values structurally), an `IExpectedValue` (`Expect.Value(x).Ignoring(...)`) on everything but
+its ignored members, a plain object on everything. `ObjectComparison`/`Expect`/`ExpectedValue` live
+here now (moved from WolverineFx.Bobcat, wolverine#4835) — one comparison. F# options and single-case
+unions compare by what they hold (`ObjectComparison.Unwrap`). `ObjectSetVerification.Verify(actual,
+expected, noun, SetMode)`: `Ordered` (exact + ORDER), `AnyOrder` (exact), `Contains` (no EXTRA rows,
+others allowed); `Absent(actual, forbidden, noun)` for "not emitted" (a `Type`, or a partial = only
+matching ones). **Exact pairs are a maximum matching (Kuhn), not greedy** — a broad expectation
+written first must not steal the event a narrow one needs. A matched partial row shows only the
+specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)` /
+`Fixture.VerifyObject(subject, partial)` give a one-row grid of just the specified columns.
+
+**Gherkin (#419).** `RecordBuilding.Build` is a thin call into this engine; **every build is partial
+now, the `When` act included** (#241 kept the act strict; its `partial` flag is kept and ignored).
+It fills with `DefaultValues` (`default(T)`, the #241 rule) — *not* `PredictableValues` — so the
+Gherkin lane changes once, when #421 decides. A blank cell is not specified everywhere. `Then {event}
+is emitted` reports a grid (`Contains`; each row consumes its own event, so two identical rows need two
+events). New: `Then exactly these events are emitted` (Ordered) and `Then these events are emitted in
+any order` (AnyOrder), both with an `Event` column like `Given events for`; `Then {event} is not
+emitted` (+ optional rows). Pinned end to end in `Bobcat.CritterStack.Tests/Features/Wallet.feature`.
 
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row

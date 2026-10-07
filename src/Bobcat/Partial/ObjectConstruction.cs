@@ -209,9 +209,11 @@ internal static class ObjectConstruction
                 .Select(s => join(prefix, s.Name))
                 .ToList();
 
+            // A table speaks of columns, code of members — name it in the reader's own terms
+            var noun = values.Any(v => v.IsText) ? "column" : "member";
             if (unknown.Count > 0)
                 throw defect(
-                    $"the member{(unknown.Count == 1 ? "" : "s")} [{string.Join(", ", unknown)}] "
+                    $"the {noun}{(unknown.Count == 1 ? "" : "s")} [{string.Join(", ", unknown)}] "
                     + $"{(unknown.Count == 1 ? "matches" : "match")} nothing on '{type.Name}', which has ({string.Join(", ", members.Names(type))}). "
                     + "Check the spelling, or the member may have been renamed since this spec was written");
 
