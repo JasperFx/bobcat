@@ -143,7 +143,11 @@ internal sealed class SpecProject
                 return choose(candidatesUnder(full), $"under {full}");
             }
 
-            throw new InvalidOperationException($"There is no project or directory at '{project}'.");
+            // `bobcat` with no command runs, so a mistyped command arrives here as a project path
+            throw new InvalidOperationException(
+                $"There is no project or directory at '{project}', and it is not a bobcat command. "
+                + "The commands are run (the default), preview, pick, watch, resident and import-event-model; "
+                + "`bobcat help` lists them.");
         }
 
         var cwd = System.IO.Directory.GetCurrentDirectory();
