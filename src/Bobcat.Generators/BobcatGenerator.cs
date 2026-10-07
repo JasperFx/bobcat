@@ -942,7 +942,10 @@ public class BobcatGenerator : IIncrementalGenerator
         if (method.ContainingType?.ContainingNamespace?.ToDisplayString() != "Bobcat.CritterStack") return null;
         if (!method.Parameters.Any(p => p.Type.ToDisplayString().TrimEnd('?') == "Bobcat.StepTable")) return null;
 
-        if (expression.IndexOf("events for {aggregate}", StringComparison.Ordinal) >= 0) return "event-column";
+        // The Event-column tables: the arrange, and the two group assertions (bobcat#419)
+        if (expression.IndexOf("events for {aggregate}", StringComparison.Ordinal) >= 0
+            || expression == "exactly these events are emitted"
+            || expression == "these events are emitted in any order") return "event-column";
         return CheckedCaptures.Any(c => expression.IndexOf(c, StringComparison.Ordinal) >= 0) ? "capture" : null;
     }
 

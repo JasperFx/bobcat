@@ -117,4 +117,45 @@ public class GherkinTableColumnTests
 
         messages(typo).ShouldHaveSingleItem().ShouldContain("'Amont' has a value for a Deposited");
     }
+
+    [Fact]
+    public void the_event_group_assertions_check_each_row_against_its_own_event_type()
+    {
+        var exactly = run("""
+                              When OpenWallet is received
+                                | WalletId                             | Owner |
+                                | 11111111-1111-1111-1111-111111111111 | Ann   |
+                              Then exactly these events are emitted
+                                | Event        | Ownr |
+                                | WalletOpened | Ann  |
+                          """);
+
+        messages(exactly).ShouldHaveSingleItem().ShouldContain("'Ownr'");
+
+        var anyOrder = run("""
+                               When OpenWallet is received
+                                 | WalletId                             | Owner |
+                                 | 11111111-1111-1111-1111-111111111111 | Ann   |
+                               Then these events are emitted in any order
+                                 | Event        | Owner |
+                                 | WalletOpened | Ann   |
+                           """);
+
+        messages(anyOrder).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void not_emitted_checks_its_rows_against_the_captured_type()
+    {
+        var outcome = run("""
+                              When OpenWallet is received
+                                | WalletId                             | Owner |
+                                | 11111111-1111-1111-1111-111111111111 | Ann   |
+                              Then WalletOpened is not emitted
+                                | Ownr |
+                                | Bob  |
+                          """);
+
+        messages(outcome).ShouldHaveSingleItem().ShouldContain("'Ownr'");
+    }
 }
