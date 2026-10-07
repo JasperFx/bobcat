@@ -251,6 +251,8 @@
     <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
     <PackageVersion Include="TUnit.Core" Version="1.66.27" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <!-- Only the F# shape fixtures for the partial-object tests (bobcat#417); nothing shipped references it. -->
+    <PackageVersion Include="FSharp.Core" Version="9.0.303" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
   </ItemGroup>
 

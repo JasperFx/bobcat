@@ -699,6 +699,54 @@ worth keeping:
   wrong value read as a missing row beside an extra one — the exact confusion the paragraph above
   warns about. Depth is capped (`PropertyCells.MaxDepth`) so a cyclic graph cannot hang a comparison.
 
+### Partial objects: `Specify<T>()` and partial tables (`src/Bobcat/Partial/`, bobcat#416/#417)
+
+A spec names only the members it is about. A **partial object** (`IPartialObject`) is a type plus
+an ordered list of `SpecifiedValue(Path, Value, IsText)` — typed values from code, or cell text from
+a table, read later with `CellValues.Read` so `NULL`/`EMPTY`/relative times mean what they mean in
+every other table. Three ways to write one:
+
+- `Specify<T>().With(x => x.Prop, value)` (on `Fixture`, or `using static Bobcat.Specifications;`
+  anywhere). Nested: `.With(x => x.Address.City, …)` or `.With(x => x.Address, Specify<Address>()…)`.
+  `.With(nameof(T.Prop), value)` for a string path. **Refactor friendly by construction** — teach
+  this, and `nameof` in table headers, over bare strings.
+- `PartialObjects.FromTable(type, table)`: a horizontal table is one object per row; a vertical
+  `| field | value |` table (`PartialObjects.IsVertical`) is exactly one. **A blank cell is "not
+  specified"** (so one table can carry several types under a union header); `EMPTY` is the empty string.
+- `PartialObjects.FromCells(type, row)`.
+
+**Building** (`ObjectConstruction`) — constructor first, then members:
+
+1. Of the public constructors that can reach every specified member (by a parameter, or by a
+   settable/`init` member afterwards), take the one binding the most, then the one leaving fewest
+   parameters to fill, then the shortest. Structs also get their implicit constructor.
+2. Unbound parameters take their C# default, else the fill policy.
+3. Remaining specified members are assigned through setters or `init` accessors (reflection may call
+   `init`) — the gap `RecordBuilding` has: it sets nothing once a constructor binds.
+4. A `required` member nothing set, and a non-nullable reference member the type's own initializers
+   left null, get the fill policy's value. **A member the type initialized itself is left alone** —
+   that default is the author's.
+5. Spec defects throw `SpecCriticalException` naming the member: matches nothing (lists what the
+   type has), read-only and taken by no constructor, specified both whole and by members, an index path.
+
+**Unspecified values go through `IUnspecifiedValues`**; `PredictableValues` is the default: null
+where nullable (NRT annotations; *unknown* — F#, oblivious code — counts as non-nullable), `""`,
+empty collections, `None`, **a fresh `Guid`** (`Guid.Empty` collides identities), the Bobcat clock's
+now, an enum's first value, `default` otherwise; any other reference type is built empty, and a
+type already under construction is left null so a cycle terminates. **The policy is an open
+design question (bobcat#421: Bogus/AutoBogus vs Storyteller-style declared defaults)** — keep it
+behind the seam.
+
+**F# without FSharp.Core** (`FSharpShapes`, by type name): records and `[<CLIMutable>]` go through
+the constructor; `option`/`voption` (blank or `NULL` cell = `None`; an inner value is wrapped in
+`Some`); `list`/`Set` (comma-separated cell or any enumerable); `Map` (empty only); a single-case
+union with one field (`OrderId of Guid`) is built from its wrapped value. Multi-case unions are not
+supported yet. `src/Bobcat.Tests.FSharpTypes` holds real compiler-output shapes plus F#-authored
+`Specify` calls — test new shapes there, never with C# imitations.
+
+`RecordBuilding` (the Gherkin lane's builder) is **not yet** routed through this engine; that moves
+with the Gherkin child (#419). Matching on specified members only is #418.
+
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
 persistence sink, so a data-setup table needs almost no code. `[EfCoreEntities]`

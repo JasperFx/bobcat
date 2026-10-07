@@ -96,6 +96,13 @@ public abstract partial class Fixture
     protected T[] BuildRows<T>(StepTable table) => TableRunner.BuildRows<T>(table, Context);
 
     /// <summary>
+    /// Start a partial <typeparamref name="T"/>, specified by only the members a spec is about:
+    /// <c>Specify&lt;ShipmentConfirmed&gt;().With(x =&gt; x.TrackingNumber, "1Z999")</c> (bobcat#416).
+    /// <c>.Build()</c> makes the object, filling what was not specified.
+    /// </summary>
+    protected static Specified<T> Specify<T>() => Specifications.Specify<T>();
+
+    /// <summary>
     /// Compare a collection against a table of expected rows and render the comparison as a grid —
     /// <c>[SetVerification]</c> as a method call, for a step that is handed its table.
     /// </summary>

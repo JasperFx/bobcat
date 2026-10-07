@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Tests.FSharpTypes\Bobcat.Tests.FSharpTypes.fsproj" />
   </ItemGroup>
 
 
