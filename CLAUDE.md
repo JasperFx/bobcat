@@ -669,9 +669,8 @@ Everywhere else the declarative form is canonical where it reaches — `[SetVeri
 to configure: the columns come from the table and the subject from the method, so an attribute would
 carry no information. One consequence follows rather than being a separate choice — a column naming
 no property is an `invalid` cell **at run time**, because with no declarative form the generator
-never has the subject's type in view. **The cost knowingly paid:** a `[VerifyObject]`-style attribute
-*could* see the type and make an unknown column a BOBCAT030-style compile error. Revisit if a
-dogfooding pass wants that.
+never has the subject's type in view. **Superseded for constant tables (bobcat#415/#420):** the
+generator now recognizes the *call shape* instead of needing an attribute — see BOBCAT032 below.
 
 `PropertyCells` arrived as the engine behind two event-store grammars (`Then the {readmodel} read
 model contains`, `Then the {document} with id {string} has`) and is general-purpose; it is **not** a
@@ -746,6 +745,36 @@ supported yet. `src/Bobcat.Tests.FSharpTypes` holds real compiler-output shapes 
 
 `RecordBuilding` (the Gherkin lane's builder) is **not yet** routed through this engine; that moves
 with the Gherkin child (#419). Matching on specified members only is #418.
+
+### BOBCAT032: table columns checked at compile time (`TableColumns`, `TableCallChecks`, bobcat#415/#420)
+
+A **constant** table (literal, raw string, or a constant interpolated string such as
+`$"| {nameof(Order.Total)} |"` — evaluated with `SemanticModel.GetConstantValue`) whose columns do
+not name members of the type it is about is a build **error**. Recognized by call shape, not by
+attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is covered for free:
+
+| Call shape | Type checked | Rule (`TableColumns.ColumnRule`) |
+|---|---|---|
+| `(object subject, StepTable expected)` — `PropertyCells.Verify`, `Fixture.VerifyObject`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
+| `(IEnumerable actual, StepTable expected)` — `VerifySet`, `SetVerificationComparer.Verify` | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
+| `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
+| `Specified<T>.With("path", value)` | `T` | `Partial` |
+| shipped Gherkin steps (`Bobcat.CritterStack` methods with a `StepTable` and an `{event}`/`{command}`/`{readmodel}`/`{document}` capture) | the captured type | `Partial`; `events for {aggregate}` checks each row's non-blank cells against that row's `Event` type |
+
+Vertical `| field | value |` tables check the first-column values. Indexers are refused, depth is 8.
+
+**Skipped (left to the run-time `invalid` cell):** a non-constant table; a subject typed `object`,
+an interface, abstract, or a type parameter; and — for the two RUNTIME-type readers (property
+check, set) — an **open class**: one that is not a struct, sealed, or a record and that some type
+in the compilation or its non-framework references derives from (#415's option 1, chosen pending
+the user's call), because a subclass may legitimately carry the column. The same rule applies to
+each nested segment of a dotted path. A partial object builds exactly `T`, so it is always checked.
+A consumer's own Gherkin grammar is never checked — what its table means is its own business.
+
+**Rendering (#420):** a projected (Shouldly) assertion's sentence shows `nameof(Foo.Bar)` and constant
+interpolations by value (`"Bar"`), and a `Specify<T>().With(x => x.Bar, v)[.Build()]` argument as
+`T(Bar: v)` (`ArgumentText`). Those sentences are the only place the generator renders C# argument
+source; `[BobcatStep]` placeholders and marker comments already show run-time values/prose.
 
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row

@@ -206,6 +206,16 @@ public class StepMethodInfo
 
     /// <summary>Whether this step's return value is a named tuple to be compared element by element.</summary>
     public bool ComparesTuple => ReturnTupleElements.Count > 0;
+    /// <summary>
+    /// How BOBCAT032 checks this step's table against its type capture, for the shipped
+    /// CritterStack grammar only (bobcat#420): <c>"capture"</c> — every column is a member of the
+    /// step's one type capture (<c>{event} occurred</c>, <c>{command} is received</c>, a read model
+    /// or document check); <c>"event-column"</c> — each row names its own type in an <c>Event</c>
+    /// column (<c>events for {aggregate}</c>); null — not checked. A consumer's own grammar is
+    /// never checked: what its table means is its own business.
+    /// </summary>
+    public string? TableColumnCheck { get; set; }
+
     public bool IsTable { get; set; }
     public bool IsSetVerification { get; set; }
     public string SetVerificationKeyColumns { get; set; } = "";

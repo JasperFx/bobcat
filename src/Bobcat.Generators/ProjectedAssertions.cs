@@ -133,8 +133,11 @@ internal interface IAssertionDialect
     /// <summary>The thing being asserted about, as the author wrote it — the cell's name.</summary>
     string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation);
 
-    /// <summary>The whole claim as a sentence.</summary>
-    string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation);
+    /// <summary>
+    /// The whole claim as a sentence. <paramref name="model"/> evaluates constants written as
+    /// expressions — <c>nameof(Foo.Bar)</c> reads as <c>"Bar"</c> (bobcat#420).
+    /// </summary>
+    string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation, SemanticModel? model = null);
 
     /// <summary>
     /// Which of Bobcat's closed comparisons this assertion makes, or <b>null when it makes none
@@ -187,12 +190,12 @@ internal sealed class ShouldlyDialect : IAssertionDialect
     /// part of the claim, and reading it into the sentence would put the same words in twice.
     /// </para>
     /// </remarks>
-    public string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation)
+    public string Sentence(IMethodSymbol method, InvocationExpressionSyntax invocation, SemanticModel? model = null)
     {
         var subject = Subject(method, invocation);
 
         var verb = Prose(method.Name);
-        var arguments = Arguments(method, invocation);
+        var arguments = Arguments(method, invocation, model);
 
         return arguments.Length == 0 ? $"{subject} {verb}" : $"{subject} {verb} {arguments}";
     }
@@ -267,7 +270,7 @@ internal sealed class ShouldlyDialect : IAssertionDialect
         return words.ToString();
     }
 
-    private static string Arguments(IMethodSymbol method, InvocationExpressionSyntax invocation)
+    private static string Arguments(IMethodSymbol method, InvocationExpressionSyntax invocation, SemanticModel? model)
     {
         var written = invocation.ArgumentList.Arguments;
         var texts = new List<string>();
@@ -281,9 +284,101 @@ internal sealed class ShouldlyDialect : IAssertionDialect
             var parameter = i < method.Parameters.Length ? method.Parameters[i] : null;
             if (parameter != null && parameter.Name is "customMessage" or "customMessageFunc") continue;
 
-            texts.Add(written[i].Expression.ToString());
+            texts.Add(ArgumentText.Render(written[i].Expression, model));
         }
 
         return string.Join(", ", texts);
+    }
+}
+
+/// <summary>
+/// An argument as a reader should see it in a sentence (bobcat#420): the source text, except that a
+/// constant written as an expression shows its value — <c>nameof(Shipment.TrackingNumber)</c> is
+/// <c>"TrackingNumber"</c>, a constant interpolated string its text — and a partial object,
+/// <c>Specify&lt;T&gt;().With(x =&gt; x.Bar, 1)</c>, shows as <c>T(Bar: 1)</c>, only the members it names.
+/// </summary>
+internal static class ArgumentText
+{
+    public static string Render(ExpressionSyntax expression, SemanticModel? model)
+    {
+        if (specified(expression, model) is { } partial) return partial;
+
+        if (model != null && expression is not LiteralExpressionSyntax
+                          && (expression is InterpolatedStringExpressionSyntax || containsNameof(expression)))
+        {
+            var constant = model.GetConstantValue(expression);
+            if (constant.HasValue && constant.Value is string text)
+                return SymbolDisplay.FormatLiteral(text, quote: true);
+        }
+
+        return expression.ToString();
+    }
+
+    private static bool containsNameof(ExpressionSyntax expression)
+        => expression.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>()
+            .Any(i => i.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" });
+
+    /// <summary><c>T(Bar: 1, Baz: "x")</c> for a <c>Specify&lt;T&gt;()</c> chain, or null for anything else.</summary>
+    private static string? specified(ExpressionSyntax expression, SemanticModel? model)
+    {
+        var current = expression;
+
+        // A trailing .Build() makes the object; the sentence is about what was specified.
+        if (current is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Build" } build }
+            && ((InvocationExpressionSyntax)current).ArgumentList.Arguments.Count == 0)
+        {
+            current = build.Expression;
+        }
+
+        var members = new List<string>();
+        while (current is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "With" } with } call
+               && call.ArgumentList.Arguments.Count == 2)
+        {
+            var path = pathOf(call.ArgumentList.Arguments[0].Expression, model);
+            if (path is null) return null;
+
+            members.Insert(0, $"{path}: {Render(call.ArgumentList.Arguments[1].Expression, model)}");
+            current = with.Expression;
+        }
+
+        var start = current is InvocationExpressionSyntax { ArgumentList.Arguments.Count: 0 } root ? root.Expression : null;
+        var generic = start switch
+        {
+            GenericNameSyntax g => g,
+            MemberAccessExpressionSyntax { Name: GenericNameSyntax g } => g,
+            _ => null
+        };
+
+        if (generic is null || generic.Identifier.ValueText != "Specify" || generic.TypeArgumentList.Arguments.Count != 1)
+            return null;
+
+        var type = generic.TypeArgumentList.Arguments[0].ToString();
+        var dot = type.LastIndexOf('.');
+        if (dot >= 0) type = type.Substring(dot + 1);
+
+        return $"{type}({string.Join(", ", members)})";
+    }
+
+    /// <summary>The member path a <c>With</c> names: <c>x =&gt; x.Address.City</c>, or a constant string path.</summary>
+    private static string? pathOf(ExpressionSyntax expression, SemanticModel? model)
+    {
+        if (expression is SimpleLambdaExpressionSyntax { ExpressionBody: { } body } lambda)
+        {
+            var parts = new List<string>();
+            var current = body;
+            while (current is MemberAccessExpressionSyntax member)
+            {
+                parts.Insert(0, member.Name.Identifier.ValueText);
+                current = member.Expression;
+            }
+
+            return current is IdentifierNameSyntax id && id.Identifier.ValueText == lambda.Parameter.Identifier.ValueText
+                                                      && parts.Count > 0
+                ? string.Join(".", parts)
+                : null;
+        }
+
+        if (model?.GetConstantValue(expression) is { HasValue: true, Value: string path }) return path;
+        return expression is LiteralExpressionSyntax literal ? literal.Token.ValueText : null;
     }
 }
