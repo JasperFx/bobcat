@@ -77,6 +77,38 @@ internal static class SpecHost
             return 0;
         }
 
+        // No step is known before a run — a suite whose steps are recorded as it runs (a library's
+        // Given/When/Then helpers, rather than marker comments or [BobcatStep] calls). Its manifest
+        // still names every specification, so the preview is the outline.
+        SpecManifest? manifest = null;
+        try
+        {
+            manifest = await OutOfProcessResidentSuite.Listing(project.HostPath, token: token);
+        }
+        catch (InvalidOperationException)
+        {
+            // Not a projected suite at all; the host's own output below says why
+        }
+
+        if (manifest is { Identities.Count: > 0 })
+        {
+            foreach (var feature in manifest.Identities.GroupBy(x => Split(x).Feature).OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"[bold]Feature: {Markup.Escape(feature.Key)}[/]");
+                foreach (var identity in feature.OrderBy(x => x, StringComparer.Ordinal))
+                {
+                    AnsiConsole.MarkupLine($"  [dim]○[/] {Markup.Escape(Split(identity).Scenario)}");
+                }
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine(
+                $"[bold]{manifest.Identities.Count} specification(s)[/] [dim]— their steps are recorded as they run, so only "
+                + "scenarios can be shown before a run. Marker comments (// Given …) declare steps a preview can show.[/]");
+            return 0;
+        }
+
         AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(project.Name)} previewed nothing (exit {code}). The end of its output:[/]");
         foreach (var line in File.ReadLines(log).TakeLast(30)) System.Console.WriteLine(line);
         return code == 0 ? 1 : code;
