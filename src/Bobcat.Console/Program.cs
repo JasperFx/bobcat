@@ -19,6 +19,12 @@ var executor = CommandExecutor.For(factory =>
 {
     factory.RegisterCommand<ImportEventModelCommand>();
     factory.RegisterCommand<ResidentCommand>();
+
+    // Running a spec project and reading its specifications: run, preview, pick, watch
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecRunCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecPreviewCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecPickCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecWatchCommand>();
     factory.SetAppName("bobcat");
 
     // `resident` decides its own exit code, and JasperFx's true/false cannot carry it: a restart
