@@ -396,7 +396,7 @@ internal static class StepInterceptors
 
         call.Subject = dialect.Subject(method, invocation);
         call.Comparison = dialect.ComparisonOf(method);
-        call.Template = dialect.Sentence(method, invocation);
+        call.Template = dialect.Sentence(method, invocation, ctx.SemanticModel);
         call.StepText = call.Template;
 
         return call;
