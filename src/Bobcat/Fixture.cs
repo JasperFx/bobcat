@@ -158,6 +158,12 @@ public abstract partial class Fixture
         => SetVerificationComparer.Verify(actual, expected, Context, keyColumns, ordered, column);
 
     /// <summary>
+    /// Compare <paramref name="subject"/> against a partial object, judging and showing only the
+    /// members it names: <c>VerifyObject(order, Specify&lt;Order&gt;().With(x =&gt; x.Total, 12.5m))</c>.
+    /// </summary>
+    protected TableRun VerifyObject(object subject, IPartialObject expected) => PropertyCells.Verify(subject, expected, Context);
+
+    /// <summary>
     /// Compare one object against one table row — Storyteller's <c>VerifyObject</c> /
     /// <c>CheckPropertyGrammar</c>, as a method call (issue #395).
     /// </summary>

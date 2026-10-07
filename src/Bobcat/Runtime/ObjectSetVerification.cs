@@ -35,6 +35,9 @@ public static class ObjectSetVerification
 {
     public const string ValuesColumn = "values";
 
+    /// <summary>The cell an <see cref="Absent"/> check adds to a row whose forbidden item was found.</summary>
+    public const string PresentCell = "present-row";
+
     /// <param name="actual">What the system produced, in the order it produced it.</param>
     /// <param name="expected">What the specification expects, as plain values (unwrapped).</param>
     /// <param name="compare">
@@ -49,37 +52,71 @@ public static class ObjectSetVerification
         Func<object, int, IReadOnlyList<ValueDifference>> compare,
         string noun,
         bool ordered = true)
-    {
-        var pairs = new int[expected.Count];
-        Array.Fill(pairs, -1);
-        var differences = new IReadOnlyList<ValueDifference>?[expected.Count];
-        var used = new HashSet<int>();
+        => Cells(actual, expected, compare, noun, ordered ? SetMode.Ordered : SetMode.AnyOrder);
 
-        // Pass 1: exact matches, earliest first
+    /// <summary>
+    /// Verify <paramref name="actual"/> against <paramref name="expected"/>, where each expected item is
+    /// a whole object, an <see cref="IExpectedValue"/>, or a partial object judged only on the members it
+    /// names (bobcat#418).
+    /// </summary>
+    public static TableRun Verify(IReadOnlyList<object> actual, IReadOnlyList<object> expected, string noun,
+        SetMode mode = SetMode.Ordered)
+        => Cells(actual, expected, (item, i) => PartialMatching.Differences(item, expected[i]), noun, mode);
+
+    /// <summary>
+    /// The general form: <paramref name="expected"/> items may be whole objects, <see cref="IExpectedValue"/>s
+    /// or partial objects; <paramref name="mode"/> says whether order matters and whether items nobody
+    /// expected are allowed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pairing is a maximum matching, not first come first served.</b> With partial objects one actual
+    /// item can satisfy two expectations — two <c>ShipmentConfirmed</c>s where one expectation names only
+    /// the carrier — and pairing greedily would then report a MISSING row that a different pairing
+    /// avoids. Exact pairs are chosen by augmenting paths (Kuhn's algorithm), trying actual items in the
+    /// order they happened, so the result never depends on the order the expectations were written in.
+    /// </remarks>
+    public static TableRun Cells(
+        IReadOnlyList<object> actual,
+        IReadOnlyList<object> expected,
+        Func<object, int, IReadOnlyList<ValueDifference>> compare,
+        string noun,
+        SetMode mode)
+    {
+        var exact = new bool[expected.Count, actual.Count];
         for (var i = 0; i < expected.Count; i++)
         {
+            var type = PartialMatching.ExpectedType(expected[i]);
             for (var j = 0; j < actual.Count; j++)
             {
-                if (used.Contains(j) || actual[j].GetType() != expected[i].GetType()) continue;
-                if (compare(actual[j], i).Count > 0) continue;
-
-                pairs[i] = j;
-                used.Add(j);
-                break;
+                exact[i, j] = actual[j].GetType() == type && compare(actual[j], i).Count == 0;
             }
         }
+
+        var pairs = new int[expected.Count];
+        Array.Fill(pairs, -1);
+        var owner = new int[actual.Count];
+        Array.Fill(owner, -1);
+
+        // Pass 1: exact matches, as many as any pairing can make
+        for (var i = 0; i < expected.Count; i++)
+        {
+            augment(i, exact, pairs, owner, new bool[actual.Count]);
+        }
+
+        var differences = new IReadOnlyList<ValueDifference>?[expected.Count];
 
         // Pass 2: the same type with different values — a FAIL row, not MISSING beside EXTRA
         for (var i = 0; i < expected.Count; i++)
         {
             if (pairs[i] >= 0) continue;
+            var type = PartialMatching.ExpectedType(expected[i]);
             for (var j = 0; j < actual.Count; j++)
             {
-                if (used.Contains(j) || actual[j].GetType() != expected[i].GetType()) continue;
+                if (owner[j] >= 0 || actual[j].GetType() != type) continue;
 
                 pairs[i] = j;
+                owner[j] = i;
                 differences[i] = compare(actual[j], i);
-                used.Add(j);
                 break;
             }
         }
@@ -92,25 +129,26 @@ public static class ObjectSetVerification
         for (var i = 0; i < expected.Count; i++, row++)
         {
             var item = expected[i];
+            var typeName = PartialMatching.ExpectedType(item).Name;
 
             if (pairs[i] < 0)
             {
                 run.Cells.Add(new CellResult("missing-row", ResultStatus.missing)
                 {
-                    Note = $"Expected {item.GetType().Name} was not found",
+                    Note = $"Expected {typeName} was not found",
                     RowIndex = row
                 });
-                run.Cells.Add(new CellResult(noun, ResultStatus.ok) { Expected = item.GetType().Name, RowIndex = row });
-                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Expected = ScenarioValues.DescribeProperties(item), RowIndex = row });
+                run.Cells.Add(new CellResult(noun, ResultStatus.ok) { Expected = typeName, RowIndex = row });
+                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.ok) { Expected = PartialMatching.DescribeExpected(item), RowIndex = row });
                 continue;
             }
 
             var position = pairs[i];
-            if (ordered && position < furthest)
+            if (mode == SetMode.Ordered && position < furthest)
             {
                 run.Cells.Add(new CellResult(SetVerificationComparer.OutOfOrderCell, ResultStatus.failed)
                 {
-                    Note = $"Out of order: {item.GetType().Name} was appended at position {position + 1}, "
+                    Note = $"Out of order: {typeName} was appended at position {position + 1}, "
                            + $"before one the specification writes ahead of it (position {furthest + 1})",
                     RowIndex = row
                 });
@@ -120,7 +158,7 @@ public static class ObjectSetVerification
 
             run.Cells.Add(new CellResult(noun, ResultStatus.success)
             {
-                Expected = item.GetType().Name,
+                Expected = typeName,
                 Actual = actual[position].GetType().Name,
                 RowIndex = row
             });
@@ -138,19 +176,23 @@ public static class ObjectSetVerification
             {
                 // Shows what HAPPENED. The two agree on everything the comparison judged, but a member
                 // the caller chose to ignore — a minted timestamp — only has a real value on this side.
-                var happened = ScenarioValues.DescribeProperties(actual[position]);
+                // For a partial expectation it is only the members the expectation names.
+                var happened = PartialMatching.DescribeActual(actual[position], item);
                 run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success, happened)
                 {
-                    Expected = ScenarioValues.DescribeProperties(item),
+                    Expected = PartialMatching.DescribeExpected(item),
                     Actual = happened,
                     RowIndex = row
                 });
             }
         }
 
+        // A Contains check allows what nobody expected, so it is neither judged nor shown
+        if (mode == SetMode.Contains) return run;
+
         for (var j = 0; j < actual.Count; j++)
         {
-            if (used.Contains(j)) continue;
+            if (owner[j] >= 0) continue;
 
             run.Cells.Add(new CellResult("extra-row", ResultStatus.invalid)
             {
@@ -166,6 +208,67 @@ public static class ObjectSetVerification
     }
 
     /// <summary>
+    /// Nothing in <paramref name="actual"/> matches any of <paramref name="forbidden"/> — each a
+    /// <see cref="Type"/> (no item of that type at all), a partial object (none that agrees on the
+    /// members it names), or a whole object. One row per forbidden item: <c>success</c> when absent,
+    /// failed with what was found when present.
+    /// </summary>
+    public static TableRun Absent(IReadOnlyList<object> actual, IReadOnlyList<object> forbidden, string noun)
+    {
+        var run = new TableRun([noun, ValuesColumn]);
+        for (var i = 0; i < forbidden.Count; i++)
+        {
+            var item = forbidden[i];
+            var type = PartialMatching.ExpectedType(item);
+            var found = actual.FirstOrDefault(a => item is Type ? a.GetType() == type : PartialMatching.Matches(a, item));
+            var expected = PartialMatching.DescribeExpected(item);
+
+            if (found is null)
+            {
+                run.Cells.Add(new CellResult(noun, ResultStatus.success, type.Name) { Expected = type.Name, RowIndex = i });
+                run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success, expected) { Expected = expected, RowIndex = i });
+                continue;
+            }
+
+            var position = actual.ToList().IndexOf(found);
+            run.Cells.Add(new CellResult(PresentCell, ResultStatus.failed)
+            {
+                Note = $"{type.Name} was not expected, but one was appended at position {position + 1}",
+                RowIndex = i
+            });
+            run.Cells.Add(new CellResult(noun, ResultStatus.failed) { Expected = type.Name, Actual = type.Name, RowIndex = i });
+            run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.failed)
+            {
+                Expected = expected,
+                Actual = item is Type ? ScenarioValues.DescribeProperties(found) : PartialMatching.DescribeActual(found, item),
+                RowIndex = i
+            });
+        }
+
+        return run;
+    }
+
+    // Kuhn's augmenting path: give expectation i an actual item, moving an earlier pairing to another
+    // item it also matches when that frees one up.
+    private static bool augment(int i, bool[,] exact, int[] pairs, int[] owner, bool[] visited)
+    {
+        for (var j = 0; j < owner.Length; j++)
+        {
+            if (!exact[i, j] || visited[j]) continue;
+            visited[j] = true;
+
+            if (owner[j] < 0 || augment(owner[j], exact, pairs, owner, visited))
+            {
+                pairs[i] = j;
+                owner[j] = i;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The disagreements in <paramref name="run"/> as sentences, one per row — the message a test
     /// throws when no scenario is recording to show the grid.
     /// </summary>
@@ -178,7 +281,9 @@ public static class ObjectSetVerification
             string? text(string column, bool expected)
                 => cells.FirstOrDefault(c => c.Name == column) is { } c ? expected ? c.Expected : c.Actual : null;
 
-            if (cells.Any(c => c.Name == "missing-row"))
+            if (cells.FirstOrDefault(c => c.Name == PresentCell) is { } present)
+                problems.Add($"PRESENT {text(noun, false)}({text(ValuesColumn, false)}): {present.Note}");
+            else if (cells.Any(c => c.Name == "missing-row"))
                 problems.Add($"MISSING {text(noun, true)}({text(ValuesColumn, true)})");
             else if (cells.Any(c => c.Name == "extra-row"))
                 problems.Add($"EXTRA {text(noun, false)}({text(ValuesColumn, false)})");
@@ -190,4 +295,17 @@ public static class ObjectSetVerification
 
         return problems;
     }
+}
+
+/// <summary>How a set of objects is matched against its expectations.</summary>
+public enum SetMode
+{
+    /// <summary>Exactly these, in this order: unexpected items are EXTRA, misplaced ones ORDER.</summary>
+    Ordered,
+
+    /// <summary>Exactly these, in any order: unexpected items are EXTRA.</summary>
+    AnyOrder,
+
+    /// <summary>These, in any order, among whatever else there is: nothing is EXTRA.</summary>
+    Contains
 }

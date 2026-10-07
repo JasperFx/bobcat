@@ -47,6 +47,34 @@ public static class PropertyCells
         return run;
     }
 
+    /// <summary>
+    /// Compare <paramref name="subject"/> against a partial object — <c>Specify&lt;T&gt;()</c> or a table
+    /// row — judging and showing only the members it names (bobcat#418), and report the grid.
+    /// </summary>
+    public static TableRun Verify(object subject, IPartialObject expected, IStepContext? context = null)
+    {
+        var run = new TableRun(expected.Values.Select(v => v.Path).ToList());
+        var differences = PartialMatching.Differences(subject, expected)
+            .ToDictionary(d => d.Path, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var value in expected.Values)
+        {
+            var shown = Resolve(subject, value.Path) is { Kind: PathResultKind.Found } found
+                ? ScenarioValues.Format(ObjectComparison.Unwrap(found.Value))
+                : CellTokens.Null;
+
+            run.Cells.Add(differences.TryGetValue(value.Path, out var difference)
+                ? new CellResult(value.Path, ResultStatus.failed)
+                {
+                    Expected = ScenarioValues.Format(difference.Expected), Actual = shown, RowIndex = 0
+                }
+                : new CellResult(value.Path, ResultStatus.success, shown) { Expected = shown, Actual = shown, RowIndex = 0 });
+        }
+
+        run.Report(context);
+        return run;
+    }
+
     /// <summary>The comparison itself, with nothing to report it to.</summary>
     public static TableRun Cells(object subject, StepTable expected)
     {
