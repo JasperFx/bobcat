@@ -17,12 +17,17 @@ namespace Bobcat.EventModel;
 /// The imported model is red until the behaviour exists, and that is the point.
 /// </para>
 /// <para>
-/// <b>A stub carries only the fields the board names.</b> When a step declares props
-/// (<c>email: string</c>) or a test gives an element example values, the stub is a positional
-/// record of exactly those fields, typed from the declaration or inferred from the sample, and
-/// <c>string</c> when neither says more (issue #422). When the board names none, the stub is
-/// field-less: <c>public record AppointmentConfirmed;</c> is then the whole truth about it, and
-/// inventing an <c>Id</c> would be a guess every consumer would have to un-guess.
+/// <b>A stub carries only the fields the board names, plus an <c>Id</c> where it names no identity.</b>
+/// When a step declares props (<c>email: string</c>) or a test gives an element example values, the
+/// stub is a positional record of exactly those fields, typed from the declaration or inferred from
+/// the sample, and <c>string</c> when neither says more (issue #422). A command, aggregate or read
+/// model whose model marks no identity also gets <c>Guid Id</c> (bobcat#438): that is Wolverine's own
+/// naming convention, so a generated specification can address the stream and a handler's
+/// <c>[WriteAggregate]</c> resolves it with nothing declared. Events get no invented fields.
+/// </para>
+/// <para>
+/// <b>One file per slice, in a folder and namespace per chapter</b> (bobcat#441, see
+/// <see cref="ModelLayout"/>). The definition stays one file in the root namespace.
 /// </para>
 /// <para>
 /// <b>Everything goes through <see cref="ISourceWriter"/></b>, the same rule Wolverine's
@@ -42,26 +47,19 @@ namespace Bobcat.EventModel;
 /// </remarks>
 public static class CSharpModelWriter
 {
-    /// <summary>What <see cref="Write"/> produced: the stub file and the definition file.</summary>
-    /// <param name="Stubs">
-    /// The stub records, as one file. One file rather than one per type because a board names
-    /// dozens and a stub is a single line — a directory of 40 one-line files is harder to review
-    /// than one list, and this is a file whose whole purpose is to be reviewed and then edited
-    /// apart as the real types grow.
+    /// <summary>What <see cref="Write"/> produced: the stub files and the definition file.</summary>
+    /// <param name="StubFiles">
+    /// The stubs, one file per slice in a folder per chapter (bobcat#441), each path relative to the
+    /// output directory: <c>Features/{Chapter}/{Slice}.cs</c> holds the slice's command (or read
+    /// model) and the events it emits, and a type no slice produces gets a file of its own. This is
+    /// the file <c>wolverine scaffold</c> adds the handler to, so a command and its handler end up
+    /// side by side rather than in one list nobody wants to work in.
     /// </param>
-    /// <param name="Definition">The <c>EventModelDefinition</c> subclass.</param>
-    /// <param name="StubCount">How many stub records were written.</param>
-    public sealed record Output(string Stubs, string Definition, int StubCount);
+    /// <param name="Definition">The <c>EventModelDefinition</c> subclass, one file in the root namespace.</param>
+    /// <param name="StubCount">How many stub types were written.</param>
+    /// <param name="Layout">Where each type went, for anything that has to <c>using</c> it.</param>
+    public sealed record Output(IReadOnlyList<GeneratedFile> StubFiles, string Definition, int StubCount, ModelLayout Layout);
 
-    /// <summary>
-    /// Render <paramref name="model"/> as C#.
-    /// </summary>
-    /// <param name="model">The imported model, from <c>EmlangImport.ToCurated</c>.</param>
-    /// <param name="namespaceName">
-    /// Namespace for both files. Defaults to the model's own <c>Namespace</c>, then to the model
-    /// name — never to the global namespace, because a stub record in the global namespace is a
-    /// name collision waiting for the second import.
-    /// </param>
     public static Output Write(ImportedEventModel model, string? namespaceName = null)
         => Write(model, namespaceName, null);
 
@@ -101,10 +99,18 @@ public static class CSharpModelWriter
         var documents = (additions?.Documents ?? []).ToHashSet(StringComparer.Ordinal);
 
         var extra = additions?.Fields ?? new Dictionary<string, IReadOnlyList<StubField>>();
+        var layout = Layout(model, ns, additions);
 
-        return new Output(writeStubs(ns, model, stubs, streams, documents, extra), writeDefinition(ns, model, stubs),
-            stubs.Count + streams.Count);
+        return new Output(writeStubs(layout, model, stubs, streams, documents, extra), writeDefinition(ns, model, stubs, layout),
+            stubs.Count + streams.Count, layout);
     }
+
+    /// <summary>
+    /// Where <see cref="Write(ImportedEventModel, string?, StubAdditions?)"/> puts every type, so a
+    /// specification writer can <c>using</c> the same namespaces before the stubs are written.
+    /// </summary>
+    public static ModelLayout Layout(ImportedEventModel model, string ns, StubAdditions? additions = null)
+        => ModelLayout.For(model, ns, (additions?.Streams ?? []).Concat(additions?.Elements ?? []));
 
     /// <summary>
     /// Every type name the board named, in the order a reader would expect: aggregates, then
@@ -150,65 +156,128 @@ public static class CSharpModelWriter
         return names;
     }
 
-    private static string writeStubs(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
+    private static IReadOnlyList<GeneratedFile> writeStubs(ModelLayout layout, ImportedEventModel model, IReadOnlyList<string> stubs,
         IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra)
     {
-        using var writer = new SourceWriter();
+        var aggregates = model.Slices.SelectMany(s => s.Aggregates)
+            .Select(x => Identifiers.Sanitize(x ?? ""))
+            .Concat(streams)
+            .ToHashSet(StringComparer.Ordinal);
 
-        writer.WriteLine("// Imported from an event model by `bobcat import-event-model`.");
-        writer.WriteLine("//");
-        writer.WriteLine("// A stub has only the fields the model names, typed from what it declares or from its");
-        writer.WriteLine("// example values; one the model gives no fields is field-less. Add the rest as the");
-        writer.WriteLine("// behaviour takes shape. Nothing regenerates this file, so your edits are safe.");
-        writer.BlankLine();
-
-        var fields = stubs.ToDictionary(x => x, x =>
+        var fields = stubs.Concat(streams).Distinct(StringComparer.Ordinal).ToDictionary(x => x, x =>
         {
             var named = FieldsOf(model, x)
                 .Concat(extra.GetValueOrDefault(x) ?? [])
                 .ToList();
 
-            // A document the specs load by id needs one; an id the model never names is a Guid
-            return documents.Contains(x) && named.All(f => f.Name != "Id")
-                ? [new StubField("Id", "Guid"), .. named]
-                : named;
+            // bobcat#438: a command, aggregate or read model the model gives no identity is
+            // identified by Id, Wolverine's own convention, so a specification can address it and
+            // [WriteAggregate] resolves it with nothing declared. A document the specs load by id
+            // needs one whatever its kind.
+            var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
+            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", "Guid"), .. named];
+
+            // An Id a specification added comes first too, where a reader looks for the identity
+            return named.FirstOrDefault(f => f.Name == "Id") is { } id ? [id, .. named.Where(f => f != id)] : named;
         }, StringComparer.Ordinal);
-        if (fields.Values.Any(x => x.Count > 0) || streams.Count > 0)
+
+        var files = new List<GeneratedFile>();
+        foreach (var group in stubs.Concat(streams).Distinct(StringComparer.Ordinal).GroupBy(layout.FileOf))
         {
-            writer.WriteLine("using System;");
-            if (fields.Values.Any(x => x.Any(f => f.Type.StartsWith("List<", StringComparison.Ordinal))))
+            var types = group.ToList();
+            using var writer = new SourceWriter();
+
+            writer.WriteLine("// Imported from an event model by `bobcat import-event-model`.");
+            writer.WriteLine("//");
+            writer.WriteLine("// A stub has only the fields the model names, typed from what it declares or from its");
+            writer.WriteLine("// example values, plus an Id where the model names no identity. Add the rest as the");
+            writer.WriteLine("// behaviour takes shape. Nothing regenerates this file, so your edits are safe.");
+            writer.BlankLine();
+
+            var typeFields = types.SelectMany(x => fields[x]).ToList();
+            if (typeFields.Count > 0)
             {
-                writer.WriteLine("using System.Collections.Generic;");
+                writer.WriteLine("using System;");
+                if (typeFields.Any(f => f.Type.StartsWith("List<", StringComparison.Ordinal)))
+                {
+                    writer.WriteLine("using System.Collections.Generic;");
+                }
+                writer.BlankLine();
             }
+
+            writer.WriteLine($"namespace {layout.NamespaceOf(types[0])};");
             writer.BlankLine();
+
+            foreach (var name in types)
+            {
+                foreach (var line in describe(model, name)) writer.WriteLine($"/// {line}");
+                if (aggregates.Contains(name))
+                {
+                    if (!describe(model, name).Any()) writer.WriteLine("/// <summary>A stream the generated specifications arrange events on.</summary>");
+                    writeAggregate(writer, name, fields[name]);
+                }
+                else
+                {
+                    writer.WriteLine(fields[name].Count == 0
+                        ? $"public record {name};"
+                        : $"public record {name}({string.Join(", ", fields[name].Select(x => $"{x.Type} {x.Name}"))});");
+                }
+
+                writer.BlankLine();
+            }
+
+            files.Add(new GeneratedFile(group.Key, writer.Code()));
         }
 
-        writer.WriteLine($"namespace {ns};");
-        writer.BlankLine();
+        return files;
+    }
 
-        if (stubs.Count == 0 && streams.Count == 0)
+    /// <summary>
+    /// An aggregate is a class with settable properties rather than a positional record: it is the
+    /// write model the event store folds, and every Critter Stack store (Marten, Polecat, Fisher)
+    /// builds one from an <c>Id</c> and its events the same way.
+    /// </summary>
+    private static void writeAggregate(ISourceWriter writer, string name, IReadOnlyList<StubField> fields)
+    {
+        if (fields.Count == 1 && fields[0].Name == "Id")
         {
-            writer.WriteLine("// The board named no commands, events, aggregates or views.");
-            return writer.Code();
+            writer.WriteLine($"public class {name} {{ public Guid Id {{ get; set; }} }}");
+            return;
         }
 
-        foreach (var name in stubs)
+        writer.Write($"BLOCK:public class {name}");
+        foreach (var field in fields)
         {
-            foreach (var line in describe(model, name)) writer.WriteLine($"/// {line}");
-            writer.WriteLine(fields[name].Count == 0
-                ? $"public record {name};"
-                : $"public record {name}({string.Join(", ", fields[name].Select(x => $"{x.Type} {x.Name}"))});");
-            writer.BlankLine();
+            writer.WriteLine($"public {field.Type} {field.Name} {{ get; set; }}{(field.Type.StartsWith("List<", StringComparison.Ordinal) ? " = [];" : field.Type == "string" ? " = string.Empty;" : "")}");
         }
+        writer.FinishBlock();
+    }
 
-        foreach (var stream in streams)
-        {
-            writer.WriteLine("/// <summary>A stream the generated specifications arrange events on.</summary>");
-            writer.WriteLine($"public class {stream} {{ public Guid Id {{ get; set; }} }}");
-            writer.BlankLine();
-        }
+    /// <summary>
+    /// Whether <paramref name="stub"/> gets the conventional <c>Id</c> (bobcat#438): a command,
+    /// aggregate or read model the model names no identity for. An identity is a field the model
+    /// marks (<c>idAttribute</c>), one already called <c>Id</c> or <c>AggregateId</c>, or the
+    /// <c>{Aggregate}Id</c> of the aggregate its slice declares. Events never get one: an event's
+    /// stream is where it is stored, not a field it carries.
+    /// </summary>
+    public static bool GetsDefaultId(ImportedEventModel model, string stub, IReadOnlyList<StubField>? fields = null)
+    {
+        var commandSlices = model.Slices.Where(s => Identifiers.Sanitize(s.Command ?? "") == stub).ToList();
+        var isCommand = commandSlices.Count > 0;
+        var isReadModel = model.Slices.Any(s => s.ReadModels.Concat(s.ReadsFrom).Any(x => Identifiers.Sanitize(x ?? "") == stub));
+        var isAggregate = model.Slices.Any(s => s.Aggregates.Any(x => Identifiers.Sanitize(x ?? "") == stub));
+        if (!isCommand && !isReadModel && !isAggregate) return false;
 
-        return writer.Code();
+        fields ??= FieldsOf(model, stub);
+        if (fields.Any(f => f.Name is "Id" or "AggregateId")) return false;
+
+        var marked = model.Slices
+            .SelectMany(s => s.Elements)
+            .Any(x => Identifiers.Sanitize(x.Key) == stub && x.Value.Identities.Count > 0);
+        if (marked) return false;
+
+        var streamIds = commandSlices.SelectMany(s => s.Aggregates).Select(a => Identifiers.Sanitize(a ?? "") + "Id");
+        return !fields.Any(f => streamIds.Contains(f.Name));
     }
 
     /// <summary>One field of a stub record, as the writer emits it.</summary>
@@ -314,7 +383,7 @@ public static class CSharpModelWriter
         return string.Equals(name, last, StringComparison.Ordinal) ? name + "EventModel" : name;
     }
 
-    private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs)
+    private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs, ModelLayout layout)
     {
         var className = DefinitionClassName(model.Model, ns);
 
@@ -328,6 +397,7 @@ public static class CSharpModelWriter
         writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
         writer.BlankLine();
         writer.WriteLine("using JasperFx.Events.EventModeling;");
+        foreach (var chapter in layout.Namespaces.Where(x => x != ns)) writer.WriteLine($"using {chapter};");
         writer.BlankLine();
         writer.WriteLine($"namespace {ns};");
         writer.BlankLine();

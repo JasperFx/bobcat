@@ -18,12 +18,18 @@ public class ImportEventModelInput
     [Description("Namespace for the generated stubs and definition; defaults to the model name")]
     public string? NamespaceFlag { get; set; }
 
-    [Description("Directory the generated C# is written to; defaults beside the input")]
+    [Description("Directory the generated C# is written to, normally the application project: Features/{Chapter}/{Slice}.cs and the definition. Defaults beside the input")]
     [FlagAlias("out", 'o')]
     public string? OutFlag { get; set; }
 
     [Description("Also write a WolverineFx.Bobcat specification for every example (test) in the model (bobcat#423)")]
     public bool SpecsFlag { get; set; }
+
+    [Description("Directory the specification files are written to; defaults to a sibling of --out named for the spec namespace, e.g. ../CritterCrush.Specs")]
+    public string? SpecsOutFlag { get; set; }
+
+    [Description("Root namespace of the specifications, which should be the spec project's name; defaults to '<namespace>.Specs'. Each chapter folder adds a segment")]
+    public string? SpecsNamespaceFlag { get; set; }
 
     [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
     public bool ForceFlag { get; set; }
@@ -35,9 +41,10 @@ public class ImportEventModelInput
 
 /// <summary>
 /// <c>bobcat import-event-model &lt;file&gt;</c> — read an emlang model, segment it, and write the
-/// design out as <b>C#</b>: stub records with the fields the model names, plus one
-/// <c>EventModelDefinition</c> (issues #202, #405, #422). With <c>--specs</c>, also one
-/// WolverineFx.Bobcat specification per example in the model (bobcat#423). Nothing is overwritten
+/// design out as <b>C#</b>: stub records with the fields the model names, one file per slice in a
+/// folder per chapter (bobcat#441), plus one <c>EventModelDefinition</c> (issues #202, #405, #422).
+/// With <c>--specs</c>, also one WolverineFx.Bobcat specification per example in the model
+/// (bobcat#423), as <c>TestSupport.cs</c> and one file per slice (bobcat#440). Nothing is overwritten
 /// without <c>--force</c>; a second <c>--specs</c> run reports the examples with no specification. Optionally pushes the assembled model to a run
 /// console, which lives in Stoat since the 2026-09-18 fold; this side is only ever an HTTP client
 /// of it.
@@ -151,26 +158,25 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var ns = input.NamespaceFlag
                  ?? CSharpModelWriter.Identifiers.Sanitize(model);
-        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns) : null;
+        var specsNamespace = input.SpecsNamespaceFlag ?? ns + ".Specs";
+        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace) : null;
         var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions);
 
-        // --out names a DIRECTORY now, because the import writes two files. It may not exist yet:
-        // letting File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack
-        // AFTER the segmentation report had printed and looked like success (issue #369), so
-        // creating it is the friendlier reading of "write the generated code here".
-        var outDirectory = input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!;
+        // --out names a DIRECTORY, the application project's. It may not exist yet: letting
+        // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the
+        // segmentation report had printed and looked like success (issue #369), so creating it is
+        // the friendlier reading of "write the generated code here".
+        var outDirectory = Path.GetFullPath(input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!);
         Directory.CreateDirectory(outDirectory);
-
-        var stubsPath = Path.Combine(outDirectory, $"{model}Stubs.cs");
-        var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
 
         // Nothing is overwritten without --force (bobcat#423): these files are where the design
         // is corrected, so a second run must not throw the corrections away
-        if (write(stubsPath, generated.Stubs, input.ForceFlag))
-        {
-            System.Console.WriteLine($"Wrote {generated.StubCount} stub record(s) to {stubsPath}.");
-        }
+        var (written, kept) = writeAll(outDirectory, generated.StubFiles, input.ForceFlag);
+        System.Console.WriteLine(
+            $"Wrote {generated.StubCount} stub type(s) in {written} file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
+            + (kept > 0 ? $"; kept {kept} that already exist (--force overwrites them)." : "."));
 
+        var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
         if (write(definitionPath, generated.Definition, input.ForceFlag))
         {
             System.Console.WriteLine(
@@ -178,9 +184,36 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
                 + "so correct one with an edit rather than a re-import.");
         }
 
-        if (specs is not null) writeSpecs(result.Model, specs, Path.Combine(outDirectory, $"{model}Specs.cs"), input.ForceFlag);
+        if (specs is not null)
+        {
+            var specsDirectory = Path.GetFullPath(input.SpecsOutFlag
+                                                  ?? Path.Combine(Path.GetDirectoryName(outDirectory) ?? outDirectory, specsNamespace));
+            writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag);
+        }
 
         return result.Model;
+    }
+
+    /// <returns>How many files were written and how many already existed and were kept.</returns>
+    private static (int Written, int Kept) writeAll(string directory, IEnumerable<GeneratedFile> files, bool force)
+    {
+        var written = 0;
+        var kept = 0;
+        foreach (var file in files)
+        {
+            var path = Path.Combine(directory, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(path) && !force)
+            {
+                kept++;
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, file.Content, Encoding.UTF8);
+            written++;
+        }
+
+        return (written, kept);
     }
 
     /// <returns>Whether the file was written; an existing one is kept, and said so, unless <paramref name="force"/>.</returns>
@@ -196,23 +229,24 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         return true;
     }
 
-    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string path, bool force)
+    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string directory, bool force)
     {
         foreach (var line in specs.Report) System.Console.WriteLine(line);
 
-        if (write(path, specs.Code, force))
-        {
-            System.Console.WriteLine(
-                $"Wrote {specs.Specs} specification(s) in {specs.Features} feature(s) to {path}. Start the "
-                + "application's host in its AppFixture, and they run against it.");
-            return;
-        }
+        Directory.CreateDirectory(directory);
+        var (written, kept) = writeAll(directory, specs.Files, force);
+        System.Console.WriteLine(
+            $"Wrote {written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
+            + $"Start the application's host in {EmlangSpecWriter.TestSupportFile}, and they run against it. The spec project needs "
+            + "xunit.v3, Microsoft.NET.Test.Sdk and xunit.runner.visualstudio (see the bobcat-tool docs), or Rider and Visual Studio find no tests.");
+        if (kept == 0) return;
 
-        // One-shot: a second run says what the model has that the specifications don't, and writes nothing
-        var directory = Path.GetDirectoryName(path)!;
+        // One-shot: a file that already exists is kept, so say what the model has that the
+        // specifications there don't
         var sources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
         var missing = EmlangSpecWriter.MissingSpecs(model, sources);
 
+        System.Console.WriteLine($"Kept {kept} specification file(s) that already exist (--force overwrites them).");
         System.Console.WriteLine(missing.Count == 0
             ? "Every example in the model has a specification."
             : $"{missing.Count} example(s) in the model have no specification:");

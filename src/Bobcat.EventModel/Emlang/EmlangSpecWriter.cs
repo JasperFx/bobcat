@@ -6,13 +6,17 @@ using JasperFx.CodeGeneration;
 namespace Bobcat.EventModel.Emlang;
 
 /// <summary>What <see cref="EmlangSpecWriter.Write"/> produced.</summary>
-/// <param name="Code">The specifications file.</param>
+/// <param name="Files">
+/// The specification files, each relative to the spec project (bobcat#440): <c>TestSupport.cs</c>
+/// with the fixture, the collection and the base spec class, then one file per slice under a folder
+/// per chapter.
+/// </param>
 /// <param name="Features">How many feature classes it holds: one per slice with an example.</param>
 /// <param name="Specs">How many specifications: one per test with something to say.</param>
 /// <param name="Additions">What the stubs need beyond the model's own for the specs to compile.</param>
 /// <param name="Report">Every guess and gap, one line each, for the person to go and fix.</param>
 public sealed record GeneratedSpecs(
-    string Code,
+    IReadOnlyList<GeneratedFile> Files,
     int Features,
     int Specs,
     CSharpModelWriter.StubAdditions Additions,
@@ -41,7 +45,9 @@ public sealed record GeneratedSpecs(
 /// <b>Types come from the stubs.</b> Every member's type is what
 /// <see cref="CSharpModelWriter.FieldsOf"/> gives the stub, so the generated specs and the stubs
 /// written beside them always agree. An identity the model does not type is a Guid, declared as a
-/// local (<c>var theOrder = Guid.NewGuid();</c>) so the rendered spec names it <c>theOrder</c>.
+/// local (<c>var theOrder = Guid.CreateVersion7();</c>) so the rendered spec names it <c>theOrder</c>.
+/// An identity the model never names is minted the same way, and the act addresses it through the
+/// command's conventional <c>Id</c> (bobcat#438).
 /// </para>
 /// <para>
 /// <b>It is one-shot.</b> The command writes the file only when it does not exist; run again,
@@ -50,34 +56,26 @@ public sealed record GeneratedSpecs(
 /// </remarks>
 public static class EmlangSpecWriter
 {
-    public static GeneratedSpecs Write(EmlangBoard board, ImportedEventModel model, string ns)
+    /// <summary>The file holding the fixture, the collection and the base specification class.</summary>
+    public const string TestSupportFile = "TestSupport.cs";
+
+    /// <param name="board">The board the model was imported from: its tests are the examples.</param>
+    /// <param name="model">The imported model.</param>
+    /// <param name="ns">The application's root namespace, where the stubs and the definition live.</param>
+    /// <param name="specsNamespace">
+    /// The spec project's root namespace, which should be the spec project's name; each chapter
+    /// folder adds a segment. Defaults to <c>{ns}.Specs</c>.
+    /// </param>
+    public static GeneratedSpecs Write(EmlangBoard board, ImportedEventModel model, string ns, string? specsNamespace = null)
     {
         var context = new Context(model);
         context.Declare(board);
         var modelName = CSharpModelWriter.Identifiers.Sanitize(model.Model);
         if (modelName.Length == 0) modelName = "Imported";
+        var root = specsNamespace is { Length: > 0 } ? specsNamespace : ns + ".Specs";
 
-        using var writer = new SourceWriter();
-        writer.WriteLine("// Generated from an event model by `bobcat import-event-model --specs`.");
-        writer.WriteLine("//");
-        writer.WriteLine("// One specification per example in the model, each value a partial object that names only");
-        writer.WriteLine("// what the example names. Nothing regenerates this file: run the import again and it reports");
-        writer.WriteLine("// the model's examples that have no specification here, rather than overwriting your edits.");
-        writer.BlankLine();
-        writer.WriteLine("using System;");
-        writer.WriteLine("using System.Collections.Generic;");
-        writer.WriteLine("using System.Threading.Tasks;");
-        writer.WriteLine("using Bobcat;");
-        writer.WriteLine("using Microsoft.Extensions.Hosting;");
-        writer.WriteLine("using Wolverine;");
-        writer.WriteLine("using Wolverine.Bobcat;");
-        writer.WriteLine("using Xunit;");
-        writer.BlankLine();
-        writer.WriteLine($"namespace {ns};");
-        writer.BlankLine();
-
-        writeFixture(writer, modelName);
-
+        // Bodies first: what they name decides the stubs, and so the namespaces to bring in
+        var bodies = new List<(string? Chapter, string FileName, string Body)>();
         var features = 0;
         var specs = 0;
         var classNames = new HashSet<string>(StringComparer.Ordinal);
@@ -100,7 +98,7 @@ public static class EmlangSpecWriter
             var className = unique(classNames, classCandidate);
             features++;
 
-            writer.BlankLine();
+            using var writer = new SourceWriter();
             if (slice.Pattern == "Automation" && slice.Trigger?.Label is { Length: > 0 } trigger)
             {
                 // The examples exercise the command; what triggers it is wiring they never reach
@@ -130,6 +128,9 @@ public static class EmlangSpecWriter
             }
 
             writer.FinishBlock();
+
+            var fileName = CSharpModelWriter.Identifiers.Sanitize(slice.Name);
+            bodies.Add((ModelLayout.ChapterFolder(slice.Chapter), fileName.Length == 0 ? className : fileName, writer.Code()));
         }
 
         // A test the import attached to no slice still gets its specification, under its chapter as
@@ -149,7 +150,7 @@ public static class EmlangSpecWriter
             var className = unique(classNames, FeatureClassName(chapter.Name));
             features++;
 
-            writer.BlankLine();
+            using var writer = new SourceWriter();
             writer.WriteLine($"// The model attaches these to no slice, so they bind to nothing on the event model");
             writer.WriteLine($"[BobcatFeature({quote(chapter.Name)})]");
             writer.Write($"BLOCK:public class {className}(AppFixture app) : {modelName}Spec(app)");
@@ -174,12 +175,56 @@ public static class EmlangSpecWriter
             }
 
             writer.FinishBlock();
+            var folder = ModelLayout.ChapterFolder(chapter.Name);
+            bodies.Add((folder, (folder ?? "Model") + "Unattached", writer.Code()));
         }
 
-        return new GeneratedSpecs(writer.Code(), features, specs,
-            new CSharpModelWriter.StubAdditions(context.Streams.ToList(), context.Documents.ToList(), context.Elements.ToList(),
-                context.ExtraFields.ToDictionary(x => x.Key, x => (IReadOnlyList<CSharpModelWriter.StubField>)x.Value)),
-            context.Report);
+        var additions = new CSharpModelWriter.StubAdditions(context.Streams.ToList(), context.Documents.ToList(), context.Elements.ToList(),
+            context.ExtraFields.ToDictionary(x => x.Key, x => (IReadOnlyList<CSharpModelWriter.StubField>)x.Value));
+
+        // Every namespace the stubs land in: a spec names types from any chapter, and an unused
+        // using costs nothing where a missing one does not compile
+        var appNamespaces = CSharpModelWriter.Layout(model, ns, additions).Namespaces;
+
+        var files = new List<GeneratedFile> { new(TestSupportFile, writeTestSupport(root, modelName)) };
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { TestSupportFile };
+        foreach (var (chapter, fileName, body) in bodies)
+        {
+            var path = uniquePath(paths, chapter is null ? fileName : $"{chapter}/{fileName}");
+            files.Add(new GeneratedFile(path, writeSpecFile(ModelLayout.NamespaceFor(root, chapter), root, appNamespaces, body)));
+        }
+
+        return new GeneratedSpecs(files, features, specs, additions, context.Report);
+    }
+
+    private static string uniquePath(HashSet<string> taken, string stem)
+    {
+        var candidate = stem + ".cs";
+        for (var i = 2; !taken.Add(candidate); i++) candidate = $"{stem}{i}.cs";
+        return candidate;
+    }
+
+    private static string writeSpecFile(string ns, string root, IReadOnlyList<string> appNamespaces, string body)
+    {
+        var builder = new StringBuilder();
+        builder.Append("// Generated from an event model by `bobcat import-event-model --specs`.\n");
+        builder.Append("//\n");
+        builder.Append("// One specification per example in the model, each value a partial object that names only\n");
+        builder.Append("// what the example names. Nothing regenerates this file: run the import again and it reports\n");
+        builder.Append("// the model's examples that have no specification, rather than overwriting your edits.\n");
+        builder.Append('\n');
+        foreach (var line in new[] { "System", "System.Collections.Generic", "System.Threading.Tasks", "Bobcat", "Wolverine.Bobcat", "Xunit" })
+        {
+            builder.Append($"using {line};\n");
+        }
+
+        foreach (var app in appNamespaces) builder.Append($"using {app};\n");
+        builder.Append('\n');
+        builder.Append($"namespace {ns};\n");
+        builder.Append('\n');
+        builder.Append(body.TrimEnd('\n', '\r'));
+        builder.Append('\n');
+        return builder.ToString();
     }
 
     /// <summary>
@@ -234,12 +279,56 @@ public static class EmlangSpecWriter
     /// </summary>
     public static string ScenarioTitle(string test) => ProjectedSpecNaming.ScenarioTitleFor(MethodName(test));
 
-    private static void writeFixture(ISourceWriter writer, string modelName)
+    /// <summary>
+    /// <c>TestSupport.cs</c> (bobcat#440): the fixture, the collection and the base specification
+    /// class, kept out of the specification files so starting the real host is an edit to one file
+    /// that holds nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The fixture is a placeholder that only compiles: the real one is the application's own host,
+    /// and its comments show that shape for each Critter Stack store. Nothing in the specifications
+    /// depends on the store — <c>WolverineSpec</c> works against the application's
+    /// <c>IEventStore</c>, and <c>ResetAsync</c> resets every event store the host registers, so the
+    /// same specs run on Marten, Polecat or Fisher.
+    /// </remarks>
+    private static string writeTestSupport(string ns, string modelName)
     {
+        using var writer = new SourceWriter();
+        writer.WriteLine("// Generated by `bobcat import-event-model --specs`. Nothing regenerates this file.");
+        writer.BlankLine();
+        writer.WriteLine("using System.Threading.Tasks;");
+        writer.WriteLine("using Microsoft.Extensions.Hosting;");
+        writer.WriteLine("using Wolverine;");
+        writer.WriteLine("using Wolverine.Bobcat;");
+        writer.WriteLine("using Xunit;");
+        writer.BlankLine();
+        writer.WriteLine($"namespace {ns};");
+        writer.BlankLine();
         writer.WriteLine("/// <summary>");
-        writer.WriteLine("/// The application under test. TODO: start the application's own host here, configured as it is");
-        writer.WriteLine("/// in production, with Marten and Wolverine. This placeholder only compiles.");
+        writer.WriteLine("/// The application under test, started once for every specification. TODO: replace the placeholder");
+        writer.WriteLine("/// below with the application's own host, configured as it is in production. It only compiles.");
         writer.WriteLine("/// </summary>");
+        writer.WriteLine("/// <remarks>");
+        writer.WriteLine("/// The shape, with Alba (package Alba) and the application's Program:");
+        writer.WriteLine("/// <code>");
+        writer.WriteLine("/// Host = await AlbaHost.For&lt;Program&gt;(x => x.ConfigureServices(services =>");
+        writer.WriteLine("/// {");
+        writer.WriteLine("///     services.DisableAllExternalWolverineTransports();");
+        writer.WriteLine("///     services.RunWolverineInSoloMode();");
+        writer.WriteLine("///");
+        writer.WriteLine("///     // The store's async daemon, in solo mode so projections run in this process:");
+        writer.WriteLine("///     //   Marten:  services.MartenDaemonModeIsSolo();");
+        writer.WriteLine("///     //   Polecat: AddAsyncDaemon(DaemonMode.Solo) where the application configures Polecat");
+        writer.WriteLine("///     //   Fisher:  AddAsyncDaemon() already defaults to DaemonMode.Solo");
+        writer.WriteLine("///");
+        writer.WriteLine("///     // Under xUnit v3 the test project is the entry assembly, which Wolverine would otherwise");
+        writer.WriteLine("///     // adopt as the application assembly, and then find no handlers or endpoints in");
+        writer.WriteLine("///     services.ConfigureWolverine(opts => opts.ApplicationAssembly = typeof(Program).Assembly);");
+        writer.WriteLine("/// }));");
+        writer.WriteLine("/// </code>");
+        writer.WriteLine("/// The specifications use the application's own database and schema, so the data a failing");
+        writer.WriteLine("/// specification leaves behind is where a developer would look for it.");
+        writer.WriteLine("/// </remarks>");
         writer.Write("BLOCK:public class AppFixture : IAsyncLifetime");
         writer.WriteLine("public IHost Host { get; private set; } = null!;");
         writer.BlankLine();
@@ -252,11 +341,22 @@ public static class EmlangSpecWriter
         writer.FinishBlock();
         writer.FinishBlock();
         writer.BlankLine();
+        writer.WriteLine("/// <summary>Every specification shares the one host and runs one at a time, because each resets the event store.</summary>");
         writer.WriteLine($"[CollectionDefinition({quote(modelName)})]");
         writer.WriteLine($"public class {modelName}Collection : ICollectionFixture<AppFixture>;");
         writer.BlankLine();
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine("/// The base of every specification: the Given/When/Then vocabulary, and a reset before each test.");
+        writer.WriteLine("/// ResetAsync resets every event store the host registers (Marten, Polecat or Fisher), so each");
+        writer.WriteLine("/// specification starts from an empty store. Nothing is torn down afterwards, on purpose.");
+        writer.WriteLine("/// </summary>");
         writer.WriteLine($"[Collection({quote(modelName)})]");
-        writer.WriteLine($"public abstract class {modelName}Spec(AppFixture app) : WolverineSpec(app.Host);");
+        writer.Write($"BLOCK:public abstract class {modelName}Spec(AppFixture app) : WolverineSpec(app.Host), IAsyncLifetime");
+        writer.WriteLine("public async ValueTask InitializeAsync() => await ResetAsync();");
+        writer.BlankLine();
+        writer.WriteLine("public ValueTask DisposeAsync() => ValueTask.CompletedTask;");
+        writer.FinishBlock();
+        return writer.Code();
     }
 
     private sealed class Context(ImportedEventModel model)
@@ -275,9 +375,10 @@ public static class EmlangSpecWriter
                 if (step.Kind is not (EmlangElementKind.Command or EmlangElementKind.Event or EmlangElementKind.View)) continue;
 
                 var typeName = TypeName(step.Label);
-                var stream = step.Stream is { Length: > 0 } declared ? declared
-                    : step.Kind == EmlangElementKind.Event && step.Actor.Length > 0 ? step.Actor
-                    : null;
+                // bobcat#439: only a stream the model DECLARES. An emlang swimlane names who acts
+                // (Admin / Volunteer approved), not where the event is stored, and reading it as a
+                // stream spread one application's events over Admin, Volunteer and ShelterStaff.
+                var stream = step.Stream is { Length: > 0 } declared ? declared : null;
 
                 if (!_declared.TryGetValue(typeName, out var known))
                 {
@@ -458,12 +559,13 @@ public static class EmlangSpecWriter
         // An identity the model marks but the example leaves out, set on the element's partial
         private readonly Dictionary<EmlangRef, List<(string Member, string Variable)>> _minted = new(ReferenceEqualityComparer.Instance);
 
-        /// <summary>A reference's stream: the one it names, else the one the model declares for its element.</summary>
+        /// <summary>
+        /// The stream (aggregate type) the model declares for a reference's element, or null: then
+        /// the events go on a stream with no aggregate type, which Marten, Polecat and Fisher all
+        /// allow (bobcat#439). Never the swimlane, which is an actor.
+        /// </summary>
         private string? streamName(EmlangRef reference)
-        {
-            if (reference.Actor.Length > 0) return TypeName(reference.Actor);
-            return context.StreamOf(TypeName(reference.Label)) is { Length: > 0 } declared ? TypeName(declared) : null;
-        }
+            => context.StreamOf(TypeName(reference.Label)) is { Length: > 0 } declared ? TypeName(declared) : null;
 
         private bool identityProp(string typeName, string stream, string prop)
         {
@@ -486,7 +588,7 @@ public static class EmlangSpecWriter
             _mintedLocals.Add(variable);
 
             _lines.Add(type == "Guid"
-                ? $"var {variable} = Guid.NewGuid();"
+                ? $"var {variable} = Guid.CreateVersion7();"
                 : $"var {variable} = {quote(EmlangImport.PascalName(owner).ToLowerInvariant() + "-1")};");
             return variable;
         }
@@ -500,14 +602,14 @@ public static class EmlangSpecWriter
 
             _ids[value] = (variable, type);
             _lines.Add(type == "Guid"
-                ? $"var {variable} = Guid.NewGuid(); // {quote(value)} in the model"
+                ? $"var {variable} = Guid.CreateVersion7(); // {quote(value)} in the model"
                 : $"var {variable} = {quote(value)};");
         }
 
         /// <returns>Whether any event was arranged.</returns>
         private bool given()
         {
-            var groups = new List<(string Stream, string Key, List<string> Events)>();
+            var groups = new List<(string? Stream, string Key, List<string> Events)>();
             var views = new List<EmlangRef>();
 
             foreach (var reference in test.Given)
@@ -537,6 +639,15 @@ public static class EmlangSpecWriter
             for (var i = 0; i < groups.Count; i++)
             {
                 var (stream, key, events) = groups[i];
+                if (i == 0) _actKey = key;
+
+                // No declared aggregate: a stream with no aggregate type (bobcat#439)
+                if (stream is null)
+                {
+                    call($"await GivenEvents({key}, ", events, ");");
+                    continue;
+                }
+
                 var verb = i == 0 ? "GivenEvents" : "GivenEventsOn";
                 call($"await {verb}<{stream}>({key}, ", events, ");");
             }
@@ -555,6 +666,7 @@ public static class EmlangSpecWriter
                     && (identityOf(stream, expected) ?? _streams.GetValueOrDefault(stream)) is { } key)
                 {
                     context.Streams.Add(stream);
+                    _actKey = key;
                     _lines.Add($"await GivenNoEventsFor<{stream}>({key});");
                 }
             }
@@ -566,8 +678,27 @@ public static class EmlangSpecWriter
         private void act()
         {
             var commands = test.When.Where(x => x.Kind == EmlangElementKind.Command).ToList();
-            foreach (var command in commands) _lines.Add($"await WhenReceived({partial(command)});");
+            foreach (var command in commands) _lines.Add($"await WhenReceived({addressed(command)});");
             if (commands.Count > 0) _lines.Add("");
+        }
+
+        // The key of the stream the givens were arranged on, which the act addresses
+        private string? _actKey;
+
+        /// <summary>
+        /// The command's partial, addressed to the arranged stream by its conventional <c>Id</c> when
+        /// the model gives the command no identity of its own (bobcat#438). Without it the command's
+        /// Guids were all random, so it could never reach the stream the assertion reads.
+        /// </summary>
+        private string addressed(EmlangRef command)
+        {
+            var built = partial(command);
+            var typeName = TypeName(command.Label);
+            if (_actKey is null || built.Contains(".With(x => x.Id,", StringComparison.Ordinal)) return built;
+            if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built;
+
+            context.Member(typeName, "id");
+            return built + $".With(x => x.Id, {_actKey})";
         }
 
         private void assert(bool arranged)
@@ -681,21 +812,15 @@ public static class EmlangSpecWriter
             return Literal(type, text, raw);
         }
 
-        private string streamOf(EmlangRef reference)
+        private string? streamOf(EmlangRef reference)
         {
-            var stream = streamName(reference) ?? "";
-            if (stream.Length == 0)
-            {
-                context.Report.Add($"⚠ {where}: the event '{reference.Label}' names no stream; arranged on `object` — name its stream.");
-                return "object";
-            }
-
-            context.Streams.Add(stream);
+            var stream = streamName(reference);
+            if (stream is not null) context.Streams.Add(stream);
             return stream;
         }
 
         /// <summary>The stream's identity in an event: <c>{Stream}Id</c>, or else the first identity it names.</summary>
-        private string? identityOf(string stream, EmlangRef reference)
+        private string? identityOf(string? stream, EmlangRef reference)
         {
             string? fallback = null;
             foreach (var (prop, text) in reference.Props)
@@ -703,20 +828,29 @@ public static class EmlangSpecWriter
                 var (member, _) = context.Member(TypeName(reference.Label), prop, reference.Values.GetValueOrDefault(prop));
                 if (!_ids.TryGetValue(text, out var id)) continue;
 
-                if (member == stream + "Id") return id.Variable;
+                if (stream is not null && member == stream + "Id") return id.Variable;
                 fallback ??= member.EndsWith("Id", StringComparison.Ordinal) ? id.Variable : null;
             }
 
             return fallback;
         }
 
-        private string keyOf(string stream, EmlangRef reference)
+        /// <summary>
+        /// The stream's key in this test: the identity the event names, else the one already minted
+        /// for the stream, else a fresh one minted here (bobcat#438). The act addresses that same
+        /// local through the command's <c>Id</c>, so an identity the model never names is no longer
+        /// a TODO: it is simply a value only the test needs to know.
+        /// </summary>
+        private string keyOf(string? stream, EmlangRef reference)
         {
             if (identityOf(stream, reference) is { } key) return key;
-            if (_streams.TryGetValue(stream, out var minted)) return minted;
 
-            context.Report.Add($"⚠ {where}: the {stream} event '{reference.Label}' names no identity; a fresh one is arranged.");
-            return $"Guid.NewGuid() /* TODO: the model names no {stream} identity */";
+            var owner = stream ?? "Stream";
+            if (_streams.TryGetValue(owner, out var minted)) return minted;
+
+            var variable = mint(owner, "Guid");
+            _streams[owner] = variable;
+            return variable;
         }
 
         /// <summary>A read model's type, recorded as a document the stubs give an id.</summary>
@@ -789,7 +923,7 @@ public static class EmlangSpecWriter
             "double" when double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d.ToString("R", CultureInfo.InvariantCulture) + "d",
             "bool" when bool.TryParse(trimmed, out var b) => b ? "true" : "false",
             "Guid" when Guid.TryParse(trimmed, out _) => $"Guid.Parse({quote(trimmed)})",
-            "Guid" => $"Guid.NewGuid() /* {comment(trimmed)} in the model */",
+            "Guid" => $"Guid.CreateVersion7() /* {comment(trimmed)} in the model */",
             "DateTimeOffset" when DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, out _) => $"DateTimeOffset.Parse({quote(trimmed)})",
             "DateOnly" when DateOnly.TryParse(trimmed, CultureInfo.InvariantCulture, out _) => $"DateOnly.Parse({quote(trimmed)})",
             "TimeSpan" when TimeSpan.TryParse(trimmed, CultureInfo.InvariantCulture, out _) => $"TimeSpan.Parse({quote(trimmed)})",

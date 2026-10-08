@@ -69,21 +69,61 @@ public class CSharpModelWriterTests
         var model = imported();
         var generated = CSharpModelWriter.Write(model);
 
-        var expected = new[]
+        // Events are field-less: a board carries no field information for them, and inventing one
+        // would be a guess every consumer then has to un-guess
+        var events = new[] { "DogLiked", "DogPassed", "MutualMatchDetected" };
+        foreach (var name in events)
         {
-            "SwipeOnDog", "DetectMutualMatch", "DogLiked", "DogPassed", "MutualMatchDetected", "MatchList"
-        };
-
-        foreach (var name in expected)
-        {
-            generated.Stubs.ShouldContain($"public record {name};");
+            generated.AllStubs().ShouldContain($"public record {name};");
         }
 
-        generated.StubCount.ShouldBe(expected.Length);
+        // Commands and read models the model names no identity for are identified by Id, the
+        // Wolverine convention (bobcat#438), so a specification can address their stream
+        foreach (var name in new[] { "SwipeOnDog", "DetectMutualMatch", "MatchList" })
+        {
+            generated.AllStubs().ShouldContain($"public record {name}(Guid Id);");
+        }
 
-        // Field-less, because a board carries no field information — inventing an Id would be a
-        // guess with no basis that every consumer then has to un-guess.
-        generated.Stubs.ShouldNotContain("public record SwipeOnDog(");
+        generated.StubCount.ShouldBe(events.Length + 3);
+    }
+
+    [Fact]
+    public void each_slice_gets_a_file_in_its_chapters_folder_and_namespace()
+    {
+        // bobcat#441: one file per slice, holding what the slice produces, under Features/{Chapter}
+        var generated = CSharpModelWriter.Write(imported());
+
+        var swipe = generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/SwipeOnDog.cs");
+        swipe.Content.ShouldContain("namespace K9Crush.TheSwiper;");
+        swipe.Content.ShouldContain("public record SwipeOnDog(Guid Id);");
+        swipe.Content.ShouldContain("public record DogLiked;");
+        swipe.Content.ShouldContain("public record DogPassed;");
+
+        generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/DetectMutualMatch.cs")
+            .Content.ShouldContain("public record MutualMatchDetected;");
+        generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/MatchList.cs")
+            .Content.ShouldContain("public record MatchList(Guid Id);");
+
+        // The definition stays one file in the root namespace and brings every chapter in
+        generated.Definition.ShouldContain("using K9Crush.TheSwiper;");
+        generated.Definition.ShouldContain("namespace K9Crush;");
+    }
+
+    [Fact]
+    public void an_identity_the_model_names_means_no_default_id()
+    {
+        var generated = CSharpModelWriter.Write(imported(
+            """
+            slices:
+              Ordering:
+                steps:
+                  - c: Customer/Cancel order
+                    props: { id: uuid }
+                  - e: Customer/Order cancelled
+            """));
+
+        generated.AllStubs().ShouldContain("public record CancelOrder(Guid Id);");
+        generated.AllStubs().ShouldNotContain("Guid Id, Guid Id");
     }
 
     [Fact]
@@ -173,7 +213,7 @@ public class CSharpModelWriterTests
         var generated = CSharpModelWriter.Write(model);
 
         generated.Definition.ShouldContain(""".HandledBy("SwipeEndpoint")""");
-        generated.Stubs.ShouldNotContain("public record SwipeEndpoint;");
+        generated.AllStubs().ShouldNotContain("public record SwipeEndpoint;");
         compile(generated).ShouldBeEmpty();
     }
 
@@ -199,7 +239,7 @@ public class CSharpModelWriterTests
                   - e: Member/2FA Enrolled
             """));
 
-        generated.Stubs.ShouldContain("public record _2FAEnrolled;");
+        generated.AllStubs().ShouldContain("public record _2FAEnrolled;");
         compile(generated).ShouldBeEmpty();
     }
 
@@ -263,10 +303,8 @@ public class CSharpModelWriterTests
     private static CSharpCompilation compilation(CSharpModelWriter.Output generated)
         => CSharpCompilation.Create(
             "ImportedModel" + Guid.NewGuid().ToString("N"),
-            [
-                CSharpSyntaxTree.ParseText(generated.Stubs),
-                CSharpSyntaxTree.ParseText(generated.Definition)
-            ],
+            generated.StubFiles.Select(x => CSharpSyntaxTree.ParseText(x.Content, path: x.Path))
+                .Append(CSharpSyntaxTree.ParseText(generated.Definition)),
             references(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 

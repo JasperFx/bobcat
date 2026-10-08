@@ -13,7 +13,7 @@ public class DeclaredIdentityTests
     private static string generate(EmlangBoard board)
     {
         var model = EmlangImport.ToCurated(board, "Limits").Model;
-        return EmlangSpecWriter.Write(board, model, "Limits").Code;
+        return EmlangSpecWriter.Write(board, model, "Limits").AllCode();
     }
 
     private const string ValuelessConfig =
@@ -55,7 +55,7 @@ public class DeclaredIdentityTests
     {
         var code = generate(EventModelersJsonReader.Read(ValuelessConfig));
 
-        code.ShouldContain("var theAuthorityLimit = Guid.NewGuid();");
+        code.ShouldContain("var theAuthorityLimit = Guid.CreateVersion7();");
         code.ShouldContain("Specify<LimitRequested>().With(x => x.AuthorityLimitId, theAuthorityLimit)");
         code.ShouldContain("Specify<GrantLimit>().With(x => x.Amount, 500m).With(x => x.AuthorityLimitId, theAuthorityLimit)");
         code.ShouldContain("ThenEvents(Specify<LimitGranted>().With(x => x.AuthorityLimitId, theAuthorityLimit));");
@@ -76,13 +76,17 @@ public class DeclaredIdentityTests
                   "then": [ { "title": "Cart Cleared", "type": "EVENT", "fields": [] } ] } ] } ] }
             """));
 
-        code.ShouldContain("var theCart = Guid.NewGuid();");
+        code.ShouldContain("var theCart = Guid.CreateVersion7();");
         code.ShouldContain("await GivenEvents<Cart>(theCart, Specify<CartCleared>().With(x => x.AggregateId, theCart));");
     }
 
     [Fact]
-    public void an_emlang_event_named_without_its_stream_takes_the_swimlane_its_step_declares()
+    public void an_emlang_swimlane_is_an_actor_so_the_events_go_on_a_stream_with_no_aggregate_type()
     {
+        // bobcat#439: K9CRUSH writes `Admin / Volunteer approved`, and reading the swimlane as the
+        // stream spread one application's events over Admin, Volunteer and ShelterStaff. A model
+        // that declares no aggregate gets a stream with no aggregate type, which every Critter
+        // Stack store allows, and the act addresses it through the command's Id (bobcat#438).
         var code = generate(EmlangReader.Read(
             """
             slices:
@@ -102,8 +106,11 @@ public class DeclaredIdentityTests
                       - x: Already placed
             """));
 
-        code.ShouldContain("var theOrder = Guid.NewGuid();");
-        code.ShouldContain("await GivenEvents<Order>(theOrder, Specify<OrderPlaced>().With(x => x.OrderId, theOrder));");
+        code.ShouldContain("var theStream = Guid.CreateVersion7();");
+        code.ShouldContain("await GivenEvents(theStream, Specify<OrderPlaced>());");
+        code.ShouldContain("await WhenReceived(Specify<PlaceOrder>().With(x => x.Id, theStream));");
+        code.ShouldNotContain("GivenEvents<Order>");
+        code.ShouldNotContain("TODO: the model names no");
     }
 
     [Fact]
@@ -113,7 +120,7 @@ public class DeclaredIdentityTests
             "\"given\": [ { \"title\": \"Limit Requested\", \"type\": \"SPEC_EVENT\", \"fields\": [] } ]",
             "\"given\": [ { \"title\": \"Limit Requested\", \"type\": \"SPEC_EVENT\", \"fields\": [ { \"name\": \"authorityLimitId\", \"example\": \"limit-7\" } ] } ]")));
 
-        code.ShouldContain("var theAuthorityLimit = Guid.NewGuid(); // \"limit-7\" in the model");
+        code.ShouldContain("var theAuthorityLimit = Guid.CreateVersion7(); // \"limit-7\" in the model");
         code.ShouldContain("ThenEvents(Specify<LimitGranted>().With(x => x.AuthorityLimitId, theAuthorityLimit));");
         code.ShouldNotContain("theAuthorityLimit2");
     }

@@ -127,6 +127,13 @@ public sealed class CuratedElement
 
     /// <summary>Field name → type-or-example sketch. Hints for scaffolding, never authoritative.</summary>
     public Dictionary<string, string> Fields { get; set; } = [];
+
+    /// <summary>
+    /// The fields the model marks as this element's identity (an eventmodelers.ai field's
+    /// <c>idAttribute</c>). Empty when the model marks none, which is what makes the stub writer
+    /// give a command, aggregate or read model the conventional <c>Id</c> (bobcat#438).
+    /// </summary>
+    public List<string> Identities { get; set; } = [];
 }
 
 /// <summary>
