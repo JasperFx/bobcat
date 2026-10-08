@@ -78,8 +78,9 @@ public static class CSharpModelWriter
     /// Each command, event or view an example names that no slice does, such as an event a test
     /// arranges from another part of the model; stubbed like any other, with the fields it is given.
     /// </param>
+    /// <param name="Fields">Fields an example names that the model's hints never reached, by stub.</param>
     public sealed record StubAdditions(IReadOnlyList<string> Streams, IReadOnlyList<string> Documents,
-        IReadOnlyList<string>? Elements = null);
+        IReadOnlyList<string>? Elements = null, IReadOnlyDictionary<string, IReadOnlyList<StubField>>? Fields = null);
 
     /// <inheritdoc cref="Write(ImportedEventModel, string?)"/>
     /// <param name="additions">What generated specifications need of the stubs; nothing when null.</param>
@@ -99,7 +100,9 @@ public static class CSharpModelWriter
             .ToList();
         var documents = (additions?.Documents ?? []).ToHashSet(StringComparer.Ordinal);
 
-        return new Output(writeStubs(ns, model, stubs, streams, documents), writeDefinition(ns, model, stubs),
+        var extra = additions?.Fields ?? new Dictionary<string, IReadOnlyList<StubField>>();
+
+        return new Output(writeStubs(ns, model, stubs, streams, documents, extra), writeDefinition(ns, model, stubs),
             stubs.Count + streams.Count);
     }
 
@@ -148,7 +151,7 @@ public static class CSharpModelWriter
     }
 
     private static string writeStubs(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
-        IReadOnlyList<string> streams, HashSet<string> documents)
+        IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra)
     {
         using var writer = new SourceWriter();
 
@@ -161,7 +164,9 @@ public static class CSharpModelWriter
 
         var fields = stubs.ToDictionary(x => x, x =>
         {
-            var named = FieldsOf(model, x);
+            var named = FieldsOf(model, x)
+                .Concat(extra.GetValueOrDefault(x) ?? [])
+                .ToList();
 
             // A document the specs load by id needs one; an id the model never names is a Guid
             return documents.Contains(x) && named.All(f => f.Name != "Id")
