@@ -78,6 +78,13 @@ public static class EmlangSpecWriter
             features++;
 
             writer.BlankLine();
+            foreach (var automation in model.Slices.Where(x =>
+                         x.Chapter == chapter.Name && x.Pattern == "Automation" && x.Trigger?.Label is { Length: > 0 }))
+            {
+                // The examples exercise the command; what triggers it is wiring they never reach
+                writer.WriteLine($"// {automation.Name} is an automation, triggered by \"{comment(automation.Trigger!.Label!)}\"");
+            }
+
             writer.WriteLine($"[BobcatFeature({quote(chapter.Name)})]");
             writer.Write($"BLOCK:public class {className}(AppFixture app) : {modelName}Spec(app)");
 
@@ -109,7 +116,8 @@ public static class EmlangSpecWriter
         }
 
         return new GeneratedSpecs(writer.Code(), features, specs,
-            new CSharpModelWriter.StubAdditions(context.Streams.ToList(), context.Documents.ToList(), context.Elements.ToList()),
+            new CSharpModelWriter.StubAdditions(context.Streams.ToList(), context.Documents.ToList(), context.Elements.ToList(),
+                context.ExtraFields.ToDictionary(x => x.Key, x => (IReadOnlyList<CSharpModelWriter.StubField>)x.Value)),
             context.Report);
     }
 
@@ -195,8 +203,15 @@ public static class EmlangSpecWriter
         /// <summary>Every command, event and view a specification names, in the order first named.</summary>
         public List<string> Elements { get; } = [];
 
+        /// <summary>
+        /// Fields an example names that the model's hints never reached, such as a test that attaches
+        /// to no slice: added to the stub so the specification that names them compiles.
+        /// </summary>
+        public Dictionary<string, List<CSharpModelWriter.StubField>> ExtraFields { get; } = new(StringComparer.Ordinal);
+
         /// <summary>The member a prop names on a stub, and its type, exactly as the stub declares it.</summary>
-        public (string Name, string Type) Member(string typeName, string prop)
+        /// <param name="sample">The example's value, which types a field the stub does not have yet.</param>
+        public (string Name, string Type) Member(string typeName, string prop, object? sample = null)
         {
             var name = CSharpModelWriter.Identifiers.Sanitize(EmlangImport.PascalName(prop));
             if (name == typeName) name += "Value";
@@ -207,8 +222,16 @@ public static class EmlangSpecWriter
                 _fields[typeName] = fields;
             }
 
-            var type = fields.FirstOrDefault(x => x.Name == name)?.Type
-                       ?? (name.EndsWith("Id", StringComparison.Ordinal) ? "Guid" : "string");
+            if (fields.FirstOrDefault(x => x.Name == name) is { } declared) return (name, declared.Type);
+
+            if (!ExtraFields.TryGetValue(typeName, out var extra)) ExtraFields[typeName] = extra = [];
+            if (extra.FirstOrDefault(x => x.Name == name) is { } added) return (name, added.Type);
+
+            var type = name.EndsWith("Id", StringComparison.Ordinal) ? "Guid"
+                : sample is List<object> ? CuratedFieldTypes.StringList
+                : CuratedFieldTypes.TryInfer(EmlangReader.Text(sample), out var inferred) ? inferred
+                : "string";
+            extra.Add(new CSharpModelWriter.StubField(name, type));
             return (name, type);
         }
     }
@@ -252,7 +275,7 @@ public static class EmlangSpecWriter
                     var typeName = TypeName(reference.Label);
                     foreach (var (prop, value) in reference.Props)
                     {
-                        var (member, type) = context.Member(typeName, prop);
+                        var (member, type) = context.Member(typeName, prop, reference.Values.GetValueOrDefault(prop));
                         if (type != wanted || value.Length == 0 || _ids.ContainsKey(value)) continue;
                         if (type == "string" && !member.EndsWith("Id", StringComparison.Ordinal)) continue;
 
@@ -279,6 +302,7 @@ public static class EmlangSpecWriter
         private bool given()
         {
             var groups = new List<(string Stream, string Key, List<string> Events)>();
+            var views = new List<EmlangRef>();
 
             foreach (var reference in test.Given)
             {
@@ -298,8 +322,8 @@ public static class EmlangSpecWriter
                         break;
 
                     case EmlangElementKind.View:
-                        _lines.Add($"// TODO: the model arranges the \"{comment(reference.Label)}\" view directly; arrange the events that build it");
-                        context.Report.Add($"⚠ {where}: gives the view '{reference.Label}' — arrange the events that build it.");
+                        // Stored directly: GivenReadModel bypasses the projection, as the model does
+                        views.Add(reference);
                         break;
                 }
             }
@@ -309,6 +333,12 @@ public static class EmlangSpecWriter
                 var (stream, key, events) = groups[i];
                 var verb = i == 0 ? "GivenEvents" : "GivenEventsOn";
                 call($"await {verb}<{stream}>({key}, ", events, ");");
+            }
+
+            foreach (var view in views)
+            {
+                var typeName = document(view.Label);
+                _lines.Add($"await GivenReadModel<{typeName}>({documentPartial(typeName, view)});");
             }
 
             if (groups.Count == 0 && test.When.Any(x => x.Kind == EmlangElementKind.Command))
@@ -341,12 +371,11 @@ public static class EmlangSpecWriter
 
             foreach (var refusal in refusals)
             {
-                _lines.Add($"ThenRefusedWith({quote(refusal.Label)});");
-                if (refusal.Props.Count > 0)
-                {
-                    _lines.Add($"// The model also names {string.Join(", ", refusal.Props.Keys)} on the refusal");
-                    context.Report.Add($"⚠ {where}: the refusal '{refusal.Label}' carries props, which no step asserts yet.");
-                }
+                // A refusal's props are the values its message names: EmailAlreadyInUse { email }
+                var named = refusal.Props.Values
+                    .Where(x => x.Length > 0)
+                    .Select(x => _ids.TryGetValue(x, out var id) ? id.Variable : quote(x));
+                _lines.Add($"ThenRefusedWith({string.Join(", ", new[] { quote(refusal.Label) }.Concat(named))});");
             }
 
             if (events.Count > 0)
@@ -361,10 +390,18 @@ public static class EmlangSpecWriter
 
             foreach (var view in views)
             {
-                var typeName = TypeName(view.Label);
-                context.Documents.Add(typeName);
-                if (!context.Elements.Contains(typeName)) context.Elements.Add(typeName);
+                var typeName = document(view.Label);
+
+                // No identity in the example: a singleton view, the only one of its type
                 var key = documentKey(typeName, view);
+                if (key is null)
+                {
+                    context.Report.Add($"{where}: the {typeName} view names no identity, so it is checked as the only {typeName}.");
+                    _lines.Add(view.Props.Count == 0
+                        ? $"await ThenSingleReadModel<{typeName}>();"
+                        : $"await ThenSingleReadModel<{typeName}>({partial(view)});");
+                    continue;
+                }
 
                 _lines.Add(view.Props.Count == 0
                     ? $"await ThenReadModel<{typeName}>({key});"
@@ -382,10 +419,10 @@ public static class EmlangSpecWriter
                     return;
                 }
 
-                var typeName = TypeName(view.Label);
-                context.Documents.Add(typeName);
-                if (!context.Elements.Contains(typeName)) context.Elements.Add(typeName);
-                _lines.Add($"await ThenNoReadModel<{typeName}>({anyIdentity(typeName)});");
+                var typeName = document(view.Label);
+                _lines.Add(anyIdentity() is { } key
+                    ? $"await ThenNoReadModel<{typeName}>({key});"
+                    : $"await ThenNoReadModel<{typeName}>();");
             }
         }
 
@@ -413,7 +450,7 @@ public static class EmlangSpecWriter
 
             foreach (var (prop, text) in reference.Props)
             {
-                var (member, type) = context.Member(typeName, prop);
+                var (member, type) = context.Member(typeName, prop, reference.Values.GetValueOrDefault(prop));
                 builder.Append($".With(x => x.{member}, {value(type, text, reference.Values.GetValueOrDefault(prop))})");
             }
 
@@ -450,7 +487,7 @@ public static class EmlangSpecWriter
             string? fallback = null;
             foreach (var (prop, text) in reference.Props)
             {
-                var (member, _) = context.Member(TypeName(reference.Label), prop);
+                var (member, _) = context.Member(TypeName(reference.Label), prop, reference.Values.GetValueOrDefault(prop));
                 if (!_ids.TryGetValue(text, out var id)) continue;
 
                 if (member == stream + "Id") return id.Variable;
@@ -468,25 +505,41 @@ public static class EmlangSpecWriter
             return $"Guid.NewGuid() /* TODO: the model names no {stream} identity */";
         }
 
-        private string documentKey(string typeName, EmlangRef view)
+        /// <summary>A read model's type, recorded as a document the stubs give an id.</summary>
+        private string document(string label)
+        {
+            var typeName = TypeName(label);
+            context.Documents.Add(typeName);
+            if (!context.Elements.Contains(typeName)) context.Elements.Add(typeName);
+            return typeName;
+        }
+
+        /// <summary>The identity a view's example names, or else the test's first; null when there is none.</summary>
+        private string? documentKey(string typeName, EmlangRef view)
         {
             foreach (var (prop, text) in view.Props)
             {
-                var (member, _) = context.Member(typeName, prop);
+                var (member, _) = context.Member(typeName, prop, view.Values.GetValueOrDefault(prop));
                 if (member.EndsWith("Id", StringComparison.Ordinal) && _ids.TryGetValue(text, out var id)) return id.Variable;
             }
 
-            return anyIdentity(typeName);
+            return anyIdentity();
         }
 
         /// <summary>The test's first identity, which is usually the stream the view is projected from.</summary>
-        private string anyIdentity(string typeName)
-        {
-            var first = _ids.Values.FirstOrDefault(x => x.Type == "Guid");
-            if (first.Variable is not null) return first.Variable;
+        private string? anyIdentity() => _ids.Values.FirstOrDefault(x => x.Type == "Guid").Variable;
 
-            context.Report.Add($"⚠ {where}: no identity for the {typeName} document; a fresh one is used. A singleton view needs its real id.");
-            return $"Guid.NewGuid() /* TODO: which {typeName}? */";
+        /// <summary>
+        /// A view arranged directly: its example as a partial, with the document's <c>Id</c> set to the
+        /// identity it is keyed by, so the specs that read it back find it.
+        /// </summary>
+        private string documentPartial(string typeName, EmlangRef view)
+        {
+            var built = partial(view);
+            var namesId = view.Props.Keys.Any(x => context.Member(typeName, x, view.Values.GetValueOrDefault(x)).Name == "Id");
+            return !namesId && documentKey(typeName, view) is { } key
+                ? built.Replace($"Specify<{typeName}>()", $"Specify<{typeName}>().With(x => x.Id, {key})")
+                : built;
         }
     }
 

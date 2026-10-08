@@ -116,12 +116,9 @@ public class EmlangSpecWriterTests
     }
 
     [Fact]
-    public void a_view_test_that_expects_nothing_is_the_read_model_not_existing()
+    public void a_view_test_that_expects_nothing_and_names_no_identity_is_no_read_model_at_all()
     {
-        var (specs, _) = generate(Kitchen);
-
-        specs.Code.ShouldContain("await ThenNoReadModel<OrderSummary>(Guid.NewGuid() /* TODO: which OrderSummary? */);");
-        specs.Report.ShouldContain(x => x.Contains("no identity for the OrderSummary document"));
+        generate(Kitchen).Specs.Code.ShouldContain("await ThenNoReadModel<OrderSummary>();");
     }
 
     [Fact]
@@ -221,5 +218,139 @@ public class EmlangSpecWriterTests
     public void no_generated_line_ends_in_whitespace()
     {
         code(Kitchen).Split('\n').Where(x => x.Length > 0 && char.IsWhiteSpace(x[^1])).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_view_given_is_stored_directly_keyed_by_the_identity_the_test_names()
+    {
+        var code = EmlangSpecWriterTests.code(
+            """
+            slices:
+              Assign driver:
+                tests:
+                  Driver assigned:
+                    given:
+                      - v: Available drivers
+                        props:
+                          drivers:
+                            - driver-456
+                    when:
+                      - c: Assign driver
+                        props:
+                          order id: order-123
+                    then:
+                      - e: Delivery / Driver assigned
+                        props:
+                          order id: order-123
+            """);
+
+        code.ShouldContain("await GivenReadModel<AvailableDrivers>(Specify<AvailableDrivers>().With(x => x.Id, theOrder)"
+                           + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
+        code.ShouldNotContain("TODO: the model arranges");
+    }
+
+    [Fact]
+    public void a_view_with_no_identity_anywhere_is_checked_as_the_only_one_of_its_type()
+    {
+        var (specs, _) = generate(
+            """
+            slices:
+              Track available drivers:
+                steps:
+                  - v: Available drivers
+                tests:
+                  All available:
+                    then:
+                      - v: Available drivers
+                        props:
+                          drivers:
+                            - driver-456
+            """);
+
+        specs.Code.ShouldContain("await ThenSingleReadModel<AvailableDrivers>(Specify<AvailableDrivers>()"
+                                 + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
+        specs.Report.ShouldContain(x => x.Contains("checked as the only AvailableDrivers"));
+    }
+
+    [Fact]
+    public void a_refusal_names_the_values_the_model_gives_it()
+    {
+        code(
+            """
+            slices:
+              Register:
+                tests:
+                  Email taken:
+                    when:
+                      - c: Register
+                        props:
+                          email: joe@example.com
+                    then:
+                      - x: Email already in use
+                        props:
+                          email: joe@example.com
+            """).ShouldContain("ThenRefusedWith(\"Email already in use\", \"joe@example.com\");");
+    }
+
+    [Fact]
+    public void a_refusal_naming_an_identity_names_its_local()
+    {
+        code(
+            """
+            slices:
+              Close:
+                tests:
+                  Already closed:
+                    when:
+                      - c: Close order
+                        props:
+                          order id: order-9
+                    then:
+                      - x: Order already closed
+                        props:
+                          order id: order-9
+            """).ShouldContain("ThenRefusedWith(\"Order already closed\", theOrder);");
+    }
+
+    [Fact]
+    public void an_automation_slice_says_what_triggers_it()
+    {
+        code(
+            """
+            slices:
+              Send receipt:
+                steps:
+                  - e: Order / Payment confirmed
+                  - c: Send receipt
+                  - e: Receipt sent
+                tests:
+                  Sent:
+                    when:
+                      - c: Send receipt
+                    then:
+                      - e: Receipt sent
+            """).ShouldContain("// SendReceipt is an automation, triggered by \"Payment confirmed\"\n[BobcatFeature(\"Send receipt\")]");
+    }
+
+    [Fact]
+    public void a_field_only_an_unattached_example_names_is_still_on_the_stub()
+    {
+        // A slice with no steps segments into nothing, so its tests attach to no slice and their
+        // props never become hints: the specs name the fields anyway, so the stubs must have them
+        var stubs = generate(
+            """
+            slices:
+              Assign driver:
+                tests:
+                  Driver assigned:
+                    when:
+                      - c: Assign driver
+                        props:
+                          order id: order-123
+                          vehicle: van
+                          seats: 2
+            """).Stubs.Stubs;
+
+        stubs.ShouldContain("public record AssignDriver(Guid OrderId, string Vehicle, int Seats);");
     }
 }
