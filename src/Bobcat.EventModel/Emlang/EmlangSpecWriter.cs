@@ -91,7 +91,13 @@ public static class EmlangSpecWriter
                 continue;
             }
 
-            var className = unique(classNames, FeatureClassName(slice.Name));
+            // A slice and one of its examples often share a name (a view slice and the test of that
+            // view), and C# refuses a member named for its enclosing type (CS0542). The class name is
+            // not part of the identity, [BobcatFeature] is, so the class gives way, never the method.
+            var methodNames = scenarios.Select(x => MethodName(x.Source!.Name)).ToHashSet(StringComparer.Ordinal);
+            var classCandidate = FeatureClassName(slice.Name);
+            if (methodNames.Contains(classCandidate)) classCandidate += "_feature";
+            var className = unique(classNames, classCandidate);
             features++;
 
             writer.BlankLine();
