@@ -88,8 +88,9 @@ public class EmlangSpecWriterTests
 
         code.ShouldContain("var theOrder = Guid.CreateVersion7(); // \"order-123\" in the model");
 
-        // `Order / Order started` is a swimlane, not a declared stream (bobcat#439): no aggregate type
-        code.ShouldContain("await GivenEvents(theOrder, Specify<OrderStarted>().With(x => x.OrderId, theOrder));");
+        // `Order / Order started` is a swimlane, not a declared stream (bobcat#439); the Order
+        // aggregate is inferred from what the events are about (bobcat#444)
+        code.ShouldContain("await GivenEvents<Order>(theOrder, Specify<OrderStarted>().With(x => x.OrderId, theOrder));");
     }
 
     [Fact]
@@ -97,8 +98,10 @@ public class EmlangSpecWriterTests
     {
         var code = EmlangSpecWriterTests.code(Kitchen);
 
-        // The model marks no identity on the command, so its conventional Id addresses the arranged stream (bobcat#438)
-        code.ShouldContain("await WhenReceived(Specify<AddItemToOrder>().With(x => x.OrderId, theOrder).With(x => x.Item, \"margherita\").With(x => x.Id, theOrder));");
+        // The command already names its stream's identity, OrderId for the inferred Order, so it
+        // gets no second Id (bobcat#438, bobcat#444)
+        code.ShouldContain("await WhenReceived(Specify<AddItemToOrder>().With(x => x.OrderId, theOrder).With(x => x.Item, \"margherita\"));");
+        code.ShouldNotContain("x => x.Id, theOrder");
         code.ShouldContain("ThenEvents(Specify<ItemAdded>().With(x => x.OrderId, theOrder).With(x => x.Item, \"margherita\"));");
     }
 
@@ -129,8 +132,8 @@ public class EmlangSpecWriterTests
     {
         var stubs = generate(Kitchen).Stubs.AllStubs();
 
-        // A swimlane is an actor, never a stream type (bobcat#439)
-        stubs.ShouldNotContain("class Order ");
+        // The stream is the inferred Order aggregate, a class (bobcat#444), not the swimlane (bobcat#439)
+        stubs.ShouldContain("public class Order { public Guid Id { get; set; } }");
         stubs.ShouldContain("public record OrderSummary(Guid Id, Guid OrderId, List<string> Items, decimal Total);");
 
         // Named only by a test's given, never by a slice's steps

@@ -145,7 +145,7 @@ public static class CSharpModelWriter
             }
         }
 
-        take(model.Slices.SelectMany(s => s.Aggregates));
+        take(model.Slices.SelectMany(AggregatesOf));
         take(model.Slices.Select(s => s.Command));
         take(model.Slices.SelectMany(s => s.Events));
         take(model.Slices.SelectMany(s => s.ConsumedEvents));
@@ -159,7 +159,7 @@ public static class CSharpModelWriter
     private static IReadOnlyList<GeneratedFile> writeStubs(ModelLayout layout, ImportedEventModel model, IReadOnlyList<string> stubs,
         IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra)
     {
-        var aggregates = model.Slices.SelectMany(s => s.Aggregates)
+        var aggregates = model.Slices.SelectMany(AggregatesOf)
             .Select(x => Identifiers.Sanitize(x ?? ""))
             .Concat(streams)
             .ToHashSet(StringComparer.Ordinal);
@@ -169,6 +169,13 @@ public static class CSharpModelWriter
             var named = FieldsOf(model, x)
                 .Concat(extra.GetValueOrDefault(x) ?? [])
                 .ToList();
+
+            // bobcat#444: a command deciding against several streams names each one's identity,
+            // {Aggregate}Id, which is how each [WriteAggregate] IEventStream<T> finds its stream
+            foreach (var streamId in StreamIdFieldsOf(model, x).Where(id => named.All(f => f.Name != id)))
+            {
+                named.Add(new StubField(streamId, "Guid"));
+            }
 
             // bobcat#438: a command, aggregate or read model the model gives no identity is
             // identified by Id, Wolverine's own convention, so a specification can address it and
@@ -265,8 +272,11 @@ public static class CSharpModelWriter
         var commandSlices = model.Slices.Where(s => Identifiers.Sanitize(s.Command ?? "") == stub).ToList();
         var isCommand = commandSlices.Count > 0;
         var isReadModel = model.Slices.Any(s => s.ReadModels.Concat(s.ReadsFrom).Any(x => Identifiers.Sanitize(x ?? "") == stub));
-        var isAggregate = model.Slices.Any(s => s.Aggregates.Any(x => Identifiers.Sanitize(x ?? "") == stub));
+        var isAggregate = model.Slices.Any(s => AggregatesOf(s).Any(x => Identifiers.Sanitize(x ?? "") == stub));
         if (!isCommand && !isReadModel && !isAggregate) return false;
+
+        // Several streams: each is addressed by its own {Aggregate}Id, so a lone Id would say nothing
+        if (StreamIdFieldsOf(model, stub).Count > 0) return false;
 
         fields ??= FieldsOf(model, stub);
         if (fields.Any(f => f.Name is "Id" or "AggregateId")) return false;
@@ -278,6 +288,26 @@ public static class CSharpModelWriter
 
         var streamIds = commandSlices.SelectMany(s => s.Aggregates).Select(a => Identifiers.Sanitize(a ?? "") + "Id");
         return !fields.Any(f => streamIds.Contains(f.Name));
+    }
+
+    /// <summary>
+    /// Every aggregate a slice names: the one whose stream it starts, then the ones it decides
+    /// against (bobcat#444).
+    /// </summary>
+    public static IEnumerable<string> AggregatesOf(CuratedSlice slice)
+        => new[] { slice.StartsStream }.Concat(slice.Aggregates).OfType<string>().Where(x => x.Length > 0).Distinct(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The <c>{Aggregate}Id</c> members a command needs (bobcat#444): one per stream it decides
+    /// against, when it draws on more than one. A command against a single stream uses <c>Id</c>, and
+    /// a stream the slice starts needs none, because the handler mints it.
+    /// </summary>
+    public static IReadOnlyList<string> StreamIdFieldsOf(ImportedEventModel model, string stub)
+    {
+        var slice = model.Slices.FirstOrDefault(s => Identifiers.Sanitize(s.Command ?? "") == stub);
+        if (slice is null || AggregatesOf(slice).Count() < 2) return [];
+
+        return slice.Aggregates.Select(a => Identifiers.Sanitize(a) + "Id").Where(x => x.Length > 2).Distinct(StringComparer.Ordinal).ToList();
     }
 
     /// <summary>One field of a stub record, as the writer emits it.</summary>
@@ -347,6 +377,7 @@ public static class CSharpModelWriter
             if (slices.Count > 0) roles.Add($"{role} {string.Join(", ", slices)}");
         }
 
+        note("the stream started by", s => s.StartsStream is null ? [] : [s.StartsStream]);
         note("the aggregate behind", s => s.Aggregates);
         note("the command of", s => s.Command is null ? [] : [s.Command]);
         note("emitted by", s => s.Events);
@@ -410,7 +441,7 @@ public static class CSharpModelWriter
         writer.Write("BLOCK:public override void Configure(EventModelBuilder model)");
 
         var aggregates = model.Slices
-            .SelectMany(s => s.Aggregates)
+            .SelectMany(AggregatesOf)
             .Select(x => Identifiers.Sanitize(x ?? ""))
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -418,7 +449,7 @@ public static class CSharpModelWriter
 
         if (aggregates.Count > 0)
         {
-            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed));
+            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + ";");
             writer.BlankLine();
         }
 
@@ -444,6 +475,9 @@ public static class CSharpModelWriter
             foreach (var line in notes.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 writer.WriteLine($"// {line.TrimEnd()}");
         }
+
+        // bobcat#444: every inferred, missing or several-stream aggregate is said where it is used
+        foreach (var callout in slice.Callouts) writer.WriteLine($"// {callout}");
 
         // The pattern verb opens the slice, so the descriptor's Pattern is a fact of the call
         // rather than a separate statement that could disagree with it. A slice whose pattern the
@@ -539,6 +573,7 @@ public static class CSharpModelWriter
             calls.Add($".HandledBy(`{escape(Identifiers.Sanitize(handler))}`)");
         }
 
+        if (slice.StartsStream is { Length: > 0 } started) calls.Add(role(".StartsStream", Identifiers.Sanitize(started), stubbed));
         foreach (var aggregate in sanitized(slice.Aggregates)) calls.Add(role(".Against", aggregate, stubbed));
         foreach (var @event in sanitized(slice.Events)) calls.Add(role(".Emits", @event, stubbed));
         foreach (var message in sanitized(slice.Messages)) calls.Add(role(".Publishes", message, stubbed));

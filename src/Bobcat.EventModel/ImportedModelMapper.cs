@@ -50,6 +50,7 @@ public static class ImportedModelMapper
             Domain = slice.Domain,
             Chapter = slice.Chapter,
             AggregateTypes = types(slice.Aggregates),
+            StartsStream = slice.StartsStream is null ? null : type(slice.StartsStream),
             PublishedMessages = types(slice.Messages),
             ConsumedEvents = types(slice.ConsumedEvents),
             ReadsFrom = types(slice.ReadsFrom),

@@ -33,6 +33,15 @@ public static class EmlangImport
     private static readonly string[] SpecialProps = ["triggeredBy", "module", "cascadedTo"];
 
     public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace = null)
+        => ToCurated(board, modelName, @namespace, null);
+
+    /// <inheritdoc cref="ToCurated(EmlangBoard, string, string?)"/>
+    /// <param name="aggregates">
+    /// <c>--aggregate Slice=Type</c> overrides (bobcat#444), which win over the aggregates inferred from
+    /// the examples. Empty or null infers every one, and calls each out.
+    /// </param>
+    public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace,
+        IReadOnlyList<AggregateOverride>? aggregates)
     {
         var model = new ImportedEventModel { Schema = 1, Model = modelName, Namespace = @namespace };
         var report = new List<string>();
@@ -50,6 +59,16 @@ public static class EmlangImport
         }
 
         report.Add($"{model.Slices.Count} slice(s) from {board.Chapters.Count} chapter(s).");
+
+        // bobcat#444: every command gets an aggregate, declared or inferred, and every inference is said
+        var declared = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var step in board.Chapters.SelectMany(x => x.Steps)
+                     .Where(x => x.Kind == EmlangElementKind.Event && x.Stream is { Length: > 0 }))
+        {
+            declared.TryAdd(PascalName(step.Label), step.Stream!);
+        }
+
+        AggregateInference.Apply(model, declared, aggregates, report);
         return new EmlangImportResult(model, report);
     }
 

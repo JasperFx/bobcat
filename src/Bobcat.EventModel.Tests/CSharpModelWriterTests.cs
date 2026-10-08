@@ -84,7 +84,14 @@ public class CSharpModelWriterTests
             generated.AllStubs().ShouldContain($"public record {name}(Guid Id);");
         }
 
-        generated.StubCount.ShouldBe(events.Length + 3);
+        // The streams those events are on, inferred from what they are about (bobcat#444): classes,
+        // because an aggregate is the write model the store folds
+        foreach (var name in new[] { "Dog", "MutualMatch" })
+        {
+            generated.AllStubs().ShouldContain($"public class {name} {{ public Guid Id {{ get; set; }} }}");
+        }
+
+        generated.StubCount.ShouldBe(events.Length + 3 + 2);
     }
 
     [Fact]
@@ -295,7 +302,7 @@ public class CSharpModelWriterTests
     /// compiling either alone would prove nothing about the pair, and it is the pair an import
     /// writes.
     /// </remarks>
-    private static IReadOnlyList<Diagnostic> compile(CSharpModelWriter.Output generated)
+    internal static IReadOnlyList<Diagnostic> compile(CSharpModelWriter.Output generated)
         => compilation(generated).GetDiagnostics()
             .Where(d => d.Severity >= DiagnosticSeverity.Warning)
             .ToList();
@@ -311,7 +318,7 @@ public class CSharpModelWriterTests
     /// <summary>
     /// Compile, load and run the generated definition, returning the descriptor it declares.
     /// </summary>
-    private static EventModelDescriptor build(CSharpModelWriter.Output generated)
+    internal static EventModelDescriptor build(CSharpModelWriter.Output generated)
     {
         using var stream = new MemoryStream();
         var emitted = compilation(generated).Emit(stream);

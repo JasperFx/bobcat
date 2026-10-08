@@ -82,9 +82,53 @@ identity for it, because that is Wolverine's own convention: a generated specifi
 the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
-event is stored. Only a stream the model declares (an eventmodelers.ai element's `aggregate`)
-becomes an aggregate type. Otherwise the events go on a stream with no aggregate type, which
-Marten, Polecat and Fisher all support.
+event is stored.
+
+### Aggregates: declared, or inferred and called out
+
+A command that does not only start a stream needs a DCB decider or one or more single-stream
+aggregates, so the import gives every command one (bobcat#444). A stream the model declares (an
+eventmodelers.ai element's `aggregate`) is used as it is. Everything else is **inferred from the
+examples**:
+
+- **Lineage groups events into streams.** An example that gives an event and expects another says
+  the second is appended where the first was. When an example gives events of several subjects
+  (`Home check requested` and `Volunteer approved`), what it expects joins only the givens whose
+  name shares a subject with it, so one decision drawing on two streams never folds them into one.
+- **A stream is named for its subject**: the longest run of words most of its events open with.
+  `AppointmentConfirmed`, `AppointmentCancelled` and `HomeCheckAppointmentProposed` are an
+  `Appointment`. A stream no example links to anything joins one whose name its subject ends with
+  (`FosterHandoverAppointment` is an `Appointment`), and the report says that was by name only.
+- **A slice starts a stream** when it appends to it and no example gives it an earlier event there:
+  `.StartsStream<VolunteerApplication>()`. Otherwise it decides against it:
+  `.Against<VolunteerApplication>()`.
+- **A decision drawing on several streams** decides against each, its command carries an
+  `{Aggregate}Id` per stream, and it is flagged: choose several `[WriteAggregate] IEventStream<T>`
+  parameters or a DCB decider (bobcat#443).
+- **A command left with no aggregate is reported as missing**, with a TODO on the slice. It is
+  never quietly made aggregate-less.
+
+Every inferred aggregate is called out, in the report and as a comment on the slice in the
+definition, so a wrong guess is a one-line edit there:
+
+```csharp
+// ⚠ inferred: decides against Appointment — its examples give Appointment events before it appends; 'Appointment' is the subject 7 of its 7 events share.
+model.Command<ConfirmAppointment>()
+    .InChapter("BookingAppointments")
+    .Against<Appointment>()
+    .Emits<AppointmentConfirmed>();
+```
+
+Or say it outright on the import, which always wins over the inference. Several at once go after
+one flag:
+
+```bash
+bobcat import-event-model board.yaml --aggregate ConfirmAppointment=Booking AcceptHomeCheckAssignment=HomeCheck
+```
+
+The generated specifications arrange events on the typed aggregate, `GivenEvents<Appointment>(…)`,
+and the act addresses it through the command's `Id`, or each `{Aggregate}Id`. A stream with no
+aggregate type, `GivenEvents(id, …)`, is left for a stream nothing names at all.
 
 `<Model>.cs` is one `EventModelDefinition` declaring the slices through the JasperFx.Events fluent
 API, against those stubs:

@@ -81,19 +81,19 @@ public class DeclaredIdentityTests
     }
 
     [Fact]
-    public void an_emlang_swimlane_is_an_actor_so_the_events_go_on_a_stream_with_no_aggregate_type()
+    public void an_emlang_swimlane_is_an_actor_so_the_stream_is_named_for_the_events_subject()
     {
         // bobcat#439: K9CRUSH writes `Admin / Volunteer approved`, and reading the swimlane as the
-        // stream spread one application's events over Admin, Volunteer and ShelterStaff. A model
-        // that declares no aggregate gets a stream with no aggregate type, which every Critter
-        // Stack store allows, and the act addresses it through the command's Id (bobcat#438).
+        // stream spread one application's events over Admin, Volunteer and ShelterStaff. bobcat#444:
+        // nor is the stream left without an aggregate type. It is inferred from the events, named
+        // for their subject, and the act addresses it through the command's Id (bobcat#438).
         var code = generate(EmlangReader.Read(
             """
             slices:
               Place:
                 steps:
                   - c: Place order
-                  - e: Order / Order placed
+                  - e: Admin / Order placed
                     props:
                       order id: uuid
                 tests:
@@ -106,10 +106,10 @@ public class DeclaredIdentityTests
                       - x: Already placed
             """));
 
-        code.ShouldContain("var theStream = Guid.CreateVersion7();");
-        code.ShouldContain("await GivenEvents(theStream, Specify<OrderPlaced>());");
-        code.ShouldContain("await WhenReceived(Specify<PlaceOrder>().With(x => x.Id, theStream));");
-        code.ShouldNotContain("GivenEvents<Order>");
+        code.ShouldContain("var theOrder = Guid.CreateVersion7();");
+        code.ShouldContain("await GivenEvents<Order>(theOrder, Specify<OrderPlaced>().With(x => x.OrderId, theOrder));");
+        code.ShouldContain("await WhenReceived(Specify<PlaceOrder>().With(x => x.Id, theOrder));");
+        code.ShouldNotContain("GivenEvents<Admin>");
         code.ShouldNotContain("TODO: the model names no");
     }
 

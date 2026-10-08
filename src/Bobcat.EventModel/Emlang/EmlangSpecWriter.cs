@@ -392,8 +392,12 @@ public static class EmlangSpecWriter
             }
         }
 
-        /// <summary>The stream the model declares for an element, or null.</summary>
-        public string? StreamOf(string typeName) => _declared.GetValueOrDefault(typeName).Stream;
+        /// <summary>
+        /// The stream an element is stored on: the aggregate the import declared or inferred for an
+        /// event (bobcat#444), else what the model's steps declare, else null.
+        /// </summary>
+        public string? StreamOf(string typeName)
+            => Model.EventStreams.GetValueOrDefault(typeName) ?? _declared.GetValueOrDefault(typeName).Stream;
 
         /// <summary>
         /// The props that are an element's identity: the ones the model marks (<c>idAttribute</c>),
@@ -405,7 +409,7 @@ public static class EmlangSpecWriter
             if (!_declared.TryGetValue(typeName, out var known)) return [];
             if (known.Identities.Count > 0) return known.Identities;
 
-            var stream = known.Stream is { Length: > 0 } declared ? TypeName(declared) : null;
+            var stream = StreamOf(typeName) is { Length: > 0 } declared ? TypeName(declared) : null;
             return known.Props
                 .Where(x => EmlangImport.PascalName(x) is var name
                             && (name == "AggregateId" || (stream is not null && name == stream + "Id")))
@@ -560,8 +564,9 @@ public static class EmlangSpecWriter
         private readonly Dictionary<EmlangRef, List<(string Member, string Variable)>> _minted = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>
-        /// The stream (aggregate type) the model declares for a reference's element, or null: then
-        /// the events go on a stream with no aggregate type, which Marten, Polecat and Fisher all
+        /// The stream (aggregate type) of a reference's element: what the model declares, else what
+        /// the import inferred from the examples (bobcat#444). Null only when neither names one, and
+        /// then the events go on a stream with no aggregate type, which Marten, Polecat and Fisher all
         /// allow (bobcat#439). Never the swimlane, which is an actor.
         /// </summary>
         private string? streamName(EmlangRef reference)
@@ -640,6 +645,7 @@ public static class EmlangSpecWriter
             {
                 var (stream, key, events) = groups[i];
                 if (i == 0) _actKey = key;
+                if (stream is not null) _streamKeys.TryAdd(stream, key);
 
                 // No declared aggregate: a stream with no aggregate type (bobcat#439)
                 if (stream is null)
@@ -685,6 +691,9 @@ public static class EmlangSpecWriter
         // The key of the stream the givens were arranged on, which the act addresses
         private string? _actKey;
 
+        // Each arranged stream (aggregate) -> its key, for a command addressing several (bobcat#444)
+        private readonly Dictionary<string, string> _streamKeys = new(StringComparer.Ordinal);
+
         /// <summary>
         /// The command's partial, addressed to the arranged stream by its conventional <c>Id</c> when
         /// the model gives the command no identity of its own (bobcat#438). Without it the command's
@@ -694,11 +703,35 @@ public static class EmlangSpecWriter
         {
             var built = partial(command);
             var typeName = TypeName(command.Label);
+            var owner = context.Model.Slices.FirstOrDefault(s => CSharpModelWriter.Identifiers.Sanitize(s.Command ?? "") == typeName);
+
+            // Several streams: each addressed by its own {Aggregate}Id (bobcat#444)
+            var streamIds = CSharpModelWriter.StreamIdFieldsOf(context.Model, typeName);
+            if (streamIds.Count > 0 && owner is not null)
+            {
+                foreach (var aggregate in owner.Aggregates)
+                {
+                    var member = CSharpModelWriter.Identifiers.Sanitize(aggregate) + "Id";
+                    if (!_streamKeys.TryGetValue(TypeName(aggregate), out var key)) continue;
+                    if (built.Contains($".With(x => x.{member},", StringComparison.Ordinal)) continue;
+
+                    context.Member(typeName, member);
+                    built += $".With(x => x.{member}, {key})";
+                }
+
+                return built;
+            }
+
             if (_actKey is null || built.Contains(".With(x => x.Id,", StringComparison.Ordinal)) return built;
             if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built;
 
+            // The stream the command decides against, when the givens arranged more than one
+            var actKey = owner?.Aggregates.Count == 1 && _streamKeys.TryGetValue(TypeName(owner.Aggregates[0]), out var own)
+                ? own
+                : _actKey;
+
             context.Member(typeName, "id");
-            return built + $".With(x => x.Id, {_actKey})";
+            return built + $".With(x => x.Id, {actKey})";
         }
 
         private void assert(bool arranged)

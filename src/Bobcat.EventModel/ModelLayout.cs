@@ -77,20 +77,36 @@ public sealed class ModelLayout
         foreach (var slice in model.Slices)
         {
             var chapter = ChapterFolder(slice.Chapter);
-            foreach (var name in slice.Aggregates.Concat(slice.ConsumedEvents).Concat(slice.ReadsFrom))
+            foreach (var name in CSharpModelWriter.AggregatesOf(slice).Concat(slice.ConsumedEvents).Concat(slice.ReadsFrom))
             {
                 var type = CSharpModelWriter.Identifiers.Sanitize(name ?? "");
                 if (type.Length > 0) layout.place(type, chapter, typeFile(chapter, type));
             }
         }
 
+        // Named only by an example: beside the first slice whose example names it, so an event
+        // consumed from another part of the model still lands in a chapter (bobcat#444)
         foreach (var name in extra ?? [])
         {
             var type = CSharpModelWriter.Identifiers.Sanitize(name ?? "");
-            if (type.Length > 0) layout.place(type, null, typeFile(null, type));
+            if (type.Length == 0) continue;
+
+            var chapter = ChapterFolder(model.Slices.FirstOrDefault(s => namesInExamples(s, type))?.Chapter);
+            layout.place(type, chapter, typeFile(chapter, type));
         }
 
         return layout;
+    }
+
+    private static bool namesInExamples(CuratedSlice slice, string type)
+    {
+        bool same(string? x) => CSharpModelWriter.Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x ?? "")) == type;
+
+        if (slice.Elements.Keys.Any(same)) return true;
+        return (slice.Specifications?.Scenarios ?? []).Any(x =>
+            x.Given.Any(g => same(g.Event) || same(g.Aggregate))
+            || same(x.When?.Command)
+            || x.Then.Any(t => same(t.Event) || same(t.ReadModel) || same(t.StartsStream)));
     }
 
     private void place(string? name, string? chapter, string file)

@@ -33,6 +33,10 @@ public class ImportEventModelInput
     [FlagAlias("specs-namespace", true)]
     public string? SpecsNamespaceFlag { get; set; }
 
+    [Description("The aggregate a slice decides against, as Slice=Type, which wins over the one inferred from the examples (bobcat#444). Several at once: --aggregate A=Order B=Order B=Customer")]
+    [FlagAlias("aggregate", true)]
+    public string[] AggregateFlag { get; set; } = [];
+
     [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
     public bool ForceFlag { get; set; }
 
@@ -154,7 +158,18 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var model = input.ModelFlag
                     ?? EmlangImport.PascalName(Path.GetFileName(input.FilePath).Split('.')[0]);
-        var result = EmlangImport.ToCurated(board, model, input.NamespaceFlag);
+        IReadOnlyList<AggregateOverride> overrides;
+        try
+        {
+            overrides = input.AggregateFlag.Select(AggregateOverride.Parse).ToList();
+        }
+        catch (FormatException e)
+        {
+            System.Console.Error.WriteLine(e.Message);
+            return null;
+        }
+
+        var result = EmlangImport.ToCurated(board, model, input.NamespaceFlag, overrides);
 
         foreach (var line in result.Report) System.Console.WriteLine(line);
 
