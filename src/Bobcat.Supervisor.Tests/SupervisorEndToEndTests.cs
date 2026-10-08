@@ -145,6 +145,32 @@ public class SupervisorEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task a_worker_reads_its_connection_strings_through_configuration_as_an_aspire_app_would()
+    {
+        // Issue #414: the same IConfiguration.GetConnectionString call an application makes under an
+        // Aspire AppHost, run inside a real worker process the supervisor launched
+        var probe = tempFile();
+        var supervisor = new Supervisor(new MtpWorkerFactory(workerPath, new Dictionary<string, string>
+        {
+            ["BOBCAT_CONNECTION_PROBE"] = probe
+        })
+        {
+            ConnectionStrings = new WorkerConnectionStrings()
+                .Add("postgres", worker => $"Host=localhost;Database=specs_w{worker.Lane}")
+                .Add("rabbitmq", "amqp://guest:guest@localhost:5672")
+        })
+        {
+            MaxParallelWorkers = 1
+        };
+
+        await supervisor.Run();
+
+        var lines = await File.ReadAllLinesAsync(probe);
+        lines.ShouldContain("postgres=Host=localhost;Database=specs_w0");
+        lines.ShouldContain("rabbitmq=amqp://guest:guest@localhost:5672");
+    }
+
+    [Fact]
     public async Task a_flaky_test_passes_on_retry_and_is_reported_as_such()
     {
         var state = tempFile();

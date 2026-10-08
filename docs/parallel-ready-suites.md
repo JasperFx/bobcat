@@ -104,16 +104,41 @@ database landing in different workers. So each worker needs its own database:
 ```csharp
 new MtpWorkerFactory(path)
 {
-    EnvironmentFor = worker => new Dictionary<string, string>
-    {
-        ["POLECAT_TESTING_DATABASE"] = connectionStringFor($"polecat_w{worker.Lane}")
-    }
+    ConnectionStrings = new WorkerConnectionStrings()
+        .Add("postgres", worker => $"Host=localhost;Port=5433;Database=specs_w{worker.Lane};Username=postgres;Password=postgres")
+        .Add("rabbitmq", "amqp://guest:guest@localhost:5672")
 }
 ```
 
-`Lane` is bounded by `MaxParallelWorkers`, so you provision as many databases as workers you asked
-for. That requires the suite to take its connection string from an environment variable — most
-already do; Wolverine's `Servers.cs` was hardcoded constants and needed a small change.
+Each worker is launched with `ConnectionStrings__postgres` and `ConnectionStrings__rabbitmq`. That is
+**the .NET Aspire convention**, so the suite reads them the way an application does:
+
+```csharp
+var connectionString = configuration.GetConnectionString("postgres")
+                       ?? "Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=postgres";
+```
+
+or, without `IConfiguration`, `Environment.GetEnvironmentVariable("ConnectionStrings__postgres")`.
+The same suite then runs unchanged in three places: under the supervisor; under an Aspire AppHost
+that passes the resource with `WithReference(...)`; and by hand, as
+`ConnectionStrings__postgres=... dotnet run`. The fallback keeps a plain `dotnet test` working.
+
+Rules the convention depends on (issue #414):
+
+- **Always a whole connection string, never a fragment.** Hand a worker something it can use
+  as-is, not a database name, schema or port to stitch onto a base string. Step 3 shows how
+  stitching goes wrong.
+- **Brokers too.** RabbitMQ, Kafka, Azure Service Bus and NATS each get their complete connection
+  string or URI under a name, never a host or vhost fragment. Use the `string` overload of `Add`
+  for a resource every worker shares.
+- **Provisioning is yours.** Create one database (or vhost, or namespace) per lane before the run;
+  `WorkerConnectionStrings` only says which one each worker gets. `Lane` is bounded by
+  `MaxParallelWorkers`, so you provision as many as workers you asked for. Discovery, isolated and
+  recycled launches report lane 0, and the provider receives the whole `WorkerLaunchContext` if
+  one of them should get something else.
+
+`EnvironmentFor` is still there for anything that is not a connection string. It is layered above
+`ConnectionStrings`, so it wins when both set the same variable.
 
 **A suite that starts its own container per process already has this, for free.** Wolverine's Redis
 tests spin up a Testcontainers Redis from a `[ModuleInitializer]`, so every worker gets its own

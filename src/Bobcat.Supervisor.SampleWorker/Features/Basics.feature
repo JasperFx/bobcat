@@ -6,6 +6,7 @@ Feature: Basics
 
   Scenario: passes
     Then it passes
+    And the worker writes its connection strings if BOBCAT_CONNECTION_PROBE is set
 
   Scenario: also passes
     Then it also passes
