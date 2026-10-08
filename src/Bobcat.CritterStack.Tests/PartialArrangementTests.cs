@@ -32,10 +32,10 @@ public class PartialArrangementTests
         built.OwnerId.ShouldBe(Owner);
         built.ProposedFor.ShouldBe(DateTimeOffset.Parse("2026-10-01T15:00:00Z"));
 
-        // The scenario said nothing about these, so they say nothing back.
-        built.AppointmentId.ShouldBe(Guid.Empty);
-        built.ShelterId.ShouldBe(Guid.Empty);
-        built.DogId.ShouldBe(Guid.Empty);
+        // The scenario said nothing about these. Since bobcat#421 they are fresh ids rather than
+        // Guid.Empty, so two unspecified ids are never accidentally the same identity.
+        new[] { built.AppointmentId, built.ShelterId, built.DogId }.ShouldAllBe(x => x != Guid.Empty);
+        new[] { built.AppointmentId, built.ShelterId, built.DogId }.Distinct().Count().ShouldBe(3);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class PartialArrangementTests
         });
 
         built.OwnerId.ShouldBe(Owner);
-        built.DogId.ShouldBe(Guid.Empty);
+        built.DogId.ShouldNotBe(Guid.Empty);
     }
 
     [Fact]
