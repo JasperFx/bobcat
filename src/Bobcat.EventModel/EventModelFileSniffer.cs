@@ -16,6 +16,12 @@ public enum EventModelFileKind
     /// </summary>
     SpecOwnership,
 
+    /// <summary>An eventmodelers.ai board backup: JSON with <c>nodes</c> and <c>metadata</c> (bobcat#424).</summary>
+    EventModelersBoard,
+
+    /// <summary>An eventmodelers.ai <c>config.json</c> / slice export: JSON with <c>slices[]</c> (bobcat#424).</summary>
+    EventModelersConfig,
+
     Unknown,
 }
 
@@ -41,6 +47,11 @@ public static class EventModelFileSniffer
 
     public static EventModelFileKind Sniff(string yaml)
     {
+        // JSON is also YAML, so the platform's JSON exports are told apart first: a config.json's
+        // top-level slices[] would otherwise read as an emlang file and fail on its shape
+        if (Emlang.EventModelersJsonReader.LooksLikeJson(yaml))
+            return Emlang.EventModelersJsonReader.Sniff(yaml) ?? EventModelFileKind.Unknown;
+
         List<Dictionary<object, object>> documents;
         try
         {
