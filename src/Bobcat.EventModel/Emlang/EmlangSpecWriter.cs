@@ -7,7 +7,7 @@ namespace Bobcat.EventModel.Emlang;
 
 /// <summary>What <see cref="EmlangSpecWriter.Write"/> produced.</summary>
 /// <param name="Code">The specifications file.</param>
-/// <param name="Features">How many feature classes it holds: one per slice.</param>
+/// <param name="Features">How many feature classes it holds: one per slice with an example.</param>
 /// <param name="Specs">How many specifications: one per test with something to say.</param>
 /// <param name="Additions">What the stubs need beyond the model's own for the specs to compile.</param>
 /// <param name="Report">Every guess and gap, one line each, for the person to go and fix.</param>
@@ -24,6 +24,15 @@ public sealed record GeneratedSpecs(
 /// gives as a partial object naming exactly those members.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>A specification's identity is the one the model links (bobcat#435).</b> The feature is the
+/// SLICE the import attached the test to, not the board chapter it was written under, and the
+/// scenario is <see cref="ScenarioTitle"/>, the method name read back as a sentence, which is what
+/// a projected test reports. <c>EmlangImport</c> names each scenario the same way, so the
+/// definition's <c>LinksToSpecification</c>, the pushed descriptor and a run's
+/// <c>scenario_finished</c> all carry one string. Before this, the features were chapters and
+/// the definition linked the board's spelling, so not one generated specification joined its slice.
+/// </para>
 /// <para>
 /// <b>The code targets WolverineFx.Bobcat's <c>WolverineSpec</c></b>, which this package does not
 /// reference: it is text, and the project it lands in references WolverineFx.Bobcat.
@@ -73,38 +82,83 @@ public static class EmlangSpecWriter
         var specs = 0;
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var chapter in board.Chapters)
+        foreach (var slice in model.Slices)
         {
-            var className = unique(classNames, FeatureClassName(chapter.Name));
+            var scenarios = slice.Specifications?.Scenarios.Where(x => x.Source is not null).ToList() ?? [];
+            if (scenarios.Count == 0)
+            {
+                context.Report.Add($"slice '{slice.Name}': no tests, so no specifications.");
+                continue;
+            }
+
+            var className = unique(classNames, FeatureClassName(slice.Name));
             features++;
 
             writer.BlankLine();
-            foreach (var automation in model.Slices.Where(x =>
-                         x.Chapter == chapter.Name && x.Pattern == "Automation" && x.Trigger?.Label is { Length: > 0 }))
+            if (slice.Pattern == "Automation" && slice.Trigger?.Label is { Length: > 0 } trigger)
             {
                 // The examples exercise the command; what triggers it is wiring they never reach
-                writer.WriteLine($"// {automation.Name} is an automation, triggered by \"{comment(automation.Trigger!.Label!)}\"");
+                writer.WriteLine($"// {slice.Name} is an automation, triggered by \"{comment(trigger)}\"");
             }
 
-            writer.WriteLine($"[BobcatFeature({quote(chapter.Name)})]");
+            writer.WriteLine($"[BobcatFeature({quote(slice.Name)})]");
             writer.Write($"BLOCK:public class {className}(AppFixture app) : {modelName}Spec(app)");
 
-            if (chapter.Tests.Count == 0)
-            {
-                writer.WriteLine($"// The model gives \"{comment(chapter.Name)}\" no examples to generate from");
-                context.Report.Add($"slice '{chapter.Name}': no tests, so no specifications.");
-            }
-
-            var methods = new HashSet<string>(StringComparer.Ordinal);
             var first = true;
-            foreach (var test in chapter.Tests)
+            foreach (var scenario in scenarios)
             {
                 if (!first) writer.BlankLine();
                 first = false;
 
+                // The import already deduplicated the slice's scenarios by title, and a title
+                // round-trips to exactly one method name, so no method here needs a suffix
+                writer.WriteLine("[Fact]");
+                writer.Write($"BLOCK:public async Task {MethodName(scenario.Source!.Name)}()");
+                foreach (var line in new TestWriter(context, slice.Name, scenario.SourceChapter!, scenario.Source).Lines())
+                {
+                    if (line.Length == 0) writer.BlankLine();
+                    else writer.WriteLine(line);
+                }
+                writer.FinishBlock();
+                specs++;
+            }
+
+            writer.FinishBlock();
+        }
+
+        // A test the import attached to no slice still gets its specification, under its chapter as
+        // before: what it arranges and asserts is still worth writing, and its examples are still
+        // fields the stubs need. It binds to nothing on the model, and the report says so.
+        var attached = model.Slices
+            .SelectMany(x => x.Specifications?.Scenarios ?? [])
+            .Select(x => x.Source)
+            .OfType<EmlangTest>()
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+
+        foreach (var chapter in board.Chapters)
+        {
+            var orphans = chapter.Tests.Where(x => !attached.Contains(x)).ToList();
+            if (orphans.Count == 0) continue;
+
+            var className = unique(classNames, FeatureClassName(chapter.Name));
+            features++;
+
+            writer.BlankLine();
+            writer.WriteLine($"// The model attaches these to no slice, so they bind to nothing on the event model");
+            writer.WriteLine($"[BobcatFeature({quote(chapter.Name)})]");
+            writer.Write($"BLOCK:public class {className}(AppFixture app) : {modelName}Spec(app)");
+
+            var methods = new HashSet<string>(StringComparer.Ordinal);
+            var first = true;
+            foreach (var test in orphans)
+            {
+                if (!first) writer.BlankLine();
+                first = false;
+
+                context.Report.Add($"⚠ chapter '{chapter.Name}', test '{test.Name}': attached to no slice, so its specification binds to nothing on the model.");
                 writer.WriteLine("[Fact]");
                 writer.Write($"BLOCK:public async Task {unique(methods, MethodName(test.Name))}()");
-                foreach (var line in new TestWriter(context, chapter, test).Lines())
+                foreach (var line in new TestWriter(context, chapter.Name, chapter, test).Lines())
                 {
                     if (line.Length == 0) writer.BlankLine();
                     else writer.WriteLine(line);
@@ -123,10 +177,10 @@ public static class EmlangSpecWriter
     }
 
     /// <summary>
-    /// The model's tests with no specification among <paramref name="sources"/>, as
-    /// <c>slice / test</c>: what a second run reports instead of writing over the first.
+    /// The model's scenarios with no specification among <paramref name="sources"/>, as
+    /// <c>slice / scenario</c>: what a second run reports instead of writing over the first.
     /// </summary>
-    public static IReadOnlyList<string> MissingSpecs(EmlangBoard board, IEnumerable<string> sources)
+    public static IReadOnlyList<string> MissingSpecs(ImportedEventModel model, IEnumerable<string> sources)
     {
         var written = new HashSet<(string Feature, string Method)>();
         foreach (var source in sources)
@@ -145,10 +199,10 @@ public static class EmlangSpecWriter
             }
         }
 
-        return board.Chapters
-            .SelectMany(chapter => chapter.Tests
-                .Where(test => !written.Contains((chapter.Name, MethodName(test.Name))))
-                .Select(test => $"{chapter.Name} / {test.Name}"))
+        return model.Slices
+            .SelectMany(slice => (slice.Specifications?.Scenarios ?? [])
+                .Where(x => x.Source is not null && !written.Contains((slice.Name, MethodName(x.Source.Name))))
+                .Select(x => $"{slice.Name} / {x.Name}"))
             .ToList();
     }
 
@@ -166,6 +220,13 @@ public static class EmlangSpecWriter
 
     /// <summary>A test's method name: snake case.</summary>
     public static string MethodName(string test) => snake(test);
+
+    /// <summary>
+    /// The scenario title a test's generated specification reports: its <see cref="MethodName"/>
+    /// read back as a sentence, the way the projected lane titles every test (bobcat#435).
+    /// <c>EmlangImport</c> names the model's scenario this, so the two always agree.
+    /// </summary>
+    public static string ScenarioTitle(string test) => ProjectedSpecNaming.ScenarioTitleFor(MethodName(test));
 
     private static void writeFixture(ISourceWriter writer, string modelName)
     {
@@ -289,7 +350,7 @@ public static class EmlangSpecWriter
     }
 
     /// <summary>One test's body. A class rather than a method because a test accumulates state as it goes: its identities.</summary>
-    private sealed class TestWriter(Context context, EmlangChapter chapter, EmlangTest test)
+    private sealed class TestWriter(Context context, string slice, EmlangChapter chapter, EmlangTest test)
     {
         private readonly List<string> _lines = [];
 
@@ -300,7 +361,7 @@ public static class EmlangSpecWriter
         private static readonly EmlangElementKind[] Elements =
             [EmlangElementKind.Command, EmlangElementKind.Event, EmlangElementKind.View];
 
-        private string where => $"slice '{chapter.Name}', test '{test.Name}'";
+        private string where => $"slice '{slice}', test '{test.Name}'";
 
         public IEnumerable<string> Lines()
         {

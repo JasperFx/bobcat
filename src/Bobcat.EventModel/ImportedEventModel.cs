@@ -151,6 +151,15 @@ public sealed class CuratedScenario
 {
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The board test this scenario was imported from, which the spec generator writes the
+    /// specification from. Internal, so it never reaches YAML; null for a scenario no board gave.
+    /// </summary>
+    internal Emlang.EmlangTest? Source { get; set; }
+
+    /// <summary>The chapter <see cref="Source"/> was written under.</summary>
+    internal Emlang.EmlangChapter? SourceChapter { get; set; }
+
     /// <summary>Prior events, oldest first. Events only — the grammar allows nothing else in a Given.</summary>
     public List<CuratedGiven> Given { get; set; } = [];
 

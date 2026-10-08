@@ -178,7 +178,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
                 + "so correct one with an edit rather than a re-import.");
         }
 
-        if (specs is not null) writeSpecs(board, specs, Path.Combine(outDirectory, $"{model}Specs.cs"), input.ForceFlag);
+        if (specs is not null) writeSpecs(result.Model, specs, Path.Combine(outDirectory, $"{model}Specs.cs"), input.ForceFlag);
 
         return result.Model;
     }
@@ -196,7 +196,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         return true;
     }
 
-    private static void writeSpecs(EmlangBoard board, GeneratedSpecs specs, string path, bool force)
+    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string path, bool force)
     {
         foreach (var line in specs.Report) System.Console.WriteLine(line);
 
@@ -211,7 +211,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         // One-shot: a second run says what the model has that the specifications don't, and writes nothing
         var directory = Path.GetDirectoryName(path)!;
         var sources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
-        var missing = EmlangSpecWriter.MissingSpecs(board, sources);
+        var missing = EmlangSpecWriter.MissingSpecs(model, sources);
 
         System.Console.WriteLine(missing.Count == 0
             ? "Every example in the model has a specification."
