@@ -625,6 +625,14 @@ public sealed class MtpWorkerFactory : IWorkerFactory
     public Func<WorkerLaunchContext, IReadOnlyDictionary<string, string>>? EnvironmentFor { get; init; }
 
     /// <summary>
+    /// The infrastructure each worker connects to, as <c>ConnectionStrings__{name}</c> (issue #414):
+    /// the Aspire convention, so a suite reads it through <c>IConfiguration.GetConnectionString</c>
+    /// whether the supervisor, an Aspire AppHost or a person launched it. Layered over the shared
+    /// environment, and under <see cref="EnvironmentFor"/>.
+    /// </summary>
+    public WorkerConnectionStrings? ConnectionStrings { get; init; }
+
+    /// <summary>
     /// Invoked with a live worker immediately before it is forcibly killed (issue #147). A
     /// seam, not a feature: Bobcat ships no dump logic and takes no dotnet-dump dependency —
     /// the consumer knows what to capture and how long it can afford, the supervisor only
@@ -656,16 +664,17 @@ public sealed class MtpWorkerFactory : IWorkerFactory
         => await MtpWorkerClient.Launch(
             _executable, environmentFor(context), ct, context, OnBeforeKill, BeforeKillTimeout);
 
-    // Internal for the layering test — three layers, most specific wins:
-    // the context's run-scoped baseline, then the factory's shared environment, then the lane's.
+    // Internal for the layering test — four layers, most specific wins: the context's run-scoped
+    // baseline, the factory's shared environment, the worker's connection strings, then the lane's.
     internal IReadOnlyDictionary<string, string>? environmentFor(WorkerLaunchContext context)
     {
+        var connectionStrings = ConnectionStrings?.EnvironmentFor(context);
         var perWorker = EnvironmentFor?.Invoke(context);
-        if (context.Environment is null && perWorker is null) return _environment;
-        if (context.Environment is null && _environment is null) return perWorker;
+        if (context.Environment is null && perWorker is null && connectionStrings is null) return _environment;
+        if (context.Environment is null && _environment is null && connectionStrings is null) return perWorker;
 
         var merged = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var layer in new[] { context.Environment, _environment, perWorker })
+        foreach (var layer in new[] { context.Environment, _environment, connectionStrings, perWorker })
         {
             if (layer is null) continue;
             foreach (var pair in layer) merged[pair.Key] = pair.Value;

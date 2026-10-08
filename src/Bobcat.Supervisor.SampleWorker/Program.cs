@@ -1,6 +1,7 @@
 using Bobcat;
 using Bobcat.Mtp;
 using Bobcat.Runtime;
+using Microsoft.Extensions.Configuration;
 
 namespace Bobcat.Supervisor.SampleWorker;
 
@@ -75,6 +76,25 @@ public class BasicsFixture : ProbeFixture
 {
     [Then("it passes")]
     public void Passes() => Probe(() => { });
+
+    /// <summary>
+    /// Reads the worker's connection strings exactly as an application would, through
+    /// <c>IConfiguration.GetConnectionString</c> (issue #414), and writes them to the file
+    /// <c>BOBCAT_CONNECTION_PROBE</c> names. Not a <see cref="ProbeFixture.Probe"/>: it is a
+    /// second step of "passes", not a scenario, so it must not count as one. Inert unless armed.
+    /// </summary>
+    [Then("the worker writes its connection strings if BOBCAT_CONNECTION_PROBE is set")]
+    public void WritesConnectionStrings()
+    {
+        var path = Environment.GetEnvironmentVariable("BOBCAT_CONNECTION_PROBE");
+        if (path is null) return;
+
+        var configuration = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+        var section = configuration.GetSection("ConnectionStrings");
+        File.WriteAllLines(path, section.GetChildren()
+            .OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(x => $"{x.Key}={configuration.GetConnectionString(x.Key)}"));
+    }
 
     [Then("it also passes")]
     public void AlsoPasses() => Probe(() => { });
