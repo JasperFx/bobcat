@@ -293,8 +293,14 @@ public static class EmlangImport
                 continue;
             }
 
+            // The scenario is named for the title its generated specification reports, not the
+            // board's spelling of it: a projected test's title IS its method name read back as a
+            // sentence, so "AppointmentConfirmed" runs as "appointment confirmed". Naming it
+            // anything else links the definition to an identity no run ever reports.
+            var scenario = EmlangSpecWriter.ScenarioTitle(test.Name);
+
             target.Specifications ??= new CuratedSpecifications();
-            if (target.Specifications.Scenarios.Any(x => x.Name == test.Name))
+            if (target.Specifications.Scenarios.Any(x => x.Name == scenario))
             {
                 // Two chapters exercising one folded slice can carry the same test; the identity
                 // must stay unique to join run evidence, so keep the first and say so.
@@ -322,7 +328,9 @@ public static class EmlangImport
 
             target.Specifications.Scenarios.Add(new CuratedScenario
             {
-                Name = test.Name,
+                Name = scenario,
+                Source = test,
+                SourceChapter = chapter,
                 Given = test.Given
                     .Where(x => x.Kind == EmlangElementKind.Event)
                     .Select(x => new CuratedGiven { Event = PascalName(x.Label), With = values(x) })

@@ -81,7 +81,7 @@ public class EmlangImportTests
         var slice = import(SwipeChapter).Slices.First(x => x.Name == "SwipeOnDog");
 
         var scenario = slice.Specifications!.Scenarios.Single();
-        scenario.Name.ShouldBe("ALikeIsRecorded");
+        scenario.Name.ShouldBe("a like is recorded"); // the title its projected spec reports (bobcat#435)
         scenario.Given.Single().Event.ShouldBe("DogLiked");
         scenario.When!.Command.ShouldBe("SwipeOnDog");
         scenario.Then.Single().Event.ShouldBe("DogLiked");
@@ -310,7 +310,7 @@ public class EmlangImportTests
         descriptor.Name.ShouldBe("K9Crush");
         descriptor.Slices.Count.ShouldBe(3);
         descriptor.Slices.SelectMany(x => x.Specifications)
-            .ShouldContain(x => x.Identity == "SwipeOnDog/ALikeIsRecorded");
+            .ShouldContain(x => x.Identity == "SwipeOnDog/a like is recorded");
     }
 
     [Fact]
@@ -475,7 +475,7 @@ public class EmlangInTheWildTests
         var scenario = import(TwoDocuments).Slices.Single(x => x.Name == "PlaceOrder")
             .Specifications!.Scenarios.Single();
 
-        scenario.Name.ShouldBe("Placing an order");
+        scenario.Name.ShouldBe("placing an order");
         scenario.Given.ShouldBeEmpty();
         scenario.When!.With["order id"].ShouldBe("order-1");
         scenario.Then.Single().Event.ShouldBe("OrderPlaced");
@@ -661,6 +661,6 @@ public class EmlangProcessorSliceTests
             """, out _);
 
         model.Slices.Single(x => x.Name == "OrderSummary").Specifications!.Scenarios
-            .Single().Name.ShouldBe("Nothing ordered yet");
+            .Single().Name.ShouldBe("nothing ordered yet");
     }
 }

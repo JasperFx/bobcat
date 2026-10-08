@@ -81,7 +81,7 @@ public class K9CrushEventModel : EventModelDefinition
             .TriggeredBy("Discovery Feed", TriggerKind.Human)
             .Emits<DogLiked>()
             .Emits<DogPassed>()
-            .LinksToSpecification("SwipeOnDog/ALikeIsRecorded");
+            .LinksToSpecification("SwipeOnDog/a like is recorded");
 
         model.Automation("DetectMutualMatch")
             .InDomain("Discovery")
@@ -95,7 +95,7 @@ public class K9CrushEventModel : EventModelDefinition
             .On<DogLiked>()
             .On<DogPassed>()
             .On<MutualMatchDetected>()
-            .LinksToSpecification("MatchList/MatchesShow");
+            .LinksToSpecification("MatchList/matches show");
     }
 }
 ```
@@ -106,6 +106,17 @@ shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do l
 
 Write your Bobcat specs against the stubs straight away. They are red until the behaviour exists,
 and that is the point.
+
+With `--specs`, the command writes them for you as well: one WolverineFx.Bobcat specification per
+example on the board, in a `{Model}Specs.cs` beside the other two files. Each slice is one
+`[BobcatFeature]` class, and each example is one `[Fact]` named for the example in snake case.
+
+The links in the definition are the identities those specs report: the slice name, then the
+method name read back as a sentence. That's why the example `ALikeIsRecorded` is linked as
+`SwipeOnDog/a like is recorded`. A projected test's scenario title *is* its method name, so linking
+the board's own spelling would bind to a scenario no run ever reports, and every slice would stay
+unproven with all of its specs green. An example that the board attaches to no slice still gets a
+spec, under a feature named for its chapter, and the report flags that it binds to nothing.
 
 ### Nothing regenerates these files
 

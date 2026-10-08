@@ -76,8 +76,8 @@ public class EmlangSpecWriterTests
 
         specs.Features.ShouldBe(2);
         specs.Specs.ShouldBe(3);
-        specs.Code.ShouldContain("[BobcatFeature(\"Add item\")]");
-        specs.Code.ShouldContain("public class add_item(AppFixture app) : KitchenSpec(app)");
+        specs.Code.ShouldContain("[BobcatFeature(\"AddItemToOrder\")]");
+        specs.Code.ShouldContain("public class add_item_to_order(AppFixture app) : KitchenSpec(app)");
         specs.Code.ShouldContain("public async Task add_to_an_existing_order()");
     }
 
@@ -199,19 +199,46 @@ public class EmlangSpecWriterTests
     [Fact]
     public void a_second_run_reports_the_examples_with_no_specification()
     {
-        var board = EmlangReader.Read(Kitchen);
+        var model = EmlangImport.ToCurated(EmlangReader.Read(Kitchen), "Kitchen").Model;
         var written =
             """
-            [BobcatFeature("Add item")]
-            public class add_item(AppFixture app) : KitchenSpec(app)
+            [BobcatFeature("AddItemToOrder")]
+            public class add_item_to_order(AppFixture app) : KitchenSpec(app)
             {
                 [Fact]
                 public async Task add_to_an_existing_order() { }
             }
             """;
 
-        EmlangSpecWriter.MissingSpecs(board, [written])
-            .ShouldBe(["Add item / Add to a closed order", "View summary / Nothing ordered yet"]);
+        EmlangSpecWriter.MissingSpecs(model, [written])
+            .ShouldBe(["AddItemToOrder / add to a closed order", "OrderSummary / nothing ordered yet"]);
+    }
+
+    [Fact]
+    public void the_definition_links_exactly_the_identities_the_generated_specs_report()
+    {
+        // bobcat#435: the features were the board's chapters and the definition linked the board's
+        // spelling of each test, so not one generated specification joined its slice. A projected
+        // test reports {feature}/{method name read as a sentence}; that is what has to be linked.
+        var (specs, output) = generate(Kitchen);
+
+        var reported = new List<string>();
+        string? feature = null;
+        foreach (var line in specs.Code.Split('\n'))
+        {
+            if (System.Text.RegularExpressions.Regex.Match(line, @"\[BobcatFeature\(""([^""]*)""\)\]") is { Success: true } f)
+                feature = f.Groups[1].Value;
+            else if (System.Text.RegularExpressions.Regex.Match(line, @"public async Task (\w+)\(") is { Success: true } m)
+                reported.Add($"{feature}/{ProjectedSpecNaming.ScenarioTitleFor(m.Groups[1].Value)}");
+        }
+
+        var linked = System.Text.RegularExpressions.Regex.Matches(output.Definition, @"LinksToSpecification\(""([^""]*)""\)")
+            .Select(x => x.Groups[1].Value);
+
+        reported.ShouldBe(
+            ["AddItemToOrder/add to an existing order", "AddItemToOrder/add to a closed order", "OrderSummary/nothing ordered yet"],
+            ignoreOrder: true);
+        linked.ShouldBe(reported, ignoreOrder: true);
     }
 
     [Fact]
@@ -329,7 +356,7 @@ public class EmlangSpecWriterTests
                       - c: Send receipt
                     then:
                       - e: Receipt sent
-            """).ShouldContain("// SendReceipt is an automation, triggered by \"Payment confirmed\"\n[BobcatFeature(\"Send receipt\")]");
+            """).ShouldContain("// SendReceipt is an automation, triggered by \"Payment confirmed\"\n[BobcatFeature(\"SendReceipt\")]");
     }
 
     [Fact]
