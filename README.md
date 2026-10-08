@@ -63,7 +63,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 | [`Bobcat.Mtp`](https://www.nuget.org/packages/Bobcat.Mtp/) | Runs Bobcat specs as a Microsoft.Testing.Platform test host (`dotnet test`, Test Explorer) |
 | [`Bobcat.Supervisor`](https://www.nuget.org/packages/Bobcat.Supervisor/) | Drives any MTP test host as worker processes, with retry, isolation, and parallel lanes |
 | [`Bobcat.Alba`](https://www.nuget.org/packages/Bobcat.Alba/) | An ASP.NET Core application hosted in memory as a test resource |
-| [`Bobcat.Wolverine`](https://www.nuget.org/packages/Bobcat.Wolverine/) | Dispatches through Wolverine's tracked session, so assertions run after everything a message caused |
+| [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices. Replaces the retired `Bobcat.Wolverine` |
 | [`Bobcat.EntityFrameworkCore`](https://www.nuget.org/packages/Bobcat.EntityFrameworkCore/) | The `[EfCoreEntities]` persistence recipe for data-setup tables |
 | [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) | Renders an existing xUnit.net v3 or TUnit suite as specifications, without changing how it runs |
 | [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) | Imports the Event Modeling platform's own format and writes it as C# stub types plus an `EventModelDefinition` |

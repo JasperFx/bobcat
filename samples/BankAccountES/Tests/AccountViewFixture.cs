@@ -1,4 +1,4 @@
-using Bobcat.Wolverine;
+using Bobcat.Testing.Wolverine;
 
 namespace BankAccountES.Tests;
 

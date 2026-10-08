@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Test support, never packed. Bobcat.Wolverine was retired as a package (#407): its act, warm-up and
+    tracked-session helpers ship in WolverineFx.Bobcat, so no Bobcat package depends on Wolverine. The
+    Gherkin grammar suite and the BankAccountES sample still need a Wolverine-hosted fixture to drive
+    Bobcat's own source, and this is it. Use WolverineFx.Bobcat in an application.
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WolverineFx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

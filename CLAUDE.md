@@ -1920,7 +1920,6 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these e
 | **Bobcat.Mtp** | net9.0; net10.0 | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
 | **Bobcat.Supervisor** | net9.0; net10.0 | Drives MTP hosts as worker processes; retry/isolation policy, parallel lanes |
 | **Bobcat.Alba** | net9.0; net10.0 | `AlbaResource` — an ASP.NET Core app hosted in memory as a test resource, and the HTTP calls a step makes |
-| **Bobcat.Wolverine** | net9.0; net10.0 | The act only: dispatch through Wolverine's tracked session, handler warm-up, transport draining |
 | **Bobcat.EntityFrameworkCore** | net10.0 | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
@@ -1937,7 +1936,12 @@ unlike Alba and Wolverine, was not rebuilt — the event store is reached throug
 `CritterStackGrammars` and the `IHttpResource` seam were not restored. See the Critter Stack
 section above for what each one was.
 
-Not packed: `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
+**Retired as a package (#407):** `Bobcat.Wolverine`. Its act, warm-up, transport draining and
+`WolverineCritterStackFixture` ship in **`WolverineFx.Bobcat`** from the Wolverine repo, so no Bobcat
+package depends on Wolverine. `src/Bobcat.Testing.Wolverine` keeps the fixture, the step-context helpers
+and `HandlerWarmUp` as NON-packable test support for the Gherkin grammar suite and BankAccountES.
+
+Not packed: `Bobcat.Testing.Wolverine`, `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
 `Bobcat.Supervisor.SampleWorker` and `ConsolePreview` are hosts the tests and demos drive.
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the

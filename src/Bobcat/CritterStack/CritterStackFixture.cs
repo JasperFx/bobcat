@@ -775,7 +775,8 @@ public abstract class CritterStackFixture : Fixture
     /// Everything else here is store work. Arranging events, asserting what was emitted, asserting
     /// a read model: all of it runs against the JasperFx.Events abstractions and needs no message
     /// bus. Only the act does, which is why this is the single abstract member and why
-    /// <c>Bobcat.Wolverine</c> is a small package rather than the home of the whole vocabulary.
+    /// the Wolverine act (WolverineFx.Bobcat's <c>WolverineCritterStackFixture</c>) is one override
+    /// rather than the home of the whole vocabulary.
     /// </remarks>
     protected abstract Task<IActOutcome> DispatchAsync(object command, int timeoutInMilliseconds);
 
