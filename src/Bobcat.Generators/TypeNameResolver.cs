@@ -28,10 +28,15 @@ internal sealed class TypeNameResolver
         _compilation = compilation;
     }
 
+    public Compilation Compilation => _compilation;
+
     public sealed class Resolution
     {
         /// <summary>The <c>global::</c>-qualified name, or null when unresolved/ambiguous.</summary>
         public string? Qualified { get; set; }
+
+        /// <summary>The resolved type itself, so a step's table can be checked against it (BOBCAT032).</summary>
+        public INamedTypeSymbol? Symbol { get; set; }
 
         /// <summary>Display names of every candidate when the name is ambiguous.</summary>
         public List<string> Candidates { get; set; } = new();
@@ -46,7 +51,7 @@ internal sealed class TypeNameResolver
         if (name.IndexOf('.') >= 0 || name.IndexOf('+') >= 0)
         {
             var exact = _compilation.GetTypeByMetadataName(name);
-            if (exact != null) return new Resolution { Qualified = qualified(exact) };
+            if (exact != null) return new Resolution { Qualified = qualified(exact), Symbol = exact };
 
             var simple = name.Substring(Math.Max(name.LastIndexOf('.'), name.LastIndexOf('+')) + 1);
             var dotted = name.Replace('+', '.');
@@ -76,7 +81,7 @@ internal sealed class TypeNameResolver
             .Select(g => g.First())
             .ToList();
 
-        if (distinct.Count == 1) return new Resolution { Qualified = qualified(distinct[0]) };
+        if (distinct.Count == 1) return new Resolution { Qualified = qualified(distinct[0]), Symbol = distinct[0] };
 
         return new Resolution
         {
@@ -128,7 +133,7 @@ internal sealed class TypeNameResolver
         foreach (var reference in _compilation.References)
         {
             if (_compilation.GetAssemblyOrModuleSymbol(reference) is not IAssemblySymbol assembly) continue;
-            if (isFrameworkAssembly(assembly.Name)) continue;
+            if (IsFrameworkAssembly(assembly.Name)) continue;
             Walk(assembly.GlobalNamespace, publicOnly: true);
         }
 
@@ -136,7 +141,7 @@ internal sealed class TypeNameResolver
         return map;
     }
 
-    private static bool isFrameworkAssembly(string name)
+    internal static bool IsFrameworkAssembly(string name)
         => name == "mscorlib"
            || name == "netstandard"
            || name == "WindowsBase"

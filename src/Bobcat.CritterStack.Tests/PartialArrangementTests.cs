@@ -39,16 +39,17 @@ public class PartialArrangementTests
     }
 
     [Fact]
-    public void an_act_is_still_complete_because_a_commands_fields_are_the_scenario()
+    public void an_act_is_partial_too()
     {
-        // Deliberately NOT relaxed. A Given describes history the scenario did not author; an act
-        // is the scenario's own input, so a missing field is a spec that tests something other
-        // than what it says — and #233's named refusal is the right answer there.
-        Should.Throw<SpecCriticalException>(() =>
-            RecordBuilding.Build(typeof(Proposed), new Dictionary<string, string>
-            {
-                ["OwnerId"] = Owner.ToString(),
-            }));
+        // #241 kept the act strict; bobcat#419 relaxed it, as #241's own author preferred. A command
+        // with a defaulted field is a real thing to specify, and a typo is still refused by name.
+        var built = (Proposed)RecordBuilding.Build(typeof(Proposed), new Dictionary<string, string>
+        {
+            ["OwnerId"] = Owner.ToString(),
+        });
+
+        built.OwnerId.ShouldBe(Owner);
+        built.DogId.ShouldBe(Guid.Empty);
     }
 
     [Fact]

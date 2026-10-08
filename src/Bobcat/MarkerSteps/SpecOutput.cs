@@ -1,5 +1,6 @@
 using Bobcat.Engine;
 using Bobcat.Rendering;
+using Spectre.Console;
 
 namespace Bobcat;
 
@@ -96,6 +97,72 @@ public static class SpecOutput
     }
 
     /// <summary>
+    /// The environment variable that turns the per-test scenario rendering off: <c>0</c> or
+    /// <c>false</c> leaves only the reports, as before the scenario was written here.
+    /// </summary>
+    public const string ScenarioVariable = "BOBCAT_SPEC_OUTPUT";
+
+    /// <summary>
+    /// Whether a closing scenario is written to the per-test output in full — feature, steps,
+    /// verdict, reports — rather than only its reports. On unless <see cref="ScenarioVariable"/> says
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why the whole scenario.</b> The exit-time console rendering never reaches an IDE's test
+    /// pane, so a developer running one test in Rider or Visual Studio saw a verdict and none of the
+    /// specification that produced it. The test's own output block is the one place that reader
+    /// looks, and it is per test, which is exactly the grain of a scenario.
+    /// </remarks>
+    public static bool WritesScenarios =>
+        Environment.GetEnvironmentVariable(ScenarioVariable)?.Trim().ToLowerInvariant() is not ("0" or "false");
+
+    /// <summary>
+    /// Write one scenario as plain text — the same rendering as the exit-time console, through a
+    /// colourless console: a test runner's output pane shows the text and none of the escape codes,
+    /// and the ✓/✗ glyphs survive on their own.
+    /// </summary>
+    public static void WriteScenario(SpecRender spec)
+    {
+        if (_sink.Value is null) return;
+
+        string text;
+        try
+        {
+            var writer = new StringWriter();
+            var console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.No,
+                ColorSystem = ColorSystemSupport.NoColors,
+                Interactive = InteractionSupport.No,
+                Out = new AnsiConsoleOutput(writer),
+
+                // Spectre's CI enrichers (GitHub Actions among them) turn ANSI back on after the
+                // settings above, which put escape codes into every test's output on CI
+                Enrichment = new ProfileEnrichment { UseDefaultEnrichers = false }
+            });
+            // Wide, because a test pane wraps on its own and a hard wrap here splits a step from its timing.
+            console.Profile.Width = 240;
+
+            // Reports go after, through TextGrid, as they always have here: a fixed-width grid with
+            // the disagreeing row marked in text is what a CI log and grep can read.
+            var renderer = new CommandLineRenderer(console) { IncludeReports = false };
+            if (spec.FeatureTitle is { Length: > 0 } feature) renderer.RenderFeatureHeader(feature);
+            renderer.Render(spec);
+
+            text = writer.ToString();
+        }
+        catch
+        {
+            // Rendering can never be the cause of a red test either.
+            return;
+        }
+
+        foreach (var line in text.TrimEnd().Split('\n')) Write(line.TrimEnd('\r'));
+
+        WriteReports(spec);
+    }
+
+    /// <summary>
     /// Subscribe once per process, lazily — a suite with no adapter sink never pays for the
     /// subscription, and a suite with one gets it before its first test closes.
     /// </summary>
@@ -110,9 +177,16 @@ public static class SpecOutput
             {
                 // Guarded before building the render model: a suite whose adapter opened a sink for
                 // one test must not pay for the fold on every other one.
-                if (_sink.Value is null || recording.Reports.Count == 0) return;
+                if (_sink.Value is null) return;
 
-                WriteReports(SpecRender.FromRecording(recording));
+                if (WritesScenarios)
+                {
+                    WriteScenario(SpecRender.FromRecording(recording));
+                }
+                else if (recording.Reports.Count > 0)
+                {
+                    WriteReports(SpecRender.FromRecording(recording));
+                }
             };
         }
     }

@@ -396,7 +396,7 @@ internal static class StepInterceptors
 
         call.Subject = dialect.Subject(method, invocation);
         call.Comparison = dialect.ComparisonOf(method);
-        call.Template = dialect.Sentence(method, invocation);
+        call.Template = dialect.Sentence(method, invocation, ctx.SemanticModel);
         call.StepText = call.Template;
 
         return call;
@@ -862,5 +862,5 @@ internal static class StepInterceptors
     internal static string Identifier(string name)
         => SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None ? name : "@" + name;
 
-    private static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    internal static string Quote(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

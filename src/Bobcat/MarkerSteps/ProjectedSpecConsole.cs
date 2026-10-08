@@ -59,6 +59,42 @@ public static class ProjectedSpecConsole
     /// </remarks>
     public const string PreviewEnvironmentVariable = "BOBCAT_SPEC_PREVIEW";
 
+    /// <summary>
+    /// A file the exit-time rendering is written to instead of standard output — how the
+    /// <c>bobcat</c> tool keeps a test host's own logging out of the specifications. Written with
+    /// colour, at <see cref="WidthEnvironmentVariable"/> columns, for the tool to replay verbatim.
+    /// </summary>
+    public const string OutputFileEnvironmentVariable = "BOBCAT_SPEC_CONSOLE_FILE";
+
+    /// <summary>The width the rendering is laid out at when it goes to <see cref="OutputFileEnvironmentVariable"/>.</summary>
+    public const string WidthEnvironmentVariable = "BOBCAT_SPEC_CONSOLE_WIDTH";
+
+    /// <summary>
+    /// Where the rendering goes: the file the tool asked for, or the process console. The file is
+    /// appended to, so a preview and a run in one process both land in it.
+    /// </summary>
+    private static (IAnsiConsole Console, IDisposable? Owner) target()
+    {
+        var path = Environment.GetEnvironmentVariable(OutputFileEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(path)) return (AnsiConsole.Console, null);
+
+        var writer = new StreamWriter(path, append: true) { AutoFlush = true };
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.Standard,
+            Interactive = InteractionSupport.No,
+            Out = new AnsiConsoleOutput(writer)
+        });
+
+        console.Profile.Width =
+            int.TryParse(Environment.GetEnvironmentVariable(WidthEnvironmentVariable), out var width) && width > 20
+                ? width
+                : 140;
+
+        return (console, writer);
+    }
+
     private static readonly object _gate = new();
     private static readonly List<SpecRender> _specs = new();
     private static bool _enabled;
@@ -121,6 +157,10 @@ public static class ProjectedSpecConsole
     {
         if (Setting(PreviewEnvironmentVariable) == true) EnablePreview();
         if (Setting(EnvironmentVariable) == true) Enable();
+
+        // Naming a file to render into is a request to render.
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(OutputFileEnvironmentVariable))
+            && Setting(EnvironmentVariable) != false) Enable();
     }
 
     /// <summary>
@@ -184,7 +224,9 @@ public static class ProjectedSpecConsole
         var specs = ProjectedSpecPreview.All();
         if (specs.Count == 0) return;
 
-        var renderer = new CommandLineRenderer();
+        var (console, owner) = target();
+        using var _ = owner;
+        var renderer = new CommandLineRenderer(console);
 
         foreach (var feature in specs.GroupBy(x => x.FeatureTitle ?? "").OrderBy(x => x.Key, StringComparer.Ordinal))
         {
@@ -192,11 +234,11 @@ public static class ProjectedSpecConsole
 
             foreach (var spec in feature) renderer.RenderPreview(spec);
 
-            AnsiConsole.WriteLine();
+            console.WriteLine();
         }
 
-        AnsiConsole.MarkupLine($"[bold]{specs.Count} specification(s) previewed[/]");
-        AnsiConsole.WriteLine();
+        console.MarkupLine($"[bold]{specs.Count} specification(s) previewed[/]");
+        console.WriteLine();
     }
 
     /// <summary>
@@ -213,7 +255,9 @@ public static class ProjectedSpecConsole
             _specs.Clear();
         }
 
-        var renderer = new CommandLineRenderer();
+        var (console, owner) = target();
+        using var _ = owner;
+        var renderer = new CommandLineRenderer(console);
         var total = new Counts();
 
         // Grouped by feature, and within a feature by TITLE.
@@ -241,10 +285,10 @@ public static class ProjectedSpecConsole
         }
 
         var green = specs.All(x => x.Succeeded);
-        AnsiConsole.MarkupLine(
+        console.MarkupLine(
             $"[bold]{specs.Count} specification(s)[/] — {(green ? "[green]all green[/]" : "[red]not green[/]")}");
         renderer.RenderCounts(total, green);
-        AnsiConsole.WriteLine();
+        console.WriteLine();
     }
 
     private static void capture(ScenarioRecorder.Recording recording)

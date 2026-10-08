@@ -8,11 +8,40 @@ namespace Bobcat.Rendering;
 
 public class CommandLineRenderer
 {
+    private readonly IAnsiConsole? _explicitConsole;
+
+    // Resolved per write, not captured at construction: tests (and Spectre's own test console) swap
+    // AnsiConsole.Console after a renderer already exists.
+    private IAnsiConsole output => _explicitConsole ?? AnsiConsole.Console;
+
+    /// <summary>
+    /// Whether <see cref="Render(SpecRender)"/> draws the scenario's reports. Off for a caller that
+    /// writes them its own way — <see cref="SpecOutput"/> keeps them as fixed-width text grids, which
+    /// a CI log and grep can read.
+    /// </summary>
+    public bool IncludeReports { get; init; } = true;
+
+    /// <summary>Render to the process console.</summary>
+    public CommandLineRenderer() : this(null)
+    {
+    }
+
+    /// <summary>
+    /// Render to <paramref name="console"/> instead of the process console — a plain-text console
+    /// over a <see cref="StringWriter"/> is how a scenario reaches a test runner's per-test output
+    /// (<see cref="SpecOutput"/>) without swapping the global <see cref="AnsiConsole.Console"/>,
+    /// which parallel tests would race on.
+    /// </summary>
+    public CommandLineRenderer(IAnsiConsole? console)
+    {
+        _explicitConsole = console;
+    }
+
     public void RenderFeatureHeader(string featureTitle)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[bold]Feature: {Markup.Escape(featureTitle)}[/]");
-        AnsiConsole.MarkupLine($"[dim]{new string('═', Math.Min(featureTitle.Length + 10, 60))}[/]");
+        output.WriteLine();
+        output.MarkupLine($"[bold]Feature: {Markup.Escape(featureTitle)}[/]");
+        output.MarkupLine($"[dim]{new string('═', Math.Min(featureTitle.Length + 10, 60))}[/]");
     }
 
     // --- SpecRender-based rendering (primary) ---
@@ -26,9 +55,9 @@ public class CommandLineRenderer
             ? "[yellow]PENDING[/]"
             : spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"  {Markup.Escape(spec.Title)} {statusIcon}");
-        AnsiConsole.MarkupLine($"  [dim]{new string('─', Math.Min(spec.Title.Length + 10, 60))}[/]");
+        output.WriteLine();
+        output.MarkupLine($"  {Markup.Escape(spec.Title)} {statusIcon}");
+        output.MarkupLine($"  [dim]{new string('─', Math.Min(spec.Title.Length + 10, 60))}[/]");
 
         foreach (var step in spec.Steps)
         {
@@ -39,14 +68,14 @@ public class CommandLineRenderer
         {
             // A scenario with no steps is Bobcat's pending-specification hotspot everywhere else,
             // so it says so here rather than rendering as a blank that reads like a clean pass.
-            AnsiConsole.MarkupLine("    [dim]○ this specification declares no steps[/]");
+            output.MarkupLine("    [dim]○ this specification declares no steps[/]");
         }
 
         RenderExceptions(spec);
 
         if (spec.ScenarioFailure is { } failure)
         {
-            AnsiConsole.WriteLine();
+            output.WriteLine();
 
             // When the failure's renderer recovered a cell from its message, show the CELL — it says
             // the same thing in one line that the message says in five, and in the same shape every
@@ -55,7 +84,7 @@ public class CommandLineRenderer
             {
                 foreach (var cell in spec.ScenarioFailureCells)
                 {
-                    AnsiConsole.MarkupLine(
+                    output.MarkupLine(
                         $"    [red]✗[/] {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
                 }
             }
@@ -63,22 +92,22 @@ public class CommandLineRenderer
             {
                 foreach (var line in failure.Split('\n'))
                 {
-                    AnsiConsole.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
+                    output.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
                 }
             }
         }
 
-        RenderReports(spec);
+        if (IncludeReports) RenderReports(spec);
 
-        AnsiConsole.WriteLine();
+        output.WriteLine();
         RenderCounts(spec.Counts, spec.Succeeded);
 
         if (spec.DurationMs > 0)
         {
-            AnsiConsole.MarkupLine($"  [dim]Duration: {spec.DurationMs}ms[/]");
+            output.MarkupLine($"  [dim]Duration: {spec.DurationMs}ms[/]");
         }
 
-        AnsiConsole.WriteLine();
+        output.WriteLine();
     }
 
     /// <summary>
@@ -97,8 +126,8 @@ public class CommandLineRenderer
     {
         foreach (var report in spec.Reports)
         {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(report.Title)}[/]");
+            output.WriteLine();
+            output.MarkupLine($"  [dim]{Markup.Escape(report.Title)}[/]");
 
             RenderSetVerification(report.Grid);
 
@@ -106,7 +135,7 @@ public class CommandLineRenderer
             {
                 // Said, never silent. A truncation nobody mentions is how a report becomes
                 // misleading rather than merely short.
-                AnsiConsole.MarkupLine(
+                output.MarkupLine(
                     $"  [dim]…and {report.SuppressedRows} more "
                     + $"{(report.SuppressedRows == 1 ? "row" : "rows")} not shown[/]");
             }
@@ -144,20 +173,20 @@ public class CommandLineRenderer
             var exception = step.Exception!;
             var filtered = SpecStackTrace.Filter(exception);
 
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"    [yellow]{Markup.Escape(step.StepText)}[/]");
-            AnsiConsole.MarkupLine(
+            output.WriteLine();
+            output.MarkupLine($"    [yellow]{Markup.Escape(step.StepText)}[/]");
+            output.MarkupLine(
                 $"    [red]{Markup.Escape(exception.GetType().Name)}[/]: {Markup.Escape(exception.Message)}");
 
             foreach (var frame in filtered.Frames)
             {
-                AnsiConsole.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
+                output.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
             }
 
             if (filtered.Hidden > 0)
             {
                 // Said out loud. A stack that was quietly edited is a stack a reader cannot trust.
-                AnsiConsole.MarkupLine($"      [dim]({filtered.Hidden} framework frames hidden)[/]");
+                output.MarkupLine($"      [dim]({filtered.Hidden} framework frames hidden)[/]");
             }
 
             // An inner exception is usually the real story — a handler wrapping a validation failure,
@@ -165,13 +194,13 @@ public class CommandLineRenderer
             // used to show it. Its stack gets the same treatment.
             for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
             {
-                AnsiConsole.MarkupLine(
+                output.MarkupLine(
                     $"    [dim]---[/] [red]{Markup.Escape(inner.GetType().Name)}[/]: {Markup.Escape(inner.Message)}");
 
                 var innerFrames = SpecStackTrace.Filter(inner);
                 foreach (var frame in innerFrames.Frames)
                 {
-                    AnsiConsole.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
+                    output.MarkupLine($"      [dim]{Markup.Escape(SpecStackTrace.Shorten(frame))}[/]");
                 }
             }
         }
@@ -184,16 +213,16 @@ public class CommandLineRenderer
     /// </summary>
     public void RenderPreview(PreviewRender preview)
     {
-        AnsiConsole.WriteLine();
+        output.WriteLine();
         var tags = preview.Tags.Length > 0
             ? " [blue]" + Markup.Escape(string.Join(" ", preview.Tags.Select(t => $"@{t}"))) + "[/]"
             : "";
-        AnsiConsole.MarkupLine($"  {Markup.Escape(preview.Title)}{tags}");
-        AnsiConsole.MarkupLine($"  [dim]{new string('─', Math.Min(preview.Title.Length + 10, 60))}[/]");
+        output.MarkupLine($"  {Markup.Escape(preview.Title)}{tags}");
+        output.MarkupLine($"  [dim]{new string('─', Math.Min(preview.Title.Length + 10, 60))}[/]");
 
         if (preview.Error != null)
         {
-            AnsiConsole.MarkupLine($"    [red]✗ {Markup.Escape(preview.Error)}[/]");
+            output.MarkupLine($"    [red]✗ {Markup.Escape(preview.Error)}[/]");
             return;
         }
 
@@ -215,7 +244,14 @@ public class CommandLineRenderer
             };
 
             var indent = step.IsNarrative ? "    " : "      ";
-            AnsiConsole.MarkupLine($"{indent}[dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
+
+            if (IsNote(step.Keyword))
+            {
+                output.MarkupLine($"{indent}[dim italic]» {Markup.Escape(step.StepText)}[/]");
+                continue;
+            }
+
+            output.MarkupLine($"{indent}[dim]○[/] {kindLabel}{Markup.Escape(step.StepText)}");
 
             if (step.IsNarrative)
             {
@@ -228,7 +264,7 @@ public class CommandLineRenderer
             {
                 // Code-first specs and hand-built definitions carry no generated metadata —
                 // that is not an error, so say so quietly rather than implying a broken match.
-                AnsiConsole.MarkupLine($"{indent}  [dim]↳ (no binding metadata)[/]");
+                output.MarkupLine($"{indent}  [dim]↳ (no binding metadata)[/]");
                 continue;
             }
 
@@ -242,7 +278,7 @@ public class CommandLineRenderer
                 ? ""
                 : $" [dim]— \"{Markup.Escape(binding.Expression)}\"[/]";
 
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"{indent}  [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]"
                 + expression);
 
@@ -258,7 +294,7 @@ public class CommandLineRenderer
                     Runtime.StepArgumentSource.Expected => $"\"{Markup.Escape(argument.Value)}\" [dim](expected)[/]",
                     _ => "[dim]default[/]"
                 };
-                AnsiConsole.MarkupLine($"{indent}    {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
+                output.MarkupLine($"{indent}    {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
             }
         }
     }
@@ -298,16 +334,23 @@ public class CommandLineRenderer
 
         var duration = step.DurationMs > 0 ? $" [dim]({step.DurationMs}ms)[/]" : "";
         var indent = new string(' ', 4 + step.Depth * 2);
+
+        if (IsNote(step.Keyword))
+        {
+            // Text for the reader, with no verdict: no icon, no keyword column, no timing.
+            output.MarkupLine($"{indent}[dim italic]» {Markup.Escape(step.StepText)}[/]");
+            return;
+        }
         var (sentenceMarkup, inlineCells) = sentence(step);
 
         if (step.NotRun)
         {
             // Greyed out whole, Storyteller's rendering for a step the run never reached.
-            AnsiConsole.MarkupLine($"{indent}[dim]{icon} {kindLabel}{sentenceMarkup} — not run[/]");
+            output.MarkupLine($"{indent}[dim]{icon} {kindLabel}{sentenceMarkup} — not run[/]");
             return;
         }
 
-        AnsiConsole.MarkupLine($"{indent}{icon} {kindLabel}{sentenceMarkup}{duration}");
+        output.MarkupLine($"{indent}{icon} {kindLabel}{sentenceMarkup}{duration}");
 
         if (step.Status == ResultStatus.failed && step.ErrorMessage != null)
         {
@@ -315,7 +358,7 @@ public class CommandLineRenderer
             // StoryTellerAssert over an exception.
             foreach (var line in step.ErrorMessage.Split('\n'))
             {
-                AnsiConsole.MarkupLine($"{indent}  [red]{Markup.Escape(line.TrimEnd())}[/]");
+                output.MarkupLine($"{indent}  [red]{Markup.Escape(line.TrimEnd())}[/]");
             }
         }
         else if (step.Status == ResultStatus.error && step.ErrorMessage != null)
@@ -324,7 +367,7 @@ public class CommandLineRenderer
             // stack is the longest thing in the report and the least useful to the reader scanning
             // for which step broke. Storyteller collected exceptions in a block for the same reason.
             var exType = step.ExceptionType != null ? Markup.Escape(step.ExceptionType) : "exception";
-            AnsiConsole.MarkupLine($"{indent}  [yellow]{exType} — see below[/]");
+            output.MarkupLine($"{indent}  [yellow]{exType} — see below[/]");
         }
 
         if (step.SetVerification != null)
@@ -353,7 +396,7 @@ public class CommandLineRenderer
                     ResultStatus.error => "[yellow]![/]",
                     _ => " "
                 };
-                AnsiConsole.MarkupLine(
+                output.MarkupLine(
                     $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
             }
         }
@@ -361,20 +404,20 @@ public class CommandLineRenderer
         // Render correlated logs
         if (step.Logs.Count > 0)
         {
-            AnsiConsole.MarkupLine($"{indent}  [dim]Logs:[/]");
+            output.MarkupLine($"{indent}  [dim]Logs:[/]");
             foreach (var log in step.Logs)
             {
-                AnsiConsole.MarkupLine($"{indent}    [dim]{Markup.Escape(log)}[/]");
+                output.MarkupLine($"{indent}    [dim]{Markup.Escape(log)}[/]");
             }
         }
 
         // Render diagnostics
         if (step.Diagnostics.Count > 0)
         {
-            AnsiConsole.MarkupLine($"{indent}  [dim]Diagnostics:[/]");
+            output.MarkupLine($"{indent}  [dim]Diagnostics:[/]");
             foreach (var (key, value) in step.Diagnostics)
             {
-                AnsiConsole.MarkupLine($"{indent}    [dim]{Markup.Escape(key)}: {Markup.Escape(value)}[/]");
+                output.MarkupLine($"{indent}    [dim]{Markup.Escape(key)}: {Markup.Escape(value)}[/]");
             }
         }
     }
@@ -388,6 +431,10 @@ public class CommandLineRenderer
     /// The spans come from the substitution itself rather than from searching the finished text for
     /// the values, so a value that also occurs in the prose cannot mark the wrong run of characters.
     /// </remarks>
+    /// <summary>Whether a step is a note (<see cref="ScenarioRecorder.Note"/>) rather than a step.</summary>
+    public static bool IsNote(string? keyword)
+        => string.Equals(keyword, ScenarioRecorder.NoteKeyword, StringComparison.Ordinal);
+
     public static string Sentence(StepRender step) => sentence(step).Markup;
 
     /// <summary>
@@ -594,7 +641,7 @@ public class CommandLineRenderer
             }
         }
 
-        AnsiConsole.Write(table);
+        output.Write(table);
 
         // A row's own reason — the exception it threw, or where an out-of-order row really was —
         // under the grid rather than squeezed into a cell, because it is a sentence and the cell
@@ -606,7 +653,7 @@ public class CommandLineRenderer
             if (row.RowType is not (SetVerificationRowType.Errored or SetVerificationRowType.OutOfOrder)) continue;
             if (string.IsNullOrEmpty(row.Description)) continue;
 
-            AnsiConsole.MarkupLine($"  [red]row {rowNumber}:[/] {Markup.Escape(row.Description!)}");
+            output.MarkupLine($"  [red]row {rowNumber}:[/] {Markup.Escape(row.Description!)}");
         }
     }
 
@@ -624,7 +671,7 @@ public class CommandLineRenderer
     /// </summary>
     public void RenderCatastrophicFailure(string description)
     {
-        AnsiConsole.MarkupLine($"  [red bold]✗ {Markup.Escape(description)}[/]");
+        output.MarkupLine($"  [red bold]✗ {Markup.Escape(description)}[/]");
     }
 
     /// <summary>
@@ -640,34 +687,34 @@ public class CommandLineRenderer
             return;
         }
 
-        AnsiConsole.WriteLine();
+        output.WriteLine();
 
         if (results.DiscoveryFailure is not null)
         {
-            AnsiConsole.MarkupLine($"  [red bold]{Markup.Escape(results.DiscoveryFailure)}[/]");
+            output.MarkupLine($"  [red bold]{Markup.Escape(results.DiscoveryFailure)}[/]");
         }
 
         if (results.PreflightFailure is not null)
         {
-            AnsiConsole.MarkupLine($"  [red bold]{Markup.Escape(results.PreflightFailure)}[/]");
+            output.MarkupLine($"  [red bold]{Markup.Escape(results.PreflightFailure)}[/]");
         }
 
         if (results.CatastrophicFailure is not null)
         {
-            AnsiConsole.MarkupLine($"  [red bold]Catastrophic: {Markup.Escape(results.CatastrophicFailure)}[/]");
+            output.MarkupLine($"  [red bold]Catastrophic: {Markup.Escape(results.CatastrophicFailure)}[/]");
         }
 
         foreach (var feature in results.Features.Where(f => f.LifecycleFailure is not null))
         {
-            AnsiConsole.MarkupLine($"  [red]{Markup.Escape(feature.LifecycleFailure!)}[/]");
+            output.MarkupLine($"  [red]{Markup.Escape(feature.LifecycleFailure!)}[/]");
         }
 
         if (results.NotRun.Count > 0)
         {
-            AnsiConsole.MarkupLine($"  [red]{results.NotRun.Count} scenario(s) did not run[/]");
+            output.MarkupLine($"  [red]{results.NotRun.Count} scenario(s) did not run[/]");
             foreach (var scenario in results.NotRun)
             {
-                AnsiConsole.MarkupLine(
+                output.MarkupLine(
                     $"    [red]•[/] {Markup.Escape(scenario.FeatureTitle)}: {Markup.Escape(scenario.Title)}");
             }
         }
@@ -689,7 +736,7 @@ public class CommandLineRenderer
     {
         var color = succeeded ? "green" : "red";
         var word = succeeded ? "Succeeded" : "Failed";
-        AnsiConsole.MarkupLine(
+        output.MarkupLine(
             $"  [{color}]{word} with Rights: {counts.Rights}, Wrongs: {counts.Wrongs}, Errors: {counts.Errors}[/]");
     }
 
@@ -702,7 +749,7 @@ public class CommandLineRenderer
     /// <summary>Announces a retry before the next attempt starts.</summary>
     public void RenderRetryNotice(string scenarioTitle, int nextAttempt, string reason)
     {
-        AnsiConsole.MarkupLine(
+        output.MarkupLine(
             $"  [yellow]↻ retrying[/] [italic]{Markup.Escape(scenarioTitle)}[/] " +
             $"[grey](attempt {nextAttempt}: {Markup.Escape(reason)})[/]");
     }
@@ -715,7 +762,7 @@ public class CommandLineRenderer
     {
         if (result.Outcome == RunOutcome.PassOnRetry)
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"  [yellow]⚠ passed on retry[/] [grey]after {result.AttemptCount} attempts — " +
                 "not a clean pass[/]");
         }
@@ -724,13 +771,13 @@ public class CommandLineRenderer
         // so out loud: nothing else on screen would explain why the tag appeared not to work.
         if (result.Attempts.LastOrDefault() is { Disposition: { Hint: { } hint, IsRetry: false } })
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"  [grey]↯ recovery hint applied:[/] [italic]{Markup.Escape(hint.ToString())}[/]");
         }
 
         foreach (var unsupported in result.UnsupportedDispositions)
         {
-            AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
+            output.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
         }
     }
 
@@ -746,8 +793,8 @@ public class CommandLineRenderer
     {
         if (!timing.IsMeasured && timing.WithoutAssertions.Count == 0) return;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine(
+        output.WriteLine();
+        output.MarkupLine(
             $"  [bold]Timing[/] [grey]— {SuiteTiming.Humanize(timing.Measured)} measured across " +
             $"{timing.Scenarios.Count} scenario(s){(timing.Unmeasured > 0 ? $", {timing.Unmeasured} unmeasured (figures are a floor)" : "")}[/]");
 
@@ -755,7 +802,7 @@ public class CommandLineRenderer
         {
             var share = timing.Share(scenario.WallClock);
             var shareText = share is { } s ? $" ({SuiteTiming.Percent(s)} of measured time)" : "";
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"    [grey]•[/] {Markup.Escape(scenario.Title)} " +
                 $"[grey]{SuiteTiming.Humanize(scenario.WallClock)}{shareText} — " +
                 $"steps {SuiteTiming.Humanize(scenario.Steps)}, lifecycle {SuiteTiming.Humanize(scenario.Lifecycle)}[/]");
@@ -763,14 +810,14 @@ public class CommandLineRenderer
 
         foreach (var step in timing.Steps.Take(3))
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"    [grey]step[/] [italic]{Markup.Escape(step.Text)}[/] " +
                 $"[grey]cost {SuiteTiming.Humanize(step.Total)} across {step.Occurrences} occurrence(s)[/]");
         }
 
         foreach (var point in timing.Lifecycle.Take(3))
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"    [grey]lifecycle[/] {Markup.Escape(point.Text)} " +
                 $"[grey]cost {SuiteTiming.Humanize(point.Total)} across {point.Occurrences} scenario(s)[/]");
         }
@@ -780,23 +827,23 @@ public class CommandLineRenderer
         var notable = timing.Gaps.Where(g => g.Duration >= TimeSpan.FromMilliseconds(100)).ToList();
         foreach (var gap in notable.Take(3))
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"    [yellow]⏳ {SuiteTiming.Humanize(gap.Duration)} unowned[/] [grey]in {Markup.Escape(gap.Scenario)} " +
                 $"between '{Markup.Escape(gap.After)}' and '{Markup.Escape(gap.Before)}'[/]");
         }
 
         if (notable.Count > 3)
         {
-            AnsiConsole.MarkupLine($"    [grey]… {notable.Count - 3} more gap(s) over 100ms in the JSON output[/]");
+            output.MarkupLine($"    [grey]… {notable.Count - 3} more gap(s) over 100ms in the JSON output[/]");
         }
 
         if (timing.WithoutAssertions.Count > 0)
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"  [yellow]⚠ {timing.WithoutAssertions.Count} scenario(s) ran steps but asserted nothing[/]");
             foreach (var uid in timing.WithoutAssertions)
             {
-                AnsiConsole.MarkupLine($"    [yellow]•[/] {Markup.Escape(uid)}");
+                output.MarkupLine($"    [yellow]•[/] {Markup.Escape(uid)}");
             }
         }
     }
@@ -807,17 +854,17 @@ public class CommandLineRenderer
         var passedOnRetry = results.PassedOnRetry;
         if (passedOnRetry.Count == 0 && results.UnsupportedDispositions.Count == 0) return;
 
-        AnsiConsole.WriteLine();
+        output.WriteLine();
 
         if (passedOnRetry.Count > 0)
         {
-            AnsiConsole.MarkupLine(
+            output.MarkupLine(
                 $"  [yellow]{passedOnRetry.Count} scenario(s) passed on retry[/] " +
                 $"[grey]({results.RetriesPerformed} retries performed)[/]");
 
             foreach (var scenario in passedOnRetry)
             {
-                AnsiConsole.MarkupLine(
+                output.MarkupLine(
                     $"    [yellow]•[/] {Markup.Escape(scenario.Title)} " +
                     $"[grey]({scenario.AttemptCount} attempts)[/]");
             }
@@ -825,13 +872,13 @@ public class CommandLineRenderer
 
         foreach (var unsupported in results.UnsupportedDispositions)
         {
-            AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
+            output.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
         }
     }
 
     public void Render(Line line)
     {
-        AnsiConsole.MarkupLine(line.Cells.Select(ToMarkup).Join(""));
+        output.MarkupLine(line.Cells.Select(ToMarkup).Join(""));
     }
 
     public static string ToMarkup(Cell cell)

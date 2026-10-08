@@ -97,6 +97,39 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         });
 
+        // 3c''. `var theOrderId = Guid.NewGuid();` in a test names that value theOrderId in the spec
+        var declaredValues = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => DeclaredValues.IsCandidate(node),
+                transform: DeclaredValues.Extract)
+            .Where(d => d != null)
+            .Select((d, _) => d!);
+
+        // Only where the project opted Bobcat.Generated into interceptors (buildTransitive does it for a
+        // package reference). A plain analyzer reference has not, and an interceptor there is a hard
+        // CS9137 — so the names quietly fall back to the learned ones instead.
+        context.RegisterSourceOutput(declaredValues.Collect().Combine(context.ParseOptionsProvider), (spc, pair) =>
+        {
+            var (declarations, parseOptions) = pair;
+            if (declarations.Length > 0 && DeclaredValues.InterceptorsEnabled(parseOptions))
+                spc.AddSource("BobcatDeclaredValues.g.cs", DeclaredValues.Emit(declarations));
+        });
+
+        // 3c'. BOBCAT032 (bobcat#415, #420): a constant table, or a constant Specified<T>.With
+        //      path, whose columns do not name members of the type it is about.
+        var tableCalls = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => TableCallChecks.IsCandidate(node),
+                transform: TableCallChecks.Extract)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(tableCalls, (spc, findings) =>
+        {
+            foreach (var finding in findings)
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, finding.Location, finding.Message));
+        });
+
         // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
         //     comments (issue #110). Comments are erased by the compiler, so unlike every other
         //     authoring style this one cannot be recorded as it executes — the syntax tree is the
@@ -830,6 +863,8 @@ public class BobcatGenerator : IIncrementalGenerator
             QualifiedReturnType = qualifiedReturnType,
         };
 
+        info.TableColumnCheck = tableColumnCheck(method, expression);
+
         // Check for [Table], [SetVerification], [DecisionTable], [Approx], [Expected]
         foreach (var attr in method.GetAttributes())
         {
@@ -918,6 +953,20 @@ public class BobcatGenerator : IIncrementalGenerator
     /// Discover a lifecycle hook: an attribute wins, otherwise the method name decides.
     /// Wolverine-style — convention first, attribute only as the override.
     /// </summary>
+    private static readonly string[] CheckedCaptures = { "{event}", "{command}", "{readmodel}", "{document}" };
+
+    private static string? tableColumnCheck(IMethodSymbol method, string expression)
+    {
+        if (method.ContainingType?.ContainingNamespace?.ToDisplayString() != "Bobcat.CritterStack") return null;
+        if (!method.Parameters.Any(p => p.Type.ToDisplayString().TrimEnd('?') == "Bobcat.StepTable")) return null;
+
+        // The Event-column tables: the arrange, and the two group assertions (bobcat#419)
+        if (expression.IndexOf("events for {aggregate}", StringComparison.Ordinal) >= 0
+            || expression == "exactly these events are emitted"
+            || expression == "these events are emitted in any order") return "event-column";
+        return CheckedCaptures.Any(c => expression.IndexOf(c, StringComparison.Ordinal) >= 0) ? "capture" : null;
+    }
+
     private static HookMethodInfo? extractHook(IMethodSymbol method)
     {
         HookKind? kind = null;
@@ -1267,6 +1316,8 @@ public class BobcatGenerator : IIncrementalGenerator
                 if (match != null)
                 {
                     if (!resolveTypeCaptures(step, match, resolver, spc)) hasErrors = true;
+                    if (match.Method.TableColumnCheck == "event-column" && !checkEventColumnTable(step, resolver, spc))
+                        hasErrors = true;
 
                     if (match.Method.IsSetVerification && (step.TableRows == null || step.TableHeaders == null))
                     {
@@ -1423,6 +1474,12 @@ public class BobcatGenerator : IIncrementalGenerator
             if (resolution.Qualified != null)
             {
                 match.ExtractedValues[i] = resolution.Qualified;
+
+                if (match.Method.TableColumnCheck == "capture" && resolution.Symbol != null
+                    && !checkStepTable(step, resolution.Symbol, resolver, spc))
+                {
+                    ok = false;
+                }
             }
             else if (resolution.Candidates.Count > 1)
             {
@@ -1436,6 +1493,72 @@ public class BobcatGenerator : IIncrementalGenerator
                 spc.ReportDiagnostic(Diagnostic.Create(
                     Diagnostics.UnresolvedTypeName, Microsoft.CodeAnalysis.Location.None,
                     name, step.Text));
+                ok = false;
+            }
+        }
+
+        return ok;
+    }
+
+    /// <summary>
+    /// BOBCAT032 for a shipped grammar step's table: every column (or, for a vertical
+    /// <c>| field | value |</c> table, every field) must name a member of the captured type. The
+    /// captured type is what the step builds or loads, exactly, so there is no subclass to defer to.
+    /// </summary>
+    private static bool checkStepTable(StepInfo step, INamedTypeSymbol type, TypeNameResolver resolver,
+        SourceProductionContext spc)
+    {
+        if (step.TableHeaders == null || !TableColumns.Checkable(type)) return true;
+
+        var columns = TableColumns.IsVertical(step.TableHeaders)
+            ? (step.TableRows ?? new List<List<string>>()).Select(r => r.Count > 0 ? r[0].Trim() : "").ToList()
+            : step.TableHeaders.Select(h => h.Trim()).ToList();
+
+        var ok = true;
+        foreach (var column in columns.Where(c => c.Length > 0))
+        {
+            var problem = TableColumns.Problem(type, column, TableColumns.ColumnRule.Partial, resolver.Compilation);
+            if (problem == null) continue;
+
+            spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, Microsoft.CodeAnalysis.Location.None,
+                $"Step '{step.Text}': the table column '{column}' does not match {type.Name}: {problem}. "
+                + "Check the spelling, or the member may have been renamed since this spec was written"));
+            ok = false;
+        }
+
+        return ok;
+    }
+
+    /// <summary>
+    /// BOBCAT032 for <c>Given events for {aggregate}</c>: each row names its own event type in an
+    /// <c>Event</c> column, and only that row's non-blank cells are its fields — the header is the
+    /// union of every row's fields. A row whose type does not resolve is left to the runtime.
+    /// </summary>
+    private static bool checkEventColumnTable(StepInfo step, TypeNameResolver resolver, SourceProductionContext spc)
+    {
+        if (step.TableHeaders == null || step.TableRows == null) return true;
+
+        var eventIndex = step.TableHeaders.FindIndex(h => string.Equals(h.Trim(), "Event", StringComparison.OrdinalIgnoreCase));
+        if (eventIndex < 0) return true;
+
+        var ok = true;
+        foreach (var row in step.TableRows)
+        {
+            if (eventIndex >= row.Count) continue;
+            var type = resolver.Resolve(row[eventIndex]).Symbol;
+            if (type == null || !TableColumns.Checkable(type)) continue;
+
+            for (var c = 0; c < step.TableHeaders.Count && c < row.Count; c++)
+            {
+                if (c == eventIndex || row[c].Trim().Length == 0) continue;
+
+                var column = step.TableHeaders[c].Trim();
+                var problem = TableColumns.Problem(type, column, TableColumns.ColumnRule.Partial, resolver.Compilation);
+                if (problem == null) continue;
+
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, Microsoft.CodeAnalysis.Location.None,
+                    $"Step '{step.Text}': the column '{column}' has a value for a {type.Name}, which it does not match: {problem}. "
+                    + "Check the spelling, or the member may have been renamed since this spec was written"));
                 ok = false;
             }
         }
@@ -2083,6 +2206,22 @@ internal static class Diagnostics
         "A set of values needs a column name",
         "Step '{0}' verifies a set of plain values, so '{1}' needs [SetVerification(Column = \"...\")] " +
         "to say what the single column is called — a set of values has no properties to read columns from",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// A table column, or a partial object's member path, that names no member of the type it is about
+    /// (bobcat#415, bobcat#420). Checked wherever the type and the text are both known at compile
+    /// time: a constant table passed to a property check, a set verification,
+    /// <c>PartialObjects.FromTable</c>, a constant <c>Specified&lt;T&gt;.With</c> path, and the shipped
+    /// Gherkin grammar's tables under a type capture. A stale column is always a broken spec, so this
+    /// is an error rather than the <c>invalid</c> cell the next run would show.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnknownTableColumn = new(
+        "BOBCAT032",
+        "A table column does not match the type",
+        "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

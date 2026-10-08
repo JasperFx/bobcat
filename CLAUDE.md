@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. `.feature` files are compiled to direct fixture method calls via a Roslyn source generator — no runtime reflection, compile-time step matching with compile errors for unmatched steps.
 
+## Every new capability ships with its ai-skills entry
+
+**Any new Bobcat capability — a step, attribute, diagnostic, runner option, env var, tool command
+or runtime behavior — also gets written up in [ai-skills](https://github.com/JasperFx/ai-skills)
+(local checkout `~/code/ai-skills`).** The point is teaching a *later agent* to troubleshoot
+Bobcat on its own: what an error or surprising result means, and the move that fixes it. An agent
+consuming Bobcat in another repo never sees this file or the source; the skill is all it has.
+
+- **Where:** `skills/critterstack-sdd-bobcat-authoring/SKILL.md` today. A new diagnostic goes in
+  its diagnostics table (`| BOBCATnnn | what triggers it | the fix |`). When the troubleshooting
+  material outgrows that skill, split it into a `critterstack-sdd-bobcat-troubleshooting` skill
+  rather than letting the authoring skill sprawl.
+- **What to write:** the symptom as the user sees it (the diagnostic id and message, the
+  run-time cell status such as `invalid` vs `failed`, the exit code, the console output), the
+  cause, and the fix — not a tour of the implementation. Include the "it is *not* this" cases that
+  cost us time, e.g. a check that is skipped and left to run time.
+- **When:** in the same piece of work as the capability, as a PR to ai-skills linked from the
+  Bobcat PR — not as a later clean-up. Follow ai-skills' own `CLAUDE.md` (quote YAML descriptions
+  containing colons, then `npm run docs:generate`) and update the skill's `description` when the
+  new capability is something an agent would search for.
+
 ## Build & Test Commands
 
 ```bash
@@ -648,9 +669,8 @@ Everywhere else the declarative form is canonical where it reaches — `[SetVeri
 to configure: the columns come from the table and the subject from the method, so an attribute would
 carry no information. One consequence follows rather than being a separate choice — a column naming
 no property is an `invalid` cell **at run time**, because with no declarative form the generator
-never has the subject's type in view. **The cost knowingly paid:** a `[VerifyObject]`-style attribute
-*could* see the type and make an unknown column a BOBCAT030-style compile error. Revisit if a
-dogfooding pass wants that.
+never has the subject's type in view. **Superseded for constant tables (bobcat#415/#420):** the
+generator now recognizes the *call shape* instead of needing an attribute — see BOBCAT032 below.
 
 `PropertyCells` arrived as the engine behind two event-store grammars (`Then the {readmodel} read
 model contains`, `Then the {document} with id {string} has`) and is general-purpose; it is **not** a
@@ -677,6 +697,103 @@ worth keeping:
   verification's question: a set matches by key columns, where a path into a collection makes one
   wrong value read as a missing row beside an extra one — the exact confusion the paragraph above
   warns about. Depth is capped (`PropertyCells.MaxDepth`) so a cyclic graph cannot hang a comparison.
+
+### Partial objects: `Specify<T>()` and partial tables (`src/Bobcat/Partial/`, bobcat#416/#417)
+
+A spec names only the members it is about. A **partial object** (`IPartialObject`) is a type plus
+an ordered list of `SpecifiedValue(Path, Value, IsText)` — typed values from code, or cell text from
+a table, read later with `CellValues.Read` so `NULL`/`EMPTY`/relative times mean what they mean in
+every other table. Three ways to write one:
+
+- `Specify<T>().With(x => x.Prop, value)` (on `Fixture`, or `using static Bobcat.Specifications;`
+  anywhere). Nested: `.With(x => x.Address.City, …)` or `.With(x => x.Address, Specify<Address>()…)`.
+  `.With(nameof(T.Prop), value)` for a string path. **Refactor friendly by construction** — teach
+  this, and `nameof` in table headers, over bare strings.
+- `PartialObjects.FromTable(type, table)`: a horizontal table is one object per row; a vertical
+  `| field | value |` table (`PartialObjects.IsVertical`) is exactly one. **A blank cell is "not
+  specified"** (so one table can carry several types under a union header); `EMPTY` is the empty string.
+- `PartialObjects.FromCells(type, row)`.
+
+**Building** (`ObjectConstruction`) — constructor first, then members:
+
+1. Of the public constructors that can reach every specified member (by a parameter, or by a
+   settable/`init` member afterwards), take the one binding the most, then the one leaving fewest
+   parameters to fill, then the shortest. Structs also get their implicit constructor.
+2. Unbound parameters take their C# default, else the fill policy.
+3. Remaining specified members are assigned through setters or `init` accessors (reflection may call
+   `init`) — the gap `RecordBuilding` has: it sets nothing once a constructor binds.
+4. A `required` member nothing set, and a non-nullable reference member the type's own initializers
+   left null, get the fill policy's value. **A member the type initialized itself is left alone** —
+   that default is the author's.
+5. Spec defects throw `SpecCriticalException` naming the member: matches nothing (lists what the
+   type has), read-only and taken by no constructor, specified both whole and by members, an index path.
+
+**Unspecified values go through `IUnspecifiedValues`**; `PredictableValues` is the default: null
+where nullable (NRT annotations; *unknown* — F#, oblivious code — counts as non-nullable), `""`,
+empty collections, `None`, **a fresh `Guid`** (`Guid.Empty` collides identities), the Bobcat clock's
+now, an enum's first value, `default` otherwise; any other reference type is built empty, and a
+type already under construction is left null so a cycle terminates. **The policy is an open
+design question (bobcat#421: Bogus/AutoBogus vs Storyteller-style declared defaults)** — keep it
+behind the seam.
+
+**F# without FSharp.Core** (`FSharpShapes`, by type name): records and `[<CLIMutable>]` go through
+the constructor; `option`/`voption` (blank or `NULL` cell = `None`; an inner value is wrapped in
+`Some`); `list`/`Set` (comma-separated cell or any enumerable); `Map` (empty only); a single-case
+union with one field (`OrderId of Guid`) is built from its wrapped value. Multi-case unions are not
+supported yet. `src/Bobcat.Tests.FSharpTypes` holds real compiler-output shapes plus F#-authored
+`Specify` calls — test new shapes there, never with C# imitations.
+
+**Matching (#418, `PartialMatching`, `ObjectSetVerification`).** `PartialMatching.Differences(actual,
+expected)` judges a partial object on **only** the members it names (cell text through `CellCheck`,
+typed values structurally), an `IExpectedValue` (`Expect.Value(x).Ignoring(...)`) on everything but
+its ignored members, a plain object on everything. `ObjectComparison`/`Expect`/`ExpectedValue` live
+here now (moved from WolverineFx.Bobcat, wolverine#4835) — one comparison. F# options and single-case
+unions compare by what they hold (`ObjectComparison.Unwrap`). `ObjectSetVerification.Verify(actual,
+expected, noun, SetMode)`: `Ordered` (exact + ORDER), `AnyOrder` (exact), `Contains` (no EXTRA rows,
+others allowed); `Absent(actual, forbidden, noun)` for "not emitted" (a `Type`, or a partial = only
+matching ones). **Exact pairs are a maximum matching (Kuhn), not greedy** — a broad expectation
+written first must not steal the event a narrow one needs. A matched partial row shows only the
+specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)` /
+`Fixture.VerifyObject(subject, partial)` give a one-row grid of just the specified columns.
+
+**Gherkin (#419).** `RecordBuilding.Build` is a thin call into this engine; **every build is partial
+now, the `When` act included** (#241 kept the act strict; its `partial` flag is kept and ignored).
+It fills with `DefaultValues` (`default(T)`, the #241 rule) — *not* `PredictableValues` — so the
+Gherkin lane changes once, when #421 decides. A blank cell is not specified everywhere. `Then {event}
+is emitted` reports a grid (`Contains`; each row consumes its own event, so two identical rows need two
+events). New: `Then exactly these events are emitted` (Ordered) and `Then these events are emitted in
+any order` (AnyOrder), both with an `Event` column like `Given events for`; `Then {event} is not
+emitted` (+ optional rows). Pinned end to end in `Bobcat.CritterStack.Tests/Features/Wallet.feature`.
+
+### BOBCAT032: table columns checked at compile time (`TableColumns`, `TableCallChecks`, bobcat#415/#420)
+
+A **constant** table (literal, raw string, or a constant interpolated string such as
+`$"| {nameof(Order.Total)} |"` — evaluated with `SemanticModel.GetConstantValue`) whose columns do
+not name members of the type it is about is a build **error**. Recognized by call shape, not by
+attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is covered for free:
+
+| Call shape | Type checked | Rule (`TableColumns.ColumnRule`) |
+|---|---|---|
+| `(object subject, StepTable expected)` — `PropertyCells.Verify`, `Fixture.VerifyObject`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
+| `(IEnumerable actual, StepTable expected)` — `VerifySet`, `SetVerificationComparer.Verify` | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
+| `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
+| `Specified<T>.With("path", value)` | `T` | `Partial` |
+| shipped Gherkin steps (`Bobcat.CritterStack` methods with a `StepTable` and an `{event}`/`{command}`/`{readmodel}`/`{document}` capture) | the captured type | `Partial`; `events for {aggregate}` checks each row's non-blank cells against that row's `Event` type |
+
+Vertical `| field | value |` tables check the first-column values. Indexers are refused, depth is 8.
+
+**Skipped (left to the run-time `invalid` cell):** a non-constant table; a subject typed `object`,
+an interface, abstract, or a type parameter; and — for the two RUNTIME-type readers (property
+check, set) — an **open class**: one that is not a struct, sealed, or a record and that some type
+in the compilation or its non-framework references derives from (#415's option 1, chosen pending
+the user's call), because a subclass may legitimately carry the column. The same rule applies to
+each nested segment of a dotted path. A partial object builds exactly `T`, so it is always checked.
+A consumer's own Gherkin grammar is never checked — what its table means is its own business.
+
+**Rendering (#420):** a projected (Shouldly) assertion's sentence shows `nameof(Foo.Bar)` and constant
+interpolations by value (`"Bar"`), and a `Specify<T>().With(x => x.Bar, v)[.Build()]` argument as
+`T(Bar: v)` (`ArgumentText`). Those sentences are the only place the generator renders C# argument
+source; `[BobcatStep]` placeholders and marker comments already show run-time values/prose.
 
 ### Persistence Recipes
 A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row

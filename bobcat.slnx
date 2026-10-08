@@ -35,6 +35,7 @@
     <Project Path="src/Bobcat.Xunit/Bobcat.Xunit.csproj" />
   </Folder>
   <Project Path="src/Bobcat.Tests/Bobcat.Tests.csproj" />
+  <Project Path="src/Bobcat.Tests.FSharpTypes/Bobcat.Tests.FSharpTypes.fsproj" />
   <Project Path="src/Bobcat/Bobcat.csproj" />
   <Project Path="src/ConsolePreview/ConsolePreview.csproj" />
 </Solution>

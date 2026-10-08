@@ -82,8 +82,8 @@ public class RecordBuildingIsPublicApiTests
             ["Origin"],
             [["Dallas"], ["Austin"]]);
 
-        // Non-partial refuses: an act's fields are the scenario's input (issue #241).
-        Should.Throw<SpecCriticalException>(() => RecordBuilding.BuildAll(typeof(Parcel), table));
+        // Every build is partial since bobcat#419; the flag is kept for compatibility and changes nothing.
+        RecordBuilding.BuildAll(typeof(Parcel), table).Count.ShouldBe(2);
 
         var arranged = RecordBuilding.BuildAll(typeof(Parcel), table, partial: true)
             .Cast<Parcel>()

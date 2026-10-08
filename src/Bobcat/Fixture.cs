@@ -96,6 +96,13 @@ public abstract partial class Fixture
     protected T[] BuildRows<T>(StepTable table) => TableRunner.BuildRows<T>(table, Context);
 
     /// <summary>
+    /// Start a partial <typeparamref name="T"/>, specified by only the members a spec is about:
+    /// <c>Specify&lt;ShipmentConfirmed&gt;().With(x =&gt; x.TrackingNumber, "1Z999")</c> (bobcat#416).
+    /// <c>.Build()</c> makes the object, filling what was not specified.
+    /// </summary>
+    protected static Specified<T> Specify<T>() => Specifications.Specify<T>();
+
+    /// <summary>
     /// Compare a collection against a table of expected rows and render the comparison as a grid —
     /// <c>[SetVerification]</c> as a method call, for a step that is handed its table.
     /// </summary>
@@ -149,6 +156,12 @@ public abstract partial class Fixture
     protected TableRun VerifySet<T>(IEnumerable<T> actual, StepTable expected,
         string keyColumns = "", bool ordered = false, string column = "")
         => SetVerificationComparer.Verify(actual, expected, Context, keyColumns, ordered, column);
+
+    /// <summary>
+    /// Compare <paramref name="subject"/> against a partial object, judging and showing only the
+    /// members it names: <c>VerifyObject(order, Specify&lt;Order&gt;().With(x =&gt; x.Total, 12.5m))</c>.
+    /// </summary>
+    protected TableRun VerifyObject(object subject, IPartialObject expected) => PropertyCells.Verify(subject, expected, Context);
 
     /// <summary>
     /// Compare one object against one table row — Storyteller's <c>VerifyObject</c> /

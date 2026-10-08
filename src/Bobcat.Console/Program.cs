@@ -19,6 +19,18 @@ var executor = CommandExecutor.For(factory =>
 {
     factory.RegisterCommand<ImportEventModelCommand>();
     factory.RegisterCommand<ResidentCommand>();
+
+    // Running a spec project and reading its specifications: run, preview, pick, watch
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecRunCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecPreviewCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecPickCommand>();
+    factory.RegisterCommand<Bobcat.Console.Specs.SpecWatchCommand>();
+
+    // A bare `bobcat` runs the spec project found from the current directory, and so does
+    // `bobcat --feature …` or `bobcat path/to/Specs`. This is NOT the #369 trap above: that `run`
+    // started an application host and blocked; this one finds a spec project, runs it and exits —
+    // and with no spec project to find it fails fast, which is what a pipeline needs.
+    factory.DefaultCommand = typeof(Bobcat.Console.Specs.SpecRunCommand);
     factory.SetAppName("bobcat");
 
     // `resident` decides its own exit code, and JasperFx's true/false cannot carry it: a restart
