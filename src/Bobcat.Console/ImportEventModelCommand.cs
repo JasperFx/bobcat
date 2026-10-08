@@ -22,15 +22,23 @@ public class ImportEventModelInput
     [FlagAlias("out", 'o')]
     public string? OutFlag { get; set; }
 
+    [Description("Also write a WolverineFx.Bobcat specification for every example (test) in the model (bobcat#423)")]
+    public bool SpecsFlag { get; set; }
+
+    [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
+    public bool ForceFlag { get; set; }
+
     [Description("Base URL of a run console to push the assembled model to (e.g. http://localhost:5525)")]
     [FlagAlias("url", 'u')]
     public string? UrlFlag { get; set; }
 }
 
 /// <summary>
-/// <c>bobcat import-event-model &lt;file&gt;</c> — read an eventmodelers.ai board export, segment it,
-/// and write the design out as <b>C#</b>: field-less stub records plus one
-/// <c>EventModelDefinition</c> (issues #202, #405). Optionally pushes the assembled model to a run
+/// <c>bobcat import-event-model &lt;file&gt;</c> — read an emlang model, segment it, and write the
+/// design out as <b>C#</b>: stub records with the fields the model names, plus one
+/// <c>EventModelDefinition</c> (issues #202, #405, #422). With <c>--specs</c>, also one
+/// WolverineFx.Bobcat specification per example in the model (bobcat#423). Nothing is overwritten
+/// without <c>--force</c>; a second <c>--specs</c> run reports the examples with no specification. Optionally pushes the assembled model to a run
 /// console, which lives in Stoat since the 2026-09-18 fold; this side is only ever an HTTP client
 /// of it.
 /// </summary>
@@ -140,7 +148,10 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         foreach (var line in result.Report) System.Console.WriteLine(line);
 
-        var generated = CSharpModelWriter.Write(result.Model, input.NamespaceFlag);
+        var ns = input.NamespaceFlag
+                 ?? CSharpModelWriter.Identifiers.Sanitize(model);
+        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns) : null;
+        var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions);
 
         // --out names a DIRECTORY now, because the import writes two files. It may not exist yet:
         // letting File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack
@@ -152,15 +163,59 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var stubsPath = Path.Combine(outDirectory, $"{model}Stubs.cs");
         var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
 
-        File.WriteAllText(stubsPath, generated.Stubs, Encoding.UTF8);
-        File.WriteAllText(definitionPath, generated.Definition, Encoding.UTF8);
+        // Nothing is overwritten without --force (bobcat#423): these files are where the design
+        // is corrected, so a second run must not throw the corrections away
+        if (write(stubsPath, generated.Stubs, input.ForceFlag))
+        {
+            System.Console.WriteLine($"Wrote {generated.StubCount} stub record(s) to {stubsPath}.");
+        }
 
-        System.Console.WriteLine(
-            $"Wrote {generated.StubCount} stub record(s) to {stubsPath} and the event model to "
-            + $"{definitionPath}. Nothing regenerates either file \u2014 the segmentation above is a set of "
-            + "guesses, so correct one with an edit rather than a re-import.");
+        if (write(definitionPath, generated.Definition, input.ForceFlag))
+        {
+            System.Console.WriteLine(
+                $"Wrote the event model to {definitionPath}. The segmentation above is a set of guesses, "
+                + "so correct one with an edit rather than a re-import.");
+        }
+
+        if (specs is not null) writeSpecs(board, specs, Path.Combine(outDirectory, $"{model}Specs.cs"), input.ForceFlag);
 
         return result.Model;
+    }
+
+    /// <returns>Whether the file was written; an existing one is kept, and said so, unless <paramref name="force"/>.</returns>
+    private static bool write(string path, string content, bool force)
+    {
+        if (File.Exists(path) && !force)
+        {
+            System.Console.WriteLine($"Kept {path}, which already exists (--force overwrites it).");
+            return false;
+        }
+
+        File.WriteAllText(path, content, Encoding.UTF8);
+        return true;
+    }
+
+    private static void writeSpecs(EmlangBoard board, GeneratedSpecs specs, string path, bool force)
+    {
+        foreach (var line in specs.Report) System.Console.WriteLine(line);
+
+        if (write(path, specs.Code, force))
+        {
+            System.Console.WriteLine(
+                $"Wrote {specs.Specs} specification(s) in {specs.Features} feature(s) to {path}. Start the "
+                + "application's host in its AppFixture, and they run against it.");
+            return;
+        }
+
+        // One-shot: a second run says what the model has that the specifications don't, and writes nothing
+        var directory = Path.GetDirectoryName(path)!;
+        var sources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
+        var missing = EmlangSpecWriter.MissingSpecs(board, sources);
+
+        System.Console.WriteLine(missing.Count == 0
+            ? "Every example in the model has a specification."
+            : $"{missing.Count} example(s) in the model have no specification:");
+        foreach (var name in missing) System.Console.WriteLine($"  {name}");
     }
 
     private static async Task<bool> pushAsync(string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor)

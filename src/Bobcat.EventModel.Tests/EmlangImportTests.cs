@@ -498,7 +498,8 @@ public class EmlangInTheWildTests
     {
         var model = import(TwoDocuments);
 
-        CSharpModelWriter.FieldsOf(model, "OrderPlaced").ShouldBe([new CSharpModelWriter.StubField("OrderId", "string")]);
+        // An undeclared identity is a Guid whatever its sample looks like (bobcat#423)
+        CSharpModelWriter.FieldsOf(model, "OrderPlaced").ShouldBe([new CSharpModelWriter.StubField("OrderId", "Guid")]);
         CSharpModelWriter.FieldsOf(model, "PizzaBaked").ShouldBeEmpty();
     }
 
