@@ -8,7 +8,7 @@ namespace Bobcat.Console;
 
 public class ImportEventModelInput
 {
-    [Description("An eventmodelers.ai emlang board export")]
+    [Description("An emlang model (YAML), or an eventmodelers.ai export (a board backup or config.json)")]
     public string FilePath { get; set; } = string.Empty;
 
     [Description("Model name; defaults to the file name. It is the merge key, so it must match what the code-derived sources call the model")]
@@ -85,6 +85,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var curated = EventModelFileSniffer.Sniff(yaml) switch
         {
             EventModelFileKind.Emlang => importEmlang(input, yaml),
+            EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml),
             EventModelFileKind.Curated => refuseCurated(input.FilePath),
             _ => describeUnrecognized(input.FilePath),
         };
@@ -108,7 +109,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     {
         System.Console.Error.WriteLine(
             $"{path} is not an emlang file. Expected a top-level `slices:` map, each slice a list of "
-            + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai JSON export is not read yet: #424.)");
+            + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai export is a board backup or a config.json.)");
         return null;
     }
 
@@ -134,11 +135,11 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         EmlangBoard board;
         try
         {
-            board = EmlangReader.Read(yaml);
+            board = EventModelersJsonReader.LooksLikeJson(yaml) ? EventModelersJsonReader.Read(yaml) : EmlangReader.Read(yaml);
         }
         catch (EmlangFormatException e)
         {
-            System.Console.Error.WriteLine($"Not readable as an emlang export: {e.Message}");
+            System.Console.Error.WriteLine($"Not readable: {e.Message}");
             return null;
         }
 
