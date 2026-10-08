@@ -39,6 +39,7 @@
       to ship both.
     -->
     <None Include="buildTransitive\Bobcat.Generators.props" Pack="true" PackagePath="buildTransitive" Visible="false" />
+    <None Include="buildTransitive\Bobcat.Generators.targets" Pack="true" PackagePath="buildTransitive" Visible="false" />
   </ItemGroup>
 
 

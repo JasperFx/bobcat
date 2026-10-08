@@ -42,18 +42,31 @@ chapter 'TheSwiper': Automation slice 'DetectMutualMatch' triggered by 'Dog Like
 chapter 'TheSwiper': View slice 'MatchList'.
 chapter 'TheSwiper': View slice 'MatchList' consumes 3 event(s): DogLiked, DogPassed, MutualMatchDetected.
 3 slice(s) from 1 chapter(s).
-Wrote 6 stub record(s) to ./K9CrushStubs.cs and the event model to ./K9Crush.cs. Nothing
-regenerates either file — the segmentation above is a set of guesses, so correct one with an edit
-rather than a re-import.
+Wrote 6 stub type(s) in 3 file(s) under ./Features.
+Wrote the event model to ./K9Crush.cs. The segmentation above is a set of guesses, so correct one
+with an edit rather than a re-import.
 Model 'K9Crush': 3 slice(s), 1 bound specification(s).
 ```
 
-### Two files: the stubs and the definition
+Pass `--out` the application project's directory; everything lands under it.
 
-`<Model>Stubs.cs` is one field-less record per command, event, aggregate and view the board named:
+### The stubs: one file per slice, a folder per chapter
+
+Each slice gets `Features/{Chapter}/{Slice}.cs`, in the namespace `{Namespace}.{Chapter}`. The file
+holds what the slice produces: its command (or the read model of a view), the events it emits and
+the messages it publishes. That is also the file `wolverine scaffold` adds the handler to, so a
+command and its handler live side by side. A type no slice produces, such as an aggregate or an
+event consumed from elsewhere, gets a file of its own under the chapter of the first slice that
+names it.
 
 ```csharp
-namespace K9Crush;
+// Features/TheSwiper/SwipeOnDog.cs
+namespace K9Crush.TheSwiper;
+
+/// <summary>
+/// the command of SwipeOnDog.
+/// </summary>
+public record SwipeOnDog(Guid Id);
 
 /// <summary>
 /// emitted by SwipeOnDog.
@@ -62,9 +75,16 @@ namespace K9Crush;
 public record DogLiked;
 ```
 
-**Field-less is what a board can honestly produce.** An emlang export carries no field information
-at all — the board's props are intentionally omitted — so a name is the whole truth it can tell.
-Inventing an `Id` would be a guess with no basis that you would then have to un-guess.
+**A stub has only what the board names, plus an `Id` where it names no identity.** An emlang export
+usually carries no field information, since the board's props are intentionally omitted. Events
+stay field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
+identity for it, because that is Wolverine's own convention: a generated specification can address
+the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
+
+**A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
+event is stored. Only a stream the model declares (an eventmodelers.ai element's `aggregate`)
+becomes an aggregate type. Otherwise the events go on a stream with no aggregate type, which
+Marten, Polecat and Fisher all support.
 
 `<Model>.cs` is one `EventModelDefinition` declaring the slices through the JasperFx.Events fluent
 API, against those stubs:
@@ -108,8 +128,84 @@ Write your Bobcat specs against the stubs straight away. They are red until the 
 and that is the point.
 
 With `--specs`, the command writes them for you as well: one WolverineFx.Bobcat specification per
-example on the board, in a `{Model}Specs.cs` beside the other two files. Each slice is one
-`[BobcatFeature]` class, and each example is one `[Fact]` named for the example in snake case.
+example on the board. They go to the spec project, by default the sibling of `--out` named for the
+spec namespace (`--specs-out` to put them elsewhere, `--specs-namespace` to name it; the default is
+`{Namespace}.Specs`, and it should be the spec project's name):
+
+```
+CritterCrush.Specs/
+  TestSupport.cs                         the fixture, the collection, the base spec class
+  VolunteeringAndHomeChecks/
+    ReviewVolunteerApplication.cs        namespace CritterCrush.Specs.VolunteeringAndHomeChecks
+    ...
+```
+
+Each slice is one `[BobcatFeature]` class in its own file, under a folder per chapter, and each
+example is one `[Fact]` named for the example in snake case:
+
+```csharp
+[BobcatFeature("ReviewVolunteerApplication")]
+public class review_volunteer_application(AppFixture app) : CritterCrushSpec(app)
+{
+    [Fact]
+    public async Task volunteer_application_reviewed()
+    {
+        var theStream = Guid.CreateVersion7();
+        await GivenEvents(theStream, Specify<VolunteerApplicationSubmitted>());
+
+        await WhenReceived(Specify<ReviewVolunteerApplication>().With(x => x.Id, theStream));
+
+        ThenEvents(Specify<VolunteerApplicationReviewed>());
+    }
+}
+```
+
+Every id a spec mints is `Guid.CreateVersion7()`, never `Guid.NewGuid()`: generated code is copied,
+and a random v4 Guid as a stream id fragments the store's indexes.
+
+`TestSupport.cs` holds a placeholder `AppFixture` that only compiles. Replace it with the
+application's own host; its comments show the shape for Marten, Polecat and Fisher. The base spec
+class calls `ResetAsync()` before every test, which resets every event store the host registers,
+so the same specifications run on any of the three stores. They use the application's own database
+and schema, so a failing spec's data is where you would look for it.
+
+### The spec project
+
+The spec project is an xUnit v3 executable. It needs **all** of these, or Rider and Visual Studio
+show no tests at all ("NuGet package Microsoft.NET.Test.Sdk is not installed"):
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <PackageReference Include="Bobcat.Xunit" Version="..." />
+    <PackageReference Include="Bobcat.Generators" Version="..." />
+    <PackageReference Include="WolverineFx.Bobcat" Version="..." />
+    <PackageReference Include="Alba" Version="..." />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CritterCrush\CritterCrush.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+`Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are the bridge the IDEs discover tests
+through; the Microsoft Testing Platform properties are what `dotnet test` and running the
+executable use. Bobcat.Generators warns with **BOBCAT033** when a project references `xunit.v3`
+without `Microsoft.NET.Test.Sdk`.
 
 The links in the definition are the identities those specs report: the slice name, then the
 method name read back as a sentence. That's why the example `ALikeIsRecorded` is linked as

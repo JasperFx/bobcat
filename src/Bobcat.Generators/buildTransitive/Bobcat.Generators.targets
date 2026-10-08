@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    BOBCAT033 (bobcat#442): an xUnit v3 spec project without Microsoft.NET.Test.Sdk builds, runs and
+    passes from the command line, and shows NO tests in Rider or Visual Studio, which discover tests
+    through the VSTest bridge that package and xunit.runner.visualstudio provide. Nothing about the
+    build says so, which is how CritterCrush.v3's spec project shipped without it. A warning, not an
+    error: a suite that only ever runs from the command line is a legitimate choice.
+
+    Checked against the PackageReference items, so central package management (versions in
+    Directory.Packages.props) sees the same thing. Only xunit.v3 is checked: a TUnit project has no
+    such bridge to need.
+  -->
+  <Target Name="BobcatWarnMissingTestSdk" BeforeTargets="CoreCompile"
+          Condition="'$(BobcatSuppressTestSdkWarning)' != 'true' And '$(OutputType)' == 'Exe'">
+    <ItemGroup>
+      <_BobcatXunitV3 Include="@(PackageReference)" Condition="'%(Identity)' == 'xunit.v3' Or '%(Identity)' == 'xunit.v3.core'" />
+      <_BobcatTestSdk Include="@(PackageReference)" Condition="'%(Identity)' == 'Microsoft.NET.Test.Sdk'" />
+    </ItemGroup>
+
+    <Warning Code="BOBCAT033"
+             Condition="'@(_BobcatXunitV3)' != '' And '@(_BobcatTestSdk)' == ''"
+             Text="This xUnit v3 project references no Microsoft.NET.Test.Sdk, so Rider and Visual Studio will find no tests in it (the command line still runs them). Add PackageReferences to Microsoft.NET.Test.Sdk and xunit.runner.visualstudio, or set BobcatSuppressTestSdkWarning=true if the suite only ever runs from the command line." />
+  </Target>
+
+</Project>
