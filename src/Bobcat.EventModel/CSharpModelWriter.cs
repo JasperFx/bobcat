@@ -17,11 +17,12 @@ namespace Bobcat.EventModel;
 /// The imported model is red until the behaviour exists, and that is the point.
 /// </para>
 /// <para>
-/// <b>Field-less stubs are what a board can honestly produce.</b> An emlang export carries no
-/// field information at all — the board's props are intentionally omitted — so
-/// <c>public record AppointmentConfirmed;</c> is the whole truth about a command or event it names.
-/// Inventing an <c>Id</c> would be a guess the importer has no basis for, and one that every
-/// consumer would then have to un-guess.
+/// <b>A stub carries only the fields the board names.</b> When a step declares props
+/// (<c>email: string</c>) or a test gives an element example values, the stub is a positional
+/// record of exactly those fields, typed from the declaration or inferred from the sample, and
+/// <c>string</c> when neither says more (issue #422). When the board names none, the stub is
+/// field-less: <c>public record AppointmentConfirmed;</c> is then the whole truth about it, and
+/// inventing an <c>Id</c> would be a guess every consumer would have to un-guess.
 /// </para>
 /// <para>
 /// <b>Everything goes through <see cref="ISourceWriter"/></b>, the same rule Wolverine's
@@ -120,12 +121,20 @@ public static class CSharpModelWriter
     {
         using var writer = new SourceWriter();
 
-        writer.WriteLine("// Imported from an eventmodelers.ai board by `bobcat import-event-model`.");
+        writer.WriteLine("// Imported from an event model by `bobcat import-event-model`.");
         writer.WriteLine("//");
-        writer.WriteLine("// These are field-less on purpose: a board carries no field information, so a name is");
-        writer.WriteLine("// the whole truth it can tell. Add the fields as the behaviour takes shape — nothing");
-        writer.WriteLine("// regenerates this file, so your edits are safe.");
+        writer.WriteLine("// A stub has only the fields the model names, typed from what it declares or from its");
+        writer.WriteLine("// example values; one the model gives no fields is field-less. Add the rest as the");
+        writer.WriteLine("// behaviour takes shape. Nothing regenerates this file, so your edits are safe.");
         writer.BlankLine();
+
+        var fields = stubs.ToDictionary(x => x, x => FieldsOf(model, x), StringComparer.Ordinal);
+        if (fields.Values.Any(x => x.Count > 0))
+        {
+            writer.WriteLine("using System;");
+            writer.BlankLine();
+        }
+
         writer.WriteLine($"namespace {ns};");
         writer.BlankLine();
 
@@ -138,11 +147,48 @@ public static class CSharpModelWriter
         foreach (var name in stubs)
         {
             foreach (var line in describe(model, name)) writer.WriteLine($"/// {line}");
-            writer.WriteLine($"public record {name};");
+            writer.WriteLine(fields[name].Count == 0
+                ? $"public record {name};"
+                : $"public record {name}({string.Join(", ", fields[name].Select(x => $"{x.Type} {x.Name}"))});");
             writer.BlankLine();
         }
 
         return writer.Code();
+    }
+
+    /// <summary>One field of a stub record, as the writer emits it.</summary>
+    public sealed record StubField(string Name, string Type);
+
+    /// <summary>
+    /// The fields the model names for one stub, gathered from every slice's element hints in model
+    /// order: the first sketch of a field wins, and a sketch the type table does not know (a
+    /// sample such as <c>order-123</c>) is a <c>string</c>.
+    /// </summary>
+    public static IReadOnlyList<StubField> FieldsOf(ImportedEventModel model, string stub)
+    {
+        var fields = new List<StubField>();
+
+        foreach (var slice in model.Slices)
+        {
+            foreach (var (typeName, element) in slice.Elements)
+            {
+                if (Identifiers.Sanitize(typeName) != stub) continue;
+
+                foreach (var (fieldName, sketch) in element.Fields)
+                {
+                    var name = Identifiers.Sanitize(Emlang.EmlangImport.PascalName(fieldName));
+                    if (name.Length == 0) continue;
+
+                    // A positional member may not share its record's name
+                    if (name == stub) name += "Value";
+                    if (fields.Any(x => x.Name == name)) continue;
+
+                    fields.Add(new StubField(name, CuratedFieldTypes.TryInfer(sketch, out var type) ? type : "string"));
+                }
+            }
+        }
+
+        return fields;
     }
 
     /// <summary>

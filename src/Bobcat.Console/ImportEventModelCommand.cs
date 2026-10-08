@@ -99,8 +99,8 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     private static ImportedEventModel? describeUnrecognized(string path)
     {
         System.Console.Error.WriteLine(
-            $"{path} is not an eventmodelers.ai board export. Expected a `slices:` map of chapters, "
-            + "each with `steps:`.");
+            $"{path} is not an emlang file. Expected a top-level `slices:` map, each slice a list of "
+            + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai JSON export is not read yet: #424.)");
         return null;
     }
 

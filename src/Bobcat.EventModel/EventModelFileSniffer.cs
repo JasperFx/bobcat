@@ -1,4 +1,3 @@
-using YamlDotNet.Serialization;
 
 namespace Bobcat.EventModel;
 
@@ -39,29 +38,31 @@ public enum EventModelFileKind
 /// </remarks>
 public static class EventModelFileSniffer
 {
-    private static readonly IDeserializer Deserializer = new DeserializerBuilder().Build();
 
     public static EventModelFileKind Sniff(string yaml)
     {
-        Dictionary<object, object>? root;
+        List<Dictionary<object, object>> documents;
         try
         {
-            root = Deserializer.Deserialize<Dictionary<object, object>>(yaml);
+            // An emlang file may hold several documents separated by `---`, often behind a
+            // comment-only preamble (issue #422), so every document is looked at, not the first
+            documents = Emlang.EmlangReader.Documents(yaml);
         }
         catch
         {
             return EventModelFileKind.Unknown;
         }
 
-        if (root is null) return EventModelFileKind.Unknown;
-
-        var keys = root.Keys.Select(x => x.ToString()).ToHashSet(StringComparer.Ordinal);
-        if (keys.Contains("schema") || keys.Contains("model"))
+        foreach (var root in documents)
         {
-            return isSpecOwnership(root) ? EventModelFileKind.SpecOwnership : EventModelFileKind.Curated;
+            var keys = root.Keys.Select(x => x.ToString()).ToHashSet(StringComparer.Ordinal);
+            if (keys.Contains("schema") || keys.Contains("model"))
+            {
+                return isSpecOwnership(root) ? EventModelFileKind.SpecOwnership : EventModelFileKind.Curated;
+            }
         }
 
-        return keys.Contains("slices") ? EventModelFileKind.Emlang : EventModelFileKind.Unknown;
+        return documents.Any(x => x.ContainsKey("slices")) ? EventModelFileKind.Emlang : EventModelFileKind.Unknown;
     }
 
     private static bool isSpecOwnership(Dictionary<object, object> root)
