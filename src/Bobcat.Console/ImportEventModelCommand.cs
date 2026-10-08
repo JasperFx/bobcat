@@ -26,9 +26,11 @@ public class ImportEventModelInput
     public bool SpecsFlag { get; set; }
 
     [Description("Directory the specification files are written to; defaults to a sibling of --out named for the spec namespace, e.g. ../CritterCrush.Specs")]
+    [FlagAlias("specs-out", true)]
     public string? SpecsOutFlag { get; set; }
 
     [Description("Root namespace of the specifications, which should be the spec project's name; defaults to '<namespace>.Specs'. Each chapter folder adds a segment")]
+    [FlagAlias("specs-namespace", true)]
     public string? SpecsNamespaceFlag { get; set; }
 
     [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
