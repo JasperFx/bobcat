@@ -215,6 +215,31 @@ public class EmlangSpecWriterTests
     }
 
     [Fact]
+    public void a_view_slice_whose_example_shares_its_name_still_compiles()
+    {
+        // K9CRUSH's VolunteerApplicationsQueue: the view slice and its one example have one name, so
+        // class and method were both volunteer_applications_queue (CS0542). The class gives way.
+        var code = EmlangSpecWriterTests.code(
+            """
+            slices:
+              Queue:
+                steps:
+                  - e: Volunteer / Application submitted
+                  - v: Applications queue
+                tests:
+                  ApplicationsQueue:
+                    given:
+                      - e: Volunteer / Application submitted
+                    then:
+                      - v: Applications queue
+            """);
+
+        code.ShouldContain("[BobcatFeature(\"ApplicationsQueue\")]");
+        code.ShouldContain("public class applications_queue_feature(AppFixture app)");
+        code.ShouldContain("public async Task applications_queue()");
+    }
+
+    [Fact]
     public void the_definition_links_exactly_the_identities_the_generated_specs_report()
     {
         // bobcat#435: the features were the board's chapters and the definition linked the board's
