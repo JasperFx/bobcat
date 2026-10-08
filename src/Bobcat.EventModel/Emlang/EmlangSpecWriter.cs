@@ -44,6 +44,7 @@ public static class EmlangSpecWriter
     public static GeneratedSpecs Write(EmlangBoard board, ImportedEventModel model, string ns)
     {
         var context = new Context(model);
+        context.Declare(board);
         var modelName = CSharpModelWriter.Identifiers.Sanitize(model.Model);
         if (modelName.Length == 0) modelName = "Imported";
 
@@ -193,6 +194,57 @@ public static class EmlangSpecWriter
 
     private sealed class Context(ImportedEventModel model)
     {
+        private readonly Dictionary<string, (string? Stream, List<string> Identities, List<string> Props)> _declared = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// What the model's own steps say about each element: its stream, and which props are its
+        /// identity. A scenario item often repeats neither: an eventmodelers.ai export names the
+        /// aggregate on the element, not on every example of it (bobcat#433 discussion, case C).
+        /// </summary>
+        public void Declare(EmlangBoard board)
+        {
+            foreach (var step in board.Chapters.SelectMany(x => x.Steps))
+            {
+                if (step.Kind is not (EmlangElementKind.Command or EmlangElementKind.Event or EmlangElementKind.View)) continue;
+
+                var typeName = TypeName(step.Label);
+                var stream = step.Stream is { Length: > 0 } declared ? declared
+                    : step.Kind == EmlangElementKind.Event && step.Actor.Length > 0 ? step.Actor
+                    : null;
+
+                if (!_declared.TryGetValue(typeName, out var known))
+                {
+                    _declared[typeName] = (stream, [.. step.Identities], [.. step.Props.Keys]);
+                    continue;
+                }
+
+                if (known.Stream is null && stream is not null) _declared[typeName] = known with { Stream = stream };
+                foreach (var identity in step.Identities.Where(x => !known.Identities.Contains(x))) known.Identities.Add(identity);
+                foreach (var prop in step.Props.Keys.Where(x => !known.Props.Contains(x))) known.Props.Add(prop);
+            }
+        }
+
+        /// <summary>The stream the model declares for an element, or null.</summary>
+        public string? StreamOf(string typeName) => _declared.GetValueOrDefault(typeName).Stream;
+
+        /// <summary>
+        /// The props that are an element's identity: the ones the model marks (<c>idAttribute</c>),
+        /// or, when it marks none, the prop named for its stream (<c>orderId</c> on an <c>Order</c>
+        /// event) or the generic <c>aggregateId</c> some models use.
+        /// </summary>
+        public IReadOnlyList<string> IdentitiesOf(string typeName)
+        {
+            if (!_declared.TryGetValue(typeName, out var known)) return [];
+            if (known.Identities.Count > 0) return known.Identities;
+
+            var stream = known.Stream is { Length: > 0 } declared ? TypeName(declared) : null;
+            return known.Props
+                .Where(x => EmlangImport.PascalName(x) is var name
+                            && (name == "AggregateId" || (stream is not null && name == stream + "Id")))
+                .Take(1)
+                .ToList();
+        }
+
         private readonly Dictionary<string, IReadOnlyList<CSharpModelWriter.StubField>> _fields = new(StringComparer.Ordinal);
 
         public ImportedEventModel Model { get; } = model;
@@ -253,12 +305,22 @@ public static class EmlangSpecWriter
         public IEnumerable<string> Lines()
         {
             declareIdentities();
-            if (_ids.Count > 0) _lines.Add("");
+            if (_ids.Count > 0 || _mintedLocals.Count > 0) _lines.Add("");
 
             var arranged = given();
             act();
             assert(arranged);
 
+            // A minted identity whose only element wrote no partial is referenced nowhere: drop it
+            foreach (var variable in _mintedLocals)
+            {
+                var declaration = $"var {variable} = ";
+                var used = _lines.Any(x => !x.StartsWith(declaration, StringComparison.Ordinal)
+                                           && System.Text.RegularExpressions.Regex.IsMatch(x, $@"\b{variable}\b"));
+                if (!used) _lines.RemoveAll(x => x.StartsWith(declaration, StringComparison.Ordinal));
+            }
+
+            if (_lines.Count > 0 && _lines[0].Length == 0) _lines.RemoveAt(0);
             while (_lines.Count > 0 && _lines[^1].Length == 0) _lines.RemoveAt(_lines.Count - 1);
             return _lines;
         }
@@ -283,6 +345,83 @@ public static class EmlangSpecWriter
                     }
                 }
             }
+
+            // An example that names a stream's identity is that stream's local, for every element
+            // on the stream that leaves its own identity out
+            foreach (var reference in references)
+            {
+                var typeName = TypeName(reference.Label);
+                if (streamName(reference) is not { } stream || _streams.ContainsKey(stream)) continue;
+
+                foreach (var (prop, value) in reference.Props)
+                {
+                    if (!identityProp(typeName, stream, prop)) continue;
+                    if (_ids.TryGetValue(value, out var id)) _streams[stream] = id.Variable;
+                }
+            }
+
+            // The model marks an identity but the example gives it no value (bobcat#433 discussion,
+            // case C): mint one local per stream, and set it on every element that names none
+            foreach (var reference in references)
+            {
+                var typeName = TypeName(reference.Label);
+                var stream = streamName(reference);
+
+                foreach (var prop in context.IdentitiesOf(typeName))
+                {
+                    if (reference.Props.TryGetValue(prop, out var given) && given.Length > 0) continue;
+
+                    var (member, type) = context.Member(typeName, prop);
+                    var owner = stream ?? (member.EndsWith("Id", StringComparison.Ordinal) && member.Length > 2 ? member[..^2] : member);
+                    if (!_streams.TryGetValue(owner, out var variable))
+                    {
+                        variable = mint(owner, type);
+                        _streams[owner] = variable;
+                    }
+
+                    if (!_minted.TryGetValue(reference, out var fields)) _minted[reference] = fields = [];
+                    if (fields.All(x => x.Member != member)) fields.Add((member, variable));
+                }
+            }
+        }
+
+        // A stream (aggregate) -> the local that stands for its identity in this test
+        private readonly Dictionary<string, string> _streams = new(StringComparer.Ordinal);
+
+        // An identity the model marks but the example leaves out, set on the element's partial
+        private readonly Dictionary<EmlangRef, List<(string Member, string Variable)>> _minted = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>A reference's stream: the one it names, else the one the model declares for its element.</summary>
+        private string? streamName(EmlangRef reference)
+        {
+            if (reference.Actor.Length > 0) return TypeName(reference.Actor);
+            return context.StreamOf(TypeName(reference.Label)) is { Length: > 0 } declared ? TypeName(declared) : null;
+        }
+
+        private bool identityProp(string typeName, string stream, string prop)
+        {
+            if (context.IdentitiesOf(typeName).Contains(prop)) return true;
+            if (EmlangImport.PascalName(prop) == "AggregateId") return true;
+            return CSharpModelWriter.Identifiers.Sanitize(EmlangImport.PascalName(prop)) == stream + "Id";
+        }
+
+        private readonly List<string> _mintedLocals = [];
+
+        /// <summary>Whether a reference has anything to put in a partial: example values, or a minted identity.</summary>
+        private bool hasValues(EmlangRef reference) => reference.Props.Count > 0 || _minted.ContainsKey(reference);
+
+        /// <summary>A local for an identity the example never gives a value.</summary>
+        private string mint(string owner, string type)
+        {
+            var name = "the" + owner;
+            var count = _names[name] = _names.GetValueOrDefault(name) + 1;
+            var variable = count == 1 ? name : name + count;
+            _mintedLocals.Add(variable);
+
+            _lines.Add(type == "Guid"
+                ? $"var {variable} = Guid.NewGuid();"
+                : $"var {variable} = {quote(EmlangImport.PascalName(owner).ToLowerInvariant() + "-1")};");
+            return variable;
         }
 
         private void declare(string member, string value, string type)
@@ -344,10 +483,12 @@ public static class EmlangSpecWriter
             if (groups.Count == 0 && test.When.Any(x => x.Kind == EmlangElementKind.Command))
             {
                 // The act runs against a stream that starts empty: name it, from the first event expected
-                var expected = test.Then.FirstOrDefault(x => x.Kind == EmlangElementKind.Event && x.Actor.Length > 0);
-                if (expected is not null && identityOf(streamOf(expected), expected) is { } key)
+                var expected = test.Then.FirstOrDefault(x => x.Kind == EmlangElementKind.Event && streamName(x) is not null);
+                if (expected is not null && streamName(expected) is { } stream
+                    && (identityOf(stream, expected) ?? _streams.GetValueOrDefault(stream)) is { } key)
                 {
-                    _lines.Add($"await GivenNoEventsFor<{streamOf(expected)}>({key});");
+                    context.Streams.Add(stream);
+                    _lines.Add($"await GivenNoEventsFor<{stream}>({key});");
                 }
             }
 
@@ -397,13 +538,13 @@ public static class EmlangSpecWriter
                 if (key is null)
                 {
                     context.Report.Add($"{where}: the {typeName} view names no identity, so it is checked as the only {typeName}.");
-                    _lines.Add(view.Props.Count == 0
+                    _lines.Add(!hasValues(view)
                         ? $"await ThenSingleReadModel<{typeName}>();"
                         : $"await ThenSingleReadModel<{typeName}>({partial(view)});");
                     continue;
                 }
 
-                _lines.Add(view.Props.Count == 0
+                _lines.Add(!hasValues(view)
                     ? $"await ThenReadModel<{typeName}>({key});"
                     : $"await ThenReadModel<{typeName}>({key}, {partial(view)});");
             }
@@ -454,6 +595,11 @@ public static class EmlangSpecWriter
                 builder.Append($".With(x => x.{member}, {value(type, text, reference.Values.GetValueOrDefault(prop))})");
             }
 
+            foreach (var (member, variable) in _minted.GetValueOrDefault(reference) ?? [])
+            {
+                builder.Append($".With(x => x.{member}, {variable})");
+            }
+
             return builder.ToString();
         }
 
@@ -470,7 +616,7 @@ public static class EmlangSpecWriter
 
         private string streamOf(EmlangRef reference)
         {
-            var stream = TypeName(reference.Actor);
+            var stream = streamName(reference) ?? "";
             if (stream.Length == 0)
             {
                 context.Report.Add($"⚠ {where}: the event '{reference.Label}' names no stream; arranged on `object` — name its stream.");
@@ -500,6 +646,7 @@ public static class EmlangSpecWriter
         private string keyOf(string stream, EmlangRef reference)
         {
             if (identityOf(stream, reference) is { } key) return key;
+            if (_streams.TryGetValue(stream, out var minted)) return minted;
 
             context.Report.Add($"⚠ {where}: the {stream} event '{reference.Label}' names no identity; a fresh one is arranged.");
             return $"Guid.NewGuid() /* TODO: the model names no {stream} identity */";

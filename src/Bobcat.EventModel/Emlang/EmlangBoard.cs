@@ -40,6 +40,18 @@ public sealed record EmlangStep(
     /// which is how YAML hands them over untyped.
     /// </summary>
     public IReadOnlyDictionary<string, object?> Values { get; init; } = EmlangReader.NoValues;
+
+    /// <summary>
+    /// The stream (aggregate) this command or event belongs to, when the model says. An emlang
+    /// event's swimlane; an eventmodelers.ai element's <c>aggregate</c>.
+    /// </summary>
+    public string? Stream { get; init; }
+
+    /// <summary>
+    /// The props that are the element's identity, when the model marks them: an eventmodelers.ai
+    /// field's <c>idAttribute</c>. Emlang has no such marker.
+    /// </summary>
+    public IReadOnlyList<string> Identities { get; init; } = [];
 }
 
 /// <summary>

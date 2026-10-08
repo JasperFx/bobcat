@@ -100,10 +100,14 @@ public static class EventModelersJsonReader
             var processor = items(slice, "processors").Select(x => text(x, "title")).FirstOrDefault(x => x.Length > 0);
             foreach (var command in items(slice, "commands"))
             {
-                steps.Add(step(EmlangElementKind.Command, "", command, processor));
+                steps.Add(step(EmlangElementKind.Command, "", command, processor) with { Stream = streamOf(command, aggregates) });
             }
 
-            foreach (var @event in items(slice, "events")) steps.Add(step(EmlangElementKind.Event, streamOf(@event, aggregates), @event));
+            foreach (var @event in items(slice, "events"))
+            {
+                var stream = streamOf(@event, aggregates);
+                steps.Add(step(EmlangElementKind.Event, stream, @event) with { Stream = stream });
+            }
             foreach (var view in items(slice, "readmodels")) steps.Add(step(EmlangElementKind.View, "", view));
 
             var tests = items(slice, "specifications").Select(test).ToList();
@@ -263,9 +267,17 @@ public static class EventModelersJsonReader
 
         if (triggeredBy is { Length: > 0 }) props["triggeredBy"] = triggeredBy;
 
+        var identities = items(element, "fields")
+            .Where(x => x.TryGetProperty("idAttribute", out var id) && id.ValueKind == JsonValueKind.True)
+            .Select(x => text(x, "name"))
+            .Where(x => x.Length > 0)
+            .ToList();
+
         return new EmlangStep(kind, actor, text(element, "title"), props)
         {
-            Values = props.ToDictionary(x => x.Key, x => (object?)x.Value, StringComparer.Ordinal)
+            Values = props.ToDictionary(x => x.Key, x => (object?)x.Value, StringComparer.Ordinal),
+            Stream = kind == EmlangElementKind.Event && actor.Length > 0 ? actor : null,
+            Identities = identities
         };
     }
 
