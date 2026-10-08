@@ -30,7 +30,7 @@ This is the anchor case. A tracked session knows the whole messaging story — w
 was handled, in what order, and what threw — and a test that merely asserts an outcome discards all
 of it.
 
-- `Bobcat.Wolverine` surfaces tracked sessions directly: `InvokeMessageAndWaitAsync`,
+- `WolverineFx.Bobcat` surfaces tracked sessions directly: `InvokeMessageAndWaitAsync`,
   `SendMessageAndWaitAsync`, `ExecuteAndWaitAsync` and `TrackActivity` all hand back an
   `ITrackedSession`, and `WolverineActOutcome.Session` exposes it from inside a grammar step —
   see [Bobcat with Wolverine](../integrations/wolverine.md).

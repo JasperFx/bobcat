@@ -241,7 +241,7 @@ public Task CreditWallet(decimal amount)
     => WhenTracked(() => Context!.PostJsonAsync<Credit, Wallet>("/api/wallet/credit", new Credit(amount)));
 ```
 
-`WhenTracked` ([Bobcat.Wolverine](integrations/wolverine.md)) runs the call inside the tracked
+`WhenTracked` ([WolverineFx.Bobcat](integrations/wolverine.md)) runs the call inside the tracked
 session, so the whole assertion vocabulary above works unchanged afterwards, and
 `PostJsonAsync` is [Bobcat.Alba](integrations/alba.md)'s. The difference from the deleted lane is
 that the step sentence is yours rather than shipped — so the slice's trigger kind is not inferred

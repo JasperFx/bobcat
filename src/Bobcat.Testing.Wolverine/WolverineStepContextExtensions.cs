@@ -3,7 +3,7 @@ using Bobcat.Runtime;
 using Microsoft.Extensions.Hosting;
 using Wolverine.Tracking;
 
-namespace Bobcat.Wolverine;
+namespace Bobcat.Testing.Wolverine;
 
 /// <summary>
 /// Extension methods for IStepContext that delegate to Wolverine's message tracking APIs.

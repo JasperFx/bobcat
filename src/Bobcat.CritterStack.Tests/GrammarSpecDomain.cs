@@ -1,5 +1,5 @@
 using Bobcat;
-using Bobcat.Wolverine;
+using Bobcat.Testing.Wolverine;
 using Bobcat.CritterStack;
 using JasperFx;
 using JasperFx.Events;

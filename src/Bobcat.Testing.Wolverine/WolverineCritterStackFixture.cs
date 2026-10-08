@@ -2,7 +2,7 @@ using Bobcat.CritterStack;
 using Wolverine;
 using Wolverine.Tracking;
 
-namespace Bobcat.Wolverine;
+namespace Bobcat.Testing.Wolverine;
 
 /// <summary>
 /// A tracked Wolverine session, as the store grammar reads it.

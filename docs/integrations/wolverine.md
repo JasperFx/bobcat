@@ -1,6 +1,7 @@
 # Bobcat with Wolverine
 
-`Bobcat.Wolverine` supplies **the act**: it sends a message into your application through
+`WolverineFx.Bobcat`, published from the Wolverine repository, supplies **the act** (it replaced
+`Bobcat.Wolverine`, retired in #407): it sends a message into your application through
 Wolverine's tracked session, and returns when everything that message *caused* has settled —
 cascades, forwarded events, local queues drained. Your assertions then run against a system that
 has finished reacting.

@@ -139,7 +139,7 @@ Two consequences worth budgeting for:
   subset needs. Keeping `StartAsync()` fast — reusing running containers, `docker compose up -d` out of
   band — is the lever that matters.
 - **The first tracked act of a run pays code generation** on frameworks that compile on first use.
-  `Bobcat.Wolverine` primes the compiler outside the tracked window for you; see
+  `WolverineFx.Bobcat` primes the compiler outside the tracked window for you; see
   [Bobcat with Wolverine](integrations/wolverine.md).
 
 When you are iterating rather than running once,

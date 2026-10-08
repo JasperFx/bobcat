@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Wolverine.Runtime;
 using Wolverine.Runtime.Handlers;
 
-namespace Bobcat.Wolverine;
+namespace Bobcat.Testing.Wolverine;
 
 /// <summary>
 /// What a tracked act does to a cold Wolverine host before its session starts the clock.
@@ -100,7 +100,7 @@ public sealed class HandlerWarmUpException : Exception
 /// </para>
 /// <para>
 /// <b>HTTP endpoints are not covered.</b> A Wolverine.HTTP route compiles on its first request,
-/// and Bobcat.Wolverine has no Wolverine.HTTP reference to reach it. Wolverine already owns the
+/// and this project has no Wolverine.HTTP reference to reach it. Wolverine already owns the
 /// switch: <c>app.MapWolverineEndpoints(opts =&gt; opts.WarmUpRoutes = RouteWarmup.Eager)</c>
 /// builds every route while the host starts. See <c>docs/integrations/wolverine.md</c>.
 /// </para>

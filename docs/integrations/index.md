@@ -16,7 +16,7 @@ its page for why.
 |---|---|
 | [Bobcat.Alba](alba.md) | **Rebuilt** from what nine sample suites needed |
 | [Bobcat.Marten](marten.md) | **Not needed.** Core already reaches the store through JasperFx.Events |
-| [Bobcat.Wolverine](wolverine.md) | **Rebuilt** as the act only — 11 of 895 lines needed a bus, so the grammar went to core |
+| [WolverineFx.Bobcat](wolverine.md) | **Moved to the Wolverine repository** (#407). `Bobcat.Wolverine` was rebuilt as the act only — 11 of 895 lines needed a bus, so the grammar went to core — and then retired in favour of WolverineFx.Bobcat |
 
 The store-agnostic half — `EventStores`, `DocumentStores`, `EventStoreAuthoring`,
 `RecordBuilding` — **moved into `Bobcat` core** and still binds only to the JasperFx.Events

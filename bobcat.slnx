@@ -29,7 +29,7 @@
     <Project Path="src/Bobcat.Supervisor.Tests/Bobcat.Supervisor.Tests.csproj" />
     <Project Path="src/Bobcat.Supervisor/Bobcat.Supervisor.csproj" />
     <Project Path="src/Bobcat.TUnit/Bobcat.TUnit.csproj" />
-    <Project Path="src/Bobcat.Wolverine/Bobcat.Wolverine.csproj" />
+    <Project Path="src/Bobcat.Testing.Wolverine/Bobcat.Testing.Wolverine.csproj" />
     <Project Path="src/Bobcat.Xunit.Tests/Bobcat.Xunit.Tests.csproj" />
     <Project Path="src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj" />
     <Project Path="src/Bobcat.Xunit/Bobcat.Xunit.csproj" />
