@@ -164,10 +164,23 @@ public static class PartialObjects
             .ToList());
 
     /// <summary>Build <paramref name="partial"/>, filling what it does not specify.</summary>
-    /// <param name="unspecified">The fill policy; <see cref="PredictableValues"/> when omitted.</param>
+    /// <param name="unspecified">The fill policy; <see cref="UnspecifiedValues"/> when omitted.</param>
     /// <param name="step">The step text, so a failure names the step to go and fix.</param>
     public static object Build(IPartialObject partial, IUnspecifiedValues? unspecified = null, string? step = null)
-        => ObjectConstruction.Build(partial.Type, partial.Values, unspecified ?? PredictableValues.Instance, step);
+        => ObjectConstruction.Build(partial.Type, partial.Values, unspecified ?? UnspecifiedValues, step);
+
+    /// <summary>
+    /// The fill policy every build uses when it is given none (bobcat#421): <see cref="PredictableValues"/>
+    /// unless a project sets its own, usually a <see cref="DeclaredDefaults"/>. Set it once, before
+    /// any spec runs, as in a module initializer or a test-assembly fixture; it is process-wide.
+    /// </summary>
+    public static IUnspecifiedValues UnspecifiedValues
+    {
+        get => _unspecifiedValues;
+        set => _unspecifiedValues = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    private static volatile IUnspecifiedValues _unspecifiedValues = PredictableValues.Instance;
 
     /// <summary><c>ShipmentConfirmed(TrackingNumber: 1Z999)</c>: the type and only the members specified.</summary>
     public static string Describe(IPartialObject partial)

@@ -51,7 +51,7 @@ public static class RecordBuilding
     /// </remarks>
     public static object Build(Type type, IReadOnlyDictionary<string, string> cells, string? step = null,
         bool partial = false)
-        => PartialObjects.Build(PartialObjects.FromCells(type, cells), DefaultValues.Instance, step);
+        => PartialObjects.Build(PartialObjects.FromCells(type, cells), null, step);
 
     /// <summary>Build one object per <see cref="StepTable"/> row, all of the same <paramref name="type"/>.</summary>
     /// <param name="step">

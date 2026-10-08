@@ -90,6 +90,8 @@ public class RecordBuildingIsPublicApiTests
             .ToList();
 
         arranged.Select(s => s.Origin).ShouldBe(["Dallas", "Austin"]);
-        arranged.ShouldAllBe(s => s.Destination == null);
+        // A non-nullable string nobody specified is "" since bobcat#421, never a surprise null
+        arranged.ShouldAllBe(s => s.Destination == "");
+        arranged.ShouldAllBe(s => s.Carrier == null);
     }
 }

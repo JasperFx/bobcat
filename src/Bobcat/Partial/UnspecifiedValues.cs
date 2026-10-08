@@ -15,9 +15,9 @@ namespace Bobcat;
 public sealed record UnspecifiedMember(Type DeclaringType, string Path, Type Type, bool AllowsNull);
 
 /// <summary>
-/// What fills the members a partial object does not specify (bobcat#417). The policy itself is
-/// still a design question (bobcat#421: Bogus/AutoBogus, Storyteller-style declared defaults); this
-/// seam lets that land without touching how objects are built.
+/// What fills the members a partial object does not specify (bobcat#417). bobcat#421 settled the
+/// policy: <see cref="PredictableValues"/> by default, with <see cref="DeclaredDefaults"/> declared
+/// over it, set process-wide through <see cref="PartialObjects.UnspecifiedValues"/> or per spec.
 /// </summary>
 public interface IUnspecifiedValues
 {
@@ -104,9 +104,9 @@ public sealed class PredictableValues : IUnspecifiedValues
 }
 
 /// <summary>
-/// <c>default(T)</c> for every unspecified member — the rule a Gherkin arrange has had since
-/// issue #241, kept for <c>RecordBuilding</c> until bobcat#421 settles the policy, so the Gherkin
-/// lane's behaviour changes once rather than twice.
+/// <c>default(T)</c> for every unspecified member: the rule a Gherkin arrange had from issue #241
+/// until bobcat#421 moved it onto the shared policy. Kept for a suite that depends on it, as
+/// <c>PartialObjects.UnspecifiedValues = DefaultValues.Instance</c> or a <see cref="DeclaredDefaults"/> fallback.
 /// </summary>
 public sealed class DefaultValues : IUnspecifiedValues
 {
