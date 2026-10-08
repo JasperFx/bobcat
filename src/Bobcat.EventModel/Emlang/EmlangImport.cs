@@ -38,25 +38,33 @@ public static class EmlangImport
         var report = new List<string>();
         var byName = new Dictionary<string, CuratedSlice>(StringComparer.Ordinal);
 
+        var touched = new Dictionary<EmlangChapter, List<CuratedSlice>>();
         foreach (var chapter in board.Chapters)
         {
-            segmentChapter(chapter, model, byName, report);
+            touched[chapter] = segmentChapter(chapter, model, byName, report);
         }
 
         foreach (var chapter in board.Chapters)
         {
-            attachTests(chapter, byName, report);
+            attachTests(chapter, touched[chapter], byName, report);
         }
 
         report.Add($"{model.Slices.Count} slice(s) from {board.Chapters.Count} chapter(s).");
         return new EmlangImportResult(model, report);
     }
 
-    private static void segmentChapter(EmlangChapter chapter, ImportedEventModel model,
+    /// <returns>Every slice the chapter opened or folded into, in order.</returns>
+    private static List<CuratedSlice> segmentChapter(EmlangChapter chapter, ImportedEventModel model,
         Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         string? pendingScreen = null;
         CuratedSlice? current = null;
+        var touched = new List<CuratedSlice>();
+
+        // Issue #422: events before any command are not orphans until the chapter says so. The
+        // next command is an automation triggered by the last of them (a processor slice), or the
+        // next view folds them; only what neither takes is reported, at the chapter's end.
+        var unattached = new List<EmlangStep>();
 
         // Issue #297: the events a view folds are the `e:` steps since the chapter start or the
         // last `v:`. The segmentation already used that run to decide a `v:` opens a View slice;
@@ -73,8 +81,10 @@ public static class EmlangImport
                     break;
 
                 case EmlangElementKind.Command:
-                    current = commandSlice(chapter, step, pendingScreen, model, byName, report);
+                    current = commandSlice(chapter, step, pendingScreen, unattached.LastOrDefault()?.Label, model, byName, report);
+                    if (!touched.Contains(current)) touched.Add(current);
                     pendingScreen = null;
+                    unattached.Clear();
                     break;
 
                 case EmlangElementKind.Event:
@@ -83,7 +93,7 @@ public static class EmlangImport
 
                     if (current is null)
                     {
-                        report.Add($"⚠ chapter '{chapter.Name}': event '{step.Label}' precedes any command — not attached to a slice.");
+                        unattached.Add(step);
                         break;
                     }
 
@@ -91,8 +101,10 @@ public static class EmlangImport
                     break;
 
                 case EmlangElementKind.View:
-                    viewSlice(chapter, step, pendingViewInputs, model, byName, report);
+                    var view = viewSlice(chapter, step, pendingViewInputs, model, byName, report);
+                    if (!touched.Contains(view)) touched.Add(view);
                     pendingViewInputs = new List<string>();
+                    unattached.Clear();
                     current = null;
                     break;
 
@@ -107,10 +119,17 @@ public static class EmlangImport
                     break;
             }
         }
+
+        foreach (var step in unattached)
+        {
+            report.Add($"⚠ chapter '{chapter.Name}': event '{step.Label}' precedes any command — not attached to a slice.");
+        }
+
+        return touched;
     }
 
     private static CuratedSlice commandSlice(EmlangChapter chapter, EmlangStep step, string? pendingScreen,
-        ImportedEventModel model, Dictionary<string, CuratedSlice> byName, List<string> report)
+        string? triggeringEvent, ImportedEventModel model, Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         var name = PascalName(step.Label);
         if (byName.TryGetValue(name, out var existing))
@@ -120,7 +139,9 @@ public static class EmlangImport
             return existing;
         }
 
-        var triggeredBy = step.Props.GetValueOrDefault("triggeredBy");
+        // A command after an event and no screen is a processor slice: the event triggers it
+        var triggeredBy = step.Props.GetValueOrDefault("triggeredBy")
+                          ?? (pendingScreen is null ? triggeringEvent : null);
         var isAutomation = triggeredBy is not null
                            || (step.Actor.Equals("System", StringComparison.OrdinalIgnoreCase) && pendingScreen is null);
 
@@ -139,6 +160,7 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
+        hints(slice, name, step.Props, description: null);
         model.Slices.Add(slice);
         byName[name] = slice;
         report.Add($"chapter '{chapter.Name}': {slice.Pattern} slice '{name}'"
@@ -151,10 +173,10 @@ public static class EmlangImport
         var name = PascalName(step.Label);
         if (!slice.Events.Contains(name)) slice.Events.Add(name);
 
-        hints(slice, name, step, description: null);
+        hints(slice, name, step.Props, description: null);
     }
 
-    private static void viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
+    private static CuratedSlice viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
         ImportedEventModel model, Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         var readModel = PascalName(step.Label);
@@ -166,11 +188,11 @@ public static class EmlangImport
                 existing.ConsumedEvents.Add(name);
             }
 
-            hints(existing, readModel, step, description: null);
+            hints(existing, readModel, step.Props, description: null);
             report.Add($"chapter '{chapter.Name}': view '{step.Label}' folded into existing slice '{readModel}'."
                        + keptChapter(existing, chapter));
             reportConsumed(chapter, existing, report);
-            return;
+            return existing;
         }
 
         var slice = new CuratedSlice
@@ -184,11 +206,12 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
-        hints(slice, readModel, step, description: null);
+        hints(slice, readModel, step.Props, description: null);
         model.Slices.Add(slice);
         byName[readModel] = slice;
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
         reportConsumed(chapter, slice, report);
+        return slice;
     }
 
     /// <summary>
@@ -213,10 +236,14 @@ public static class EmlangImport
         report.Add($"chapter '{chapter.Name}': View slice '{slice.Name}' consumes {slice.ConsumedEvents.Count} event(s): {string.Join(", ", slice.ConsumedEvents)}.");
     }
 
-    /// <summary>Non-special props are field/sample hints for the scaffolding layer, never roles.</summary>
-    private static void hints(CuratedSlice slice, string typeName, EmlangStep step, string? description)
+    /// <summary>
+    /// Non-special props are field/sample hints for the scaffolding layer, never roles. The first
+    /// sketch of a field wins, and steps are read before tests, so a type a step declares
+    /// (<c>email: string</c>) is never displaced by a test's sample value.
+    /// </summary>
+    private static void hints(CuratedSlice slice, string typeName, IReadOnlyDictionary<string, string> props, string? description)
     {
-        var fields = step.Props.Where(x => !SpecialProps.Contains(x.Key)).ToList();
+        var fields = props.Where(x => !SpecialProps.Contains(x.Key)).ToList();
         if (fields.Count == 0 && description is null) return;
 
         if (!slice.Elements.TryGetValue(typeName, out var element))
@@ -238,7 +265,8 @@ public static class EmlangImport
         return cascaded is null ? provenance : $"{provenance} Cascades to: {cascaded}.";
     }
 
-    private static void attachTests(EmlangChapter chapter, Dictionary<string, CuratedSlice> byName, List<string> report)
+    private static void attachTests(EmlangChapter chapter, List<CuratedSlice> touched,
+        Dictionary<string, CuratedSlice> byName, List<string> report)
     {
         foreach (var test in chapter.Tests)
         {
@@ -250,6 +278,14 @@ public static class EmlangImport
                 : readModel is not null
                     ? byName.GetValueOrDefault(PascalName(readModel.Label))
                     : null;
+
+            // Issue #422: a test that names neither a command nor a view — "no order yet, so no
+            // summary" — belongs to the slice it is written under, when that is unambiguous
+            if (target is null && command is null && readModel is null && touched.Count == 1)
+            {
+                target = touched[0];
+                report.Add($"chapter '{chapter.Name}': test '{test.Name}' names no command or view — attached to the chapter's only slice '{target.Name}'.");
+            }
 
             if (target is null)
             {
@@ -266,24 +302,45 @@ public static class EmlangImport
                 continue;
             }
 
+            foreach (var view in test.Given.Where(x => x.Kind == EmlangElementKind.View))
+            {
+                report.Add($"⚠ chapter '{chapter.Name}': test '{test.Name}' gives the view '{view.Label}', which cannot be arranged directly — arrange the events that build it.");
+            }
+
+            foreach (var refusal in test.Then.Where(x => x.Kind == EmlangElementKind.Error && x.Props.Count > 0))
+            {
+                report.Add($"⚠ chapter '{chapter.Name}': test '{test.Name}' refuses with '{refusal.Label}' carrying props ({string.Join(", ", refusal.Props.Keys)}); only the refusal is kept.");
+            }
+
+            // A test's example values are samples of the fields its elements carry, so they are
+            // field hints as well as scenario values: often the only place a board says a field exists
+            foreach (var reference in test.Given.Concat(test.When).Concat(test.Then)
+                         .Where(x => x.Kind is EmlangElementKind.Command or EmlangElementKind.Event or EmlangElementKind.View))
+            {
+                hints(target, PascalName(reference.Label), reference.Props, description: null);
+            }
+
             target.Specifications.Scenarios.Add(new CuratedScenario
             {
                 Name = test.Name,
                 Given = test.Given
                     .Where(x => x.Kind == EmlangElementKind.Event)
-                    .Select(x => new CuratedGiven { Event = PascalName(x.Label) })
+                    .Select(x => new CuratedGiven { Event = PascalName(x.Label), With = values(x) })
                     .ToList(),
-                When = command is null ? null : new CuratedWhen { Command = PascalName(command.Label) },
-                Then = test.Then.Select(thenEntry).ToList(),
+                When = command is null ? null : new CuratedWhen { Command = PascalName(command.Label), With = values(command) },
+                Then = test.Then.Where(x => x.Kind != EmlangElementKind.Screen).Select(thenEntry).ToList(),
             });
         }
     }
 
+    private static Dictionary<string, string> values(EmlangRef reference)
+        => new(reference.Props, StringComparer.Ordinal);
+
     private static CuratedThen thenEntry(EmlangRef reference) => reference.Kind switch
     {
-        EmlangElementKind.View => new CuratedThen { ReadModel = PascalName(reference.Label) },
+        EmlangElementKind.View => new CuratedThen { ReadModel = PascalName(reference.Label), Contains = values(reference) },
         EmlangElementKind.Error => new CuratedThen { ValidationFails = reference.Label },
-        _ => new CuratedThen { Event = PascalName(reference.Label) },
+        _ => new CuratedThen { Event = PascalName(reference.Label), With = values(reference) },
     };
 
     /// <summary>

@@ -42,10 +42,21 @@ internal static class CuratedFieldTypes
             ["DateTimeOffset"] = "DateTimeOffset",
             ["DateOnly"] = "DateOnly",
             ["TimeSpan"] = "TimeSpan",
+
+            // The spellings emlang files use for a declared prop (issue #422)
+            ["uuid"] = "Guid",
+            ["integer"] = "int",
+            ["boolean"] = "bool",
+            ["number"] = "decimal",
+            ["float"] = "double",
+            ["text"] = "string",
+            ["datetime"] = "DateTimeOffset",
+            ["timestamp"] = "DateTimeOffset",
+            ["date"] = "DateOnly",
         };
 
     /// <summary>The type names a declaration may use, in their canonical spelling.</summary>
-    public static IReadOnlyCollection<string> Known => Canonical.Values;
+    public static IReadOnlyCollection<string> Known => Canonical.Values.Distinct().ToList();
 
     public static bool IsStreamIdToken(string value) =>
         value.Trim().Equals(StreamIdToken, StringComparison.OrdinalIgnoreCase);
