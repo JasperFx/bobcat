@@ -24,6 +24,9 @@ internal static class CuratedFieldTypes
     /// <summary>The scenario's own stream id, expanded by the feature writer (issue #235).</summary>
     public const string StreamIdToken = "{streamId}";
 
+    /// <summary>The sketch of a prop whose example is a list (issue #423).</summary>
+    public const string StringList = "List<string>";
+
     /// <summary>
     /// Every type a <c>fields:</c> sketch may name, mapped from any casing to the spelling that
     /// compiles. The canonical form matters: a field declared <c>GUID</c> used to be emitted
@@ -53,6 +56,7 @@ internal static class CuratedFieldTypes
             ["datetime"] = "DateTimeOffset",
             ["timestamp"] = "DateTimeOffset",
             ["date"] = "DateOnly",
+            [StringList] = StringList,
         };
 
     /// <summary>The type names a declaration may use, in their canonical spelling.</summary>
@@ -65,6 +69,10 @@ internal static class CuratedFieldTypes
     /// The type a sketch denotes, or false when nothing recognised it. A false here is what the
     /// reader warns about for a declared field and deliberately ignores for a sample value.
     /// </summary>
+    /// <summary>Whether <paramref name="sketch"/> names a type, as opposed to being a sample value.</summary>
+    public static bool IsDeclaration(string sketch)
+        => IsStreamIdToken(sketch) || Canonical.ContainsKey(sketch.Trim());
+
     public static bool TryInfer(string sketch, out string type)
     {
         // Must precede the sample-value inference: a literal "{streamId}" parses as nothing and

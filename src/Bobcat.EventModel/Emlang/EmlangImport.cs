@@ -160,7 +160,7 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
-        hints(slice, name, step.Props, description: null);
+        hints(slice, name, sketches(step.Props, step.Values), description: null);
         model.Slices.Add(slice);
         byName[name] = slice;
         report.Add($"chapter '{chapter.Name}': {slice.Pattern} slice '{name}'"
@@ -173,7 +173,7 @@ public static class EmlangImport
         var name = PascalName(step.Label);
         if (!slice.Events.Contains(name)) slice.Events.Add(name);
 
-        hints(slice, name, step.Props, description: null);
+        hints(slice, name, sketches(step.Props, step.Values), description: null);
     }
 
     private static CuratedSlice viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
@@ -188,7 +188,7 @@ public static class EmlangImport
                 existing.ConsumedEvents.Add(name);
             }
 
-            hints(existing, readModel, step.Props, description: null);
+            hints(existing, readModel, sketches(step.Props, step.Values), description: null);
             report.Add($"chapter '{chapter.Name}': view '{step.Label}' folded into existing slice '{readModel}'."
                        + keptChapter(existing, chapter));
             reportConsumed(chapter, existing, report);
@@ -206,7 +206,7 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
-        hints(slice, readModel, step.Props, description: null);
+        hints(slice, readModel, sketches(step.Props, step.Values), description: null);
         model.Slices.Add(slice);
         byName[readModel] = slice;
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
@@ -317,7 +317,7 @@ public static class EmlangImport
             foreach (var reference in test.Given.Concat(test.When).Concat(test.Then)
                          .Where(x => x.Kind is EmlangElementKind.Command or EmlangElementKind.Event or EmlangElementKind.View))
             {
-                hints(target, PascalName(reference.Label), reference.Props, description: null);
+                hints(target, PascalName(reference.Label), sketches(reference.Props, reference.Values), description: null);
             }
 
             target.Specifications.Scenarios.Add(new CuratedScenario
@@ -332,6 +332,16 @@ public static class EmlangImport
             });
         }
     }
+
+    /// <summary>
+    /// A prop's sketch: its text, except that a list of values sketches as <c>List&lt;string&gt;</c>,
+    /// the one collection a board can show (issue #423).
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> sketches(IReadOnlyDictionary<string, string> props,
+        IReadOnlyDictionary<string, object?> values)
+        => props.ToDictionary(x => x.Key,
+            x => values.GetValueOrDefault(x.Key) is List<object> ? CuratedFieldTypes.StringList : x.Value,
+            StringComparer.Ordinal);
 
     private static Dictionary<string, string> values(EmlangRef reference)
         => new(reference.Props, StringComparer.Ordinal);

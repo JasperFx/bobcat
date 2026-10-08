@@ -63,14 +63,44 @@ public static class CSharpModelWriter
     /// name collision waiting for the second import.
     /// </param>
     public static Output Write(ImportedEventModel model, string? namespaceName = null)
+        => Write(model, namespaceName, null);
+
+    /// <summary>
+    /// What specifications generated from the model (bobcat#423) need of the stubs beyond the
+    /// model's own: the streams they arrange events on, and the documents they load by id.
+    /// </summary>
+    /// <param name="Streams">
+    /// Each becomes a stream type, <c>public class Order { public Guid Id { get; set; } }</c>, unless
+    /// the model already stubs it.
+    /// </param>
+    /// <param name="Documents">Each read model loaded by id, which gains a <c>Guid Id</c> when it names none.</param>
+    /// <param name="Elements">
+    /// Each command, event or view an example names that no slice does, such as an event a test
+    /// arranges from another part of the model; stubbed like any other, with the fields it is given.
+    /// </param>
+    public sealed record StubAdditions(IReadOnlyList<string> Streams, IReadOnlyList<string> Documents,
+        IReadOnlyList<string>? Elements = null);
+
+    /// <inheritdoc cref="Write(ImportedEventModel, string?)"/>
+    /// <param name="additions">What generated specifications need of the stubs; nothing when null.</param>
+    public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions)
     {
         var ns = namespaceName
                  ?? (string.IsNullOrWhiteSpace(model.Namespace) ? null : model.Namespace)
                  ?? Identifiers.Sanitize(model.Model);
 
-        var stubs = StubNames(model);
+        var stubs = StubNames(model)
+            .Concat(additions?.Elements ?? [])
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var streams = (additions?.Streams ?? [])
+            .Where(x => !stubs.Contains(x, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var documents = (additions?.Documents ?? []).ToHashSet(StringComparer.Ordinal);
 
-        return new Output(writeStubs(ns, model, stubs), writeDefinition(ns, model, stubs), stubs.Count);
+        return new Output(writeStubs(ns, model, stubs, streams, documents), writeDefinition(ns, model, stubs),
+            stubs.Count + streams.Count);
     }
 
     /// <summary>
@@ -117,7 +147,8 @@ public static class CSharpModelWriter
         return names;
     }
 
-    private static string writeStubs(string ns, ImportedEventModel model, IReadOnlyList<string> stubs)
+    private static string writeStubs(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
+        IReadOnlyList<string> streams, HashSet<string> documents)
     {
         using var writer = new SourceWriter();
 
@@ -128,17 +159,29 @@ public static class CSharpModelWriter
         writer.WriteLine("// behaviour takes shape. Nothing regenerates this file, so your edits are safe.");
         writer.BlankLine();
 
-        var fields = stubs.ToDictionary(x => x, x => FieldsOf(model, x), StringComparer.Ordinal);
-        if (fields.Values.Any(x => x.Count > 0))
+        var fields = stubs.ToDictionary(x => x, x =>
+        {
+            var named = FieldsOf(model, x);
+
+            // A document the specs load by id needs one; an id the model never names is a Guid
+            return documents.Contains(x) && named.All(f => f.Name != "Id")
+                ? [new StubField("Id", "Guid"), .. named]
+                : named;
+        }, StringComparer.Ordinal);
+        if (fields.Values.Any(x => x.Count > 0) || streams.Count > 0)
         {
             writer.WriteLine("using System;");
+            if (fields.Values.Any(x => x.Any(f => f.Type.StartsWith("List<", StringComparison.Ordinal))))
+            {
+                writer.WriteLine("using System.Collections.Generic;");
+            }
             writer.BlankLine();
         }
 
         writer.WriteLine($"namespace {ns};");
         writer.BlankLine();
 
-        if (stubs.Count == 0)
+        if (stubs.Count == 0 && streams.Count == 0)
         {
             writer.WriteLine("// The board named no commands, events, aggregates or views.");
             return writer.Code();
@@ -150,6 +193,13 @@ public static class CSharpModelWriter
             writer.WriteLine(fields[name].Count == 0
                 ? $"public record {name};"
                 : $"public record {name}({string.Join(", ", fields[name].Select(x => $"{x.Type} {x.Name}"))});");
+            writer.BlankLine();
+        }
+
+        foreach (var stream in streams)
+        {
+            writer.WriteLine("/// <summary>A stream the generated specifications arrange events on.</summary>");
+            writer.WriteLine($"public class {stream} {{ public Guid Id {{ get; set; }} }}");
             writer.BlankLine();
         }
 
@@ -183,12 +233,25 @@ public static class CSharpModelWriter
                     if (name == stub) name += "Value";
                     if (fields.Any(x => x.Name == name)) continue;
 
-                    fields.Add(new StubField(name, CuratedFieldTypes.TryInfer(sketch, out var type) ? type : "string"));
+                    fields.Add(new StubField(name, typeOf(name, sketch)));
                 }
             }
         }
 
         return fields;
+    }
+
+    /// <summary>
+    /// A declared type wins. Otherwise an identity (a name ending in <c>Id</c>) is a <see cref="Guid"/>,
+    /// whatever its example looks like, because a symbolic sample such as <c>order-123</c> stands
+    /// for an id and Marten streams default to Guid ids (bobcat#423). Anything else is inferred from
+    /// its sample, and is a string when the sample says nothing more.
+    /// </summary>
+    private static string typeOf(string field, string sketch)
+    {
+        if (CuratedFieldTypes.IsDeclaration(sketch) && CuratedFieldTypes.TryInfer(sketch, out var declared)) return declared;
+        if (field.EndsWith("Id", StringComparison.Ordinal)) return "Guid";
+        return CuratedFieldTypes.TryInfer(sketch, out var inferred) ? inferred : "string";
     }
 
     /// <summary>
