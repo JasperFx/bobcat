@@ -25,7 +25,8 @@ public class NoteTests
         var writer = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
-            Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors, Out = new AnsiConsoleOutput(writer)
+            Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors, Out = new AnsiConsoleOutput(writer),
+            Enrichment = new ProfileEnrichment { UseDefaultEnrichers = false }
         });
 
         ScenarioRecorder.Recording recording;

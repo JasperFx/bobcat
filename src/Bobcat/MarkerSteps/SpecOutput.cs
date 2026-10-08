@@ -134,7 +134,11 @@ public static class SpecOutput
                 Ansi = AnsiSupport.No,
                 ColorSystem = ColorSystemSupport.NoColors,
                 Interactive = InteractionSupport.No,
-                Out = new AnsiConsoleOutput(writer)
+                Out = new AnsiConsoleOutput(writer),
+
+                // Spectre's CI enrichers (GitHub Actions among them) turn ANSI back on after the
+                // settings above, which put escape codes into every test's output on CI
+                Enrichment = new ProfileEnrichment { UseDefaultEnrichers = false }
             });
             // Wide, because a test pane wraps on its own and a hard wrap here splits a step from its timing.
             console.Profile.Width = 240;
