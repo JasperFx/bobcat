@@ -207,7 +207,11 @@ public class AggregateInferenceTests
         stubs.ShouldContain("public record AcceptHomeCheckAssignment(Guid HomeCheckId, Guid VolunteerApplicationId);");
         code.ShouldContain("await GivenEvents<HomeCheck>(theHomeCheck, Specify<HomeCheckRequested>());");
         code.ShouldContain("await GivenEventsOn<VolunteerApplication>(theVolunteerApplication, Specify<VolunteerApproved>());");
-        code.ShouldContain("await WhenReceived(Specify<AcceptHomeCheckAssignment>().With(x => x.HomeCheckId, theHomeCheck).With(x => x.VolunteerApplicationId, theVolunteerApplication));");
+        EmlangSpecWriterTests.unindented(code).ShouldContain(EmlangSpecWriterTests.unindented("""
+            await WhenReceived(Specify<AcceptHomeCheckAssignment>()
+                .With(x => x.HomeCheckId, theHomeCheck)
+                .With(x => x.VolunteerApplicationId, theVolunteerApplication));
+            """));
     }
 
     [Fact]

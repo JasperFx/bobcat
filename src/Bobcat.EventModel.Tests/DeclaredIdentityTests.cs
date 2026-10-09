@@ -57,7 +57,11 @@ public class DeclaredIdentityTests
 
         code.ShouldContain("var theAuthorityLimit = Guid.CreateVersion7();");
         code.ShouldContain("Specify<LimitRequested>().With(x => x.AuthorityLimitId, theAuthorityLimit)");
-        code.ShouldContain("Specify<GrantLimit>().With(x => x.Amount, 500m).With(x => x.AuthorityLimitId, theAuthorityLimit)");
+        EmlangSpecWriterTests.unindented(code).ShouldContain(EmlangSpecWriterTests.unindented("""
+            Specify<GrantLimit>()
+                .With(x => x.Amount, 500m)
+                .With(x => x.AuthorityLimitId, theAuthorityLimit)
+            """));
         code.ShouldContain("ThenEvents(Specify<LimitGranted>().With(x => x.AuthorityLimitId, theAuthorityLimit));");
         code.ShouldNotContain("TODO: the model names no");
     }

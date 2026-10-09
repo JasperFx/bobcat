@@ -368,7 +368,9 @@ public static class EmlangSpecWriter
         writer.WriteLine("public async ValueTask DisposeAsync() => await Host.DisposeAsync();");
         writer.FinishBlock();
         writer.BlankLine();
-        writer.WriteLine("/// <summary>Every specification shares the one host and runs one at a time, because each resets the event store.</summary>");
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine("/// Every specification shares the one host and runs one at a time, because each resets the event store.");
+        writer.WriteLine("/// </summary>");
         writer.WriteLine($"[CollectionDefinition({quote(modelName)})]");
         writer.WriteLine($"public class {modelName}Collection : ICollectionFixture<AppFixture>;");
         writer.BlankLine();
@@ -643,7 +645,7 @@ public static class EmlangSpecWriter
         /// <returns>Whether any event was arranged.</returns>
         private bool given()
         {
-            var groups = new List<(string? Stream, string Key, List<string> Events)>();
+            var groups = new List<(string? Stream, string Key, List<PartialSpec> Events)>();
             var views = new List<EmlangRef>();
 
             foreach (var reference in test.Given)
@@ -660,7 +662,7 @@ public static class EmlangSpecWriter
                             groups.Add(group);
                         }
 
-                        group.Events.Add(partial(reference).Render());
+                        group.Events.Add(partial(reference));
                         break;
 
                     case EmlangElementKind.View:
@@ -690,7 +692,8 @@ public static class EmlangSpecWriter
             foreach (var view in views)
             {
                 var typeName = document(view.Label);
-                _lines.Add($"await GivenReadModel<{typeName}>({documentPartial(typeName, view)});");
+                var open = $"await GivenReadModel<{typeName}>(";
+                _lines.Add(open + documentPartial(typeName, view).Render(Body + open.Length) + ");");
             }
 
             if (groups.Count == 0 && test.When.Any(x => x.Kind == EmlangElementKind.Command))
@@ -713,7 +716,8 @@ public static class EmlangSpecWriter
         private void act()
         {
             var commands = test.When.Where(x => x.Kind == EmlangElementKind.Command).ToList();
-            foreach (var command in commands) _lines.Add($"await WhenReceived({addressed(command)});");
+            const string open = "await WhenReceived(";
+            foreach (var command in commands) _lines.Add(open + addressed(command).Render(Body + open.Length) + ");");
             if (commands.Count > 0) _lines.Add("");
         }
 
@@ -728,7 +732,7 @@ public static class EmlangSpecWriter
         /// the model gives the command no identity of its own (bobcat#438). Without it the command's
         /// Guids were all random, so it could never reach the stream the assertion reads.
         /// </summary>
-        private string addressed(EmlangRef command)
+        private PartialSpec addressed(EmlangRef command)
         {
             var built = partial(command);
             var typeName = built.TypeName;
@@ -748,11 +752,11 @@ public static class EmlangSpecWriter
                     built.AddVariable(member, key);
                 }
 
-                return built.Render();
+                return built;
             }
 
-            if (_actKey is null || built.Has("Id")) return built.Render();
-            if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built.Render();
+            if (_actKey is null || built.Has("Id")) return built;
+            if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built;
 
             // The stream the command decides against, when the givens arranged more than one
             var actKey = owner?.Aggregates.Count == 1 && _streamKeys.TryGetValue(TypeName(owner.Aggregates[0]), out var own)
@@ -761,7 +765,7 @@ public static class EmlangSpecWriter
 
             context.Member(typeName, "id");
             built.AddVariable("Id", actKey);
-            return built.Render();
+            return built;
         }
 
         private void assert(bool arranged)
@@ -782,7 +786,7 @@ public static class EmlangSpecWriter
 
             if (events.Count > 0)
             {
-                call("ThenEvents(", events.Select(x => partial(x).Render()).ToList(), ");");
+                call("ThenEvents(", events.Select(partial).ToList(), ");");
             }
             else if (acted && views.Count == 0)
             {
@@ -801,13 +805,13 @@ public static class EmlangSpecWriter
                     context.Report.Add($"{where}: the {typeName} view names no identity, so it is checked as the only {typeName}.");
                     _lines.Add(!hasValues(view)
                         ? $"await ThenSingleReadModel<{typeName}>();"
-                        : $"await ThenSingleReadModel<{typeName}>({partial(view).Render()});");
+                        : rendered($"await ThenSingleReadModel<{typeName}>(", partial(view), ");"));
                     continue;
                 }
 
                 _lines.Add(!hasValues(view)
                     ? $"await ThenReadModel<{typeName}>({key});"
-                    : $"await ThenReadModel<{typeName}>({key}, {partial(view).Render()});");
+                    : rendered($"await ThenReadModel<{typeName}>({key}, ", partial(view), ");"));
             }
 
             if (!acted && events.Count == 0 && refusals.Count == 0 && views.Count == 0)
@@ -828,11 +832,17 @@ public static class EmlangSpecWriter
             }
         }
 
-        private void call(string open, IReadOnlyList<string> arguments, string close)
+        // The column a test body's statements start at: two levels in, class then method
+        private const int Body = 8;
+
+        private static string rendered(string open, PartialSpec argument, string close)
+            => open + argument.Render(Body + open.Length) + close;
+
+        private void call(string open, IReadOnlyList<PartialSpec> arguments, string close)
         {
             if (arguments.Count == 1)
             {
-                _lines.Add(open + arguments[0] + close);
+                _lines.Add(rendered(open, arguments[0], close));
                 return;
             }
 
@@ -840,7 +850,8 @@ public static class EmlangSpecWriter
             if (!_lines[^1].EndsWith('(')) _lines[^1] += ",";
             for (var i = 0; i < arguments.Count; i++)
             {
-                _lines.Add("    " + arguments[i].Replace("\n", "\n    ") + (i < arguments.Count - 1 ? "," : close));
+                var argument = arguments[i].Render(Body + 4);
+                _lines.Add("    " + argument.Replace("\n", "\n    ") + (i < arguments.Count - 1 ? "," : close));
             }
         }
 
@@ -940,11 +951,11 @@ public static class EmlangSpecWriter
         /// A view arranged directly: its example as a partial, with the document's <c>Id</c> set to the
         /// identity it is keyed by, so the specs that read it back find it.
         /// </summary>
-        private string documentPartial(string typeName, EmlangRef view)
+        private PartialSpec documentPartial(string typeName, EmlangRef view)
         {
             var built = partial(view);
             if (!built.Has("Id") && documentKey(typeName, view) is { } key) built.AddVariable("Id", key, first: true);
-            return built.Render();
+            return built;
         }
     }
 
@@ -953,6 +964,9 @@ public static class EmlangSpecWriter
     /// a <c>Property | Value</c> table instead, which reads far better than a chain that runs off the screen.
     /// </summary>
     public const int MaxWithCalls = 3;
+
+    /// <summary>The margin a generated <c>.With(...)</c> chain wraps at, one member to a line.</summary>
+    public const int MaxLineLength = 120;
 
     /// <summary>
     /// One partial object in a specification: its members in the order named, each with the C#
@@ -977,15 +991,17 @@ public static class EmlangSpecWriter
             else _members.Add(entry);
         }
 
-        public string Render()
+        /// <param name="column">The column the partial starts at, so a chain that would run past the margin wraps.</param>
+        public string Render(int column = 0)
         {
-            if (_members.Count <= MaxWithCalls)
-            {
-                return $"Specify<{typeName}>()" + string.Concat(_members.Select(x => $".With(x => x.{x.Member}, {x.Expression})"));
-            }
+            var oneLine = $"Specify<{typeName}>()" + string.Concat(_members.Select(x => $".With(x => x.{x.Member}, {x.Expression})"));
 
-            // A value with no faithful cell form keeps the chain, one member to a line
-            if (_members.Any(x => x.Cell is null))
+            // A chain of two or more that fits stays on one line; a longer one, or a value with no
+            // faithful cell form past the table threshold, puts each member on its own line
+            var wraps = _members.Count >= 2 && column + oneLine.Length + 2 > MaxLineLength;
+            if (_members.Count <= MaxWithCalls && !wraps) return oneLine;
+
+            if (_members.Count <= MaxWithCalls || _members.Any(x => x.Cell is null))
             {
                 return $"Specify<{typeName}>()" + string.Concat(_members.Select(x => $"\n    .With(x => x.{x.Member}, {x.Expression})"));
             }

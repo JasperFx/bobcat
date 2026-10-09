@@ -108,9 +108,13 @@ public class EmlangSpecWriterTests
     [Fact]
     public void a_view_is_checked_on_the_document_its_identity_names()
     {
-        EmlangSpecWriterTests.code(Kitchen).ShouldContain(
-            "await ThenReadModel<OrderSummary>(theOrder, Specify<OrderSummary>().With(x => x.OrderId, theOrder)"
-            + ".With(x => x.Items, new List<string> { \"margherita/9.99\" }).With(x => x.Total, 9.99m));");
+        // Past 120 columns, the chain puts each member on its own line
+        unindented(code(Kitchen)).ShouldContain(unindented("""
+            await ThenReadModel<OrderSummary>(theOrder, Specify<OrderSummary>()
+                .With(x => x.OrderId, theOrder)
+                .With(x => x.Items, new List<string> { "margherita/9.99" })
+                .With(x => x.Total, 9.99m));
+            """));
     }
 
     [Fact]
@@ -322,8 +326,11 @@ public class EmlangSpecWriterTests
                           order id: order-123
             """);
 
-        code.ShouldContain("await GivenReadModel<AvailableDrivers>(Specify<AvailableDrivers>().With(x => x.Id, theOrder)"
-                           + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
+        unindented(code).ShouldContain(unindented("""
+            await GivenReadModel<AvailableDrivers>(Specify<AvailableDrivers>()
+                .With(x => x.Id, theOrder)
+                .With(x => x.Drivers, new List<string> { "driver-456" }));
+            """));
         code.ShouldNotContain("TODO: the model arranges");
     }
 
@@ -544,7 +551,7 @@ public class EmlangSpecWriterTests
         """;
 
     // Each line without its indentation, so an expectation need not know how deep the generated code sits
-    private static string unindented(string text)
+    internal static string unindented(string text)
         => string.Join("\n", text.Replace("\r\n", "\n").Split('\n').Select(x => x.TrimStart()));
 
     [Fact]
@@ -564,6 +571,36 @@ public class EmlangSpecWriterTests
 
         // Three or fewer members stay a With chain
         code.ShouldContain("ThenEvents(Specify<VisitBooked>().With(x => x.VisitId, theVisit).With(x => x.Vet, \"Dr. Hollis\"));");
+    }
+
+    [Fact]
+    public void a_chain_that_would_run_past_120_columns_puts_each_member_on_its_own_line()
+    {
+        var code = generate("""
+            slices:
+              Accept assignment:
+                steps:
+                  - c: Accept home check assignment
+                  - e: Home check / Home check assignment accepted
+                tests:
+                  Accepted:
+                    when:
+                      - c: Accept home check assignment
+                        props:
+                          home check id: check-1
+                          volunteer application id: application-1
+                    then:
+                      - e: Home check / Home check assignment accepted
+            """).Specs.AllCode();
+
+        var lines = code.Replace("\r\n", "\n").Split('\n');
+        lines.Where(x => x.Length > 120).ShouldBeEmpty();
+
+        unindented(code).ShouldContain(unindented("""
+            await WhenReceived(Specify<AcceptHomeCheckAssignment>()
+                .With(x => x.HomeCheckId, theHomeCheck)
+                .With(x => x.VolunteerApplicationId, theVolunteerApplication));
+            """));
     }
 
     [Fact]
