@@ -1911,7 +1911,7 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 ## Package Structure
 
 Every shipped package is `<IsPackable>true</IsPackable>` in its own csproj (src/ defaults to false)
-and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these eleven.
+and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these ten.
 
 | Package | Target | Responsibility |
 |---------|--------|----------------|
@@ -1924,15 +1924,16 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these e
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
-| **Bobcat.Console** | net10.0 | The `bobcat` global tool: reads, validates and converts Event Model files, and runs the out-of-process resident runner; see below |
+| **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner; see below |
 
 **Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
 deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
 unlike Alba and Wolverine, was not rebuilt — the event store is reached through the
 `JasperFx.Events` abstractions in core. The `Bobcat.CritterStack` *package* went the same day
 (8586eaa, "Move the Critter Stack helpers into Bobcat core"). `CritterStackFixture` and
-`DocumentGrammars` are in core (812ac92) and `WolverineCritterStackFixture` + `WhenTracked` in
-`Bobcat.Wolverine`; `SagaGrammars`, `HttpGrammars`, `CritterStackHttpFixture`,
+`DocumentGrammars` are in core (812ac92) and `WolverineCritterStackFixture` + `WhenTracked` went
+to `Bobcat.Wolverine`, which #407 then retired in favour of `WolverineFx.Bobcat` (next paragraph);
+`SagaGrammars`, `HttpGrammars`, `CritterStackHttpFixture`,
 `CritterStackGrammars` and the `IHttpResource` seam were not restored. See the Critter Stack
 section above for what each one was.
 
