@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Shouldly;
 
 namespace Bobcat.Mtp.Tests;
@@ -281,6 +282,8 @@ public class TestHostEndToEndTests
         }
     }
 
+    private static readonly Regex ansi = new("\u001b\\[[0-9;]*[a-zA-Z]", RegexOptions.Compiled);
+
     /// <summary>
     /// What the platform printed under a test's <c>Standard output</c> heading, or empty when it
     /// printed none — including when it never printed the test at all, which is what it does for
@@ -288,7 +291,12 @@ public class TestHostEndToEndTests
     /// </summary>
     private static string standardOutputOf(string output, string displayName)
     {
-        var lines = output.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        // The platform's own terminal output is coloured, and on CI it stays coloured even with
+        // stdout redirected — GitHub Actions is a terminal as far as it is concerned. So the
+        // escape codes come off before anything is matched; without this the whole block reads as
+        // absent on CI and present locally. (Bobcat's own rendering carries none, by
+        // PlainSpecText's construction — this is the reporter printing around it.)
+        var lines = ansi.Replace(output, "").Split('\n').Select(l => l.TrimEnd('\r')).ToList();
 
         var test = lines.FindIndex(l => l.StartsWith("failed ") && l.Contains(displayName));
         if (test < 0) return "";
@@ -316,6 +324,21 @@ public class TestHostEndToEndTests
         attached.ShouldContain("Feature: Arithmetic");
         attached.ShouldContain("9 - 4 gives 4");
         attached.ShouldContain("expected '4', got '5'");
+    }
+
+    [Fact]
+    public async Task the_block_is_found_when_the_platform_colours_its_output()
+    {
+        // The shape CI produces, forced on a laptop: the platform colours its terminal output
+        // when it believes it is on GitHub Actions, redirected stdout or not. This was found the
+        // hard way — the test above passed locally and failed on CI, where every line it matched
+        // on was wrapped in escape codes.
+        var (_, output) = await runHost(new Dictionary<string, string> { ["GITHUB_ACTIONS"] = "true" });
+
+        output.ShouldContain("\u001b[", customMessage: "the platform did not colour its output, so this proves nothing");
+
+        standardOutputOf(output, "Arithmetic: subtraction disagrees")
+            .ShouldContain("9 - 4 gives 4");
     }
 
     [Fact]

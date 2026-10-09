@@ -227,7 +227,11 @@ public class SupervisorEndToEndTests : IDisposable
         results.WorkerFaults.ShouldContain(f => f.Contains("exited with code 70"));
 
         // And it reaches the individual tests that were lost, not just the run summary.
-        results.Indeterminate.ShouldAllBe(t => t.Final.Outcome.ErrorMessage!.Contains("code 70"));
+        // Null-checked rather than `!`-suppressed: an outcome reaching here unexplained is the
+        // defect this asserts against, and it should read as a failed assertion rather than as a
+        // NullReferenceException inside Shouldly's predicate.
+        results.Indeterminate.ShouldAllBe(t =>
+            t.Final.Outcome.ErrorMessage != null && t.Final.Outcome.ErrorMessage.Contains("code 70"));
         results.Summarize().ShouldContain("code 70");
     }
 

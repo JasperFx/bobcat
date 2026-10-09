@@ -1538,6 +1538,16 @@ ones on upgrade. Same reasoning as retries being opt-in.
   indeterminate outcome carries the worker's **exit code and last standard error** (bounded to
   the final 20 lines) in its `ErrorMessage`, and the run collects them in
   `SupervisorResults.WorkerFaults`. An indeterminate count with no explanation is not a report.
+  - **The test that was *running* when the worker died was the exception to that, until #445 tripped
+    over it.** Nodes arrive at least twice — in-progress, then final — and `MtpWorkerClient`
+    records the in-progress update, so such a test already HAS an outcome: `Indeterminate`, with a
+    null `ErrorMessage`, because an in-progress node carries no `error.message`. `Complete`'s
+    unreported-tests pass skipped it for having an entry, so the one test a reader most wants
+    explained reached the report unexplained — and `SupervisorEndToEndTests` met it as a
+    `NullReferenceException` inside a Shouldly predicate rather than as a failed assertion.
+    `Complete` now stamps the fault onto any non-terminal outcome with nothing to say, and never
+    over a verdict the worker did give. Found because #445 made the final node update bigger, which
+    shifted a crash race that had always been able to land here.
 - **`RetryAfterRecycle` recycles, then runs the test alone in a fresh process.** Reusing the
   shared worker would leave it connected to the broker we just discarded. Naming a resource
   nobody registered is reported as a wiring mistake, not silently retried without recycling. A
