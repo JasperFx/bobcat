@@ -110,7 +110,16 @@ public static class EmlangSpecWriter
             if (slice.Pattern == "Automation" && slice.Trigger?.Label is { Length: > 0 } trigger)
             {
                 // The examples exercise the command; what triggers it is wiring they never reach
-                writer.WriteLine($"// {slice.Name} is an automation, triggered by \"{comment(trigger)}\"");
+                var said = $"// {slice.Name} is an automation, triggered by \"{comment(trigger)}\"";
+                if (said.Length <= MaxLineLength)
+                {
+                    writer.WriteLine(said);
+                }
+                else
+                {
+                    writer.WriteLine($"// {slice.Name} is an automation, triggered by");
+                    writer.WriteLine($"// \"{comment(trigger)}\"");
+                }
             }
 
             writer.WriteLine($"[BobcatFeature({quote(slice.Name)})]");

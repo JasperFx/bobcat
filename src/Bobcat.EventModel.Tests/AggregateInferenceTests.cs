@@ -14,7 +14,7 @@ public class AggregateInferenceTests
     // The shape of K9CRUSH's two chapters, cut to what the inference reads: a stream started and
     // then decided against, a second stream whose starters only share its name, and a decision
     // drawing on two streams
-    private const string Shelter =
+    internal const string Shelter =
         """
         slices:
           Volunteering:

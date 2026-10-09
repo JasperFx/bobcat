@@ -130,41 +130,37 @@ The generated specifications arrange events on the typed aggregate, `GivenEvents
 and the act addresses it through the command's `Id`, or each `{Aggregate}Id`. A stream with no
 aggregate type, `GivenEvents(id, …)`, is left for a stream nothing names at all.
 
-`<Model>.cs` is one `EventModelDefinition` declaring the slices through the JasperFx.Events fluent
-API, against those stubs:
+Each chapter gets one `EventModelDefinition`, beside its stubs in `Features/{Chapter}/{Chapter}Model.cs`,
+declaring that chapter's slices through the JasperFx.Events fluent API. The chapter is said once at the
+top, and so is the aggregate most of the chapter's commands decide against:
 
 ```csharp
-public class K9CrushEventModel : EventModelDefinition
+public class BookingAppointmentsModel : EventModelDefinition
 {
-    public override string Name => "K9Crush";
-
     public override void Configure(EventModelBuilder model)
     {
-        model.Command<SwipeOnDog>()
-            .InChapter("TheSwiper")
-            .TriggeredBy("Discovery Feed", TriggerKind.Human)
-            .Emits<DogLiked>()
-            .Emits<DogPassed>()
-            .LinksToSpecification("SwipeOnDog/a like is recorded");
+        model.InChapter("BookingAppointments");
+        // ⚠ inferred: 6 of the 6 commands here decide against Appointment, so it is the
+        // default; .Against<T>() on a slice replaces it, and .NoAggregate() says it has none.
+        model.ForAggregate<Appointment>();
 
-        model.Automation("DetectMutualMatch")
-            .InDomain("Discovery")
-            .InChapter("TheSwiper")
-            .TriggeredBy("Dog Liked", TriggerKind.MessageHandler)
-            .Command<DetectMutualMatch>()
-            .Emits<MutualMatchDetected>();
+        model.Command<ConfirmAppointment>()
+            .TriggeredBy("Confirm Appointment", TriggerKind.Human)
+            .Emits<AppointmentConfirmed>()
+            .LinksToSpecification("ConfirmAppointment/appointment confirmed");
 
-        model.View<MatchList>()
-            .InChapter("TheSwiper")
-            .On<DogLiked>()
-            .On<DogPassed>()
-            .On<MutualMatchDetected>()
-            .LinksToSpecification("MatchList/matches show");
+        model.Command<ProposeHomeCheckAppointment>()
+            .StartsStream<Appointment>()   // a slice that starts a stream ignores the default
+            .Emits<HomeCheckAppointmentProposed>();
     }
 }
 ```
 
-Register it with `services.AddEventModel<K9CrushEventModel>()` and it joins the model on the
+A chapter whose commands have no clear majority aggregate gets no default, and every command says its
+own. The definitions set no `Name`, so every chapter joins the application's model. Pass
+`--single-definition` for one `<Model>.cs` holding every slice, each with its own `.InChapter(…)`.
+
+Register each with `services.AddEventModel<BookingAppointmentsModel>()` and it joins the model on the
 **Declared** rung, where a claim the code derives always wins and any difference between the two
 shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do list.
 

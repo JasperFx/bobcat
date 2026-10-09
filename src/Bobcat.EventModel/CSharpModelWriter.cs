@@ -58,7 +58,15 @@ public static class CSharpModelWriter
     /// <param name="Definition">The <c>EventModelDefinition</c> subclass, one file in the root namespace.</param>
     /// <param name="StubCount">How many stub types were written.</param>
     /// <param name="Layout">Where each type went, for anything that has to <c>using</c> it.</param>
-    public sealed record Output(IReadOnlyList<GeneratedFile> StubFiles, string Definition, int StubCount, ModelLayout Layout);
+    public sealed record Output(IReadOnlyList<GeneratedFile> StubFiles, string Definition, int StubCount, ModelLayout Layout)
+    {
+        /// <summary>
+        /// bobcat#448: with <c>perChapter</c>, one <c>EventModelDefinition</c> per chapter, each beside its
+        /// chapter's stubs (<c>Features/{Chapter}/{Chapter}Model.cs</c>) and a root one for slices with no
+        /// chapter; <see cref="Definition"/> is then empty. Empty for a single definition.
+        /// </summary>
+        public IReadOnlyList<GeneratedFile> DefinitionFiles { get; init; } = [];
+    }
 
     public static Output Write(ImportedEventModel model, string? namespaceName = null)
         => Write(model, namespaceName, null);
@@ -83,6 +91,15 @@ public static class CSharpModelWriter
     /// <inheritdoc cref="Write(ImportedEventModel, string?)"/>
     /// <param name="additions">What generated specifications need of the stubs; nothing when null.</param>
     public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions)
+        => Write(model, namespaceName, additions, perChapter: false);
+
+    /// <inheritdoc cref="Write(ImportedEventModel, string?, StubAdditions?)"/>
+    /// <param name="perChapter">
+    /// One definition per chapter (bobcat#448), with the chapter and the chapter's dominant aggregate
+    /// said once at the top (<c>model.InChapter</c>, <c>model.ForAggregate&lt;T&gt;()</c>) and no <c>Name</c>,
+    /// so every chapter joins the application's model (jasperfx#992).
+    /// </param>
+    public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions, bool perChapter)
     {
         var ns = namespaceName
                  ?? (string.IsNullOrWhiteSpace(model.Namespace) ? null : model.Namespace)
@@ -101,8 +118,14 @@ public static class CSharpModelWriter
         var extra = additions?.Fields ?? new Dictionary<string, IReadOnlyList<StubField>>();
         var layout = Layout(model, ns, additions);
 
-        return new Output(writeStubs(layout, model, stubs, streams, documents, extra), writeDefinition(ns, model, stubs, layout),
-            stubs.Count + streams.Count, layout);
+        var stubFiles = writeStubs(layout, model, stubs, streams, documents, extra);
+        if (!perChapter)
+            return new Output(stubFiles, writeDefinition(ns, model, stubs, layout), stubs.Count + streams.Count, layout);
+
+        return new Output(stubFiles, "", stubs.Count + streams.Count, layout)
+        {
+            DefinitionFiles = writeChapterDefinitions(ns, model, stubs, layout)
+        };
     }
 
     /// <summary>
@@ -465,7 +488,121 @@ public static class CSharpModelWriter
         return writer.Code();
     }
 
+    /// <summary>What a per-chapter definition already says at the top, so its slices do not repeat it.</summary>
+    private sealed record SliceDefaults(bool Chapter, bool Domain, string? Aggregate);
+
+    /// <summary>
+    /// bobcat#448: one definition per chapter. The chapter, a domain every slice shares, and the
+    /// aggregate most of its commands decide against are said once, at the top; a slice that agrees
+    /// with the default drops its own <c>.Against</c>, one that does not keeps it.
+    /// </summary>
+    private static IReadOnlyList<GeneratedFile> writeChapterDefinitions(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
+        ModelLayout layout)
+    {
+        var stubbed = stubs.ToHashSet(StringComparer.Ordinal);
+        var files = new List<GeneratedFile>();
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var chapter in model.Slices.GroupBy(x => ModelLayout.ChapterFolder(x.Chapter)))
+        {
+            var slices = chapter.ToList();
+            var folder = chapter.Key;
+            var chapterNs = ModelLayout.NamespaceFor(ns, folder);
+            var className = folder is null ? DefinitionClassName(model.Model, ns) : folder + "Model";
+            if (stubbed.Contains(className)) className = (folder ?? Identifiers.Sanitize(model.Model)) + "EventModel";
+
+            var domains = slices.Select(x => x.Domain).Distinct(StringComparer.Ordinal).ToList();
+            var sharedDomain = domains.Count == 1 && domains[0] is { Length: > 0 } ? domains[0] : null;
+            var (dominant, agreeing, deciding, inferred) = dominantAggregate(slices);
+
+            using var writer = new SourceWriter();
+            writer.WriteLine("// Imported from an eventmodelers.ai board by `bobcat import-event-model`.");
+            writer.WriteLine("//");
+            writer.WriteLine("// This is ordinary C# and nothing regenerates it. The segmentation an import performs is a");
+            writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
+            writer.BlankLine();
+            writer.WriteLine("using JasperFx.Events.EventModeling;");
+            foreach (var other in layout.Namespaces.Where(x => x != chapterNs)) writer.WriteLine($"using {other};");
+            writer.BlankLine();
+            writer.WriteLine($"namespace {chapterNs};");
+            writer.BlankLine();
+
+            // No Name: the definition joins the application's model, as every chapter's does (jasperfx#992)
+            writer.Write($"BLOCK:public class {className} : EventModelDefinition");
+            writer.Write("BLOCK:public override void Configure(EventModelBuilder model)");
+
+            if (slices[0].Chapter is { Length: > 0 } chapterName) writer.Write($"model.InChapter(`{escape(chapterName)}`);");
+            if (sharedDomain is not null) writer.Write($"model.InDomain(`{escape(sharedDomain)}`);");
+
+            if (dominant is not null)
+            {
+                if (inferred)
+                {
+                    writer.WriteLine($"// ⚠ inferred: {agreeing} of the {deciding} commands here decide against {dominant}, so it is the");
+                    writer.WriteLine("// default; .Against<T>() on a slice replaces it, and .NoAggregate() says it has none.");
+                }
+
+                writer.Write(declare("model.ForAggregate", dominant, stubbed) + ";");
+                declared.Add(dominant);
+            }
+
+            // An aggregate is declared in the first chapter that uses it; ForAggregate declares its own
+            var aggregates = slices.SelectMany(AggregatesOf).Select(x => Identifiers.Sanitize(x)).Where(x => x.Length > 0)
+                .Distinct(StringComparer.Ordinal).Where(declared.Add).ToList();
+            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + ";");
+            writer.BlankLine();
+
+            var defaults = new SliceDefaults(Chapter: true, Domain: sharedDomain is not null, Aggregate: dominant);
+            foreach (var slice in slices)
+            {
+                writeSlice(writer, slice, stubbed, defaults);
+                writer.BlankLine();
+            }
+
+            writer.FinishBlock();
+            writer.FinishBlock();
+
+            var path = folder is null ? $"{className}.cs" : $"{ModelLayout.FeaturesFolder}/{folder}/{className}.cs";
+            files.Add(new GeneratedFile(path, writer.Code()));
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// The aggregate more than half of a chapter's deciding commands — those against an aggregate,
+    /// not starting a stream — decide against alone, and at least two; null when none does.
+    /// </summary>
+    private static (string? Aggregate, int Agreeing, int Deciding, bool Inferred) dominantAggregate(IReadOnlyList<CuratedSlice> slices)
+    {
+        var deciding = slices
+            .Where(x => isCommand(x) && x.StartsStream is not { Length: > 0 } && sanitized(x.Aggregates).Any())
+            .ToList();
+
+        var top = deciding
+            .Select(x => (Slice: x, Aggregates: sanitized(x.Aggregates).ToList()))
+            .Where(x => x.Aggregates.Count == 1)
+            .GroupBy(x => x.Aggregates[0], StringComparer.Ordinal)
+            .OrderByDescending(x => x.Count())
+            .FirstOrDefault();
+
+        if (top is null || top.Count() < 2 || top.Count() * 2 <= deciding.Count) return (null, 0, deciding.Count, false);
+
+        var inferred = top.Any(x => x.Slice.Inferred.Keys.Any(k => Identifiers.Sanitize(k) == top.Key));
+        return (top.Key, top.Count(), deciding.Count, inferred);
+    }
+
+    private static bool isCommand(CuratedSlice slice) => (slice.Pattern ?? "").Trim().Equals("command", StringComparison.OrdinalIgnoreCase);
+
+    // The slice decides against exactly the default aggregate, so ForAggregate already says it
+    private static bool takesDefault(CuratedSlice slice, SliceDefaults? defaults)
+        => defaults?.Aggregate is { } aggregate && isCommand(slice) && slice.StartsStream is not { Length: > 0 }
+           && sanitized(slice.Aggregates).ToList() is [var only] && only == aggregate;
+
     private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed)
+        => writeSlice(writer, slice, stubbed, null);
+
+    private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed, SliceDefaults? defaults)
     {
         var name = Identifiers.Sanitize(slice.Name);
         if (name.Length == 0) name = "Unnamed";
@@ -478,6 +615,13 @@ public static class CSharpModelWriter
 
         // bobcat#444: every inferred, missing or several-stream aggregate is said where it is used
         foreach (var callout in slice.Callouts) writer.WriteLine($"// {callout}");
+
+        // A command the import found no aggregate for still takes the chapter's default, so say so
+        if (defaults?.Aggregate is { } fallback && isCommand(slice) && slice.StartsStream is not { Length: > 0 }
+            && !sanitized(slice.Aggregates).Any())
+        {
+            writer.WriteLine($"// ⚠ no aggregate of its own, so it takes the chapter's default, {fallback}: say .Against<T>() or .NoAggregate() if not.");
+        }
 
         // The pattern verb opens the slice, so the descriptor's Pattern is a fact of the call
         // rather than a separate statement that could disagree with it. A slice whose pattern the
@@ -540,8 +684,8 @@ public static class CSharpModelWriter
             calls.Add($".Pattern(SlicePattern.{declaredPattern})");
         }
 
-        if (slice.Domain is { Length: > 0 } domain) calls.Add($".InDomain(`{escape(domain)}`)");
-        if (slice.Chapter is { Length: > 0 } chapter) calls.Add($".InChapter(`{escape(chapter)}`)");
+        if (defaults?.Domain != true && slice.Domain is { Length: > 0 } domain) calls.Add($".InDomain(`{escape(domain)}`)");
+        if (defaults?.Chapter != true && slice.Chapter is { Length: > 0 } chapter) calls.Add($".InChapter(`{escape(chapter)}`)");
 
         if (slice.Trigger is { } trigger)
         {
@@ -574,7 +718,10 @@ public static class CSharpModelWriter
         }
 
         if (slice.StartsStream is { Length: > 0 } started) calls.Add(role(".StartsStream", Identifiers.Sanitize(started), stubbed));
-        foreach (var aggregate in sanitized(slice.Aggregates)) calls.Add(role(".Against", aggregate, stubbed));
+        if (!takesDefault(slice, defaults))
+        {
+            foreach (var aggregate in sanitized(slice.Aggregates)) calls.Add(role(".Against", aggregate, stubbed));
+        }
         foreach (var @event in sanitized(slice.Events)) calls.Add(role(".Emits", @event, stubbed));
         foreach (var message in sanitized(slice.Messages)) calls.Add(role(".Publishes", message, stubbed));
         foreach (var consumed in sanitized(slice.ConsumedEvents)) calls.Add(role(".On", consumed, stubbed));

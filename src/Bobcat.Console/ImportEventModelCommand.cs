@@ -37,6 +37,10 @@ public class ImportEventModelInput
     [FlagAlias("store", true)]
     public string? StoreFlag { get; set; }
 
+    [Description("Write one EventModelDefinition for the whole model instead of one per chapter")]
+    [FlagAlias("single-definition", true)]
+    public bool SingleDefinitionFlag { get; set; }
+
     [Description("The aggregate a slice decides against, as Slice=Type, which wins over the one inferred from the examples (bobcat#444). Several at once: --aggregate A=Order B=Order B=Customer")]
     [FlagAlias("aggregate", true)]
     public string[] AggregateFlag { get; set; } = [];
@@ -181,7 +185,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
                  ?? CSharpModelWriter.Identifiers.Sanitize(model);
         var specsNamespace = input.SpecsNamespaceFlag ?? ns + ".Specs";
         var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace, input.StoreFlag) : null;
-        var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions);
+        var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions, perChapter: !input.SingleDefinitionFlag);
 
         // --out names a DIRECTORY, the application project's. It may not exist yet: letting
         // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the
@@ -197,12 +201,25 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             $"Wrote {generated.StubCount} stub type(s) in {written} file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
             + (kept > 0 ? $"; kept {kept} that already exist (--force overwrites them)." : "."));
 
-        var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
-        if (write(definitionPath, generated.Definition, input.ForceFlag))
+        if (generated.DefinitionFiles.Count > 0)
         {
+            // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
+            var (definitions, _) = writeAll(outDirectory, generated.DefinitionFiles, input.ForceFlag);
             System.Console.WriteLine(
-                $"Wrote the event model to {definitionPath}. The segmentation above is a set of guesses, "
-                + "so correct one with an edit rather than a re-import.");
+                $"Wrote {definitions} event model definition(s), one per chapter: "
+                + string.Join(", ", generated.DefinitionFiles.Select(x => x.Path))
+                + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
+                + "guesses, so correct one with an edit rather than a re-import.");
+        }
+        else
+        {
+            var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
+            if (write(definitionPath, generated.Definition, input.ForceFlag))
+            {
+                System.Console.WriteLine(
+                    $"Wrote the event model to {definitionPath}. The segmentation above is a set of guesses, "
+                    + "so correct one with an edit rather than a re-import.");
+            }
         }
 
         if (specs is not null)

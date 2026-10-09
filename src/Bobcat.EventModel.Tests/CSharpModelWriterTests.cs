@@ -310,7 +310,7 @@ public class CSharpModelWriterTests
     private static CSharpCompilation compilation(CSharpModelWriter.Output generated)
         => CSharpCompilation.Create(
             "ImportedModel" + Guid.NewGuid().ToString("N"),
-            generated.StubFiles.Select(x => CSharpSyntaxTree.ParseText(x.Content, path: x.Path))
+            generated.StubFiles.Concat(generated.DefinitionFiles).Select(x => CSharpSyntaxTree.ParseText(x.Content, path: x.Path))
                 .Append(CSharpSyntaxTree.ParseText(generated.Definition)),
             references(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
@@ -318,6 +318,26 @@ public class CSharpModelWriterTests
     /// <summary>
     /// Compile, load and run the generated definition, returning the descriptor it declares.
     /// </summary>
+    /// <summary>Compile and load the generated code, then run every definition in it on a builder of its own.</summary>
+    internal static IReadOnlyList<(EventModelDefinition Definition, EventModelDescriptor Model)> buildAll(CSharpModelWriter.Output generated)
+    {
+        using var stream = new MemoryStream();
+        var emitted = compilation(generated).Emit(stream);
+        emitted.Success.ShouldBeTrue("the generated code must compile: "
+                                     + string.Join(Environment.NewLine, emitted.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+
+        return Assembly.Load(stream.ToArray()).GetTypes()
+            .Where(t => typeof(EventModelDefinition).IsAssignableFrom(t))
+            .Select(t => (EventModelDefinition)Activator.CreateInstance(t)!)
+            .Select(d =>
+            {
+                var builder = new EventModelBuilder();
+                d.Configure(builder);
+                return (d, builder.Build(d.Name ?? "Application"));
+            })
+            .ToList();
+    }
+
     internal static EventModelDescriptor build(CSharpModelWriter.Output generated)
     {
         using var stream = new MemoryStream();
