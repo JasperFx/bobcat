@@ -58,7 +58,7 @@ public sealed record AggregateOverride(string Slice, string Aggregate)
 public static class AggregateInference
 {
     private const string MultiStreamCallout =
-        "⚠ draws on several streams ({0}): choose several [WriteAggregate] IEventStream<T> parameters or a DCB decider (bobcat#443).";
+        "⚠ draws on several streams ({0}): choose several [WriteModel] IEventStream<T> parameters or a DCB decider (bobcat#443).";
 
     /// <summary>
     /// Fill in <see cref="ImportedEventModel.EventStreams"/>, and each command or automation slice's
