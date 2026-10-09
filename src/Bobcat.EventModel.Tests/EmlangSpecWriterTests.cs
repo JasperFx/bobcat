@@ -476,6 +476,9 @@ public class EmlangSpecWriterTests
         add.Content.ShouldContain("namespace Kitchen.Specs.AddItem;");
         add.Content.ShouldContain("[BobcatFeature(\"AddItemToOrder\")]");
 
+        // bobcat#449: the slice by the type that bears its name, for navigation and the spec manifest
+        add.Content.ShouldContain("[BobcatSlice(SliceType = typeof(AddItemToOrder))]");
+
         // The stubs' namespaces, root and every chapter, come in once, in GlobalUsings.cs, so a
         // specification file is just its header, its namespace and its specifications
         add.Content.ShouldNotContain("using ");

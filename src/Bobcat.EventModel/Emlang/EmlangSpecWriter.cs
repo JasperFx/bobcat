@@ -114,6 +114,7 @@ public static class EmlangSpecWriter
             }
 
             writer.WriteLine($"[BobcatFeature({quote(slice.Name)})]");
+            writer.WriteLine(sliceBinding(slice, context));
             writer.Write($"BLOCK:public class {className}(AppFixture app) : {modelName}Spec(app)");
 
             var first = true;
@@ -207,6 +208,28 @@ public static class EmlangSpecWriter
         }
 
         return new GeneratedSpecs(files, features, specs, additions, context.Report);
+    }
+
+    /// <summary>
+    /// bobcat#449: the spec's slice, by the type that bears its name where one does — the command, or
+    /// a view's read model — so the IDE navigates from the spec to it and a rename keeps the two
+    /// together; by name otherwise. <c>SliceType</c> means exactly <c>SliceName = type.Name</c> (#324).
+    /// </summary>
+    private static string sliceBinding(CuratedSlice slice, Context context)
+    {
+        var name = CSharpModelWriter.Identifiers.Sanitize(slice.Name);
+        var named = new[] { slice.Command }.Concat(slice.ReadModels)
+            .OfType<string>()
+            .Select(CSharpModelWriter.Identifiers.Sanitize)
+            .FirstOrDefault(x => x.Length > 0 && x == name);
+
+        if (named is not null)
+        {
+            if (!context.Elements.Contains(named)) context.Elements.Add(named);
+            return $"[BobcatSlice(SliceType = typeof({named}))]";
+        }
+
+        return $"[BobcatSlice(SliceName = {quote(slice.Name)})]";
     }
 
     private static string uniquePath(HashSet<string> taken, string stem)
