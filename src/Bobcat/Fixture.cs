@@ -102,6 +102,9 @@ public abstract partial class Fixture
     /// </summary>
     protected static Specified<T> Specify<T>() => Specifications.Specify<T>();
 
+    /// <inheritdoc cref="Specifications.Specify{T}(StepTable)" />
+    protected static Specified<T> Specify<T>(StepTable table) => Specifications.Specify<T>(table);
+
     /// <summary>
     /// Compare a collection against a table of expected rows and render the comparison as a grid —
     /// <c>[SetVerification]</c> as a method call, for a step that is handed its table.

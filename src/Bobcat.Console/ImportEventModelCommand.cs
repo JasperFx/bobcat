@@ -33,6 +33,10 @@ public class ImportEventModelInput
     [FlagAlias("specs-namespace", true)]
     public string? SpecsNamespaceFlag { get; set; }
 
+    [Description("The application's event store -- marten, polecat or fisher -- which decides how the generated test host runs its async daemon")]
+    [FlagAlias("store", true)]
+    public string? StoreFlag { get; set; }
+
     [Description("The aggregate a slice decides against, as Slice=Type, which wins over the one inferred from the examples (bobcat#444). Several at once: --aggregate A=Order B=Order B=Customer")]
     [FlagAlias("aggregate", true)]
     public string[] AggregateFlag { get; set; } = [];
@@ -176,7 +180,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var ns = input.NamespaceFlag
                  ?? CSharpModelWriter.Identifiers.Sanitize(model);
         var specsNamespace = input.SpecsNamespaceFlag ?? ns + ".Specs";
-        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace) : null;
+        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace, input.StoreFlag) : null;
         var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions);
 
         // --out names a DIRECTORY, the application project's. It may not exist yet: letting
@@ -226,7 +230,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, file.Content, Encoding.UTF8);
+            File.WriteAllText(path, file.Content); // UTF-8 without a BOM
             written++;
         }
 
@@ -242,7 +246,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             return false;
         }
 
-        File.WriteAllText(path, content, Encoding.UTF8);
+        File.WriteAllText(path, content); // UTF-8 without a BOM
         return true;
     }
 

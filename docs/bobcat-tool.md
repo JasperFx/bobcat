@@ -178,6 +178,7 @@ spec namespace (`--specs-out` to put them elsewhere, `--specs-namespace` to name
 
 ```
 CritterCrush.Specs/
+  GlobalUsings.cs                        every namespace the specs use, once
   TestSupport.cs                         the fixture, the collection, the base spec class
   VolunteeringAndHomeChecks/
     ReviewVolunteerApplication.cs        namespace CritterCrush.Specs.VolunteeringAndHomeChecks
@@ -207,9 +208,30 @@ public class review_volunteer_application(AppFixture app) : CritterCrushSpec(app
 Every id a spec mints is `Guid.CreateVersion7()`, never `Guid.NewGuid()`: generated code is copied,
 and a random v4 Guid as a stream id fragments the store's indexes.
 
-`TestSupport.cs` holds a placeholder `AppFixture` that only compiles. Replace it with the
-application's own host; its comments show the shape for Marten, Polecat and Fisher. The base spec
-class calls `ResetAsync()` before every test, which resets every event store the host registers,
+An object with more than three specified members is written as a `Property | Value` table rather
+than a `.With(...)` chain that runs off the screen. The cells are read with the same rules as any
+Bobcat table, and identities are interpolated:
+
+```csharp
+await WhenReceived(Specify<BookVisit>($$"""
+    | Property | Value        |
+    | VisitId  | {{theVisit}} |
+    | Vet      | Dr. Hollis   |
+    | Room     | 3            |
+    | Notes    | EMPTY        |
+    """));
+```
+
+`Specify<T>(table)` takes either that two-column form or the members as headers over a single row,
+and `.With(...)` still chains after it. A value with no faithful cell form, such as text holding a
+pipe, keeps the chain instead, one member to a line.
+
+The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
+
+`TestSupport.cs` starts the application's own host through Alba, so `Program` must be public
+(`public partial class Program;`). Pass `--store marten`, `polecat` or `fisher` to have it run that
+store's async daemon in solo mode; without it, the host names each store's way in a comment. The
+base spec class calls `ResetAsync()` before every test, which resets every event store the host registers,
 so the same specifications run on any of the three stores. They use the application's own database
 and schema, so a failing spec's data is where you would look for it.
 

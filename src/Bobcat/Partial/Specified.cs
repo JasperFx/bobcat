@@ -66,6 +66,16 @@ public sealed class Specified<T> : IPartialObject
     /// </summary>
     public Specified<T> With(string path, object? value) => with(path, value);
 
+    /// <summary>Specify the member at <paramref name="path"/> with table cell text, read with the cell rules.</summary>
+    internal Specified<T> WithCell(string path, string cell)
+    {
+        var index = _values.FindIndex(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase));
+        var specified = new SpecifiedValue(path, cell, IsText: true);
+        if (index >= 0) _values[index] = specified;
+        else _values.Add(specified);
+        return this;
+    }
+
     /// <summary>Build a <typeparamref name="T"/>, filling the members this does not specify.</summary>
     /// <param name="unspecified">The fill policy; <see cref="PredictableValues"/> when omitted.</param>
     public T Build(IUnspecifiedValues? unspecified = null) => (T)PartialObjects.Build(this, unspecified);
@@ -91,6 +101,42 @@ public static class Specifications
 {
     /// <summary>Start a partial <typeparamref name="T"/>; add members with <c>.With(...)</c>.</summary>
     public static Specified<T> Specify<T>() => new();
+
+    /// <summary>
+    /// A partial <typeparamref name="T"/> written as a table, for an object with more members than a
+    /// <c>.With(...)</c> chain reads well with: either two columns headed <c>Property | Value</c>, one
+    /// member per row, or the members as headers over a single row of values.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// await WhenReceived(Specify&lt;ScheduleVisit&gt;($$"""
+    ///     | Property | Value         |
+    ///     | VisitId  | {{theVisit}}  |
+    ///     | Vet      | Dr. Hollis    |
+    ///     | Room     | 3             |
+    ///     | Notes    | EMPTY         |
+    ///     """));
+    /// </code>
+    /// </example>
+    /// <remarks>
+    /// Cells are read with the table rules (<c>NULL</c>, <c>EMPTY</c>, relative times), and a blank
+    /// cell is not specified. Add members after the table with <c>.With(...)</c> as usual.
+    /// </remarks>
+    /// <exception cref="SpecCriticalException">The table describes more than one object.</exception>
+    public static Specified<T> Specify<T>(StepTable table)
+    {
+        var objects = PartialObjects.FromTable(typeof(T), table);
+        if (objects.Count != 1)
+        {
+            throw new SpecCriticalException(
+                $"Specify<{typeof(T).Name}>(table) describes one object, but the table has {objects.Count} rows. " +
+                "Use a Property | Value table, or a single row under the member headers.");
+        }
+
+        var specified = new Specified<T>();
+        foreach (var value in objects[0].Values) specified.WithCell(value.Path, (string)value.Value!);
+        return specified;
+    }
 }
 
 /// <summary>A partial object read from a table: its values are cell text.</summary>
@@ -116,13 +162,14 @@ public sealed class TablePartialObject : IPartialObject
 public static class PartialObjects
 {
     /// <summary>
-    /// Whether <paramref name="table"/> runs vertically: exactly two columns headed <c>field</c> and
-    /// <c>value</c> (ignoring case), one member per row. The convention <c>Given {event} occurred</c>
+    /// Whether <paramref name="table"/> runs vertically: exactly two columns headed <c>field</c> (or
+    /// <c>property</c>) and <c>value</c>, ignoring case, one member per row. The convention <c>Given {event} occurred</c>
     /// set, now shared by every table that describes one object.
     /// </summary>
     public static bool IsVertical(StepTable table)
         => table.Headers.Count == 2
-           && table.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+           && (table.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+               || table.Headers[0].Trim().Equals("property", StringComparison.OrdinalIgnoreCase))
            && table.Headers[1].Trim().Equals("value", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
