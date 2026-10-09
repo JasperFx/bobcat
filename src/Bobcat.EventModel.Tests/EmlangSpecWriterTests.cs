@@ -355,6 +355,9 @@ public class EmlangSpecWriterTests
         specs.AllCode().ShouldContain("await ThenSingleReadModel<AvailableDrivers>(Specify<AvailableDrivers>()"
                                  + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
         specs.Report.ShouldContain(x => x.Contains("checked as the only AvailableDrivers"));
+
+        // The spec says so as well, so the assumption is never silent (bobcat#450)
+        specs.AllCode().ShouldContain("// The example names no AvailableDrivers identity, so this checks the only one.");
     }
 
     [Fact]

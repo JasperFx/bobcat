@@ -803,6 +803,11 @@ public static class EmlangSpecWriter
                 if (key is null)
                 {
                     context.Report.Add($"{where}: the {typeName} view names no identity, so it is checked as the only {typeName}.");
+
+                    // Said in the spec too, never assumed silently (bobcat#450): a view keyed per stream
+                    // needs ThenReadModel<T>(id, ...) instead
+                    _lines.Add($"// The example names no {typeName} identity, so this checks the only one. If there can be");
+                    _lines.Add($"// several, name the one this example means: await ThenReadModel<{typeName}>(id, ...);");
                     _lines.Add(!hasValues(view)
                         ? $"await ThenSingleReadModel<{typeName}>();"
                         : rendered($"await ThenSingleReadModel<{typeName}>(", partial(view), ");"));

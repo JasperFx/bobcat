@@ -92,6 +92,8 @@ public static class PartialMatching
 
     private static bool agrees(object? actual, SpecifiedValue specified)
     {
+        if (specified.Value is MemberCheck check) return check.Run(actual) is null;
+
         if (specified.IsText)
         {
             // The cell rules every table uses: NULL, EMPTY, relative times, numeric text

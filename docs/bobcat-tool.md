@@ -226,6 +226,23 @@ await WhenReceived(Specify<BookVisit>($$"""
 and `.With(...)` still chains after it. A value with no faithful cell form, such as text holding a
 pipe, keeps the chain instead, one member to a line.
 
+An expected object can also be written as assertions on its members, for checks that are not
+plain equality:
+
+```csharp
+await ThenReadModel<VolunteerApplicationsQueue>(theQueue, Specify<VolunteerApplicationsQueue>(
+    x => x.Pending.ShouldBe(1),
+    x => x.Oldest.ShouldBeLessThan(DateTimeOffset.UtcNow)));
+```
+
+A plain `ShouldBe` is the same as `.With(...)`. Any other assertion runs against the member's actual
+value, and the spec report shows it in the same member table as it reads (`should be less than …`),
+with the assertion's own message when it fails. `.Check(...)` adds the same to a `.With(...)` chain.
+Checks only verify, so an object with one cannot be built as a command or an arranged event.
+
+A view example that names no identity is checked as the only one of its type, and the generated spec
+says so in a comment, so the assumption is never silent.
+
 The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
 
 `TestSupport.cs` starts the application's own host through Alba, so `Program` must be public

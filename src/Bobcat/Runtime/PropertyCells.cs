@@ -63,12 +63,18 @@ public static class PropertyCells
                 ? ScenarioValues.Format(ObjectComparison.Unwrap(found.Value))
                 : CellTokens.Null;
 
+            // A check (bobcat#450) is shown as its assertion reads, and a failed one says why
+            var check = value.Value as MemberCheck;
             run.Cells.Add(differences.TryGetValue(value.Path, out var difference)
                 ? new CellResult(value.Path, ResultStatus.failed)
                 {
-                    Expected = ScenarioValues.Format(difference.Expected), Actual = shown, RowIndex = 0
+                    Expected = check?.Description ?? ScenarioValues.Format(difference.Expected), Actual = shown, RowIndex = 0,
+                    Note = check?.Run(difference.Actual)
                 }
-                : new CellResult(value.Path, ResultStatus.success, shown) { Expected = shown, Actual = shown, RowIndex = 0 });
+                : new CellResult(value.Path, ResultStatus.success, shown)
+                {
+                    Expected = check?.Description ?? shown, Actual = shown, RowIndex = 0
+                });
         }
 
         run.Report(context);
