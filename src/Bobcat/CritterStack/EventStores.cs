@@ -113,6 +113,28 @@ public static class EventStores
     public static Task<T?> AggregateStreamAsync<T>(IEventStore store, string streamKey, CancellationToken token = default) where T : class
         => aggregateStreamAsync(store, events => events.AggregateStreamAsync<T>(streamKey, token: token));
 
+    /// <summary>
+    /// The aggregate of a <see cref="Guid"/>-identified stream as the store serves it, through
+    /// <c>FetchLatest&lt;T&gt;</c> (wolverine#4921): a projected snapshot where there is one, else built from
+    /// the stream, whatever the projection lifecycle. Null when there is no such stream.
+    /// </summary>
+    public static Task<T?> FetchLatestAsync<T>(IEventStore store, Guid streamId, CancellationToken token = default) where T : class
+        => fetchLatestAsync(store, events => events.FetchLatest<T>(streamId, token));
+
+    /// <inheritdoc cref="FetchLatestAsync{T}(IEventStore, Guid, CancellationToken)"/>
+    public static Task<T?> FetchLatestAsync<T>(IEventStore store, string streamKey, CancellationToken token = default) where T : class
+        => fetchLatestAsync(store, events => events.FetchLatest<T>(streamKey, token));
+
+    private static async Task<T?> fetchLatestAsync<T>(IEventStore store, Func<IEventStoreOperations, ValueTask<T?>> fetch)
+        where T : class
+    {
+        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        await using (session.ConfigureAwait(false))
+        {
+            return await fetch(EventStoreSessions.EventStoreOperationsOf(session)).ConfigureAwait(false);
+        }
+    }
+
     private static async Task<IReadOnlyList<IEvent>> fetchStreamAsync(
         IEventStore store,
         Func<IReadOnlyEventStore, Task<IReadOnlyList<IEvent>>> read)
@@ -406,6 +428,17 @@ internal static class EventStoreSessions
                ?? throw new InvalidOperationException(
                    $"The session type {session.GetType().Name} opened by {store.GetType().Name} is not IAsyncDisposable, " +
                    "which every IStorageOperations is expected to be.");
+    }
+
+    public static IEventStoreOperations EventStoreOperationsOf(object session)
+    {
+        if (session is IEventStoreOperations direct) return direct;
+
+        if (eventsProperty(session.GetType())?.GetValue(session) is IEventStoreOperations events) return events;
+
+        throw new InvalidOperationException(
+            $"Cannot fetch the latest aggregate through session type {session.GetType().FullName}: its 'Events' member is not a " +
+            "JasperFx.Events.IEventStoreOperations. Marten, Polecat and Fisher sessions all expose one.");
     }
 
     public static IQueryEventStore QueryEventStoreOf(object session)
