@@ -29,6 +29,13 @@ public sealed class ImportedEventModel
     public string? Namespace { get; set; }
 
     public List<CuratedSlice> Slices { get; set; } = [];
+
+    /// <summary>
+    /// Event name → the aggregate whose stream it is stored on (bobcat#444): what the model
+    /// declares, else what <see cref="Emlang.AggregateInference"/> inferred from the examples. Empty
+    /// for a curated file, which says <see cref="CuratedSlice.Aggregates"/> outright.
+    /// </summary>
+    public Dictionary<string, string> EventStreams { get; set; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>One slice's declared roles. The name is the merge key and by convention the command's short name.</summary>
@@ -56,7 +63,27 @@ public sealed class CuratedSlice
     /// <summary>Bare type name of the handler / endpoint, when declared.</summary>
     public string? Handler { get; set; }
 
+    /// <summary>The aggregates the slice decides against: one per stream it appends to or reads.</summary>
     public List<string> Aggregates { get; set; } = [];
+
+    /// <summary>
+    /// The aggregate whose stream this slice <em>starts</em> (bobcat#444), as against appends to —
+    /// JasperFx's <c>.StartsStream&lt;T&gt;()</c>. Not repeated in <see cref="Aggregates"/>.
+    /// </summary>
+    public string? StartsStream { get; set; }
+
+    /// <summary>
+    /// The slice's aggregates the import <em>inferred</em> rather than read off the model, each with
+    /// why (bobcat#444). Every one is called out, so a wrong guess is found and fixed.
+    /// </summary>
+    public Dictionary<string, string> Inferred { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Warnings the generated definition writes above the slice as comments: inferred aggregates, a
+    /// missing one, a decision drawing on several streams (bobcat#444).
+    /// </summary>
+    public List<string> Callouts { get; set; } = [];
+
     public List<string> Events { get; set; } = [];
 
     /// <summary>Published non-event messages — cascaded commands, integration messages.</summary>
@@ -127,6 +154,13 @@ public sealed class CuratedElement
 
     /// <summary>Field name → type-or-example sketch. Hints for scaffolding, never authoritative.</summary>
     public Dictionary<string, string> Fields { get; set; } = [];
+
+    /// <summary>
+    /// The fields the model marks as this element's identity (an eventmodelers.ai field's
+    /// <c>idAttribute</c>). Empty when the model marks none, which is what makes the stub writer
+    /// give a command, aggregate or read model the conventional <c>Id</c> (bobcat#438).
+    /// </summary>
+    public List<string> Identities { get; set; } = [];
 }
 
 /// <summary>

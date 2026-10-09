@@ -87,6 +87,16 @@
        paragraph that was the weak link — not (1), and not (2), since neither an exception-shaped
        break nor a wrong-results break on a path the suites exercise would have survived them.
 
+    2026-10-09, MOVED TO 2.82.0 under the same exception, for bobcat#448/#449: the per-chapter
+    definitions write `ForAggregate<T>()` (jasperfx#994), and the spec manifest emits
+    `SpecificationBindingDescriptor` (jasperfx#995), both absent before 2.82.0. The ratchet in (1)
+    is byte-identical again — V2.81.0, V2.82.0 and main all md5 c3e45382b62d9b6843a3c6caba1a76fe —
+    and the 2.81.0..2.82.0 source diff outside tests is confined to the event-modeling descriptors
+    and builders, the source generators, the in-memory store and one replay fix (#989): no
+    capability enum gained a member, so the weaker argument in (3) holds for the same reason.
+    Marten 9.47.0 and WolverineFx 6.48.3 are now built against 2.81.0; Fisher and Polecat still
+    against 2.80.2.
+
     WHEN THIS EXCEPTION ENDS: as soon as Marten / Fisher / Polecat / WolverineFx ship builds that
     declare JasperFx(.Events) 2.81.0 or later, move the stores onto them and delete this block —
     the exception exists only to bridge that gap, and leaving it standing past its reason is how a
@@ -162,7 +172,7 @@
     <PackageVersion Include="WolverineFx.Marten" Version="6.46.0" />
     <PackageVersion Include="WolverineFx.Fisher" Version="6.46.0" />
     <PackageVersion Include="Marten" Version="9.46.0" />
-    <PackageVersion Include="JasperFx" Version="2.81.0" />
+    <PackageVersion Include="JasperFx" Version="2.82.0" />
     <!--
       Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
       IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
@@ -174,10 +184,10 @@
       acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
       documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
     -->
-    <PackageVersion Include="JasperFx.Events" Version="2.81.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.82.0" />
     <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
          with the store-bundled copies dropped — see the dual-store note in the header. -->
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.81.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.82.0" />
     <PackageVersion Include="Fisher" Version="1.19.0" />
     <PackageVersion Include="Polecat" Version="5.36.0" />
     <PackageVersion Include="Alba" Version="8.5.2" />

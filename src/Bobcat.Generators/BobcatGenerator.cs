@@ -130,6 +130,27 @@ public class BobcatGenerator : IIncrementalGenerator
                 spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, finding.Location, finding.Message));
         });
 
+        // 3e. bobcat#449: each [BobcatFeature] test and the command or slice it exercises, as JasperFx
+        //     specification bindings, so the specs join the Event Model by command type with no
+        //     LinksToSpecification in the definition (jasperfx#995)
+        var specBindings = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => SpecificationManifest.IsCandidate(node),
+                transform: SpecificationManifest.Extract)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        var bindingContractVisible = context.CompilationProvider.Select((compilation, _) =>
+            compilation.GetTypeByMetadataName(SpecificationManifest.GateTypeName) != null
+            && compilation.GetTypeByMetadataName("Bobcat.SpecificationManifestAttribute") != null);
+
+        context.RegisterSourceOutput(specBindings.Collect().Combine(bindingContractVisible), (spc, pair) =>
+        {
+            var (features, visible) = pair;
+            if (!visible || features.Length == 0) return;
+            spc.AddSource("BobcatSpecificationBindings.g.cs", SpecificationManifest.Emit(features));
+        });
+
         // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
         //     comments (issue #110). Comments are erased by the compiler, so unlike every other
         //     authoring style this one cannot be recorded as it executes — the syntax tree is the

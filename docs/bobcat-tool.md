@@ -42,18 +42,31 @@ chapter 'TheSwiper': Automation slice 'DetectMutualMatch' triggered by 'Dog Like
 chapter 'TheSwiper': View slice 'MatchList'.
 chapter 'TheSwiper': View slice 'MatchList' consumes 3 event(s): DogLiked, DogPassed, MutualMatchDetected.
 3 slice(s) from 1 chapter(s).
-Wrote 6 stub record(s) to ./K9CrushStubs.cs and the event model to ./K9Crush.cs. Nothing
-regenerates either file — the segmentation above is a set of guesses, so correct one with an edit
-rather than a re-import.
+Wrote 6 stub type(s) in 3 file(s) under ./Features.
+Wrote the event model to ./K9Crush.cs. The segmentation above is a set of guesses, so correct one
+with an edit rather than a re-import.
 Model 'K9Crush': 3 slice(s), 1 bound specification(s).
 ```
 
-### Two files: the stubs and the definition
+Pass `--out` the application project's directory; everything lands under it.
 
-`<Model>Stubs.cs` is one field-less record per command, event, aggregate and view the board named:
+### The stubs: one file per slice, a folder per chapter
+
+Each slice gets `Features/{Chapter}/{Slice}.cs`, in the namespace `{Namespace}.{Chapter}`. The file
+holds what the slice produces: its command (or the read model of a view), the events it emits and
+the messages it publishes. That is also the file `wolverine scaffold` adds the handler to, so a
+command and its handler live side by side. A type no slice produces, such as an aggregate or an
+event consumed from elsewhere, gets a file of its own under the chapter of the first slice that
+names it.
 
 ```csharp
-namespace K9Crush;
+// Features/TheSwiper/SwipeOnDog.cs
+namespace K9Crush.TheSwiper;
+
+/// <summary>
+/// the command of SwipeOnDog.
+/// </summary>
+public record SwipeOnDog(Guid Id);
 
 /// <summary>
 /// emitted by SwipeOnDog.
@@ -62,45 +75,92 @@ namespace K9Crush;
 public record DogLiked;
 ```
 
-**Field-less is what a board can honestly produce.** An emlang export carries no field information
-at all — the board's props are intentionally omitted — so a name is the whole truth it can tell.
-Inventing an `Id` would be a guess with no basis that you would then have to un-guess.
+**A stub has only what the board names, plus an `Id` where it names no identity.** An emlang export
+usually carries no field information, since the board's props are intentionally omitted. Events
+stay field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
+identity for it, because that is Wolverine's own convention: a generated specification can address
+the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
-`<Model>.cs` is one `EventModelDefinition` declaring the slices through the JasperFx.Events fluent
-API, against those stubs:
+**A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
+event is stored.
+
+### Aggregates: declared, or inferred and called out
+
+A command that does not only start a stream needs a DCB decider or one or more single-stream
+aggregates, so the import gives every command one (bobcat#444). A stream the model declares (an
+eventmodelers.ai element's `aggregate`) is used as it is. Everything else is **inferred from the
+examples**:
+
+- **Lineage groups events into streams.** An example that gives an event and expects another says
+  the second is appended where the first was. When an example gives events of several subjects
+  (`Home check requested` and `Volunteer approved`), what it expects joins only the givens whose
+  name shares a subject with it, so one decision drawing on two streams never folds them into one.
+- **A stream is named for its subject**: the longest run of words most of its events open with.
+  `AppointmentConfirmed`, `AppointmentCancelled` and `HomeCheckAppointmentProposed` are an
+  `Appointment`. A stream no example links to anything joins one whose name its subject ends with
+  (`FosterHandoverAppointment` is an `Appointment`), and the report says that was by name only.
+- **A slice starts a stream** when it appends to it and no example gives it an earlier event there:
+  `.StartsStream<VolunteerApplication>()`. Otherwise it decides against it:
+  `.Against<VolunteerApplication>()`.
+- **A decision drawing on several streams** decides against each, its command carries an
+  `{Aggregate}Id` per stream, and it is flagged: choose several `[WriteAggregate] IEventStream<T>`
+  parameters or a DCB decider (bobcat#443).
+- **A command left with no aggregate is reported as missing**, with a TODO on the slice. It is
+  never quietly made aggregate-less.
+
+Every inferred aggregate is called out, in the report and as a comment on the slice in the
+definition, so a wrong guess is a one-line edit there:
 
 ```csharp
-public class K9CrushEventModel : EventModelDefinition
-{
-    public override string Name => "K9Crush";
+// ⚠ inferred: decides against Appointment — its examples give Appointment events before it appends; 'Appointment' is the subject 7 of its 7 events share.
+model.Command<ConfirmAppointment>()
+    .InChapter("BookingAppointments")
+    .Against<Appointment>()
+    .Emits<AppointmentConfirmed>();
+```
 
+Or say it outright on the import, which always wins over the inference. Several at once go after
+one flag:
+
+```bash
+bobcat import-event-model board.yaml --aggregate ConfirmAppointment=Booking AcceptHomeCheckAssignment=HomeCheck
+```
+
+The generated specifications arrange events on the typed aggregate, `GivenEvents<Appointment>(…)`,
+and the act addresses it through the command's `Id`, or each `{Aggregate}Id`. A stream with no
+aggregate type, `GivenEvents(id, …)`, is left for a stream nothing names at all.
+
+Each chapter gets one `EventModelDefinition`, beside its stubs in `Features/{Chapter}/{Chapter}Model.cs`,
+declaring that chapter's slices through the JasperFx.Events fluent API. The chapter is said once at the
+top, and so is the aggregate most of the chapter's commands decide against:
+
+```csharp
+public class BookingAppointmentsModel : EventModelDefinition
+{
     public override void Configure(EventModelBuilder model)
     {
-        model.Command<SwipeOnDog>()
-            .InChapter("TheSwiper")
-            .TriggeredBy("Discovery Feed", TriggerKind.Human)
-            .Emits<DogLiked>()
-            .Emits<DogPassed>()
-            .LinksToSpecification("SwipeOnDog/a like is recorded");
+        model.InChapter("BookingAppointments");
+        // ⚠ inferred: 6 of the 6 commands here decide against Appointment, so it is the
+        // default; .Against<T>() on a slice replaces it, and .NoAggregate() says it has none.
+        model.ForAggregate<Appointment>();
 
-        model.Automation("DetectMutualMatch")
-            .InDomain("Discovery")
-            .InChapter("TheSwiper")
-            .TriggeredBy("Dog Liked", TriggerKind.MessageHandler)
-            .Command<DetectMutualMatch>()
-            .Emits<MutualMatchDetected>();
+        model.Command<ConfirmAppointment>()
+            .TriggeredBy("Confirm Appointment", TriggerKind.Human)
+            .Emits<AppointmentConfirmed>()
+            .LinksToSpecification("ConfirmAppointment/appointment confirmed");
 
-        model.View<MatchList>()
-            .InChapter("TheSwiper")
-            .On<DogLiked>()
-            .On<DogPassed>()
-            .On<MutualMatchDetected>()
-            .LinksToSpecification("MatchList/matches show");
+        model.Command<ProposeHomeCheckAppointment>()
+            .StartsStream<Appointment>()   // a slice that starts a stream ignores the default
+            .Emits<HomeCheckAppointmentProposed>();
     }
 }
 ```
 
-Register it with `services.AddEventModel<K9CrushEventModel>()` and it joins the model on the
+A chapter whose commands have no clear majority aggregate gets no default, and every command says its
+own. The definitions set no `Name`, so every chapter joins the application's model. Pass
+`--single-definition` for one `<Model>.cs` holding every slice, each with its own `.InChapter(…)`.
+
+Register each with `services.AddEventModel<BookingAppointmentsModel>()` and it joins the model on the
 **Declared** rung, where a claim the code derives always wins and any difference between the two
 shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do list.
 
@@ -108,8 +168,137 @@ Write your Bobcat specs against the stubs straight away. They are red until the 
 and that is the point.
 
 With `--specs`, the command writes them for you as well: one WolverineFx.Bobcat specification per
-example on the board, in a `{Model}Specs.cs` beside the other two files. Each slice is one
-`[BobcatFeature]` class, and each example is one `[Fact]` named for the example in snake case.
+example on the board. They go to the spec project, by default the sibling of `--out` named for the
+spec namespace (`--specs-out` to put them elsewhere, `--specs-namespace` to name it; the default is
+`{Namespace}.Specs`, and it should be the spec project's name):
+
+```
+CritterCrush.Specs/
+  GlobalUsings.cs                        every namespace the specs use, once
+  TestSupport.cs                         the fixture, the collection, the base spec class
+  VolunteeringAndHomeChecks/
+    ReviewVolunteerApplication.cs        namespace CritterCrush.Specs.VolunteeringAndHomeChecks
+    ...
+```
+
+Each slice is one `[BobcatFeature]` class in its own file, under a folder per chapter, and each
+example is one `[Fact]` named for the example in snake case:
+
+```csharp
+[BobcatFeature("ReviewVolunteerApplication")]
+public class review_volunteer_application(AppFixture app) : CritterCrushSpec(app)
+{
+    [Fact]
+    public async Task volunteer_application_reviewed()
+    {
+        var theStream = Guid.CreateVersion7();
+        await GivenEvents(theStream, Specify<VolunteerApplicationSubmitted>());
+
+        await WhenReceived(Specify<ReviewVolunteerApplication>().With(x => x.Id, theStream));
+
+        ThenEvents(Specify<VolunteerApplicationReviewed>());
+    }
+}
+```
+
+Every id a spec mints is `Guid.CreateVersion7()`, never `Guid.NewGuid()`: generated code is copied,
+and a random v4 Guid as a stream id fragments the store's indexes.
+
+An object with more than three specified members is written as a `Property | Value` table rather
+than a `.With(...)` chain that runs off the screen. The cells are read with the same rules as any
+Bobcat table, and identities are interpolated:
+
+```csharp
+await WhenReceived(Specify<BookVisit>($$"""
+    | Property | Value        |
+    | VisitId  | {{theVisit}} |
+    | Vet      | Dr. Hollis   |
+    | Room     | 3            |
+    | Notes    | EMPTY        |
+    """));
+```
+
+`Specify<T>(table)` takes either that two-column form or the members as headers over a single row,
+and `.With(...)` still chains after it. A value with no faithful cell form, such as text holding a
+pipe, keeps the chain instead, one member to a line.
+
+An expected object can also be written as assertions on its members, for checks that are not
+plain equality:
+
+```csharp
+await ThenReadModel<VolunteerApplicationsQueue>(theQueue, Specify<VolunteerApplicationsQueue>(
+    x => x.Pending.ShouldBe(1),
+    x => x.Oldest.ShouldBeLessThan(DateTimeOffset.UtcNow)));
+```
+
+A plain `ShouldBe` is the same as `.With(...)`. Any other assertion runs against the member's actual
+value, and the spec report shows it in the same member table as it reads (`should be less than …`),
+with the assertion's own message when it fails. `.Check(...)` adds the same to a `.With(...)` chain.
+Checks only verify, so an object with one cannot be built as a command or an arranged event.
+
+The checks are expression trees, and before C# 14 an expression tree cannot leave out an optional argument,
+which every Shouldly assertion has (`customMessage`). On net10.0's default language version you write
+`x => x.Age.ShouldBe(52)`; on net9.0, or with `LangVersion` pinned below 14, spell the optional arguments
+out: `x => x.Age.ShouldBe(52, null)`.
+
+A view example that names no identity is checked as the only one of its type, and the generated spec
+says so in a comment, so the assumption is never silent.
+
+Each generated spec class carries `[BobcatSlice(SliceType = typeof(ReviewVolunteerApplication))]`,
+or `SliceName = "…"` where no type bears the slice's name, so the IDE navigates from the spec to its
+slice. Bobcat.Generators also writes a manifest of every `[BobcatFeature]` test as a JasperFx
+`SpecificationBindingDescriptor`: its `{Feature}/{Scenario}` identity, and the command its first
+`When…(Specify<T>()…)` or `When…(new T(…))` sends, or the slice `[BobcatSlice]` names. Read it with
+`SpecificationBindings.In(assembly)`. JasperFx's `EventModelSpecifications.Link` joins those onto an
+assembled Event Model by command type (and domain, for a command several modules handle), so an
+`EventModelDefinition` needs no `LinksToSpecification` once something runs that join.
+
+The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
+
+`TestSupport.cs` starts the application's own host through Alba, so `Program` must be public
+(`public partial class Program;`). Pass `--store marten`, `polecat` or `fisher` to have it run that
+store's async daemon in solo mode; without it, the host names each store's way in a comment. The
+base spec class calls `ResetAsync()` before every test, which resets every event store the host registers,
+so the same specifications run on any of the three stores. They use the application's own database
+and schema, so a failing spec's data is where you would look for it.
+
+### The spec project
+
+The spec project is an xUnit v3 executable. It needs **all** of these, or Rider and Visual Studio
+show no tests at all ("NuGet package Microsoft.NET.Test.Sdk is not installed"):
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <PackageReference Include="Bobcat.Xunit" Version="..." />
+    <PackageReference Include="Bobcat.Generators" Version="..." />
+    <PackageReference Include="WolverineFx.Bobcat" Version="..." />
+    <PackageReference Include="Alba" Version="..." />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CritterCrush\CritterCrush.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+`Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are the bridge the IDEs discover tests
+through; the Microsoft Testing Platform properties are what `dotnet test` and running the
+executable use. Bobcat.Generators warns with **BOBCAT033** when a project references `xunit.v3`
+without `Microsoft.NET.Test.Sdk`.
 
 The links in the definition are the identities those specs report: the slice name, then the
 method name read back as a sentence. That's why the example `ALikeIsRecorded` is linked as

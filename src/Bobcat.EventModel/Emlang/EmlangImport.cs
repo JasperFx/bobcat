@@ -33,6 +33,15 @@ public static class EmlangImport
     private static readonly string[] SpecialProps = ["triggeredBy", "module", "cascadedTo"];
 
     public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace = null)
+        => ToCurated(board, modelName, @namespace, null);
+
+    /// <inheritdoc cref="ToCurated(EmlangBoard, string, string?)"/>
+    /// <param name="aggregates">
+    /// <c>--aggregate Slice=Type</c> overrides (bobcat#444), which win over the aggregates inferred from
+    /// the examples. Empty or null infers every one, and calls each out.
+    /// </param>
+    public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace,
+        IReadOnlyList<AggregateOverride>? aggregates)
     {
         var model = new ImportedEventModel { Schema = 1, Model = modelName, Namespace = @namespace };
         var report = new List<string>();
@@ -50,6 +59,16 @@ public static class EmlangImport
         }
 
         report.Add($"{model.Slices.Count} slice(s) from {board.Chapters.Count} chapter(s).");
+
+        // bobcat#444: every command gets an aggregate, declared or inferred, and every inference is said
+        var declared = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var step in board.Chapters.SelectMany(x => x.Steps)
+                     .Where(x => x.Kind == EmlangElementKind.Event && x.Stream is { Length: > 0 }))
+        {
+            declared.TryAdd(PascalName(step.Label), step.Stream!);
+        }
+
+        AggregateInference.Apply(model, declared, aggregates, report);
         return new EmlangImportResult(model, report);
     }
 
@@ -160,7 +179,7 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
-        hints(slice, name, sketches(step.Props, step.Values), description: null);
+        hints(slice, name, sketches(step.Props, step.Values), description: null, step.Identities);
         model.Slices.Add(slice);
         byName[name] = slice;
         report.Add($"chapter '{chapter.Name}': {slice.Pattern} slice '{name}'"
@@ -173,7 +192,7 @@ public static class EmlangImport
         var name = PascalName(step.Label);
         if (!slice.Events.Contains(name)) slice.Events.Add(name);
 
-        hints(slice, name, sketches(step.Props, step.Values), description: null);
+        hints(slice, name, sketches(step.Props, step.Values), description: null, step.Identities);
     }
 
     private static CuratedSlice viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
@@ -188,7 +207,7 @@ public static class EmlangImport
                 existing.ConsumedEvents.Add(name);
             }
 
-            hints(existing, readModel, sketches(step.Props, step.Values), description: null);
+            hints(existing, readModel, sketches(step.Props, step.Values), description: null, step.Identities);
             report.Add($"chapter '{chapter.Name}': view '{step.Label}' folded into existing slice '{readModel}'."
                        + keptChapter(existing, chapter));
             reportConsumed(chapter, existing, report);
@@ -206,7 +225,7 @@ public static class EmlangImport
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
         };
 
-        hints(slice, readModel, sketches(step.Props, step.Values), description: null);
+        hints(slice, readModel, sketches(step.Props, step.Values), description: null, step.Identities);
         model.Slices.Add(slice);
         byName[readModel] = slice;
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
@@ -241,10 +260,11 @@ public static class EmlangImport
     /// sketch of a field wins, and steps are read before tests, so a type a step declares
     /// (<c>email: string</c>) is never displaced by a test's sample value.
     /// </summary>
-    private static void hints(CuratedSlice slice, string typeName, IReadOnlyDictionary<string, string> props, string? description)
+    private static void hints(CuratedSlice slice, string typeName, IReadOnlyDictionary<string, string> props, string? description,
+        IReadOnlyList<string>? identities = null)
     {
         var fields = props.Where(x => !SpecialProps.Contains(x.Key)).ToList();
-        if (fields.Count == 0 && description is null) return;
+        if (fields.Count == 0 && description is null && (identities is null || identities.Count == 0)) return;
 
         if (!slice.Elements.TryGetValue(typeName, out var element))
         {
@@ -256,6 +276,11 @@ public static class EmlangImport
         foreach (var (key, value) in fields)
         {
             element.Fields.TryAdd(key, value);
+        }
+
+        foreach (var identity in identities ?? [])
+        {
+            if (!element.Identities.Contains(identity)) element.Identities.Add(identity);
         }
     }
 

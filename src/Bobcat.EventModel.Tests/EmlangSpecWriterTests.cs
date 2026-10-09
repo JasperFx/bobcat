@@ -67,7 +67,7 @@ public class EmlangSpecWriterTests
         return (specs, CSharpModelWriter.Write(model, "Kitchen", specs.Additions));
     }
 
-    private static string code(string yaml) => generate(yaml).Specs.Code;
+    private static string code(string yaml) => generate(yaml).Specs.AllCode();
 
     [Fact]
     public void each_slice_is_a_feature_class_and_each_test_a_fact()
@@ -76,9 +76,9 @@ public class EmlangSpecWriterTests
 
         specs.Features.ShouldBe(2);
         specs.Specs.ShouldBe(3);
-        specs.Code.ShouldContain("[BobcatFeature(\"AddItemToOrder\")]");
-        specs.Code.ShouldContain("public class add_item_to_order(AppFixture app) : KitchenSpec(app)");
-        specs.Code.ShouldContain("public async Task add_to_an_existing_order()");
+        specs.AllCode().ShouldContain("[BobcatFeature(\"AddItemToOrder\")]");
+        specs.AllCode().ShouldContain("public class add_item_to_order(AppFixture app) : KitchenSpec(app)");
+        specs.AllCode().ShouldContain("public async Task add_to_an_existing_order()");
     }
 
     [Fact]
@@ -86,7 +86,10 @@ public class EmlangSpecWriterTests
     {
         var code = EmlangSpecWriterTests.code(Kitchen);
 
-        code.ShouldContain("var theOrder = Guid.NewGuid(); // \"order-123\" in the model");
+        code.ShouldContain("var theOrder = Guid.CreateVersion7(); // \"order-123\" in the model");
+
+        // `Order / Order started` is a swimlane, not a declared stream (bobcat#439); the Order
+        // aggregate is inferred from what the events are about (bobcat#444)
         code.ShouldContain("await GivenEvents<Order>(theOrder, Specify<OrderStarted>().With(x => x.OrderId, theOrder));");
     }
 
@@ -95,16 +98,23 @@ public class EmlangSpecWriterTests
     {
         var code = EmlangSpecWriterTests.code(Kitchen);
 
+        // The command already names its stream's identity, OrderId for the inferred Order, so it
+        // gets no second Id (bobcat#438, bobcat#444)
         code.ShouldContain("await WhenReceived(Specify<AddItemToOrder>().With(x => x.OrderId, theOrder).With(x => x.Item, \"margherita\"));");
+        code.ShouldNotContain("x => x.Id, theOrder");
         code.ShouldContain("ThenEvents(Specify<ItemAdded>().With(x => x.OrderId, theOrder).With(x => x.Item, \"margherita\"));");
     }
 
     [Fact]
     public void a_view_is_checked_on_the_document_its_identity_names()
     {
-        EmlangSpecWriterTests.code(Kitchen).ShouldContain(
-            "await ThenReadModel<OrderSummary>(theOrder, Specify<OrderSummary>().With(x => x.OrderId, theOrder)"
-            + ".With(x => x.Items, new List<string> { \"margherita/9.99\" }).With(x => x.Total, 9.99m));");
+        // Past 120 columns, the chain puts each member on its own line
+        unindented(code(Kitchen)).ShouldContain(unindented("""
+            await ThenReadModel<OrderSummary>(theOrder, Specify<OrderSummary>()
+                .With(x => x.OrderId, theOrder)
+                .With(x => x.Items, new List<string> { "margherita/9.99" })
+                .With(x => x.Total, 9.99m));
+            """));
     }
 
     [Fact]
@@ -118,14 +128,15 @@ public class EmlangSpecWriterTests
     [Fact]
     public void a_view_test_that_expects_nothing_and_names_no_identity_is_no_read_model_at_all()
     {
-        generate(Kitchen).Specs.Code.ShouldContain("await ThenNoReadModel<OrderSummary>();");
+        generate(Kitchen).Specs.AllCode().ShouldContain("await ThenNoReadModel<OrderSummary>();");
     }
 
     [Fact]
     public void the_stubs_carry_what_the_specs_need_streams_document_ids_and_events_only_a_given_names()
     {
-        var stubs = generate(Kitchen).Stubs.Stubs;
+        var stubs = generate(Kitchen).Stubs.AllStubs();
 
+        // The stream is the inferred Order aggregate, a class (bobcat#444), not the swimlane (bobcat#439)
         stubs.ShouldContain("public class Order { public Guid Id { get; set; } }");
         stubs.ShouldContain("public record OrderSummary(Guid Id, Guid OrderId, List<string> Items, decimal Total);");
 
@@ -134,8 +145,27 @@ public class EmlangSpecWriterTests
     }
 
     [Fact]
-    public void an_empty_given_with_an_act_names_the_stream_the_act_starts()
+    public void an_empty_given_with_an_act_names_the_declared_stream_the_act_starts()
     {
+        var board = EventModelersJsonReader.Read(
+            """
+            { "slices": [ { "title": "Open", "aggregates": ["Cart"],
+                "commands": [ { "title": "Open Cart", "aggregate": "Cart", "fields": [ { "name": "aggregateId", "type": "UUID" } ] } ],
+                "events": [ { "title": "Cart Opened", "aggregate": "Cart", "fields": [ { "name": "aggregateId", "type": "UUID" } ] } ],
+                "specifications": [ { "title": "Opens",
+                  "given": [],
+                  "when": [ { "title": "Open Cart", "type": "COMMAND", "fields": [] } ],
+                  "then": [ { "title": "Cart Opened", "type": "EVENT", "fields": [] } ] } ] } ] }
+            """);
+        var model = EmlangImport.ToCurated(board, "Carts").Model;
+
+        EmlangSpecWriter.Write(board, model, "Carts").AllCode().ShouldContain("await GivenNoEventsFor<Cart>(theCart);");
+    }
+
+    [Fact]
+    public void an_empty_given_with_no_declared_stream_arranges_nothing()
+    {
+        // A swimlane is not a stream (bobcat#439), so there is no stream type to name as empty
         code(
             """
             slices:
@@ -150,7 +180,7 @@ public class EmlangSpecWriterTests
                       - e: Order / Order started
                         props:
                           order id: o-1
-            """).ShouldContain("await GivenNoEventsFor<Order>(theOrder);");
+            """).ShouldNotContain("GivenNoEventsFor");
     }
 
     [Fact]
@@ -249,7 +279,7 @@ public class EmlangSpecWriterTests
 
         var reported = new List<string>();
         string? feature = null;
-        foreach (var line in specs.Code.Split('\n'))
+        foreach (var line in specs.AllCode().Split('\n'))
         {
             if (System.Text.RegularExpressions.Regex.Match(line, @"\[BobcatFeature\(""([^""]*)""\)\]") is { Success: true } f)
                 feature = f.Groups[1].Value;
@@ -296,8 +326,11 @@ public class EmlangSpecWriterTests
                           order id: order-123
             """);
 
-        code.ShouldContain("await GivenReadModel<AvailableDrivers>(Specify<AvailableDrivers>().With(x => x.Id, theOrder)"
-                           + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
+        unindented(code).ShouldContain(unindented("""
+            await GivenReadModel<AvailableDrivers>(Specify<AvailableDrivers>()
+                .With(x => x.Id, theOrder)
+                .With(x => x.Drivers, new List<string> { "driver-456" }));
+            """));
         code.ShouldNotContain("TODO: the model arranges");
     }
 
@@ -319,9 +352,12 @@ public class EmlangSpecWriterTests
                             - driver-456
             """);
 
-        specs.Code.ShouldContain("await ThenSingleReadModel<AvailableDrivers>(Specify<AvailableDrivers>()"
+        specs.AllCode().ShouldContain("await ThenSingleReadModel<AvailableDrivers>(Specify<AvailableDrivers>()"
                                  + ".With(x => x.Drivers, new List<string> { \"driver-456\" }));");
         specs.Report.ShouldContain(x => x.Contains("checked as the only AvailableDrivers"));
+
+        // The spec says so as well, so the assumption is never silent (bobcat#450)
+        specs.AllCode().ShouldContain("// The example names no AvailableDrivers identity, so this checks the only one.");
     }
 
     [Fact]
@@ -401,8 +437,201 @@ public class EmlangSpecWriterTests
                           order id: order-123
                           vehicle: van
                           seats: 2
-            """).Stubs.Stubs;
+            """).Stubs.AllStubs();
 
         stubs.ShouldContain("public record AssignDriver(Guid OrderId, string Vehicle, int Seats);");
+    }
+
+    [Fact]
+    public void the_fixture_collection_and_base_class_are_in_test_support_and_nowhere_else()
+    {
+        // bobcat#440: starting the real host is an edit to one file that holds nothing else
+        var (specs, _) = generate(Kitchen);
+
+        var support = specs.Files.Single(x => x.Path == EmlangSpecWriter.TestSupportFile).Content;
+        support.ShouldContain("namespace Kitchen.Specs;");
+        support.ShouldContain("public class AppFixture : IAsyncLifetime");
+        support.ShouldContain("public class KitchenCollection : ICollectionFixture<AppFixture>;");
+        support.ShouldContain("public abstract class KitchenSpec(AppFixture app) : WolverineSpec(app.Host), IAsyncLifetime");
+        support.ShouldContain("public async ValueTask InitializeAsync() => await ResetAsync();");
+
+        // The shape of the real host, for each store, in the placeholder's comments
+        support.ShouldContain("MartenDaemonModeIsSolo");
+        support.ShouldContain("Polecat");
+        support.ShouldContain("Fisher");
+
+        specs.Files.Where(x => x.Path != EmlangSpecWriter.TestSupportFile)
+            .ShouldAllBe(x => !x.Content.Contains("class AppFixture"));
+    }
+
+    [Fact]
+    public void each_slice_has_a_spec_file_in_its_chapters_folder_and_namespace()
+    {
+        var board = EmlangReader.Read(Kitchen);
+        var model = EmlangImport.ToCurated(board, "Kitchen").Model;
+        var specs = EmlangSpecWriter.Write(board, model, "Kitchen", "Kitchen.Specs");
+
+        // Slices take the board's chapter, which is the top-level slices: key
+        var add = specs.Files.Single(x => x.Path == "AddItem/AddItemToOrder.cs");
+        add.Content.ShouldContain("namespace Kitchen.Specs.AddItem;");
+        add.Content.ShouldContain("[BobcatFeature(\"AddItemToOrder\")]");
+
+        // bobcat#449: the slice by the type that bears its name, for navigation and the spec manifest
+        add.Content.ShouldContain("[BobcatSlice(SliceType = typeof(AddItemToOrder))]");
+
+        // The stubs' namespaces, root and every chapter, come in once, in GlobalUsings.cs, so a
+        // specification file is just its header, its namespace and its specifications
+        add.Content.ShouldNotContain("using ");
+        add.Content.ShouldStartWith("// Generated by `bobcat import-event-model --specs` from the model's examples. Nothing regenerates it.\n\nnamespace Kitchen.Specs.AddItem;");
+
+        var usings = specs.Files.Single(x => x.Path == EmlangSpecWriter.GlobalUsingsFile).Content;
+        usings.ShouldContain("global using Kitchen;");
+        usings.ShouldContain("global using Kitchen.AddItem;");
+        usings.ShouldContain("global using Wolverine.Bobcat;");
+        usings.ShouldNotContain("System.Collections.Generic");
+        specs.Files.Count.ShouldBe(4);
+    }
+
+    [Fact]
+    public void test_support_starts_the_applications_own_host_through_alba()
+    {
+        var board = EmlangReader.Read(Kitchen);
+        var model = EmlangImport.ToCurated(board, "Kitchen").Model;
+        string support(string? store) => EmlangSpecWriter.Write(board, model, "Kitchen", store: store)
+            .Files.Single(x => x.Path == EmlangSpecWriter.TestSupportFile).Content;
+
+        var plain = support(null);
+        plain.ShouldContain("public IAlbaHost Host { get; private set; } = null!;");
+        plain.ShouldContain("=> Host = await AlbaHost.For<Program>(x => x.ConfigureServices(services =>");
+        plain.ShouldContain("services.RunWolverineInSoloMode();");
+        plain.ShouldContain("opts.ApplicationAssembly = typeof(Program).Assembly");
+        plain.ShouldNotContain("TODO");
+        plain.ShouldNotContain("placeholder");
+
+        // No store named: each store's way of running its daemon, as a comment, so it still compiles
+        plain.ShouldContain("//   Marten:  services.MartenDaemonModeIsSolo();");
+        plain.ShouldNotContain("using Marten;");
+
+        var marten = support("marten");
+        marten.ShouldContain("using Marten;");
+        marten.ShouldContain("        services.MartenDaemonModeIsSolo();");
+
+        support("fisher").ShouldContain("// Fisher's AddAsyncDaemon() already runs in solo mode");
+        Should.Throw<ArgumentOutOfRangeException>(() => support("raven"));
+    }
+
+    private const string Clinic =
+        """
+        slices:
+          Book visit:
+            steps:
+              - c: Book visit
+              - e: Visit / Visit booked
+            tests:
+              Booked:
+                when:
+                  - c: Book visit
+                    props:
+                      visit id: visit-1
+                      vet: Dr. Hollis
+                      room: 3
+                      notes: ""
+                then:
+                  - e: Visit / Visit booked
+                    props:
+                      visit id: visit-1
+                      vet: Dr. Hollis
+                      room: 3
+                      notes: ""
+              Short:
+                when:
+                  - c: Book visit
+                    props:
+                      visit id: visit-2
+                      vet: Dr. Hollis
+                then:
+                  - e: Visit / Visit booked
+                    props:
+                      visit id: visit-2
+                      vet: Dr. Hollis
+        """;
+
+    // Each line without its indentation, so an expectation need not know how deep the generated code sits
+    internal static string unindented(string text)
+        => string.Join("\n", text.Replace("\r\n", "\n").Split('\n').Select(x => x.TrimStart()));
+
+    [Fact]
+    public void an_object_with_more_than_three_members_is_a_property_value_table()
+    {
+        var code = unindented(generate(Clinic).Specs.AllCode());
+
+        code.ShouldContain(unindented(""""
+                           ThenEvents(Specify<VisitBooked>($$"""
+                               | Property | Value        |
+                               | VisitId  | {{theVisit}} |
+                               | Vet      | Dr. Hollis   |
+                               | Room     | 3            |
+                               | Notes    | EMPTY        |
+                               """));
+                           """"));
+
+        // Three or fewer members stay a With chain
+        code.ShouldContain("ThenEvents(Specify<VisitBooked>().With(x => x.VisitId, theVisit).With(x => x.Vet, \"Dr. Hollis\"));");
+    }
+
+    [Fact]
+    public void a_chain_that_would_run_past_120_columns_puts_each_member_on_its_own_line()
+    {
+        var code = generate("""
+            slices:
+              Accept assignment:
+                steps:
+                  - c: Accept home check assignment
+                  - e: Home check / Home check assignment accepted
+                tests:
+                  Accepted:
+                    when:
+                      - c: Accept home check assignment
+                        props:
+                          home check id: check-1
+                          volunteer application id: application-1
+                    then:
+                      - e: Home check / Home check assignment accepted
+            """).Specs.AllCode();
+
+        var lines = code.Replace("\r\n", "\n").Split('\n');
+        lines.Where(x => x.Length > 120).ShouldBeEmpty();
+
+        unindented(code).ShouldContain(unindented("""
+            await WhenReceived(Specify<AcceptHomeCheckAssignment>()
+                .With(x => x.HomeCheckId, theHomeCheck)
+                .With(x => x.VolunteerApplicationId, theVolunteerApplication));
+            """));
+    }
+
+    [Fact]
+    public void a_value_with_no_faithful_cell_keeps_the_chain_one_member_to_a_line()
+    {
+        var code = unindented(generate(Clinic.Replace("vet: Dr. Hollis", "vet: \"Dr. | Hollis\"")).Specs.AllCode());
+
+        code.ShouldContain(unindented("""
+                           Specify<VisitBooked>()
+                               .With(x => x.VisitId, theVisit)
+                               .With(x => x.Vet, "Dr. | Hollis")
+                           """));
+    }
+
+    [Fact]
+    public void the_spec_namespace_defaults_to_the_application_namespace_dot_specs()
+    {
+        var (specs, _) = generate(Kitchen);
+        specs.Files.Single(x => x.Path == EmlangSpecWriter.TestSupportFile).Content.ShouldContain("namespace Kitchen.Specs;");
+    }
+
+    [Fact]
+    public void every_minted_id_is_a_version_7_guid()
+    {
+        // A random v4 Guid fragments a stream table's index, and generated code is copied
+        generate(Kitchen).Specs.AllCode().ShouldNotContain("Guid.NewGuid()");
     }
 }

@@ -69,21 +69,68 @@ public class CSharpModelWriterTests
         var model = imported();
         var generated = CSharpModelWriter.Write(model);
 
-        var expected = new[]
+        // Events are field-less: a board carries no field information for them, and inventing one
+        // would be a guess every consumer then has to un-guess
+        var events = new[] { "DogLiked", "DogPassed", "MutualMatchDetected" };
+        foreach (var name in events)
         {
-            "SwipeOnDog", "DetectMutualMatch", "DogLiked", "DogPassed", "MutualMatchDetected", "MatchList"
-        };
-
-        foreach (var name in expected)
-        {
-            generated.Stubs.ShouldContain($"public record {name};");
+            generated.AllStubs().ShouldContain($"public record {name};");
         }
 
-        generated.StubCount.ShouldBe(expected.Length);
+        // Commands and read models the model names no identity for are identified by Id, the
+        // Wolverine convention (bobcat#438), so a specification can address their stream
+        foreach (var name in new[] { "SwipeOnDog", "DetectMutualMatch", "MatchList" })
+        {
+            generated.AllStubs().ShouldContain($"public record {name}(Guid Id);");
+        }
 
-        // Field-less, because a board carries no field information — inventing an Id would be a
-        // guess with no basis that every consumer then has to un-guess.
-        generated.Stubs.ShouldNotContain("public record SwipeOnDog(");
+        // The streams those events are on, inferred from what they are about (bobcat#444): classes,
+        // because an aggregate is the write model the store folds
+        foreach (var name in new[] { "Dog", "MutualMatch" })
+        {
+            generated.AllStubs().ShouldContain($"public class {name} {{ public Guid Id {{ get; set; }} }}");
+        }
+
+        generated.StubCount.ShouldBe(events.Length + 3 + 2);
+    }
+
+    [Fact]
+    public void each_slice_gets_a_file_in_its_chapters_folder_and_namespace()
+    {
+        // bobcat#441: one file per slice, holding what the slice produces, under Features/{Chapter}
+        var generated = CSharpModelWriter.Write(imported());
+
+        var swipe = generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/SwipeOnDog.cs");
+        swipe.Content.ShouldContain("namespace K9Crush.TheSwiper;");
+        swipe.Content.ShouldContain("public record SwipeOnDog(Guid Id);");
+        swipe.Content.ShouldContain("public record DogLiked;");
+        swipe.Content.ShouldContain("public record DogPassed;");
+
+        generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/DetectMutualMatch.cs")
+            .Content.ShouldContain("public record MutualMatchDetected;");
+        generated.StubFiles.Single(x => x.Path == "Features/TheSwiper/MatchList.cs")
+            .Content.ShouldContain("public record MatchList(Guid Id);");
+
+        // The definition stays one file in the root namespace and brings every chapter in
+        generated.Definition.ShouldContain("using K9Crush.TheSwiper;");
+        generated.Definition.ShouldContain("namespace K9Crush;");
+    }
+
+    [Fact]
+    public void an_identity_the_model_names_means_no_default_id()
+    {
+        var generated = CSharpModelWriter.Write(imported(
+            """
+            slices:
+              Ordering:
+                steps:
+                  - c: Customer/Cancel order
+                    props: { id: uuid }
+                  - e: Customer/Order cancelled
+            """));
+
+        generated.AllStubs().ShouldContain("public record CancelOrder(Guid Id);");
+        generated.AllStubs().ShouldNotContain("Guid Id, Guid Id");
     }
 
     [Fact]
@@ -173,7 +220,7 @@ public class CSharpModelWriterTests
         var generated = CSharpModelWriter.Write(model);
 
         generated.Definition.ShouldContain(""".HandledBy("SwipeEndpoint")""");
-        generated.Stubs.ShouldNotContain("public record SwipeEndpoint;");
+        generated.AllStubs().ShouldNotContain("public record SwipeEndpoint;");
         compile(generated).ShouldBeEmpty();
     }
 
@@ -199,7 +246,7 @@ public class CSharpModelWriterTests
                   - e: Member/2FA Enrolled
             """));
 
-        generated.Stubs.ShouldContain("public record _2FAEnrolled;");
+        generated.AllStubs().ShouldContain("public record _2FAEnrolled;");
         compile(generated).ShouldBeEmpty();
     }
 
@@ -255,7 +302,7 @@ public class CSharpModelWriterTests
     /// compiling either alone would prove nothing about the pair, and it is the pair an import
     /// writes.
     /// </remarks>
-    private static IReadOnlyList<Diagnostic> compile(CSharpModelWriter.Output generated)
+    internal static IReadOnlyList<Diagnostic> compile(CSharpModelWriter.Output generated)
         => compilation(generated).GetDiagnostics()
             .Where(d => d.Severity >= DiagnosticSeverity.Warning)
             .ToList();
@@ -263,17 +310,35 @@ public class CSharpModelWriterTests
     private static CSharpCompilation compilation(CSharpModelWriter.Output generated)
         => CSharpCompilation.Create(
             "ImportedModel" + Guid.NewGuid().ToString("N"),
-            [
-                CSharpSyntaxTree.ParseText(generated.Stubs),
-                CSharpSyntaxTree.ParseText(generated.Definition)
-            ],
+            generated.StubFiles.Concat(generated.DefinitionFiles).Select(x => CSharpSyntaxTree.ParseText(x.Content, path: x.Path))
+                .Append(CSharpSyntaxTree.ParseText(generated.Definition)),
             references(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
     /// <summary>
     /// Compile, load and run the generated definition, returning the descriptor it declares.
     /// </summary>
-    private static EventModelDescriptor build(CSharpModelWriter.Output generated)
+    /// <summary>Compile and load the generated code, then run every definition in it on a builder of its own.</summary>
+    internal static IReadOnlyList<(EventModelDefinition Definition, EventModelDescriptor Model)> buildAll(CSharpModelWriter.Output generated)
+    {
+        using var stream = new MemoryStream();
+        var emitted = compilation(generated).Emit(stream);
+        emitted.Success.ShouldBeTrue("the generated code must compile: "
+                                     + string.Join(Environment.NewLine, emitted.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+
+        return Assembly.Load(stream.ToArray()).GetTypes()
+            .Where(t => typeof(EventModelDefinition).IsAssignableFrom(t))
+            .Select(t => (EventModelDefinition)Activator.CreateInstance(t)!)
+            .Select(d =>
+            {
+                var builder = new EventModelBuilder();
+                d.Configure(builder);
+                return (d, builder.Build(d.Name ?? "Application"));
+            })
+            .ToList();
+    }
+
+    internal static EventModelDescriptor build(CSharpModelWriter.Output generated)
     {
         using var stream = new MemoryStream();
         var emitted = compilation(generated).Emit(stream);

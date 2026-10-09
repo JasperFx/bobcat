@@ -506,9 +506,10 @@ public class EmlangInTheWildTests
     [Fact]
     public void the_stub_file_writes_positional_records_for_elements_with_fields()
     {
-        var stubs = CSharpModelWriter.Write(import(TwoDocuments), "Kitchen").Stubs;
+        var stubs = CSharpModelWriter.Write(import(TwoDocuments), "Kitchen").AllStubs();
 
-        stubs.ShouldContain("public record PlaceOrder(Guid OrderId, decimal Total);");
+        // The model marks no identity on the command, so it also gets the conventional Id (bobcat#438)
+        stubs.ShouldContain("public record PlaceOrder(Guid Id, Guid OrderId, decimal Total);");
         stubs.ShouldContain("public record PizzaBaked;");
         stubs.ShouldContain("using System;");
     }

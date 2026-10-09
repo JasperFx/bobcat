@@ -90,6 +90,40 @@ public class EventStoresTests
         ex.Message.ShouldContain("no public 'Events' member");
     }
 
+    /// <summary>A session as the stores shape one, with the full event operations FetchLatest is on.</summary>
+    public interface IFakeOperationsSession : IStorageOperations
+    {
+        IEventStoreOperations Events { get; }
+    }
+
+    [Fact]
+    public async Task fetches_the_latest_aggregate_through_the_sessions_event_operations()
+    {
+        // wolverine#4921: FetchLatest, the store's own answer whatever the projection lifecycle
+        var id = Guid.NewGuid();
+        var expected = new Account { Id = id };
+
+        var events = Substitute.For<IEventStoreOperations>();
+        events.FetchLatest<Account>(id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Account?>(expected));
+        var session = Substitute.For<IFakeOperationsSession>();
+        session.Events.Returns(events);
+
+        var database = Substitute.For<IEventDatabase>();
+        var store = Substitute.For<IEventStore<IFakeOperationsSession, IFakeOperationsSession>>();
+        store.AllDatabases().Returns(new ValueTask<IReadOnlyList<IEventDatabase>>([database]));
+        store.OpenSession(database).Returns(session);
+
+        (await EventStores.FetchLatestAsync<Account>(store, id)).ShouldBeSameAs(expected);
+        await session.Received(1).DisposeAsync();
+    }
+
+    [Fact]
+    public void a_session_without_event_operations_is_reported_not_guessed()
+    {
+        Should.Throw<InvalidOperationException>(() => EventStoreSessions.EventStoreOperationsOf(new object()))
+            .Message.ShouldContain("IEventStoreOperations");
+    }
+
     // --- reset convention ---------------------------------------------------------------------
 
     [Fact]

@@ -214,8 +214,8 @@ public class EventModelersJsonReaderTests
         var specs = EmlangSpecWriter.Write(board, model, "Shop");
 
         specs.Specs.ShouldBe(2);
-        specs.Code.ShouldContain("ThenRefusedWith(\"Quantity over limit\");");
-        specs.Code.ShouldContain("await WhenReceived(Specify<AddItem>().With(x => x.CartId, theCart).With(x => x.Quantity, 2));");
+        specs.AllCode().ShouldContain("ThenRefusedWith(\"Quantity over limit\");");
+        specs.AllCode().ShouldContain("await WhenReceived(Specify<AddItem>().With(x => x.CartId, theCart).With(x => x.Quantity, 2));");
     }
 
     private sealed class EmlangRefComparer : IEqualityComparer<EmlangRef>

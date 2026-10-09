@@ -66,6 +66,33 @@ public sealed class Specified<T> : IPartialObject
     /// </summary>
     public Specified<T> With(string path, object? value) => with(path, value);
 
+    /// <summary>
+    /// Check members with assertions on them: <c>.Check(x =&gt; x.Age.ShouldBe(52), x =&gt; x.Tags.ShouldContain("vip"))</c>
+    /// (bobcat#450). A plain <c>ShouldBe</c> is the same as <c>.With</c>; any other assertion is a
+    /// <see cref="MemberCheck" />, shown in the member table as it reads, such as <c>should contain vip</c>.
+    /// A check only verifies, so an object with one cannot be built.
+    /// </summary>
+    public Specified<T> Check(params Expression<Action<T>>[] checks)
+    {
+        foreach (var check in checks)
+        {
+            var (path, expected) = MemberChecks.Read(check);
+            with(path, expected);
+        }
+
+        return this;
+    }
+
+    /// <summary>Specify the member at <paramref name="path"/> with table cell text, read with the cell rules.</summary>
+    internal Specified<T> WithCell(string path, string cell)
+    {
+        var index = _values.FindIndex(x => string.Equals(x.Path, path, StringComparison.OrdinalIgnoreCase));
+        var specified = new SpecifiedValue(path, cell, IsText: true);
+        if (index >= 0) _values[index] = specified;
+        else _values.Add(specified);
+        return this;
+    }
+
     /// <summary>Build a <typeparamref name="T"/>, filling the members this does not specify.</summary>
     /// <param name="unspecified">The fill policy; <see cref="PredictableValues"/> when omitted.</param>
     public T Build(IUnspecifiedValues? unspecified = null) => (T)PartialObjects.Build(this, unspecified);
@@ -91,6 +118,51 @@ public static class Specifications
 {
     /// <summary>Start a partial <typeparamref name="T"/>; add members with <c>.With(...)</c>.</summary>
     public static Specified<T> Specify<T>() => new();
+
+    /// <summary>
+    /// A partial <typeparamref name="T"/> written as a table, for an object with more members than a
+    /// <c>.With(...)</c> chain reads well with: either two columns headed <c>Property | Value</c>, one
+    /// member per row, or the members as headers over a single row of values.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// await WhenReceived(Specify&lt;ScheduleVisit&gt;($$"""
+    ///     | Property | Value         |
+    ///     | VisitId  | {{theVisit}}  |
+    ///     | Vet      | Dr. Hollis    |
+    ///     | Room     | 3             |
+    ///     | Notes    | EMPTY         |
+    ///     """));
+    /// </code>
+    /// </example>
+    /// <remarks>
+    /// Cells are read with the table rules (<c>NULL</c>, <c>EMPTY</c>, relative times), and a blank
+    /// cell is not specified. Add members after the table with <c>.With(...)</c> as usual.
+    /// </remarks>
+    /// <exception cref="SpecCriticalException">The table describes more than one object.</exception>
+    public static Specified<T> Specify<T>(StepTable table) => fromTable<T>(table);
+
+    /// <summary>
+    /// A partial <typeparamref name="T"/> to check against, written as assertions on its members:
+    /// <c>Specify&lt;Dog&gt;(x =&gt; x.Age.ShouldBe(52), x =&gt; x.Name.ShouldStartWith("Re"))</c> (bobcat#450). The
+    /// report shows it as the same member table as <c>.With</c> or a table, each assertion as it reads.
+    /// </summary>
+    public static Specified<T> Specify<T>(params Expression<Action<T>>[] checks) => new Specified<T>().Check(checks);
+
+    private static Specified<T> fromTable<T>(StepTable table)
+    {
+        var objects = PartialObjects.FromTable(typeof(T), table);
+        if (objects.Count != 1)
+        {
+            throw new SpecCriticalException(
+                $"Specify<{typeof(T).Name}>(table) describes one object, but the table has {objects.Count} rows. " +
+                "Use a Property | Value table, or a single row under the member headers.");
+        }
+
+        var specified = new Specified<T>();
+        foreach (var value in objects[0].Values) specified.WithCell(value.Path, (string)value.Value!);
+        return specified;
+    }
 }
 
 /// <summary>A partial object read from a table: its values are cell text.</summary>
@@ -116,13 +188,14 @@ public sealed class TablePartialObject : IPartialObject
 public static class PartialObjects
 {
     /// <summary>
-    /// Whether <paramref name="table"/> runs vertically: exactly two columns headed <c>field</c> and
-    /// <c>value</c> (ignoring case), one member per row. The convention <c>Given {event} occurred</c>
+    /// Whether <paramref name="table"/> runs vertically: exactly two columns headed <c>field</c> (or
+    /// <c>property</c>) and <c>value</c>, ignoring case, one member per row. The convention <c>Given {event} occurred</c>
     /// set, now shared by every table that describes one object.
     /// </summary>
     public static bool IsVertical(StepTable table)
         => table.Headers.Count == 2
-           && table.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+           && (table.Headers[0].Trim().Equals("field", StringComparison.OrdinalIgnoreCase)
+               || table.Headers[0].Trim().Equals("property", StringComparison.OrdinalIgnoreCase))
            && table.Headers[1].Trim().Equals("value", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
@@ -167,7 +240,14 @@ public static class PartialObjects
     /// <param name="unspecified">The fill policy; <see cref="UnspecifiedValues"/> when omitted.</param>
     /// <param name="step">The step text, so a failure names the step to go and fix.</param>
     public static object Build(IPartialObject partial, IUnspecifiedValues? unspecified = null, string? step = null)
-        => ObjectConstruction.Build(partial.Type, partial.Values, unspecified ?? UnspecifiedValues, step);
+    {
+        if (partial.Values.FirstOrDefault(x => x.Value is MemberCheck) is { } check)
+            throw new SpecCriticalException(
+                $"{partial.Type.Name}.{check.Path} is a check ({check.Value}), not a value, so this {partial.Type.Name} cannot be built. "
+                + "Checks are for what a specification expects; give a value with .With(...) to build one.");
+
+        return ObjectConstruction.Build(partial.Type, partial.Values, unspecified ?? UnspecifiedValues, step);
+    }
 
     /// <summary>
     /// The fill policy every build uses when it is given none (bobcat#421): <see cref="PredictableValues"/>
@@ -196,6 +276,7 @@ public static class PartialObjects
     private static string formatValue(Type root, SpecifiedValue value)
     {
         if (value.IsText) return ((string?)value.Value ?? "").Trim();
+        if (value.Value is MemberCheck check) return check.Description;
 
         ScenarioValues.LearnMember(root, value.Path, value.Value);
         return ScenarioValues.Format(value.Value);
