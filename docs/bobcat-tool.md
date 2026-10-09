@@ -236,6 +236,11 @@ value, and the spec report shows it in the same member table as it reads (`shoul
 with the assertion's own message when it fails. `.Check(...)` adds the same to a `.With(...)` chain.
 Checks only verify, so an object with one cannot be built as a command or an arranged event.
 
+The checks are expression trees, and before C# 14 an expression tree cannot leave out an optional argument,
+which every Shouldly assertion has (`customMessage`). On net10.0's default language version you write
+`x => x.Age.ShouldBe(52)`; on net9.0, or with `LangVersion` pinned below 14, spell the optional arguments
+out: `x => x.Age.ShouldBe(52, null)`.
+
 A view example that names no identity is checked as the only one of its type, and the generated spec
 says so in a comment, so the assumption is never silent.
 
