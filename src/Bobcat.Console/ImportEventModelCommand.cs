@@ -258,7 +258,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var (written, kept) = writeAll(directory, specs.Files, force);
         System.Console.WriteLine(
             $"Wrote {written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
-            + $"Start the application's host in {EmlangSpecWriter.TestSupportFile}, and they run against it. The spec project needs "
+            + $"{EmlangSpecWriter.TestSupportFile} starts the application's own host through Alba, so its Program must be public. The spec project needs "
             + "xunit.v3, Microsoft.NET.Test.Sdk and xunit.runner.visualstudio (see the bobcat-tool docs), or Rider and Visual Studio find no tests.");
         if (kept == 0) return;
 
