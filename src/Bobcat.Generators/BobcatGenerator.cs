@@ -2086,8 +2086,11 @@ internal static class Diagnostics
 
     /// <summary>
     /// A <c>[BobcatStep]</c> template placeholder that names no parameter of the method
-    /// (issue #339). Numbered from 027 deliberately: 023–026 belong to issue #324's
-    /// spec-ownership manifest, which is in flight.
+    /// (issue #339). Numbered from 027 deliberately: 023 and 024 are the slice-attribute
+    /// diagnostics, and 025/026 are retired — they belonged to the <c>*.spec-ownership.yaml</c>
+    /// manifest, which went with the curated authoring surface (issue #406). Neither number is
+    /// reused: a diagnostic id a consumer has suppressed or searched for must keep meaning one
+    /// thing.
     /// </summary>
     /// <remarks>
     /// Before #339 a placeholder survived for two different reasons — the argument was not a
