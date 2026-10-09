@@ -497,6 +497,34 @@ public class SupervisorTests
     }
 
     [Fact]
+    public void the_test_that_was_running_when_the_worker_died_is_explained_too()
+    {
+        // Nodes arrive in-progress then final, and the in-progress update is recorded — so the
+        // test executing when the process died has an entry already and the "missing" pass
+        // skips it. It used to reach a report as an indeterminate with no explanation: the one
+        // test a reader most wants explained.
+        var running = new WorkerOutcome("running", "Arithmetic: slow", WorkerTestState.Indeterminate);
+
+        var completed = MtpWorkerClient.Complete(
+            ["running", "never reached"], [running], "the worker exited with code 70");
+
+        completed.ShouldAllBe(o => o.ErrorMessage!.Contains("code 70"));
+    }
+
+    [Fact]
+    public void a_verdict_the_worker_did_give_is_never_overwritten_by_the_fault()
+    {
+        var failed = new WorkerOutcome("decided", "Arithmetic: adds", WorkerTestState.Failed)
+        {
+            ErrorMessage = "expected 4, got 5"
+        };
+
+        MtpWorkerClient.Complete(["decided"], [failed], "the worker exited with code 70")
+            .ShouldHaveSingleItem()
+            .ErrorMessage.ShouldBe("expected 4, got 5");
+    }
+
+    [Fact]
     public async Task a_dead_shared_worker_is_replaced_before_the_next_retry()
     {
         var factory = new FakeWorkerFactory

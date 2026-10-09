@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Shouldly;
 
 namespace Bobcat.Mtp.Tests;
@@ -279,5 +280,89 @@ public class TestHostEndToEndTests
         {
             File.Delete(lifecycle);
         }
+    }
+
+    private static readonly Regex ansi = new("\u001b\\[[0-9;]*[a-zA-Z]", RegexOptions.Compiled);
+
+    /// <summary>
+    /// What the platform printed under a test's <c>Standard output</c> heading, or empty when it
+    /// printed none — including when it never printed the test at all, which is what it does for
+    /// a test that passed. Measured on the pinned 1.9.1.
+    /// </summary>
+    private static string standardOutputOf(string output, string displayName)
+    {
+        // The platform's own terminal output is coloured, and on CI it stays coloured even with
+        // stdout redirected — GitHub Actions is a terminal as far as it is concerned. So the
+        // escape codes come off before anything is matched; without this the whole block reads as
+        // absent on CI and present locally. (Bobcat's own rendering carries none, by
+        // PlainSpecText's construction — this is the reporter printing around it.)
+        var lines = ansi.Replace(output, "").Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+
+        var test = lines.FindIndex(l => l.StartsWith("failed ") && l.Contains(displayName));
+        if (test < 0) return "";
+
+        var heading = lines.FindIndex(test, l => l.Trim() == "Standard output");
+        if (heading < 0) return "";
+
+        // The scenario rendering has blank lines of its own, so the block ends where the
+        // platform's own structure resumes: the error-output heading, or the next unindented line.
+        var end = lines.FindIndex(heading + 1, l =>
+            l.Trim() == "Error output" || (l.Length > 0 && !char.IsWhiteSpace(l[0])));
+
+        return string.Join("\n", lines.Skip(heading + 1).Take((end < 0 ? lines.Count : end) - heading - 1));
+    }
+
+    [Fact]
+    public async Task a_failing_scenario_carries_its_specification_on_its_own_test_node()
+    {
+        // Issue #445. The host suppresses its own console rendering, so before this the whole
+        // specification behind a red scenario was rendered nowhere a developer could read it.
+        var (_, output) = await runHost();
+
+        var attached = standardOutputOf(output, "Arithmetic: subtraction disagrees");
+
+        attached.ShouldContain("Feature: Arithmetic");
+        attached.ShouldContain("9 - 4 gives 4");
+        attached.ShouldContain("expected '4', got '5'");
+    }
+
+    [Fact]
+    public async Task the_block_is_found_when_the_platform_colours_its_output()
+    {
+        // The shape CI produces, forced on a laptop: the platform colours its terminal output
+        // when it believes it is on GitHub Actions, redirected stdout or not. This was found the
+        // hard way — the test above passed locally and failed on CI, where every line it matched
+        // on was wrapped in escape codes.
+        var (_, output) = await runHost(new Dictionary<string, string> { ["GITHUB_ACTIONS"] = "true" });
+
+        output.ShouldContain("\u001b[", customMessage: "the platform did not colour its output, so this proves nothing");
+
+        standardOutputOf(output, "Arithmetic: subtraction disagrees")
+            .ShouldContain("9 - 4 gives 4");
+    }
+
+    [Fact]
+    public async Task a_passing_scenario_is_never_printed_though_its_node_carries_it_too()
+    {
+        // The platform latches output to failures on its own, which is the rule #409 chose for
+        // reports — so nothing here has to decide it a second time.
+        var (_, output) = await runHost();
+
+        output.ShouldContain("succeeded: 3");
+        standardOutputOf(output, "Arithmetic: addition works").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task the_projected_lanes_switch_turns_the_gherkin_lanes_output_off_too()
+    {
+        // One variable, one meaning in both lanes: off, a node carries the scenario's reports
+        // only — and these scenarios have none, so there is nothing to attach at all.
+        var (_, output) = await runHost(
+            new Dictionary<string, string> { [SpecOutput.ScenarioVariable] = "0" });
+
+        standardOutputOf(output, "Arithmetic: subtraction disagrees").ShouldBeEmpty();
+
+        // Still a proper failure report — it is the specification that is withheld, not the verdict.
+        output.ShouldContain("result: expected 4, got 5");
     }
 }

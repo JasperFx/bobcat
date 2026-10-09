@@ -271,9 +271,21 @@ public sealed class MtpWorkerClient : IWorkerClient
     /// an absence of evidence, not evidence of failure.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The worker's fault is stamped onto each synthesized outcome, so a report can say *why*
     /// a specific test has no result. "Indeterminate" on its own tells a user nothing they can
     /// act on.
+    /// </para>
+    /// <para>
+    /// <b>An outcome already in the table can need the same stamp.</b> Nodes arrive at least
+    /// twice — in-progress, then final — and the in-progress update is recorded, so a test the
+    /// worker was executing when it died HAS an entry: Indeterminate, with no
+    /// <c>error.message</c> because an in-progress node carries none. The "missing" pass below
+    /// skips it for having an entry, and it used to reach a report as an indeterminate with no
+    /// explanation — the one test a reader most wants explained, since it is the one that was
+    /// running when the process died. It is also where a caller dereferencing
+    /// <c>ErrorMessage</c> met a null.
+    /// </para>
     /// </remarks>
     internal static IReadOnlyList<WorkerOutcome> Complete(
         IReadOnlyList<string>? requested, IReadOnlyList<WorkerOutcome> outcomes, string? fault)
@@ -283,6 +295,12 @@ public sealed class MtpWorkerClient : IWorkerClient
         var reported = outcomes.Select(o => o.Uid).ToHashSet(StringComparer.Ordinal);
         var explanation = fault ?? "the worker finished without reporting a result for this test";
 
+        // Never overwrite something the worker did say — only fill a silence.
+        var reconciled = outcomes.Select(outcome =>
+            isTerminal(outcome.State) || !string.IsNullOrWhiteSpace(outcome.ErrorMessage)
+                ? outcome
+                : outcome with { ErrorMessage = explanation });
+
         var missing = requested
             .Where(uid => !reported.Contains(uid))
             .Select(uid => new WorkerOutcome(uid, uid, WorkerTestState.Indeterminate)
@@ -290,7 +308,7 @@ public sealed class MtpWorkerClient : IWorkerClient
                 ErrorMessage = explanation
             });
 
-        return outcomes.Concat(missing).ToList();
+        return reconciled.Concat(missing).ToList();
     }
 
     /// <summary>

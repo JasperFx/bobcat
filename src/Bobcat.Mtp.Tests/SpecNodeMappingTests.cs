@@ -42,6 +42,16 @@ public class SpecNodeMappingTests
         results.Counts.Wrongs++;
     }
 
+    private static void failingWithALogLine(ExecutionResults results)
+    {
+        var step = results.StartStep("s1", 0);
+        step.StepText = "the invoice is posted";
+        step.AddLog("posted to /invoices as 7f3a");
+        step.MarkCells(new CellResult("status", ResultStatus.failed) { Expected = "Posted", Actual = "Rejected" });
+        step.MarkSuccess();
+        results.Counts.Wrongs++;
+    }
+
     private static void throwing(ExecutionResults results)
     {
         var step = results.StartStep("s1", 0);
@@ -213,5 +223,43 @@ public class SpecNodeMappingTests
 
         metadata.ShouldContain(m => m.Key == "bobcat.outcome" && m.Value == "NotRun");
         metadata.ShouldContain(m => m.Key == "bobcat.notRunReason" && m.Value == "the broker is down");
+    }
+
+    [Fact]
+    public void the_node_carries_the_scenario_as_plain_text()
+    {
+        var output = SpecNodeMapping.OutputFor("Arithmetic", result(failingComparison));
+
+        output.ShouldNotBeNull();
+        output.ShouldContain("Feature: Arithmetic");
+        output.ShouldContain("the total should be 4");
+        output.ShouldContain("expected '4', got '5'");
+    }
+
+    [Fact]
+    public void a_log_line_a_step_wrote_travels_on_the_node_with_it()
+    {
+        // The Gherkin lane needs no SpecOutput sink for this: ExecutionContext.Log puts the line
+        // on the step result, so the render model carries it and the renderer prints it.
+        SpecNodeMapping.OutputFor("Invoicing", result(failingWithALogLine))
+            .ShouldContain("posted to /invoices as 7f3a");
+    }
+
+    [Fact]
+    public void the_output_is_text_a_ci_log_and_grep_can_read()
+    {
+        // An IDE's test pane and a CI log show the text and none of the escape codes.
+        SpecNodeMapping.OutputFor("Arithmetic", result(failingComparison))
+            .ShouldNotContain("\u001b");
+    }
+
+    [Fact]
+    public void rendering_the_output_can_never_fail_the_run()
+    {
+        // A results object the renderer cannot make sense of must cost the node its output and
+        // nothing else — the same invariant every other reporting channel here carries.
+        var empty = new ScenarioResult("Scenario", [], new ExecutionResults("Scenario", DateTimeOffset.UtcNow));
+
+        Should.NotThrow(() => SpecNodeMapping.OutputFor("Arithmetic", empty));
     }
 }
