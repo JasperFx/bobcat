@@ -1,6 +1,5 @@
 using Bobcat.Engine;
 using Bobcat.Rendering;
-using Spectre.Console;
 
 namespace Bobcat;
 
@@ -89,11 +88,7 @@ public static class SpecOutput
     {
         if (_sink.Value is null) return;
 
-        foreach (var report in spec.Reports)
-        {
-            Write("");
-            foreach (var line in TextGrid.Render(report)) Write(line);
-        }
+        foreach (var line in PlainSpecText.ReportLines(spec)) Write(line);
     }
 
     /// <summary>
@@ -119,47 +114,17 @@ public static class SpecOutput
     /// <summary>
     /// Write one scenario as plain text — the same rendering as the exit-time console, through a
     /// colourless console: a test runner's output pane shows the text and none of the escape codes,
-    /// and the ✓/✗ glyphs survive on their own.
+    /// and the ✓/✗ glyphs survive on their own. <see cref="PlainSpecText"/> owns the rendering,
+    /// because <c>Bobcat.Mtp</c> sends the identical text to a Gherkin scenario's test node
+    /// (issue #445) and two copies of one rendering is how the two lanes come to disagree.
     /// </summary>
     public static void WriteScenario(SpecRender spec)
     {
         if (_sink.Value is null) return;
 
-        string text;
-        try
-        {
-            var writer = new StringWriter();
-            var console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.No,
-                ColorSystem = ColorSystemSupport.NoColors,
-                Interactive = InteractionSupport.No,
-                Out = new AnsiConsoleOutput(writer),
-
-                // Spectre's CI enrichers (GitHub Actions among them) turn ANSI back on after the
-                // settings above, which put escape codes into every test's output on CI
-                Enrichment = new ProfileEnrichment { UseDefaultEnrichers = false }
-            });
-            // Wide, because a test pane wraps on its own and a hard wrap here splits a step from its timing.
-            console.Profile.Width = 240;
-
-            // Reports go after, through TextGrid, as they always have here: a fixed-width grid with
-            // the disagreeing row marked in text is what a CI log and grep can read.
-            var renderer = new CommandLineRenderer(console) { IncludeReports = false };
-            if (spec.FeatureTitle is { Length: > 0 } feature) renderer.RenderFeatureHeader(feature);
-            renderer.Render(spec);
-
-            text = writer.ToString();
-        }
-        catch
-        {
-            // Rendering can never be the cause of a red test either.
-            return;
-        }
-
-        foreach (var line in text.TrimEnd().Split('\n')) Write(line.TrimEnd('\r'));
-
-        WriteReports(spec);
+        // One rendering for both lanes (issue #445): Bobcat.Mtp attaches the same text to a
+        // Gherkin scenario's test node, so a change here cannot reach one lane and skip the other.
+        foreach (var line in PlainSpecText.Lines(spec)) Write(line);
     }
 
     /// <summary>

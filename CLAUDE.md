@@ -1011,11 +1011,20 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     in exactly the place a failure is read. The row that disagreed is marked `<-- FAILED` in text
     rather than coloured, so it is findable by eye in a CI log and by grep — neither of which sees
     an ANSI code. Same model, two outputs, which is the split `SpecRender` exists for.
-  - **Not done here:** `IStepContext.Log` forwards to `SpecOutput` but no Gherkin run opens a sink
-    today — `Bobcat.Mtp` is its own test framework and has no output helper to hand over. The
-    forward is in place so that the day one exists, nothing has to be remembered. And the projected
-    lane still carries no log lines on its *results* (they are output, not a result field), which is
-    a larger change than #409 needed.
+  - **The Gherkin lane followed, and needed no sink at all (issue #445).** `IStepContext.Log`
+    forwards to `SpecOutput`, and no Gherkin run opens one — `Bobcat.Mtp` is its own test framework
+    with no output helper to hand over. It turned out not to need one: `ExecutionContext.Log` already
+    puts the line on the **step result**, so `SpecRender` carries it and the renderer prints it, and
+    the whole scenario goes onto the MTP test node instead (see the MTP host section). The forward
+    stays for the day some Gherkin front end does have a sink. The projected lane still carries no
+    log lines on its *results* (they are output, not a result field), which is a larger change than
+    either issue needed.
+  - **`PlainSpecText` is where the plain-text rendering lives, and it is shared on purpose.** #409
+    put it inside `SpecOutput`; #445 needed the identical text for a test node, in another package,
+    and two copies of one rendering is the defect `StepCells.From` already taught (#396) — so it was
+    lifted into `Bobcat.Rendering` and `SpecOutput` delegates. `PlainSpecTextTests` asserts
+    `SpecOutput.WriteScenario` writes exactly `PlainSpecText.Lines`, which is what keeps a change to
+    one lane's output from skipping the other.
 - **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
 - **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
 - **`StepKind`** / **`FailureLevel`** — drives automatic failure classification
@@ -1309,6 +1318,19 @@ public static class SpecsRunner
 - MTP has no "passed on retry" state, so `RunOutcome` travels as `bobcat.outcome` /
   `bobcat.attempts` metadata rather than being collapsed into a clean pass.
 - Discovery **never starts resources** — IDEs discover on every build.
+- **A failed scenario carries its whole specification on its own node (issue #445).**
+  `SpecNodeMapping.OutputFor` renders it through `PlainSpecText` and `PublishingObserver` attaches it
+  as `StandardOutputProperty`; the platform prints it under `Standard output` for a failure and
+  carries it silently for a pass, which is the latching #409 chose for reports arriving for free.
+  Before it, the host suppressed its own console rendering (`SuppressConsoleOutput = true`, rightly
+  — a test host's stdout is the platform's) and attached no output property, so the specification
+  behind a red Gherkin scenario was rendered **nowhere**: `dotnet test` and every IDE showed a
+  one-line failure message and no steps. This is #409's argument reaching the lane that could not
+  take it then, and it reuses `BOBCAT_SPEC_OUTPUT` with the same meaning — off, the node carries the
+  scenario's reports only — because one variable read two ways is worse than two variables.
+  `StandardOutputProperty` is `[Experimental("TPEXP")]` on the pinned 1.9.1 and the suppression is
+  deliberate: the pin cannot move (xunit.v3 3.2.2 builds against it), and if the type goes the cost
+  is a compile error in one file and a capability that degrades to what the lane had before.
 - **A scenario the run planned and could not execute is reported as a node in `error`**, with
   the harness exception (a `ScenarioNotRunException` wrapping the real cause) and
   `bobcat.outcome = NotRun` (issue #123). `PublishingObserver.RunFinished` publishes one per

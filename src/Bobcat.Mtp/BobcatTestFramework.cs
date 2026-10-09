@@ -213,6 +213,22 @@ public sealed class BobcatTestFramework : ITestFramework, IDataProducer
             foreach (var trait in SpecNodeMapping.Traits(result.Tags)) properties.Add(trait);
             foreach (var metadata in SpecNodeMapping.OutcomeMetadata(result)) properties.Add(metadata);
 
+            // The specification itself, on the node, so an IDE's test pane and the terminal's
+            // failure block show what ran and not only that it failed (issue #445). The platform
+            // prints this for a failed test and carries it silently for a passing one, which is
+            // the same latching #409 chose for reports.
+            //
+            // StandardOutputProperty is [Experimental] on the 1.9.1 the repo is pinned to (xunit.v3
+            // 3.2.2 builds against that platform, so the pin cannot move). Accepted deliberately:
+            // should it change or go, the cost is a compile error in this file, and the capability
+            // degrades to what the lane had before — nothing.
+#pragma warning disable TPEXP
+            if (SpecNodeMapping.OutputFor(featureTitle, result) is { Length: > 0 } output)
+            {
+                properties.Add(new StandardOutputProperty(output));
+            }
+#pragma warning restore TPEXP
+
             var uid = SpecNodeMapping.Uid(featureTitle, result.Title);
             lock (_reported) _reported.Add(uid);
 

@@ -94,6 +94,32 @@ $ ./MySpecs --list-tests
   Calculator: Subtract two numbers
 ```
 
+### Reading a failure
+
+A failed scenario carries its whole specification on its own test node, and the platform prints it
+under `Standard output` — the steps, anything a step logged through `IStepContext.Log`, the
+comparison grids, and any `IScenarioReport` tables the scenario produced:
+
+```
+failed Arithmetic: subtraction disagrees (0ms)
+  9 - 4 gives 4 — result: expected 4, got 5
+  Standard output
+    Feature: Arithmetic
+    ════════════════════
+
+      subtraction disagrees FAILED
+      ───────────────────────────────
+        ✗ Then  9 - 4 gives 4
+            ✗ result: expected '4', got '5'
+
+      Failed with Rights: 0, Wrongs: 2, Errors: 0
+```
+
+Per test, which is the grain of a scenario — so an IDE's test pane shows it against the one
+scenario you clicked. A passing scenario's node carries the same text and the platform does not
+print it; `BOBCAT_SPEC_OUTPUT=0` leaves the node with the scenario's reports only. It is the same
+variable, with the same meaning, as in [the projected lane](marker-steps.md).
+
 ### Configuring the suite
 
 Most real suites register resources. Mark any static method with `[BobcatConfiguration]` and the

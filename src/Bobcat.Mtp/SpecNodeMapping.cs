@@ -1,5 +1,6 @@
 using System.Text;
 using Bobcat.Engine;
+using Bobcat.Rendering;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
 using Microsoft.Testing.Platform.Extensions.Messages;
@@ -33,6 +34,58 @@ public static class SpecNodeMapping
     /// </summary>
     public static string DisplayName(string featureTitle, string scenarioTitle)
         => $"{featureTitle}: {scenarioTitle}";
+
+    /// <summary>
+    /// The scenario as plain text, for the node's own standard output (issue #445) — steps, log
+    /// lines, comparison grids and the scenario's <c>IScenarioReport</c> tables. Null when there is
+    /// nothing to attach.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the node and not the process.</b> The host already renders every scenario to its own
+    /// stdout, which <c>dotnet test</c> interleaves at process level and an IDE files in a general
+    /// output pane. The platform's output block for one test is the one place a developer looks
+    /// when that test goes red, and it is per test — exactly the grain of a scenario. This is
+    /// issue #409's argument, arriving in the lane that could not take it then.
+    /// </para>
+    /// <para>
+    /// <b>No sink is needed for the Gherkin lane's log lines.</b>
+    /// <c>ExecutionContext.Log</c> puts them on the step result, so <see cref="SpecRender"/>
+    /// carries them and the renderer prints them. <c>SpecOutput</c>'s sink exists for the projected
+    /// lane, which has no step results to carry anything — so this closes the recorded gap without
+    /// a second mechanism for it.
+    /// </para>
+    /// <para>
+    /// <b>The same switch as the projected lane.</b> <c>BOBCAT_SPEC_OUTPUT</c> governs both: off, a
+    /// node carries only the scenario's reports, which is precisely what a projected test's output
+    /// carries then. One variable, one meaning — reusing it is worth nothing if the two lanes read
+    /// it differently.
+    /// </para>
+    /// <para>
+    /// <b>It cannot fail a run.</b> Guarded like every other reporting channel: a specification
+    /// must not go red because the account of it could not be rendered.
+    /// </para>
+    /// </remarks>
+    public static string? OutputFor(string featureTitle, ScenarioResult result)
+    {
+        try
+        {
+            var spec = SpecRender.FromResults(result.Title, result.Results, featureTitle);
+
+            var lines = SpecOutput.WritesScenarios
+                ? PlainSpecText.Lines(spec)
+                : PlainSpecText.ReportLines(spec);
+
+            if (lines.Count == 0) return null;
+
+            var text = string.Join(Environment.NewLine, lines).Trim();
+            return text.Length == 0 ? null : text;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Gherkin tags as MTP metadata. This is the channel the #43 spike found survives every
