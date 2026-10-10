@@ -64,6 +64,16 @@ public static class ObjectSetVerification
         => Cells(actual, expected, (item, i) => PartialMatching.Differences(item, expected[i]), noun, mode);
 
     /// <summary>
+    /// <see cref="Verify(IReadOnlyList{object}, IReadOnlyList{object}, string, SetMode)" /> for items that carry
+    /// tags (JasperFx/wolverine#4865) — the events a command appended, with the tags they were appended with.
+    /// An expectation that names tags (<see cref="ITaggedExpectation" />) matches only an item whose tags,
+    /// from <paramref name="tagsOf"/>, are exactly those, in any order; its row shows both sides' tags.
+    /// </summary>
+    public static TableRun Verify(IReadOnlyList<object> actual, IReadOnlyList<object> expected, string noun,
+        SetMode mode, Func<object, IReadOnlyList<object>?> tagsOf)
+        => cells(actual, expected, (item, i) => PartialMatching.Differences(item, expected[i], tagsOf(item)), noun, mode, tagsOf);
+
+    /// <summary>
     /// The general form: <paramref name="expected"/> items may be whole objects, <see cref="IExpectedValue"/>s
     /// or partial objects; <paramref name="mode"/> says whether order matters and whether items nobody
     /// expected are allowed.
@@ -81,6 +91,15 @@ public static class ObjectSetVerification
         Func<object, int, IReadOnlyList<ValueDifference>> compare,
         string noun,
         SetMode mode)
+        => cells(actual, expected, compare, noun, mode, null);
+
+    private static TableRun cells(
+        IReadOnlyList<object> actual,
+        IReadOnlyList<object> expected,
+        Func<object, int, IReadOnlyList<ValueDifference>> compare,
+        string noun,
+        SetMode mode,
+        Func<object, IReadOnlyList<object>?>? tagsOf)
     {
         var exact = new bool[expected.Count, actual.Count];
         for (var i = 0; i < expected.Count; i++)
@@ -177,7 +196,9 @@ public static class ObjectSetVerification
                 // Shows what HAPPENED. The two agree on everything the comparison judged, but a member
                 // the caller chose to ignore — a minted timestamp — only has a real value on this side.
                 // For a partial expectation it is only the members the expectation names.
-                var happened = PartialMatching.DescribeActual(actual[position], item);
+                var happened = tagsOf is null
+                    ? PartialMatching.DescribeActual(actual[position], item)
+                    : PartialMatching.DescribeActual(actual[position], item, tagsOf(actual[position]));
                 run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.success, happened)
                 {
                     Expected = PartialMatching.DescribeExpected(item),
@@ -214,13 +235,27 @@ public static class ObjectSetVerification
     /// failed with what was found when present.
     /// </summary>
     public static TableRun Absent(IReadOnlyList<object> actual, IReadOnlyList<object> forbidden, string noun)
+        => absent(actual, forbidden, noun, null);
+
+    /// <summary>
+    /// <see cref="Absent(IReadOnlyList{object}, IReadOnlyList{object}, string)" /> for items that carry tags
+    /// (JasperFx/wolverine#4865): a forbidden item that names tags forbids only an item carrying exactly those.
+    /// </summary>
+    public static TableRun Absent(IReadOnlyList<object> actual, IReadOnlyList<object> forbidden, string noun,
+        Func<object, IReadOnlyList<object>?> tagsOf)
+        => absent(actual, forbidden, noun, tagsOf);
+
+    private static TableRun absent(IReadOnlyList<object> actual, IReadOnlyList<object> forbidden, string noun,
+        Func<object, IReadOnlyList<object>?>? tagsOf)
     {
         var run = new TableRun([noun, ValuesColumn]);
         for (var i = 0; i < forbidden.Count; i++)
         {
             var item = forbidden[i];
             var type = PartialMatching.ExpectedType(item);
-            var found = actual.FirstOrDefault(a => item is Type ? a.GetType() == type : PartialMatching.Matches(a, item));
+            var found = actual.FirstOrDefault(a => item is Type
+                ? a.GetType() == type
+                : tagsOf is null ? PartialMatching.Matches(a, item) : PartialMatching.Matches(a, item, tagsOf(a)));
             var expected = PartialMatching.DescribeExpected(item);
 
             if (found is null)
@@ -240,7 +275,9 @@ public static class ObjectSetVerification
             run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.failed)
             {
                 Expected = expected,
-                Actual = item is Type ? ScenarioValues.DescribeProperties(found) : PartialMatching.DescribeActual(found, item),
+                Actual = item is Type
+                    ? ScenarioValues.DescribeProperties(found)
+                    : tagsOf is null ? PartialMatching.DescribeActual(found, item) : PartialMatching.DescribeActual(found, item, tagsOf(found)),
                 RowIndex = i
             });
         }

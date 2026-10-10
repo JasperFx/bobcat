@@ -109,6 +109,9 @@ public abstract partial class Fixture
     protected static Specified<T> Specify<T>(params System.Linq.Expressions.Expression<Action<T>>[] checks)
         => Specifications.Specify(checks);
 
+    /// <inheritdoc cref="Specifications.Tagged(object, object[])" />
+    protected static TaggedValue Tagged(object value, params object[] tags) => Specifications.Tagged(value, tags);
+
     /// <summary>
     /// Compare a collection against a table of expected rows and render the comparison as a grid —
     /// <c>[SetVerification]</c> as a method call, for a step that is handed its table.

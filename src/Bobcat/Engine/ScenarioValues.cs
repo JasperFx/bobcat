@@ -58,12 +58,14 @@ public static class ScenarioValues
     /// </remarks>
     public static T Declare<T>(T value, string name) where T : notnull
     {
-        if (!isNameable(value)) return value;
+        // A Guid-based strong-typed id is declared through its Guid, which is how it is named (bobcat#433)
+        object named = StrongTypedIds.TryUnwrap(value, out var inner) && inner is Guid ? inner : value;
+        if (!isNameable(named)) return value;
 
         if (_declared.Count >= DeclaredLimit) _declared.Clear();
-        _declared[value] = name;
+        _declared[named] = name;
 
-        if (SpecReport.IsRecording) SpecReport.For<NamedValuesReport>().Assign(value, name, overwrite: true);
+        if (SpecReport.IsRecording) SpecReport.For<NamedValuesReport>().Assign(named, name, overwrite: true);
         return value;
     }
 
@@ -99,6 +101,16 @@ public static class ScenarioValues
         {
             if (SpecReport.IsRecording && SpecReport.For<NamedValuesReport>().NameOf(value) is { } name) return name;
             if (value is Guid guid) return guid.ToString()[..8] + "…";
+        }
+
+        // bobcat#433: a strong-typed id reads by its Guid's name, or as ScreeningId(SCR-104) -- never as
+        // ScreeningId(Value: ...), however the type is built
+        if (value is not null && StrongTypedIds.TryUnwrap(value, out var inner))
+        {
+            if (inner is Guid id && id != Guid.Empty && SpecReport.IsRecording
+                && SpecReport.For<NamedValuesReport>().NameOf(id) is { } idName) return idName;
+
+            return $"{displayName(value.GetType())}({Format(inner)})";
         }
 
         return CheckFormat.Of(value);
@@ -160,6 +172,9 @@ public static class ScenarioValues
             foreach (var property in properties)
             {
                 var child = read(property, value);
+
+                // A Guid-based strong-typed id is named through its Guid, so both read the same
+                if (child is not null && StrongTypedIds.TryUnwrap(child, out var inner) && inner is Guid) child = inner;
                 if (child is not null && isNameable(child)) names.Assign(child, NameFor(property, type), overwrite: false);
             }
         }
@@ -238,7 +253,7 @@ public static class ScenarioValues
         return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
                || type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset)
                || type == typeof(DateOnly) || type == typeof(TimeOnly) || type == typeof(TimeSpan)
-               || type == typeof(Uri) || typeof(Type).IsAssignableFrom(type);
+               || type == typeof(Uri) || typeof(Type).IsAssignableFrom(type) || StrongTypedIds.Is(type);
     }
 }
 

@@ -23,9 +23,32 @@ public static class PartialMatching
         _ => ObjectComparison.Differences(actual, expected)
     };
 
+    /// <summary>
+    /// <see cref="Differences(object, object)" />, and — when <paramref name="expected"/> names tags
+    /// (<see cref="ITaggedExpectation" />) — a <c>tags</c> difference unless <paramref name="actualTags"/>
+    /// is exactly those, in any order.
+    /// </summary>
+    public static IReadOnlyList<ValueDifference> Differences(object actual, object expected, IReadOnlyList<object>? actualTags)
+    {
+        var differences = Differences(actual, expected);
+        var expectedTags = Tagging.ExpectedTagsOf(expected);
+        if (expectedTags.Count == 0 || Tagging.AreExactly(actualTags, expectedTags)) return differences;
+
+        return differences
+            .Append(new ValueDifference(TagsPath, new TagList(expectedTags), new TagList(actualTags ?? Array.Empty<object>())))
+            .ToList();
+    }
+
     /// <summary>Whether <paramref name="actual"/> is the expected type and agrees on what <paramref name="expected"/> judges.</summary>
     public static bool Matches(object actual, object expected)
         => actual.GetType() == ExpectedType(expected) && Differences(actual, expected).Count == 0;
+
+    /// <summary><see cref="Matches(object, object)" />, its tags judged too when <paramref name="expected"/> names any.</summary>
+    public static bool Matches(object actual, object expected, IReadOnlyList<object>? actualTags)
+        => actual.GetType() == ExpectedType(expected) && Differences(actual, expected, actualTags).Count == 0;
+
+    /// <summary>The path a tag difference is reported under.</summary>
+    public const string TagsPath = "tags";
 
     /// <summary>The type an expectation is for.</summary>
     public static Type ExpectedType(object expected) => expected switch
@@ -40,13 +63,31 @@ public static class PartialMatching
     /// The expectation's values on one line: a partial object's specified members only
     /// (<c>TrackingNumber: 1Z999</c>), otherwise every property.
     /// </summary>
-    public static string DescribeExpected(object expected) => expected switch
+    public static string DescribeExpected(object expected)
+        => withTags(expected switch
+        {
+            IPartialObject partial => PartialObjects.DescribeValues(partial),
+            IExpectedValue value => ScenarioValues.DescribeProperties(value.Value),
+            Type => "",
+            _ => ScenarioValues.DescribeProperties(expected)
+        }, Tagging.ExpectedTagsOf(expected));
+
+    /// <summary>
+    /// <see cref="DescribeActual(object, object)" />, with <paramref name="actualTags"/> on the same line
+    /// when <paramref name="expected"/> names tags: <c>Seat: "4C", tags: [theScreeningId]</c>.
+    /// </summary>
+    public static string DescribeActual(object actual, object expected, IReadOnlyList<object>? actualTags)
+        => Tagging.ExpectedTagsOf(expected).Count == 0
+            ? DescribeActual(actual, expected)
+            : withTags(DescribeActual(actual, expected), actualTags ?? Array.Empty<object>());
+
+    // All of one object's tags on its one line, after its values (wolverine#4865)
+    private static string withTags(string values, IReadOnlyList<object> tags)
     {
-        IPartialObject partial => PartialObjects.DescribeValues(partial),
-        IExpectedValue value => ScenarioValues.DescribeProperties(value.Value),
-        Type => "",
-        _ => ScenarioValues.DescribeProperties(expected)
-    };
+        if (tags.Count == 0) return values;
+        var described = $"{TagsPath}: {Tagging.Describe(tags)}";
+        return values.Length == 0 ? described : $"{values}, {described}";
+    }
 
     /// <summary>
     /// What <paramref name="actual"/> holds, in the terms of <paramref name="expected"/>: for a partial
@@ -111,4 +152,9 @@ public static class PartialMatching
         return ObjectComparison.Compare(actual, expected).All(x => x.Matched);
     }
 
+    // A list of tags, shown as one value wherever a difference is formatted
+    private sealed class TagList(IReadOnlyList<object> tags)
+    {
+        public override string ToString() => Tagging.Describe(tags);
+    }
 }
