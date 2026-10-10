@@ -23,7 +23,7 @@ namespace Bobcat.EventModel;
 /// the sample, and <c>string</c> when neither says more (issue #422). A command, aggregate or read
 /// model whose model marks no identity also gets <c>Guid Id</c> (bobcat#438): that is Wolverine's own
 /// naming convention, so a generated specification can address the stream and a handler's
-/// <c>[WriteAggregate]</c> resolves it with nothing declared. Events get no invented fields.
+/// <c>[WriteModel]</c> resolves it with nothing declared. Events get no invented fields.
 /// </para>
 /// <para>
 /// <b>One file per slice, in a folder and namespace per chapter</b> (bobcat#441, see
@@ -194,7 +194,7 @@ public static class CSharpModelWriter
                 .ToList();
 
             // bobcat#444: a command deciding against several streams names each one's identity,
-            // {Aggregate}Id, which is how each [WriteAggregate] IEventStream<T> finds its stream
+            // {Aggregate}Id, which is how each [WriteModel] IEventStream<T> finds its stream
             foreach (var streamId in StreamIdFieldsOf(model, x).Where(id => named.All(f => f.Name != id)))
             {
                 named.Add(new StubField(streamId, "Guid"));
@@ -202,7 +202,7 @@ public static class CSharpModelWriter
 
             // bobcat#438: a command, aggregate or read model the model gives no identity is
             // identified by Id, Wolverine's own convention, so a specification can address it and
-            // [WriteAggregate] resolves it with nothing declared. A document the specs load by id
+            // [WriteModel] resolves it with nothing declared. A document the specs load by id
             // needs one whatever its kind.
             var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
             if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", "Guid"), .. named];
