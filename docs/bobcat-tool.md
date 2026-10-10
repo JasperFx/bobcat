@@ -142,6 +142,56 @@ one flag:
 bobcat import-event-model board.yaml --aggregate ConfirmAppointment=Booking AcceptHomeCheckAssignment=HomeCheck
 ```
 
+`--starts-stream Slice=Type` says that a slice **starts** a stream (bobcat#454). The slice's
+`--aggregate` overrides are then the aggregates it decides against besides, and what its examples
+give first is never joined to the stream it starts.
+
+**Import part of a board with `--chapter`.** `--chapter BookingAppointments VolunteeringAndHomeChecks`
+imports only those chapters. The rest of the board is still read, as evidence. When the only events
+an example gives before a command acts come from a chapter you left out, nothing imported shows the
+stream existing first, so the command may well start it. The import asks:
+
+```
+⚠ slice 'RequestHomeCheck' starts the HomeCheck stream? It is inferred to decide against HomeCheck,
+but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter
+'ShelterReviewsApplication', which was not imported. If it starts the stream, import with
+--starts-stream RequestHomeCheck=HomeCheck.
+```
+
+The same question is asked, without a chapter name, when no slice on the board emits the event.
+
+**`--json` for tooling** (bobcat#454). With `--json`, the files are written as usual but stdout carries
+nothing but JSON: every callout, the text report, and every file, marked `write` or `kept`. Each
+callout has a stable `code`, the aggregates it is about, the evidence it was drawn from, and the flag
+that settles it:
+
+```json
+{
+  "slice": "RequestHomeCheck",
+  "code": "stream-start-from-unimported-chapter",
+  "aggregates": [ "HomeCheck" ],
+  "message": "⚠ starts the HomeCheck stream? …",
+  "evidence": {
+    "events": [ "ApplicationReviewed" ],
+    "examples": [ "home check requested" ],
+    "chapters": [ "ShelterReviewsApplication" ]
+  },
+  "override": "--starts-stream RequestHomeCheck=HomeCheck"
+}
+```
+
+| Code | Means | Settled by |
+|---|---|---|
+| `inferred-stream-start` | No example gives the slice an earlier event on the stream, so it starts it | `--starts-stream Slice=Type` |
+| `inferred-against` | Its examples give the aggregate's events first, so it decides against it | `--aggregate Slice=Type` |
+| `stream-start-from-unimported-chapter` | Decides against an aggregate only on evidence nothing imported emits; it may start the stream | `--starts-stream Slice=Type` |
+| `stream-start-unknown` | No example says whether it starts the stream, so it is assumed to append | `--starts-stream Slice=Type` |
+| `several-streams` | Draws on several streams: several `[WriteAggregate]` streams or a DCB decider | a design decision, no flag |
+| `missing-aggregate` | No aggregate could be declared or inferred | `--aggregate Slice=Type` |
+
+The messages may be reworded; a code never is, and codes are only ever added (the same contract as
+`wolverine scaffold --json`).
+
 The generated specifications arrange events on the typed aggregate, `GivenEvents<Appointment>(…)`,
 and the act addresses it through the command's `Id`, or each `{Aggregate}Id`. A stream with no
 aggregate type, `GivenEvents(id, …)`, is left for a stream nothing names at all.

@@ -42,8 +42,22 @@ public class ImportEventModelInput
     public bool SingleDefinitionFlag { get; set; }
 
     [Description("The aggregate a slice decides against, as Slice=Type, which wins over the one inferred from the examples (bobcat#444). Several at once: --aggregate A=Order B=Order B=Customer")]
+    // A List, not an array: JasperFx's enumerable flag assigns the List<T> it builds, and a string[]
+    // property refused it with "List`1 cannot be converted to String[]", so --aggregate never parsed
     [FlagAlias("aggregate", true)]
-    public string[] AggregateFlag { get; set; } = [];
+    public List<string> AggregateFlag { get; set; } = [];
+
+    [Description("The aggregate whose stream a slice STARTS, as Slice=Type, which wins over the inference (bobcat#454). Its --aggregate overrides are then what it decides against besides")]
+    [FlagAlias("starts-stream", true)]
+    public List<string> StartsStreamFlag { get; set; } = [];
+
+    [Description("Import only these board chapters, space-separated: --chapter A B. The rest of the board is still read, so an example whose only earlier event comes from a chapter left out is called out (bobcat#454)")]
+    [FlagAlias("chapter", true)]
+    public List<string> ChapterFlag { get; set; } = [];
+
+    [Description("Write the import to stdout as JSON -- every callout with its stable code, evidence and the flag that settles it, the report, and every file -- for tooling such as Stoat, instead of the text report (bobcat#454)")]
+    [FlagAlias("json", true)]
+    public bool JsonFlag { get; set; }
 
     [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
     public bool ForceFlag { get; set; }
@@ -103,10 +117,13 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var yaml = await File.ReadAllTextAsync(input.FilePath);
 
+        // bobcat#454: with --json nothing but the JSON reaches stdout, so a tool can parse it whole
+        var run = new ImportRun(input.JsonFlag ? TextWriter.Null : System.Console.Out);
+
         var curated = EventModelFileSniffer.Sniff(yaml) switch
         {
-            EventModelFileKind.Emlang => importEmlang(input, yaml),
-            EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml),
+            EventModelFileKind.Emlang => importEmlang(input, yaml, run),
+            EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml, run),
             EventModelFileKind.Curated => refuseCurated(input.FilePath),
             _ => describeUnrecognized(input.FilePath),
         };
@@ -114,11 +131,27 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         if (curated is null) return false;
 
         var descriptor = ImportedModelMapper.ToDescriptor(curated);
-        System.Console.WriteLine(
+        run.Out.WriteLine(
             $"Model '{descriptor.Name}': {descriptor.Slices.Count} slice(s), "
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
 
-        return input.UrlFlag is null || await pushAsync(input.UrlFlag, descriptor);
+        var pushed = input.UrlFlag is null || await pushAsync(input.UrlFlag, descriptor, run.Out);
+
+        if (input.JsonFlag)
+        {
+            System.Console.WriteLine(ImportJson.Write(curated.Model, run.Callouts, run.Report, run.Files));
+        }
+
+        return pushed;
+    }
+
+    /// <summary>What one run reports: the text, or with --json the callouts, report and files the JSON carries.</summary>
+    private sealed class ImportRun(TextWriter output)
+    {
+        public TextWriter Out { get; } = output;
+        public IReadOnlyList<ImportCallout> Callouts { get; set; } = [];
+        public List<string> Report { get; } = [];
+        public List<ImportedFile> Files { get; } = [];
     }
 
     /// <summary>
@@ -151,7 +184,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         return null;
     }
 
-    private static ImportedEventModel? importEmlang(ImportEventModelInput input, string yaml)
+    private static ImportedEventModel? importEmlang(ImportEventModelInput input, string yaml, ImportRun run)
     {
         EmlangBoard board;
         try
@@ -169,7 +202,9 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         IReadOnlyList<AggregateOverride> overrides;
         try
         {
-            overrides = input.AggregateFlag.Select(AggregateOverride.Parse).ToList();
+            overrides = input.AggregateFlag.Select(AggregateOverride.Parse)
+                .Concat(input.StartsStreamFlag.Select(AggregateOverride.ParseStartsStream))
+                .ToList();
         }
         catch (FormatException e)
         {
@@ -177,9 +212,23 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             return null;
         }
 
-        var result = EmlangImport.ToCurated(board, model, input.NamespaceFlag, overrides);
+        EmlangImportResult result;
+        try
+        {
+            result = EmlangImport.ToCurated(board, model, input.NamespaceFlag, overrides, input.ChapterFlag);
+        }
+        catch (ArgumentException e) when (e.ParamName == "chapters")
+        {
+            System.Console.Error.WriteLine(e.Message.Replace($" (Parameter '{e.ParamName}')", ""));
+            return null;
+        }
 
-        foreach (var line in result.Report) System.Console.WriteLine(line);
+        // The spec writer reads the chapters imported, never the ones left out
+        board = result.Board ?? board;
+        run.Callouts = result.Callouts;
+        run.Report.AddRange(result.Report);
+
+        foreach (var line in result.Report) run.Out.WriteLine(line);
 
         var ns = input.NamespaceFlag
                  ?? CSharpModelWriter.Identifiers.Sanitize(model);
@@ -196,16 +245,16 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         // Nothing is overwritten without --force (bobcat#423): these files are where the design
         // is corrected, so a second run must not throw the corrections away
-        var (written, kept) = writeAll(outDirectory, generated.StubFiles, input.ForceFlag);
-        System.Console.WriteLine(
+        var (written, kept) = writeAll(outDirectory, generated.StubFiles, input.ForceFlag, run.Files);
+        run.Out.WriteLine(
             $"Wrote {generated.StubCount} stub type(s) in {written} file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
             + (kept > 0 ? $"; kept {kept} that already exist (--force overwrites them)." : "."));
 
         if (generated.DefinitionFiles.Count > 0)
         {
             // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
-            var (definitions, _) = writeAll(outDirectory, generated.DefinitionFiles, input.ForceFlag);
-            System.Console.WriteLine(
+            var (definitions, _) = writeAll(outDirectory, generated.DefinitionFiles, input.ForceFlag, run.Files);
+            run.Out.WriteLine(
                 $"Wrote {definitions} event model definition(s), one per chapter: "
                 + string.Join(", ", generated.DefinitionFiles.Select(x => x.Path))
                 + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
@@ -214,9 +263,9 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         else
         {
             var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
-            if (write(definitionPath, generated.Definition, input.ForceFlag))
+            if (write(definitionPath, generated.Definition, input.ForceFlag, run))
             {
-                System.Console.WriteLine(
+                run.Out.WriteLine(
                     $"Wrote the event model to {definitionPath}. The segmentation above is a set of guesses, "
                     + "so correct one with an edit rather than a re-import.");
             }
@@ -226,14 +275,14 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         {
             var specsDirectory = Path.GetFullPath(input.SpecsOutFlag
                                                   ?? Path.Combine(Path.GetDirectoryName(outDirectory) ?? outDirectory, specsNamespace));
-            writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag);
+            writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag, run);
         }
 
         return result.Model;
     }
 
     /// <returns>How many files were written and how many already existed and were kept.</returns>
-    private static (int Written, int Kept) writeAll(string directory, IEnumerable<GeneratedFile> files, bool force)
+    private static (int Written, int Kept) writeAll(string directory, IEnumerable<GeneratedFile> files, bool force, List<ImportedFile> record)
     {
         var written = 0;
         var kept = 0;
@@ -243,11 +292,13 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             if (File.Exists(path) && !force)
             {
                 kept++;
+                record.Add(new ImportedFile(path, "kept"));
                 continue;
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, file.Content); // UTF-8 without a BOM
+            record.Add(new ImportedFile(path, "write"));
             written++;
         }
 
@@ -255,25 +306,28 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     }
 
     /// <returns>Whether the file was written; an existing one is kept, and said so, unless <paramref name="force"/>.</returns>
-    private static bool write(string path, string content, bool force)
+    private static bool write(string path, string content, bool force, ImportRun run)
     {
         if (File.Exists(path) && !force)
         {
-            System.Console.WriteLine($"Kept {path}, which already exists (--force overwrites it).");
+            run.Out.WriteLine($"Kept {path}, which already exists (--force overwrites it).");
+            run.Files.Add(new ImportedFile(path, "kept"));
             return false;
         }
 
         File.WriteAllText(path, content); // UTF-8 without a BOM
+        run.Files.Add(new ImportedFile(path, "write"));
         return true;
     }
 
-    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string directory, bool force)
+    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string directory, bool force, ImportRun run)
     {
-        foreach (var line in specs.Report) System.Console.WriteLine(line);
+        run.Report.AddRange(specs.Report);
+        foreach (var line in specs.Report) run.Out.WriteLine(line);
 
         Directory.CreateDirectory(directory);
-        var (written, kept) = writeAll(directory, specs.Files, force);
-        System.Console.WriteLine(
+        var (written, kept) = writeAll(directory, specs.Files, force, run.Files);
+        run.Out.WriteLine(
             $"Wrote {written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
             + $"{EmlangSpecWriter.TestSupportFile} starts the application's own host through Alba, so its Program must be public. The spec project needs "
             + "xunit.v3, Microsoft.NET.Test.Sdk and xunit.runner.visualstudio (see the bobcat-tool docs), or Rider and Visual Studio find no tests.");
@@ -284,14 +338,14 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var sources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
         var missing = EmlangSpecWriter.MissingSpecs(model, sources);
 
-        System.Console.WriteLine($"Kept {kept} specification file(s) that already exist (--force overwrites them).");
-        System.Console.WriteLine(missing.Count == 0
+        run.Out.WriteLine($"Kept {kept} specification file(s) that already exist (--force overwrites them).");
+        run.Out.WriteLine(missing.Count == 0
             ? "Every example in the model has a specification."
             : $"{missing.Count} example(s) in the model have no specification:");
-        foreach (var name in missing) System.Console.WriteLine($"  {name}");
+        foreach (var name in missing) run.Out.WriteLine($"  {name}");
     }
 
-    private static async Task<bool> pushAsync(string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor)
+    private static async Task<bool> pushAsync(string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor, TextWriter output)
     {
         // The PUT goes to the full endpoint, not the console's base URL — the same trap
         // watch-event-model documents (base URL answers 404, endpoint answers 204).
@@ -304,7 +358,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             using var response = await client.PutAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
             if (response.IsSuccessStatusCode)
             {
-                System.Console.WriteLine($"Pushed to {url} — open {baseUrl.TrimEnd('/')}/event-model");
+                output.WriteLine($"Pushed to {url} — open {baseUrl.TrimEnd('/')}/event-model");
                 return true;
             }
 
