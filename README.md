@@ -23,7 +23,7 @@ systems with databases, message brokers, background processing, and many moving 
 - **Author** specifications in Gherkin, bound to your own test code. A Roslyn source generator
   compiles each `.feature` file into direct method calls, so there is no runtime reflection and a
   step that matches nothing is a compile error, not a runtime surprise. Or keep writing tests in
-  xUnit.net or TUnit, and let Bobcat render them as readable specifications.
+  xUnit.net, TUnit, NUnit or MSTest, and let Bobcat render them as readable specifications.
 - **Supervise** a large suite so its results can be trusted. It can split the suite across worker
   processes, isolate resources per lane, retry within budgets, and report flakiness honestly
   instead of burying it. A suite can also stay *resident*, running the specifications a run console
@@ -65,7 +65,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 | [`Bobcat.Alba`](https://www.nuget.org/packages/Bobcat.Alba/) | An ASP.NET Core application hosted in memory as a test resource |
 | [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices. Replaces the retired `Bobcat.Wolverine` |
 | [`Bobcat.EntityFrameworkCore`](https://www.nuget.org/packages/Bobcat.EntityFrameworkCore/) | The `[EfCoreEntities]` persistence recipe for data-setup tables |
-| [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) | Renders an existing xUnit.net v3 or TUnit suite as specifications, without changing how it runs |
+| [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) / [`Bobcat.NUnit`](https://www.nuget.org/packages/Bobcat.NUnit/) / [`Bobcat.MSTest`](https://www.nuget.org/packages/Bobcat.MSTest/) | Renders an existing xUnit.net v3, TUnit, NUnit or MSTest suite as specifications, without changing how it runs |
 | [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) | Imports the Event Modeling platform's own format and writes it as C# stub types plus an `EventModelDefinition` |
 | [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files, and keeps a suite Bobcat does not own available to a run console |
 

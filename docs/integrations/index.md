@@ -25,8 +25,10 @@ gone; the namespace is unchanged, so a `using Bobcat.CritterStack;` still resolv
 grammar and `CritterStackFixture` went with `Bobcat.Wolverine`.
 `Bobcat.EntityFrameworkCore` covers EF Core and is unaffected.
 
-The runner adapters — `Bobcat.Xunit` and `Bobcat.TUnit` — are a different kind of package and live
-under Guides: [Bobcat with xUnit.net](../xunit.md) and [Bobcat with TUnit](../tunit.md).
+The runner adapters — `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` and `Bobcat.MSTest` — are a
+different kind of package and live under Guides: [Bobcat with xUnit.net](../xunit.md),
+[Bobcat with TUnit](../tunit.md), [Bobcat with NUnit](../nunit.md) and
+[Bobcat with MSTest](../mstest.md).
 
 ## The shape every integration shares
 

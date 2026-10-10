@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + MSTest — projects ordinary [TestMethod] methods into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
+  </PropertyGroup>
+
+  <!--
+    DELIBERATELY NO MSTest reference (issue #386). MSTest 4 renamed its assemblies
+    (Microsoft.VisualStudio.TestPlatform.TestFramework → MSTest.TestFramework), so a type compiled
+    against one major does not load under the other. Everything that touches MSTest is in
+    buildTransitive/BobcatMSTestHooks.cs, which compiles in the CONSUMER against whichever MSTest it
+    has, and passes this assembly plain values. The consumer needs MSTest 3.10 or later, for
+    [GlobalTestInitialize] / [GlobalTestCleanup].
+  -->
+
+  <ItemGroup>
+    <!-- The global hooks travel as source: MSTest only finds them in the test assembly itself.
+         Compile Remove so this project does not compile its own consumer's copy. -->
+    <Compile Remove="buildTransitive\**" />
+    <None Include="buildTransitive\Bobcat.MSTest.props"
+          Pack="true" PackagePath="buildTransitive\Bobcat.MSTest.props" />
+    <None Include="buildTransitive\BobcatMSTestHooks.cs"
+          Pack="true" PackagePath="buildTransitive\BobcatMSTestHooks.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

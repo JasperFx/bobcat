@@ -537,6 +537,29 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm projected lane
     for it to serve yet. Nothing regresses, because the backstop below is still its whole bracket.
     The reasoning lives in `Bobcat.TUnit.csproj`, where whoever changes it will read it.
+  - **`Bobcat.NUnit` and `Bobcat.MSTest` (issues #385/#386) follow `Bobcat.TUnit`: no platform
+    reference.** Their *test projects* run on NUnit3TestAdapter 5.2.0 and MSTest.TestAdapter 3.11.1,
+    the last releases built on MTP 1.9.x (6.0 / 4.0 move to 2.x) — `src/Directory.Packages.props`
+    says so. Two decisions worth not re-deriving:
+    - **MSTest's bracket is a `[GlobalTestInitialize]`/`[GlobalTestCleanup]` pair (MSTest 3.10+),
+      shipped as SOURCE in `buildTransitive/BobcatMSTestHooks.cs`**, and `[BobcatScenario]` there is
+      a plain marker the hooks look for. MSTest only finds global hooks in the test assembly, and
+      the alternatives the issue listed both fail its "add one attribute" rule (a
+      `TestMethodAttribute` subclass replaces `[TestMethod]`; `[TestCleanup]` needs a base class).
+      **`Bobcat.MSTest` references no MSTest assembly**: MSTest 4 renamed them
+      (`Microsoft.VisualStudio.TestPlatform.TestFramework` → `MSTest.TestFramework`) and turned
+      `TestMethodAttribute.Execute` into `ExecuteAsync`, so a type compiled against one major does
+      not load under the other. The hook source compiles against the consumer's MSTest and passes
+      plain values (the outcome by *name*). Verified as a package consumer on MSTest 4.5.1 out of
+      tree, since this repo cannot run an MTP 2.x host.
+    - **Both test projects prove the failing cases in a child process** (`Probes.cs`): a probe
+      class kept out of the normal run (`[Explicit]` for NUnit, a `ConditionBaseAttribute` for
+      MSTest) is re-run by the real host with a filter, and a `ScenarioCompleted` listener writes
+      what was published. That is how "the outcome is populated in AfterTest / GlobalTestCleanup"
+      and "a throw from there fails the test" are tested rather than assumed. Note `SpecAssert`
+      records onto the **step in progress** — a probe with no open step gathers nothing.
+    - **Run by identity refuses both** (`SpecFilterArguments`), like TUnit — but unlike TUnit their
+      filter spelling *could* be verified here, since both run on MTP 1.9. That is the follow-up.
   - **`ProcessExit` stays as the backstop and now drains unconditionally.** `CloseRun` is
     idempotent, so a bracket the session hook already closed is found closed — but the old code
     returned early when it had nothing to close, which after this refactor would have let the last
@@ -1960,6 +1983,8 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these t
 | **Bobcat.EntityFrameworkCore** | net10.0 | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
+| **Bobcat.NUnit** | net9.0; net10.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
+| **Bobcat.MSTest** | net9.0; net10.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner; see below |
 

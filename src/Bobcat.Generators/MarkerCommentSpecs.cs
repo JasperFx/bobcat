@@ -217,8 +217,8 @@ internal static class MarkerCommentSpecs
                 Message =
                     $"'{declaration.Identifier.Text}' binds a slice with [BobcatSlice] but nothing opens a " +
                     "scenario, so none of its steps are recorded and it reaches the Event Model as no " +
-                    "specification at all. Add [BobcatScenario] to the class (Bobcat.Xunit, or Bobcat.TUnit " +
-                    "for a TUnit suite), or on an xUnit suite replace [Fact] + [BobcatSlice] with one " +
+                    "specification at all. Add [BobcatScenario] to the class (from Bobcat.Xunit, Bobcat.TUnit, " +
+                    "Bobcat.NUnit or Bobcat.MSTest, whichever runner the suite uses), or on an xUnit suite replace [Fact] + [BobcatSlice] with one " +
                     "[BobcatSpec(typeof(TheSlice))] on each test, which does both and cannot come apart.",
                 Where = declaration.Identifier.GetLocation()
             });
@@ -442,9 +442,25 @@ internal static class MarkerCommentSpecs
     }
 
     /// <summary>
+    /// The short names (no namespace, no <c>Attribute</c> suffix) of every attribute that makes a
+    /// method a test: xUnit's <c>Fact</c>/<c>Theory</c>, TUnit's and NUnit's <c>Test</c>, NUnit's
+    /// <c>TestCase</c>, MSTest's <c>TestMethod</c>/<c>DataTestMethod</c> (issue #386), and
+    /// <c>[BobcatSpec]</c>.
+    /// </summary>
+    /// <remarks>
+    /// A set rather than an inline pattern so a test can pin the whole of it: MSTest's spellings
+    /// were missing for months because an append-only list gives nobody a reason to look at what
+    /// is already there.
+    /// </remarks>
+    internal static readonly IReadOnlyCollection<string> TestMethodAttributeNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Fact", "Theory", "Test", "TestCase", "TestMethod", "DataTestMethod", SpecAttributeName
+    };
+
+    /// <summary>
     /// Any method a test runner would call. Matched on attribute NAME rather than on a symbol,
-    /// so the generator needs no reference to xUnit, TUnit or NUnit — Bobcat cannot depend on a
-    /// runner it is trying to be neutral about.
+    /// so the generator needs no reference to xUnit, TUnit, NUnit or MSTest — Bobcat cannot depend
+    /// on a runner it is trying to be neutral about.
     /// </summary>
     /// <remarks>
     /// <c>BobcatSpec</c> is in the list because it <em>is</em> a <c>FactAttribute</c> subclass
@@ -456,7 +472,7 @@ internal static class MarkerCommentSpecs
         => method.AttributeLists
             .SelectMany(list => list.Attributes)
             .Select(a => shortName(a.Name.ToString()))
-            .Any(n => n is "Fact" or "Theory" or "Test" or "TestCase" or SpecAttributeName);
+            .Any(TestMethodAttributeNames.Contains);
 
     /// <summary>
     /// The marker comments in a method body, in source order.
@@ -752,6 +768,8 @@ internal static class MarkerCommentSpecs
     {
         if (compilation.GetTypeByMetadataName("Bobcat.Xunit.BobcatScenarioAttribute") is not null) return "xunit";
         if (compilation.GetTypeByMetadataName("Bobcat.TUnit.BobcatScenarioAttribute") is not null) return "tunit";
+        if (compilation.GetTypeByMetadataName("Bobcat.NUnit.BobcatScenarioAttribute") is not null) return "nunit";
+        if (compilation.GetTypeByMetadataName("Bobcat.MSTest.BobcatScenarioAttribute") is not null) return "mstest";
         return "";
     }
 

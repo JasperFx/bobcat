@@ -101,6 +101,55 @@ public class MarkerCommentSpecTests
         MarkerCommentSpecs.IsTestMethod(Method("helper")).ShouldBeFalse();
     }
 
+    [Fact]
+    public void the_test_attributes_matched_are_exactly_these()
+    {
+        // The whole set, not a "contains": MSTest's TestMethod went unmatched because a list that
+        // only ever grows is never read (issue #386). Changing this set is a decision about which
+        // runners Bobcat projects, and this is where that decision becomes visible.
+        MarkerCommentSpecs.TestMethodAttributeNames.OrderBy(x => x, StringComparer.Ordinal).ShouldBe(
+        [
+            "BobcatSpec", "DataTestMethod", "Fact", "Test", "TestCase", "TestMethod", "Theory"
+        ]);
+    }
+
+    [Theory]
+    [InlineData("Bobcat.Xunit", "xunit")]
+    [InlineData("Bobcat.TUnit", "tunit")]
+    [InlineData("Bobcat.NUnit", "nunit")]
+    [InlineData("Bobcat.MSTest", "mstest")]
+    public void the_framework_is_read_off_the_adapter_the_compilation_references(string adapter, string framework)
+    {
+        // What the generated registration bakes into a spec manifest (issue #391), so that a
+        // listing names the runner whose filter spelling applies. Probed by type, like every
+        // adapter check in the generator, so it needs no reference to any runner.
+        var compilation = CSharpCompilation.Create("Suite",
+            [CSharpSyntaxTree.ParseText($"namespace {adapter} {{ public sealed class BobcatScenarioAttribute : System.Attribute {{ }} }}")],
+            [Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(object).Assembly.Location)]);
+
+        MarkerCommentSpecs.FrameworkOf(compilation).ShouldBe(framework);
+    }
+
+    [Theory]
+    [InlineData("Fact")]
+    [InlineData("Xunit.FactAttribute")]
+    [InlineData("Theory")]
+    [InlineData("Test")]
+    [InlineData("NUnit.Framework.TestAttribute")]
+    [InlineData("TestCase(1)")]
+    [InlineData("TestMethod")]
+    [InlineData("TestMethodAttribute")]
+    [InlineData("Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod")]
+    [InlineData("DataTestMethod")]
+    [InlineData("BobcatSpec")]
+    public void every_runners_spelling_is_a_test_method(string attribute)
+    {
+        var method = CSharpSyntaxTree.ParseText($"class C {{ [{attribute}] public void m() {{ }} }}")
+            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single();
+
+        MarkerCommentSpecs.IsTestMethod(method).ShouldBeTrue();
+    }
+
     [Theory]
     [InlineData("// Given a proposed appointment", "Given", "a proposed appointment")]
     [InlineData("//When the owner confirms", "When", "the owner confirms")]

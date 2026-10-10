@@ -79,6 +79,18 @@ public static class SpecFilterArguments
                     + "this repository (TUnit.Engine needs Microsoft.Testing.Platform 2.4.0, and src is pinned "
                     + "to 1.9.1). An unverified filter would run the whole suite while looking filtered.");
 
+            // Both run on Microsoft.Testing.Platform 1.9 here, so unlike TUnit their filter spelling
+            // CAN be verified in this repository — it just has not been yet (issues #385/#386 shipped
+            // the adapters, not run-by-identity). Refused until a test pins the spelling against a
+            // real host, as SpecIdentityEndToEndTests does for xUnit.
+            case SpecManifest.NUnitFramework:
+            case SpecManifest.MSTestFramework:
+                throw new NotSupportedException(
+                    $"Running {(manifest.Framework == SpecManifest.NUnitFramework ? "an NUnit" : "an MSTest")} suite "
+                    + "by specification identity is not supported yet: the adapter records and publishes its "
+                    + "specifications, but no filter spelling for it has been verified against a real test host. "
+                    + "An unverified filter would run the whole suite while looking filtered.");
+
             default:
                 throw new NotSupportedException(
                     $"'{manifest.Framework}' is not a framework Bobcat knows how to filter by specification "
