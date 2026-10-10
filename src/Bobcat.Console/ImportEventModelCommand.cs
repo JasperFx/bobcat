@@ -120,7 +120,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         // bobcat#454: with --json nothing but the JSON reaches stdout, so a tool can parse it whole
         var run = new ImportRun(input.JsonFlag ? TextWriter.Null : System.Console.Out);
 
-        var curated = EventModelFileSniffer.Sniff(yaml) switch
+        var imported = EventModelFileSniffer.Sniff(yaml) switch
         {
             EventModelFileKind.Emlang => importEmlang(input, yaml, run),
             EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml, run),
@@ -128,9 +128,11 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             _ => describeUnrecognized(input.FilePath),
         };
 
-        if (curated is null) return false;
+        if (imported is null) return false;
 
-        var descriptor = ImportedModelMapper.ToDescriptor(curated);
+        // The layout the stubs were written with, so the pushed model declares every type where the
+        // code puts it (bobcat#383)
+        var descriptor = ImportedModelMapper.ToDescriptor(imported.Model, imported.Layout);
         run.Out.WriteLine(
             $"Model '{descriptor.Name}': {descriptor.Slices.Count} slice(s), "
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
@@ -139,7 +141,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         if (input.JsonFlag)
         {
-            System.Console.WriteLine(ImportJson.Write(curated.Model, run.Callouts, run.Report, run.Files));
+            System.Console.WriteLine(ImportJson.Write(imported.Model.Model, run.Callouts, run.Report, run.Files));
         }
 
         return pushed;
@@ -159,7 +161,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     /// message at all, so the command exited 1 having printed nothing. Naming the shape it wanted
     /// is the whole fix.
     /// </summary>
-    private static ImportedEventModel? describeUnrecognized(string path)
+    private static Imported? describeUnrecognized(string path)
     {
         System.Console.Error.WriteLine(
             $"{path} is not an emlang file. Expected a top-level `slices:` map, each slice a list of "
@@ -173,7 +175,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     /// file IS an event model and the person is not confused about that, so the useful answer says
     /// what changed and what to do.
     /// </summary>
-    private static ImportedEventModel? refuseCurated(string path)
+    private static Imported? refuseCurated(string path)
     {
         System.Console.Error.WriteLine(
             $"{path} is a curated event-model file, which is no longer an authoring format "
@@ -184,7 +186,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         return null;
     }
 
-    private static ImportedEventModel? importEmlang(ImportEventModelInput input, string yaml, ImportRun run)
+    private static Imported? importEmlang(ImportEventModelInput input, string yaml, ImportRun run)
     {
         EmlangBoard board;
         try
@@ -278,8 +280,11 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag, run);
         }
 
-        return result.Model;
+        return new Imported(result.Model, generated.Layout);
     }
+
+    /// <summary>What an import produced: the model, and where its stubs put every type.</summary>
+    private sealed record Imported(ImportedEventModel Model, ModelLayout Layout);
 
     /// <returns>How many files were written and how many already existed and were kept.</returns>
     private static (int Written, int Kept) writeAll(string directory, IEnumerable<GeneratedFile> files, bool force, List<ImportedFile> record)
