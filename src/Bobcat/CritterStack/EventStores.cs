@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Tags;
 
 namespace Bobcat.CritterStack;
 
@@ -106,6 +108,40 @@ public static class EventStores
     }
 
     /// <summary>Rebuild the aggregate of a <see cref="Guid"/>-identified stream from its events.</summary>
+    /// <summary>
+    /// JasperFx/wolverine#4865. Project <typeparamref name="T"/> over the events <paramref name="query"/> selects
+    /// by their tags -- a Dynamic Consistency Boundary model, or a view built the same way -- as
+    /// <c>AggregateByTagsAsync&lt;T&gt;</c> does on Marten, Polecat and Fisher. Null when no event matches.
+    /// </summary>
+    public static async Task<T?> AggregateByTagsAsync<T>(IEventStore store, EventTagQuery query, CancellationToken token = default)
+        where T : class
+    {
+        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        await using (session.ConfigureAwait(false))
+        {
+            return await EventStoreSessions.EventStoreOperationsOf(session).AggregateByTagsAsync<T>(query, token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="query"/> as a specification reads it: <c>events tagged theScreeningId or CustomerId(CUST-104)</c>,
+    /// with the event types a condition narrows to, <c>(ScreeningScheduled, SeatReserved)</c>.
+    /// </summary>
+    public static string Describe(EventTagQuery query)
+    {
+        var groups = query.Conditions
+            .GroupBy(x => x.TagValue)
+            .Select(group =>
+            {
+                var types = group.Where(x => x.EventType is not null).Select(x => x.EventType!.Name).Distinct().ToList();
+                var tag = Bobcat.Engine.ScenarioValues.Format(group.Key);
+                return types.Count == 0 ? tag : $"{tag} ({string.Join(", ", types)})";
+            })
+            .ToList();
+
+        return groups.Count == 0 ? "no events" : $"events tagged {string.Join(" or ", groups)}";
+    }
+
     public static Task<T?> AggregateStreamAsync<T>(IEventStore store, Guid streamId, CancellationToken token = default) where T : class
         => aggregateStreamAsync(store, events => events.AggregateStreamAsync<T>(streamId, token: token));
 
@@ -216,6 +252,59 @@ public static class EventStores
             $"Event store {Describe(store)} enumerates no databases through IEventStore.AllDatabases() and the host " +
             "registers no IProjectionCoordinator, so there is nothing to wait on. Marten, Polecat and Fisher all " +
             "enumerate their databases; if this is another store, register its IProjectionCoordinator.");
+    }
+
+    /// <summary>
+    /// <see cref="WaitForNonStaleProjectionsAsync(IEventStore, TimeSpan?, IProjectionCoordinator?, CancellationToken)"/>
+    /// for one tenant: the database that tenant's events live in. A store that can say which database that is —
+    /// Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c> — waits on that one; any other waits on every
+    /// database, which holds the tenant's too.
+    /// </summary>
+    public static async Task WaitForNonStaleProjectionsAsync(
+        IEventStore store,
+        string tenantId,
+        TimeSpan? timeout = null,
+        CancellationToken token = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tenantId);
+
+        if (await tenantDatabaseAsync(store, tenantId).ConfigureAwait(false) is { } database)
+        {
+            await database.WaitForNonStaleProjectionDataAsync(timeout ?? DefaultProjectionTimeout).WaitAsync(token).ConfigureAwait(false);
+            return;
+        }
+
+        await WaitForNonStaleProjectionsAsync(store, timeout, null, token).ConfigureAwait(false);
+    }
+
+    // The database a tenant's events live in, through the store's own Storage.FindOrCreateDatabase(string)
+    // where it has one; null when the store offers no such lookup
+    private static async Task<IEventDatabase?> tenantDatabaseAsync(IEventStore store, string tenantId)
+    {
+        var storage = store.GetType().GetProperty("Storage", BindingFlags.Public | BindingFlags.Instance)?.GetValue(store);
+        var find = storage?.GetType().GetInterfaces().Prepend(storage.GetType())
+            .Select(x => x.GetMethod("FindOrCreateDatabase", [typeof(string)]))
+            .FirstOrDefault(x => x is not null);
+        if (storage is null || find is null) return null;
+
+        // ValueTask<TDatabase>, awaited through AsTask() since TDatabase is the store's own type
+        var pending = find.Invoke(storage, [tenantId])!;
+        var task = (Task)pending.GetType().GetMethod("AsTask")!.Invoke(pending, [])!;
+        await task.ConfigureAwait(false);
+        return task.GetType().GetProperty("Result")!.GetValue(task) as IEventDatabase;
+    }
+
+    /// <summary>
+    /// What kind of projection the store registers for <paramref name="projected"/> — a single-stream or a
+    /// multi-stream projection, say — or null when none builds that type. Read off the store's own description
+    /// of its subscriptions (<see cref="IEventStore.TryCreateUsage"/>).
+    /// </summary>
+    public static async Task<SubscriptionType?> ProjectionKindAsync(IEventStore store, Type projected, CancellationToken token = default)
+    {
+        var usage = await store.TryCreateUsage(token).ConfigureAwait(false);
+        var subscription = usage?.Subscriptions.FirstOrDefault(x =>
+            x.AggregateType is { } aggregate && aggregate.FullName == projected.FullName);
+        return subscription?.SubscriptionType;
     }
 
     /// <summary>

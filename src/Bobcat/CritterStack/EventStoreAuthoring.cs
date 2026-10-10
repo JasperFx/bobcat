@@ -60,6 +60,16 @@ public static class EventStoreAuthoring
         {
             var operations = eventOperationsOf(session);
 
+            // JasperFx/wolverine#4865: an arranged event with tags -- Tagged(new ScreeningScheduled(...),
+            // theScreeningId) -- is appended already built and tagged, as a DCB decision would have left it
+            if (events.Any(x => x is TaggedValue))
+            {
+                var builder = EventStoreSessions.EventStoreOperationsOf(session);
+                events = events
+                    .Select(x => x is TaggedValue tagged ? builder.BuildEvent(tagged.Value).WithTag(tagged.ExpectedTags.ToArray()) : x)
+                    .ToList();
+            }
+
             if (existing.Count == 0)
             {
                 if (streamIdentity is Guid guid) operations.StartStream(aggregateType, guid, events.ToArray());

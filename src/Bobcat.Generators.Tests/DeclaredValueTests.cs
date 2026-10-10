@@ -44,6 +44,34 @@ public class DeclaredValueTests
     }
 
     [Fact]
+    public void a_strong_typed_id_built_around_a_new_guid_is_declared_through_its_guid()
+    {
+        // bobcat#433: the id reads by the name its Guid is declared under
+        var source = generated("""
+            public readonly record struct ScreeningId(Guid Value);
+            public readonly record struct SeatId(Guid Value, int Row);
+
+            public class screenings
+            {
+                [Fact]
+                public void a_test()
+                {
+                    var theScreeningId = new ScreeningId(Guid.NewGuid());
+                    ScreeningId theOtherScreeningId = new(Guid.CreateVersion7());
+                    var notThisOne = new SeatId(Guid.NewGuid(), 3);
+                }
+            }
+            """);
+
+        source.ShouldNotBeNull();
+        source.ShouldContain("ScenarioValues.Declare(global::System.Guid.NewGuid(), \"theScreeningId\")");
+        source.ShouldContain("ScenarioValues.Declare(global::System.Guid.CreateVersion7(), \"theOtherScreeningId\")");
+
+        // A constructor taking more than the Guid is not an id around it
+        source.ShouldNotContain("\"notThisOne\"");
+    }
+
+    [Fact]
     public void a_field_or_property_on_a_specs_abstract_base_is_declared_too()
     {
         var source = generated("""

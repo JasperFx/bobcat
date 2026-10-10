@@ -36,13 +36,29 @@ public interface IPartialObject
 /// table-driven tools such as Gherkin, FitNesse and Storyteller. Where a string path is unavoidable,
 /// write it with <c>nameof</c>.
 /// </remarks>
-public sealed class Specified<T> : IPartialObject
+public sealed class Specified<T> : IPartialObject, ITaggedExpectation
 {
     private readonly List<SpecifiedValue> _values = new();
+    private IReadOnlyList<object> _tags = Array.Empty<object>();
 
     public Type Type => typeof(T);
 
     public IReadOnlyList<SpecifiedValue> Values => _values;
+
+    /// <inheritdoc />
+    public IReadOnlyList<object> ExpectedTags => _tags;
+
+    /// <summary>
+    /// The object must carry exactly these tags, in any order (JasperFx/wolverine#4865): for an event, the
+    /// Dynamic Consistency Boundary tags it was appended with —
+    /// <c>Specify&lt;SeatReserved&gt;().With(x =&gt; x.Seat, "4C").Tagged(theScreeningId, theCustomerId)</c>.
+    /// Tags only verify, so they play no part in <see cref="Build" />.
+    /// </summary>
+    public Specified<T> Tagged(params object[] tags)
+    {
+        _tags = Tagging.Check(tags);
+        return this;
+    }
 
     /// <summary>Specify <paramref name="member"/> — <c>x =&gt; x.Prop</c>, or a nested <c>x =&gt; x.Address.City</c>.</summary>
     public Specified<T> With<TValue>(Expression<Func<T, TValue>> member, TValue value)
@@ -118,6 +134,13 @@ public static class Specifications
 {
     /// <summary>Start a partial <typeparamref name="T"/>; add members with <c>.With(...)</c>.</summary>
     public static Specified<T> Specify<T>() => new();
+
+    /// <summary>
+    /// A whole object expected with exactly these tags, in any order (JasperFx/wolverine#4865):
+    /// <c>Tagged(new SeatReserved(theScreeningId, "4C"), theScreeningId, theCustomerId)</c>. The object is
+    /// compared as it would be on its own; an <c>Expect.Value(...)</c> keeps the members it ignores.
+    /// </summary>
+    public static TaggedValue Tagged(object value, params object[] tags) => TaggedValue.For(value, tags);
 
     /// <summary>
     /// A partial <typeparamref name="T"/> written as a table, for an object with more members than a

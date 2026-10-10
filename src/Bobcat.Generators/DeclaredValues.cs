@@ -17,8 +17,9 @@ namespace Bobcat.Generators;
 /// <remarks>
 /// <para>
 /// <b>Only where the name is plain from the syntax:</b> a local variable, field or property
-/// initialised straight from <c>Guid.NewGuid()</c> or <c>Guid.CreateVersion7()</c>. An assignment
-/// later, an argument, or a Guid built any other way is left alone, and is named as before.
+/// initialised straight from <c>Guid.NewGuid()</c> or <c>Guid.CreateVersion7()</c>, or from a strong-typed
+/// id built around one, <c>new ScreeningId(Guid.NewGuid())</c> (bobcat#433). An assignment later, any
+/// other argument, or a Guid built any other way is left alone, and is named as before.
 /// </para>
 /// <para>
 /// <b>Only in test code:</b> a type marked <c>[BobcatFeature]</c> (or deriving from one that is), a
@@ -45,9 +46,25 @@ internal static class DeclaredValues
         => node is InvocationExpressionSyntax
            {
                Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "NewGuid" or "CreateVersion7" },
-               ArgumentList.Arguments.Count: 0,
-               Parent: EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax or PropertyDeclarationSyntax }
-           };
+               ArgumentList.Arguments.Count: 0
+           } invocation
+           && declaredBy(invocation) is not null;
+
+    // The initializer the Guid is assigned through: straight, or as the one argument of a strong-typed id's
+    // constructor -- `var theScreeningId = new ScreeningId(Guid.NewGuid());` (bobcat#433), which names the
+    // id through its Guid
+    private static EqualsValueClauseSyntax? declaredBy(InvocationExpressionSyntax invocation)
+    {
+        var parent = invocation.Parent;
+        if (parent is ArgumentSyntax { Parent: ArgumentListSyntax { Arguments.Count: 1, Parent: BaseObjectCreationExpressionSyntax creation } })
+        {
+            parent = creation.Parent;
+        }
+
+        return parent is EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax or PropertyDeclarationSyntax } clause
+            ? clause
+            : null;
+    }
 
     public static Declaration? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
     {
@@ -60,7 +77,7 @@ internal static class DeclaredValues
         var values = ctx.SemanticModel.Compilation.GetTypeByMetadataName("Bobcat.Engine.ScenarioValues");
         if (values is null || values.GetMembers("Declare").IsEmpty) return null;
 
-        var name = invocation.Parent!.Parent switch
+        var name = declaredBy(invocation)!.Parent switch
         {
             VariableDeclaratorSyntax variable => variable.Identifier.ValueText,
             PropertyDeclarationSyntax property => property.Identifier.ValueText,
