@@ -81,6 +81,22 @@ stay field-less. A command, an aggregate or a read model gets `Guid Id` when the
 identity for it, because that is Wolverine's own convention: a generated specification can address
 the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
+**A command that starts a stream gets no `Id`** (bobcat#453). Its handler mints the new stream's id,
+a sequential Guid (`Guid.CreateVersion7()`), so an `Id` on the command would be a member nothing
+reads. An example that gives the command an id keeps it. A stream keyed by a **string**, a natural
+key such as an email, is the exception: nothing can mint one, so the command carries `string Id` and
+the new stream takes it. A generated specification for a stream start reads the new stream's id back
+from the act, rather than declaring one the handler could never see:
+
+```csharp
+await WhenReceived(Specify<SubmitApplication>().With(x => x.Areas, "dogs"));
+
+var theApplication = TheStartedStream<Application>();
+await ThenStreamIsStartedWithEvents<Application>(Specify<ApplicationSubmitted>()
+    .With(x => x.Areas, "dogs")
+    .With(x => x.ApplicationId, theApplication));
+```
+
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
 event is stored.
 

@@ -736,8 +736,17 @@ public static class EmlangSpecWriter
                     && (identityOf(stream, expected) ?? _streams.GetValueOrDefault(stream)) is { } key)
                 {
                     context.Streams.Add(stream);
-                    _actKey = key;
-                    _lines.Add($"await GivenNoEventsFor<{stream}>({key});");
+                    if (!carriesIdentity(stream, key))
+                    {
+                        // bobcat#453: the handler mints the new stream's id, so no value declared here can
+                        // reach it. The id is read back from the act instead, after it runs.
+                        _startedKey = (stream, key);
+                    }
+                    else
+                    {
+                        _actKey = key;
+                        _lines.Add($"await GivenNoEventsFor<{stream}>({key});");
+                    }
                 }
             }
 
@@ -755,6 +764,44 @@ public static class EmlangSpecWriter
 
         // The key of the stream the givens were arranged on, which the act addresses
         private string? _actKey;
+
+        // A stream the act starts under an id its handler mints, and the local that stands for it (bobcat#453)
+        private (string Stream, string Key)? _startedKey;
+
+        /// <summary>
+        /// Whether the act's command can carry the stream's identity to its handler (bobcat#453): it has
+        /// an <c>Id</c> (the conventional one, or one an example names), the stream's <c>{Aggregate}Id</c>
+        /// or <c>AggregateId</c>, an identity the model marks, or an example value that is the key.
+        /// A command that only starts a Guid-keyed stream has none of these, because its handler mints the id.
+        /// </summary>
+        private bool carriesIdentity(string stream, string key)
+        {
+            foreach (var command in test.When.Where(x => x.Kind == EmlangElementKind.Command))
+            {
+                var typeName = TypeName(command.Label);
+                if (CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return true;
+                if (context.IdentitiesOf(typeName).Count > 0) return true;
+                if (CSharpModelWriter.FieldsOf(context.Model, typeName).Any(f => f.Name is "Id" or "AggregateId" || f.Name == stream + "Id")) return true;
+                if (command.Props.Values.Any(x => _ids.TryGetValue(x, out var id) && id.Variable == key)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The local that stood for a started stream's id becomes the id the act's handler assigned
+        /// (bobcat#453), declared after the act: <c>var theApplication = TheStartedStream&lt;Application&gt;();</c>.
+        /// Dropped again, like any minted local, when no expectation uses it.
+        /// </summary>
+        private void readStartedStreamFromAct()
+        {
+            if (_startedKey is not { } started) return;
+
+            var declaration = $"var {started.Key} = ";
+            _lines.RemoveAll(x => x.StartsWith(declaration, StringComparison.Ordinal));
+            if (!_mintedLocals.Contains(started.Key)) _mintedLocals.Add(started.Key);
+            _lines.Add($"{declaration}TheStartedStream<{started.Stream}>();");
+        }
 
         // Each arranged stream (aggregate) -> its key, for a command addressing several (bobcat#444)
         private readonly Dictionary<string, string> _streamKeys = new(StringComparer.Ordinal);
@@ -790,6 +837,13 @@ public static class EmlangSpecWriter
             if (_actKey is null || built.Has("Id")) return built;
             if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built;
 
+            // A string-keyed stream's command carries a string Id (bobcat#453), where Member would type it Guid
+            if (CSharpModelWriter.DefaultIdType(context.Model, typeName) is "string" and var idType)
+            {
+                if (!context.ExtraFields.TryGetValue(typeName, out var extra)) context.ExtraFields[typeName] = extra = [];
+                if (extra.All(x => x.Name != "Id")) extra.Add(new CSharpModelWriter.StubField("Id", idType));
+            }
+
             // The stream the command decides against, when the givens arranged more than one
             var actKey = owner?.Aggregates.Count == 1 && _streamKeys.TryGetValue(TypeName(owner.Aggregates[0]), out var own)
                 ? own
@@ -802,6 +856,7 @@ public static class EmlangSpecWriter
 
         private void assert(bool arranged)
         {
+            readStartedStreamFromAct();
             var acted = test.When.Any(x => x.Kind == EmlangElementKind.Command);
             var events = test.Then.Where(x => x.Kind == EmlangElementKind.Event).ToList();
             var refusals = test.Then.Where(x => x.Kind == EmlangElementKind.Error).ToList();

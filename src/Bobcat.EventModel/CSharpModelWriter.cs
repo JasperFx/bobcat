@@ -205,7 +205,7 @@ public static class CSharpModelWriter
             // [WriteModel] resolves it with nothing declared. A document the specs load by id
             // needs one whatever its kind.
             var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
-            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", "Guid"), .. named];
+            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", DefaultIdType(model, x)), .. named];
 
             // An Id a specification added comes first too, where a reader looks for the identity
             return named.FirstOrDefault(f => f.Name == "Id") is { } id ? [id, .. named.Where(f => f != id)] : named;
@@ -269,7 +269,7 @@ public static class CSharpModelWriter
     /// </summary>
     private static void writeAggregate(ISourceWriter writer, string name, IReadOnlyList<StubField> fields)
     {
-        if (fields.Count == 1 && fields[0].Name == "Id")
+        if (fields.Count == 1 && fields[0] is { Name: "Id", Type: "Guid" })
         {
             writer.WriteLine($"public class {name} {{ public Guid Id {{ get; set; }} }}");
             return;
@@ -290,6 +290,13 @@ public static class CSharpModelWriter
     /// <c>{Aggregate}Id</c> of the aggregate its slice declares. Events never get one: an event's
     /// stream is where it is stored, not a field it carries.
     /// </summary>
+    /// <remarks>
+    /// <b>A command that only starts a stream gets none (bobcat#453).</b> Its handler mints the new
+    /// stream's id, a sequential Guid, so an <c>Id</c> on the command is a member nothing reads. A
+    /// specification that needs one names it in an example, which puts it in the stub's fields. The
+    /// exception is a stream keyed by a <b>string</b>: a natural key cannot be minted, so the command
+    /// carries it (<see cref="DefaultIdType"/> types it) and the new stream takes it.
+    /// </remarks>
     public static bool GetsDefaultId(ImportedEventModel model, string stub, IReadOnlyList<StubField>? fields = null)
     {
         var commandSlices = model.Slices.Where(s => Identifiers.Sanitize(s.Command ?? "") == stub).ToList();
@@ -297,6 +304,12 @@ public static class CSharpModelWriter
         var isReadModel = model.Slices.Any(s => s.ReadModels.Concat(s.ReadsFrom).Any(x => Identifiers.Sanitize(x ?? "") == stub));
         var isAggregate = model.Slices.Any(s => AggregatesOf(s).Any(x => Identifiers.Sanitize(x ?? "") == stub));
         if (!isCommand && !isReadModel && !isAggregate) return false;
+
+        if (isCommand && !isReadModel && !isAggregate && commandSlices.All(OnlyStartsStream)
+            && !commandSlices.Any(s => StreamIdentityType(model, s.StartsStream!) == "string"))
+        {
+            return false;
+        }
 
         // Several streams: each is addressed by its own {Aggregate}Id, so a lone Id would say nothing
         if (StreamIdFieldsOf(model, stub).Count > 0) return false;
@@ -311,6 +324,58 @@ public static class CSharpModelWriter
 
         var streamIds = commandSlices.SelectMany(s => s.Aggregates).Select(a => Identifiers.Sanitize(a ?? "") + "Id");
         return !fields.Any(f => streamIds.Contains(f.Name));
+    }
+
+    /// <summary>
+    /// Whether the slice starts a stream and decides against no other (bobcat#453): its command
+    /// addresses nothing that exists yet, so it needs no identity of its own.
+    /// </summary>
+    public static bool OnlyStartsStream(CuratedSlice slice)
+        => slice.StartsStream is { Length: > 0 } && !slice.Aggregates.Any(x => x is { Length: > 0 } && x != slice.StartsStream);
+
+    /// <summary>
+    /// The type of a stream's identity: <c>string</c> when an element stored on it, or the aggregate
+    /// itself, declares a string identity (a natural key such as an email), else <c>Guid</c>, which is
+    /// what every Critter Stack store defaults a stream id to. An identity is a field the model marks
+    /// (<c>idAttribute</c>), or else the one named <c>{Aggregate}Id</c> or <c>AggregateId</c>.
+    /// </summary>
+    public static string StreamIdentityType(ImportedEventModel model, string stream)
+    {
+        var aggregate = Identifiers.Sanitize(stream);
+        var stored = model.EventStreams.Where(x => Identifiers.Sanitize(x.Value) == aggregate).Select(x => Identifiers.Sanitize(x.Key));
+
+        foreach (var element in stored.Append(aggregate).Distinct(StringComparer.Ordinal))
+        {
+            var marked = model.Slices.SelectMany(s => s.Elements)
+                .Where(x => Identifiers.Sanitize(x.Key) == element)
+                .SelectMany(x => x.Value.Identities)
+                .Select(x => Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x)))
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var field in FieldsOf(model, element))
+            {
+                var identity = marked.Count > 0
+                    ? marked.Contains(field.Name)
+                    : field.Name == aggregate + "Id" || field.Name == "AggregateId" || (element == aggregate && field.Name == "Id");
+                if (identity && field.Type == "string") return "string";
+            }
+        }
+
+        return "Guid";
+    }
+
+    /// <summary>
+    /// The type of the conventional <c>Id</c> a stub is given: <c>string</c> for a command that starts
+    /// a string-keyed stream and for that stream's aggregate (bobcat#453), else <c>Guid</c>.
+    /// </summary>
+    public static string DefaultIdType(ImportedEventModel model, string stub)
+    {
+        var started = model.Slices
+            .Where(s => Identifiers.Sanitize(s.Command ?? "") == stub && OnlyStartsStream(s))
+            .Select(s => s.StartsStream!)
+            .Concat(model.Slices.SelectMany(AggregatesOf).Where(x => Identifiers.Sanitize(x) == stub));
+
+        return started.Any(x => StreamIdentityType(model, x) == "string") ? "string" : "Guid";
     }
 
     /// <summary>
