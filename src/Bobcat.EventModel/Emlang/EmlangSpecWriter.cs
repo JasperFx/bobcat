@@ -816,7 +816,33 @@ public static class EmlangSpecWriter
                 _lines.Add($"ThenRefusedWith({string.Join(", ", new[] { quote(refusal.Label) }.Concat(named))});");
             }
 
-            if (events.Count > 0)
+            // A command deciding against several arranged streams: each stream's events checked on it by its
+            // own key, and a stream the act leaves alone said so (bobcat#444, wolverine#4865)
+            var owner = context.Model.Slices.FirstOrDefault(s =>
+                test.When.Any(w => w.Kind == EmlangElementKind.Command && CSharpModelWriter.Identifiers.Sanitize(s.Command ?? "") == partial(w).TypeName));
+            var decidedAgainst = owner?.Aggregates.Select(TypeName).Where(_streamKeys.ContainsKey).ToList() ?? [];
+
+            if (events.Count > 0 && decidedAgainst.Count > 1)
+            {
+                foreach (var stream in decidedAgainst)
+                {
+                    var on = events.Where(x => streamName(x) == stream).Select(partial).ToList();
+                    if (on.Count == 0) _lines.Add($"ThenNoEventsOn<{stream}>({_streamKeys[stream]});");
+                    else call($"ThenEventsOn<{stream}>({_streamKeys[stream]}, ", on, ");");
+                }
+
+                // An event the model puts on no stream the command decides against is still checked
+                var elsewhere = events.Where(x => streamName(x) is not { } stream || !decidedAgainst.Contains(stream)).Select(partial).ToList();
+                if (elsewhere.Count > 0) call("ThenEmitted(", elsewhere, ");");
+            }
+            else if (events.Count > 0 && !arranged && _actKey is null
+                     && events.Select(streamName).Distinct().ToList() is [{ } started])
+            {
+                // The act starts the stream, with an id its handler assigns: one paragraph, "a VolunteerApplication
+                // stream is started" and "VolunteerApplicationSubmitted is emitted on it" (wolverine#4865)
+                call($"ThenStreamIsStartedWithEvents<{started}>(", events.Select(partial).ToList(), ");");
+            }
+            else if (events.Count > 0)
             {
                 call("ThenEvents(", events.Select(partial).ToList(), ");");
             }

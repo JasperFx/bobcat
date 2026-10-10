@@ -10,7 +10,7 @@ namespace Bobcat.Engine;
 /// the type is built, a specification shows it the same way: a Guid-based one by the name its Guid was
 /// declared or learned under (<c>theScreeningId</c>), any other as <c>ScreeningId(SCR-104)</c>.
 /// </summary>
-internal static class StrongTypedIds
+public static class StrongTypedIds
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> _values = new();
 
@@ -19,6 +19,22 @@ internal static class StrongTypedIds
 
     /// <summary>The primitive <paramref name="value"/> wraps, when it is a strong-typed identifier.</summary>
     public static bool TryUnwrap(object value, out object? inner)
+        => tryUnwrap(value, out inner);
+
+    /// <summary>
+    /// A stream identity as an event store takes it: a <see cref="Guid"/> or a string as they are, a strong-typed
+    /// id around either one unwrapped (JasperFx/wolverine#4865). Anything else is a mistake in the spec.
+    /// </summary>
+    /// <exception cref="ArgumentException">The value is no stream identity.</exception>
+    public static object StreamIdentity(object id) => id switch
+    {
+        Guid or string => id,
+        _ when tryUnwrap(id, out var inner) && inner is Guid or string => inner!,
+        _ => throw new ArgumentException(
+            $"A stream is identified by a Guid, a string, or a strong-typed id around one, not a {id.GetType().Name}.", nameof(id))
+    };
+
+    private static bool tryUnwrap(object value, out object? inner)
     {
         inner = null;
         if (valueOf(value.GetType()) is not { } property) return false;

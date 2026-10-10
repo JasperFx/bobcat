@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Tags;
 
@@ -251,6 +252,59 @@ public static class EventStores
             $"Event store {Describe(store)} enumerates no databases through IEventStore.AllDatabases() and the host " +
             "registers no IProjectionCoordinator, so there is nothing to wait on. Marten, Polecat and Fisher all " +
             "enumerate their databases; if this is another store, register its IProjectionCoordinator.");
+    }
+
+    /// <summary>
+    /// <see cref="WaitForNonStaleProjectionsAsync(IEventStore, TimeSpan?, IProjectionCoordinator?, CancellationToken)"/>
+    /// for one tenant: the database that tenant's events live in. A store that can say which database that is —
+    /// Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c> — waits on that one; any other waits on every
+    /// database, which holds the tenant's too.
+    /// </summary>
+    public static async Task WaitForNonStaleProjectionsAsync(
+        IEventStore store,
+        string tenantId,
+        TimeSpan? timeout = null,
+        CancellationToken token = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tenantId);
+
+        if (await tenantDatabaseAsync(store, tenantId).ConfigureAwait(false) is { } database)
+        {
+            await database.WaitForNonStaleProjectionDataAsync(timeout ?? DefaultProjectionTimeout).WaitAsync(token).ConfigureAwait(false);
+            return;
+        }
+
+        await WaitForNonStaleProjectionsAsync(store, timeout, null, token).ConfigureAwait(false);
+    }
+
+    // The database a tenant's events live in, through the store's own Storage.FindOrCreateDatabase(string)
+    // where it has one; null when the store offers no such lookup
+    private static async Task<IEventDatabase?> tenantDatabaseAsync(IEventStore store, string tenantId)
+    {
+        var storage = store.GetType().GetProperty("Storage", BindingFlags.Public | BindingFlags.Instance)?.GetValue(store);
+        var find = storage?.GetType().GetInterfaces().Prepend(storage.GetType())
+            .Select(x => x.GetMethod("FindOrCreateDatabase", [typeof(string)]))
+            .FirstOrDefault(x => x is not null);
+        if (storage is null || find is null) return null;
+
+        // ValueTask<TDatabase>, awaited through AsTask() since TDatabase is the store's own type
+        var pending = find.Invoke(storage, [tenantId])!;
+        var task = (Task)pending.GetType().GetMethod("AsTask")!.Invoke(pending, [])!;
+        await task.ConfigureAwait(false);
+        return task.GetType().GetProperty("Result")!.GetValue(task) as IEventDatabase;
+    }
+
+    /// <summary>
+    /// What kind of projection the store registers for <paramref name="projected"/> — a single-stream or a
+    /// multi-stream projection, say — or null when none builds that type. Read off the store's own description
+    /// of its subscriptions (<see cref="IEventStore.TryCreateUsage"/>).
+    /// </summary>
+    public static async Task<SubscriptionType?> ProjectionKindAsync(IEventStore store, Type projected, CancellationToken token = default)
+    {
+        var usage = await store.TryCreateUsage(token).ConfigureAwait(false);
+        var subscription = usage?.Subscriptions.FirstOrDefault(x =>
+            x.AggregateType is { } aggregate && aggregate.FullName == projected.FullName);
+        return subscription?.SubscriptionType;
     }
 
     /// <summary>

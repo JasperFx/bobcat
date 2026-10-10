@@ -215,6 +215,30 @@ public class AggregateInferenceTests
     }
 
     [Fact]
+    public void a_command_drawing_on_two_streams_checks_each_stream_by_its_own_key()
+    {
+        // wolverine#4865: ThenEvents could only speak for one of them
+        var board = EmlangReader.Read(Shelter);
+        var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
+        var code = EmlangSpecWriter.Write(board, model, "Shelter").AllCode();
+
+        code.ShouldContain("ThenEventsOn<HomeCheck>(theHomeCheck, Specify<HomeCheckAssignmentAccepted>());");
+        code.ShouldContain("ThenNoEventsOn<VolunteerApplication>(theVolunteerApplication);");
+        code.ShouldNotContain("ThenEvents(Specify<HomeCheckAssignmentAccepted>());");
+    }
+
+    [Fact]
+    public void a_command_that_starts_a_stream_is_checked_as_one_paragraph()
+    {
+        // wolverine#4865: the handler assigns the stream's id, so the spec reads it back from the act
+        var board = EmlangReader.Read(Shelter);
+        var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
+        var code = EmlangSpecWriter.Write(board, model, "Shelter").AllCode();
+
+        code.ShouldContain("ThenStreamIsStartedWithEvents<VolunteerApplication>(Specify<VolunteerApplicationSubmitted>());");
+    }
+
+    [Fact]
     public void the_definition_starts_and_decides_against_the_inferred_aggregates_and_calls_out_every_one()
     {
         var model = import(Shelter).Model;
