@@ -3,6 +3,7 @@ using System.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Tags;
 
 namespace Bobcat.CritterStack;
 
@@ -106,6 +107,40 @@ public static class EventStores
     }
 
     /// <summary>Rebuild the aggregate of a <see cref="Guid"/>-identified stream from its events.</summary>
+    /// <summary>
+    /// JasperFx/wolverine#4865. Project <typeparamref name="T"/> over the events <paramref name="query"/> selects
+    /// by their tags -- a Dynamic Consistency Boundary model, or a view built the same way -- as
+    /// <c>AggregateByTagsAsync&lt;T&gt;</c> does on Marten, Polecat and Fisher. Null when no event matches.
+    /// </summary>
+    public static async Task<T?> AggregateByTagsAsync<T>(IEventStore store, EventTagQuery query, CancellationToken token = default)
+        where T : class
+    {
+        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        await using (session.ConfigureAwait(false))
+        {
+            return await EventStoreSessions.EventStoreOperationsOf(session).AggregateByTagsAsync<T>(query, token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="query"/> as a specification reads it: <c>events tagged theScreeningId or CustomerId(CUST-104)</c>,
+    /// with the event types a condition narrows to, <c>(ScreeningScheduled, SeatReserved)</c>.
+    /// </summary>
+    public static string Describe(EventTagQuery query)
+    {
+        var groups = query.Conditions
+            .GroupBy(x => x.TagValue)
+            .Select(group =>
+            {
+                var types = group.Where(x => x.EventType is not null).Select(x => x.EventType!.Name).Distinct().ToList();
+                var tag = Bobcat.Engine.ScenarioValues.Format(group.Key);
+                return types.Count == 0 ? tag : $"{tag} ({string.Join(", ", types)})";
+            })
+            .ToList();
+
+        return groups.Count == 0 ? "no events" : $"events tagged {string.Join(" or ", groups)}";
+    }
+
     public static Task<T?> AggregateStreamAsync<T>(IEventStore store, Guid streamId, CancellationToken token = default) where T : class
         => aggregateStreamAsync(store, events => events.AggregateStreamAsync<T>(streamId, token: token));
 
