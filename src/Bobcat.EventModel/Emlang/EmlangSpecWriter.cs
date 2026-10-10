@@ -840,7 +840,8 @@ public static class EmlangSpecWriter
             {
                 // The act starts the stream, with an id its handler assigns: one paragraph, "a VolunteerApplication
                 // stream is started" and "VolunteerApplicationSubmitted is emitted on it" (wolverine#4865)
-                call($"ThenStreamIsStartedWithEvents<{started}>(", events.Select(partial).ToList(), ");");
+                // Asynchronous -- it reads the stream back -- so awaited, or the spec ends before it checks
+                call($"await ThenStreamIsStartedWithEvents<{started}>(", events.Select(partial).ToList(), ");");
             }
             else if (events.Count > 0)
             {

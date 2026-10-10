@@ -235,7 +235,7 @@ public class AggregateInferenceTests
         var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
         var code = EmlangSpecWriter.Write(board, model, "Shelter").AllCode();
 
-        code.ShouldContain("ThenStreamIsStartedWithEvents<VolunteerApplication>(Specify<VolunteerApplicationSubmitted>());");
+        code.ShouldContain("await ThenStreamIsStartedWithEvents<VolunteerApplication>(Specify<VolunteerApplicationSubmitted>());");
     }
 
     [Fact]
