@@ -57,8 +57,20 @@ public static class GeneratorHarness
         string source,
         IReadOnlyDictionary<string, string>? options,
         params (string Path, string Content)[] featureFiles)
+        => Run(source, options, [], featureFiles);
+
+    /// <summary>
+    /// The same, with <paramref name="extraReferences"/> added — a vocabulary compiled into an assembly
+    /// of its own, so the generator has to read its attributes from METADATA rather than from source,
+    /// which is the package boundary a real consumer crosses (bobcat#462).
+    /// </summary>
+    public static RunOutcome Run(
+        string source,
+        IReadOnlyDictionary<string, string>? options,
+        IEnumerable<MetadataReference> extraReferences,
+        params (string Path, string Content)[] featureFiles)
     {
-        var references = referenceSet();
+        var references = referenceSet().AddRange(extraReferences);
         var compilation = CSharpCompilation.Create(
             "SpecProject",
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
@@ -85,6 +97,27 @@ public static class GeneratorHarness
     /// </summary>
     private static readonly CSharpParseOptions parseOptions = CSharpParseOptions.Default
         .WithFeatures([new KeyValuePair<string, string>("InterceptorsNamespaces", "Bobcat.Generated")]);
+
+    /// <summary>
+    /// Compile <paramref name="source"/> into an assembly of its own, with no generator run, and hand back
+    /// its image — for a test that needs a referenced assembly rather than a source file.
+    /// </summary>
+    public static byte[] CompileLibrary(string assemblyName, string source)
+    {
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source, parseOptions)],
+            referenceSet(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Enable));
+
+        using var stream = new MemoryStream();
+        var emitted = compilation.Emit(stream);
+        if (!emitted.Success)
+            throw new InvalidOperationException(string.Join(Environment.NewLine, emitted.Diagnostics));
+
+        return stream.ToArray();
+    }
 
     private static ImmutableArray<MetadataReference> referenceSet()
     {

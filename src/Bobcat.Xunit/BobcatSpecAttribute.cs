@@ -95,6 +95,9 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute
     /// <inheritdoc cref="BobcatSliceAttribute.Pattern"/>
     public string? Pattern { get; set; }
 
+    /// <inheritdoc cref="BobcatSliceAttribute.TriggeredBy"/>
+    public string? TriggeredBy { get; set; }
+
     /// <summary>
     /// This specification exists before the behaviour it describes (issue #404). It reaches the
     /// Event Model as a <c>PendingSpecification</c> hotspot on the slice rather than as a

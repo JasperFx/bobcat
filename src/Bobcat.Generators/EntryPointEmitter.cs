@@ -92,18 +92,19 @@ internal static class EntryPointEmitter
             return "it must take exactly one Bobcat.Runtime.BobcatRunner parameter";
         }
 
-        if (!isReachable(symbol.DeclaredAccessibility)) return "it must be public or internal";
+        if (!IsReachable(symbol.DeclaredAccessibility)) return "it must be public or internal";
 
         for (var type = symbol.ContainingType; type != null; type = type.ContainingType)
         {
             if (type.IsGenericType) return "its declaring type must not be generic";
-            if (!isReachable(type.DeclaredAccessibility)) return "its declaring type must be public or internal";
+            if (!IsReachable(type.DeclaredAccessibility)) return "its declaring type must be public or internal";
         }
 
         return null;
     }
 
-    private static bool isReachable(Accessibility accessibility)
+    /// <summary>Whether a member or type of this accessibility can be named from generated code in the same assembly.</summary>
+    internal static bool IsReachable(Accessibility accessibility)
         => accessibility is Accessibility.Public or Accessibility.Internal
             or Accessibility.ProtectedOrInternal;
 
