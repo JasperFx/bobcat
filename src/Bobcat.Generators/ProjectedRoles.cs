@@ -24,7 +24,14 @@ namespace Bobcat.Generators;
 /// <para>
 /// <b>Type, never guess.</b> An argument whose type is not knowable at compile time — <c>object</c>,
 /// an interface, a table of rows, a <c>null</c> — contributes nothing. A missing arrow on the canvas is
-/// recoverable; a wrong one is believed.
+/// recoverable; a wrong one is believed. That includes a type generated code cannot name: a private,
+/// protected or file-local type stamps nothing, because <c>typeof</c> of it would not compile.
+/// </para>
+/// <para>
+/// <b>The act is a call the test makes.</b> A call inside a local function or a lambda may run once, many
+/// times or never, so it can never be the act. Its roles are still read — the types a test names in a
+/// <c>Should.ThrowAsync(() =&gt; …)</c> or a helper lambda are facts about what it exercises — but which
+/// call is the act depends on execution order the generator cannot see.
 /// </para>
 /// </remarks>
 internal static class ProjectedRoles
@@ -60,9 +67,14 @@ internal static class ProjectedRoles
         /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
         public string? TriggerKind;
 
-        /// <summary>The act's route: null with no HTTP trigger, "" when the route is not a constant.</summary>
+        /// <summary>
+        /// The act's route, or null when the act has no HTTP trigger, declares no route, or passes one that
+        /// is not a non-empty compile-time constant. Never "": an unknown route is null, so it cannot beat a
+        /// known one when slices fold.
+        /// </summary>
         public string? TriggerRoute;
 
+        /// <summary>The HTTP act's verb, when its vocabulary declares one.</summary>
         public string? HttpMethod;
 
         /// <summary>Every type stamped, distinct, in call order — the specification's <c>ResolvedTypes</c>.</summary>
@@ -81,14 +93,14 @@ internal static class ProjectedRoles
         SyntaxNode? body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
         if (body is null) return reading;
 
+        var compilation = model.Compilation;
         foreach (var invocation in body.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
         {
             ct.ThrowIfCancellationRequested();
             if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
 
-            var target = operation.TargetMethod;
-            var roles = attributesOf(target, RoleAttributeName);
-            if (roles.Count == 0) continue;
+            var (carrier, roles) = attributesOf(operation.TargetMethod, RoleAttributeName);
+            if (carrier is null) continue;
 
             string? command = null;
             foreach (var role in roles)
@@ -97,7 +109,7 @@ internal static class ProjectedRoles
                 if (roleWordOf(role.ConstructorArguments[0]) is not { } word) continue;
                 if (role.ConstructorArguments[1].Value is not string from) continue;
 
-                foreach (var type in typesFrom(operation, from))
+                foreach (var type in typesFrom(operation, carrier, from, compilation))
                 {
                     reading.Roles.Add((word, type));
                     if (word == EventModelEmitter.Command) command = type;
@@ -106,7 +118,9 @@ internal static class ProjectedRoles
 
             // The act is the LAST command-carrying call, and its trigger comes with it: an HTTP call
             // that only arranged state must not make a message-driven slice an HTTP one.
-            if (command is null) continue;
+            // A call in a local function or a lambda is not one the test is known to make, or to make
+            // last: its roles count, but it never becomes the act
+            if (command is null || isDeferred(invocation, body)) continue;
             reading.Act = command;
             readTrigger(operation, reading);
         }
@@ -122,12 +136,32 @@ internal static class ProjectedRoles
     }
 
     /// <summary>
+    /// Whether a method declaration could carry a role or trigger attribute — a syntactic cut, so the
+    /// BOBCAT034 provider binds only the methods that name one rather than every attributed method.
+    /// An attribute applied through a <c>using</c> alias is missed; the alias would be the odd one out.
+    /// </summary>
+    public static bool IsDeclarationCandidate(SyntaxNode node)
+        => node is MethodDeclarationSyntax { AttributeLists.Count: > 0 } method
+           && method.AttributeLists.Any(list => list.Attributes.Any(attribute =>
+           {
+               var name = attribute.Name.ToString();
+               return name.Contains("EventModelRole") || name.Contains("EventModelTrigger");
+           }));
+
+    /// <summary>
     /// BOBCAT034: every <c>From</c> / <c>Route</c> on this method's role attributes names one of its
-    /// parameters (or, for <c>From</c>, type parameters). Null when there is nothing to report.
+    /// parameters (or, for <c>From</c>, its type parameters or a type parameter of a type declaring it).
+    /// Null when there is nothing to report.
     /// </summary>
     public static List<Finding>? CheckDeclaration(GeneratorSyntaxContext ctx, CancellationToken ct)
     {
         if (ctx.SemanticModel.GetDeclaredSymbol(ctx.Node, ct) is not IMethodSymbol method) return null;
+
+        // AggregateScenario<TAggregate> { [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))] … }:
+        // the type argument a closed scenario base supplies is as knowable at the call as a method's own
+        var typeParameters = method.TypeParameters.Select(x => x.Name).ToList();
+        for (var type = method.ContainingType; type is not null; type = type.ContainingType)
+            typeParameters.AddRange(type.TypeParameters.Select(x => x.Name));
 
         List<Finding>? findings = null;
         foreach (var attribute in method.GetAttributes())
@@ -152,11 +186,11 @@ internal static class ProjectedRoles
 
             if (named is not null
                 && (method.Parameters.Any(x => x.Name == named)
-                    || (typeParametersCount && method.TypeParameters.Any(x => x.Name == named))))
+                    || (typeParametersCount && typeParameters.Contains(named))))
                 continue;
 
             var candidates = method.Parameters.Select(x => x.Name)
-                .Concat(typeParametersCount ? method.TypeParameters.Select(x => x.Name) : Enumerable.Empty<string>())
+                .Concat(typeParametersCount ? typeParameters : Enumerable.Empty<string>())
                 .ToList();
 
             (findings ??= new List<Finding>()).Add(new Finding
@@ -181,41 +215,53 @@ internal static class ProjectedRoles
         reading.TriggerRoute = null;
         reading.HttpMethod = null;
 
-        var trigger = attributesOf(operation.TargetMethod, TriggerAttributeName).FirstOrDefault();
+        var trigger = attributesOf(operation.TargetMethod, TriggerAttributeName).Attributes.FirstOrDefault();
         if (trigger is null || trigger.ConstructorArguments.Length == 0) return;
 
         reading.TriggerKind = enumMemberName(trigger.ConstructorArguments[0]);
         if (reading.TriggerKind is null) return;
 
+        // Only an HTTP act has a route and a verb
+        if (reading.TriggerKind != "Http") return;
+
         string? named(string name) => trigger.NamedArguments.FirstOrDefault(x => x.Key == name).Value.Value as string;
 
         reading.HttpMethod = named("HttpMethod");
-        if (named("Route") is { } routeParameter)
-        {
-            var argument = operation.Arguments.FirstOrDefault(x => x.Parameter?.Name == routeParameter);
-            reading.TriggerRoute = argument?.Value.ConstantValue is { HasValue: true, Value: string route } ? route : "";
-        }
-        else
-        {
-            reading.TriggerRoute = "";
-        }
+        if (named("Route") is not { } routeParameter) return;
+
+        // A route that is not a constant is unknown — null, never "", so it cannot shadow a known one
+        var argument = operation.Arguments.FirstOrDefault(x => x.Parameter?.Name == routeParameter);
+        if (argument?.Value.ConstantValue is { HasValue: true, Value: string { Length: > 0 } route })
+            reading.TriggerRoute = route;
+    }
+
+    /// <summary>Whether the call sits in a local function or a lambda / anonymous method within the body.</summary>
+    private static bool isDeferred(SyntaxNode invocation, SyntaxNode body)
+    {
+        for (var node = invocation.Parent; node is not null && node != body; node = node.Parent)
+            if (node is LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax)
+                return true;
+
+        return false;
     }
 
     /// <summary>
     /// The attributes of <paramref name="fullName"/> on this method, walking an extension method back to
-    /// its definition and an override back to the declaration that carries them.
+    /// its definition and an override back to the declaration that carries them — and that declaration,
+    /// as seen from the call (so its containing type is the constructed base a closed scenario derives
+    /// from). A null carrier when no declaration carries any.
     /// </summary>
-    private static List<AttributeData> attributesOf(IMethodSymbol method, string fullName)
+    private static (IMethodSymbol? Carrier, List<AttributeData> Attributes) attributesOf(IMethodSymbol method, string fullName)
     {
         for (var current = method.ReducedFrom ?? method; current is not null; current = current.OverriddenMethod)
         {
             var found = current.OriginalDefinition.GetAttributes()
                 .Where(a => a.AttributeClass?.ToDisplayString() == fullName)
                 .ToList();
-            if (found.Count > 0) return found;
+            if (found.Count > 0) return (current, found);
         }
 
-        return new List<AttributeData>();
+        return (null, new List<AttributeData>());
     }
 
     private static string? roleWordOf(TypedConstant constant)
@@ -229,14 +275,17 @@ internal static class ProjectedRoles
             .FirstOrDefault(f => f.HasConstantValue && Equals(f.ConstantValue, constant.Value))?.Name;
     }
 
-    /// <summary>The types <paramref name="from"/> names at this call: a type argument, or an argument's type(s).</summary>
-    private static IEnumerable<string> typesFrom(IInvocationOperation operation, string from)
+    /// <summary>
+    /// The types <paramref name="from"/> names at this call: a type argument of the method, an argument's
+    /// type(s), or the type argument a constructed declaring type supplies for one of its type parameters.
+    /// </summary>
+    private static IEnumerable<string> typesFrom(IInvocationOperation operation, IMethodSymbol carrier, string from, Compilation compilation)
     {
         var definition = operation.TargetMethod.OriginalDefinition;
         for (var i = 0; i < definition.TypeParameters.Length; i++)
         {
             if (definition.TypeParameters[i].Name != from) continue;
-            if (i < operation.TargetMethod.TypeArguments.Length && qualifiedOrNull(operation.TargetMethod.TypeArguments[i]) is { } type)
+            if (i < operation.TargetMethod.TypeArguments.Length && qualifiedOrNull(operation.TargetMethod.TypeArguments[i], compilation) is { } type)
                 yield return type;
             yield break;
         }
@@ -248,13 +297,28 @@ internal static class ProjectedRoles
             // An omitted optional argument is the parameter's default, which names nothing
             if (argument.ArgumentKind == ArgumentKind.DefaultValue) yield break;
 
-            foreach (var type in typesOf(argument.Value)) yield return type;
+            foreach (var type in typesOf(argument.Value, compilation)) yield return type;
             yield break;
+        }
+
+        // class AggregateScenario<TAggregate> called through MyScenario : AggregateScenario<Account>: the
+        // carrier's containing type is the constructed base, so TAggregate is Account at this call. Called
+        // from inside the open generic itself, the argument is still a type parameter and names nothing.
+        for (var type = carrier.ContainingType; type is not null; type = type.ContainingType)
+        {
+            var parameters = type.OriginalDefinition.TypeParameters;
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].Name != from) continue;
+                if (i < type.TypeArguments.Length && qualifiedOrNull(type.TypeArguments[i], compilation) is { } supplied)
+                    yield return supplied;
+                yield break;
+            }
         }
     }
 
     /// <summary>The application types one argument value names, unwrapping Bobcat's own wrappers.</summary>
-    private static IEnumerable<string> typesOf(IOperation? value)
+    private static IEnumerable<string> typesOf(IOperation? value, Compilation compilation)
     {
         while (value is IConversionOperation conversion) value = conversion.Operand;
         while (value is IParenthesizedOperation parenthesized) value = parenthesized.Operand;
@@ -263,19 +327,19 @@ internal static class ProjectedRoles
         switch (value)
         {
             case ITypeOfOperation typeOf:
-                if (qualifiedOrNull(typeOf.TypeOperand) is { } operand) yield return operand;
+                if (qualifiedOrNull(typeOf.TypeOperand, compilation) is { } operand) yield return operand;
                 yield break;
 
             // params, an explicit array, or a collection expression: every element is a value
             case IArrayCreationOperation { Initializer: { } initializer }:
                 foreach (var element in initializer.ElementValues)
-                foreach (var type in typesOf(element))
+                foreach (var type in typesOf(element, compilation))
                     yield return type;
                 yield break;
 
             case ICollectionExpressionOperation collection:
                 foreach (var element in collection.Elements)
-                foreach (var type in typesOf(element is ISpreadOperation spread ? spread.Operand : element))
+                foreach (var type in typesOf(element is ISpreadOperation spread ? spread.Operand : element, compilation))
                     yield return type;
                 yield break;
         }
@@ -283,7 +347,7 @@ internal static class ProjectedRoles
         if (value.Type is not INamedTypeSymbol named)
         {
             // An array variable of a concrete type: its element type is the role
-            if (value.Type is IArrayTypeSymbol { ElementType: var element } && qualifiedOrNull(element) is { } elementType)
+            if (value.Type is IArrayTypeSymbol { ElementType: var element } && qualifiedOrNull(element, compilation) is { } elementType)
                 yield return elementType;
             yield break;
         }
@@ -291,7 +355,7 @@ internal static class ProjectedRoles
         if (isBobcatType(named, "Specified`1") || isBobcatType(named, "ExpectedValue`1"))
         {
             // Specify<T>()…With(…) and Expect.Value(x): the type the partial object or expectation is about
-            if (qualifiedOrNull(named.TypeArguments[0]) is { } specified) yield return specified;
+            if (qualifiedOrNull(named.TypeArguments[0], compilation) is { } specified) yield return specified;
             yield break;
         }
 
@@ -301,13 +365,13 @@ internal static class ProjectedRoles
             if (value is IInvocationOperation { Arguments.Length: > 0 } tagged)
             {
                 var first = tagged.Arguments.FirstOrDefault(x => x.Parameter?.Ordinal == 0) ?? tagged.Arguments[0];
-                foreach (var type in typesOf(first.Value)) yield return type;
+                foreach (var type in typesOf(first.Value, compilation)) yield return type;
             }
 
             yield break;
         }
 
-        if (qualifiedOrNull(named) is { } concrete) yield return concrete;
+        if (qualifiedOrNull(named, compilation) is { } concrete) yield return concrete;
     }
 
     private static bool isBobcatType(INamedTypeSymbol type, string metadataName)
@@ -317,11 +381,13 @@ internal static class ProjectedRoles
     /// <summary>
     /// The <c>global::</c>-free qualified name of a type an Event Model element can be: a concrete class,
     /// struct or record of the application's own. Never <c>object</c>, a primitive, <c>System.Type</c>, an
-    /// interface, a type parameter or an unresolved type — none of those is a fact about the slice.
+    /// interface, a type parameter or an unresolved type — none of those is a fact about the slice. Never a
+    /// type the generated code could not name either (see <see cref="IsNameable"/>).
     /// </summary>
-    private static string? qualifiedOrNull(ITypeSymbol type)
+    private static string? qualifiedOrNull(ITypeSymbol type, Compilation compilation)
     {
         if (type is not INamedTypeSymbol named) return null;
+        if (!IsNameable(named, compilation)) return null;
         if (named.TypeKind is not (TypeKind.Class or TypeKind.Struct)) return null;
         if (named.SpecialType != SpecialType.None || named.IsAnonymousType || named.IsTupleType) return null;
         if (named.ContainingNamespace?.ToDisplayString() is { } ns && (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal)))
@@ -330,5 +396,35 @@ internal static class ProjectedRoles
 
         // global::-qualified, as a resolved Gherkin capture is: generated code lives in its own namespace
         return named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+    }
+
+    /// <summary>
+    /// Whether code the generator emits — top-level classes in its own namespace of this assembly — can
+    /// write <c>typeof(…)</c> of this type. Every type along the way must be public, internal or protected
+    /// internal (the rule <see cref="EntryPointEmitter"/> holds a configuration method's declaring types
+    /// to), not file-local, accessible from this assembly as a whole (an internal type of another assembly
+    /// is not), and so must every type argument. A private record nested in the test class fails: the
+    /// test can name it, generated code cannot, and <c>typeof</c> of it is CS0122.
+    /// </summary>
+    internal static bool IsNameable(ITypeSymbol type, Compilation compilation)
+    {
+        switch (type)
+        {
+            case IArrayTypeSymbol array:
+                return IsNameable(array.ElementType, compilation);
+
+            case INamedTypeSymbol named when named.TypeKind != TypeKind.Error:
+                for (var current = named; current is not null; current = current.ContainingType)
+                {
+                    if (current.IsFileLocal || !EntryPointEmitter.IsReachable(current.DeclaredAccessibility)) return false;
+                    if (current.TypeArguments.Any(x => !IsNameable(x, compilation))) return false;
+                }
+
+                return compilation.IsSymbolAccessibleWithin(named, compilation.Assembly);
+
+            default:
+                // A type parameter, a pointer, dynamic, an error type: nothing generated code can rely on
+                return false;
+        }
     }
 }

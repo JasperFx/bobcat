@@ -69,6 +69,10 @@ public enum SliceRole
 /// <c>.With(…)</c> chain, <c>Expect.Value(…)</c>, <c>Tagged(value, …)</c>, or failing those the
 /// argument's static type when it is a concrete type of the application's own. A <c>params</c>
 /// parameter contributes every element.</item>
+/// <item>a <b>type parameter of a type declaring the method</b> — <c>class AggregateScenario&lt;TAggregate&gt;</c>
+/// with <c>[EventModelRole(SliceRole.Aggregate, nameof(TAggregate))] Task GivenStream(Guid id)</c>; the role's
+/// type is the type argument the closed scenario supplies, so a test deriving from
+/// <c>AggregateScenario&lt;Account&gt;</c> stamps <c>Account</c> at every <c>GivenStream</c> call.</item>
 /// </list>
 /// <para>
 /// An argument whose type cannot be known at compile time — <c>object</c>, an interface, a table of rows,
@@ -77,15 +81,25 @@ public enum SliceRole
 /// <see cref="SliceRole.Aggregate"/> and an <see cref="SliceRole.ArrangedEvent"/>.
 /// </para>
 /// <para>
-/// <b>Inherited by overrides.</b> The generator walks an override back to the declaration that carries
-/// the attribute, so a derived scenario need not restate it.
+/// A type generated code cannot write <c>typeof</c> of — a private, protected or file-local type, or a
+/// generic one closed over such a type — contributes nothing either.
+/// </para>
+/// <para>
+/// <b>Inherited by overrides, and only by overrides.</b> The generator walks an <c>override</c> back to the
+/// declaration that carries the attribute, so a derived scenario need not restate it — the same reach
+/// <c>Inherited = true</c> has under reflection. A method that <em>hides</em> the vocabulary's
+/// (<c>new Task WhenReceived(object m) =&gt; base.WhenReceived(m)</c>) or wraps it under another name
+/// (<c>Task GivenAccount(Guid id, params object[] events) =&gt; GivenEvents&lt;Account&gt;(id, events)</c>)
+/// is a different method, and the generator reads only the attributes on the method a test calls, never
+/// what that method's body calls. <b>A forwarding wrapper must re-declare the attributes</b>, naming its
+/// own parameters, or its calls stamp no roles; the same goes for <see cref="EventModelTriggerAttribute"/>.
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
 public sealed class EventModelRoleAttribute : Attribute
 {
     /// <param name="role">The role the type plays.</param>
-    /// <param name="from">The type parameter or value parameter the type is read from — write it with <c>nameof</c>.</param>
+    /// <param name="from">The type parameter or value parameter (of the method, or a type parameter of its declaring type) the type is read from — write it with <c>nameof</c>.</param>
     public EventModelRoleAttribute(SliceRole role, string from)
     {
         Role = role;
@@ -95,7 +109,10 @@ public sealed class EventModelRoleAttribute : Attribute
     /// <summary>The role the type plays.</summary>
     public SliceRole Role { get; }
 
-    /// <summary>The type parameter or value parameter of the attributed method that the type is read from.</summary>
+    /// <summary>
+    /// The type parameter or value parameter of the attributed method — or a type parameter of a type
+    /// declaring it — that the type is read from.
+    /// </summary>
     public string From { get; }
 }
 
@@ -107,7 +124,11 @@ public sealed class EventModelRoleAttribute : Attribute
 /// <para>
 /// Read only off the call the generator takes as the act — the last one carrying a
 /// <see cref="SliceRole.Command"/> — so an HTTP call that merely arranges state does not make a
-/// message-driven slice an HTTP one.
+/// message-driven slice an HTTP one. A call inside a local function or a lambda is never the act.
+/// </para>
+/// <para>
+/// Like <see cref="EventModelRoleAttribute"/>, it reaches an <c>override</c> but not a method that hides
+/// or forwards to the attributed one: such a wrapper must re-declare it.
 /// </para>
 /// <para>
 /// <b>A derived fact, not a declaration.</b> Upstream's <c>TriggerKind</c> is derived by the producing
@@ -130,11 +151,16 @@ public sealed class EventModelTriggerAttribute : Attribute
 
     /// <summary>
     /// The value parameter carrying the HTTP route — write it with <c>nameof</c>. Its argument must be a
-    /// compile-time constant to be stamped; any other argument leaves the kind certain and the route
-    /// unknown, which is better on a canvas than a wrong route.
+    /// non-empty compile-time constant to be stamped; any other argument leaves the kind certain and the
+    /// route unknown, which is better on a canvas than a wrong route. When several specifications of one
+    /// slice disagree, a known route wins over an unknown one whatever order they are read in. Ignored on
+    /// any kind but <see cref="TriggerKind.Http"/>.
     /// </summary>
     public string? Route { get; set; }
 
-    /// <summary>The HTTP verb, for an <see cref="TriggerKind.Http"/> act. <c>POST</c> when not set.</summary>
+    /// <summary>
+    /// The HTTP verb, for an <see cref="TriggerKind.Http"/> act; <c>POST</c> when not set. It travels with
+    /// the route it was declared beside.
+    /// </summary>
     public string? HttpMethod { get; set; }
 }

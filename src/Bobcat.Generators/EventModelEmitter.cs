@@ -100,7 +100,10 @@ internal static class EventModelEmitter
         /// </summary>
         public string? TriggerKind;
 
-        /// <summary>The route the HTTP act posts to, prefix included, or null when unknowable.</summary>
+        /// <summary>
+        /// The route the HTTP act posts to, prefix included, or null when unknowable. "" is unknown too:
+        /// <c>adoptRoute</c> lets a known route replace either, whichever scenario folds first.
+        /// </summary>
         public string? TriggerRoute;
 
         /// <summary>The HTTP act's verb, when its vocabulary declares one; POST otherwise.</summary>
@@ -205,7 +208,7 @@ internal static class EventModelEmitter
             if (httpActOf(scenario, fixture) is { } act)
             {
                 slice.TriggerKind ??= "Http";
-                slice.TriggerRoute ??= act;
+                adoptRoute(slice, act, null);
             }
 
             foreach (var (role, type) in roles)
@@ -306,8 +309,7 @@ internal static class EventModelEmitter
             if (roles.TriggerKind != null)
             {
                 slice.TriggerKind ??= roles.TriggerKind;
-                slice.TriggerRoute ??= roles.TriggerRoute;
-                slice.TriggerHttpMethod ??= roles.HttpMethod;
+                adoptRoute(slice, roles.TriggerRoute, roles.HttpMethod);
             }
 
             foreach (var (role, type) in roles.Roles)
@@ -531,6 +533,19 @@ internal static class EventModelEmitter
 
     private static bool isArrange(MatchedStep step)
         => string.Equals(step.Step.ResolvedKeyword, "Given", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A known route replaces an unknown one — null or "" — whatever order the scenarios fold in, and brings
+    /// its verb with it; a known route is never replaced. One scenario posting to a computed route and
+    /// another to "/deposits" put "/deposits" on the slice either way round.
+    /// </summary>
+    private static void adoptRoute(SliceModel slice, string? route, string? httpMethod)
+    {
+        if (string.IsNullOrEmpty(route) || !string.IsNullOrEmpty(slice.TriggerRoute)) return;
+
+        slice.TriggerRoute = route;
+        slice.TriggerHttpMethod = httpMethod;
+    }
 
     private static void addDistinct(List<string> list, string value)
     {

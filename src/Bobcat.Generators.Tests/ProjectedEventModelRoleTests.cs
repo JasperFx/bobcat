@@ -592,6 +592,237 @@ public class ProjectedEventModelRoleTests
         ProjectedRoles.RoleWords.Count.ShouldBe(Enum.GetNames<SliceRole>().Length);
     }
 
+    // ---------------------------------------------------------------- review findings on #473
+
+    [Fact]
+    public void a_type_generated_code_cannot_name_stamps_nothing_and_the_suite_still_compiles()
+    {
+        // typeof(accounts.Withdraw) in BobcatEventModelSource.g.cs or BobcatSpecificationBindings.g.cs is
+        // CS0122: the test can name a private, protected or file-local type, generated code cannot
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            namespace Bank
+            {
+                public record Envelope<T>(T Value);
+            }
+
+            file record Secret(Guid Id);
+
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                private record Withdraw(Guid Id);
+                private record Withdrawn(Guid Id);
+                protected record Audited(Guid Id);
+
+                [Fact, BobcatSlice(SliceName = "Withdraw")]
+                public async Task a_withdrawal()
+                {
+                    await GivenEvents<Account>(Guid.Empty, new Secret(Guid.Empty));
+                    await WhenReceived(new Withdraw(Guid.Empty));
+                    ThenEvents(typeof(Withdrawn), typeof(Audited), typeof(Envelope<Withdrawn>), typeof(Envelope<FundsDeposited>));
+                    ThenMessageSent<Envelope<Withdrawn[]>>();
+                }
+            }
+            """);
+
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.ShouldHaveSingleItem();
+        slice.CommandType.ShouldBeNull();
+        names(slice.AggregateTypes).ShouldBe(["Account"]);
+        slice.EmittedEvents.ShouldHaveSingleItem().FullName.ShouldStartWith("Bank.Envelope`1[[Bank.FundsDeposited");
+        slice.PublishedMessages.ShouldBeEmpty();
+
+        // The name-based fallback for the binding's command is held to the same rule: no later When is
+        // promoted, and no typeof(accounts.Withdraw) is written
+        var binding = SpecificationBindings.In(load(outcome)).ShouldHaveSingleItem();
+        binding.CommandType.ShouldBeNull();
+        binding.SliceName.ShouldBe("Withdraw");
+        binding.ResolvedTypes.Count.ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void a_known_route_beats_an_unknown_one_whichever_specification_folds_first(bool knownFirst)
+    {
+        var computed =
+            """
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task to_a_computed_route() => await WhenPut(new Deposit(Guid.Empty, 1m), $"/accounts/{Guid.NewGuid()}");
+
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task to_no_route() => await Post(new Deposit(Guid.Empty, 1m));
+
+            """;
+        var known =
+            """
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task to_a_constant_route() => await WhenPosted(new Deposit(Guid.Empty, 1m), "/deposits");
+
+            """;
+
+        var slice = describe(
+            """
+            public class Routes : ScenarioBase
+            {
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "PUT")]
+                public Task WhenPut(object command, string route) => Task.CompletedTask;
+
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                [EventModelTrigger(TriggerKind.Http)]
+                public Task Post(object command) => Task.CompletedTask;
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : Routes
+            {
+            """ + (knownFirst ? known + computed : computed + known) + "}").Single(x => x.Name == "Deposit");
+
+        slice.TriggerKind.ShouldBe(TriggerKind.Http);
+        slice.TriggerOrigin!.HttpRoute.ShouldBe("/deposits");
+
+        // The verb travels with the route it was declared beside, not with an earlier routeless act
+        slice.TriggerOrigin.HttpMethod.ShouldBe("POST");
+    }
+
+    [Fact]
+    public void a_call_in_a_local_function_or_a_lambda_contributes_roles_but_is_never_the_act()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task after_the_act()
+                {
+                    await WhenReceived(new Deposit(Guid.Empty, 1m));
+                    Task neverCalled() => WhenReceived(new OpenAccount(Guid.Empty, "x"));
+                    Func<Task> later = () => WhenPosted(new OpenAccount(Guid.Empty, "y"), "/accounts");
+                    Func<Task> anonymous = delegate { return WhenReceived(new OpenAccount(Guid.Empty, "z")); };
+                }
+
+                [Fact, BobcatSlice(SliceType = typeof(OpenAccount))]
+                public async Task only_in_a_lambda()
+                {
+                    await Task.Run(() => WhenReceived(new OpenAccount(Guid.Empty, "w")));
+                    ThenEvents(typeof(AccountOpened));
+                }
+            }
+            """);
+
+        var deposit = slices.Single(x => x.Name == "Deposit");
+        deposit.CommandType!.Name.ShouldBe("Deposit");
+        deposit.TriggerKind.ShouldBeNull();
+
+        // The roles still count: they are types the test exercises, whatever order they run in
+        names(deposit.Specifications.Single().ResolvedTypes).ShouldBe(["Deposit", "OpenAccount"]);
+
+        var open = slices.Single(x => x.Name == "OpenAccount");
+        names(open.EmittedEvents).ShouldBe(["AccountOpened"]);
+        names(open.Specifications.Single().ResolvedTypes).ShouldBe(["OpenAccount", "AccountOpened"]);
+    }
+
+    [Fact]
+    public void a_role_from_the_declaring_classes_type_parameter_resolves_through_a_closed_scenario_base()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            namespace Vocab
+            {
+                public abstract class AggregateScenario<TAggregate> : ScenarioBase where TAggregate : class
+                {
+                    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+                    public Task GivenStream(Guid id) => Task.CompletedTask;
+
+                    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+                    public virtual Task GivenEmptyStream(Guid id) => Task.CompletedTask;
+
+                    public class Nested
+                    {
+                        [EventModelRole(SliceRole.ReadModel, nameof(TAggregate))]
+                        public Task Check() => Task.CompletedTask;
+                    }
+                }
+
+                public class AccountScenario : AggregateScenario<Account> { }
+
+                // An override with no attribute of its own: the base declaration's role, read as the
+                // constructed base the override sits on
+                public class SummaryScenario : AggregateScenario<AccountSummary>
+                {
+                    public override Task GivenEmptyStream(Guid id) => Task.CompletedTask;
+                }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : AccountScenario
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit()
+                {
+                    await GivenStream(Guid.Empty);
+                    await new AggregateScenario<Statement>.Nested().Check();
+                    await WhenReceived(new Deposit(Guid.Empty, 1m));
+                }
+            }
+
+            [BobcatFeature("Summaries")]
+            public class summaries : SummaryScenario
+            {
+                [Fact, BobcatSlice(SliceType = typeof(OpenAccount))]
+                public async Task an_opening()
+                {
+                    await GivenEmptyStream(Guid.Empty);
+                    await WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+                }
+            }
+            """);
+
+        outcome.WithId("BOBCAT034").ShouldBeEmpty();
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var slices = GeneratedEventModel.For(load(outcome))!.Slices;
+        var deposit = slices.Single(x => x.Name == "Deposit");
+        names(deposit.AggregateTypes).ShouldBe(["Account"]);
+        names(deposit.ReadModelTypes).ShouldBe(["Statement"]);
+
+        names(slices.Single(x => x.Name == "OpenAccount").AggregateTypes).ShouldBe(["AccountSummary"]);
+    }
+
+    [Fact]
+    public void a_forwarding_wrapper_stamps_roles_only_when_it_redeclares_them()
+    {
+        var slice = describe(
+            """
+            public class Forwarding : ScenarioBase
+            {
+                // Hides the vocabulary's: a different method, read for its own attributes only
+                public new Task WhenReceived(object message) => base.WhenReceived(message);
+
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                public Task Send(object command) => base.WhenReceived(command);
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : Forwarding
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit()
+                {
+                    await WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+                    await Send(new Deposit(Guid.Empty, 1m));
+                }
+            }
+            """).Single(x => x.Name == "Deposit");
+
+        slice.CommandType!.Name.ShouldBe("Deposit");
+        names(slice.Specifications.Single().ResolvedTypes).ShouldBe(["Deposit"]);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static IReadOnlyList<EventModelSliceDescriptor> describe(string specs)

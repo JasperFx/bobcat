@@ -219,7 +219,10 @@ internal static class SpecificationManifest
                 _ => specified(argument, model, ct)
             };
 
-            if (type is INamedTypeSymbol named && named.TypeKind != TypeKind.Error) return qualified(named);
+            // The first When names the command; one generated code cannot write typeof(…) of — a private
+            // or file-local record — names none, rather than handing the act to a later When
+            if (type is INamedTypeSymbol named && named.TypeKind != TypeKind.Error)
+                return ProjectedRoles.IsNameable(named, model.Compilation) ? qualified(named) : null;
         }
 
         return null;

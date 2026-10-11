@@ -736,7 +736,23 @@ A value parameter's type is read off the argument: `new T(…)`, `typeof(T)`, `S
 a `.With(…)` chain, `Expect.Value(…)`, `Tagged(value, …)`, or the argument's static type when it is a
 concrete type of the application's own. A `params` parameter contributes every element. An argument of
 no knowable type — `object`, an interface, table rows, `null` — contributes **nothing**: a missing arrow
-is recoverable, a wrong one is believed.
+is recoverable, a wrong one is believed. So does a type the generated code cannot name: a `private`,
+`protected` or `file` record nested in the test class stamps no role.
+
+`From` may also name a type parameter of the class declaring the method. A scenario base
+`AggregateScenario<TAggregate>` whose `GivenStream(Guid id)` carries
+`[EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]` stamps `Account` in every test deriving from
+`AggregateScenario<Account>`.
+
+**The act is a call the test makes.** A role-stamped call inside a local function or a lambda still
+contributes its roles, but it is never the act: whether, and when, it runs is not something the generator
+can see.
+
+**A wrapper must re-declare the attributes.** The generator reads the attributes on the method a test
+calls — walking an `override` back to its base — and never what that method's body calls. A `new` method
+hiding the vocabulary's, or a helper such as `GivenAccount(id, events) => GivenEvents<Account>(id, events)`,
+stamps nothing unless it carries its own `[EventModelRole]` / `[EventModelTrigger]`, naming its own
+parameters.
 
 **Why an attribute, read from metadata, and not a list of method names.** The vocabulary lives in
 another package — `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
@@ -768,7 +784,8 @@ whole, trigger included.
 The trigger's *kind* is not declared here. It is derived from the act — `[EventModelTrigger]` on the
 vocabulary method — because upstream's `TriggerKind` is a derived fact, never an overlay declaration, and
 the act is what knows how it dispatches. Only the act's own trigger counts: an HTTP call that merely
-arranges state does not make a message-driven slice an HTTP one.
+arranges state does not make a message-driven slice an HTTP one. When several specifications of one slice
+are HTTP acts, a constant route beats a computed one whatever order they are read in.
 
 ### Every authoring style merges by name
 
@@ -935,7 +952,7 @@ identities rather than lanes.
 | **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose — it is here for the one author who meant a step and cannot see why it is missing |
 | **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
 | **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
-| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates. Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
+| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
 
 The honest limit on BOBCAT029, pinned by
 `Bobcat.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,

@@ -134,7 +134,7 @@ public class BobcatGenerator : IIncrementalGenerator
         //     the vocabulary method it decorates, caught where the vocabulary is declared
         var roleSources = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: (node, _) => node is MethodDeclarationSyntax { AttributeLists.Count: > 0 },
+                predicate: (node, _) => ProjectedRoles.IsDeclarationCandidate(node),
                 transform: ProjectedRoles.CheckDeclaration)
             .Where(f => f != null)
             .Select((f, _) => f!);
