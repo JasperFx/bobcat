@@ -14,6 +14,7 @@
     <Project Path="src/Bobcat.Alba/Bobcat.Alba.csproj" />
     <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
     <Project Path="src/Bobcat.CritterStack.Tests/Bobcat.CritterStack.Tests.csproj" />
+    <Project Path="src/Bobcat.CritterStackScenario.Tests/Bobcat.CritterStackScenario.Tests.csproj" />
     <Project Path="src/Bobcat.EntityFrameworkCore.Tests/Bobcat.EntityFrameworkCore.Tests.csproj" />
     <Project Path="src/Bobcat.EntityFrameworkCore/Bobcat.EntityFrameworkCore.csproj" />
     <Project Path="src/Bobcat.EventModel.Tests/Bobcat.EventModel.Tests.csproj" />
