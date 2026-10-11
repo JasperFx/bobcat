@@ -158,9 +158,13 @@ internal static class SpecificationManifest
         return new Binding(identity, command, slice, arg("Domain").Value as string, null);
     }
 
-    // The first When…(Specify<T>()…) or When…(new T(…)) in the test names the command it sends
+    // The LAST When…(Specify<T>()…) or When…(new T(…)) in the test names the command it sends (bobcat#464).
+    // A spec may arrange state by sending earlier commands -- an HTTP slice that has to WhenPosted a create
+    // before the act it is about has no GivenEvents shortcut -- so "first wins" would bind it to the arrange.
+    // The Gherkin arm's EventModelEmitter.actCommandOf takes the last one for the same reason.
     private static string? inferCommand(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
     {
+        string? command = null;
         foreach (var invocation in method.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
             var name = invocation.Expression switch
@@ -180,10 +184,10 @@ internal static class SpecificationManifest
                 _ => specified(argument, model, ct)
             };
 
-            if (type is INamedTypeSymbol named && named.TypeKind != TypeKind.Error) return qualified(named);
+            if (type is INamedTypeSymbol named && named.TypeKind != TypeKind.Error) command = qualified(named);
         }
 
-        return null;
+        return command;
     }
 
     // Specify<T>() at the root of a .With(...)/.Check(...) chain

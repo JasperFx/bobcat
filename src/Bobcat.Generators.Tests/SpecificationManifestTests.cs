@@ -17,6 +17,7 @@ public class SpecificationManifestTests
 
         namespace Shelter.VolunteeringAndHomeChecks
         {
+            public record SubmitVolunteerApplication(Guid Id);
             public record ReviewVolunteerApplication(Guid Id);
             public record ConfirmAppointment(Guid AppointmentId);
             public class VolunteerApplicationsQueue { public Guid Id { get; set; } }
@@ -44,6 +45,13 @@ public class SpecificationManifestTests
                 public async Task reviewed_from_a_new_record()
                 {
                     await WhenReceived(new ReviewVolunteerApplication(Guid.Empty));
+                }
+
+                [Fact]
+                public async Task reviewed_after_arranging_by_command()
+                {
+                    await WhenReceived(new SubmitVolunteerApplication(Guid.Empty));
+                    await WhenReceived(Specify<ReviewVolunteerApplication>());
                 }
 
                 public void not_a_test() { }
@@ -100,6 +108,15 @@ public class SpecificationManifestTests
     }
 
     [Fact]
+    public void the_last_when_step_is_the_act_and_earlier_ones_are_arrangement()
+    {
+        // bobcat#464: the spec arranges by sending SubmitVolunteerApplication first; the act it is about,
+        // and so the slice it binds to, is the last When
+        bindings().Single(x => x.Identity == "ReviewVolunteerApplication/reviewed after arranging by command")
+            .CommandType!.Name.ShouldBe("ReviewVolunteerApplication");
+    }
+
+    [Fact]
     public void bobcat_slice_names_the_slice_and_a_methods_attribute_replaces_its_classes()
     {
         var all = bindings();
@@ -120,7 +137,7 @@ public class SpecificationManifestTests
     {
         var all = bindings();
 
-        all.Count.ShouldBe(4);
+        all.Count.ShouldBe(5);
         all.ShouldNotContain(x => x.Identity.Contains("ignored"));
         all.ShouldNotContain(x => x.Identity.Contains("not a test"));
     }
