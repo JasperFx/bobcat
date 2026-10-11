@@ -1,6 +1,7 @@
 using Bobcat.CritterStack;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
+using Bobcat.Engine.Verification;
 using JasperFx.Events.Tags;
 using Shouldly;
 
@@ -551,7 +552,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
             "Given the date is 2026-10-11",
             "When the clock advances by 3 days",
             "And 1 hour 30 minutes passes",
-            "Given the current time is 2026-01-02 09:15 UTC",
+            "Given the current time is 2026-01-02 09:15",
             "When the clock advances to 2026-01-03"
         ]);
     }
@@ -580,6 +581,227 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
             .ShouldBe(["Wallet", "WalletOpened", "WalletCredited", "WalletSummary"]);
         finished.TouchedTypes![0].FullName.ShouldBe(typeof(Wallet).FullName);
         finished.TouchedTypes![0].AssemblyName.ShouldBe(typeof(Wallet).Assembly.GetName().Name);
+    }
+
+    // ---- review findings on bobcat#474 -------------------------------------------------------
+
+    [Fact]
+    public async Task a_subclass_of_the_expected_exception_is_a_match()
+    {
+        var scenario = newScenario();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("the wallet is credited", _ => throw new ArgumentNullException("amount"));
+            scenario.ThenRefusedWith<ArgumentException>().ShouldBeOfType<ArgumentNullException>();
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        var cell = recording.Step("refused with ArgumentException").Cells.Single(x => x.Name == "exception");
+        cell.Status.ShouldBe(ResultStatus.success);
+        cell.Actual.ShouldBe(nameof(ArgumentNullException));
+    }
+
+    [Fact]
+    public async Task a_step_that_throws_fails_on_its_own_line()
+    {
+        var scenario = newScenario();
+
+        // A read model that cannot be stored is a SpecCriticalException thrown while its Given is open
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await Should.ThrowAsync<SpecCriticalException>(() => scenario.GivenReadModel<Customer>(new Wallet()));
+        });
+
+        recording.Steps.Single().Status.ShouldNotBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public async Task a_store_that_throws_inside_a_step_fails_that_step()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+
+        // An application with no event store at all: the act runs, every store read throws
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        var scenario = new CritterStackScenario(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services));
+        var id = Guid.NewGuid();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("nothing happens", _ => Task.CompletedTask);
+            await Should.ThrowAsync<Exception>(() => scenario.ThenStreamIsStarted<Wallet>(id));
+            await Should.ThrowAsync<Exception>(() => scenario.AfterAsyncDaemonsCatchUpAsync());
+            await Should.ThrowAsync<Exception>(() => scenario.ThenProjectionsAreCaughtUp(typeof(WalletSummary)));
+        });
+
+        recording.Steps.Select(x => x.Status == ResultStatus.success).ShouldBe([true, false, false, false]);
+    }
+
+    [Fact]
+    public async Task a_missing_aggregate_or_read_model_fails_a_rendered_step()
+    {
+        var scenario = newScenario();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenAggregate<Wallet>(Guid.NewGuid()));
+            await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenReadModel<Customer>(Guid.NewGuid()));
+        });
+
+        var steps = recording.Steps.ToList();
+        steps.Select(x => x.Status).ShouldBe([ResultStatus.failed, ResultStatus.success, ResultStatus.failed]);
+        steps[0].Text.ShouldStartWith("there is a Wallet ");
+        steps[1].Text.ShouldBe("the Customer read model has caught up");
+        steps[2].Text.ShouldStartWith("there is a Customer ");
+    }
+
+    [Fact]
+    public async Task a_step_about_the_act_fails_when_no_act_has_run()
+    {
+        var scenario = newScenario();
+        var screening = new ScreeningId(Guid.NewGuid());
+
+        var recording = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenNoEvents();
+            scenario.ThenNotEmitted<WalletDebited>();
+            scenario.ThenNoEventsOn<Wallet>(Guid.NewGuid());
+            scenario.ThenNoEventsOn(EventTagQuery.For(screening));
+            return Task.CompletedTask;
+        });
+
+        recording.Steps.Select(x => x.Status).ShouldAllBe(x => x == ResultStatus.failed);
+        recording.Steps.Count.ShouldBe(4);
+        recording.GatheredFailures().ShouldNotBeNull().ShouldContain("no act has run");
+        Should.Throw<SpecAssertionException>(() => scenario.ThenNoEvents()).Message.ShouldContain("no act has run");
+
+        // The refusal half of a guard: an act that threw and appended nothing still passes ThenNoEvents
+        await scenario.WhenActing("the debit is refused", _ => throw new WalletFrozen(Guid.NewGuid()));
+        scenario.ThenNoEvents();
+    }
+
+    [Fact]
+    public async Task a_started_stream_answers_only_to_its_own_aggregate_type()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var screening = new ScreeningId(id);
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("a screening is scheduled",
+                appending(typeof(SeatAvailability), id, new ScreeningScheduled(screening, 10)));
+            await scenario.ThenStreamIsStartedWithEvents<Wallet>(new ScreeningScheduled(screening, 10));
+        });
+
+        recording.GatheredFailures().ShouldNotBeNull().ShouldContain("started no Wallet stream");
+        scenario.LastAct.StartedStreams.ShouldHaveSingleItem().AggregateType.ShouldBe(typeof(SeatAvailability));
+        scenario.TheStartedStream<SeatAvailability>().ShouldBe(id);
+        Should.Throw<SpecCriticalException>(() => scenario.TheStartedStream<Wallet>()).Message.ShouldContain("It started: SeatAvailability");
+
+        // A stream started with no aggregate type still answers to any
+        var untyped = Guid.NewGuid();
+        await scenario.WhenActing("an untyped stream is started",
+            services => EventStoreAuthoring.AppendAsync(services.EventStore(), null!, untyped, [new WalletOpened(untyped, "Jo")]));
+        scenario.LastAct.StartedStreams.ShouldHaveSingleItem().AggregateType.ShouldBeNull();
+        scenario.TheStartedStream<Wallet>().ShouldBe(untyped);
+    }
+
+    [Fact]
+    public async Task a_step_that_could_never_fail_is_refused_up_front()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.WhenActing("the wallet is credited", _ => throw new WalletFrozen(id));
+
+        Should.Throw<ArgumentOutOfRangeException>(() => scenario.ThenMessagesSent<WalletCredited>(0));
+        Should.Throw<ArgumentOutOfRangeException>(() => scenario.ThenMessagesSent<WalletCredited>(-1));
+        Should.Throw<ArgumentException>(() => scenario.ThenRefusedWith(""));
+        Should.Throw<ArgumentException>(() => scenario.ThenRefusedWith("  ", id));
+        Should.Throw<ArgumentException>(() => scenario.ThenValidationFails(" "));
+    }
+
+    [Fact]
+    public void the_clock_steps_render_what_they_did_in_words_the_grammar_reads_back()
+    {
+        var scenario = newScenario();
+        BobcatClock.Reset();
+        var at = new DateTimeOffset(2026, 1, 2, 9, 15, 30, 123, TimeSpan.Zero).AddTicks(4567);
+
+        var recording = ScenarioRecorder.Begin("CritterStackScenario", "the clock, to the tick", null, Guid.NewGuid());
+        try
+        {
+            scenario.GivenTheTimeIs(at);
+            scenario.WhenTimePasses(TimeSpan.FromTicks(5_000));
+            scenario.WhenTheClockAdvancesBy(TimeSpan.FromTicks(15_002_500));
+            scenario.WhenTheClockAdvancesTo(at.AddHours(1));
+
+            // A clock that goes backwards is not one that advances or passes
+            Should.Throw<ArgumentOutOfRangeException>(() => scenario.WhenTimePasses(TimeSpan.FromHours(-1)));
+            Should.Throw<ArgumentOutOfRangeException>(() => scenario.WhenTheClockAdvancesBy(TimeSpan.FromTicks(-1)));
+        }
+        finally
+        {
+            recording.Dispose();
+            BobcatClock.Reset();
+        }
+
+        recording.Lines().ShouldBe([
+            "Given the current time is 2026-01-02 09:15:30.1234567",
+            "When 0.5 milliseconds passes",
+            "And the clock advances by 1 second 500.25 milliseconds",
+            "And the clock advances to 2026-01-02 10:15:30.1234567"
+        ]);
+
+        // Each reads back through the parser the Gherkin clock grammar uses
+        FriendlyTimeSpanParser.TryParse("0.5 milliseconds", out var half).ShouldBeTrue();
+        half.ShouldBe(TimeSpan.FromTicks(5_000));
+        FriendlyTimeSpanParser.TryParse("1 second 500.25 milliseconds", out var longer).ShouldBeTrue();
+        longer.ShouldBe(TimeSpan.FromTicks(15_002_500));
+        try
+        {
+            new ClockGrammars().SetTime("2026-01-02 09:15:30.1234567");
+            BobcatClock.Current.GetUtcNow().ShouldBe(at);
+            new ClockGrammars().SetTime("2026-01-02 09:15");
+            BobcatClock.Current.GetUtcNow().ShouldBe(new DateTimeOffset(2026, 1, 2, 9, 15, 0, TimeSpan.Zero));
+        }
+        finally
+        {
+            BobcatClock.Reset();
+        }
+    }
+
+    [Fact]
+    public async Task the_high_water_sequence_is_the_highest_sequence_in_the_store()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Kai"), new WalletCredited(id, 1));
+
+        var all = await EventStores.QueryEventsSinceAsync(scenario.Store, 0);
+        (await EventStores.HighWaterSequenceAsync(scenario.Store)).ShouldBe(all.Max(x => x.Sequence));
+    }
+
+    [Fact]
+    public async Task a_scenario_can_be_built_from_the_services_alone()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CritterStackScenario(store.Host.Services);
+        var id = Guid.NewGuid();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Lu"));
+            await scenario.WhenActing("the wallet is credited", appending(id, new WalletCredited(id, 8)));
+            scenario.ThenEvents(new WalletCredited(id, 8));
+            await scenario.ThenAggregate<Wallet>(id, Specifications.Specify<Wallet>().With(x => x.Balance, 8m));
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        scenario.Services.ShouldBeSameAs(store.Host.Services);
+        Should.Throw<InvalidOperationException>(() => scenario.Host).Message.ShouldContain("IServiceProvider");
+        new CritterStackScenario(store.Host).Services.ShouldBeSameAs(store.Host.Services);
     }
 
     private sealed class OwnSpecificationFailure(string message) : Exception(message);

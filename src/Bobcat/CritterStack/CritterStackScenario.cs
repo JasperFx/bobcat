@@ -45,6 +45,7 @@ public class CritterStackScenario
     private const StringComparison ReasonComparison = StringComparison.Ordinal;
 
     private readonly string? _storeName;
+    private readonly IHost? _host;
     private IEventStore? _store;
     private bool? _hasStore;
     private object? _stream;
@@ -55,12 +56,35 @@ public class CritterStackScenario
     /// <param name="storeName">Which event store to use, when the application has several. Null takes the only one.</param>
     public CritterStackScenario(IHost host, string? storeName = null)
     {
-        Host = host ?? throw new ArgumentNullException(nameof(host));
+        _host = host ?? throw new ArgumentNullException(nameof(host));
+        Services = host.Services;
         _storeName = storeName;
     }
 
-    /// <summary>The application under test.</summary>
-    public IHost Host { get; }
+    /// <summary>
+    /// A scenario over an application's services alone, for a test that has a container but no
+    /// <see cref="IHost" /> — a hand-built <c>ServiceProvider</c>, or a host's <c>Services</c> handed on.
+    /// <see cref="Host" /> throws on a scenario built this way.
+    /// </summary>
+    /// <param name="services">The application's services. Its event store is resolved from them.</param>
+    /// <param name="storeName">Which event store to use, when the application has several. Null takes the only one.</param>
+    public CritterStackScenario(IServiceProvider services, string? storeName = null)
+    {
+        Services = services ?? throw new ArgumentNullException(nameof(services));
+        _storeName = storeName;
+    }
+
+    /// <summary>
+    /// The application under test. Throws when the scenario was built from an <see cref="IServiceProvider" />
+    /// rather than a host; every step reads <see cref="Services" /> instead, so only a derived scenario that
+    /// needs the host itself reaches for this.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The scenario was built from an <see cref="IServiceProvider" />.</exception>
+    public IHost Host => _host ?? throw new InvalidOperationException(
+        "This scenario was built from an IServiceProvider, so it has no IHost. Read Services instead, or build the scenario from the host.");
+
+    /// <summary>The application's services: the host's, or the provider the scenario was built from.</summary>
+    public IServiceProvider Services { get; }
 
     /// <summary>
     /// How long a step that reads a projection waits for the async daemons to catch up. Twenty seconds by
@@ -87,7 +111,7 @@ public class CritterStackScenario
     }
 
     /// <summary>The application's event store. Throws, saying so, when it has none.</summary>
-    public IEventStore Store => _store ??= Host.Services.EventStore(_storeName);
+    public IEventStore Store => _store ??= Services.EventStore(_storeName);
 
     /// <summary>Whether the application has an event store at all. An application with none can still act.</summary>
     protected bool hasStore()
@@ -96,7 +120,7 @@ public class CritterStackScenario
 
         try
         {
-            _store ??= Host.Services.EventStore(_storeName);
+            _store ??= Services.EventStore(_storeName);
             _hasStore = true;
         }
         catch (Exception)
@@ -110,7 +134,7 @@ public class CritterStackScenario
     /// <summary>Clear the event store and forget the last act, for a suite that shares one host across scenarios.</summary>
     public virtual async Task ResetAsync(CancellationToken token = default)
     {
-        if (Host.Services.EventStores().Count > 0) await Host.Services.ResetEventStoresAsync(token);
+        if (Services.EventStores().Count > 0) await Services.ResetEventStoresAsync(token);
         _stream = null;
         LastAct = CritterStackActOutcome.None;
     }
@@ -156,15 +180,16 @@ public class CritterStackScenario
         events = flatten(events);
         var (described, inline) = describe(events);
         var text = events.Length == 0 ? $"{stream} has no events yet" : $"{stream} has already recorded {described}";
-        using var step = ScenarioRecorder.Step("Given", text);
-
-        // wolverine#4865: a strong-typed id is the Guid or string it wraps, to the store
-        _stream = StrongTypedIds.StreamIdentity(id);
-        if (aggregate is not null) recordTouched(aggregate);
-        recordTouchedExpectations(events);
-        if (!inline) recordValues("event", events);
-        // Every store's StartStream(Type, ...) takes a null aggregate type as an untyped stream
-        if (events.Length > 0) await EventStoreAuthoring.AppendAsync(Store, aggregate!, _stream, build(events, text));
+        await inStep(ScenarioRecorder.Step("Given", text), async () =>
+        {
+            // wolverine#4865: a strong-typed id is the Guid or string it wraps, to the store
+            _stream = StrongTypedIds.StreamIdentity(id);
+            if (aggregate is not null) recordTouched(aggregate);
+            recordTouchedExpectations(events);
+            if (!inline) recordValues("event", events);
+            // Every store's StartStream(Type, ...) takes a null aggregate type as an untyped stream
+            if (events.Length > 0) await EventStoreAuthoring.AppendAsync(Store, aggregate!, _stream, build(events, text));
+        });
     }
 
     /// <summary>
@@ -200,12 +225,14 @@ public class CritterStackScenario
         events = flatten(events);
         var (described, inline) = describe(events);
         var text = $"{streamName(aggregate, id)} has already recorded {described}";
-        using var step = ScenarioRecorder.Step("Given", text);
-        recordTouched(aggregate);
-        recordTouchedExpectations(events);
-        if (!inline) recordValues("event", events);
-        if (events.Length > 0)
-            await EventStoreAuthoring.AppendAsync(Store, aggregate, StrongTypedIds.StreamIdentity(id), build(events, text));
+        await inStep(ScenarioRecorder.Step("Given", text), async () =>
+        {
+            recordTouched(aggregate);
+            recordTouchedExpectations(events);
+            if (!inline) recordValues("event", events);
+            if (events.Length > 0)
+                await EventStoreAuthoring.AppendAsync(Store, aggregate, StrongTypedIds.StreamIdentity(id), build(events, text));
+        });
     }
 
     /// <summary>
@@ -220,15 +247,16 @@ public class CritterStackScenario
     public async Task GivenReadModel<T>(object document) where T : class
     {
         var text = $"the {typeof(T).Name} read model is {describe([document]).Text}";
-        using var step = ScenarioRecorder.Step("Given", text);
+        await inStep(ScenarioRecorder.Step("Given", text), async () =>
+        {
+            var built = Build(document, text);
+            if (built is not T)
+                throw new SpecCriticalException(
+                    $"'{text}': a {PartialMatching.ExpectedType(document).Name} cannot be stored as the {typeof(T).Name} read model.");
 
-        var built = Build(document, text);
-        if (built is not T)
-            throw new SpecCriticalException(
-                $"'{text}': a {PartialMatching.ExpectedType(document).Name} cannot be stored as the {typeof(T).Name} read model.");
-
-        recordTouched(typeof(T));
-        await DocumentStores.StoreAllAsync(Store, typeof(T), [built]);
+            recordTouched(typeof(T));
+            await DocumentStores.StoreAllAsync(Store, typeof(T), [built]);
+        });
     }
 
     /// <summary>
@@ -348,8 +376,8 @@ public class CritterStackScenario
     public async Task WhenActing(string description, Func<IServiceProvider, Task> act)
     {
         ArgumentNullException.ThrowIfNull(act);
-        using var step = ScenarioRecorder.Step("When", description);
-        await recordActAsync(act);
+        // The act's own exception is captured, never thrown; the store reads around it can still throw
+        await inStep(ScenarioRecorder.Step("When", description), () => recordActAsync(act));
     }
 
     /// <summary>
@@ -374,7 +402,7 @@ public class CritterStackScenario
         Exception? error = null;
         try
         {
-            await using var scope = Host.Services.CreateAsyncScope();
+            await using var scope = Services.CreateAsyncScope();
             await act(scope.ServiceProvider);
         }
         catch (Exception e)
@@ -390,20 +418,46 @@ public class CritterStackScenario
         return new CritterStackActOutcome(appended, error)
         {
             AllNewEvents = appended,
-            StartedStreams = startedStreamsOf(appended),
+            StartedStreams = store is null ? Array.Empty<StreamAction>() : await startedStreamsOf(store, appended),
             // Read back from the store, which returns no tags
             EventTagsKnown = false
         };
     }
 
-    // A stream whose first event is among those appended was started by the act
-    private static IReadOnlyList<StreamAction> startedStreamsOf(IReadOnlyList<IEvent> appended)
-        => appended
-            .Where(x => x.Version == 1)
-            .Select(x => x.StreamKey is { } key
+    // A stream whose first event is among those appended was started by the act. Its aggregate type comes from
+    // the store's stream state: an event read back carries none (IEvent.AggregateTypeName is only filled inside
+    // the async daemon), and without it every started stream would answer to every aggregate type
+    private static async Task<IReadOnlyList<StreamAction>> startedStreamsOf(IEventStore store, IReadOnlyList<IEvent> appended)
+    {
+        var started = new List<StreamAction>();
+        foreach (var e in appended.Where(x => x.Version == 1))
+        {
+            var action = e.StreamKey is { } key
                 ? new StreamAction(key, StreamActionType.Start)
-                : new StreamAction(x.StreamId, StreamActionType.Start))
-            .ToList();
+                : new StreamAction(e.StreamId, StreamActionType.Start);
+            action.AggregateType = await aggregateTypeOf(store, e);
+            started.Add(action);
+        }
+
+        return started;
+    }
+
+    // The aggregate type the store recorded for an event's stream, or null for a stream started without one or
+    // an alias the store cannot map back to a type (Marten throws for one it has never seen)
+    private static async Task<Type?> aggregateTypeOf(IEventStore store, IEvent @event)
+    {
+        try
+        {
+            var state = @event.StreamKey is { } key
+                ? await EventStores.FetchStreamStateAsync(store, key)
+                : await EventStores.FetchStreamStateAsync(store, @event.StreamId);
+            return state?.AggregateType;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 
     // Run the act through the seam and remember it
     private async Task<CritterStackActOutcome> recordActAsync(Func<IServiceProvider, Task> act)
@@ -495,7 +549,7 @@ public class CritterStackScenario
     private Task thenEventsOn(Type aggregate, object id, long afterVersion, object[] expected)
     {
         var text = $"{describeEmitted(expected)} on the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}";
-        return inSentence(ScenarioRecorder.Step("Then", text),
+        return inStep(ScenarioRecorder.Step("Then", text),
             () => verifyGained(aggregate, id, afterVersion, expected));
     }
 
@@ -512,11 +566,11 @@ public class CritterStackScenario
         {
         }
 
-        await inSentence(
+        await inStep(
             paragraph.Sentence("When", description ?? $"the {aggregate.Name} stream {ScenarioValues.Format(id)} is acted on"),
             () => recordActAsync(act));
 
-        await inSentence(paragraph.Sentence("Then", $"{describeEmitted(expected)} on it"),
+        await inStep(paragraph.Sentence("Then", $"{describeEmitted(expected)} on it"),
             () => verifyGained(aggregate, id, version, expected));
     }
 
@@ -569,8 +623,10 @@ public class CritterStackScenario
         return stream.Count == 0 ? 0 : stream.Max(e => e.Version);
     }
 
-    // A sentence that fails says so on its own line, then the failure carries on to the runner
-    private static async Task inSentence(IDisposable sentence, Func<Task> body)
+    // A step (or a paragraph's sentence) that throws says so on its own line, then the failure carries on to
+    // the runner. Every step whose body can throw while it is open goes through one of these: a bare
+    // `using var step` ends as a pass whatever escapes it
+    private static async Task inStep(IDisposable step, Func<Task> body)
     {
         try
         {
@@ -578,12 +634,46 @@ public class CritterStackScenario
         }
         catch (Exception e)
         {
-            (sentence as IStepHandle)?.Fail(e);
+            (step as IStepHandle)?.Fail(e);
             throw;
         }
         finally
         {
-            sentence.Dispose();
+            step.Dispose();
+        }
+    }
+
+    private static async Task<T> inStep<T>(IDisposable step, Func<Task<T>> body)
+    {
+        try
+        {
+            return await body();
+        }
+        catch (Exception e)
+        {
+            (step as IStepHandle)?.Fail(e);
+            throw;
+        }
+        finally
+        {
+            step.Dispose();
+        }
+    }
+
+    private static void inStep(IDisposable step, Action body)
+    {
+        try
+        {
+            body();
+        }
+        catch (Exception e)
+        {
+            (step as IStepHandle)?.Fail(e);
+            throw;
+        }
+        finally
+        {
+            step.Dispose();
         }
     }
 
@@ -818,6 +908,14 @@ public class CritterStackScenario
     public void ThenNoEvents()
     {
         using var step = ScenarioRecorder.Step("Then", "no events are emitted");
+
+        // Not actSucceeded(): a refused or throwing act that appended nothing is exactly what this step passes
+        if (!_acted)
+        {
+            fail("Expected the act to append no events, but no act has run.");
+            return;
+        }
+
         fact(LastAct.NewEvents.Count == 0,
             $"Expected no events but the act appended {ScenarioValues.DescribeAll(LastAct.NewEvents.Select(x => x.Data))}");
     }
@@ -856,12 +954,14 @@ public class CritterStackScenario
     /// <inheritdoc cref="ThenStreamIsStarted{TAggregate}(object)" />
     public async Task ThenStreamIsStarted(Type aggregate, object id)
     {
-        using var step = ScenarioRecorder.Step("Then", $"a {aggregate.Name} stream is started with id \"{id}\"");
-        if (!actSucceeded()) return;
+        await inStep(ScenarioRecorder.Step("Then", $"a {aggregate.Name} stream is started with id \"{id}\""), async () =>
+        {
+            if (!actSucceeded()) return;
 
-        var events = await fetchAsync(Store, StrongTypedIds.StreamIdentity(id));
-        fact(events.Count > 0,
-            $"Expected a {aggregate.Name} stream with id {id}, but no stream exists there. The act appended its events somewhere else, or started no stream at all.");
+            var events = await fetchAsync(Store, StrongTypedIds.StreamIdentity(id));
+            fact(events.Count > 0,
+                $"Expected a {aggregate.Name} stream with id {id}, but no stream exists there. The act appended its events somewhere else, or started no stream at all.");
+        });
     }
 
     /// <summary>
@@ -878,19 +978,20 @@ public class CritterStackScenario
     private async Task streamIsStartedWithEvents(Type aggregate, object[] expected)
     {
         var paragraph = new Paragraph("Then");
-        object? stream;
-        using (paragraph.Sentence($"a {aggregate.Name} stream is started"))
+        var stream = await inStep<object?>(paragraph.Sentence($"a {aggregate.Name} stream is started"), async () =>
         {
-            if (!actSucceeded()) return;
+            if (!actSucceeded()) return null;
 
-            stream = startedStreamOrNull(aggregate);
-            if (stream is null) return;
+            var started = startedStreamOrNull(aggregate);
+            if (started is null) return null;
 
-            ScenarioValues.Learn(stream, aggregate.Name);
-            var events = await fetchAsync(Store, stream);
+            ScenarioValues.Learn(started, aggregate.Name);
+            var events = await fetchAsync(Store, started);
             fact(events.Count > 0,
-                $"Expected a {aggregate.Name} stream with id {ScenarioValues.Format(stream)}, but no stream exists there.");
-        }
+                $"Expected a {aggregate.Name} stream with id {ScenarioValues.Format(started)}, but no stream exists there.");
+            return started;
+        });
+        if (stream is null) return;
 
         var text = $"{describeTypes(expected.Select(PartialMatching.ExpectedType).ToArray())} {(expected.Length == 1 ? "is" : "are")} emitted on it";
         using (paragraph.Sentence(text))
@@ -937,6 +1038,11 @@ public class CritterStackScenario
     /// GH-4931. The id the last act assigned to the <typeparamref name="TAggregate" /> stream it started — for
     /// a command that starts a stream, whose id a spec cannot know before the act.
     /// </summary>
+    /// <remarks>
+    /// A started stream's aggregate type is read back from the store's stream state. A stream started with no
+    /// aggregate type, or one whose type the store cannot map back to a .NET type, answers to any
+    /// <typeparamref name="TAggregate" />.
+    /// </remarks>
     /// <exception cref="SpecCriticalException">The act started no such stream, or more than one.</exception>
     public Guid TheStartedStream<TAggregate>() where TAggregate : class => startedStream(typeof(TAggregate)).Id;
 
@@ -947,7 +1053,8 @@ public class CritterStackScenario
 
     private StreamAction startedStream(Type aggregate)
     {
-        // A stream started with no aggregate type (Storage.StartStream with events only) can still be the one
+        // A stream started with no aggregate type (Storage.StartStream with events only), or one whose type the
+        // store could not map back, can still be the one
         var started = LastAct.StartedStreams.Where(x => x.AggregateType is null || x.AggregateType == aggregate).ToList();
         return started.Count switch
         {
@@ -966,6 +1073,7 @@ public class CritterStackScenario
     /// ProblemDetails, or the exception the act threw — searched with its inner exceptions, and every one
     /// of an <see cref="AggregateException" />'s, so a refusal wrapped by the act's plumbing is still found.
     /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="reason" /> is empty or whitespace, which every refusal contains.</exception>
     public void ThenRefusedWith(string reason) => assertRefusal($"refused with \"{reason}\"", reason);
 
     /// <summary>
@@ -979,6 +1087,7 @@ public class CritterStackScenario
     /// </remarks>
     public void ThenRefusedWith(string reason, params object[] mentioning)
     {
+        requireReason(reason);
         if (mentioning.Length == 0)
         {
             ThenRefusedWith(reason);
@@ -1038,7 +1147,8 @@ public class CritterStackScenario
         }
 
         var thrown = exceptionsIn(LastAct.Error).OfType<TException>().FirstOrDefault();
-        check("exception", thrown?.GetType().Name ?? LastAct.Error.GetType().Name, typeof(TException).Name);
+        // Matched on the search, not the name: an ArgumentNullException is the ArgumentException a spec asked for
+        cell("exception", thrown is not null, typeof(TException).Name, thrown?.GetType().Name ?? LastAct.Error.GetType().Name);
         if (thrown is null)
         {
             fact(false,
@@ -1076,6 +1186,7 @@ public class CritterStackScenario
     /// The act failed validation with <paramref name="reason" />. The same check as
     /// <see cref="ThenRefusedWith(string)" />, worded for a command.
     /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="reason" /> is empty or whitespace, which every refusal contains.</exception>
     public void ThenValidationFails(string reason) => assertRefusal($"validation fails with \"{reason}\"", reason);
 
     /// <summary>
@@ -1114,6 +1225,7 @@ public class CritterStackScenario
 
     private void assertRefusal(string text, string reason)
     {
+        requireReason(reason);
         using var step = ScenarioRecorder.Step("Then", text);
 
         var refusal = refusalText(reason);
@@ -1145,6 +1257,14 @@ public class CritterStackScenario
 
     private static bool reasonMatches(string refusal, string reason) => refusal.Contains(reason, ReasonComparison);
 
+    // Every refusal's text contains the empty string, so a blank reason would pass on any refusal at all
+    private static void requireReason(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("A refusal's reason must say something: an empty or whitespace reason matches every refusal.",
+                nameof(reason));
+    }
+
     // ---- assert: messages --------------------------------------------------------------------
 
     /// <summary>
@@ -1152,8 +1272,10 @@ public class CritterStackScenario
     /// sent, read from <see cref="CritterStackActOutcome.MessagesSent" />. A store-only act tracks no
     /// messages, so this needs a scenario whose act does, such as WolverineFx.Bobcat's.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="count" /> is less than 1, which any act satisfies.</exception>
     public void ThenMessagesSent<T>(int count = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         using var step = ScenarioRecorder.Step("Then",
             count == 1 ? $"{typeof(T).Name} is sent" : $"at least {count} {typeof(T).Name} are sent");
         if (!_acted)
@@ -1198,20 +1320,26 @@ public class CritterStackScenario
     /// <inheritdoc cref="ThenAggregate{T}(Guid, object)" />
     public Task<T> ThenAggregate<T>(string key, object expected) where T : class => thenAggregate<T>(key, expected);
 
-    private async Task<T> thenAggregate<T>(object id, object? expected) where T : class
+    private Task<T> thenAggregate<T>(object id, object? expected) where T : class
     {
-        var aggregate = StrongTypedIds.StreamIdentity(id) switch
+        // The step opens before the load, so a missing aggregate fails a rendered step
+        return inStep(ScenarioRecorder.Step("Then", expected is null ? existsText<T>(id) : matchesText(expected)), async () =>
         {
-            Guid guid => await EventStores.FetchLatestAsync<T>(Store, guid),
-            string key => await EventStores.FetchLatestAsync<T>(Store, key),
-            _ => throw new ArgumentOutOfRangeException(nameof(id), "A stream is identified by a Guid or a string")
-        } ?? throw failureOf(
-            $"No {typeof(T).Name} with id {id}: FetchLatest found no stream there. The act appended to another stream, or none.");
+            var aggregate = StrongTypedIds.StreamIdentity(id) switch
+            {
+                Guid guid => await EventStores.FetchLatestAsync<T>(Store, guid),
+                string key => await EventStores.FetchLatestAsync<T>(Store, key),
+                _ => throw new ArgumentOutOfRangeException(nameof(id), "A stream is identified by a Guid or a string")
+            } ?? throw failureOf(
+                $"No {typeof(T).Name} with id {id}: FetchLatest found no stream there. The act appended to another stream, or none.");
 
-        recordTouched(typeof(T));
-        if (expected is not null) ThenMatches(aggregate, expected);
-        return aggregate;
+            recordTouched(typeof(T));
+            if (expected is not null) judge(aggregate, expected);
+            return aggregate;
+        });
     }
+
+    private static string existsText<T>(object id) => $"there is a {typeof(T).Name} {ScenarioValues.Format(id)}";
 
     /// <summary>
     /// GH-4921. The document of type <typeparamref name="T" /> with this identity, loaded with
@@ -1231,27 +1359,29 @@ public class CritterStackScenario
     /// <see cref="ThenDocument{T}(object)" />; for an aggregate built from events, see
     /// <see cref="ThenAggregate{T}(Guid)" /> (GH-4921).
     /// </summary>
-    public async Task<T> ThenReadModel<T>(object id) where T : class
-    {
-        await ThenProjectionsAreCaughtUp(typeof(T));
-
-        var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, id)
-                       ?? throw failureOf(
-                           $"No {typeof(T).Name} document with id {id}. The projections caught up, so either nothing routed to this id or its identity rule differs.");
-        recordTouched(typeof(T));
-        return document;
-    }
+    public Task<T> ThenReadModel<T>(object id) where T : class => thenReadModel<T>(id, null);
 
     /// <summary>
     /// The read model with this identity, once the projections have caught up, judged against
     /// <paramref name="expected" />: a partial object (<c>Specify&lt;T&gt;()</c>) on only the members it
     /// names, or a whole object or <see cref="Expect.Value{T}" /> structurally. Hands the document back.
     /// </summary>
-    public async Task<T> ThenReadModel<T>(object id, object expected) where T : class
+    public Task<T> ThenReadModel<T>(object id, object expected) where T : class => thenReadModel<T>(id, expected);
+
+    private async Task<T> thenReadModel<T>(object id, object? expected) where T : class
     {
-        var document = await ThenReadModel<T>(id);
-        ThenMatches(document, expected);
-        return document;
+        await ThenProjectionsAreCaughtUp(typeof(T));
+
+        // The step opens before the load, so a missing document fails a rendered step
+        return await inStep(ScenarioRecorder.Step("Then", expected is null ? existsText<T>(id) : matchesText(expected)), async () =>
+        {
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, id)
+                           ?? throw failureOf(
+                               $"No {typeof(T).Name} document with id {id}. The projections caught up, so either nothing routed to this id or its identity rule differs.");
+            recordTouched(typeof(T));
+            if (expected is not null) judge(document, expected);
+            return document;
+        });
     }
 
     /// <summary>
@@ -1262,10 +1392,12 @@ public class CritterStackScenario
     {
         await ThenProjectionsAreCaughtUp(typeof(T));
 
-        using var step = ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name} {ScenarioValues.Format(id)}");
-        var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, id);
-        fact(document is null,
-            $"Expected no {typeof(T).Name} document with id {id}, but there is one: {ScenarioValues.Describe(document)}");
+        await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name} {ScenarioValues.Format(id)}"), async () =>
+        {
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, id);
+            fact(document is null,
+                $"Expected no {typeof(T).Name} document with id {id}, but there is one: {ScenarioValues.Describe(document)}");
+        });
     }
 
     /// <summary>
@@ -1288,15 +1420,20 @@ public class CritterStackScenario
 
         await AfterAsyncDaemonsCatchUpAsync();
 
-        var stream = scenarioStream(typeof(T), nameof(ThenSingleReadModel));
-        var model = await theLatest<T>(stream)
-                    ?? throw failureOf(
-                        $"No {typeof(T).Name} for the stream {ScenarioValues.Format(stream)}: FetchLatest found nothing there.");
+        return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
+        {
+            var stream = scenarioStream(typeof(T), nameof(ThenSingleReadModel));
+            var model = await theLatest<T>(stream)
+                        ?? throw failureOf(
+                            $"No {typeof(T).Name} for the stream {ScenarioValues.Format(stream)}: FetchLatest found nothing there.");
 
-        recordTouched(typeof(T));
-        if (expected is not null) ThenMatches(model, expected);
-        return model;
+            recordTouched(typeof(T));
+            if (expected is not null) judge(model, expected);
+            return model;
+        });
     }
+
+    private static string singleText<T>() => $"there is a {typeof(T).Name} for the scenario's stream";
 
     /// <summary>
     /// The <typeparamref name="T" /> document stored under the id of the stream this scenario is about, loaded with
@@ -1307,14 +1444,17 @@ public class CritterStackScenario
     {
         await AfterAsyncDaemonsCatchUpAsync();
 
-        var stream = scenarioStream(typeof(T), nameof(ThenSingleDocument));
-        var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, stream)
-                       ?? throw failureOf(
-                           $"No {typeof(T).Name} document with id {ScenarioValues.Format(stream)}. The async daemons caught up, so nothing stored one there.");
+        return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
+        {
+            var stream = scenarioStream(typeof(T), nameof(ThenSingleDocument));
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(Store, stream)
+                           ?? throw failureOf(
+                               $"No {typeof(T).Name} document with id {ScenarioValues.Format(stream)}. The async daemons caught up, so nothing stored one there.");
 
-        recordTouched(typeof(T));
-        if (expected is not null) ThenMatches(document, expected);
-        return document;
+            recordTouched(typeof(T));
+            if (expected is not null) judge(document, expected);
+            return document;
+        });
     }
 
     private Task<T?> theLatest<T>(object stream) where T : class => stream switch
@@ -1339,15 +1479,15 @@ public class CritterStackScenario
     /// </summary>
     public async Task AfterAsyncDaemonsCatchUpAsync()
     {
-        using var step = ScenarioRecorder.Step("Given", "the async daemons have caught up");
-        await EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout);
+        await inStep(ScenarioRecorder.Step("Given", "the async daemons have caught up"),
+            () => EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout));
     }
 
     /// <summary><see cref="AfterAsyncDaemonsCatchUpAsync()" /> for one tenant's database.</summary>
     public async Task AfterAsyncDaemonsCatchUpAsync(string tenantId)
     {
-        using var step = ScenarioRecorder.Step("Given", $"the async daemons have caught up for tenant \"{tenantId}\"");
-        await EventStores.WaitForNonStaleProjectionsAsync(Store, tenantId, ProjectionTimeout);
+        await inStep(ScenarioRecorder.Step("Given", $"the async daemons have caught up for tenant \"{tenantId}\""),
+            () => EventStores.WaitForNonStaleProjectionsAsync(Store, tenantId, ProjectionTimeout));
     }
 
     /// <summary>There is no <typeparamref name="T" /> at all once the projections have caught up.</summary>
@@ -1355,10 +1495,12 @@ public class CritterStackScenario
     {
         await ThenProjectionsAreCaughtUp(typeof(T));
 
-        using var step = ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name}");
-        var documents = await allDocuments<T>();
-        fact(documents.Count == 0,
-            $"Expected no {typeof(T).Name} document, but there {(documents.Count == 1 ? "is one" : $"are {documents.Count}")}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}");
+        await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name}"), async () =>
+        {
+            var documents = await allDocuments<T>();
+            fact(documents.Count == 0,
+                $"Expected no {typeof(T).Name} document, but there {(documents.Count == 1 ? "is one" : $"are {documents.Count}")}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}");
+        });
     }
 
     private async Task<IReadOnlyList<T>> allDocuments<T>() where T : class
@@ -1382,8 +1524,8 @@ public class CritterStackScenario
     /// </summary>
     public async Task ThenProjectionsAreCaughtUp(Type readModel)
     {
-        using var step = ScenarioRecorder.Step("Then", $"the {readModel.Name} read model has caught up");
-        await EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout);
+        await inStep(ScenarioRecorder.Step("Then", $"the {readModel.Name} read model has caught up"),
+            () => EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout));
     }
 
     /// <summary>
@@ -1405,11 +1547,8 @@ public class CritterStackScenario
     public async Task ThenDcbModel<T>(EventTagQuery query, object expected) where T : class
     {
         var text = $"the {typeof(T).Name} over {EventStores.Describe(query)} matches";
-        T? model;
-        using (ScenarioRecorder.Step("Given", $"{typeof(T).Name} is projected over {EventStores.Describe(query)}"))
-        {
-            model = await TheDcbModel<T>(query);
-        }
+        var model = await inStep(ScenarioRecorder.Step("Given", $"{typeof(T).Name} is projected over {EventStores.Describe(query)}"),
+            () => TheDcbModel<T>(query));
 
         matches(text, model, expected);
     }
@@ -1442,9 +1581,19 @@ public class CritterStackScenario
 
     private void matches(string? text, object? subject, object expected)
     {
+        using var step = ScenarioRecorder.Step("Then", text ?? matchesText(expected));
+        judge(subject, expected);
+    }
+
+    // How a step that judges an object against expected reads
+    private static string matchesText(object expected)
+        => $"the {(expected is IPartialObject partial ? partial.Type : unwrap(expected).GetType()).Name} matches";
+
+    // Judge subject against expected on the step in progress: a partial object on the members it names, else structurally
+    private void judge(object? subject, object expected)
+    {
         if (expected is IPartialObject partial)
         {
-            using var partialStep = ScenarioRecorder.Step("Then", text ?? $"the {partial.Type.Name} matches");
             if (subject is null)
             {
                 fail($"Expected a {partial.Type.Name} but there was nothing to verify");
@@ -1460,9 +1609,7 @@ public class CritterStackScenario
             return;
         }
 
-        var value = unwrap(expected);
-        using var step = ScenarioRecorder.Step("Then", text ?? $"the {value.GetType().Name} matches");
-        compareSequence(value.GetType().Name, subject is null ? Array.Empty<object>() : new[] { subject }, new[] { expected });
+        compareSequence(unwrap(expected).GetType().Name, subject is null ? Array.Empty<object>() : new[] { subject }, new[] { expected });
     }
 
     // ---- the clock (ClockGrammars, as recorded steps) ------------------------------------------
@@ -1488,15 +1635,19 @@ public class CritterStackScenario
     }
 
     /// <summary>Move the clock forward by <paramref name="duration" />.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration" /> is negative: the clock only advances.</exception>
     public void WhenTheClockAdvancesBy(TimeSpan duration)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
         using var step = ScenarioRecorder.Step("When", $"the clock advances by {formatDuration(duration)}");
         BobcatClock.Controllable().Advance(duration);
     }
 
     /// <summary><paramref name="duration" /> passes: the clock moves forward by it.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration" /> is negative: time only passes forward.</exception>
     public void WhenTimePasses(TimeSpan duration)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
         using var step = ScenarioRecorder.Step("When", $"{formatDuration(duration)} passes");
         BobcatClock.Controllable().Advance(duration);
     }
@@ -1508,30 +1659,37 @@ public class CritterStackScenario
         BobcatClock.Controllable().SetUtcNow(instant.ToUniversalTime());
     }
 
+    // "2026-01-02", "2026-01-02 09:15", "2026-01-02 09:15:30.25": UTC, to the tick, in the form ClockGrammars
+    // reads back. No zone suffix, because its parser assumes UTC and refuses one it does not know
     private static string formatInstant(DateTimeOffset instant)
     {
         var utc = instant.ToUniversalTime();
-        return utc.TimeOfDay == TimeSpan.Zero
-            ? utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-            : utc.ToString(utc.Second == 0 ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " UTC";
+        var format = utc.TimeOfDay == TimeSpan.Zero ? "yyyy-MM-dd"
+            : utc.Ticks % TimeSpan.TicksPerMinute == 0 ? "yyyy-MM-dd HH:mm"
+            : utc.Ticks % TimeSpan.TicksPerSecond == 0 ? "yyyy-MM-dd HH:mm:ss"
+            : "yyyy-MM-dd HH:mm:ss.FFFFFFF";
+        return utc.ToString(format, CultureInfo.InvariantCulture);
     }
 
-    // "3 days", "1 hour 30 minutes": the words FriendlyTimeSpanParser reads back
+    // "3 days", "1 hour 30 minutes", "0.5 milliseconds": the words FriendlyTimeSpanParser reads back, to the
+    // tick. Never negative; the clock steps refuse one before they get here
     private static string formatDuration(TimeSpan duration)
     {
         if (duration == TimeSpan.Zero) return "0 seconds";
 
         var parts = new List<string>();
-        void add(int amount, string unit)
+        void add(decimal amount, string unit)
         {
-            if (amount != 0) parts.Add($"{amount} {unit}{(Math.Abs(amount) == 1 ? "" : "s")}");
+            if (amount != 0)
+                parts.Add($"{amount.ToString("0.####", CultureInfo.InvariantCulture)} {unit}{(amount == 1 ? "" : "s")}");
         }
 
         add(duration.Days, "day");
         add(duration.Hours, "hour");
         add(duration.Minutes, "minute");
         add(duration.Seconds, "second");
-        add(duration.Milliseconds, "millisecond");
+        // The milliseconds and whatever is under them: a tick is 0.0001 of a millisecond
+        add((decimal)(duration.Ticks % TimeSpan.TicksPerSecond) / TimeSpan.TicksPerMillisecond, "millisecond");
         return string.Join(" ", parts);
     }
 
@@ -1654,10 +1812,17 @@ public class CritterStackScenario
     /// <summary>
     /// A failure the step did not ask about is reported as the act failing, rather than as "expected 1
     /// event, got 0" — which would send the reader to the handler's logic when the answer is in the
-    /// exception the act captured.
+    /// exception the act captured. No act at all is a failure too, so a forgotten When cannot pass a step
+    /// that looks for nothing.
     /// </summary>
     protected bool actSucceeded()
     {
+        // Without an act every "what the act did" step would pass on the empty outcome
+        if (!_acted)
+        {
+            return fail("Expected an act to judge, but no act has run. A step about what the act did needs a When first.");
+        }
+
         if (LastAct.Error is { } error)
         {
             return fail($"The act failed: {error.GetType().Name}: {error.Message}");

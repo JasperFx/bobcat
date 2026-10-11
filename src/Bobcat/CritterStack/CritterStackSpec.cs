@@ -40,6 +40,12 @@ public abstract class CritterStackSpec
     {
     }
 
+    /// <summary>A spec over an application's services alone, with no <see cref="IHost" />; <see cref="Host" /> throws.</summary>
+    protected CritterStackSpec(IServiceProvider services, string? storeName = null)
+        : this(new CritterStackScenario(services, storeName))
+    {
+    }
+
     protected CritterStackSpec(CritterStackScenario scenario)
     {
         Scenario = scenario ?? throw new ArgumentNullException(nameof(scenario));
@@ -50,6 +56,9 @@ public abstract class CritterStackSpec
 
     /// <inheritdoc cref="CritterStackScenario.Host" />
     public IHost Host => Scenario.Host;
+
+    /// <inheritdoc cref="CritterStackScenario.Services" />
+    public IServiceProvider Services => Scenario.Services;
 
     /// <inheritdoc cref="CritterStackScenario.Store" />
     public IEventStore Store => Scenario.Store;

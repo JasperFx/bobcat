@@ -101,11 +101,36 @@ public static class EventStores
     /// The highest sequence the store has issued, or 0 for an empty store — the mark
     /// <see cref="QueryEventsSinceAsync"/> counts from.
     /// </summary>
-    public static async Task<long> HighWaterSequenceAsync(IEventStore store, CancellationToken token = default)
-    {
-        var all = await QueryEventsSinceAsync(store, 0, token).ConfigureAwait(false);
-        return all.Count == 0 ? 0 : all.Max(x => x.Sequence);
-    }
+    /// <remarks>
+    /// Two small reads through the same <see cref="IReadOnlyEventStore.QueryEventsAsync"/> the act's events are
+    /// read back with, rather than loading every event: a one-event page for the count, then the last one-event
+    /// page, which the sequence-ascending ordering contract makes the highest. Not
+    /// <c>IEventDatabase.FetchHighestEventSequenceNumber</c>, which is per database (a multi-tenant store has
+    /// several, and the floor must come from the one the read-back reads) and not implemented by every
+    /// Marten database. Concurrent appends between the two reads can only lower the floor, which counts them
+    /// as the act's — the whole-store caveat the act already carries.
+    /// </remarks>
+    public static Task<long> HighWaterSequenceAsync(IEventStore store, CancellationToken token = default)
+        => readAsync(store, async reader =>
+        {
+            var first = await reader.QueryEventsAsync(new EventQuery { PageSize = 1 }, token).ConfigureAwait(false);
+            if (first.TotalCount == 0) return 0L;
+
+            var last = await reader.QueryEventsAsync(new EventQuery { PageSize = 1, PageNumber = first.TotalCount }, token)
+                .ConfigureAwait(false);
+            return last.Events.Count == 0 ? first.Events.Max(x => x.Sequence) : last.Events.Max(x => x.Sequence);
+        });
+
+    /// <summary>
+    /// A <see cref="Guid"/>-identified stream's state — version and the aggregate type the store recorded for
+    /// it — or null when there is no such stream.
+    /// </summary>
+    public static Task<StreamState?> FetchStreamStateAsync(IEventStore store, Guid streamId, CancellationToken token = default)
+        => readAsync(store, reader => reader.FetchStreamStateAsync(streamId, token));
+
+    /// <inheritdoc cref="FetchStreamStateAsync(IEventStore, Guid, CancellationToken)"/>
+    public static Task<StreamState?> FetchStreamStateAsync(IEventStore store, string streamKey, CancellationToken token = default)
+        => readAsync(store, reader => reader.FetchStreamStateAsync(streamKey, token));
 
     /// <summary>Rebuild the aggregate of a <see cref="Guid"/>-identified stream from its events.</summary>
     /// <summary>
@@ -171,9 +196,12 @@ public static class EventStores
         }
     }
 
-    private static async Task<IReadOnlyList<IEvent>> fetchStreamAsync(
+    private static Task<IReadOnlyList<IEvent>> fetchStreamAsync(
         IEventStore store,
         Func<IReadOnlyEventStore, Task<IReadOnlyList<IEvent>>> read)
+        => readAsync(store, read);
+
+    private static async Task<T> readAsync<T>(IEventStore store, Func<IReadOnlyEventStore, Task<T>> read)
     {
         var reader = store.OpenReadOnlyEventStore();
         try
