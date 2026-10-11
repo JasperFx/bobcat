@@ -83,10 +83,16 @@ public static class DeclaredSteps
             suite,
             _bindings.Values.OrderBy(entry => entry.Identity, SpecIdentity.Comparer).ToList());
 
-    internal static void Clear()
+    /// <summary>
+    /// Forget one scenario's declared steps and binding. Test-only, and deliberately per scenario: this registry is
+    /// process-wide, test classes run in parallel, and a wholesale clear from one class wiped the
+    /// registrations another class had just made — the intermittent empty renders in the
+    /// <c>MarkerSteps</c> tests. A test registers under a uid of its own and removes only that.
+    /// </summary>
+    internal static void Remove(string uid)
     {
-        _byUid.Clear();
-        _bindings.Clear();
+        _byUid.TryRemove(uid, out _);
+        _bindings.TryRemove(uid, out _);
     }
 }
 

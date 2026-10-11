@@ -9,8 +9,22 @@ namespace Bobcat.Tests.MarkerSteps;
 /// A projected test renders through the same <see cref="SpecRender"/> model a <c>.feature</c>
 /// scenario does — so "Bobcat's specification output" means one thing rather than two.
 /// </summary>
-public class ProjectedSpecRenderTests
+public class ProjectedSpecRenderTests : IDisposable
 {
+    // DeclaredSteps is process-wide: remove exactly what this class registered, never everything
+    private readonly List<string> _registered = [];
+
+    public void Dispose()
+    {
+        foreach (var uid in _registered) DeclaredSteps.Remove(uid);
+    }
+
+    private void register(string uid, params DeclaredStep[] steps)
+    {
+        _registered.Add(uid);
+        DeclaredSteps.Register(uid, steps);
+    }
+
     private static ScenarioRecorder.Recording begin(string scenario = "Scenario")
         => ScenarioRecorder.Begin("Feature", scenario, null, Guid.NewGuid());
 
@@ -62,7 +76,7 @@ public class ProjectedSpecRenderTests
     public void a_scenario_with_no_recorded_steps_renders_the_comments_it_declared()
     {
         var uid = "Feature/narrated";
-        DeclaredSteps.Register(uid,
+        register(uid,
             new DeclaredStep("Given", "a calculator starting with 3", 10),
             new DeclaredStep("When", "it is multiplied by 2", 13),
             new DeclaredStep("Then", "the value should be 6", 16));
@@ -84,7 +98,7 @@ public class ProjectedSpecRenderTests
     public void recorded_steps_nest_under_the_comment_they_ran_inside()
     {
         var uid = "Feature/mixed";
-        DeclaredSteps.Register(uid,
+        register(uid,
             new DeclaredStep("Given", "a doubled calculator", 10),
             new DeclaredStep("Then", "the arithmetic holds", 14));
 
@@ -117,7 +131,7 @@ public class ProjectedSpecRenderTests
     public void a_declared_index_the_scenario_does_not_have_attributes_to_nothing()
     {
         var uid = "Feature/stale";
-        DeclaredSteps.Register(uid, new DeclaredStep("Given", "the only comment", 10));
+        register(uid, new DeclaredStep("Given", "the only comment", 10));
 
         using var recording = begin("stale");
 
@@ -134,7 +148,7 @@ public class ProjectedSpecRenderTests
     public void a_failure_no_step_accounts_for_is_reported_on_the_scenario()
     {
         var uid = "Feature/shouldly";
-        DeclaredSteps.Register(uid, new DeclaredStep("Then", "the value should be 7", 10));
+        register(uid, new DeclaredStep("Then", "the value should be 7", 10));
 
         using var recording = begin("shouldly");
         recording.FailureDescription = "Shouldly.ShouldAssertException: should be 7 but was 6";

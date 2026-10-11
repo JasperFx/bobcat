@@ -11,7 +11,7 @@ namespace Bobcat.Tests.MarkerSteps;
 /// </summary>
 public class PlannedStepRenderTests : IDisposable
 {
-    private const string Uid = "Feature/planned";
+    private const string Uid = "Planned step render/planned";
 
     /// <remarks>
     /// Both registries, because both are process-wide: a declared narrative left behind by one test
@@ -19,11 +19,11 @@ public class PlannedStepRenderTests : IDisposable
     /// </remarks>
     public void Dispose()
     {
-        PlannedSteps.Clear();
-        DeclaredSteps.Clear();
+        PlannedSteps.Remove(Uid);
+        DeclaredSteps.Remove(Uid);
     }
 
-    private static ScenarioRecorder.Recording begin() => ScenarioRecorder.Begin("Feature", "planned", null, Guid.NewGuid());
+    private static ScenarioRecorder.Recording begin() => ScenarioRecorder.Begin("Planned step render", "planned", null, Guid.NewGuid());
 
     private static PlannedStep plan(string keyword, string template, int line, int? declared = null)
         => new(keyword, template, "Grammar.Method", declared, line);
