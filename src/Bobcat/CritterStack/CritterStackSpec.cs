@@ -113,47 +113,67 @@ public abstract class CritterStackSpec
     // ---- arrange ---------------------------------------------------------------------------
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents{TAggregate}(Guid, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => Scenario.GivenEvents<TAggregate>(id, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents{TAggregate}(string, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(string key, params object[] events) where TAggregate : class
         => Scenario.GivenEvents<TAggregate>(key, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(object id, params object[] events) where TAggregate : class
         => Scenario.GivenEvents<TAggregate>(id, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents(Type, object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(Type? aggregate, object id, params object[] events) => Scenario.GivenEvents(aggregate, id, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents(Guid, object[])" />
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(Guid id, params object[] events) => Scenario.GivenEvents(id, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEvents(string, object[])" />
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(string key, params object[] events) => Scenario.GivenEvents(key, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenNoEventsFor{TAggregate}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(Guid id) where TAggregate : class => Scenario.GivenNoEventsFor<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.GivenNoEventsFor{TAggregate}(string)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(string key) where TAggregate : class => Scenario.GivenNoEventsFor<TAggregate>(key);
 
     /// <inheritdoc cref="CritterStackScenario.GivenNoEventsFor{TAggregate}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(object id) where TAggregate : class => Scenario.GivenNoEventsFor<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.GivenReadModel{T}(object)" />
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task GivenReadModel<T>(object document) where T : class => Scenario.GivenReadModel<T>(document);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEventsOn{TAggregate}(Guid, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => Scenario.GivenEventsOn<TAggregate>(id, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEventsOn{TAggregate}(string, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(string key, params object[] events) where TAggregate : class
         => Scenario.GivenEventsOn<TAggregate>(key, events);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(object id, params object[] events) where TAggregate : class
         => Scenario.GivenEventsOn<TAggregate>(id, events);
 
@@ -163,19 +183,27 @@ public abstract class CritterStackSpec
     public Task WhenActing(string description, Func<IServiceProvider, Task> act) => Scenario.WhenActing(description, act);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => Scenario.WhenActingOn<T>(id, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => Scenario.WhenActingOn<T>(key, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(Guid, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, string description, Func<IServiceProvider, Task> act, params object[] events)
         where T : class
         => Scenario.WhenActingOn<T>(id, description, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(string, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, string description, Func<IServiceProvider, Task> act, params object[] events)
         where T : class
         => Scenario.WhenActingOn<T>(key, description, act, events);
@@ -203,21 +231,27 @@ public abstract class CritterStackSpec
     // ---- assert: events --------------------------------------------------------------------
 
     /// <inheritdoc cref="CritterStackScenario.ThenEvents(Type[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEvents(params Type[] events) => Scenario.ThenEvents(events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEvents(object[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEvents(params object[] events) => Scenario.ThenEvents(events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsInAnyOrder(object[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsInAnyOrder(params object[] events) => Scenario.ThenEventsInAnyOrder(events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsInAnyOrder(Type[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsInAnyOrder(params Type[] events) => Scenario.ThenEventsInAnyOrder(events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEmitted(object[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEmitted(params object[] events) => Scenario.ThenEmitted(events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEmitted{T}" />
+    [EventModelRole(SliceRole.Event, nameof(T))]
     public void ThenEmitted<T>() => Scenario.ThenEmitted<T>();
 
     /// <inheritdoc cref="CritterStackScenario.ThenNotEmitted{T}" />
@@ -230,20 +264,27 @@ public abstract class CritterStackSpec
     public void ThenNoEvents() => Scenario.ThenNoEvents();
 
     /// <inheritdoc cref="CritterStackScenario.TheEvent{T}" />
+    [EventModelRole(SliceRole.Event, nameof(T))]
     public T TheEvent<T>() => Scenario.TheEvent<T>();
 
     /// <inheritdoc cref="CritterStackScenario.TheEvents" />
     public IReadOnlyList<object> TheEvents => Scenario.TheEvents;
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn{TAggregate}(Guid, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => Scenario.ThenEventsOn<TAggregate>(id, events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn{TAggregate}(string, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(string key, params object[] events) where TAggregate : class
         => Scenario.ThenEventsOn<TAggregate>(key, events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(object id, params object[] events) where TAggregate : class
         => Scenario.ThenEventsOn<TAggregate>(id, events);
 
@@ -257,6 +298,7 @@ public abstract class CritterStackSpec
     public void ThenNoEventsOn<TAggregate>(object id) where TAggregate : class => Scenario.ThenNoEventsOn<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn(EventTagQuery, object[])" />
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn(EventTagQuery query, params object[] events) => Scenario.ThenEventsOn(query, events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenNoEventsOn(EventTagQuery)" />
@@ -269,10 +311,14 @@ public abstract class CritterStackSpec
     public Task<long> TheStreamVersion(string key) => Scenario.TheStreamVersion(key);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn{T}(Guid, long, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenEventsOn<T>(Guid id, long afterVersion, params object[] events) where T : class
         => Scenario.ThenEventsOn<T>(id, afterVersion, events);
 
     /// <inheritdoc cref="CritterStackScenario.ThenEventsOn{T}(string, long, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenEventsOn<T>(string key, long afterVersion, params object[] events) where T : class
         => Scenario.ThenEventsOn<T>(key, afterVersion, events);
 
@@ -283,22 +329,29 @@ public abstract class CritterStackSpec
     public Task ThenNoEventsOn<T>(string key, long afterVersion) where T : class => Scenario.ThenNoEventsOn<T>(key, afterVersion);
 
     /// <inheritdoc cref="CritterStackScenario.ThenStreamIsStarted{TAggregate}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(Guid id) where TAggregate : class => Scenario.ThenStreamIsStarted<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenStreamIsStarted{TAggregate}(string)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(string key) where TAggregate : class => Scenario.ThenStreamIsStarted<TAggregate>(key);
 
     /// <inheritdoc cref="CritterStackScenario.ThenStreamIsStarted{TAggregate}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(object id) where TAggregate : class => Scenario.ThenStreamIsStarted<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenStreamIsStartedWithEvents{TAggregate}(object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenStreamIsStartedWithEvents<TAggregate>(params object[] events) where TAggregate : class
         => Scenario.ThenStreamIsStartedWithEvents<TAggregate>(events);
 
     /// <inheritdoc cref="CritterStackScenario.TheStartedStream{TAggregate}()" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Guid TheStartedStream<TAggregate>() where TAggregate : class => Scenario.TheStartedStream<TAggregate>();
 
     /// <inheritdoc cref="CritterStackScenario.TheStartedStreamKey{TAggregate}()" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public string TheStartedStreamKey<TAggregate>() where TAggregate : class => Scenario.TheStartedStreamKey<TAggregate>();
 
     // ---- assert: refusals ------------------------------------------------------------------
@@ -320,47 +373,61 @@ public abstract class CritterStackSpec
     public void ThenCommandRefused() => Scenario.ThenCommandRefused();
 
     /// <inheritdoc cref="CritterStackScenario.ThenMessagesSent{T}" />
+    [EventModelRole(SliceRole.Message, nameof(T))]
     public void ThenMessagesSent<T>(int count = 1) => Scenario.ThenMessagesSent<T>(count);
 
     // ---- assert: aggregates, documents and read models ------------------------------------
 
     /// <inheritdoc cref="CritterStackScenario.TheAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T?> TheAggregate<T>(Guid id) where T : class => Scenario.TheAggregate<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.TheAggregate{T}(string)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T?> TheAggregate<T>(string key) where T : class => Scenario.TheAggregate<T>(key);
 
     /// <inheritdoc cref="CritterStackScenario.TheAggregate{T}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T?> TheAggregate<T>(object id) where T : class => Scenario.TheAggregate<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(Guid id) where T : class => Scenario.ThenAggregate<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(string)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(string key) where T : class => Scenario.ThenAggregate<T>(key);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(object id) where T : class => Scenario.ThenAggregate<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(Guid, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(Guid id, object expected) where T : class => Scenario.ThenAggregate<T>(id, expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(string, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(string key, object expected) where T : class => Scenario.ThenAggregate<T>(key, expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenAggregate{T}(object, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(object id, object expected) where T : class => Scenario.ThenAggregate<T>(id, expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenDocument{T}(object)" />
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenDocument<T>(object id) where T : class => Scenario.ThenDocument<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenDocument{T}(object, object)" />
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenDocument<T>(object id, object expected) where T : class => Scenario.ThenDocument<T>(id, expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenReadModel{T}(object)" />
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task<T> ThenReadModel<T>(object id) where T : class => Scenario.ThenReadModel<T>(id);
 
     /// <inheritdoc cref="CritterStackScenario.ThenReadModel{T}(object, object)" />
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task<T> ThenReadModel<T>(object id, object expected) where T : class => Scenario.ThenReadModel<T>(id, expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenNoReadModel{T}(object)" />
@@ -370,12 +437,15 @@ public abstract class CritterStackSpec
     public Task ThenNoReadModel<T>() where T : class => Scenario.ThenNoReadModel<T>();
 
     /// <inheritdoc cref="CritterStackScenario.ThenSingleReadModel{T}(object?)" />
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task<T> ThenSingleReadModel<T>(object? expected = null) where T : class => Scenario.ThenSingleReadModel<T>(expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenSingleDocument{T}(object?)" />
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenSingleDocument<T>(object? expected = null) where T : class => Scenario.ThenSingleDocument<T>(expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenProjectionsAreCaughtUp" />
+    [EventModelRole(SliceRole.ReadModel, nameof(readModel))]
     public Task ThenProjectionsAreCaughtUp(Type readModel) => Scenario.ThenProjectionsAreCaughtUp(readModel);
 
     /// <inheritdoc cref="CritterStackScenario.AfterAsyncDaemonsCatchUpAsync()" />
@@ -385,9 +455,11 @@ public abstract class CritterStackSpec
     public Task AfterAsyncDaemonsCatchUpAsync(string tenantId) => Scenario.AfterAsyncDaemonsCatchUpAsync(tenantId);
 
     /// <inheritdoc cref="CritterStackScenario.TheDcbModel{T}(EventTagQuery)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T?> TheDcbModel<T>(EventTagQuery query) where T : class => Scenario.TheDcbModel<T>(query);
 
     /// <inheritdoc cref="CritterStackScenario.ThenDcbModel{T}(EventTagQuery, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task ThenDcbModel<T>(EventTagQuery query, object expected) where T : class => Scenario.ThenDcbModel<T>(query, expected);
 
     // ---- assert: any object ----------------------------------------------------------------
