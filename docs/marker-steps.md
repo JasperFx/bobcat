@@ -692,18 +692,89 @@ public class BookingSpecs
 }
 ```
 
-### Binding only — never roles
+### Binding, not roles — the roles come from the vocabulary (bobcat#462) {#event-model-roles}
 
-This says *which* slice. It never says what the slice's command, events or read models are. The
-curated model states those on the **Declared** rung and the code states them on **Derived**; a third
-opinion from a test can only manufacture a `SourceDisagreement` nobody can act on — see issue #323
-for what that costs when it happens. A projected test's contribution is **evidence**: a bound
-`{Feature}/{Scenario}` identity, which is what turns the slice from unbound to observed.
+`[BobcatSlice]` says *which* slice. It never states what the slice's command, events, aggregates, read
+models or messages are — and since bobcat#462 it does not need to, because the test body already says
+so. A scenario base whose vocabulary methods carry `[EventModelRole]` hands the generator every role a
+`.feature` file's type captures used to stamp:
 
-So a projected test's slice shows the roles the model and the code agree on, and the test's identity
-alongside them. It merges by name with every other authoring style — a slice can carry Gherkin, HTTP,
-Gherkin and projected specifications at once, because a slice is a vertical behaviour and not an
-authoring style.
+```csharp
+await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));   // aggregate Account, arranged AccountOpened
+await WhenReceived(new Deposit(id, 10m));                        // the act: command Deposit
+ThenEvents(typeof(FundsDeposited));                              // emitted FundsDeposited
+ThenMessageSent<DepositReceipt>();                               // published DepositReceipt
+```
+
+That is `CommandType = Deposit`, `AggregateTypes = [Account]`, `EmittedEvents = [FundsDeposited]`,
+`PublishedMessages = [DepositReceipt]`, `Pattern = Command`, and a specification whose `ResolvedTypes`
+are those five types in call order. Nothing in the test is authored for the model.
+
+The vocabulary declares its roles, one attribute per role, naming where the type comes from:
+
+```csharp
+[EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]       // a type parameter: the type argument
+[EventModelRole(SliceRole.ArrangedEvent, nameof(events))]        // a value parameter: each argument's type
+public Task GivenEvents<TAggregate>(Guid id, params object[] events) where TAggregate : class
+
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]     // the act's trigger kind and route
+public Task WhenPosted(object command, string route)
+```
+
+| `SliceRole` | Reaches the slice as |
+|---|---|
+| `Command` | `Commands`; the **last** one a test sends is the act, its `CommandType` (earlier ones arranged state) |
+| `Aggregate` | `AggregateTypes` |
+| `Event` | `EmittedEvents` |
+| `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice — there it is the aggregate's own history (#297) |
+| `ReadModel` | `ReadModelTypes` |
+| `Document` | the specification's resolved types only, never a slot — as Gherkin's `{document}` |
+| `Message` | `PublishedMessages` |
+
+A value parameter's type is read off the argument: `new T(…)`, `typeof(T)`, `Specify<T>()` at the root of
+a `.With(…)` chain, `Expect.Value(…)`, `Tagged(value, …)`, or the argument's static type when it is a
+concrete type of the application's own. A `params` parameter contributes every element. An argument of
+no knowable type — `object`, an interface, table rows, `null` — contributes **nothing**: a missing arrow
+is recoverable, a wrong one is believed.
+
+**Why an attribute, read from metadata, and not a list of method names.** The vocabulary lives in
+another package — `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
+generator would let a rename there stop the roles being stamped with no error anywhere. The attribute
+travels into metadata with the method, exactly as a base fixture's `[Given]` steps do, so Wolverine
+declares its own roles. Write `From` and `Route` with `nameof` and a rename keeps them in step; a name
+that matches nothing is **BOBCAT034** where the vocabulary is compiled.
+
+The command half also rides JasperFx's `SpecificationBindingDescriptor` (jasperfx#995): the act is its
+`CommandType`, and its `ResolvedTypes` are the same list the slice's specification carries.
+
+A test with roles and **no** binding lands on a slice named after its feature, the rule an untagged
+Gherkin scenario that resolves roles already follows. A test with neither contributes nothing.
+
+### Who triggers the slice — `TriggeredBy` (bobcat#463)
+
+The trigger's *label* is the one Event Modeling fact a test body cannot state, so `[BobcatSlice]` and
+`[BobcatSpec]` carry it, as a `.feature` scenario's `Triggered by …` line does:
+
+```csharp
+[BobcatSlice(SliceType = typeof(Deposit), TriggeredBy = "the account holder")]
+```
+
+A method's `TriggeredBy` wins over its class's whichever order the tests fold in — the #258 rule. So put
+it on the class only when every slice the class binds shares the trigger. A method attribute that sets
+*only* `TriggeredBy` keeps the class's slice; one that rebinds the slice replaces the class's binding
+whole, trigger included.
+
+The trigger's *kind* is not declared here. It is derived from the act — `[EventModelTrigger]` on the
+vocabulary method — because upstream's `TriggerKind` is a derived fact, never an overlay declaration, and
+the act is what knows how it dispatches. Only the act's own trigger counts: an HTTP call that merely
+arranges state does not make a message-driven slice an HTTP one.
+
+### Every authoring style merges by name
+
+A slice can carry Gherkin, HTTP and projected specifications at once, because a slice is a vertical
+behaviour and not an authoring style. The two arms share the fold's rules and the emitter, which is
+pinned by `ProjectedEventModelRoleTests.the_projected_arm_produces_what_the_gherkin_arm_does_for_the_same_scenarios`.
 
 ### Two spellings, and why `SliceType` is preferred
 
@@ -864,6 +935,7 @@ identities rather than lanes.
 | **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose — it is here for the one author who meant a step and cannot see why it is missing |
 | **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
 | **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
+| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates. Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
 
 The honest limit on BOBCAT029, pinned by
 `Bobcat.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,

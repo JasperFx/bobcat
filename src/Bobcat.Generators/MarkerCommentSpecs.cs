@@ -63,6 +63,12 @@ internal static class MarkerCommentSpecs
         /// </summary>
         public readonly List<string> Tags = new();
 
+        /// <summary>
+        /// The class-level <c>TriggeredBy</c> on <c>[BobcatSlice]</c> (bobcat#463) — the fallback a
+        /// method's own loses to.
+        /// </summary>
+        public string? TriggeredBy;
+
         /// <summary>What was wrong with a <c>[BobcatSlice]</c>, reported by the generator.</summary>
         public readonly List<MarkedProblem> Problems = new();
     }
@@ -96,6 +102,15 @@ internal static class MarkerCommentSpecs
         /// <summary>The method-level <c>[BobcatSlice]</c>, which wins over the class's for this
         /// test — how one class covers several slices.</summary>
         public readonly List<string> Tags = new();
+
+        /// <summary>The method-level <c>TriggeredBy</c> (bobcat#463), which wins over the class's.</summary>
+        public string? TriggeredBy;
+
+        /// <summary>
+        /// The Event Modeling roles the test body states through role-stamped vocabulary calls
+        /// (bobcat#462) — what a <c>.feature</c> scenario's type captures used to say.
+        /// </summary>
+        public ProjectedRoles.Reading Roles = new();
 
         /// <summary>
         /// <c>[BobcatSpec(…, Pending = true)]</c>: declared before the behaviour it describes
@@ -142,6 +157,7 @@ internal static class MarkerCommentSpecs
         };
 
         spec.Tags.AddRange(sliceTags(declaration, ctx.SemanticModel, spec.Problems));
+        spec.TriggeredBy = triggeredBy(declaration);
 
         // Issue #379. A marked class renders nothing unless something OPENS a recording:
         // ScenarioRecorder.Step is null-conditional on the ambient one, so with no scenario every
@@ -192,6 +208,8 @@ internal static class MarkerCommentSpecs
                 });
             }
             scenario.Tags.AddRange(sliceTags(method, ctx.SemanticModel, spec.Problems));
+            scenario.TriggeredBy = triggeredBy(method);
+            scenario.Roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
 
             spec.Scenarios.Add(scenario);
         }
@@ -417,6 +435,21 @@ internal static class MarkerCommentSpecs
             .Any(argument =>
                 argument.NameEquals?.Name.Identifier.Text == "Pending"
                 && argument.Expression.IsKind(SyntaxKind.TrueLiteralExpression));
+
+    /// <summary>
+    /// <c>TriggeredBy = "…"</c> on this member's <c>[BobcatSlice]</c> or <c>[BobcatSpec]</c> (bobcat#463).
+    /// Read on its own rather than as a tag, like <see cref="isPending"/>: it is prose for the canvas, and
+    /// routing it through <see cref="GeneratorSliceTags"/> would add a tag to both copies of that parser
+    /// to carry something no runtime reads.
+    /// </summary>
+    private static string? triggeredBy(MemberDeclarationSyntax node)
+        => node.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" or SpecAttributeName)
+            .SelectMany(a => a.ArgumentList?.Arguments ?? default)
+            .Where(argument => argument.NameEquals?.Name.Identifier.Text == "TriggeredBy")
+            .Select(argument => literalOf(argument.Expression)?.Trim())
+            .FirstOrDefault(label => label is { Length: > 0 });
 
     private static string? literalOf(ExpressionSyntax expression)
         => expression is LiteralExpressionSyntax { Token.Value: string text } ? text : null;

@@ -1,0 +1,334 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
+
+namespace Bobcat.Generators;
+
+/// <summary>
+/// bobcat#462: the Event Modeling roles a projected specification states by calling scenario vocabulary —
+/// <c>GivenEvents&lt;Account&gt;(id, new AccountOpened(…))</c> is an aggregate and an arranged event,
+/// <c>WhenReceived(new Deposit(…))</c> the act — read off <c>[EventModelRole]</c> /
+/// <c>[EventModelTrigger]</c> on the resolved method symbol.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Attributes from metadata, never method names.</b> The vocabulary lives in other packages and
+/// other repositories (WolverineFx.Bobcat's <c>WolverineScenario</c>). Matching on names would let a
+/// rename there stop the roles being stamped with no error anywhere; the attribute travels with the
+/// method into metadata, so it is the same mechanism that finds a base fixture's <c>[Given]</c> steps.
+/// </para>
+/// <para>
+/// <b>Type, never guess.</b> An argument whose type is not knowable at compile time — <c>object</c>,
+/// an interface, a table of rows, a <c>null</c> — contributes nothing. A missing arrow on the canvas is
+/// recoverable; a wrong one is believed.
+/// </para>
+/// </remarks>
+internal static class ProjectedRoles
+{
+    internal const string RoleAttributeName = "Bobcat.EventModelRoleAttribute";
+    internal const string TriggerAttributeName = "Bobcat.EventModelTriggerAttribute";
+
+    /// <summary>
+    /// <c>Bobcat.SliceRole</c> member name → the role word <see cref="EventModelEmitter"/> stamps on.
+    /// Read by member name rather than by value, so the enum may grow without renumbering anything;
+    /// <c>ProjectedRoleTests</c> pins every member to an entry.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> RoleWords = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Command"] = EventModelEmitter.Command,
+        ["Aggregate"] = EventModelEmitter.Aggregate,
+        ["Event"] = EventModelEmitter.Event,
+        ["ArrangedEvent"] = EventModelEmitter.Consumed,
+        ["ReadModel"] = EventModelEmitter.ReadModel,
+        ["Document"] = EventModelEmitter.Document,
+        ["Message"] = EventModelEmitter.Message,
+    };
+
+    /// <summary>What one test body states, in source order.</summary>
+    internal sealed class Reading
+    {
+        /// <summary>Every (role word, qualified type) stamped, in call order.</summary>
+        public readonly List<(string Role, string Type)> Roles = new();
+
+        /// <summary>The act's command: the last <c>Command</c> stamped (bobcat#464's rule).</summary>
+        public string? Act;
+
+        /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
+        public string? TriggerKind;
+
+        /// <summary>The act's route: null with no HTTP trigger, "" when the route is not a constant.</summary>
+        public string? TriggerRoute;
+
+        public string? HttpMethod;
+
+        /// <summary>Every type stamped, distinct, in call order — the specification's <c>ResolvedTypes</c>.</summary>
+        public List<string> ResolvedTypes()
+        {
+            var resolved = new List<string>();
+            foreach (var (_, type) in Roles)
+                if (!resolved.Contains(type)) resolved.Add(type);
+            return resolved;
+        }
+    }
+
+    public static Reading Read(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
+    {
+        var reading = new Reading();
+        SyntaxNode? body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
+        if (body is null) return reading;
+
+        foreach (var invocation in body.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
+
+            var target = operation.TargetMethod;
+            var roles = attributesOf(target, RoleAttributeName);
+            if (roles.Count == 0) continue;
+
+            string? command = null;
+            foreach (var role in roles)
+            {
+                if (role.ConstructorArguments.Length < 2) continue;
+                if (roleWordOf(role.ConstructorArguments[0]) is not { } word) continue;
+                if (role.ConstructorArguments[1].Value is not string from) continue;
+
+                foreach (var type in typesFrom(operation, from))
+                {
+                    reading.Roles.Add((word, type));
+                    if (word == EventModelEmitter.Command) command = type;
+                }
+            }
+
+            // The act is the LAST command-carrying call, and its trigger comes with it: an HTTP call
+            // that only arranged state must not make a message-driven slice an HTTP one.
+            if (command is null) continue;
+            reading.Act = command;
+            readTrigger(operation, reading);
+        }
+
+        return reading;
+    }
+
+    /// <summary>A BOBCAT034 finding at the attribute that names nothing.</summary>
+    internal sealed class Finding
+    {
+        public Location? Location;
+        public string Message = "";
+    }
+
+    /// <summary>
+    /// BOBCAT034: every <c>From</c> / <c>Route</c> on this method's role attributes names one of its
+    /// parameters (or, for <c>From</c>, type parameters). Null when there is nothing to report.
+    /// </summary>
+    public static List<Finding>? CheckDeclaration(GeneratorSyntaxContext ctx, CancellationToken ct)
+    {
+        if (ctx.SemanticModel.GetDeclaredSymbol(ctx.Node, ct) is not IMethodSymbol method) return null;
+
+        List<Finding>? findings = null;
+        foreach (var attribute in method.GetAttributes())
+        {
+            var name = attribute.AttributeClass?.ToDisplayString();
+            string? named, kind;
+            bool typeParametersCount;
+            if (name == RoleAttributeName)
+            {
+                named = attribute.ConstructorArguments.Length > 1 ? attribute.ConstructorArguments[1].Value as string : null;
+                kind = "From";
+                typeParametersCount = true;
+            }
+            else if (name == TriggerAttributeName)
+            {
+                named = attribute.NamedArguments.FirstOrDefault(x => x.Key == "Route").Value.Value as string;
+                if (named is null) continue;
+                kind = "Route";
+                typeParametersCount = false;
+            }
+            else continue;
+
+            if (named is not null
+                && (method.Parameters.Any(x => x.Name == named)
+                    || (typeParametersCount && method.TypeParameters.Any(x => x.Name == named))))
+                continue;
+
+            var candidates = method.Parameters.Select(x => x.Name)
+                .Concat(typeParametersCount ? method.TypeParameters.Select(x => x.Name) : Enumerable.Empty<string>())
+                .ToList();
+
+            (findings ??= new List<Finding>()).Add(new Finding
+            {
+                Location = attribute.ApplicationSyntaxReference?.GetSyntax(ct).GetLocation(),
+                Message = $"{kind} = \"{named}\" on '{method.Name}' names no "
+                          + (typeParametersCount ? "parameter or type parameter" : "parameter")
+                          + $" of it, so the role is never stamped at any call. "
+                          + (candidates.Count == 0
+                              ? "The method has none to name."
+                              : $"It has: {string.Join(", ", candidates)}.")
+                          + $" Write it with nameof(…) so a rename keeps the two in step."
+            });
+        }
+
+        return findings;
+    }
+
+    private static void readTrigger(IInvocationOperation operation, Reading reading)
+    {
+        reading.TriggerKind = null;
+        reading.TriggerRoute = null;
+        reading.HttpMethod = null;
+
+        var trigger = attributesOf(operation.TargetMethod, TriggerAttributeName).FirstOrDefault();
+        if (trigger is null || trigger.ConstructorArguments.Length == 0) return;
+
+        reading.TriggerKind = enumMemberName(trigger.ConstructorArguments[0]);
+        if (reading.TriggerKind is null) return;
+
+        string? named(string name) => trigger.NamedArguments.FirstOrDefault(x => x.Key == name).Value.Value as string;
+
+        reading.HttpMethod = named("HttpMethod");
+        if (named("Route") is { } routeParameter)
+        {
+            var argument = operation.Arguments.FirstOrDefault(x => x.Parameter?.Name == routeParameter);
+            reading.TriggerRoute = argument?.Value.ConstantValue is { HasValue: true, Value: string route } ? route : "";
+        }
+        else
+        {
+            reading.TriggerRoute = "";
+        }
+    }
+
+    /// <summary>
+    /// The attributes of <paramref name="fullName"/> on this method, walking an extension method back to
+    /// its definition and an override back to the declaration that carries them.
+    /// </summary>
+    private static List<AttributeData> attributesOf(IMethodSymbol method, string fullName)
+    {
+        for (var current = method.ReducedFrom ?? method; current is not null; current = current.OverriddenMethod)
+        {
+            var found = current.OriginalDefinition.GetAttributes()
+                .Where(a => a.AttributeClass?.ToDisplayString() == fullName)
+                .ToList();
+            if (found.Count > 0) return found;
+        }
+
+        return new List<AttributeData>();
+    }
+
+    private static string? roleWordOf(TypedConstant constant)
+        => enumMemberName(constant) is { } name && RoleWords.TryGetValue(name, out var word) ? word : null;
+
+    private static string? enumMemberName(TypedConstant constant)
+    {
+        if (constant.Type is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType) return null;
+
+        return enumType.GetMembers().OfType<IFieldSymbol>()
+            .FirstOrDefault(f => f.HasConstantValue && Equals(f.ConstantValue, constant.Value))?.Name;
+    }
+
+    /// <summary>The types <paramref name="from"/> names at this call: a type argument, or an argument's type(s).</summary>
+    private static IEnumerable<string> typesFrom(IInvocationOperation operation, string from)
+    {
+        var definition = operation.TargetMethod.OriginalDefinition;
+        for (var i = 0; i < definition.TypeParameters.Length; i++)
+        {
+            if (definition.TypeParameters[i].Name != from) continue;
+            if (i < operation.TargetMethod.TypeArguments.Length && qualifiedOrNull(operation.TargetMethod.TypeArguments[i]) is { } type)
+                yield return type;
+            yield break;
+        }
+
+        foreach (var argument in operation.Arguments)
+        {
+            if (argument.Parameter?.Name != from) continue;
+
+            // An omitted optional argument is the parameter's default, which names nothing
+            if (argument.ArgumentKind == ArgumentKind.DefaultValue) yield break;
+
+            foreach (var type in typesOf(argument.Value)) yield return type;
+            yield break;
+        }
+    }
+
+    /// <summary>The application types one argument value names, unwrapping Bobcat's own wrappers.</summary>
+    private static IEnumerable<string> typesOf(IOperation? value)
+    {
+        while (value is IConversionOperation conversion) value = conversion.Operand;
+        while (value is IParenthesizedOperation parenthesized) value = parenthesized.Operand;
+        if (value is null) yield break;
+
+        switch (value)
+        {
+            case ITypeOfOperation typeOf:
+                if (qualifiedOrNull(typeOf.TypeOperand) is { } operand) yield return operand;
+                yield break;
+
+            // params, an explicit array, or a collection expression: every element is a value
+            case IArrayCreationOperation { Initializer: { } initializer }:
+                foreach (var element in initializer.ElementValues)
+                foreach (var type in typesOf(element))
+                    yield return type;
+                yield break;
+
+            case ICollectionExpressionOperation collection:
+                foreach (var element in collection.Elements)
+                foreach (var type in typesOf(element is ISpreadOperation spread ? spread.Operand : element))
+                    yield return type;
+                yield break;
+        }
+
+        if (value.Type is not INamedTypeSymbol named)
+        {
+            // An array variable of a concrete type: its element type is the role
+            if (value.Type is IArrayTypeSymbol { ElementType: var element } && qualifiedOrNull(element) is { } elementType)
+                yield return elementType;
+            yield break;
+        }
+
+        if (isBobcatType(named, "Specified`1") || isBobcatType(named, "ExpectedValue`1"))
+        {
+            // Specify<T>()…With(…) and Expect.Value(x): the type the partial object or expectation is about
+            if (qualifiedOrNull(named.TypeArguments[0]) is { } specified) yield return specified;
+            yield break;
+        }
+
+        if (isBobcatType(named, "TaggedValue"))
+        {
+            // Tagged(new SeatReserved(…), tags): the tagged value is the first argument
+            if (value is IInvocationOperation { Arguments.Length: > 0 } tagged)
+            {
+                var first = tagged.Arguments.FirstOrDefault(x => x.Parameter?.Ordinal == 0) ?? tagged.Arguments[0];
+                foreach (var type in typesOf(first.Value)) yield return type;
+            }
+
+            yield break;
+        }
+
+        if (qualifiedOrNull(named) is { } concrete) yield return concrete;
+    }
+
+    private static bool isBobcatType(INamedTypeSymbol type, string metadataName)
+        => type.OriginalDefinition.MetadataName == metadataName
+           && type.ContainingNamespace?.ToDisplayString() == "Bobcat";
+
+    /// <summary>
+    /// The <c>global::</c>-free qualified name of a type an Event Model element can be: a concrete class,
+    /// struct or record of the application's own. Never <c>object</c>, a primitive, <c>System.Type</c>, an
+    /// interface, a type parameter or an unresolved type — none of those is a fact about the slice.
+    /// </summary>
+    private static string? qualifiedOrNull(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named) return null;
+        if (named.TypeKind is not (TypeKind.Class or TypeKind.Struct)) return null;
+        if (named.SpecialType != SpecialType.None || named.IsAnonymousType || named.IsTupleType) return null;
+        if (named.ContainingNamespace?.ToDisplayString() is { } ns && (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal)))
+            return null;
+        if (named.ContainingNamespace?.ToDisplayString() == "Bobcat") return null;
+
+        // global::-qualified, as a resolved Gherkin capture is: generated code lives in its own namespace
+        return named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+    }
+}
