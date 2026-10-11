@@ -474,6 +474,35 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   segments), else split PascalCase. Scenario titles use the same reading of the method name.
   `ProjectedSpecNaming.RoundTrips` in `Bobcat.EventModel` is a third copy of the scenario half —
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
+- **A projected spec's Event Model ROLES come off its vocabulary (bobcat#462, #463).** Scenario
+  vocabulary methods carry `[EventModelRole(SliceRole.X, nameof(param or TParam))]` (and the act
+  `[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]`), both in core
+  (`src/Bobcat/EventModel/EventModelRoleAttribute.cs`). `ProjectedRoles.Read` walks a test method's
+  invocations through `IInvocationOperation` and reads them off the resolved symbol — **from metadata,
+  never by method name**, because the vocabulary (`WolverineScenario`) lives in another repository and a
+  rename there must not silently stop the stamping. `MarkerCommentSpecs.Extract` stores the reading on
+  `MarkedScenario.Roles`; the `MarkedSpec` arm of `EventModelEmitter.Collect` folds it into the same
+  `SliceModel` lists the Gherkin arm fills, so `patternOf` / `emitSlice` stay shared.
+  - **Rules carried over, not rediscovered:** the act is the LAST `Command` call (#464), and its
+    trigger is read only off that call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a
+    View slice (#297); `Document` → resolved types only (as `{document}`); an argument whose type is not
+    knowable (`object`, interface, rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and
+    `TaggedValue` are unwrapped by metadata name — Bobcat's own types, so the same-repo contract.
+  - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature** — the Gherkin
+    rule for an untagged scenario that resolves roles. Before #462 an unbound projected test
+    contributed nothing at all.
+  - `Specifications[].ResolvedTypes` (#107's join target) is now filled in this arm, and the same list
+    rides `SpecificationBindingDescriptor.ResolvedTypes` from `SpecificationManifest` — gated on the
+    property existing in the consumer's JasperFx. The manifest prefers the role-stamped act over its
+    name-based `inferCommand`, which stays as the fallback for a vocabulary with no roles.
+  - **`TriggeredBy` on `[BobcatSlice]` / `[BobcatSpec]` is the trigger label** (#463), read like
+    `Pending` rather than as a tag (no second copy of `GeneratorSliceTags` to keep in step). Method beats
+    class regardless of fold order (#258, via `TriggerLabelDeclaredOnScenario`); a method attribute that
+    sets only `TriggeredBy` keeps the class's slice (and the manifest agrees, `onlyTriggeredBy`).
+    `TriggerKind` is deliberately NOT declarable there — upstream says it is derived, never declared.
+  - **BOBCAT034** (error): a `From`/`Route` naming no parameter, reported where the vocabulary is
+    compiled. `ProjectedEventModelRoleTests` pins all of it, including a vocabulary compiled into a
+    separate assembly (metadata path) and agreement with the Gherkin arm on the same scenarios.
 - **`[BobcatSpec]` is the one-attribute projected spec, and it is three facts rather than one
   (issue #403).** `Bobcat.Xunit.BobcatSpecAttribute` IS the `[Fact]`, opens the scenario recording
   `[BobcatScenario]` opens, and carries the `[BobcatSlice]` settings — so

@@ -130,6 +130,21 @@ public class BobcatGenerator : IIncrementalGenerator
                 spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, finding.Location, finding.Message));
         });
 
+        // 3f. BOBCAT034 (bobcat#462): an [EventModelRole] / [EventModelTrigger] naming no parameter of
+        //     the vocabulary method it decorates, caught where the vocabulary is declared
+        var roleSources = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => ProjectedRoles.IsDeclarationCandidate(node),
+                transform: ProjectedRoles.CheckDeclaration)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(roleSources, (spc, findings) =>
+        {
+            foreach (var finding in findings)
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownRoleSource, finding.Location, finding.Message));
+        });
+
         // 3e. bobcat#449: each [BobcatFeature] test and the command or slice it exercises, as JasperFx
         //     specification bindings, so the specs join the Event Model by command type with no
         //     LinksToSpecification in the definition (jasperfx#995)
@@ -140,15 +155,20 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(f => f != null)
             .Select((f, _) => f!);
 
+        // bobcat#462: ResolvedTypes rides the descriptor only where this JasperFx has the property
         var bindingContractVisible = context.CompilationProvider.Select((compilation, _) =>
-            compilation.GetTypeByMetadataName(SpecificationManifest.GateTypeName) != null
-            && compilation.GetTypeByMetadataName("Bobcat.SpecificationManifestAttribute") != null);
+        {
+            var descriptor = compilation.GetTypeByMetadataName(SpecificationManifest.GateTypeName);
+            var visible = descriptor != null
+                          && compilation.GetTypeByMetadataName("Bobcat.SpecificationManifestAttribute") != null;
+            return (Visible: visible, CarriesResolvedTypes: visible && descriptor!.GetMembers("ResolvedTypes").Length > 0);
+        });
 
         context.RegisterSourceOutput(specBindings.Collect().Combine(bindingContractVisible), (spc, pair) =>
         {
-            var (features, visible) = pair;
-            if (!visible || features.Length == 0) return;
-            spc.AddSource("BobcatSpecificationBindings.g.cs", SpecificationManifest.Emit(features));
+            var (features, contract) = pair;
+            if (!contract.Visible || features.Length == 0) return;
+            spc.AddSource("BobcatSpecificationBindings.g.cs", SpecificationManifest.Emit(features, contract.CarriesResolvedTypes));
         });
 
         // 3d. Collect [BobcatFeature] classes whose test bodies declare their steps as marker
@@ -2245,6 +2265,19 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor UnknownTableColumn = new(
         "BOBCAT032",
         "A table column does not match the type",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#462: an <c>[EventModelRole]</c>'s <c>From</c>, or an <c>[EventModelTrigger]</c>'s <c>Route</c>,
+    /// names no parameter of the method it is on. Reported where the vocabulary is DECLARED, because at a
+    /// call site in another assembly the mistake is only a role silently never stamped.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnknownRoleSource = new(
+        "BOBCAT034",
+        "An Event Model role names no parameter of its method",
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,

@@ -31,10 +31,10 @@ public sealed class BobcatFeatureAttribute : Attribute
 /// the test was, and no spec-identity gate could join it.
 /// </para>
 /// <para>
-/// <b>Binding only — never roles.</b> This says WHICH slice the test is evidence for. It does not
-/// say what the slice's command, events or read models are: the curated model states those on the
-/// Declared rung and the code states them on Derived, and a third opinion from a test can only
-/// manufacture a <c>SourceDisagreement</c> nobody can act on. A projected test's job is evidence.
+/// <b>Binding, not roles.</b> This says WHICH slice the test is evidence for. What the slice's command,
+/// events, aggregates, read models and messages are comes off the scenario vocabulary the test calls —
+/// methods carrying <see cref="EventModelRoleAttribute"/> (bobcat#462) — the way a <c>.feature</c> file's
+/// type captures stamped them. Nothing on this attribute states a role.
 /// </para>
 /// <para>
 /// <b>Prefer <see cref="SliceType"/>.</b> It means exactly <c>SliceName = type.Name</c> — no suffix
@@ -85,6 +85,26 @@ public sealed class BobcatSliceAttribute : Attribute
     /// Command | View | Automation | Translation.
     /// </summary>
     public string? Pattern { get; set; }
+
+    /// <summary>
+    /// Who or what triggers the slice — the label on the trigger at the head of the slice, as a
+    /// <c>.feature</c> scenario's <c>Triggered by …</c> line states it (bobcat#463): <c>"the volunteer"</c>,
+    /// <c>"the nightly sweep"</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A method's wins over its class's, whatever order the tests fold in</b> — the #258 rule, found
+    /// when one feature-level line put a wrong trigger on nine of a chapter's ten slices. So state it on the
+    /// class only when every slice the class binds shares the trigger, and per method otherwise. A
+    /// method-level attribute that sets <em>only</em> this keeps the class's slice binding; one that rebinds
+    /// the slice replaces the class's binding whole, trigger included.
+    /// </para>
+    /// <para>
+    /// The trigger's <em>kind</em> (HTTP, message handler, …) is not stated here: it is derived from the
+    /// act, through <see cref="EventModelTriggerAttribute"/> on the vocabulary method the test calls.
+    /// </para>
+    /// </remarks>
+    public string? TriggeredBy { get; set; }
 }
 
 /// <summary>

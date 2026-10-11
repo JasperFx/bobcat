@@ -42,18 +42,24 @@ internal static class EventModelEmitter
     private const string TypeDesc = "global::JasperFx.Descriptors.TypeDescriptor";
 
     /// <summary>The Event Modeling role words, in the order their slots appear on the descriptor.</summary>
-    private const string Command = "command";
-    private const string Event = "event";
-    private const string Aggregate = "aggregate";
-    private const string ReadModel = "readmodel";
-    private const string Message = "message";
+    internal const string Command = "command";
+    internal const string Event = "event";
+    internal const string Aggregate = "aggregate";
+    internal const string ReadModel = "readmodel";
+    internal const string Message = "message";
+
+    /// <summary>
+    /// The <c>{document}</c> word, and a projected <c>SliceRole.Document</c>: a resolved type with no slot,
+    /// so it falls through the stamping switch to the specification's resolved types only.
+    /// </summary>
+    internal const string Document = "document";
 
     /// <summary>
     /// Not a capture word: the role an arranged <c>{event}</c> plays (issue #297). It reaches the
     /// descriptor as <c>ConsumedEvents</c> on a View slice and is dropped on a Command slice — see
     /// <c>roleOf</c> and <c>emitSlice</c>.
     /// </summary>
-    private const string Consumed = "consumed";
+    internal const string Consumed = "consumed";
 
     /// <summary>One slice of the model, accumulated across every scenario that declares it.</summary>
     internal sealed class SliceModel
@@ -94,8 +100,14 @@ internal static class EventModelEmitter
         /// </summary>
         public string? TriggerKind;
 
-        /// <summary>The route the HTTP act posts to, prefix included, or null when unknowable.</summary>
+        /// <summary>
+        /// The route the HTTP act posts to, prefix included, or null when unknowable. "" is unknown too:
+        /// <c>adoptRoute</c> lets a known route replace either, whichever scenario folds first.
+        /// </summary>
         public string? TriggerRoute;
+
+        /// <summary>The HTTP act's verb, when its vocabulary declares one; POST otherwise.</summary>
+        public string? TriggerHttpMethod;
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -196,7 +208,7 @@ internal static class EventModelEmitter
             if (httpActOf(scenario, fixture) is { } act)
             {
                 slice.TriggerKind ??= "Http";
-                slice.TriggerRoute ??= act;
+                adoptRoute(slice, act, null);
             }
 
             foreach (var (role, type) in roles)
@@ -224,23 +236,25 @@ internal static class EventModelEmitter
     }
 
     /// <summary>
-    /// Fold a projected test's <c>[BobcatSlice]</c> bindings into <paramref name="slices"/>
-    /// (issue #324) — the xUnit / TUnit lane reaching the Event Model at last.
+    /// Fold a projected test's <c>[BobcatSlice]</c> bindings — and, since bobcat#462, the roles its body
+    /// states through role-stamped vocabulary — into <paramref name="slices"/> (issue #324).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Binding only, and deliberately no roles.</b> The other two overloads read roles from type
-    /// captures in step text; a marker-comment step is free prose with none to read, and that is
-    /// the right outcome rather than a limitation. The curated model states the roles on the
-    /// Declared rung and the code states them on Derived — a third opinion from a test could only
-    /// manufacture a <c>SourceDisagreement</c> nobody can act on (issue #323 is what that costs).
-    /// What a projected test contributes is EVIDENCE: a bound <c>{Feature}/{Scenario}</c> identity,
-    /// which is what turns the slice from unbound to observed and lets a spec-identity gate join.
+    /// <b>Roles from the vocabulary, as the Gherkin arm takes them from captures.</b>
+    /// <c>GivenEvents&lt;Account&gt;(id, new AccountOpened(…))</c>, <c>WhenReceived(new Deposit(…))</c>,
+    /// <c>ThenEvents(typeof(FundsDeposited))</c> say exactly what <c>Given events for Account</c>,
+    /// <c>When Deposit is received</c> and <c>Then FundsDeposited is emitted</c> said, and they land in the
+    /// same <see cref="SliceModel"/> lists by the same rules: every command into <c>Commands</c>, the LAST
+    /// one as <c>ActCommand</c>; an arranged event into <c>ArrangedEvents</c>, which only a View slice
+    /// emits (#297); a document into resolved types only. <c>patternOf</c> and <c>emitSlice</c> are shared,
+    /// so the two arms cannot drift there. <see cref="ProjectedRoles"/> reads the roles; this only folds.
     /// </para>
     /// <para>
     /// A method-level binding REPLACES the class's, which is how one test class covers several
     /// slices — a rebinding is a whole binding, so a test wanting the class's domain as well says
-    /// so. An unbound test contributes nothing at all; it still renders, exactly as before.
+    /// so. A test with neither a binding nor roles contributes nothing; one with roles and no binding falls
+    /// back to the feature title, as an untagged Gherkin scenario that resolves roles does.
     /// </para>
     /// </remarks>
     public static void Collect(MarkerCommentSpecs.MarkedSpec spec, Dictionary<string, SliceModel> slices)
@@ -253,22 +267,65 @@ internal static class EventModelEmitter
             // its own answers — CreditWallet came out of Wallet.feature as a Command slice with no
             // chapter and was relabelled an Automation in "Operations". A rebinding is a whole
             // binding: if a test wants the class's domain too, it says so.
-            var tags = scenario.Tags.Count > 0 ? scenario.Tags : spec.Tags;
+            var rebound = scenario.Tags.Count > 0;
+            var tags = rebound ? scenario.Tags : spec.Tags;
+            var roles = scenario.Roles;
 
+            // The Gherkin arm's rule: no binding and no roles has nothing to say about a model, and
+            // inventing a slice for it would fill the canvas with every ordinary test in the suite.
             var declared = GeneratorSliceTags.Slice(tags);
-            if (declared == null) continue;
+            if (declared == null && roles.Roles.Count == 0) continue;
 
-            if (!slices.TryGetValue(declared, out var slice))
+            var name = declared ?? spec.FeatureTitle;
+            if (!slices.TryGetValue(name, out var slice))
             {
-                slice = new SliceModel { Name = declared, ClassName = CodeEmitter.SanitizeIdentifier(declared) };
-                slices[declared] = slice;
+                slice = new SliceModel { Name = name, ClassName = CodeEmitter.SanitizeIdentifier(name) };
+                slices[name] = slice;
             }
 
             slice.Domain ??= GeneratorSliceTags.Domain(tags);
             slice.Chapter ??= GeneratorSliceTags.Chapter(tags);
             slice.DeclaredPattern ??= GeneratorSliceTags.Pattern(tags);
 
-            // No roles: the identity is the whole contribution.
+            // bobcat#463, under #258's rule: a method's TriggeredBy wins over its class's whatever order
+            // the tests fold in, and the class's is the fallback. A method that rebinds the slice brings
+            // its binding whole, so the class's trigger does not follow it onto another slice.
+            if (scenario.TriggeredBy is { } methodLabel)
+            {
+                if (!slice.TriggerLabelDeclaredOnScenario)
+                {
+                    slice.TriggerLabel = methodLabel;
+                    slice.TriggerLabelDeclaredOnScenario = true;
+                }
+            }
+            else if (!rebound)
+            {
+                slice.TriggerLabel ??= spec.TriggeredBy;
+            }
+
+            // The act is the LAST command the test sends (#464); its trigger is the act's own. First
+            // scenario to say so wins, like ActCommand and the Gherkin arm's HTTP act.
+            slice.ActCommand ??= roles.Act;
+            if (roles.TriggerKind != null)
+            {
+                slice.TriggerKind ??= roles.TriggerKind;
+                adoptRoute(slice, roles.TriggerRoute, roles.HttpMethod);
+            }
+
+            foreach (var (role, type) in roles.Roles)
+            {
+                switch (role)
+                {
+                    case Command: addDistinct(slice.Commands, type); break;
+                    case Event: addDistinct(slice.Events, type); break;
+                    case Aggregate: addDistinct(slice.Aggregates, type); break;
+                    case ReadModel: addDistinct(slice.ReadModels, type); break;
+                    case Message: addDistinct(slice.Messages, type); break;
+                    case Consumed: addDistinct(slice.ArrangedEvents, type); break;
+                    // Document reaches the resolved types only, exactly as {document} does
+                }
+            }
+
             var identity = $"{spec.FeatureTitle}/{scenario.Title}";
 
             // Issue #404. A pending spec is declared before the behaviour it describes, so it is a
@@ -279,7 +336,7 @@ internal static class EventModelEmitter
             // claiming an identity the model lacks) and the slice it names is not a hole (a
             // declared behaviour no test covers). It is one declaration, not yet answered.
             if (scenario.Pending) slice.PendingSpecifications.Add(identity);
-            else slice.Specifications.Add((identity, new List<string>()));
+            else slice.Specifications.Add((identity, roles.ResolvedTypes()));
         }
     }
 
@@ -477,6 +534,19 @@ internal static class EventModelEmitter
     private static bool isArrange(MatchedStep step)
         => string.Equals(step.Step.ResolvedKeyword, "Given", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A known route replaces an unknown one — null or "" — whatever order the scenarios fold in, and brings
+    /// its verb with it; a known route is never replaced. One scenario posting to a computed route and
+    /// another to "/deposits" put "/deposits" on the slice either way round.
+    /// </summary>
+    private static void adoptRoute(SliceModel slice, string? route, string? httpMethod)
+    {
+        if (string.IsNullOrEmpty(route) || !string.IsNullOrEmpty(slice.TriggerRoute)) return;
+
+        slice.TriggerRoute = route;
+        slice.TriggerHttpMethod = httpMethod;
+    }
+
     private static void addDistinct(List<string> list, string value)
     {
         if (!list.Contains(value)) list.Add(value);
@@ -573,13 +643,14 @@ internal static class EventModelEmitter
             sb.AppendLine($"            TriggerKind = global::{Ns}.TriggerKind.{slice.TriggerKind},");
             if (!string.IsNullOrEmpty(slice.TriggerRoute))
             {
-                // POST is the only verb the HTTP grammar has; when it grows others the verb comes
-                // from the step's own sentence rather than from a default here.
+                // POST is the only verb the HTTP grammar has; a projected act's vocabulary may name
+                // another through [EventModelTrigger(HttpMethod = …)].
                 sb.AppendLine($"            TriggerOrigin = new global::{Ns}.PublisherOrigin");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                HttpRoute = {literal(slice.TriggerRoute)},");
-                sb.AppendLine("                HttpMethod = \"POST\",");
-                sb.AppendLine($"                Label = {literal("POST " + slice.TriggerRoute)}");
+                var verb = slice.TriggerHttpMethod ?? "POST";
+                sb.AppendLine($"                HttpMethod = {literal(verb)},");
+                sb.AppendLine($"                Label = {literal(verb + " " + slice.TriggerRoute)}");
                 sb.AppendLine("            },");
             }
         }
