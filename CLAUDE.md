@@ -1826,7 +1826,8 @@ side is `DocumentGrammars`, below, over `JasperFx.Events.Documents`.
   set is the header of `src/Directory.Packages.props`. `Bobcat.CritterStack.Tests` covers the
   convention paths against fakes shaped like each store (`EventStoresTests`) and the grammar against
   Marten (Postgres 5445, `[PostgresFact]`); its Wolverine-driven Fisher suite went with the
-  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg. The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
+  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg (plus
+  `StreamVersionVocabularyTests`, which runs on a temp SQLite file with no Wolverine at all). The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
   Fisher builds its schema lazily and the daemon reads the progression table on start
   (`docs/sample-wiring.md` footgun 13). Polecat needs SQL Server and is a documented manual run:
   `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and reset
@@ -1856,6 +1857,20 @@ the 2026-09-21 deletion.
   events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (through `DispatchAsync`, returns
   the `AggregateExecution<T>`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
+- **A named stream from a named version, for apps not using Wolverine (wolverine#4938).**
+  `TheStreamVersion(id)`, `ThenEventsOn<T>(id, afterVersion, events…)` / `ThenNoEventsOn<T>(id,
+  afterVersion)` (exactly these, in order, past that version — ordered `ObjectSetVerification`, partial
+  objects and tags as `Then {event} is emitted`; a version past the stream's end is
+  `SpecCriticalException`, never a vacuous pass), and `WhenActingOn<T>(id, [description,] act,
+  events…)`: capture the version, run `Func<IServiceProvider, Task>` against the scenario scope's
+  `CurrentServices`, check what followed, as one `Paragraph` of Given/When/Then sentences. That needed
+  `Paragraph.Sentence(keyword, text)` — a sentence that changes keyword, "And" when it repeats one.
+  The act's failure is captured into `LastExecution` (the `WhenCommand` contract) with an
+  `IActOutcome` that records no messages. Typed only — no `[Then]` attribute, since the version is
+  captured at run time rather than written in a feature. Each takes a `Guid` or a string key; there
+  is no version-less `ThenEventsOn` in core (that one is `WolverineFx.Bobcat`'s, over tracked
+  appended events). `StreamVersionVocabularyTests` runs them on Marten and Fisher hosts with no
+  Wolverine registered and a fixture whose `DispatchAsync` throws.
 - **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
   {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `Given
   {event} occurred` (issue #259 — one event per step, type in the step text so a misspelling is

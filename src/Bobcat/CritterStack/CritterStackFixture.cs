@@ -352,6 +352,242 @@ public abstract class CritterStackFixture : Fixture
                 $"Expected at least {count} message(s) of type {typeof(T).Name} to be sent, but {sent} were.");
     }
 
+    // ---- a named stream, from a named version (wolverine#4938) --------------------------------
+    // For an application that does not use Wolverine, or any act whose events nothing else can
+    // attribute: the spec says WHICH stream and FROM WHICH version, and only what the stream gained
+    // past that version counts. Store work only, through JasperFx.Events, so the act can be anything
+    // — a domain service, a minimal API call, a background job run by hand.
+
+    /// <summary>
+    /// The version the stream stands at now: its last event's version, or 0 when it has no events.
+    /// Capture it before an act to name it in <see cref="ThenEventsOn{T}(Guid, long, object[])"/>.
+    /// </summary>
+    public Task<long> TheStreamVersion(Guid id) => streamVersion(id);
+
+    /// <inheritdoc cref="TheStreamVersion(Guid)"/>
+    public Task<long> TheStreamVersion(string key) => streamVersion(key);
+
+    /// <summary>
+    /// The <typeparamref name="T"/> stream with this identity gained exactly these events, in this order,
+    /// past <paramref name="afterVersion"/> — and nothing else. What it held at or before that version
+    /// never counts, whoever appended it. Each expected event may be a whole object, an expected value or a
+    /// partial object (<c>Specify&lt;T&gt;().With(...)</c>), judged on only the members it names.
+    /// </summary>
+    /// <remarks>
+    /// Needs no act of this fixture's: the version is the spec's to name, or to capture with
+    /// <see cref="TheStreamVersion(Guid)"/> before whatever acts. When the scenario's last act was this
+    /// fixture's and it failed, the failure is reported instead of a missing event.
+    /// </remarks>
+    public Task ThenEventsOn<T>(Guid id, long afterVersion, params object[] events) where T : class
+        => thenEventsOn(typeof(T), id, afterVersion, flattenExpected(events));
+
+    /// <inheritdoc cref="ThenEventsOn{T}(Guid, long, object[])"/>
+    public Task ThenEventsOn<T>(string key, long afterVersion, params object[] events) where T : class
+        => thenEventsOn(typeof(T), key, afterVersion, flattenExpected(events));
+
+    /// <summary>The <typeparamref name="T"/> stream with this identity gained nothing past <paramref name="afterVersion"/>.</summary>
+    public Task ThenNoEventsOn<T>(Guid id, long afterVersion) where T : class
+        => thenEventsOn(typeof(T), id, afterVersion, []);
+
+    /// <inheritdoc cref="ThenNoEventsOn{T}(Guid, long)"/>
+    public Task ThenNoEventsOn<T>(string key, long afterVersion) where T : class
+        => thenEventsOn(typeof(T), key, afterVersion, []);
+
+    /// <summary>
+    /// One act and its verification, as one paragraph: capture the <typeparamref name="T"/> stream's
+    /// version, run <paramref name="act"/>, and check the stream gained exactly <paramref name="events"/>
+    /// past that version — <see cref="ThenEventsOn{T}(Guid, long, object[])"/>'s check, with the version
+    /// captured for you. No events means the act must append nothing to the stream.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No message bus.</b> The act is a delegate handed the scenario's scoped services, so it can be
+    /// anything an application does — a domain service, an endpoint called in-process — and nothing
+    /// here needs Wolverine.
+    /// </para>
+    /// <para>
+    /// <b>Three sentences, each with its own verdict</b>, through <see cref="Paragraph"/>: "Given the
+    /// Wallet stream … is at version 2", "When …", "Then WalletCredited is emitted on it". The When reads
+    /// <paramref name="act"/>'s description from the overload that takes one. A Gherkin step calling
+    /// this renders as its own one line; the paragraph is what a projected test shows.
+    /// </para>
+    /// <para>
+    /// Like <see cref="WhenCommand{T}"/>, a failing act is <i>captured</i> into <see cref="LastExecution"/>,
+    /// so the verification reports it and a later <c>Then validation fails with …</c> can assert on it.
+    /// The capture's events are what the stream gained; it records no sent messages, because nothing
+    /// tracked the act.
+    /// </para>
+    /// </remarks>
+    public Task WhenActingOn<T>(Guid id, Func<IServiceProvider, Task> act, params object[] events) where T : class
+        => actingOn(typeof(T), id, null, act, flattenExpected(events));
+
+    /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])"/>
+    public Task WhenActingOn<T>(string key, Func<IServiceProvider, Task> act, params object[] events) where T : class
+        => actingOn(typeof(T), key, null, act, flattenExpected(events));
+
+    /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])"/>
+    /// <param name="description">The act, as the When sentence says it: "the wallet is credited by hand".</param>
+    public Task WhenActingOn<T>(Guid id, string description, Func<IServiceProvider, Task> act, params object[] events)
+        where T : class
+        => actingOn(typeof(T), id, description, act, flattenExpected(events));
+
+    /// <inheritdoc cref="WhenActingOn{T}(Guid, string, Func{IServiceProvider, Task}, object[])"/>
+    public Task WhenActingOn<T>(string key, string description, Func<IServiceProvider, Task> act, params object[] events)
+        where T : class
+        => actingOn(typeof(T), key, description, act, flattenExpected(events));
+
+    private Task thenEventsOn(Type aggregate, object id, long afterVersion, object[] expected)
+    {
+        var text = $"{describeEmitted(expected)} on the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}";
+        return inSentence(ScenarioRecorder.Step("Then", text),
+            () => verifyGained(aggregate, id, afterVersion, expected));
+    }
+
+    private async Task actingOn(Type aggregate, object id, string? description, Func<IServiceProvider, Task> act,
+        object[] expected)
+    {
+        Ctx.RecordTouchedType(aggregate);
+        ScenarioValues.Learn(id, aggregate.Name);
+
+        var paragraph = new Paragraph("Given");
+        var version = await streamVersion(id);
+        using (paragraph.Sentence($"the {aggregate.Name} stream {ScenarioValues.Format(id)} is at version {version}"))
+        {
+        }
+
+        var services = Ctx.GetResource<IHostResource>(HostResource).CurrentServices;
+        await inSentence(
+            paragraph.Sentence("When", description ?? $"the {aggregate.Name} stream {ScenarioValues.Format(id)} is acted on"),
+            async () =>
+            {
+                ActExecution execution;
+                try
+                {
+                    await act(services);
+                    var gained = (await fetchStream(id)).Where(e => e.Version > version).ToList();
+                    execution = new ActExecution(UntrackedActOutcome.Instance, gained, null);
+                    recordTouched(gained.Select(e => e.Data));
+                }
+                catch (Exception e)
+                {
+                    // Captured, never thrown: the WhenCommand contract
+                    execution = new ActExecution(null, [], e);
+                }
+
+                RecordExecution(execution);
+            });
+
+        await inSentence(paragraph.Sentence("Then", $"{describeEmitted(expected)} on it"),
+            () => verifyGained(aggregate, id, version, expected));
+    }
+
+    private async Task verifyGained(Type aggregate, object id, long afterVersion, object[] expected)
+    {
+        var where = $"the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}";
+        if (afterVersion < 0)
+            throw new SpecCriticalException($"A stream version is never negative, so nothing can be checked on {where}.");
+
+        if (LastError != null)
+            throw new SpecAssertionException(
+                $"Expected {(expected.Length == 0 ? "no events" : describe(expected.Select(PartialMatching.ExpectedType).Select(t => t.Name)))} on {where}, "
+                + $"but the act failed: {LastError.GetType().Name}: {LastError.Message}");
+
+        var stream = await fetchStream(id);
+        var current = stream.Count == 0 ? 0 : stream.Max(e => e.Version);
+
+        // A version past the end makes every check vacuous: nothing can follow it yet
+        if (afterVersion > current)
+            throw new SpecCriticalException(
+                $"The {aggregate.Name} stream {ScenarioValues.Format(id)} is at version {current}, so nothing can follow "
+                + $"version {afterVersion} — the version the spec names is ahead of the stream.");
+
+        Ctx.RecordTouchedType(aggregate);
+        var gained = stream.Where(e => e.Version > afterVersion).ToList();
+        var actual = gained.Select(e => e.Data).ToList();
+
+        if (expected.Length == 0)
+        {
+            if (actual.Count > 0)
+                throw new SpecAssertionException(
+                    $"Expected no events on {where}, but it gained {ScenarioValues.DescribeAll(actual)}");
+            return;
+        }
+
+        var run = ObjectSetVerification.Verify(actual, expected, "event", SetMode.Ordered, tagsOf(gained));
+        run.Report(Context);
+
+        if (!run.Succeeded)
+            throw new SpecAssertionException(
+                (actual.Count == 0
+                    ? $"Expected events on {where}, but it gained none (it is still at version {current}):"
+                    : $"The events on {where} were not exactly these, in this order:")
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")));
+    }
+
+    private async Task<long> streamVersion(object id)
+    {
+        var stream = await fetchStream(id);
+        return stream.Count == 0 ? 0 : stream.Max(e => e.Version);
+    }
+
+    private Task<IReadOnlyList<IEvent>> fetchStream(object id)
+    {
+        var store = Ctx.EventStore(HostResource, StoreName);
+        return id is Guid guid
+            ? EventStores.FetchStreamAsync(store, guid, Ctx.Cancellation)
+            : EventStores.FetchStreamAsync(store, (string)id, Ctx.Cancellation);
+    }
+
+    // A sentence that fails says so on its own line of a projected spec, then the failure carries on
+    // to the runner; a Gherkin step has no sentence open (the recorder returns a no-op) and just throws
+    private static async Task inSentence(IDisposable sentence, Func<Task> body)
+    {
+        try
+        {
+            await body();
+        }
+        catch (Exception e)
+        {
+            (sentence as IStepHandle)?.Fail(e);
+            throw;
+        }
+        finally
+        {
+            sentence.Dispose();
+        }
+    }
+
+    private static string describeEmitted(object[] expected)
+        => expected.Length == 0
+            ? "no events are emitted"
+            : $"{string.Join(", ", expected.Select(PartialMatching.ExpectedType).Select(t => t.Name))} {(expected.Length == 1 ? "is" : "are")} emitted";
+
+    // Specify<T>(table) yields a row per partial object; each row is one expected event
+    private static object[] flattenExpected(object[] values)
+        => values.Any(x => x is IEnumerable<IPartialObject>)
+            ? values.SelectMany(x => x is IEnumerable<IPartialObject> rows ? rows.Cast<object>() : [x]).ToArray()
+            : values;
+
+    private static Func<object, IReadOnlyList<object>?> tagsOf(IReadOnlyList<IEvent> events)
+    {
+        var tags = new Dictionary<object, IReadOnlyList<object>>(ReferenceEqualityComparer.Instance);
+        foreach (var e in events)
+        {
+            tags[e.Data] = e.Tags?.Select(x => x.Value).ToArray() ?? [];
+        }
+
+        return data => tags.GetValueOrDefault(data);
+    }
+
+    /// <summary>An act the fixture ran but did not track: it records no sent messages.</summary>
+    private sealed class UntrackedActOutcome : IActOutcome
+    {
+        public static readonly UntrackedActOutcome Instance = new();
+
+        public IReadOnlyList<object> MessagesSent { get; } = [];
+    }
+
     // ---- shipped Gherkin grammar --------------------------------------------------------------
     // The slice-declaring vocabulary. {aggregate}/{command}/{event}/{readmodel}/{message} are type
     // captures the generator resolves to typeof(...) against the consuming compilation (BOBCAT011 /

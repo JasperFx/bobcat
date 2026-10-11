@@ -224,6 +224,57 @@ the "the column [Wieght] matches nothing on 'Shipment'" typo message, the empty-
 rule that lets one table carry rows of several shapes, and the trailing-optional rule that lets a
 column be omitted when the constructor has a default.
 
+## Acting with no message bus: a named stream and version
+
+Everything above that reads "the events the act appended" relies on the act going through the
+fixture's bracket. An application that does not use Wolverine has no tracked session to bracket,
+and a spec of it still has to say which events are the act's. So `CritterStackFixture` lets the
+spec name them explicitly: **which stream, and past which version** (wolverine#4938). It is store
+work only, through JasperFx.Events, so it runs the same on Marten, Polecat and Fisher.
+
+```csharp
+await GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"), new WalletCredited(id, 10));
+var before = await TheStreamVersion(id);                       // 2
+
+await walletService.Credit(id, 25);                            // any act at all
+
+await ThenEventsOn<Wallet>(id, before, new WalletCredited(id, 25));
+await ThenNoEventsOn<Wallet>(id, before + 1);      // and nothing after it
+```
+
+`ThenEventsOn<T>(id, afterVersion, events…)` checks that the stream gained **exactly** these events,
+in order, past that version, and nothing else; what it held at or before the version never counts,
+whoever appended it. An expected event may be a whole object or a partial one
+(`Specify<WalletCredited>().With(x => x.Amount, 25m)`), judged on only the members it names, and
+the mismatch is reported as the same event grid as `Then {event} is emitted`. A version past the end
+of the stream is refused as a broken spec rather than passing vacuously. Each takes a `Guid` or a
+string stream key.
+
+When the act and its check belong together, `WhenActingOn<T>` does all three in one call — captures
+the version, runs the act, checks what followed it:
+
+```csharp
+await WhenActingOn<Wallet>(id, "the wallet is credited by hand",
+    services => services.GetRequiredService<WalletService>().Credit(id, 25),
+    new WalletCredited(id, 25));
+```
+
+The act is a delegate handed the scenario's scoped services, so it needs no bus. In a projected test
+it reads as one paragraph of three sentences, each with its own verdict:
+
+```
+Given the Wallet stream Wallet is at version 2
+When the wallet is credited by hand
+Then WalletCredited is emitted on it
+```
+
+Leave out the description and the When reads "the Wallet stream … is acted on"; leave out the events
+and the Then reads "no events are emitted on it". A step in a `.feature` file that calls it renders
+as its own one line. Like `When {command} is received`, an act that throws is *captured*: the check
+reports "the act failed: …", and `Then validation fails with …` can still assert on the exception.
+The capture's events are what the stream gained, so `Then {event} is emitted` works after it too; it
+records no sent messages, because nothing tracked the act.
+
 ## The HTTP lane, and why it is not here
 
 The shipped grammar's `When {command} is received` dispatches over the message bus. An HTTP slice
