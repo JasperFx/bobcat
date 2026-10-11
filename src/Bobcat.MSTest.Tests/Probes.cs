@@ -83,6 +83,9 @@ internal sealed class ProbeRun
         };
         start.ArgumentList.Add("exec");
         start.ArgumentList.Add(assembly);
+        // The console is asserted on as text, and under GitHub Actions the platform colours it
+        // ("\e[31mfailed\e[m throws"), which no literal matches
+        start.ArgumentList.Add("--no-ansi");
         start.ArgumentList.Add("--filter");
         start.ArgumentList.Add($"FullyQualifiedName~{typeof(Probes).FullName}.");
         start.Environment[OutputVariable] = output;
