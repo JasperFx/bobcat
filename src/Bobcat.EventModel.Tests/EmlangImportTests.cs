@@ -508,8 +508,9 @@ public class EmlangInTheWildTests
     {
         var stubs = CSharpModelWriter.Write(import(TwoDocuments), "Kitchen").AllStubs();
 
-        // The model marks no identity on the command, so it also gets the conventional Id (bobcat#438)
-        stubs.ShouldContain("public record PlaceOrder(Guid Id, Guid OrderId, decimal Total);");
+        // PlaceOrder starts the Order stream, so it gets no conventional Id (bobcat#453): the handler
+        // mints the stream's id, and the OrderId the model names is all the command carries
+        stubs.ShouldContain("public record PlaceOrder(Guid OrderId, decimal Total);");
         stubs.ShouldContain("public record PizzaBaked;");
         stubs.ShouldContain("using System;");
     }

@@ -94,6 +94,34 @@ public class RecordingDiagnosticTests
     }
 
     [Fact]
+    public void an_mstest_suite_is_a_suite_too()
+    {
+        // Issue #386. MSTest's [TestMethod] was not in the generator's list of test attributes, so a
+        // marked MSTest class was not a specification at all and this warning could not fire on it —
+        // nor could anything else. The warning firing is the proof the method is now seen.
+        const string mstest =
+            """
+            [TestClass]
+            [BobcatFeature("Booking")]
+            [BobcatSlice(SliceType = typeof(ConfirmAppointment))]
+            public class booking_specs
+            {
+                [TestMethod]
+                public void a_proposal_is_confirmed()
+                {
+                    // Given a proposed appointment
+                }
+            }
+            """;
+
+        var warning = GeneratorHarness.Run(Preamble + mstest).WithId("BOBCAT028").ShouldHaveSingleItem();
+        warning.GetMessage().ShouldContain("Bobcat.MSTest");
+
+        GeneratorHarness.Run(Preamble + mstest.Replace("[TestClass]", "[TestClass, BobcatScenario]"))
+            .WithId("BOBCAT028").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void per_method_attributes_count_too()
     {
         // TUnit's adapter is a test-level receiver, so a suite may well carry it per method rather

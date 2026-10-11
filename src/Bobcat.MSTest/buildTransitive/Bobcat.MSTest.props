@@ -1,0 +1,20 @@
+<Project>
+
+  <!--
+    Compiles Bobcat.MSTest's global hooks into the consuming test project (issue #386).
+
+    MSTest runs a [GlobalTestInitialize]/[GlobalTestCleanup] pair around every test, but only when
+    the pair is declared in the test assembly — so the hooks travel as source and this adds them.
+    They open a Bobcat scenario only for a test whose class or method carries [BobcatScenario], so a
+    suite that has not opted in pays one attribute lookup per test and nothing else.
+
+    Opt out with <BobcatMSTestHooks>false</BobcatMSTestHooks> and call
+    Bobcat.MSTest.MSTestScenarioBracket.Open/Close from hooks of your own. An in-repo
+    ProjectReference does not consume this file, so a project in this repository includes the
+    source itself.
+  -->
+  <ItemGroup Condition="'$(BobcatMSTestHooks)' != 'false'">
+    <Compile Include="$(MSBuildThisFileDirectory)BobcatMSTestHooks.cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

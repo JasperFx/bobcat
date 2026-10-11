@@ -10,6 +10,13 @@ namespace Bobcat.EventModel.Emlang;
 /// <param name="Aggregate">The aggregate type's name. Repeat the override for a slice that draws on several.</param>
 public sealed record AggregateOverride(string Slice, string Aggregate)
 {
+    /// <summary>
+    /// bobcat#454: the slice <b>starts</b> this aggregate's stream, said outright with
+    /// <c>--starts-stream Slice=Type</c>. The slice's <c>--aggregate</c> overrides are then the
+    /// aggregates it decides against besides.
+    /// </summary>
+    public bool StartsStream { get; init; }
+
     /// <summary>Read <c>Slice=Type</c>; throws <see cref="FormatException"/> on anything else.</summary>
     public static AggregateOverride Parse(string text)
     {
@@ -21,6 +28,9 @@ public sealed record AggregateOverride(string Slice, string Aggregate)
 
         return new AggregateOverride(parts[0], parts[1]);
     }
+
+    /// <summary>Read a <c>--starts-stream Slice=Type</c> override; throws <see cref="FormatException"/> on anything else.</summary>
+    public static AggregateOverride ParseStartsStream(string text) => Parse(text) with { StartsStream = true };
 }
 
 /// <summary>
@@ -70,8 +80,20 @@ public static class AggregateInference
     /// <param name="report">Where every inference and gap is said, one line each.</param>
     public static void Apply(ImportedEventModel model, IReadOnlyDictionary<string, string> declared,
         IReadOnlyList<AggregateOverride>? overrides, List<string> report)
+        => Apply(model, declared, overrides, report, null);
+
+    /// <inheritdoc cref="Apply(ImportedEventModel, IReadOnlyDictionary{string, string}, IReadOnlyList{AggregateOverride}?, List{string})"/>
+    /// <param name="unimported">
+    /// Event name → the chapter it appears in, for the board's chapters that were not imported
+    /// (bobcat#454). Names the chapter in a <see cref="ImportCalloutCodes.StreamStartFromUnimportedChapter"/> callout.
+    /// </param>
+    /// <returns>Every callout, as <see cref="ImportCallout"/>s with a stable code (bobcat#454).</returns>
+    public static IReadOnlyList<ImportCallout> Apply(ImportedEventModel model, IReadOnlyDictionary<string, string> declared,
+        IReadOnlyList<AggregateOverride>? overrides, List<string> report, IReadOnlyDictionary<string, string>? unimported)
     {
         overrides ??= [];
+        unimported ??= new Dictionary<string, string>();
+        var callouts = new List<ImportCallout>();
         foreach (var unknown in overrides.Where(o => model.Slices.All(s => s.Name != o.Slice)))
         {
             report.Add($"⚠ --aggregate {unknown.Slice}={unknown.Aggregate}: no slice is named '{unknown.Slice}', so it changes nothing.");
@@ -93,7 +115,7 @@ public static class AggregateInference
         foreach (var (name, stream) in declared) streams.Pin(Name(name), Name(stream), declaredBy: "the model declares it");
         foreach (var slice in model.Slices)
         {
-            if (overrides.FirstOrDefault(o => o.Slice == slice.Name) is not { } first) continue;
+            if (overrides.Where(o => o.Slice == slice.Name).OrderByDescending(o => o.StartsStream).FirstOrDefault() is not { } first) continue;
             foreach (var name in slice.Events) streams.Pin(Name(name), Name(first.Aggregate), declaredBy: $"--aggregate {first.Slice}={first.Aggregate}");
         }
 
@@ -103,6 +125,10 @@ public static class AggregateInference
         {
             var emitted = slice.Events.Select(Name).Where(x => x.Length > 0).ToList();
             for (var i = 1; i < emitted.Count; i++) streams.Join(emitted[0], emitted[i], lineage: false);
+
+            // A slice said outright to start its stream (--starts-stream) has nothing earlier on it, so
+            // what its examples give first is on some other stream, never joined to the one it starts
+            if (overrides.Any(o => o.Slice == slice.Name && o.StartsStream)) continue;
 
             foreach (var scenario in actingScenarios(slice))
             {
@@ -136,9 +162,24 @@ public static class AggregateInference
         model.EventStreams.Clear();
         foreach (var (name, stream) in streams.Assignments()) model.EventStreams[name] = stream;
 
+        var emittedByAny = model.Slices.SelectMany(x => x.Events).Select(Name).ToHashSet(StringComparer.Ordinal);
         foreach (var slice in model.Slices.Where(isDecider))
         {
-            assign(slice, streams, overrides.Where(o => o.Slice == slice.Name).Select(o => Name(o.Aggregate)).ToList(), report);
+            var context = new Assignment(slice, streams, overrides.Where(o => o.Slice == slice.Name).ToList(), report, callouts, emittedByAny, unimported);
+            assign(context);
+        }
+
+        return callouts;
+    }
+
+    private sealed record Assignment(CuratedSlice Slice, Streams Streams, List<AggregateOverride> Overrides, List<string> Report,
+        List<ImportCallout> Callouts, HashSet<string> Emitted, IReadOnlyDictionary<string, string> Unimported)
+    {
+        /// <summary>Say a callout on the slice (the generated definition writes it as a comment) and in the callout list.</summary>
+        public void Add(ImportCallout callout)
+        {
+            Slice.Callouts.Add(callout.Message);
+            Callouts.Add(callout);
         }
     }
 
@@ -148,8 +189,9 @@ public static class AggregateInference
     private static IEnumerable<CuratedScenario> actingScenarios(CuratedSlice slice)
         => (slice.Specifications?.Scenarios ?? []).Where(x => x.When is not null);
 
-    private static void assign(CuratedSlice slice, Streams streams, List<string> overridden, List<string> report)
+    private static void assign(Assignment context)
     {
+        var (slice, streams, overrides, report, _, emitted, unimported) = context;
         slice.Aggregates.Clear();
         slice.StartsStream = null;
         slice.Inferred.Clear();
@@ -159,6 +201,12 @@ public static class AggregateInference
         var written = slice.Events.Select(Name).Select(streams.StreamOf).OfType<Stream>().Distinct().ToList();
         var read = scenarios.SelectMany(x => x.Given).Select(x => streams.StreamOf(Name(x.Event))).OfType<Stream>()
             .Distinct().Where(x => !written.Contains(x)).ToList();
+
+        IReadOnlyList<string> eventsOf(Stream stream) => slice.Events.Select(Name).Where(x => streams.StreamOf(x) == stream).Distinct().ToList();
+        IReadOnlyList<string> givenOn(Stream stream) => scenarios.SelectMany(x => x.Given).Select(x => Name(x.Event))
+            .Where(x => streams.StreamOf(x) == stream).Distinct().ToList();
+        IReadOnlyList<string> examplesGiving(Stream stream) => scenarios
+            .Where(x => x.Given.Any(g => streams.StreamOf(Name(g.Event)) == stream)).Select(x => x.Name).ToList();
 
         // A stream the slice writes is one it starts when an example acts on it with nothing given there
         Stream? starts = null;
@@ -174,21 +222,31 @@ public static class AggregateInference
             if (stream.Name is { } name) add(slice, name);
             if (scenarios.Count == 0 && stream.Name is { } assumed && !stream.IsDeclared)
             {
-                slice.Callouts.Add($"⚠ no example says whether it starts the {assumed} stream, so it is assumed to append to one.");
+                context.Add(new ImportCallout(slice.Name, ImportCalloutCodes.StreamStartUnknown, [assumed],
+                    $"⚠ no example says whether it starts the {assumed} stream, so it is assumed to append to one.",
+                    $"--starts-stream {slice.Name}={assumed}") { Events = eventsOf(stream) });
             }
         }
 
         if (starts?.Name is { } started) slice.StartsStream = started;
         foreach (var stream in read.Where(x => x.Name is not null)) add(slice, stream.Name!);
 
-        if (overridden.Count > 0)
+        if (overrides.Count > 0)
         {
-            // Said outright, so it wins: exactly these, the first started when the examples say so
-            var startsOverridden = slice.StartsStream == overridden[0];
+            // Said outright, so it wins. With --starts-stream, exactly that stream is started and the
+            // --aggregate ones are decided against; with --aggregate alone, exactly those, the first
+            // started when the examples say so
+            var overridden = overrides.Where(x => !x.StartsStream).Select(x => Name(x.Aggregate)).ToList();
+            var startsOverridden = overrides.FirstOrDefault(x => x.StartsStream) is { } starting
+                ? Name(starting.Aggregate)
+                : overridden.Count > 0 && slice.StartsStream == overridden[0] ? overridden[0] : null;
+
             slice.Aggregates.Clear();
-            slice.StartsStream = startsOverridden ? overridden[0] : null;
-            foreach (var aggregate in overridden.Skip(startsOverridden ? 1 : 0).Distinct()) add(slice, aggregate);
-            report.Add($"slice '{slice.Name}': aggregate(s) {string.Join(", ", overridden)} from --aggregate.");
+            slice.StartsStream = startsOverridden;
+            foreach (var aggregate in overridden.Distinct()) add(slice, aggregate);
+
+            var said = overrides.Select(x => x.StartsStream ? $"starts {Name(x.Aggregate)}" : Name(x.Aggregate));
+            report.Add($"slice '{slice.Name}': aggregate(s) {string.Join(", ", said)} from --aggregate / --starts-stream.");
         }
         else
         {
@@ -197,16 +255,49 @@ public static class AggregateInference
                 var stream = streams.ByName(aggregate);
                 if (stream is null || stream.IsDeclared) continue;
 
-                var role = aggregate == slice.StartsStream ? $"starts the {aggregate} stream" : $"decides against {aggregate}";
-                var why = aggregate == slice.StartsStream
+                var starting = aggregate == slice.StartsStream;
+                var given = givenOn(stream);
+                var role = starting ? $"starts the {aggregate} stream" : $"decides against {aggregate}";
+                var why = starting
                     ? $"no example gives it an earlier {aggregate} event; {stream.Why}"
                     : written.Contains(stream)
                         ? $"its examples give {aggregate} events before it appends; {stream.Why}"
-                        : $"its examples give {string.Join(", ", read.First(x => x == stream).Events.Where(e => scenarios.Any(s => s.Given.Any(g => Name(g.Event) == e))))} from the {aggregate} stream; {stream.Why}";
+                        : $"its examples give {string.Join(", ", given)} from the {aggregate} stream; {stream.Why}";
 
                 slice.Inferred[aggregate] = why;
-                slice.Callouts.Add($"⚠ inferred: {role} — {why}.");
                 report.Add($"⚠ slice '{slice.Name}': inferred that it {role} — {why}.");
+
+                // bobcat#454: the only evidence that the stream already exists is events nothing
+                // imported emits, so the slice may well be what starts it
+                if (!starting && given.Count > 0 && given.All(x => !emitted.Contains(x)))
+                {
+                    var chapters = given.Select(x => unimported.GetValueOrDefault(x)).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+                    var source = chapters.Count > 0
+                        ? $"{(chapters.Count == 1 ? "chapter" : "chapters")} {string.Join(", ", chapters.Select(x => $"'{x}'"))}, which {(chapters.Count == 1 ? "was" : "were")} not imported"
+                        : "no imported slice";
+                    var question = $"⚠ starts the {aggregate} stream? It is inferred to decide against {aggregate}, but the only {aggregate} "
+                                   + $"events its examples give first, {string.Join(", ", given)}, come from {source}. "
+                                   + $"If it starts the stream, import with --starts-stream {slice.Name}={aggregate}.";
+                    context.Add(new ImportCallout(slice.Name, ImportCalloutCodes.StreamStartFromUnimportedChapter, [aggregate], question,
+                        $"--starts-stream {slice.Name}={aggregate}")
+                    {
+                        Events = given, Examples = examplesGiving(stream), Chapters = chapters
+                    });
+                    report.Add($"⚠ slice '{slice.Name}' {question[2..]}");
+                    continue;
+                }
+
+                context.Add(starting
+                    ? new ImportCallout(slice.Name, ImportCalloutCodes.InferredStreamStart, [aggregate], $"⚠ inferred: {role} — {why}.",
+                        $"--starts-stream {slice.Name}={aggregate}")
+                    {
+                        Events = eventsOf(stream), Examples = scenarios.Select(x => x.Name).ToList()
+                    }
+                    : new ImportCallout(slice.Name, ImportCalloutCodes.InferredAgainst, [aggregate], $"⚠ inferred: {role} — {why}.",
+                        $"--aggregate {slice.Name}={aggregate}")
+                    {
+                        Events = given, Examples = examplesGiving(stream)
+                    });
             }
         }
 
@@ -214,14 +305,17 @@ public static class AggregateInference
         if (all.Count > 1)
         {
             var callout = string.Format(MultiStreamCallout, string.Join(", ", all));
-            slice.Callouts.Add(callout);
+            context.Add(new ImportCallout(slice.Name, ImportCalloutCodes.SeveralStreams, all, callout, null)
+            {
+                Examples = scenarios.Select(x => x.Name).ToList()
+            });
             report.Add($"⚠ slice '{slice.Name}' {callout[2..]}");
         }
 
         if (all.Count == 0)
         {
             const string missing = "⚠ missing: no aggregate. TODO: a command that does not only start a stream needs a DCB decider or one or more single-stream aggregates — declare .Against<T>(), or import with --aggregate Slice=Type.";
-            slice.Callouts.Add(missing);
+            context.Add(new ImportCallout(slice.Name, ImportCalloutCodes.MissingAggregate, [], missing, $"--aggregate {slice.Name}=<Type>"));
             report.Add($"⚠ slice '{slice.Name}': {missing[2..]}");
         }
     }
@@ -259,7 +353,7 @@ public static class AggregateInference
         public bool IsDeclared => Pinned is not null;
     }
 
-    private sealed class Streams
+    internal sealed class Streams
     {
         private readonly Dictionary<string, Stream> _byEvent = new(StringComparer.Ordinal);
         private readonly List<Stream> _all = [];

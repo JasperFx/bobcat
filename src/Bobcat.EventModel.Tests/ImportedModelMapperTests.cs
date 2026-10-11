@@ -136,7 +136,8 @@ public class ImportedModelMapperTests
     {
         var slice = ImportedModelMapper.ToDescriptor(parse(Full)).Slices.Single();
 
-        // The type does not exist yet: the FullName is {namespace}.{name} so drift matching can
+        // The type does not exist yet: the FullName is where its stub goes ({namespace}.{name} for a
+        // slice with no chapter; DeclaredFullNameTests has the chapters) so drift matching can
         // join it to the generated CLR type later, and the assembly is deliberately empty.
         slice.CommandType.ShouldBe(new JasperFx.Descriptors.TypeDescriptor("SwipeOnDog", "CritterCrush.SwipeOnDog", string.Empty));
     }

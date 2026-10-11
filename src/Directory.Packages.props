@@ -260,6 +260,21 @@
     -->
     <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
     <PackageVersion Include="TUnit.Core" Version="1.66.27" />
+    <!--
+      Bobcat.NUnit (issue #385) takes the NUnit framework package only, which depends on no test
+      platform, so it is safe to ship beside the 1.9.1 pin above. Bobcat.MSTest (issue #386) takes
+      no MSTest package at all — its csproj says why — so MSTest.* here is for its test project.
+
+      Their RUNNERS are another matter, and only the test projects take them. Each is held at its
+      last release built against Microsoft.Testing.Platform 1.9.x: NUnit3TestAdapter 5.2.0 (6.0
+      moves to MTP 2.x) and MSTest.TestAdapter 3.11.1 (4.0 moves to MTP 2.x). Moving either past
+      that walks into the same TypeLoadException the pin above records. The framework and its
+      adapter move together, so MSTest.TestFramework stays equal to MSTest.TestAdapter.
+    -->
+    <PackageVersion Include="NUnit" Version="4.3.2" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="5.2.0" />
+    <PackageVersion Include="MSTest.TestFramework" Version="3.11.1" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="3.11.1" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <!-- Only the F# shape fixtures for the partial-object tests (bobcat#417); nothing shipped references it. -->
     <PackageVersion Include="FSharp.Core" Version="9.0.303" />

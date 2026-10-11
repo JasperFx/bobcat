@@ -36,7 +36,8 @@ namespace Bobcat.Runtime;
 /// premise of issue #391, so it is stated here rather than inferred by a reader.
 /// </param>
 /// <param name="Framework">
-/// Which runner owns the process — <c>bobcat</c>, <c>xunit</c> or <c>tunit</c>. The lane does not
+/// Which runner owns the process — <c>bobcat</c>, <c>xunit</c>, <c>tunit</c>, <c>nunit</c> or
+/// <c>mstest</c>. The lane does not
 /// settle it: a projected suite's filter spelling is its *framework's*, and two projected suites
 /// can disagree about it.
 /// </param>
@@ -64,6 +65,8 @@ public sealed record SpecManifest(
     public const string BobcatFramework = "bobcat";
     public const string XunitFramework = "xunit";
     public const string TUnitFramework = "tunit";
+    public const string NUnitFramework = "nunit";
+    public const string MSTestFramework = "mstest";
 
     private static readonly JsonSerializerOptions _json = new()
     {

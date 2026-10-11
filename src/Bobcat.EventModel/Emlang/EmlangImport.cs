@@ -2,7 +2,17 @@ using System.Text;
 
 namespace Bobcat.EventModel.Emlang;
 
-public sealed record EmlangImportResult(ImportedEventModel Model, IReadOnlyList<string> Report);
+public sealed record EmlangImportResult(ImportedEventModel Model, IReadOnlyList<string> Report)
+{
+    /// <summary>
+    /// bobcat#454: every guess the import made and every gap it found, each with a stable code, its
+    /// evidence and the flag that settles it. The same sentences are in <see cref="Report"/>.
+    /// </summary>
+    public IReadOnlyList<ImportCallout> Callouts { get; init; } = [];
+
+    /// <summary>The board as imported: only the chapters asked for, which is the board the spec writer reads.</summary>
+    public EmlangBoard? Board { get; init; }
+}
 
 /// <summary>
 /// Segments an emlang board into curated slices (issue #202). An emlang chapter is a persona
@@ -42,7 +52,29 @@ public static class EmlangImport
     /// </param>
     public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace,
         IReadOnlyList<AggregateOverride>? aggregates)
+        => ToCurated(board, modelName, @namespace, aggregates, null);
+
+    /// <inheritdoc cref="ToCurated(EmlangBoard, string, string?, IReadOnlyList{AggregateOverride}?)"/>
+    /// <param name="chapters">
+    /// Import only these chapters (bobcat#454); every chapter when null or empty. The rest of the board
+    /// is still read, as evidence: an example whose only earlier event comes from a chapter left out
+    /// is called out as possibly starting the stream (<see cref="ImportCalloutCodes.StreamStartFromUnimportedChapter"/>).
+    /// </param>
+    /// <exception cref="ArgumentException">A chapter the board does not have.</exception>
+    public static EmlangImportResult ToCurated(EmlangBoard board, string modelName, string? @namespace,
+        IReadOnlyList<AggregateOverride>? aggregates, IReadOnlyCollection<string>? chapters)
     {
+        var whole = board;
+        board = SelectChapters(board, chapters);
+        var unimported = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var chapter in whole.Chapters.Where(x => !board.Chapters.Contains(x)))
+        {
+            foreach (var step in chapter.Steps.Where(x => x.Kind == EmlangElementKind.Event))
+            {
+                unimported.TryAdd(AggregateInference.Name(step.Label), chapter.Name);
+            }
+        }
+
         var model = new ImportedEventModel { Schema = 1, Model = modelName, Namespace = @namespace };
         var report = new List<string>();
         var byName = new Dictionary<string, CuratedSlice>(StringComparer.Ordinal);
@@ -68,8 +100,28 @@ public static class EmlangImport
             declared.TryAdd(PascalName(step.Label), step.Stream!);
         }
 
-        AggregateInference.Apply(model, declared, aggregates, report);
-        return new EmlangImportResult(model, report);
+        var callouts = AggregateInference.Apply(model, declared, aggregates, report, unimported);
+        return new EmlangImportResult(model, report) { Callouts = callouts, Board = board };
+    }
+
+    /// <summary>
+    /// The board cut to the named chapters (bobcat#454), in the board's order; the whole board when
+    /// none are named.
+    /// </summary>
+    /// <exception cref="ArgumentException">A chapter the board does not have, with the ones it does.</exception>
+    public static EmlangBoard SelectChapters(EmlangBoard board, IReadOnlyCollection<string>? chapters)
+    {
+        if (chapters is null || chapters.Count == 0) return board;
+
+        var unknown = chapters.Where(x => board.Chapters.All(c => c.Name != x)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException(
+                $"No chapter named {string.Join(", ", unknown.Select(x => $"'{x}'"))}. The board has: {string.Join(", ", board.Chapters.Select(x => x.Name))}",
+                nameof(chapters));
+        }
+
+        return new EmlangBoard(board.Chapters.Where(x => chapters.Contains(x.Name)).ToList());
     }
 
     /// <returns>Every slice the chapter opened or folded into, in order.</returns>

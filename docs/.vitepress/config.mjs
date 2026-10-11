@@ -52,6 +52,8 @@ export default defineConfig({
           { text: 'Specs From Existing Tests', link: '/marker-steps' },
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },
+          { text: 'Bobcat with NUnit', link: '/nunit' },
+          { text: 'Bobcat with MSTest', link: '/mstest' },
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
           { text: 'Spec Identities', link: '/spec-identities' },
           { text: 'The Resident Runner', link: '/resident-runner' },

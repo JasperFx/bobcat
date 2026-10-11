@@ -21,19 +21,21 @@ namespace Bobcat.Tests.MarkerSteps;
 /// </remarks>
 public class StepReportWireTests : IDisposable
 {
-    private const string Uid = "Feature/Scenario";
+    // A feature of its own: "Feature/Scenario" is what most recorder tests begin under, and planned
+    // steps registered there leaked into their renders while this class ran beside them
+    private const string Uid = "Step report wire/Scenario";
 
     private readonly RecordingSink _sink = new();
     private readonly Guid _runId = Guid.NewGuid();
 
     public void Dispose()
     {
-        DeclaredSteps.Clear();
-        PlannedSteps.Clear();
+        DeclaredSteps.Remove(Uid);
+        PlannedSteps.Remove(Uid);
     }
 
     private ScenarioRecorder.Recording begin()
-        => ScenarioRecorder.Begin("Feature", "Scenario", _sink, _runId);
+        => ScenarioRecorder.Begin("Step report wire", "Scenario", _sink, _runId);
 
     // --- issue #387: cells so far, while the step is still running ---
 

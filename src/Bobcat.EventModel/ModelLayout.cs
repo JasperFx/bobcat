@@ -128,6 +128,36 @@ public sealed class ModelLayout
     /// <summary>The namespace a type is declared in.</summary>
     public string NamespaceOf(string type) => NamespaceFor(RootNamespace, ChapterOf(type));
 
+    /// <summary>Whether <paramref name="type"/> was laid out at all, as opposed to falling back to the root.</summary>
+    public bool Contains(string type) => _types.ContainsKey(CSharpModelWriter.Identifiers.Sanitize(type));
+
+    /// <summary>
+    /// The full name the type will have once its stub is written: <c>{NamespaceOf(type)}.{type}</c>
+    /// (bobcat#383). <see cref="ImportedModelMapper"/> declares types by this, so the model and the code
+    /// agree on where a type lives instead of each working it out.
+    /// </summary>
+    public string FullNameOf(string type)
+    {
+        var name = CSharpModelWriter.Identifiers.Sanitize(type);
+        return $"{NamespaceOf(name)}.{name}";
+    }
+
+    /// <summary>
+    /// The full name of a type this layout never places (a handler, a projection): in the namespace of
+    /// <paramref name="besideType"/> when that was placed, which is the file <c>wolverine scaffold</c>
+    /// appends it to, and otherwise in <paramref name="chapter"/>'s namespace.
+    /// </summary>
+    public string FullNameOf(string type, string? besideType, string? chapter)
+    {
+        var name = CSharpModelWriter.Identifiers.Sanitize(type);
+        if (Contains(name)) return FullNameOf(name);
+
+        var ns = besideType is { Length: > 0 } && Contains(besideType)
+            ? NamespaceOf(CSharpModelWriter.Identifiers.Sanitize(besideType))
+            : NamespaceFor(RootNamespace, ChapterFolder(chapter));
+        return $"{ns}.{name}";
+    }
+
     /// <summary>Every namespace a type was put in, root first.</summary>
     public IReadOnlyList<string> Namespaces
         => _types.Values.Select(x => NamespaceFor(RootNamespace, x.Chapter))

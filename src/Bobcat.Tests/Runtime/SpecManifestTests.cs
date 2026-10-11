@@ -162,14 +162,29 @@ public class SpecManifestTests : IDisposable
             .Message.ShouldContain("TUnit");
     }
 
+    [Theory]
+    [InlineData(SpecManifest.NUnitFramework, "an NUnit suite")]
+    [InlineData(SpecManifest.MSTestFramework, "an MSTest suite")]
+    public void nunit_and_mstest_say_they_are_not_supported_yet_rather_than_guessing_a_filter(
+        string framework, string named)
+    {
+        // Issues #385/#386 shipped the adapters; a filter spelling for either is unverified until a
+        // test pins it against a real host, and an unverified filter is a silent whole-suite run.
+        var manifest = projected() with { Framework = framework };
+
+        Should.Throw<NotSupportedException>(
+                () => SpecFilterArguments.For(manifest, SpecSelection.Of("Booking appointments/a proposal is declined")))
+            .Message.ShouldContain(named);
+    }
+
     [Fact]
     public void an_unknown_framework_is_refused_and_lists_the_ones_that_are_known()
     {
         Should.Throw<NotSupportedException>(
                 () => SpecFilterArguments.For(
-                    projected() with { Framework = "nunit" },
+                    projected() with { Framework = "mocha" },
                     SpecSelection.Of("Booking appointments/a proposal is declined")))
-            .Message.ShouldContain("'nunit' is not a framework");
+            .Message.ShouldContain("'mocha' is not a framework");
     }
 
     [Fact]

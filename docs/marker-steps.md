@@ -196,7 +196,7 @@ sentence.
 | | |
 |---|---|
 | Packages | `Bobcat`, `Bobcat.Generators`, and the adapter for your runner |
-| A runner adapter | `Bobcat.Xunit` or `Bobcat.TUnit` |
+| A runner adapter | `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` or `Bobcat.MSTest` |
 
 That is the whole list. `Bobcat.Generators` brings the interceptor opt-in with it, so there is no
 csproj line to remember -- and no sibling project that silently needed the same one.
@@ -218,7 +218,7 @@ constraint.
 Add the package for your runner and put `[BobcatScenario]` on the test class:
 
 ```csharp
-using Bobcat.Xunit;      // or Bobcat.TUnit
+using Bobcat.Xunit;      // or Bobcat.TUnit, Bobcat.NUnit, Bobcat.MSTest
 
 [BobcatFeature("Async daemon"), BobcatScenario]
 public class DaemonSpecs
@@ -232,7 +232,7 @@ public class DaemonSpecs
 }
 ```
 
-It works on a single method too. Both packages open a scenario around each test and close it with
+It works on a single method too. Every adapter opens a scenario around each test and close it with
 **the verdict the runner reported** -- a failing test is published as a failure, and a skipped one
 is withdrawn rather than reported as anything.
 
@@ -249,8 +249,9 @@ interceptor opt-in was a csproj line that a sibling project also needed, where f
 **xUnit v2 has no adapter and is not simply waiting for one.** v2's `BeforeAfterTestAttribute` is
 `Before(MethodInfo)` / `After(MethodInfo)` with no test context anywhere, so there is no verdict to
 read at that point at all -- reporting one would mean replacing the test framework rather than
-hooking it. v3 and TUnit both hand the result over at the end of a test, which is what makes their
-adapters small.
+hooking it. v3, TUnit, NUnit and MSTest all hand the result over at the end of a test, which is
+what makes their adapters small. (MSTest's arrives in a global cleanup hook rather than an
+attribute, so [its adapter](mstest.md) compiles that hook into the test project.)
 
 ## Reading the specification the run produced
 

@@ -48,7 +48,13 @@ public static class PlannedSteps
     /// <summary>Every scenario identity with a plan. What a preview enumerates.</summary>
     public static IReadOnlyCollection<string> KnownScenarios => _byUid.Keys.ToList();
 
-    internal static void Clear() => _byUid.Clear();
+    /// <summary>
+    /// Forget one scenario's planned steps. Test-only, and deliberately per scenario: this registry is
+    /// process-wide, test classes run in parallel, and a wholesale clear from one class wiped the
+    /// registrations another class had just made — the intermittent empty renders in the
+    /// <c>MarkerSteps</c> tests. A test registers under a uid of its own and removes only that.
+    /// </summary>
+    internal static void Remove(string uid) => _byUid.TryRemove(uid, out _);
 }
 
 /// <summary>

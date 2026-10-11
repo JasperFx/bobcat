@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Bobcat + NUnit — projects ordinary [Test] methods into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- NUnit, the framework, and nothing else: ITestAction and TestContext are all an adapter
+         needs, and the framework package depends on no test platform. NUnit3TestAdapter (the
+         runner) is the consumer's choice, so its Microsoft.Testing.Platform version never
+         becomes this package's problem. -->
+    <PackageReference Include="NUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+  </ItemGroup>
+
+</Project>

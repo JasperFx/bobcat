@@ -16,7 +16,7 @@ public class ScenarioRecorderPublishingTests : IDisposable
     private readonly RecordingSink _sink = new();
     private readonly Guid _runId = Guid.NewGuid();
 
-    public void Dispose() => DeclaredSteps.Clear();
+    public void Dispose() => DeclaredSteps.Remove(Uid);
 
     [Fact]
     public void a_step_is_announced_when_it_opens_not_when_it_ends()
