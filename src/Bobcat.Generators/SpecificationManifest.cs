@@ -197,9 +197,13 @@ internal static class SpecificationManifest
     private static string? unqualified(string? type)
         => type is not null && type.StartsWith("global::", StringComparison.Ordinal) ? type.Substring("global::".Length) : type;
 
-    // The first When…(Specify<T>()…) or When…(new T(…)) in the test names the command it sends
+    // The LAST When…(Specify<T>()…) or When…(new T(…)) in the test names the command it sends (bobcat#464).
+    // A spec may arrange state by sending earlier commands -- an HTTP slice that has to WhenPosted a create
+    // before the act it is about has no GivenEvents shortcut -- so "first wins" would bind it to the arrange.
+    // The Gherkin arm's EventModelEmitter.actCommandOf takes the last one for the same reason.
     private static string? inferCommand(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
     {
+        string? command = null;
         foreach (var invocation in method.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
             var name = invocation.Expression switch
@@ -219,13 +223,13 @@ internal static class SpecificationManifest
                 _ => specified(argument, model, ct)
             };
 
-            // The first When names the command; one generated code cannot write typeof(…) of — a private
-            // or file-local record — names none, rather than handing the act to a later When
+            // The last When names the command; one generated code cannot write typeof(…) of — a private
+            // or file-local record — names none, rather than handing the act to an earlier When
             if (type is INamedTypeSymbol named && named.TypeKind != TypeKind.Error)
-                return ProjectedRoles.IsNameable(named, model.Compilation) ? qualified(named) : null;
+                command = ProjectedRoles.IsNameable(named, model.Compilation) ? qualified(named) : null;
         }
 
-        return null;
+        return command;
     }
 
     // Specify<T>() at the root of a .With(...)/.Check(...) chain
