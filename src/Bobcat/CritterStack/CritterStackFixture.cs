@@ -11,10 +11,17 @@ namespace Bobcat.CritterStack;
 /// Event Modeling slice. Derive from it — <c>public class WithdrawFunds : CritterStackFixture</c> —
 /// and every <c>Given events for …</c> / <c>When … is received</c> / <c>Then … is emitted</c> step
 /// is bound with no further code, because the generator discovers steps declared on base classes
-/// (issue #104). That is the canonical route; see <see cref="CritterStackGrammars"/> for the mix-in
-/// route when a fixture cannot own the base type.
+/// (issue #104). There is no mix-in form of this vocabulary: a fixture gets it by deriving from this type.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>Shipped as source as well as compiled (wolverine#4915).</b> The <c>Bobcat</c> package carries
+/// this file under <c>contentFiles/cs/</c> (build action <c>None</c>, so it is never compiled twice)
+/// and <c>content/grammars/</c>, so an editor's Cucumber support can read its step text in a
+/// consumer's workspace. The generator does not need it, and binds these steps from assembly metadata.
+/// The vocabulary lives in Bobcat core rather than beside WolverineFx.Bobcat's act because an
+/// application that does not use Wolverine is a target (wolverine#4938).
+/// </para>
 /// <para>
 /// <b>Store-agnostic.</b> Every operation reaches the event store through the <c>JasperFx.Events</c>
 /// abstractions resolved from the registered <see cref="Runtime.IHostResource"/> — Marten, Polecat

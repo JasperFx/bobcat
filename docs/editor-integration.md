@@ -107,17 +107,18 @@ Two smaller findings from the same run:
   concerned. Inside this repo that is not a problem because the source is here. A consumer
   taking Bobcat from NuGet will see `Given the date is "..."` underlined as undefined unless the
   grammar source is in their workspace — shipping the grammars as source is the fix, and is
-  why the issue notes "the shipped grammars ship as source". **Done for `DocumentGrammars`**: its
-  `.cs` travels in the `Bobcat` package under `contentFiles/cs/` (buildAction `None`, so it is
-  never double-compiled against the assembly) and `content/grammars/`, so a consumer can point
-  `cucumber.glue` at it. The Bobcat **generator** still needs no source — it reads a base fixture's
-  steps from assembly metadata — this is purely for the editors.
-  **Not done for the event-sourcing vocabulary**, which is the larger half: all 15 of those steps
-  are attributes on `CritterStackFixture`, which ships only as an assembly, so a consumer writing
-  `Given no events for Wallet "w-1"` sees it underlined. Tracked as **wolverine#4915** rather than
-  here — `WolverineFx.Bobcat` declares no steps of its own and supplies only the act, so where
-  that vocabulary should ship from is a placement decision. The core `ClockGrammars` is not
-  source-shipped either.
+  why the issue notes "the shipped grammars ship as source". **Done for the Critter Stack
+  vocabulary and for `DocumentGrammars`**: `CritterStackFixture.cs` (every `[Given]`/`[When]`/`[Then]`
+  of the event-sourcing grammar, `Given no events for Wallet "w-1"` and the rest) and
+  `DocumentGrammars.cs` travel in the `Bobcat` package under `contentFiles/cs/any/Bobcat.CritterStack/`
+  (buildAction `None`, so they are never double-compiled against the assembly) and
+  `content/grammars/`, so a consumer can point `cucumber.glue` at them. The Bobcat **generator**
+  still needs no source — it reads a base fixture's steps from assembly metadata — this is purely
+  for the editors. The vocabulary ships from Bobcat core rather than from `WolverineFx.Bobcat`,
+  which supplies only the act (wolverine#4915, decided for keeping it in core): an application that
+  does not use Wolverine is a target (wolverine#4938), and the steps reach the store through
+  JasperFx.Events only. The core `ClockGrammars` is the one step-declaring file not source-shipped
+  yet; `ShippedGrammarSourceTests` names it, and fails for any new one.
 - **Named-arrangement references** (`Given the arrangement "a proposed home check"`, issue #259)
   resolve to `Bobcat.ArrangementSteps.TheArrangement`, a real `[Given("the arrangement {string}")]`
   that exists only so the editor completes the reference and goes to a definition — the generator
