@@ -1826,7 +1826,8 @@ side is `DocumentGrammars`, below, over `JasperFx.Events.Documents`.
   set is the header of `src/Directory.Packages.props`. `Bobcat.CritterStack.Tests` covers the
   convention paths against fakes shaped like each store (`EventStoresTests`) and the grammar against
   Marten (Postgres 5445, `[PostgresFact]`); its Wolverine-driven Fisher suite went with the
-  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg. The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
+  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg (plus
+  `StreamVersionVocabularyTests`, which runs on a temp SQLite file with no Wolverine at all). The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
   Fisher builds its schema lazily and the daemon reads the progression table on start
   (`docs/sample-wiring.md` footgun 13). Polecat needs SQL Server and is a documented manual run:
   `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and reset
@@ -1850,12 +1851,26 @@ bus. `Bobcat.Wolverine`'s **`WolverineCritterStackFixture`** supplies it (Wolver
 tracked session, outcome `WolverineActOutcome`), so `public class FreezeAccountFixture :
 WolverineCritterStackFixture;` is a whole fixture — the canonical route, riding the base-class
 discovery above. There is **no mix-in form** of this vocabulary: `CritterStackGrammars` went with
-the 2026-09-21 deletion (a stale `<see cref>` to it survives in `CritterStackFixture`'s doc comment).
+the 2026-09-21 deletion.
 
 - **Typed steps** sit on the fixture: `GivenEvents<T>(id,
   events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (through `DispatchAsync`, returns
   the `AggregateExecution<T>`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
   `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
+- **A named stream from a named version, for apps not using Wolverine (wolverine#4938).**
+  `TheStreamVersion(id)`, `ThenEventsOn<T>(id, afterVersion, events…)` / `ThenNoEventsOn<T>(id,
+  afterVersion)` (exactly these, in order, past that version — ordered `ObjectSetVerification`, partial
+  objects and tags as `Then {event} is emitted`; a version past the stream's end is
+  `SpecCriticalException`, never a vacuous pass), and `WhenActingOn<T>(id, [description,] act,
+  events…)`: capture the version, run `Func<IServiceProvider, Task>` against the scenario scope's
+  `CurrentServices`, check what followed, as one `Paragraph` of Given/When/Then sentences. That needed
+  `Paragraph.Sentence(keyword, text)` — a sentence that changes keyword, "And" when it repeats one.
+  The act's failure is captured into `LastExecution` (the `WhenCommand` contract) with an
+  `IActOutcome` that records no messages. Typed only — no `[Then]` attribute, since the version is
+  captured at run time rather than written in a feature. Each takes a `Guid` or a string key; there
+  is no version-less `ThenEventsOn` in core (that one is `WolverineFx.Bobcat`'s, over tracked
+  appended events). `StreamVersionVocabularyTests` runs them on Marten and Fisher hosts with no
+  Wolverine registered and a fixture whose `DispatchAsync` throws.
 - **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
   {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `Given
   {event} occurred` (issue #259 — one event per step, type in the step text so a misspelling is
@@ -1949,17 +1964,18 @@ the 2026-09-21 deletion (a stale `<see cref>` to it survives in `CritterStackFix
   bounded softening as `EventStores`' aggregate/reset helpers. `RecordBuilding`/`EventTypeResolver`
   build command/event objects from table rows at runtime (the one runtime type-name lookup — the
   compile-time `{command}`/`{event}` captures never come there).
-- **Ship as source.** `DocumentGrammars.cs` and `ArrangementSteps.cs` travel in the `Bobcat`
-  package under `contentFiles/cs/` (buildAction `None`, so a consumer never double-compiles them)
-  and `content/grammars/`, so VS Code's tree-sitter and Rider can parse the step source in a
-  consumer's workspace. **`CritterStackFixture.cs` is not shipped as source today**, so editors see
-  no completion for its steps. Tracked as **wolverine#4915**, not here, and deliberately: all 15
-  steps are attributes on this core fixture while `WolverineFx.Bobcat` declares **none** — it
-  supplies only the act — so the grammar's single act lives in another repository, and the
-  recommendation on that issue is to move the vocabulary beside it and ship both as source from one
-  package. That reverses #103's placement, which is what makes it a decision rather than three
-  lines of csproj. The *generator* needs no source either way; it reads the base fixture's steps
-  from assembly metadata.
+- **Ship as source.** `CritterStackFixture.cs`, `DocumentGrammars.cs` and `ArrangementSteps.cs`
+  travel in the `Bobcat` package under `contentFiles/cs/` (buildAction `None`, so a consumer never
+  double-compiles them) and `content/grammars/`, so VS Code's tree-sitter and Rider can parse the
+  step source in a consumer's workspace. **Decided 2026-10-11 (wolverine#4915, option 2): the
+  vocabulary stays in Bobcat core and ships as source from here** — not moved beside
+  `WolverineFx.Bobcat`'s act — because an application that does not use Wolverine is a target
+  (wolverine#4938) and the steps reach the store through JasperFx.Events only. All the steps are
+  attributes in that one file, so it is the whole of what an editor needs. The *generator* needs no
+  source either way; it reads the base fixture's steps from assembly metadata.
+  `Bobcat.Tests/Packaging/ShippedGrammarSourceTests` checks `Bobcat.csproj` packs each one, and scans
+  `src/Bobcat` so a new step-declaring file fails until it ships too; `ClockGrammars.cs` is its one
+  named exception, not source-shipped yet.
 - **Proven** end to end by `Bobcat.CritterStack.Tests/GrammarSpecTests`: `Wallet.feature` and
   `WalletSummary.feature`, written only in shipped-grammar steps against `WolverineCritterStackFixture`
   subclasses, compile through the generator, run on Marten (Postgres 5445), and render. The Fisher
