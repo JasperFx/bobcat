@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    The BankAccountES specifications, written in Bobcat's projected (code-first) model on xUnit v3
+    (bobcat#471). Every spec derives from CritterStackSpec, Bobcat's store-only vocabulary, so the same
+    tests run on Marten and on Fisher. The Event Model roles come off that vocabulary's
+    [EventModelRole] attributes, and the slice binding off [BobcatSpec]; nothing in a test is
+    authored for the model.
+  -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,33 +16,34 @@
     <!-- Match the InternalsVisibleTo declared in BankAccountES.csproj. -->
     <AssemblyName>BankAccountES.Tests</AssemblyName>
     <RootNamespace>BankAccountES.Tests</RootNamespace>
+
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; a
+         ProjectReference analyzer brings the generator but not its props. Without it a [Given] /
+         [When] / [Then] helper is an ordinary method call and records nothing, and a SpecAssert
+         inside it reports to no step, so the spec would pass vacuously. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The platform-extension registration the Bobcat.Xunit PACKAGE carries in buildTransitive; a
+         ProjectReference does not consume another project's build assets, so it is stated here. -->
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Alba" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\BankAccountES.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
-    <ProjectReference Include="..\..\..\src\Bobcat.Alba\Bobcat.Alba.csproj" />
-    <ProjectReference Include="..\..\..\src\Bobcat.Testing.Wolverine\Bobcat.Testing.Wolverine.csproj" />
-    <ProjectReference Include="..\..\..\src\Bobcat.Mtp\Bobcat.Mtp.csproj" />
-    <!-- Store-agnostic event-store helpers (reset, projection waits). Deliberately NOT Bobcat.Marten:
-         the spec project talks to the host's store through JasperFx.Events.IEventStore, so it would
-         read the same against Polecat or Fisher. See CLAUDE.md, "Bobcat.CritterStack is store-agnostic". -->
+    <ProjectReference Include="..\..\..\src\Bobcat.Xunit\Bobcat.Xunit.csproj" />
     <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AdditionalFiles Include="..\Features\**\*.feature" />
-  </ItemGroup>
-
-  <!-- Include the fixture from the parent project directory, which excludes it from its own
-       compilation. The host has no reference to Bobcat, so a fixture compiled there is 61
-       undefined symbols. -->
-  <ItemGroup>
-    <Compile Include="..\BankAccountESFixture.cs" />
   </ItemGroup>
 
 </Project>

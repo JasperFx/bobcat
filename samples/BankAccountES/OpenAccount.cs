@@ -33,7 +33,7 @@ public static class OpenAccountEndpoint
     // inside the StartStream object, constructed here in the body, so nothing on the signature
     // says what this slice appends. Without it no source claims OpenAccount emits AccountOpened,
     // the store's Account view has no link back to the slice that starts every stream it folds,
-    // and EventModel.feature says so (bobcat#300).
+    // and the EventModel specs say so (bobcat#300).
     [WolverinePost("/api/accounts")]
     [Emits(typeof(AccountOpened))]
     public static (Created<Account>, StartStream) Post(
