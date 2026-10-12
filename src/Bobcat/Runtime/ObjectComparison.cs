@@ -60,14 +60,19 @@ public static class ObjectComparison
     /// <summary>Compare <paramref name="actual" /> with <paramref name="expected" />, leaf by leaf.</summary>
     public static IReadOnlyList<Leaf> Compare(object? actual, object? expected,
         IReadOnlyCollection<string>? ignored = null)
-        => CompareAt("", actual, expected, ignored);
+        => CompareAt("", actual, expected, ComparisonRules.Ignoring(ignored));
+
+    /// <inheritdoc cref="Compare(object, object, IReadOnlyCollection{string})" />
+    public static IReadOnlyList<Leaf> Compare(object? actual, object? expected, ComparisonRules rules)
+        => CompareAt("", actual, expected, rules);
 
     /// <summary>
-    /// <see cref="Compare" />, with every path under <paramref name="path" /> — for comparing one
-    /// member of a larger object, so a difference reads <c>Lines[0].Quantity</c> and not <c>[0].Quantity</c>.
+    /// <see cref="Compare(object, object, ComparisonRules)" />, with every path under
+    /// <paramref name="path" /> — for comparing one member of a larger object, so a difference reads
+    /// <c>Lines[0].Quantity</c> and not <c>[0].Quantity</c>.
     /// </summary>
     public static IReadOnlyList<Leaf> CompareAt(string path, object? actual, object? expected,
-        IReadOnlyCollection<string>? ignored = null)
+        ComparisonRules? rules = null)
     {
         var leaves = new List<Leaf>();
 
@@ -79,7 +84,7 @@ public static class ObjectComparison
         _ancestors ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
         try
         {
-            compare(actual, expected, path, 0, ignored ?? Array.Empty<string>(), leaves);
+            compare(actual, expected, path, 0, rules ?? ComparisonRules.None, leaves);
         }
         finally
         {
@@ -92,12 +97,16 @@ public static class ObjectComparison
     /// <summary>The leaves where the two graphs disagree, as <see cref="ValueDifference"/>s.</summary>
     public static IReadOnlyList<ValueDifference> Differences(object? actual, object? expected,
         IReadOnlyCollection<string>? ignored = null)
-        => DifferencesAt("", actual, expected, ignored);
+        => DifferencesAt("", actual, expected, ComparisonRules.Ignoring(ignored));
+
+    /// <inheritdoc cref="Differences(object, object, IReadOnlyCollection{string})" />
+    public static IReadOnlyList<ValueDifference> Differences(object? actual, object? expected, ComparisonRules rules)
+        => DifferencesAt("", actual, expected, rules);
 
     /// <inheritdoc cref="CompareAt" />
     public static IReadOnlyList<ValueDifference> DifferencesAt(string path, object? actual, object? expected,
-        IReadOnlyCollection<string>? ignored = null)
-        => CompareAt(path, actual, expected, ignored)
+        ComparisonRules? rules = null)
+        => CompareAt(path, actual, expected, rules)
             .Where(x => !x.Matched)
             .Select(x => new ValueDifference(x.Path, x.Expected, x.Actual, x.Note))
             .ToList();
@@ -194,18 +203,18 @@ public static class ObjectComparison
     [ThreadStatic] private static HashSet<object>? _ancestors;
 
     private static void compare(object? actual, object? expected, string path, int depth,
-        IReadOnlyCollection<string> ignored, List<Leaf> leaves)
+        ComparisonRules rules, List<Leaf> leaves)
     {
         actual = Unwrap(actual);
         expected = Unwrap(expected);
 
         var name = path.Length == 0 ? "value" : path;
-        var isIgnored = ignored.Any(x => covers(x, name));
+        var isIgnored = rules.Ignores(name);
 
         // A collection the specification has an opinion about: order, "among others", or forbidden
         if (expected is IExpectedItems items)
         {
-            compareItems(actual, items, name, depth, isIgnored, leaves);
+            compareItems(actual, items, name, depth, isIgnored, rules, leaves);
             return;
         }
 
@@ -213,6 +222,15 @@ public static class ObjectComparison
         if (expected is null || actual is null || IsLeaf(expected.GetType()) || IsLeaf(actual.GetType())
             || depth >= MaxDepth)
         {
+            // Slack the expectation allowed this member — and said so, in the note a table cell
+            // already shows for an approximate column
+            if (!isIgnored && rules.ToleranceFor(name) is { } tolerance)
+            {
+                leaves.Add(new Leaf(name, tolerance.Allows(actual, expected, name), false, expected, actual,
+                    tolerance.Note));
+                return;
+            }
+
             leaves.Add(new Leaf(name, isIgnored || LeafEquals(actual, expected), isIgnored, expected, actual));
             return;
         }
@@ -227,17 +245,18 @@ public static class ObjectComparison
         {
             if (IsDictionary(expected) && IsDictionary(actual))
             {
-                compareEntries(actual, expected, name, depth, ignored, leaves);
+                compareEntries(actual, expected, name, depth, rules, leaves);
                 return;
             }
 
             // A collection with nothing said about it is "exactly these items, in any order"
             // (bobcat#456): most collection members have an order the system happens to produce
-            // rather than one the specification is about.
+            // rather than one the specification is about. Expect.Value(…).InOrder(x => x.Lines) is
+            // how a whole-object expectation claims one member's order.
             if (ExpectedItems.ItemsOf(expected) is { } elements)
             {
-                compareItems(actual, new ExpectedItems(SetMode.AnyOrder, false, elements), name, depth, isIgnored,
-                    leaves);
+                var mode = rules.IsOrdered(name) ? SetMode.Ordered : SetMode.AnyOrder;
+                compareItems(actual, new ExpectedItems(mode, false, elements), name, depth, isIgnored, rules, leaves);
                 return;
             }
 
@@ -267,7 +286,7 @@ public static class ObjectComparison
             foreach (var property in properties)
             {
                 compare(read(property, actual), read(property, expected),
-                    path.Length == 0 ? property.Name : $"{path}.{property.Name}", depth + 1, ignored, leaves);
+                    path.Length == 0 ? property.Name : $"{path}.{property.Name}", depth + 1, rules, leaves);
             }
         }
         finally
@@ -278,7 +297,7 @@ public static class ObjectComparison
 
     // A collection member, matched by ObjectSetVerification's rules rather than position by position
     private static void compareItems(object? actual, IExpectedItems items, string name, int depth, bool isIgnored,
-        List<Leaf> leaves)
+        ComparisonRules rules, List<Leaf> leaves)
     {
         var actualItems = ExpectedItems.ItemsOf(actual);
         var expectedItems = ExpectedItems.ItemsOf(items, ExpectedItems.ElementTypeOf(actual?.GetType()));
@@ -395,7 +414,7 @@ public static class ObjectComparison
 
     // A dictionary is keyed, so a key one side lacks is that key and nothing else
     private static void compareEntries(object actual, object expected, string name, int depth,
-        IReadOnlyCollection<string> ignored, List<Leaf> leaves)
+        ComparisonRules rules, List<Leaf> leaves)
     {
         var actualEntries = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var (key, value) in asDictionary(actual)!) actualEntries.TryAdd(ScenarioValues.Format(key), value);
@@ -414,7 +433,7 @@ public static class ObjectComparison
                 continue;
             }
 
-            compare(actualValue, value, $"{name}[{text}]", depth + 1, ignored, leaves);
+            compare(actualValue, value, $"{name}[{text}]", depth + 1, rules, leaves);
         }
 
         foreach (var (text, value) in actualEntries.Where(x => !seen.Contains(x.Key)))
@@ -435,7 +454,7 @@ public static class ObjectComparison
 
         var leaves = new List<Leaf>();
         compare(actual, expected is IExpectedValue value ? value.Value : expected, "", depth,
-            (expected as IExpectedValue)?.IgnoredPaths ?? Array.Empty<string>(), leaves);
+            (expected as IExpectedValue)?.Rules ?? ComparisonRules.None, leaves);
 
         return leaves
             .Where(x => !x.Matched)

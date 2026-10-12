@@ -221,6 +221,76 @@ public class GraphComparisonTests
             .Message.ShouldContain("cannot be built");
     }
 
+    // ---- slack on one member ---------------------------------------------------------------------
+
+    public record Charged(decimal Total, DateTimeOffset At, string Reference);
+
+    [Fact]
+    public void a_number_may_be_judged_within_a_tolerance()
+    {
+        var actual = new Charged(20.004m, DateTimeOffset.UnixEpoch, "R1");
+        var expected = new Charged(20m, DateTimeOffset.UnixEpoch, "R1");
+
+        PartialMatching.Differences(actual, Expect.Value(expected).Approximately(x => x.Total, 0.01m))
+            .ShouldBeEmpty();
+
+        PartialMatching.Differences(actual, Expect.Value(expected).Approximately(x => x.Total, 0.001m))
+            .ShouldHaveSingleItem()
+            .Note.ShouldBe("±0.001");
+    }
+
+    [Fact]
+    public void a_time_may_be_judged_within_a_window()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var actual = new Charged(20m, now, "R1");
+        var expected = new Charged(20m, now.AddSeconds(1), "R1");
+
+        PartialMatching.Differences(actual, Expect.Value(expected).Within(x => x.At, TimeSpan.FromSeconds(2)))
+            .ShouldBeEmpty();
+
+        PartialMatching.Differences(actual, Expect.Value(expected).Within(x => x.At, TimeSpan.FromMilliseconds(100)))
+            .ShouldHaveSingleItem()
+            .Path.ShouldBe("At");
+    }
+
+    [Fact]
+    public void slack_on_a_member_that_has_none_is_a_spec_defect_and_not_a_disagreement()
+    {
+        var actual = new Charged(20m, DateTimeOffset.UnixEpoch, "R1");
+
+        Should.Throw<SpecCriticalException>(() => PartialMatching.Differences(actual,
+                Expect.Value(actual).Approximately("Reference", 0.01)))
+            .Message.ShouldContain("rather than a number");
+
+        Should.Throw<SpecCriticalException>(() => PartialMatching.Differences(actual,
+                Expect.Value(actual).Within("Total", TimeSpan.FromSeconds(1))))
+            .Message.ShouldContain("rather than a date or a time");
+    }
+
+    [Fact]
+    public void in_order_is_expect_exactly_for_one_member_of_a_whole_object()
+    {
+        var reordered = TheBasket with { Lines = [new Line("B", 2), new Line("A", 1)] };
+
+        PartialMatching.Differences(TheBasket, Expect.Value(reordered)).ShouldBeEmpty();
+
+        PartialMatching.Differences(TheBasket, Expect.Value(reordered).InOrder(x => x.Lines))
+            .ShouldHaveSingleItem()
+            .Note.ShouldStartWith("Out of order");
+    }
+
+    [Fact]
+    public void an_element_that_needs_its_own_slack_is_its_own_expectation()
+    {
+        // A rule names a path from the object compared, so it cannot reach inside a collection's
+        // elements — an element has no path a specification writes. This is the way in.
+        PartialMatching.Differences(TheBasket, Specify<Basket>().With(x => x.Lines,
+            Expect.InAnyOrder(
+                Expect.Value(new Line("A", 1)),
+                Expect.Value(new Line("B", 3)).Approximately(x => x.Quantity, 1)))).ShouldBeEmpty();
+    }
+
     // ---- a dictionary member is keyed ---------------------------------------------------------
 
     [Fact]

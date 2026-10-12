@@ -19,7 +19,7 @@ public static class PartialMatching
     public static IReadOnlyList<ValueDifference> Differences(object actual, object expected) => expected switch
     {
         IPartialObject partial => partialDifferences(actual, partial),
-        IExpectedValue value => ObjectComparison.Differences(actual, value.Value, value.IgnoredPaths),
+        IExpectedValue value => ObjectComparison.Differences(actual, value.Value, value.Rules),
         // A type alone judges no member, as ExpectedType and DescribeExpected already read it
         Type => [],
         _ => ObjectComparison.Differences(actual, expected)

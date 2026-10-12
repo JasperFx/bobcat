@@ -22,12 +22,21 @@ public interface IExpectedValue
 
     /// <summary>Paths (<c>Address.City</c>) shown but not compared. A path also covers everything beneath it.</summary>
     IReadOnlyCollection<string> IgnoredPaths { get; }
+
+    /// <summary>
+    /// Everything the expectation relaxed or tightened, the ignored paths included (bobcat#456).
+    /// Defaulted, so an older implementation of this interface keeps working and simply has nothing
+    /// but its ignored paths to say.
+    /// </summary>
+    ComparisonRules Rules => ComparisonRules.Ignoring(IgnoredPaths);
 }
 
 /// <inheritdoc cref="IExpectedValue" />
 public sealed class ExpectedValue<T> : IExpectedValue where T : notnull
 {
     private readonly HashSet<string> _ignored = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Tolerance> _tolerances = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _ordered = new(StringComparer.Ordinal);
 
     public ExpectedValue(T value) => Value = value;
 
@@ -37,6 +46,9 @@ public sealed class ExpectedValue<T> : IExpectedValue where T : notnull
     object IExpectedValue.Value => Value;
 
     public IReadOnlyCollection<string> IgnoredPaths => _ignored;
+
+    /// <inheritdoc />
+    public ComparisonRules Rules => new() { Ignored = _ignored, Tolerances = _tolerances, Ordered = _ordered };
 
     /// <summary>Show <paramref name="member" /> but do not judge it — e.g. <c>x =&gt; x.AssignmentId</c> or <c>x =&gt; x.Address.City</c>.</summary>
     public ExpectedValue<T> Ignoring(Expression<Func<T, object?>> member)
@@ -49,6 +61,62 @@ public sealed class ExpectedValue<T> : IExpectedValue where T : notnull
     public ExpectedValue<T> Ignoring(string path)
     {
         _ignored.Add(path);
+        return this;
+    }
+
+    /// <summary>
+    /// Judge <paramref name="member" /> within <paramref name="tolerance" /> rather than exactly —
+    /// <c>.Approximately(x =&gt; x.Total, 0.01m)</c> for the decimal nobody rounds the same way twice.
+    /// </summary>
+    public ExpectedValue<T> Approximately<TValue>(Expression<Func<T, TValue>> member, TValue tolerance)
+        where TValue : notnull
+        => approximately(MemberPaths.Of(member), Convert.ToDouble(tolerance));
+
+    /// <inheritdoc cref="Approximately{TValue}" />
+    public ExpectedValue<T> Approximately(string path, double tolerance) => approximately(path, tolerance);
+
+    /// <summary>
+    /// Judge <paramref name="member" /> within <paramref name="window" /> of the expected time —
+    /// <c>.Within(x =&gt; x.ConfirmedAt, TimeSpan.FromSeconds(2))</c> for a stamp the system chose.
+    /// </summary>
+    /// <remarks>
+    /// The alternative for such a member is <see cref="Ignoring(string)" />, which judges nothing at
+    /// all: a window says the stamp had to be about now, which is usually the real claim.
+    /// </remarks>
+    public ExpectedValue<T> Within<TValue>(Expression<Func<T, TValue>> member, TimeSpan window)
+    {
+        _tolerances[MemberPaths.Of(member)] = Tolerance.Of(window);
+        return this;
+    }
+
+    /// <inheritdoc cref="Within{TValue}" />
+    public ExpectedValue<T> Within(string path, TimeSpan window)
+    {
+        _tolerances[path] = Tolerance.Of(window);
+        return this;
+    }
+
+    /// <summary>
+    /// The order of this collection member is part of the claim. A collection is otherwise matched in
+    /// any order, which is what a bare one means (bobcat#456) — this is <c>Expect.Exactly</c> for one
+    /// member of a whole object.
+    /// </summary>
+    public ExpectedValue<T> InOrder<TValue>(Expression<Func<T, TValue>> member)
+    {
+        _ordered.Add(MemberPaths.Of(member));
+        return this;
+    }
+
+    /// <inheritdoc cref="InOrder{TValue}" />
+    public ExpectedValue<T> InOrder(string path)
+    {
+        _ordered.Add(path);
+        return this;
+    }
+
+    private ExpectedValue<T> approximately(string path, double tolerance)
+    {
+        _tolerances[path] = Tolerance.Of(tolerance);
         return this;
     }
 }

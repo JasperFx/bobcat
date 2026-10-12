@@ -2334,7 +2334,8 @@ public class CritterStackScenario
                 continue;
             }
 
-            var leaves = ObjectComparison.Compare(actualValue, expectedValue, (expected[i] as IExpectedValue)?.IgnoredPaths);
+            var leaves = ObjectComparison.Compare(actualValue, expectedValue,
+                (expected[i] as IExpectedValue)?.Rules ?? ComparisonRules.None);
             if (!row(leaves, i)) problems.Add($"[{i}] {expectedValue.GetType().Name}: {describeLeaves(leaves)}");
         }
 
