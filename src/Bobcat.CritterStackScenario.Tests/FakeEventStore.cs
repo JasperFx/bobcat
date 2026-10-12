@@ -33,7 +33,17 @@ public class FakeEventStore : IEventStore
     public IReadOnlyList<IEventDatabase> Databases { get; set; } = [];
     public IReadOnlyEventStore ReadOnlyView { get; set; } = Substitute.For<IReadOnlyEventStore>();
 
-    public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token) => Task.FromResult<EventStoreUsage?>(null);
+    /// <summary>What <see cref="TryCreateUsage"/> describes the store as (bobcat#504); null by default.</summary>
+    public EventStoreUsage? Usage { get; set; }
+
+    /// <summary>How many times the store was asked to describe itself.</summary>
+    public int UsageReads { get; private set; }
+
+    public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token)
+    {
+        UsageReads++;
+        return Task.FromResult(Usage);
+    }
 
     public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(string? tenantIdOrDatabaseIdentifier = null, ILogger? logger = null)
         => throw new NotSupportedException();
