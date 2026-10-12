@@ -51,8 +51,7 @@ export default defineConfig({
           { text: 'Bobcat with MSTest', link: '/mstest' },
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
           { text: 'Spec Identities', link: '/spec-identities' },
-          { text: 'The Resident Runner', link: '/resident-runner' },
-          { text: 'Migrating from Gherkin', link: '/migrating-from-gherkin' }
+          { text: 'The Resident Runner', link: '/resident-runner' }
         ]
       },
       {
