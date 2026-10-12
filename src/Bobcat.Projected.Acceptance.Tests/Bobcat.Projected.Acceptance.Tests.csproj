@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    bobcat#471 phase 2: the lane-neutral engine behaviour Bobcat.Acceptance.Tests pins through
+    .feature files, pinned again from the projected lane, so phase 3 can delete that project whole.
+    design/acceptance-coverage-map.md says which test here stands in for which scenario there.
+
+    Also the new home of the projected-lane tests that lived in Bobcat.Acceptance.Tests only because
+    it was the one project where an interceptor actually intercepts (MarkerStepAttributionTests and
+    friends). They are copied rather than moved: phase 3 deletes the originals with the project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive. A
+         ProjectReference analyzer brings the generator but not its props, so in-repo it has to be
+         stated here, or every [Given]/[Then] helper below is an ordinary call that records nothing. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <!-- For [BobcatSpec(Pending = true)] only. Deliberately without the package's platform hook and
+         [RecordBobcatFeatures]: these tests open their own recordings, and an ambient one would nest. -->
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
