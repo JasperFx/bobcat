@@ -1,24 +1,24 @@
-# Bank Account (Event Sourcing) — Critter Stack Sample
+# Bank Account (Event Sourcing) -- Critter Stack Sample
 
 ## Domain Reference
 
 **Inspired by:** [andreschaffer/event-sourcing-cqrs-examples](https://github.com/andreschaffer/event-sourcing-cqrs-examples) (Java)
 
-A minimalistic bank domain demonstrating event sourcing with Wolverine's store-agnostic aggregate handlers. Not a code port — built from scratch using the Java project's domain concepts.
+A minimalistic bank domain demonstrating event sourcing with Wolverine's store-agnostic aggregate handlers. Not a code port -- built from scratch using the Java project's domain concepts.
 
-**It runs on two event stores from the same handlers.** `Program.cs` is the only file that names a store: `EventStore=Marten` (the default — Postgres, `ConnectionStrings:Marten`) or `EventStore=Fisher` (an embedded SQLite file, `ConnectionStrings:Fisher`, no docker). Everything else is written against the vocabulary Wolverine and JasperFx.Events share across Marten, Polecat and Fisher — `[DeciderFunction]`, `[Entity]`, `Storage.StartStream()`, `IEventStoreOperations`, `IDocumentReadOperations`, and `Snapshot<T>` projections. See `docs/sample-wiring.md` footgun 14 for the swap table, and CLAUDE.md "Bobcat.CritterStack is store-agnostic" for why (issue #103).
+**It runs on two event stores from the same handlers.** `Program.cs` is the only file that names a store: `EventStore=Marten` (the default -- Postgres, `ConnectionStrings:Marten`) or `EventStore=Fisher` (an embedded SQLite file, `ConnectionStrings:Fisher`, no docker). Everything else is written against the vocabulary Wolverine and JasperFx.Events share across Marten, Polecat and Fisher -- `[DeciderFunction]`, `[Entity]`, `Storage.StartStream()`, `IEventStoreOperations`, `IDocumentReadOperations`, and `Snapshot<T>` projections. See `docs/sample-wiring.md` footgun 14 for the swap table, and CLAUDE.md "Bobcat.CritterStack is store-agnostic" for why (issue #103).
 
 ## Domain
 
-- **Client** — enroll, update profile (event-sourced)
-- **Account** — open, deposit, withdraw (event-sourced, with balance guard)
-- **Transaction History** — inline projection built from deposit/withdrawal events
+- **Client** -- enroll, update profile (event-sourced)
+- **Account** -- open, deposit, withdraw (event-sourced, with balance guard)
+- **Transaction History** -- inline projection built from deposit/withdrawal events
 
 ## Patterns Demonstrated
 
 ### Decider Function Workflow (`[DeciderFunction]`)
 
-Deposit and withdrawal operations use Wolverine's store-agnostic `[DeciderFunction]` attribute (`Wolverine.Persistence.EventSourcing`; `Wolverine.Marten`'s `[AggregateHandler]` derives from it). Wolverine loads the Account aggregate from the event stream of whichever store is registered, passes it to the handler, appends the returned event, and commits — all in one transaction.
+Deposit and withdrawal operations use Wolverine's store-agnostic `[DeciderFunction]` attribute (`Wolverine.Persistence.EventSourcing`; `Wolverine.Marten`'s `[AggregateHandler]` derives from it). Wolverine loads the Account aggregate from the event stream of whichever store is registered, passes it to the handler, appends the returned event, and commits -- all in one transaction.
 
 ```csharp
 [WolverinePost("/api/accounts/{accountId}/deposits")]
@@ -49,7 +49,7 @@ public static ProblemDetails Validate(WithdrawFunds command, Account account)
 
 ### Inline Snapshot Projections
 
-Account, Client **and the `AccountTransactions` read model** use `SnapshotLifecycle.Inline` — the snapshot document is always up-to-date after each event append. `Snapshot<T>` is the one projection shape every store spells identically, which is why the transaction history is a self-aggregating document (`Create(AccountOpened)`, `Apply(IEvent<FundsDeposited>)`, …) rather than a `SingleStreamProjection<,>` subclass — that base class is Marten's, and Fisher and Polecat each have their own.
+Account, Client **and the `AccountTransactions` read model** use `SnapshotLifecycle.Inline` -- the snapshot document is always up-to-date after each event append. `Snapshot<T>` is the one projection shape every store spells identically, which is why the transaction history is a self-aggregating document (`Create(AccountOpened)`, `Apply(IEvent<FundsDeposited>)`, …) rather than a `SingleStreamProjection<,>` subclass -- that base class is Marten's, and Fisher and Polecat each have their own.
 
 ### Store-agnostic reads
 
@@ -57,25 +57,74 @@ The query endpoints take `IDocumentReadOperations` (documents: `LoadAsync<T>`, `
 
 ### Entity Loading with Batch Query
 
-`OpenAccount` uses `[Entity]` to load the Client by `ClientId` — verifying the client exists before opening an account.
+`OpenAccount` uses `[Entity]` to load the Client by `ClientId` -- verifying the client exists before opening an account.
 
 ## Running
 
-On Marten (the default) it needs the samples' Postgres — `cd samples && docker compose up -d`. On Fisher it needs nothing.
+On Marten (the default) it needs the samples' Postgres -- `cd samples && docker compose up -d`. On Fisher it needs nothing.
 
 ```bash
 dotnet run                                                  # Marten
 EventStore=Fisher dotnet run                                # Fisher, bank_account.db next to appsettings.json
 
-dotnet run --project Tests -- run                           # the Bobcat specs, on Marten
-EventStore=Fisher dotnet run --project Tests -- run         # the same specs, on Fisher
+dotnet test Tests/Tests.csproj                              # the Bobcat specs, on Marten
+EventStore=Fisher dotnet test Tests/Tests.csproj            # the same specs, on Fisher
+BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests            # ...and print every spec as it rendered
 ```
 
-Fisher builds its schema lazily, so the host calls `ApplyAllDatabaseChangesOnStartup()` — without it the first append on a fresh file fails with `no such table: fi_streams` (footgun 13).
+Fisher builds its schema lazily, so the host calls `ApplyAllDatabaseChangesOnStartup()` -- without it the first append on a fresh file fails with `no such table: fi_streams` (footgun 13).
 
-**Polecat (SQL Server) is the documented manual path, not a wired one.** It would be a third `case` in `Program.cs` of the same shape — `AddPolecat(opts => { opts.Connection(...); opts.Projections.Snapshot<...>(SnapshotLifecycle.Inline); }).IntegrateWithWolverine()` from `WolverineFx.Polecat` — and nothing outside `Program.cs` would change, because Polecat registers `IEventStore`, implements the same `IDocumentReadOperations` / `IEventStoreOperations` contracts, and `Wolverine.Polecat`'s `[AggregateHandler]` derives from the same `[DeciderFunction]`. It is not in this repo's `Program.cs` because nothing here has run it against a SQL Server, and a branch nobody has run is footgun 4 waiting to happen.
+**Polecat (SQL Server) is the documented manual path, not a wired one.** It would be a third `case` in `Program.cs` of the same shape -- `AddPolecat(opts => { opts.Connection(...); opts.Projections.Snapshot<...>(SnapshotLifecycle.Inline); }).IntegrateWithWolverine()` from `WolverineFx.Polecat` -- and nothing outside `Program.cs` would change, because Polecat registers `IEventStore`, implements the same `IDocumentReadOperations` / `IEventStoreOperations` contracts, and `Wolverine.Polecat`'s `[AggregateHandler]` derives from the same `[DeciderFunction]`. It is not in this repo's `Program.cs` because nothing here has run it against a SQL Server, and a branch nobody has run is footgun 4 waiting to happen.
 
 Swagger UI at `/swagger`.
+
+## Specifications
+
+<!-- JEREMY -->
+The specs in `Tests/` are Bobcat's projected (code-first) model: ordinary xUnit v3 tests that render as
+Given/When/Then specifications and land on the Event Model. There are no `.feature` files anymore. Every
+spec class derives from `BankAccountSpec`, which is Bobcat's store-only `CritterStackSpec` plus the two ways
+this application is driven -- an HTTP request through Alba, or a message handed to the Wolverine bus -- so
+the same specs run on Marten and on Fisher.
+
+```csharp
+[BobcatSpec(typeof(WithdrawFunds), Domain = "Banking")]
+public async Task withdrawing_more_than_the_balance_leaves_the_account_untouched()
+{
+    var accountId = Guid.NewGuid();
+    await GivenEvents<Account>(accountId,
+        new AccountOpened(accountId, Guid.NewGuid(), "USD"),
+        new FundsDeposited(accountId, 100, 100));
+
+    await WhenPosted(new WithdrawFunds(accountId, 200), "/api/accounts/{accountId}/withdrawals", accountId);
+
+    ThenTheResponseStatusIs(400);
+    ThenNoEvents();
+    await ThenAggregate<Account>(accountId, Specify<Account>().With(x => x.Balance, 100m));
+}
+```
+
+Nothing in that test is written for the Event Model, and it still tells the model plenty. `[BobcatSpec]`
+says which slice the test is evidence for. The roles come off the vocabulary the test calls, through
+`[EventModelRole]`: `GivenEvents<Account>` makes `Account` the slice's aggregate, `WhenPosted` makes
+`WithdrawFunds` its command (and, through `[EventModelTrigger]`, `POST /api/accounts/{accountId}/withdrawals`
+its trigger), and `ThenEvents` in the happy-path spec names what it emits. `WhenPosted`, `WhenPut`,
+`WhenReceived` and `WhenReading` are the sample's own methods in `BankAccountSpec.cs`, and they re-declare
+those attributes, because the generator reads the method a test calls and never what that method calls.
+
+| Spec class | What it covers |
+|------------|----------------|
+| `BankAccountEventSourcing` | the command slices over HTTP, plus the transaction-history view and the client-accounts query |
+| `AccountView` | the `Account` View slice: arranged events, no act, the read model they fold into |
+| `FreezeAccountSpecs` | the one message-handled slice, deliberately silent about `AccountFlagged` |
+| `EventModel` | the assembled Event Model itself: four sources, one model, one planted disagreement |
+
+The `EventModel` specs are the interesting ones. They assemble the model from the Wolverine chains, the
+store's projection registry, the overlay in `Program.cs` and this assembly's generated
+`BobcatEventModelSource`, and assert how it folds -- which source won each role, that the store's `Account`
+view and the spec's are one slice, and that the planted disagreement on `FreezeAccount` (bobcat#172)
+surfaces as a hotspot instead of vanishing. Set `BOBCAT_EVENT_MODEL_EXPORT=<file>` to write the merged
+model out as JSON.
 
 ## API
 

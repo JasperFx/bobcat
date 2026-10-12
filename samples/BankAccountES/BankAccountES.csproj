@@ -16,9 +16,6 @@
     <Compile Remove="Tests\**" />
     <Content Remove="Tests\**" />
     <None Remove="Tests\**" />
-    <!-- The spec fixture is compiled by Tests.csproj, which references Bobcat. Leaving it in the
-         host's compile group is what made this project 61 undefined symbols. -->
-    <Compile Remove="BankAccountESFixture.cs" />
   </ItemGroup>
 
   <ItemGroup>

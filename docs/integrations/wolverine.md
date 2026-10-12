@@ -70,6 +70,13 @@ a two-member interface in core. The grammar went back to core behind it; this pa
 it. `samples/BankAccountES` — quarantined while the grammar was gone — runs 20 scenarios again on
 **both** Marten and Fisher, unchanged.
 
+<!-- JEREMY -->
+Since then BankAccountES has moved on from the grammar altogether. With bobcat#471 its specs are
+projected xUnit v3 tests on `CritterStackSpec` -- the store-only vocabulary, no Wolverine needed to
+arrange or assert -- with the sample's own HTTP and message acts on top. Same 20 specs, same two
+stores, and the same Event Model, roles and all. See the sample's
+[README](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES/README.md#specifications).
+
 What has **not** come back: the saga grammar (`Then the {saga} saga is …`) and the HTTP grammar
 (`When {command} is posted to …`). Both were deleted with the package, nothing has needed them
 since, and they return when a spec asks.

@@ -8,7 +8,7 @@ public record AccountFrozen(Guid AccountId, string Reason);
 
 /// <summary>
 /// ⚠️ The PLANTED DISAGREEMENT for the four-source event-model vehicle (bobcat#172). The freeze
-/// handler emits this event and the Gherkin spec deliberately does not mention it, so the
+/// handler emits this event and the Bobcat spec deliberately does not mention it, so the
 /// Declared claim on the FreezeAccount slice's emitted events ([AccountFrozen]) loses to the
 /// Derived one ([AccountFrozen, AccountFlagged]) and the merge records a SourceDisagreement
 /// hotspot (jasperfx#704) instead of silently swallowing the difference. Do not "fix" the spec
@@ -30,8 +30,8 @@ public record FreezeAccount(Guid AccountId, string Reason)
 
 /// <summary>
 /// The one message-handled slice in the sample — the fraud desk freezes an account over the bus
-/// rather than over HTTP, which is what lets the Bobcat grammar's <c>When FreezeAccount is
-/// received</c> dispatch it with a tracked Wolverine session. Same store-agnostic decider shape
+/// rather than over HTTP, which is what lets the spec's <c>WhenReceived(new FreezeAccount(…))</c>
+/// hand it to the Wolverine bus. Same store-agnostic decider shape
 /// as the HTTP endpoints: load the <see cref="Account"/>, return the events to append.
 /// </summary>
 /// <summary>
