@@ -268,7 +268,12 @@ public class BobcatGenerator : IIncrementalGenerator
                     EventModelEmitter.EmitSource(
                         compilation.AssemblyName ?? "Bobcat",
                         eventModelNameOf(compilation),
-                        slices.Values.ToList()));
+                        slices.Values.ToList(),
+                        new EventModelEmitter.Contract
+                        {
+                            Query = compilation.GetTypeByMetadataName("JasperFx.Events.EventModeling.SlicePattern")?.GetMembers("Query").Length > 0,
+                            RouteName = compilation.GetTypeByMetadataName("JasperFx.Events.EventModeling.PublisherOrigin")?.GetMembers("HttpRouteName").Length > 0,
+                        }));
             }
         });
     }

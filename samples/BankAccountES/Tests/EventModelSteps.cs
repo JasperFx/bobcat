@@ -109,7 +109,9 @@ public class EventModelSteps(BankAccountHost app)
 
     /// <summary>
     /// The vehicle plants exactly one disagreement (FreezeAccount.cs), so "the" disagreement is
-    /// well-defined; a second one appearing anywhere in the model is itself a finding this fails on.
+    /// well-defined; a second one appearing anywhere in the model is itself a finding this fails on --
+    /// except the Query-vs-View pattern disagreement on a GET slice, which is expected until wolverine#4975 and
+    /// pinned on its own by <see cref="TheQuerySliceIsStillDerivedAsAView"/>.
     /// </summary>
     [Then("the {slice} slice reports a source disagreement on {role}")]
     public void TheSliceReportsADisagreementOn(string slice, EventModelRole role)
@@ -119,9 +121,9 @@ public class EventModelSteps(BankAccountHost app)
         var onRole = s.Hotspots.Where(h => h.Origin == HotspotOrigin.SourceDisagreement && h.Role == role).ToList();
         if (!SpecAssert.Fact(onRole.Count > 0, $"No SourceDisagreement hotspot on {slice}.{role}. Hotspots: {describeHotspots(s)}")) return;
 
-        var all = m.Slices.SelectMany(x => x.Hotspots.Where(h => h.Origin == HotspotOrigin.SourceDisagreement)).ToList();
+        var all = m.Slices.SelectMany(x => x.Hotspots.Where(h => h.Origin == HotspotOrigin.SourceDisagreement && !isQueryDerivedAsView(h))).ToList();
         if (SpecAssert.Fact(all.Count == 1,
-                $"Expected exactly one SourceDisagreement in the whole model, found {all.Count}: {string.Join(" | ", all.Select(h => h.Text))}"))
+                $"Expected exactly one SourceDisagreement in the whole model (besides wolverine#4975's Query-vs-View), found {all.Count}: {string.Join(" | ", all.Select(h => h.Text))}"))
         {
             _disagreement = all[0];
         }
@@ -141,6 +143,57 @@ public class EventModelSteps(BankAccountHost app)
         var lost = _disagreement?.LosingClaim;
         SpecAssert.Fact(lost is not null && lost.Provenance == provenance && lost.Value == value,
             $"Losing claim is {lost?.Provenance} '{lost?.Value}', expected {provenance} '{value}'.");
+    }
+
+    // wolverine#4975: Wolverine still derives a GET chain as a View, so it outranks the specs' Query on Pattern
+    private static bool isQueryDerivedAsView(HotspotDescriptor hotspot)
+        => hotspot is { Origin: HotspotOrigin.SourceDisagreement, Role: EventModelRole.Pattern }
+           && hotspot.WinningClaim is { Provenance: EventModelProvenance.Derived, Value: nameof(SlicePattern.View) }
+           && hotspot.LosingClaim is { Provenance: EventModelProvenance.Declared, Value: nameof(SlicePattern.Query) };
+
+    /// <summary>
+    /// bobcat#501, pinned rather than hidden: the specs say Query, Wolverine still derives the GET chain as a View
+    /// (until wolverine#4975), and Derived outranks Declared -- so the merged slice is a View with exactly one
+    /// Pattern disagreement recording the specs' Query as the losing claim. When wolverine#4975 lands this step
+    /// goes red, and the right fix is to assert the merged pattern is Query with no disagreement.
+    /// </summary>
+    [Then("the {slice} slice is still derived as a View, outranking the specs' Query (wolverine#4975)")]
+    public void TheQuerySliceIsStillDerivedAsAView(string slice)
+    {
+        if (sliceNamed(slice) is not { } s) return;
+
+        SpecAssert.Fact(s.Pattern == SlicePattern.View, $"{slice}.Pattern is {s.Pattern?.ToString() ?? "null"}; until wolverine#4975 the derived View wins.");
+        var onPattern = s.Hotspots.Where(h => h.Origin == HotspotOrigin.SourceDisagreement && h.Role == EventModelRole.Pattern).ToList();
+        SpecAssert.Fact(onPattern.Count == 1 && isQueryDerivedAsView(onPattern[0]),
+            $"Expected one Pattern disagreement on {slice}, Derived View over Declared Query. Hotspots: {describeHotspots(s)}");
+    }
+
+    /// <summary>
+    /// bobcat#501: what this assembly's specs alone say about a GET slice, before the merge -- a Query that reads
+    /// <paramref name="type"/> through <c>ReadsFrom</c>, produces no read model, decides against no aggregate and
+    /// consumes none of the events its specs arranged.
+    /// </summary>
+    [Then("this assembly's specs alone say the {slice} slice is a Query reading {type}")]
+    public void TheSpecsAloneSayTheSliceIsAQueryReading(string slice, string type)
+    {
+        var declared = BobcatEventModelSource.Describe().Slices.FirstOrDefault(s => s.Name == slice);
+        if (declared is null)
+        {
+            SpecAssert.Fail($"The specs declare no slice named '{slice}'.");
+            return;
+        }
+
+        SpecAssert.Fact(declared.Pattern == SlicePattern.Query, $"The specs say {slice} is {declared.Pattern?.ToString() ?? "null"}, expected Query.");
+        var reads = declared.ReadsFrom.Select(t => t.Name).ToList();
+        SpecAssert.Fact(reads.Contains(type), $"The specs say {slice} reads from [{string.Join(", ", reads)}], expected '{type}'.");
+        SpecAssert.Fact(declared.ReadModelTypes.Count == 0,
+            $"The specs say {slice} produces [{string.Join(", ", declared.ReadModelTypes.Select(t => t.Name))}]; a Query reads, it produces nothing.");
+        SpecAssert.Fact(declared.ConsumedEvents.Count == 0,
+            $"The specs say {slice} consumes [{string.Join(", ", declared.ConsumedEvents.Select(t => t.Name))}]; a Query's arranged events are context.");
+        SpecAssert.Fact(declared.AggregateTypes.Count == 0,
+            $"The specs say {slice} decides against [{string.Join(", ", declared.AggregateTypes.Select(t => t.Name))}]; a Query decides nothing.");
+        SpecAssert.Fact(declared.PatternViolations.Count == 0,
+            $"The specs' {slice} Query has pattern violations: {string.Join(" | ", declared.PatternViolations.Select(h => h.Text))}");
     }
 
     [Then("the {slice} slice reports no source disagreement")]

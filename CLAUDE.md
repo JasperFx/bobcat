@@ -299,10 +299,26 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   "the shape emitted against exists" are different questions. Requires **2.54.0+**.
 - **Spec identity is `{Feature}/{Scenario}`** — the same string `scenario_finished` carries, so
   design-time and run evidence join with no mapping table.
-- **`Pattern` is derived only where the test can tell**: a slice whose test sends a command is
-  `Command`, one that only asserts a read model is `View`. `Automation` and `Translation` need a
-  trigger the test does not express, so they stay null unless `Pattern` declares them — a wrong
-  pattern miscolours the canvas, a null one does not.
+- **`Pattern` is derived only where the test can tell**: a slice whose act sends a command is
+  `Command`; one whose act is a read (below) and none a command is `Query`; one that only asserts a
+  read model is `View`. `Automation` and `Translation` need a trigger the test does not express, so
+  they stay null unless `Pattern` declares them — a wrong pattern miscolours the canvas, a null one
+  does not.
+- **A read-only act is a Query slice (bobcat#501, JasperFx 2.85.0's `SlicePattern.Query`).** A vocabulary
+  method with `[EventModelTrigger(TriggerKind.Http, HttpMethod = "GET"/"HEAD")]`, a `ReadModel` role and no
+  `Command` role is a read act (`ProjectedRoles.isReadTrigger` → `Reading.ReadAct`); the LAST act — command or
+  read — is the test's act. **Inferred, no marker**: the trigger attribute is what separates a read act from an
+  assertion (`ThenReadModel<T>` carries the same role and no trigger), and the verb separates it from a write, so a
+  `SliceRole.QueryResult` or `Query = true` would restate what is already there. `patternOf`: declared → act
+  command → `ReadActs` → any command → read model. On a Query `emitSlice` writes no `CommandType` (an arranging
+  command is not its act), no `ReadModelTypes`, no `AggregateTypes`, no `ConsumedEvents`, and folds read models +
+  aggregates into `ReadsFrom` — so arranged `GivenEvents` are context automatically, like `GivenContext` (#502),
+  and `ReadModelRead` links the read model's View to the query. A read act's trigger (`TriggerFromRead`) is
+  replaced by any command act's and stamped only on a Query. The manifest skips `inferCommand` for a read act.
+  Wolverine derives GET chains as View until wolverine#4975, so BankAccountES's two GET slices merge as View with
+  a Pattern `SourceDisagreement` — pinned in `EventModel.cs`, filtered out of the "exactly one planted
+  disagreement" count by `isQueryDerivedAsView`. Known noise: a Query arranging `GivenEvents<Account>` reads
+  `Account`, so every slice producing `Account` gets a `ReadModelRead` link to it.
 - **Projected specs feed the model, and the identity has three copies.** `MarkerCommentSpecs` reads
   the tests and `EventModelEmitter.Collect` folds them into one slice dictionary; a test with
   neither a binding nor roles contributes nothing. The identity is `{derived feature title}/{derived
@@ -325,8 +341,8 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   repository and a rename there must not silently stop the stamping. `MarkerCommentSpecs.Extract`
   stores the reading on `MarkedScenario.Roles`; `EventModelEmitter.Collect` folds it into the
   `SliceModel` lists that `patternOf` / `emitSlice` read.
-  - **The rules:** the act is the LAST `Command` call (#464), and its trigger is read only off that
-    call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a View slice (#297);
+  - **The rules:** the act is the LAST `Command` call or read act (#464, #501), and its trigger is read only off
+    that call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a View slice (#297);
     `Document` → resolved types only (a document is not an aggregate, event or read model, so it
     gets no element on the canvas); `Context` → `SliceModel.ReadsFrom` → `ReadsFrom`, on any pattern
     and never `AggregateTypes` (#502: `GivenContext<Client>` for a stream the act only looks up, written
@@ -361,9 +377,10 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     The index is built once per `Compilation` (a `ConditionalWeakTable`) from source plus only those
     references that reference `Wolverine.Http` or `Microsoft.AspNetCore.Mvc.Core`. Minimal API
     `.WithName` and Wolverine's namespace/global prefixes are run-time facts and are not resolved.
-    **The route name is not carried on the descriptor**: JasperFx's `PublisherOrigin` has no route-name
-    field, and `Label` takes part in the `TriggerOrigin` merge, so stuffing it there would mint a
-    `SourceDisagreement` against Wolverine's derived route. It needs a JasperFx field first.
+    **The route name rides `PublisherOrigin.HttpRouteName`** (JasperFx 2.85.0), next to the route it resolved
+    to (`adoptRoute` carries it with the route). An unresolved name is stamped on an origin with no route and
+    `Label = "PUT (route name X)"`; `Label` still never carries a name beside a route, because it takes part in
+    the `TriggerOrigin` merge. JasperFx merges the name on its own (a known name fills in; two differ → hotspot).
   - **BOBCAT038** (info): the act's `Route`/`RouteName` can't be turned into a route — a helper call or a
     variable, an unknown or ambiguous route name, or none passed. Reported for the act only, at the
     argument, through `MarkedProblem` ("UnresolvedRoute"). `TriggerRouteTests` pins every path, including a
@@ -1345,6 +1362,11 @@ goes through `JasperFx.Events.Documents`.
   not from the progress table: a daemon writes a shard's row only after its first batch, so right
   after the first append an empty table is indistinguishable from "no async projections" and a wait
   keyed on it passes vacuously. A name matching no configured shard throws and lists them.
+- **One tenant's wait asks the store first** (`AfterAsyncDaemonsCatchUpAsync(tenantId)` →
+  `EventStores.WaitForNonStaleProjectionsAsync(store, tenantId, …)`, wolverine#4962 phase 2): JasperFx 2.85.0's
+  `IEventStore.FindDatabaseForTenantAsync` (a default member — the single database when certain, else null),
+  then Marten's `Storage.FindOrCreateDatabase` by reflection for a Marten that predates the override, then every
+  database. `EventStoresTests` pins all three with a fake store that re-implements the default member.
 - **Two gaps in JasperFx.Events 2.53.0 are bridged by convention, and say so.** There is no
   abstraction for *aggregating* a stream or for *wiping* a store. `EventStores.AggregateStreamAsync`
   uses the read-only view when it is an `IQueryEventStore` (Marten, Polecat) and otherwise opens a

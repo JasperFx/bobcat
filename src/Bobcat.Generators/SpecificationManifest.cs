@@ -122,9 +122,12 @@ internal static class SpecificationManifest
             var explicitSlice = methodSlice is not null && !onlyTriggeredBy(methodSlice) ? methodSlice : classSlice;
 
             // bobcat#462: a role-stamped act names the command by contract; the name-based inference is
-            // the fallback for a vocabulary that declares no roles
+            // the fallback for a vocabulary that declares no roles. A test whose act is a read (bobcat#501) sends
+            // no command, so an arranging When… must not be inferred as one
             var roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
-            var command = unqualified(roles.Act) ?? inferCommand(method, ctx.SemanticModel, ct);
+            var command = roles.ReadAct is not null
+                ? null
+                : unqualified(roles.Act) ?? inferCommand(method, ctx.SemanticModel, ct);
             var resolved = roles.ResolvedTypes().ToImmutableArray();
             var binding = explicitSlice is not null
                 ? fromAttribute(identity, command, explicitSlice, resolved)

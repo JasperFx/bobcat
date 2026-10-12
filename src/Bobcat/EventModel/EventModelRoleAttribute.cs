@@ -23,11 +23,17 @@ public enum SliceRole
     /// <summary>
     /// An event laid down <em>before</em> the act. On a View slice it is what the projection consumes
     /// (<c>ConsumedEvents</c>); on a Command slice it is the aggregate's own history and stamps nothing
-    /// (bobcat#297). It still reaches the specification's resolved types either way.
+    /// (bobcat#297); on a Query slice it is context and stamps nothing either, while its stream is read
+    /// (<c>ReadsFrom</c>, bobcat#501). It still reaches the specification's resolved types either way.
     /// </summary>
     ArrangedEvent,
 
-    /// <summary>A read model the specification arranges or asserts on.</summary>
+    /// <summary>
+    /// A read model the specification arranges or asserts on. On a method that also declares a read-only HTTP
+    /// trigger (<c>[EventModelTrigger(TriggerKind.Http, HttpMethod = "GET")]</c> or <c>"HEAD"</c>) it is what the
+    /// act <em>reads</em>, and makes the slice a Query (bobcat#501): the type goes to <c>ReadsFrom</c>, not to the
+    /// read models the slice produces.
+    /// </summary>
     ReadModel,
 
     /// <summary>
@@ -131,8 +137,9 @@ public sealed class EventModelRoleAttribute : Attribute
 /// <remarks>
 /// <para>
 /// Read only off the call the generator takes as the act — the last one carrying a
-/// <see cref="SliceRole.Command"/> — so an HTTP call that merely arranges state does not make a
-/// message-driven slice an HTTP one. A call inside a local function or a lambda is never the act.
+/// <see cref="SliceRole.Command"/>, or a read act (<see cref="HttpMethod"/>, bobcat#501) — so an HTTP call that
+/// merely arranges state does not make a message-driven slice an HTTP one. A call inside a local function or a
+/// lambda is never the act.
 /// </para>
 /// <para>
 /// Like <see cref="EventModelRoleAttribute"/>, it reaches an <c>override</c> but not a method that hides
@@ -177,7 +184,8 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// attributes in the compilation and its references that declare it — <c>[WolverinePost("…", RouteName = "…")]</c>,
     /// <c>[HttpPost("…", Name = "…")]</c>, <c>[Route("…", Name = "…")]</c> — and that endpoint's template is
     /// stamped as the route. A name only a minimal API's <c>.WithName("…")</c> declares cannot be resolved before
-    /// the host runs: the route stays unknown, and BOBCAT038 (info) says so. A method may declare both
+    /// the host runs: the route stays unknown, and BOBCAT038 (info) says so. Either way the name is stamped as the
+    /// slice's <c>PublisherOrigin.HttpRouteName</c> (JasperFx 2.85.0). A method may declare both
     /// <see cref="Route"/> and <see cref="RouteName"/>; a route argument that can be known wins. Ignored on any
     /// kind but <see cref="TriggerKind.Http"/>.
     /// </summary>
@@ -187,5 +195,11 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// The HTTP verb, for an <see cref="TriggerKind.Http"/> act; <c>POST</c> when not set. It travels with
     /// the route it was declared beside.
     /// </summary>
+    /// <remarks>
+    /// <c>GET</c> or <c>HEAD</c> on a method with a <see cref="SliceRole.ReadModel"/> role and no
+    /// <see cref="SliceRole.Command"/> makes it a <b>read act</b> (bobcat#501): the last one a test makes is its
+    /// act, and its slice is a Query unless a command act or a declared pattern says otherwise. The trigger is what
+    /// tells a read act from an assertion such as <c>ThenReadModel&lt;T&gt;</c>, which carries the same role.
+    /// </remarks>
     public string? HttpMethod { get; set; }
 }

@@ -116,9 +116,14 @@ its trigger), and `ThenEvents` in the happy-path spec names what it emits. `When
 `WhenReceived` and `WhenReading` are the sample's own methods in `BankAccountSpec.cs`, and they re-declare
 those attributes, because the generator reads the method a test calls and never what that method calls.
 
+`WhenReading<T>` declares a `GET` trigger beside a `ReadModel` role, which makes it a read act: a spec whose
+act it is lands on a **Query** slice (bobcat#501). The slice reads `T` and the streams the spec arranged
+through `ReadsFrom`, and the arranged events are context, so the query claims to consume none of them. The
+two GET specs bind the slices Wolverine derives from those endpoints, which it names for their routes.
+
 | Spec class | What it covers |
 |------------|----------------|
-| `BankAccountEventSourcing` | the command slices over HTTP, plus the transaction-history view and the client-accounts query |
+| `BankAccountEventSourcing` | the command slices over HTTP, plus the transaction-history and client-accounts queries |
 | `AccountView` | the `Account` View slice: arranged events, no act, the read model they fold into |
 | `FreezeAccountSpecs` | the one message-handled slice, deliberately silent about `AccountFlagged` |
 | `EventModel` | the assembled Event Model itself: four sources, one model, one planted disagreement |
@@ -129,6 +134,11 @@ store's projection registry, the overlay in `Program.cs` and this assembly's gen
 view and the spec's are one slice, and that the planted disagreement on `FreezeAccount` (bobcat#172)
 surfaces as a hotspot instead of vanishing. Set `BOBCAT_EVENT_MODEL_EXPORT=<file>` to write the merged
 model out as JSON.
+
+One more disagreement is expected, and pinned rather than hidden: until
+[wolverine#4975](https://github.com/JasperFx/wolverine/issues/4975) Wolverine derives every GET chain as a View,
+and a derived claim outranks a declared one. So both GET slices merge as a View, each with a Pattern
+`SourceDisagreement` that keeps Wolverine's View and drops the specs' Query.
 
 ## API
 

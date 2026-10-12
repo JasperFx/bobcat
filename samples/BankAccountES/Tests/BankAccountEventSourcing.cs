@@ -114,12 +114,12 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
     }
 
     /// <summary>
-    /// The transaction history is a read model, so this is a View spec on the store's
-    /// <see cref="AccountTransactions" /> slice: its arranged events are what the projection folds
-    /// (<c>ConsumedEvents</c>), and they must be ALL of them -- the store lists every event the projection
-    /// applies, and a spec naming fewer is a source disagreement. The read goes through the HTTP endpoint.
+    /// A query slice (bobcat#501): the read goes through the GET endpoint, so the spec lands on the slice Wolverine
+    /// derives from it, named for its route. It READS <see cref="AccountTransactions" /> -- the store's View slice of
+    /// that name produces it, and the two are joined by a <c>ReadModelRead</c> link -- and the arranged events are
+    /// context for the read, not events this slice consumes.
     /// </summary>
-    [BobcatSpec(typeof(AccountTransactions), Domain = "Banking", Pattern = "View")]
+    [BobcatSpec(SliceName = "GET /api/accounts/{accountId}/transactions", Domain = "Banking")]
     public async Task transaction_history_records_every_deposit_and_withdrawal()
     {
         var accountId = Guid.NewGuid();
@@ -137,7 +137,8 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
 
     /// <summary>
     /// A query slice: Wolverine derives it from the GET endpoint and names it for its route, because a GET
-    /// has no request type to key on.
+    /// has no request type to key on. The arranged <c>AccountOpened</c> is context for the read (bobcat#501),
+    /// so the slice does not claim to consume it.
     /// </summary>
     [BobcatSpec(SliceName = "GET /api/clients/{clientId}/accounts", Domain = "Banking")]
     public async Task get_client_accounts()

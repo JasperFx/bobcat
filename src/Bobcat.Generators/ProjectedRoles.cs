@@ -62,8 +62,18 @@ internal static class ProjectedRoles
         /// <summary>Every (role word, qualified type) stamped, in call order.</summary>
         public readonly List<(string Role, string Type)> Roles = new();
 
-        /// <summary>The act's command: the last <c>Command</c> stamped (bobcat#464's rule).</summary>
+        /// <summary>
+        /// The act's command: the last <c>Command</c> stamped (bobcat#464's rule). Null when the test's last act is a
+        /// read (<see cref="ReadAct"/>) rather than a command.
+        /// </summary>
         public string? Act;
+
+        /// <summary>
+        /// bobcat#501: the type the act <em>reads</em>, when the test's last act is a read — a call whose vocabulary
+        /// declares an HTTP <c>GET</c>/<c>HEAD</c> trigger and a <c>ReadModel</c> role, and no command. Such a test
+        /// describes a Query slice. Null when the last act is a command, or there is none.
+        /// </summary>
+        public string? ReadAct;
 
         /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
         public string? TriggerKind;
@@ -85,7 +95,7 @@ internal static class ProjectedRoles
 
         /// <summary>
         /// The constant route name the act passed through <c>RouteName</c>, resolved or not (bobcat#500). Never
-        /// stamped as a route: JasperFx's <c>PublisherOrigin</c> has no field for it yet.
+        /// stamped as a route; it rides <c>PublisherOrigin.HttpRouteName</c> (JasperFx 2.85.0) instead.
         /// </summary>
         public string? TriggerRouteName;
 
@@ -126,6 +136,7 @@ internal static class ProjectedRoles
             if (carrier is null) continue;
 
             string? command = null;
+            string? read = null;
             foreach (var role in roles)
             {
                 if (role.ConstructorArguments.Length < 2) continue;
@@ -136,16 +147,29 @@ internal static class ProjectedRoles
                 {
                     reading.Roles.Add((word, type));
                     if (word == EventModelEmitter.Command) command = type;
+                    else if (word == EventModelEmitter.ReadModel) read ??= type;
                 }
             }
 
-            // The act is the LAST command-carrying call, and its trigger comes with it: an HTTP call
-            // that only arranged state must not make a message-driven slice an HTTP one.
-            // A call in a local function or a lambda is not one the test is known to make, or to make
-            // last: its roles count, but it never becomes the act
-            if (command is null || isDeferred(invocation, body)) continue;
-            reading.Act = command;
-            readTrigger(operation, reading, compilation);
+            // The act is the LAST act call, and its trigger comes with it: an HTTP call that only arranged state
+            // must not make a message-driven slice an HTTP one. A call in a local function or a lambda is not one
+            // the test is known to make, or to make last: its roles count, but it never becomes the act
+            if (isDeferred(invocation, body)) continue;
+
+            if (command is not null)
+            {
+                reading.Act = command;
+                reading.ReadAct = null;
+                readTrigger(operation, reading, compilation);
+            }
+            else if (read is not null && isReadTrigger(operation.TargetMethod))
+            {
+                // bobcat#501: a read-only act — GET/HEAD plus a read role, no command. The trigger attribute is
+                // what tells it from an assertion: ThenReadModel<T> carries the same role and no trigger
+                reading.Act = null;
+                reading.ReadAct = read;
+                readTrigger(operation, reading, compilation);
+            }
         }
 
         return reading;
@@ -232,6 +256,21 @@ internal static class ProjectedRoles
         }
 
         return findings;
+    }
+
+    /// <summary>
+    /// bobcat#501: whether the method declares a read-only HTTP trigger — <c>[EventModelTrigger(TriggerKind.Http,
+    /// HttpMethod = "GET")]</c> or <c>"HEAD"</c>. An unset verb is POST, so it is not a read.
+    /// </summary>
+    private static bool isReadTrigger(IMethodSymbol method)
+    {
+        var trigger = attributesOf(method, TriggerAttributeName).Attributes.FirstOrDefault();
+        if (trigger is null || trigger.ConstructorArguments.Length == 0) return false;
+        if (enumMemberName(trigger.ConstructorArguments[0]) != "Http") return false;
+
+        var verb = trigger.NamedArguments.FirstOrDefault(x => x.Key == "HttpMethod").Value.Value as string;
+        return string.Equals(verb, "GET", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(verb, "HEAD", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void readTrigger(IInvocationOperation operation, Reading reading, Compilation compilation)

@@ -192,7 +192,7 @@ all has nothing to be stale, so the wait returns at once there.
 | `ThenSingleReadModel<T>(expected?)` | the `T` of the stream this scenario is about -- the one the act started, else the one the givens arranged. Single-stream projections only |
 | `ThenSingleDocument<T>(expected?)` | the `T` document stored under that stream's id |
 | `ThenProjectionsAreCaughtUp(Type readModel)` | the projections that build it have caught up |
-| `AfterAsyncDaemonsCatchUpAsync(tenantId?)` | wait for every async daemon, on every database or one tenant's. Not a step |
+| `AfterAsyncDaemonsCatchUpAsync(tenantId?)` | wait for every async daemon, on every database or one tenant's: the database the store's `FindDatabaseForTenantAsync` finds for it, else every database. Not a step |
 | `Verify(subject, table)` | selected properties of anything, as a one-row table: `"\| Name \| Address.City \|\n\| Ann \| Austin \|"` |
 | `ThenMatches(subject, expected)` | anything, structurally, by the same rules as `ThenEvents` |
 
@@ -405,7 +405,13 @@ An act can also address an endpoint by its route name: `[WolverinePut("/api/clie
 "UpdateClient")]` on the endpoint, and `[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName))]` on
 the act. The generator resolves a constant route name to the endpoint's template at compile time. It also
 matches an interpolated route against the endpoints' templates. See
-[The act's route](../marker-steps.md#act-route).
+[The act's route](../marker-steps.md#act-route). The route name is stamped as `TriggerOrigin.HttpRouteName`.
+
+An act with a `GET` or `HEAD` trigger and a `ReadModel` role makes its slice a **Query** (bobcat#501, see
+[Binding, not roles](../marker-steps.md#event-model-roles)). Until
+[wolverine#4975](https://github.com/JasperFx/wolverine/issues/4975), Wolverine derives every GET chain as a
+View, and a derived claim outranks a declared one. So the merged slice is a View with a Pattern
+`SourceDisagreement` that drops the specs' Query. `samples/BankAccountES` pins that on purpose.
 
 ## Cold hosts and brokers
 
