@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Globalization;
 using System.Reflection;
+using Bobcat.Engine;
 using Bobcat.Partial;
 
 namespace Bobcat.Runtime;
@@ -21,6 +22,13 @@ namespace Bobcat.Runtime;
 /// <c>Lines[0].Sku</c> names where two whole graphs differ; a specification naming a member
 /// (<c>PropertyCells</c>, a partial object) may not index into a collection, because that question
 /// belongs to a set verification. The two rules answer different questions and do not conflict.
+/// </para>
+/// <para>
+/// <b>A collection is positional and a dictionary is keyed</b> (bobcat#456). A list's leaves are
+/// <c>Lines[0].Sku</c>, so the comparison is ordered and exact — which is what a <c>List&lt;T&gt;</c>
+/// means in C#. A dictionary's are <c>Headers[accept]</c>, keyed by the entry, so two dictionaries
+/// holding the same entries agree whatever order they enumerate in and a key one side lacks reads as
+/// that one key.
 /// </para>
 /// <para>
 /// F# options and single-case unions compare by what they hold, so <c>Some "UPS"</c> agrees with
@@ -86,6 +94,13 @@ public static class ObjectComparison
         null => "NULL",
         string s => s,
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+
+        // Not a leaf: a collection, or an object the depth cap stopped at. Its own ToString is the
+        // wrong renderer twice over — a list gives its type name, where a reader wants its items,
+        // and a record's generated ToString walks the graph, so a cycle recurses until the stack
+        // goes. Describe renders items, stops at its own depth and never calls a user ToString.
+        _ when !IsLeaf(value.GetType()) => ScenarioValues.Describe(value),
+
         _ => value.ToString() ?? ""
     };
 
@@ -142,54 +157,128 @@ public static class ObjectComparison
         => path == ignored || path.StartsWith(ignored + ".", StringComparison.Ordinal) ||
            path.StartsWith(ignored + "[", StringComparison.Ordinal);
 
-    private static void flatten(object? value, string path, int depth, List<(string, object?)> leaves)
+    private static void flatten(object? value, string path, int depth, List<(string, object?)> leaves,
+        HashSet<object>? ancestors = null)
     {
         value = Unwrap(value);
+        var name = path.Length == 0 ? "value" : path;
 
         if (value is null || IsLeaf(value.GetType()) || depth >= MaxDepth)
         {
-            leaves.Add((path.Length == 0 ? "value" : path, value));
+            leaves.Add((name, value));
             return;
         }
 
-        if (value is IEnumerable enumerable)
+        // A graph that refers back to something already on this path. The depth cap alone used to
+        // "handle" it, by emitting the object itself as the leaf at level 8 — which then recursed
+        // through the record's own ToString when anything formatted it. Said once, the same text on
+        // both sides, so two cyclic graphs still agree.
+        ancestors ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
+        if (!ancestors.Add(value))
         {
-            var index = 0;
-            foreach (var item in enumerable)
-            {
-                flatten(item, $"{path}[{index}]", depth + 1, leaves);
-                index++;
-            }
-
-            leaves.Add(($"{(path.Length == 0 ? "value" : path)}.Count", index));
+            leaves.Add((name, $"<cycle back to {value.GetType().Name}>"));
             return;
         }
 
-        var properties = value.GetType()
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(x => x.CanRead && x.GetIndexParameters().Length == 0 && x.Name != "EqualityContract")
-            .ToArray();
-
-        if (properties.Length == 0)
+        try
         {
-            // A field-less stub: the type is the whole of what it says
-            leaves.Add((path.Length == 0 ? "value" : path, value.GetType().Name));
-            return;
+            if (asDictionary(value) is { } entries)
+            {
+                // Keyed, not positional: the key is the path, so two dictionaries holding the same
+                // entries agree whatever order they enumerate in, and a key one side lacks reads as
+                // that key rather than as every later entry being wrong.
+                var count = 0;
+                foreach (var (key, item) in entries)
+                {
+                    flatten(item, $"{name}[{ScenarioValues.Format(key)}]", depth + 1, leaves, ancestors);
+                    count++;
+                }
+
+                leaves.Add(($"{name}.Count", count));
+                return;
+            }
+
+            if (value is IEnumerable enumerable)
+            {
+                var index = 0;
+                foreach (var item in enumerable)
+                {
+                    flatten(item, $"{path}[{index}]", depth + 1, leaves, ancestors);
+                    index++;
+                }
+
+                leaves.Add(($"{name}.Count", index));
+                return;
+            }
+
+            var properties = value.GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(x => x.CanRead && x.GetIndexParameters().Length == 0 && x.Name != "EqualityContract")
+                .ToArray();
+
+            if (properties.Length == 0)
+            {
+                // A field-less stub: the type is the whole of what it says
+                leaves.Add((name, value.GetType().Name));
+                return;
+            }
+
+            foreach (var property in properties)
+            {
+                object? child;
+                try
+                {
+                    child = property.GetValue(value);
+                }
+                catch (TargetInvocationException e)
+                {
+                    child = $"<{e.InnerException?.GetType().Name ?? "error"}>";
+                }
+
+                flatten(child, path.Length == 0 ? property.Name : $"{path}.{property.Name}", depth + 1, leaves,
+                    ancestors);
+            }
+        }
+        finally
+        {
+            // Off the path again: a graph may hold the same child twice without that being a cycle
+            ancestors.Remove(value);
+        }
+    }
+
+    /// <summary>
+    /// The entries of a dictionary, or null for anything else. Deliberately <b>only</b> a dictionary
+    /// and not every <c>IEnumerable&lt;KeyValuePair&lt;,&gt;&gt;</c>: a <c>List&lt;KeyValuePair&lt;,&gt;&gt;</c>
+    /// is an ordered list that may hold one key twice, and reading it by key would both lose its order
+    /// and silently drop a duplicate's leaves.
+    /// </summary>
+    private static IEnumerable<(object Key, object? Value)>? asDictionary(object value)
+    {
+        // Enumerated as IEnumerable a Dictionary<K, V> yields KeyValuePair, so the entries have to
+        // come from IDictionary's own enumerator
+        if (value is IDictionary dictionary) return entriesOf(dictionary);
+
+        var readOnly = value.GetType().GetInterfaces().FirstOrDefault(x =>
+            x.IsGenericType && x.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>));
+        if (readOnly is null) return null;
+
+        return pairsOf((IEnumerable)value);
+
+        static IEnumerable<(object, object?)> entriesOf(IDictionary dictionary)
+        {
+            foreach (DictionaryEntry entry in dictionary) yield return (entry.Key, entry.Value);
         }
 
-        foreach (var property in properties)
+        // An IReadOnlyDictionary that is no IDictionary enumerates as KeyValuePair<,>, read by property
+        static IEnumerable<(object, object?)> pairsOf(IEnumerable pairs)
         {
-            object? child;
-            try
+            PropertyInfo? key = null, item = null;
+            foreach (var pair in pairs)
             {
-                child = property.GetValue(value);
+                key ??= pair.GetType().GetProperty("Key")!;
+                item ??= pair.GetType().GetProperty("Value")!;
+                yield return (key.GetValue(pair)!, item.GetValue(pair));
             }
-            catch (TargetInvocationException e)
-            {
-                child = $"<{e.InnerException?.GetType().Name ?? "error"}>";
-            }
-
-            flatten(child, path.Length == 0 ? property.Name : $"{path}.{property.Name}", depth + 1, leaves);
         }
     }
 }
