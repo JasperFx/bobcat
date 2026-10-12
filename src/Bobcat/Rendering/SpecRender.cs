@@ -26,8 +26,7 @@ public class SpecRender
     /// <summary>
     /// What the steps themselves cost, next to <see cref="DurationMs"/>, which is the whole
     /// bracket (issue #466). The difference is time no step owns. Null when it was not measured,
-    /// never zero-filled. Set by <see cref="FromRecording"/>; a Gherkin result reports its
-    /// lifecycle through <see cref="Timeline"/> instead.
+    /// never zero-filled. Set by <see cref="FromRecording"/>.
     /// </summary>
     public long? StepsMs { get; init; }
 
@@ -417,9 +416,8 @@ public class StepRender
                 .Concat(rendered?.Cells.Select(CellRender.From) ?? [])
                 .ToList(),
 
-            // A table the step was handed renders as a grid, the same one a Gherkin [Table] step
-            // renders — the cells carry a RowIndex and the columns carry the order, so the fold is
-            // the fold that already exists.
+            // A table the step was handed renders as a grid — the cells carry a RowIndex and the
+            // columns carry the order, so the set-verification fold renders it.
             SetVerification = step.TableColumns.Count == 0
                 ? null
                 : SetVerificationRender.FromCells(step.TableColumns, step.Cells)

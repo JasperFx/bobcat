@@ -127,7 +127,7 @@ public sealed class Specified<T> : IPartialObject, ITaggedExpectation
 }
 
 /// <summary>
-/// <c>Specify&lt;T&gt;()</c> for code outside a <see cref="Fixture"/> — bring it in with
+/// <c>Specify&lt;T&gt;()</c> as a static import — bring it in with
 /// <c>using static Bobcat.Specifications;</c>.
 /// </summary>
 public static class Specifications

@@ -52,10 +52,9 @@ internal static class StepInterceptors
         /// answer IS the step's verdict.
         /// </summary>
         /// <remarks>
-        /// Unconditional here, unlike the Gherkin lane, and the asymmetry is the point: a feature file
-        /// can put an expected value in a cell, so there a bool return might be something to compare
-        /// against. A C# call site cannot supply one implicitly — the caller wrote the arguments and
-        /// read the answer — so a bool-returning step called from a test is always a fact.
+        /// Unconditional: a C# call site cannot supply an expected value implicitly — the caller wrote
+        /// the arguments and read the answer — so a bool-returning step called from a test is always a
+        /// fact.
         /// </remarks>
         public bool ReturnsBool;
 

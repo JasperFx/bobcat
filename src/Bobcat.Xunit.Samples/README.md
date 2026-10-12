@@ -65,7 +65,7 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 Not yet: the five `Create Objects` documents about *constructing* an object rather than checking one
 (`Set_Up_a_Single_Address`, `As_Table`, `Using_ObjectIs`, `Using_WithInput`, `Using_LoadObjectBy` —
 `BuildRows<T>` covers the table form), `ApiFixture`, `ModelFixture`, selection lists, `Arrays.md`
-(no collection capture — see the Gherkin lane's README), Paragraphs (deliberately out of scope).
+(no collection capture), Paragraphs (deliberately out of scope).
 
 ## Tables: a table literal in the test
 
@@ -80,29 +80,25 @@ _roster.TheRosterIs("""
     """);
 ```
 
-**One grammar body serves both lanes.** `TheRosterIs(StepTable roster)` is the same method a
-`.feature` file binds to; the document supplies the table there and the caller supplies it here, and
-nothing in the grammar knows which. Both lanes then render the same grid — the table becomes cells
-carrying a `RowIndex` plus the column order, which is exactly what a Gherkin `[Table]` step produces,
-so `SetVerificationRender.FromCells` is one fold for both.
+**One step, one grid.** `TheRosterIs(StepTable roster)` takes the whole table; the recorder turns it
+into cells carrying a `RowIndex` plus the column order, and `SetVerificationRender.FromCells` folds
+those back into a grid.
 
 The two alternatives were worse. Calling a row helper once per row renders as N steps and loses the
-grid, which is the report the Gherkin lane just stopped producing. A collection-of-tuples argument
-(`void Sum((int x, int y, int sum)[] rows)`) grids up fine but is a second signature written for the
-C# lane beside the one the document binds to, so a change to the vocabulary has to be made twice.
+grid. A collection-of-tuples argument (`void Sum((int x, int y, int sum)[] rows)`) grids up fine but
+fixes the columns in the signature, so an optional column or a reordering needs a new overload.
 
 A markdown table pastes in unchanged — the alignment row is recognised and dropped, outer pipes are
 optional, cells are trimmed — so the table in the specification, the table in the pull request and
 the table in the test are the same text. What is deliberately not supported is markdown's escaping
-and inline formatting: a cell is the text between pipes, because that is what a Gherkin cell is, and
-two rules for reading a cell is how the lanes would drift.
+and inline formatting: a cell is the text between pipes, and one rule for reading a cell is what keeps
+a table literal and an expected value agreeing about what a word means.
 
 A **table of objects** is `TableRunner.BuildRows<T>(table)` — Storyteller's `CreateNewObject<T>`,
-with the same cell conversion the Gherkin lane uses, so `TODAY+30` is a date and a field the record
+with Bobcat's cell conversion (`CellValues`), so `TODAY+30` is a date and a field the record
 defaults need not appear in the table at all. Its "before all rows" and "after all rows" hooks are the
 lines either side of the call; Storyteller needed hooks because the table was declared rather than
-called. On a grammar that inherits `Fixture`, `BuildRows<T>` and `RunTable(nameof(...), table)` are
-there directly.
+called. `TableRunner.Run(this, nameof(...), table)` calls a row method once per row.
 
 A **decision table** works the same way, with the grammar reporting one cell per row —
 `SpecAssert.Check(name, actual, expected, rowIndex: i)` — so the grid carries a verdict per row. The
@@ -134,10 +130,8 @@ _sets.TheUnorderedDetailsShouldBe("""
     """);
 ```
 
-**One grammar body, both lanes**, exactly as for tables: `Bobcat.Gherkin.Samples/SetsFixture.cs`
-recreates these same documents declaratively, and the grids are identical because the comparison is
-the same `SetVerificationComparer`. On a grammar that inherits `Fixture` the call is `VerifySet(...)`
-directly — the sibling of `RunTable` and `BuildRows`.
+The comparison is `SetVerificationComparer.Verify`, with key columns, ordering and column selection
+as arguments.
 
 **Which form to prefer, and why both ship.** `[SetVerification]` stays canonical where it reaches:
 `KeyColumns`, `Ordered` and `Column` are compile-time facts, which is what lets the preview and the
@@ -188,22 +182,17 @@ _objects.TheAddressShouldBe("""
     """);
 ```
 
-**One grammar body, both lanes**, exactly as for tables and sets:
-`Bobcat.Gherkin.Samples/ObjectsFixture.cs` recreates these same documents declaratively and the grids
-are identical, because the comparison is — `PropertyCells` underneath and `CellCheck` under that, so
-a property column and a set column disagree in the same words. On a `Fixture` the call is
-`VerifyObject(...)` directly, the sibling of `VerifySet`, `RunTable` and `BuildRows`.
+The comparison is `PropertyCells` underneath and `CellCheck` under that, so a property column and a
+set column disagree in the same words.
 
-Only the columns the row names are compared. This is also the one grammar family with **no
-declarative twin**, and deliberately: there is nothing to configure, so an attribute would carry no
-information — see the Gherkin lane's README for why that is worth saying out loud.
+Only the columns the row names are compared. There is no attribute form, deliberately: there is
+nothing to configure, so an attribute would carry no information.
 
 ## One attribute family, two expression syntaxes
 
 `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` all derive from one
-`StepAttribute`, and every one of them works in **both** lanes: matched against a `.feature` file on a
-fixture, and intercepted at the call site when a test calls the method directly. `[BobcatStep]` is the
-legacy spelling of the same thing.
+`StepAttribute`, and every one of them is intercepted at the call site when a test calls the method.
+`[BobcatStep]` is the legacy spelling of the same thing.
 
 Each expression may be a **Cucumber expression** (`{int}`, `{string}`, the `{aggregate}`/`{event}` type
 words, raw regex) or a **Storyteller `[FormatAs]` template** naming parameters (`{sum}`). Decided per
@@ -213,10 +202,9 @@ two mix freely in one expression.
 Facts are Storyteller's shape, unchanged: a `bool`-returning step whose answer is the verdict, with no
 `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real duration.
 
-A **named tuple** return is compared element by element — the async-safe replacement for `out`
-parameters, which an `async` method cannot have. See `Bobcat.Acceptance.Tests/NamedTemplatesFixture`;
-it belongs in the Gherkin lane, because the expected cells come from the document and BOBCAT027
-correctly refuses them at a C# call site.
+A **named tuple** return whose elements are expected cells does not work at a C# call site: there is
+nowhere for the expected values to come from, and BOBCAT027 says so. Take the expected values as
+arguments and report each with `SpecAssert.Check` instead (`CalculatorGrammar.SumAndProduct`).
 
 ## How a Storyteller grammar becomes a Bobcat one
 
@@ -232,7 +220,7 @@ internal void StartWith(double value) => _calculator.Value = value;
 
 Three differences, all deliberate:
 
-- **A keyword.** Bobcat's model is Gherkin-shaped, so a step says whether it arranges, acts or
+- **A keyword.** Bobcat's model is Given/When/Then-shaped, so a step says whether it arranges, acts or
   asserts. Storyteller inferred that from position and grammar type. A repeated keyword renders as
   `And`, decided by the recorder — the helper cannot know whether a call is the first of its block or
   the third.
@@ -253,8 +241,8 @@ public double TheValueShouldBe() => _calculator.Value;
 internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
 ```
 
-`SpecAssert.Check` runs the same `CellCheck` comparison the Gherkin lane's return-value verification
-runs, so a projected check and a `.feature` check on the same value agree and render identically.
+`SpecAssert.Check` runs the `CellCheck` comparison, the same one a table cell or a set verification
+uses, so the same value is judged the same way wherever it is checked.
 
 ## Why the checks do not throw
 
@@ -339,7 +327,7 @@ Five defects, all fixed here, and three gaps still open.
 synchronous call in `using (step)`; disposal alone means "the step ended", not "the step failed", so
 the exception never reached the step. The asynchronous path never had it, because
 `MarkerStepRuntime.Track` catches and reports. Pinned by
-`Bobcat.Acceptance.Tests/SynchronousStepFailureTests`. It hid because the scenario was still red —
+`Bobcat.Projected.Acceptance.Tests/SynchronousStepFailureTests`. It hid because the scenario was still red —
 the only symptom was that the failing line was the one marked `✓`, and nothing rendered a projected
 specification locally for anyone to read.
 
@@ -350,16 +338,14 @@ verdict word now comes from the caller that knows it.
 **Fixed — a missing row rendered red and left the test green.** `RecordedStep.Status` counted a
 `failed` or `invalid` cell and not a `missing` one, and `missing` is exactly what a set
 verification's missing-row marker carries. So a specification whose only disagreement was a row the
-system never produced reported `MISSING` in the grid and passed as a test. The Gherkin lane's
-`IStepContext.RecordCells` had always counted it; this is the kind of divergence only a grammar
-driven from both lanes can surface, which is why `Bobcat.Acceptance.Tests/VerifySetFixture` is run
-twice.
+system never produced reported `MISSING` in the grid and passed as a test. The (since removed)
+Gherkin lane had always counted it, and running one grammar from both lanes is what surfaced the
+divergence.
 
 **Fixed — an absent row rendered as a row of blanks, in this lane only.** The renderer took the
 first cell per column, and in the projected lane a step is handed the table as written *before* it
 compares anything — so each column already had an input cell, and the comparer's cell carrying the
-value to show in place was never reached. Reading a feature file it was correct, because there is no
-input cell there.
+value to show in place was never reached.
 
 **Gap 1 — an exception ends the test, so the steps after it are never judged.** `Facts_in_Action.md`
 reached all five of its lines; the projected version reaches four. This is the one irreducible
@@ -376,8 +362,8 @@ verdict is its own exception — one failure, no expected/actual pair. Compare
 empty string as a keyword worth promoting, and the renderer collapsed "no keyword" into "unknown
 keyword" and fell back to the step's kind.
 
-**Gap 3 — a projected step has no logs and no diagnostics.** `StepRender` renders both for the
-Gherkin lane; `ScenarioRecorder.RecordedStep` carries neither, so Storyteller's
+**Gap 3 — a projected step has no logs and no diagnostics.** `StepRender` has a place for both;
+`ScenarioRecorder.RecordedStep` carries neither, so Storyteller's
 `Context.Reporting.Log(...)` has no equivalent. See `BatchProcessGrammar.DoSomethingWorthLogging`.
 
 ## What a projected specification now renders
@@ -394,8 +380,8 @@ Gherkin lane; `ScenarioRecorder.RecordedStep` carries neither, so Storyteller's
   scanning it; the reader wants to know *which* step broke first. A gathered wrong keeps its message
   on its own line — nothing was thrown, so there is no stack to show. One known cost: the generated
   interceptor frame is in every stack.
-- **A preview**, from `PlannedSteps` + `DeclaredSteps`, through the same `PreviewRender` model the
-  Gherkin lane uses — including which `[BobcatStep]` helper each step binds to.
+- **A preview**, from `PlannedSteps` + `DeclaredSteps`, through the `PreviewRender` model — including
+  which `[BobcatStep]` helper each step binds to.
 
 ## `And` and `But` continue a narrative; they cannot start one
 
@@ -405,7 +391,7 @@ sentences begin "And …" constantly, and this file's own `FactSpecs` had `// An
 step` become a step that wrapped the two real steps under a narrative row nobody wrote.
 
 The honest limit, pinned by
-`Bobcat.Acceptance.Tests/MarkerCommentTighteningTests.once_a_narrative_is_open_an_and_comment_is_a_step_whatever_it_says`:
+`Bobcat.Projected.Acceptance.Tests/MarkerCommentTighteningTests.once_a_narrative_is_open_an_and_comment_is_a_step_whatever_it_says`:
 inside a test that is already narrating, `And …` is taken at its word. There is no way to tell that
 sentence from a step, and guessing from its wording would be worse than a rule an author can learn.
 

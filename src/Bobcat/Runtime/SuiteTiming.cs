@@ -107,7 +107,7 @@ public sealed partial class SuiteTiming
 
     /// <summary>
     /// Whether the input carried lifecycle points at all. False for projected recordings (issue
-    /// #466), which is every input now that the Gherkin runner is gone (bobcat#471): there the lifecycle is the test runner's -- xUnit's
+    /// #466), which is every input since the Gherkin runner was removed (bobcat#471): there the lifecycle is the test runner's -- xUnit's
     /// <c>IAsyncLifetime</c>, class and assembly fixtures, TUnit's hooks -- and Bobcat neither owns
     /// it nor sees it. That loss is accepted, not pending; a consumer renders "not measured" and
     /// never a zero (#141's rule).

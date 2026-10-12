@@ -7,25 +7,21 @@ namespace Bobcat.Residency;
 /// <summary>
 /// A suite a resident runner drives from <b>outside its process</b> (issue #399): the runner holds
 /// the suite's manifest and runs a command by launching the suite's own test host, narrowed by
-/// that framework's filter. This is the only way the projected lane can be resident at all.
+/// that framework's filter.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>For a projected suite it has to be a separate process, and that is the lane's defining
-/// fact.</b> A Gherkin suite's entry point is Bobcat's, so <c>--resident</c> turns that host into
-/// a runner (<see cref="BobcatResidentSuite"/>). A projected suite's entry point belongs to its
-/// test framework, which has no idea what <c>--resident</c> means and will not be taught — so the
-/// runner lives outside. "A resident runner is not the suite" is a design note in the Gherkin
-/// lane; here it is a constraint.
+/// <b>It has to be a separate process.</b> A projected suite's entry point belongs to its test
+/// framework, which has no idea what <c>--resident</c> means and will not be taught — so the
+/// runner lives outside, and "a resident runner is not the suite" is a constraint rather than a
+/// design choice.
 /// </para>
 /// <para>
-/// <b>Named for the mechanism rather than the lane, because it is lane-neutral — and that is
-/// issue #391's whole point.</b> Everything here is a function of the suite's manifest:
-/// <c>SpecFilterArguments</c> switches on the <i>framework</i>, so pointing this at a Gherkin host
-/// also works, and gets <c>--filter-uid</c>. Doing that is nonetheless the wrong choice for a
-/// Gherkin suite, for one reason worth saying out loud: the in-process runner can offer warm
-/// (issue #393) and this cannot, because warmth means holding a booted host and here the host is
-/// a child that exits. Pay a process per command only when the lane leaves no alternative.
+/// <b>Named for the mechanism, because it is framework-neutral — and that is issue #391's whole
+/// point.</b> Everything here is a function of the suite's manifest: <c>SpecFilterArguments</c>
+/// switches on the <i>framework</i>. Warmth (issue #393) means holding a booted host, and here the
+/// host is a child that exits, so a warm command goes to <c>WarmProjectedResidentSuite</c> in the
+/// supervisor instead.
 /// </para>
 /// <para>
 /// <b>Cold only, and that is measured rather than assumed.</b> Issue #394 found that Microsoft's
@@ -44,8 +40,7 @@ namespace Bobcat.Residency;
 /// this suite exists to produce. See <see cref="EnvironmentFor"/>.
 /// </para>
 /// <para>
-/// <b>The identities are read once, at construction</b> — the same contract as the Gherkin lane,
-/// for the same reason: a suite that gained a specification since the runner started has a
+/// <b>The identities are read once, at construction</b>, because a suite that gained a specification since the runner started has a
 /// registration the monitor is already holding, and <c>restart</c> is how a parent replaces both.
 /// A framework whose filter spelling Bobcat cannot verify (NUnit and MSTest; TUnit has been
 /// filtered by tree-node path since bobcat#470) is refused here rather than at the first button
@@ -283,9 +278,8 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     /// <para>
     /// What is <i>added</i> is one variable: <c>BOBCAT_RUN_COMMAND</c>, so the run the child
     /// publishes carries the button press that caused it (issue #392). This is the case that
-    /// variable was built for — the Gherkin lane sets the command in process instead, because
-    /// there the runner and the run share one. It also suppresses the agent session on the child's
-    /// <c>run_started</c> (issue #401) for free, by the one rule that governs both lanes.
+    /// variable was built for: the runner and the run are separate processes. It also suppresses
+    /// the agent session on the child's <c>run_started</c> (issue #401) for free.
     /// </para>
     /// </remarks>
     public static IReadOnlyDictionary<string, string?> EnvironmentFor(string? command)

@@ -254,8 +254,7 @@ public class MonitorRunInfoTests : IDisposable
     public void a_command_set_after_the_fact_suppresses_the_session_too()
     {
         // The rule is a getter consulting Command rather than something a caller clears, because
-        // the resident runner does not use the variable at all: it sets BobcatRunner.MonitorCommand
-        // and the info is rebuilt with `with { Command = … }`. A rule that only ran inside
+        // a command can arrive after discovery, with the info rebuilt as `with { Command = … }`. A rule that only ran inside
         // Discover would miss exactly the case the issue was filed for.
         Environment.SetEnvironmentVariable(MonitorRunInfo.SessionVariable, "session_abc");
         Environment.SetEnvironmentVariable(MonitorRunInfo.RunCommandVariable, null);

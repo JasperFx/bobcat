@@ -57,9 +57,9 @@ internal static class MarkerCommentSpecs
         public readonly List<MarkedScenario> Scenarios = new();
 
         /// <summary>
-        /// The class-level <c>[BobcatSlice]</c>, rendered as the same tag strings the Gherkin and
-        /// code-first lanes use (issue #324) — so <c>GeneratorSliceTags</c> stays the one parser
-        /// and the attribute is a typed front end over it rather than a second vocabulary.
+        /// The class-level <c>[BobcatSlice]</c>, rendered as tag strings (issue #324) — so
+        /// <c>GeneratorSliceTags</c> stays the one parser and the attribute is a typed front end over
+        /// it rather than a second vocabulary.
         /// </summary>
         public readonly List<string> Tags = new();
 
@@ -114,7 +114,7 @@ internal static class MarkerCommentSpecs
 
         /// <summary>
         /// The Event Modeling roles the test body states through role-stamped vocabulary calls
-        /// (bobcat#462) — what a <c>.feature</c> scenario's type captures used to say.
+        /// (bobcat#462).
         /// </summary>
         public ProjectedRoles.Reading Roles = new();
 
@@ -124,8 +124,8 @@ internal static class MarkerCommentSpecs
         /// specification.
         /// </summary>
         /// <remarks>
-        /// <b>Explicit, and NOT inferred from having no steps — unlike the Gherkin lane.</b> There a
-        /// step-less scenario IS the pending case, because a scenario with no steps says nothing. A
+        /// <b>Explicit, and NOT inferred from having no steps.</b> The removed Gherkin lane read a
+        /// step-less scenario as the pending case, because a scenario with no steps said nothing. A
         /// projected test with no marker comments says plenty: it runs real code and publishes a
         /// real verdict, and 33 of this repository's own 41 projected samples declare no marker
         /// steps at all. Reading "no steps" as "pending" would have turned most of a working suite
@@ -315,8 +315,8 @@ internal static class MarkerCommentSpecs
     /// <remarks>
     /// <para>
     /// Rendered as tags rather than carried as its own shape so <see cref="GeneratorSliceTags"/>
-    /// keeps being the single parser: the attribute is a typed front end over the vocabulary the
-    /// Gherkin and code-first lanes already speak, not a third one to keep in step.
+    /// keeps being the single parser: the attribute is a typed front end over that vocabulary, not a
+    /// second one to keep in step.
     /// </para>
     /// <para>
     /// <b>Both attributes are read, not one in preference to the other.</b> They are the same
@@ -442,9 +442,8 @@ internal static class MarkerCommentSpecs
     /// <remarks>
     /// Read with its own reader rather than through the slice-tag vocabulary, because pending is a
     /// property of one SPECIFICATION and the tags are slice grouping. Routing it through
-    /// <see cref="GeneratorSliceTags"/> would have meant a new tag in both copies of that parser —
-    /// the generator's and the runtime's — and a corresponding entry in the agreement test, to
-    /// carry something no slice has an opinion about.
+    /// <see cref="GeneratorSliceTags"/> would have meant a new tag to carry something no slice has an
+    /// opinion about.
     /// </remarks>
     private static bool isPending(MemberDeclarationSyntax node)
         => node.AttributeLists
@@ -458,8 +457,8 @@ internal static class MarkerCommentSpecs
     /// <summary>
     /// <c>TriggeredBy = "…"</c> on this member's <c>[BobcatSlice]</c> or <c>[BobcatSpec]</c> (bobcat#463).
     /// Read on its own rather than as a tag, like <see cref="isPending"/>: it is prose for the canvas, and
-    /// routing it through <see cref="GeneratorSliceTags"/> would add a tag to both copies of that parser
-    /// to carry something no runtime reads.
+    /// routing it through <see cref="GeneratorSliceTags"/> would add a tag to carry something no slice
+    /// grouping reads.
     /// </summary>
     private static string? triggeredBy(MemberDeclarationSyntax node)
         => node.AttributeLists

@@ -33,9 +33,8 @@ public class ResidentInput
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why the tool and not the suite.</b> A Gherkin suite goes resident by being asked
-/// (<c>MySpecs --resident</c>): Bobcat owns that entry point. A projected suite's entry point
-/// belongs to xUnit or TUnit, so something outside it has to hold the manifest and launch a
+/// <b>Why the tool and not the suite.</b> A suite's entry point belongs to its test framework
+/// (xUnit, TUnit, NUnit, MSTest), not to Bobcat, so something outside it has to hold the manifest and launch a
 /// filtered host per command — and that something has to ship from here, because the console at
 /// the other end references nothing in this repository and so cannot be handed a class to host.
 /// The <c>bobcat</c> tool is where a run-side executable with no server in it belongs.

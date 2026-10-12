@@ -16,9 +16,8 @@ namespace Bobcat;
 /// </para>
 /// <para>
 /// <b>It buys two things that were impossible without it.</b> A projected specification can be
-/// <b>previewed</b> — shown without being run, which is what <c>bobcat preview</c> does for a
-/// <c>.feature</c> file and could not do here, because a projected test has no
-/// <c>FeatureDefinition</c> and no fixture to build a plan from. And a scenario that <b>stopped
+/// <b>previewed</b> — shown without being run, which is what <c>bobcat preview</c> does — because
+/// a projected test's steps are a method body, and there is no other plan to read. And a scenario that <b>stopped
 /// early</b> can render the steps it never reached in grey, instead of them silently vanishing —
 /// Storyteller greyed them out, and the difference between "this step passed" and "this step was
 /// never attempted" is the whole value of an aborted spec's report.
@@ -68,7 +67,7 @@ public static class PlannedSteps
 /// </param>
 /// <param name="Grammar">
 /// The helper this step binds to, as <c>Type.Method</c>. The answer to "why did my step match that
-/// grammar" — the same question <c>PreviewRender</c>'s bindings exist to answer for the Gherkin lane.
+/// grammar".
 /// </param>
 /// <param name="DeclaredStepNumber">
 /// 1-based position in <see cref="DeclaredSteps"/> of the marker comment this call sits under, or

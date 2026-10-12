@@ -6,15 +6,15 @@ using Bobcat.Runtime;
 namespace Bobcat;
 
 /// <summary>
-/// The polling checks -- the projected lane's twin of <c>[WaitFor]</c>.
+/// The polling checks: a step that waits for the system to converge.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why a helper and not the attribute.</b> <c>[WaitFor]</c> is read by the Gherkin generator,
-/// which wraps the step it binds in a poll loop. A C# call site has no generated wrapper around the
-/// helper's body, so the attribute on a projected step was ignored: the helper ran once and reported
-/// its first answer, which looked exactly like support. The generator now warns about that
-/// (BOBCAT035), and these are what the warning points at.
+/// <b>Why a helper and not an attribute.</b> The Gherkin lane's <c>[WaitFor]</c> attribute
+/// (removed with that lane in 0.50.0) wrapped the step it bound in a generated poll loop. A C#
+/// call site has no generated wrapper around the helper's body, so the attribute on a projected step
+/// was ignored: the helper ran once and reported its first answer, which looked exactly like
+/// support. Polling is an explicit call instead.
 /// </para>
 /// <para>
 /// <b>One verdict, not one per attempt.</b> Every attempt is judged with the same comparison

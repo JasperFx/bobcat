@@ -19,8 +19,8 @@ namespace Bobcat.Supervisor;
 /// the processes, so it can.
 /// </para>
 /// <para>
-/// It knows nothing about Gherkin. Anything that speaks MTP — Bobcat specs, xUnit v3, tUnit —
-/// is a valid worker.
+/// It knows nothing about how a suite is written. Anything that speaks MTP — xUnit v3, TUnit,
+/// NUnit, MSTest — is a valid worker.
 /// </para>
 /// </remarks>
 public sealed class Supervisor
@@ -242,9 +242,8 @@ public sealed class Supervisor
     public TimeSpan? ResourceSampleInterval { get; set; }
 
     /// <summary>
-    /// Publish this run to a Bobcat.Console host. Opt-in (same policy as
-    /// <c>BobcatRunner.PublishToMonitor</c>): a unit test driving a supervisor must never
-    /// probe a monitor that happens to be running on the box.
+    /// Publish this run to a Bobcat.Console host. Opt-in: a unit test driving a supervisor must
+    /// never probe a monitor that happens to be running on the box.
     /// </summary>
     /// <remarks>
     /// When on and a monitor answers, the supervisor owns the run bracket — one dashboard

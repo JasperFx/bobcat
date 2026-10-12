@@ -6,9 +6,9 @@ namespace Bobcat.Projected.Acceptance.Tests;
 
 /// <summary>
 /// <c>DecisionTable.feature</c> from the projected lane: a step hands its table to
-/// <see cref="TableRunner.Run(object,string,StepTable,IStepContext?)"/>, which calls a row method once
-/// per row and, when the method returns a value and exactly one column names no parameter, compares
-/// that column against it. The same rule the generator applies to a <c>[DecisionTable]</c> method.
+/// <see cref="TableRunner.Run(object,string,StepTable)"/>, which calls a row method once per row and,
+/// when the method returns a value and exactly one column names no parameter, compares that column
+/// against it.
 /// </summary>
 public class DecisionTableTests
 {

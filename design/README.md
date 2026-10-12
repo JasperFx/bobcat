@@ -13,7 +13,7 @@ when it answers *"how do I do the thing I came here to do."*
 | `ledger-design.md` | Design of record for the committed test ledger — the store, the merge strategy, the aging rules |
 | `wolverine-ci-rollout.md` | Lessons of record from the first production Supervisor rollout |
 | `rider/` | The upstream Reqnroll.Rider patch, its PR body, and notes on what was and was not verified |
-| `sample-wiring-playbook.md` | Wiring *this repo's* samples — its compose file, its ports, its eleven appsettings.json |
+| `history/` | Gherkin-era records kept for history (the lane was removed in 0.50.0, bobcat#471): the original `spec-driven-development-design.md` vision, the `acceptance-coverage-map.md` from the lane's removal, and the `sample-wiring-playbook.md` for wiring samples to `BobcatRunner` |
 | `critter-stack-interop-notes.md` | Upstream Wolverine/Marten/Fisher hazards a Bobcat suite was first to hit |
 
 ## Known follow-up

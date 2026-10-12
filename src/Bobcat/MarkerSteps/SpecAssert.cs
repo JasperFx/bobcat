@@ -70,7 +70,7 @@ public static partial class SpecAssert
     /// <summary>
     /// The text-expected form: compare against the expected value <b>as a specification would
     /// write it</b>, so <c>NULL</c>, <c>EMPTY</c> and a quoted literal all mean what they mean in a
-    /// Gherkin cell.
+    /// table cell.
     /// </summary>
     public static bool Check(string name, object? actual, string expected, CheckOptions? options = null,
         int rowIndex = -1)
@@ -101,7 +101,7 @@ public static partial class SpecAssert
     /// </summary>
     /// <remarks>
     /// Recorded as a <see cref="SpecAssertionException"/> that is never thrown, which is the whole
-    /// trick: the step carries the exact failure vocabulary a Gherkin step would, the report shows
+    /// trick: the step carries the same failure vocabulary as a failed check, the report shows
     /// the message rather than a stack, and the scenario continues to its next step.
     /// </remarks>
     public static void Fail(string? message)

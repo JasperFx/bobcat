@@ -161,7 +161,7 @@ public class RunnerWireContractTests
         // The receiving side is a .NET web host whose default is camelCase, so these payloads are
         // written the way it will read them.
         var root = parse(JsonSerializer.Serialize(
-            new RunnerRegistration("r1", "/repo", "main", "Orders.Specs", "gherkin",
+            new RunnerRegistration("r1", "/repo", "main", "Orders.Specs", "projected",
                 ["cold"], ["Orders/places an order"]),
             RunnerWire.Json));
 
@@ -169,7 +169,7 @@ public class RunnerWireContractTests
         root.GetProperty("repository").GetString().ShouldBe("/repo");
         root.GetProperty("branch").GetString().ShouldBe("main");
         root.GetProperty("suite").GetString().ShouldBe("Orders.Specs");
-        root.GetProperty("lane").GetString().ShouldBe("gherkin");
+        root.GetProperty("lane").GetString().ShouldBe("projected");
         root.GetProperty("modes").EnumerateArray().Select(x => x.GetString()).ShouldBe(["cold"]);
         root.GetProperty("specs").EnumerateArray().Select(x => x.GetString())
             .ShouldBe(["Orders/places an order"]);

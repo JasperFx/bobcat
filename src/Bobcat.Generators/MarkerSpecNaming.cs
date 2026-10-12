@@ -16,8 +16,8 @@ namespace Bobcat.Generators;
 /// is the only caller now, and the name says so.
 /// </para>
 /// <para>
-/// Duplicated, not shared, for the same reason as <see cref="GeneratorSliceTags"/>: this project
-/// is netstandard2.0 and references nothing. A silent divergence would be the same failure mode
+/// Duplicated, not shared, because this project is netstandard2.0 and references neither Bobcat
+/// core nor anything else — it only ever recognizes things by name. A silent divergence would be the same failure mode
 /// too — a scenario's declared steps are looked up by this identity
 /// (<c>DeclaredSteps.For(Uid)</c>) and its run evidence is published under it, so a mismatch
 /// means a projected test renders no steps AND joins no design-time slice, with nothing anywhere
@@ -25,8 +25,7 @@ namespace Bobcat.Generators;
 /// </para>
 /// <para>
 /// This file is deliberately free of Roslyn imports so the agreement test can
-/// <c>&lt;Compile Link&gt;</c> it straight into <c>Bobcat.Tests</c>, the way
-/// <c>GeneratorSliceTags.cs</c> already travels.
+/// <c>&lt;Compile Link&gt;</c> it straight into <c>Bobcat.Tests</c>.
 /// </para>
 /// </remarks>
 internal static class MarkerSpecNaming

@@ -18,7 +18,7 @@ namespace Bobcat.Generators;
 /// instance properties by their <c>[Header]</c> title or else their name, dotted per segment.</item>
 /// <item><see cref="ColumnRule.Set"/> — <c>SetVerificationComparer</c>: the same titles, top level
 /// only; a dotted column is never a key the comparer reads.</item>
-/// <item><see cref="ColumnRule.Partial"/> — partial objects and the shipped Gherkin grammar: a
+/// <item><see cref="ColumnRule.Partial"/> — partial objects and table-built records: a
 /// property or field by name or title, or a public constructor's parameter (an F# record's
 /// camelCase one), dotted per segment.</item>
 /// </list>

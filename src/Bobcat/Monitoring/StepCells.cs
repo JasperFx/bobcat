@@ -10,8 +10,8 @@ namespace Bobcat.Monitoring;
 /// There were two copies of this projection — one in <c>ScenarioRecorder</c> for the projected
 /// lane, one in <c>MonitorPublishingObserver</c> for the Gherkin lane — and both dropped a cell's
 /// plain text, because both sent <c>Expected</c>/<c>Actual</c>/<c>Note</c> and neither had
-/// anywhere to put <see cref="CellResult.DisplayText"/>. One projection cannot do that to one
-/// lane and not the other, which is the whole reason it is a single function now.
+/// anywhere to put <see cref="CellResult.DisplayText"/>. It stays a single function so there is one
+/// place to get it right.
 /// </para>
 /// <para>
 /// <b>The rule: a cell says exactly one thing.</b> A judged cell carries its pair, a noted cell

@@ -1,3 +1,8 @@
+> **Historical.** How the samples were wired to `BobcatRunner`, `Bobcat.Mtp` and `.feature` files in
+> the Gherkin lane, which was removed in 0.50.0 (bobcat#471). The samples are now ordinary xUnit v3
+> test projects (see `samples/README.md`). Kept for history; the drifted-sample lessons near the end
+> still apply.
+
 # Sample Wiring Playbook (internal)
 
 **Not published.** How to wire *this repository's* samples to `BobcatRunner` so their `.feature`
@@ -6,9 +11,9 @@ specs run end-to-end through Alba — the canonical reference for issue #8, with
 
 It is internal because it is about `samples/`: this repo's compose file, this repo's database
 ports, this repo's eleven `appsettings.json` files. A consumer wiring their own host wants
-[Resources](../docs/resources.md) and the integration pages, which is where the footguns this
+the integration pages (`docs/integrations/`), which is where the footguns this
 playbook uncovered now live. The upstream-framework ones are in
-[critter-stack-interop-notes.md](critter-stack-interop-notes.md).
+[critter-stack-interop-notes.md](../critter-stack-interop-notes.md).
 
 ## Before anything: start the database
 

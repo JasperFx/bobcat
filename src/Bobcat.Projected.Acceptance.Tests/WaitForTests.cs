@@ -4,14 +4,12 @@ using Bobcat.Engine.Verification;
 namespace Bobcat.Projected.Acceptance.Tests;
 
 /// <summary>
-/// <c>WaitFor.feature</c> from the projected lane. <c>[WaitFor]</c> is read only by the Gherkin
-/// generator, so a projected helper polls by calling <see cref="SpecAssert"/>'s
-/// <c>EventuallyAsync</c> instead, and the generator warns (BOBCAT035) about the attribute on a
-/// helper a C# test calls.
+/// <c>WaitFor.feature</c> from the projected lane. A projected helper polls by calling
+/// <see cref="SpecAssert"/>'s <c>EventuallyAsync</c>.
 /// </summary>
 /// <remarks>
-/// The assertions are the shape the Gherkin lane gives a reader: one step, one cell, a
-/// "converged after" or "timed out after" note, and the last value seen.
+/// The assertions are the shape a reader gets: one step, one cell, a "converged after" or "timed
+/// out after" note, and the last value seen.
 /// </remarks>
 public class WaitForTests
 {

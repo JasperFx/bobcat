@@ -1,11 +1,9 @@
 namespace Bobcat.Runtime;
 
 /// <summary>
-/// The compile-time binding of one Gherkin step to the fixture method it matched — which
-/// method, via which Cucumber expression, and where each parameter's value comes from.
-/// Computed by the source generator (it is the matcher), carried on
-/// <see cref="DelegateExecutionStep.Binding"/> so the <c>preview</c> command can show the one
-/// thing reading the <c>.feature</c> file cannot: why a step ran the code it ran (issue #208).
+/// The binding of one step to the helper method it calls — which method, via which expression,
+/// and where each parameter's value comes from. Carried on <see cref="Bobcat.Rendering.PreviewStepRender.Binding"/>
+/// so the <c>preview</c> command can show why a step ran the code it ran (issue #208).
 /// </summary>
 public class StepBinding
 {
@@ -17,13 +15,13 @@ public class StepBinding
         Arguments = arguments;
     }
 
-    /// <summary>The fixture, grammar-module or [TableGrammar] class declaring the method, fully qualified.</summary>
+    /// <summary>The class declaring the method, fully qualified.</summary>
     public string DeclaringType { get; }
 
     /// <summary>The method the step text matched.</summary>
     public string Method { get; }
 
-    /// <summary>The Cucumber expression (or table-grammar step text) that won the match.</summary>
+    /// <summary>The step expression the method declares.</summary>
     public string Expression { get; }
 
     /// <summary>One entry per parameter, in declaration order — plus a trailing pseudo-entry

@@ -26,9 +26,9 @@ namespace Bobcat.Xunit.Samples.Grammars;
 /// <para>
 /// <b>What is genuinely lost.</b> Storyteller's defaults were written as spec-language text —
 /// <c>TODAY+2</c> — parsed by the cell's converter. A C# default has to be a compile-time constant,
-/// so a relative date becomes code in the delegating helper's body. Bobcat's Gherkin lane still
-/// reads <c>TODAY+2</c> (see <c>RelativeTimeResolver</c>); the projected lane has no cell text to
-/// read it from.
+/// so a relative date becomes code in the delegating helper's body. Bobcat still reads
+/// <c>TODAY+2</c> in a table cell or an expected value (see <c>RelativeTimeResolver</c>), but a
+/// parameter default is not cell text.
 /// </para>
 /// </remarks>
 public class InvoiceGrammar

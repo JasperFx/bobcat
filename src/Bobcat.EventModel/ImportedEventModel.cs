@@ -3,8 +3,7 @@ namespace Bobcat.EventModel;
 /// <summary>
 /// The curated event-model file (issue #201) — the serialized twin of a JasperFx
 /// <c>EventModelDescriptor</c> plus scenario bodies. This is the format a human authors (or
-/// reviews after an emlang import), and what <see cref="FileEventModelSource"/> loads onto the
-/// Declared rung. Deliberately roles-only: it never carries elements or edges (those are
+/// reviews after an emlang import). Deliberately roles-only: it never carries elements or edges (those are
 /// computed upstream on every read), and it never carries status or lifecycle — status is
 /// derived from drift, not asserted here.
 /// </summary>
@@ -43,7 +42,7 @@ public sealed class CuratedSlice
 {
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Command | View | Automation | Translation. The board knows the pattern Gherkin cannot express.</summary>
+    /// <summary>Command | View | Automation | Translation. The board knows the pattern step text cannot express.</summary>
     public string? Pattern { get; set; }
 
     public string? Domain { get; set; }
@@ -166,14 +165,14 @@ public sealed class CuratedElement
 /// <summary>
 /// The slice's scenario bodies. Only the identities (<c>{feature}/{scenario}</c>) reach the
 /// descriptor, as <c>SpecificationDescriptor</c> bindings; the given/when/then bodies exist for
-/// the scaffolding layer, and their shape deliberately mirrors the shipped Bobcat grammar 1:1 so
-/// producing a <c>.feature</c> is a mechanical transform.
+/// the scaffolding layer, whose given/when/then shape makes producing a scaffolded test a
+/// mechanical transform.
 /// </summary>
 public sealed class CuratedSpecifications
 {
     /// <summary>
     /// The <c>{Feature}</c> half of every scenario identity here; defaults to the slice name.
-    /// Must match the eventual <c>.feature</c> file's Feature name — the identity is what joins
+    /// Must match the eventual spec's feature title — the identity is what joins
     /// the descriptor binding, Bobcat run evidence, and a Stoat spec-identity gate.
     /// </summary>
     public string? Feature { get; set; }
@@ -241,8 +240,8 @@ public sealed class CuratedGiven
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The shipped Gherkin has always been able to say this — the aggregate is in the step text,
-    /// so <c>And no events for VolunteerApplication "…"</c> re-points to another aggregate as
+    /// The removed Gherkin grammar could always say this — the aggregate was in the step text,
+    /// so <c>And no events for VolunteerApplication "…"</c> re-pointed to another aggregate as
     /// easily as <see cref="Stream"/> re-points to another stream of the same one. The curated
     /// format could not, so a scenario the board drew was unsayable here.
     /// </para>

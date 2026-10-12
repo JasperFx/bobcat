@@ -115,8 +115,9 @@ public static class RunnerRefusal
 /// <param name="Branch">The branch that checkout is on, or null when it is not a git worktree.</param>
 /// <param name="Suite">The suite's name, the same string <c>run_started</c> reports.</param>
 /// <param name="Lane">
-/// <c>gherkin</c> or <c>projected</c>. Only the runner knows its lane, and it decides what a
-/// command can mean — see issue #391.
+/// The suite's lane: <c>projected</c>, the only lane since the Gherkin lane was removed
+/// (bobcat#471). Kept on the wire so an older console can still read a registration — see issue
+/// #391.
 /// </param>
 /// <param name="Modes">
 /// The modes this runner offers. A command naming a mode that is not here is rejected, rather

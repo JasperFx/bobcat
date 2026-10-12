@@ -6,7 +6,7 @@ namespace Bobcat;
 
 /// <summary>
 /// Renders the specifications a projected test run produced to the console, grouped by feature —
-/// the Spectre output a <c>.feature</c> suite gets, for a suite of ordinary xUnit or TUnit tests.
+/// Spectre output for a suite of ordinary xUnit or TUnit tests.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -297,8 +297,7 @@ public static class ProjectedSpecConsole
             $"[bold]{specs.Count} specification(s)[/] — {(green ? "[green]all green[/]" : "[red]not green[/]")}");
         renderer.RenderCounts(total, green);
 
-        // Where the time went (issues #142, #466) -- the summary a Gherkin run ends with, from the
-        // projected recordings, with the lifecycle reported as not measured rather than as zero.
+        // Where the time went (issues #142, #466) -- from the projected recordings, with the lifecycle reported as not measured rather than as zero.
         renderer.RenderTimingSummary(Runtime.SuiteTiming.ForProjected(timings));
         console.WriteLine();
     }

@@ -26,7 +26,7 @@ public class HintedFailurePolicyTests
         FailureLevel level = FailureLevel.Critical,
         int attemptNumber = 1,
         int attemptsAllowed = 2,
-        params string[] tags)
+        params string[] traits)
         => new()
         {
             TestId = "Feature/Scenario",
@@ -37,14 +37,14 @@ public class HintedFailurePolicyTests
             Exception = exception,
             RetriesAvailable = retriesAvailable,
             AttemptsAllowed = attemptsAllowed,
-            Traits = ResilienceTags.ToTraits(tags)
+            Traits = TestTraits.Of(traits)
         };
 
     [Fact]
-    public void a_hinted_failure_is_retried_without_any_retry_tag()
+    public void a_hinted_failure_is_retried_without_any_retry_trait()
     {
         // This is the point of layer 1: the author already knew this failure clears, and had to
-        // tag the whole test @retry to say so — which also retried its genuine assertion failures.
+        // mark the whole test Retry to say so — which also retried its genuine assertion failures.
         var disposition = policy.Decide(attempt(new TimeoutException()))!;
 
         disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
@@ -55,7 +55,7 @@ public class HintedFailurePolicyTests
     [Fact]
     public void a_failure_no_hint_describes_is_left_to_the_default_policy()
     {
-        // Abstaining rather than deciding is what lets the tag-driven default still apply.
+        // Abstaining rather than deciding is what lets the trait-driven default still apply.
         policy.Decide(attempt(new InvalidOperationException())).ShouldBeNull();
     }
 
@@ -93,11 +93,11 @@ public class HintedFailurePolicyTests
     }
 
     [Fact]
-    public void a_failure_declared_as_never_recovering_is_not_retried_even_when_the_test_is_tagged()
+    public void a_failure_declared_as_never_recovering_is_not_retried_even_when_the_test_asks_for_retries()
     {
-        // The counterweight: @retry(3) on a test must not spend three attempts on a deterministic
+        // The counterweight: Retry=3 on a test must not spend three attempts on a deterministic
         // bug the author already identified.
-        var disposition = policy.Decide(attempt(new NotSupportedException(), tags: "retry(3)"))!;
+        var disposition = policy.Decide(attempt(new NotSupportedException(), traits: "Retry=3"))!;
 
         disposition.Kind.ShouldBe(DispositionKind.FailAndContinue);
         disposition.IsRetry.ShouldBeFalse();
@@ -176,9 +176,9 @@ public class HintedFailurePolicyTests
     }
 
     [Fact]
-    public void a_tag_driven_decision_carries_no_hint()
+    public void a_trait_driven_decision_carries_no_hint()
     {
-        new DefaultFailurePolicy().Decide(attempt(new InvalidOperationException(), tags: "retry(2)"))!
+        new DefaultFailurePolicy().Decide(attempt(new InvalidOperationException(), traits: "Retry=2"))!
             .Hint.ShouldBeNull();
     }
 

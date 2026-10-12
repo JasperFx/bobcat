@@ -30,19 +30,20 @@ public enum ReportVisibility
 /// <remarks>
 /// <para>
 /// <b>Scenario-scoped, which is the entire point.</b> Everything else a step can say attaches to
-/// the step — <see cref="IStepContext.Log"/>, <see cref="IStepContext.AttachDiagnostic"/> and
-/// <see cref="IStepContext.RecordCells"/> all route through the executing step and are no-ops
-/// between steps. The evidence that actually diagnoses an asynchronous failure does not belong to
+/// the step — <see cref="ScenarioRecorder.RecordCell"/> and <see cref="ScenarioRecorder.Note"/>
+/// hang on the step in progress, and a cell recorded between steps has nowhere to go. The
+/// evidence that actually diagnoses an asynchronous failure does not belong to
 /// one step: a tracked messaging session's record spans the scenario and is most valuable *after*
 /// the <c>Then</c> that disagreed.
 /// </para>
 /// <para>
-/// <b>Why it is not on the scenario blackboard.</b> <see cref="IStepContext.SetState{T}"/> is
-/// <c>ReporterFor&lt;T&gt;()</c> minus the rendering, and reaching for it is the obvious move.
-/// Issue #107 already settled it the other way: run evidence deliberately does not ride the
-/// blackboard, because <see cref="ExecutionResults.TouchedTypes"/> has to reach the wire. A report
-/// has to reach the wire for exactly the same reason, so it accumulates onto the results beside
-/// <c>TouchedTypes</c> and <see cref="ExecutionResults.Timeline"/>.
+/// <b>Why it is not ordinary scenario state.</b> A field on the test class, or any per-scenario
+/// state bag, is <c>ReporterFor&lt;T&gt;()</c> minus the rendering, and reaching for it is the
+/// obvious move. Issue #107 already settled it the other way: run evidence deliberately does not
+/// live in scenario state, because the touched types have to reach the wire. A report has to reach
+/// the wire for exactly the same reason, so it accumulates onto the scenario's recording
+/// (<see cref="ScenarioRecorder.Recording"/>) beside
+/// <see cref="ScenarioRecorder.Recording.TouchedTypes"/>.
 /// </para>
 /// <para>
 /// <b>Rows are unjudged cells, so a report cannot claim it checked anything.</b> Every cell a

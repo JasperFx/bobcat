@@ -7,10 +7,9 @@ namespace Bobcat.Monitoring;
 /// (issue #408) — the sibling of <see cref="StepCells"/>, and single for the same reason.
 /// </summary>
 /// <remarks>
-/// Both lanes publish reports: the Gherkin lane from <c>MonitorPublishingObserver</c> and the
-/// projected lane from <c>ScenarioRecorder</c>. Two copies of this projection is exactly what
-/// issue #396 found had quietly dropped a cell's plain text in both lanes at once, so there is
-/// one, and it applies <see cref="ScenarioReportVisibility"/> itself rather than trusting each
+/// <c>ScenarioRecorder</c> publishes reports through it. Two copies of a projection like this is
+/// exactly what issue #396 found had quietly dropped a cell's plain text, so there is one, and it
+/// applies <see cref="ScenarioReportVisibility"/> itself rather than trusting each
 /// caller to remember.
 /// </remarks>
 public static class MonitorReports

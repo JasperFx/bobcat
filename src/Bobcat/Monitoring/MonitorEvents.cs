@@ -138,9 +138,9 @@ public record ScenarioFinished(
     // Optional and additive.
     IReadOnlyList<ScenarioReportInfo>? Reports = null,
     // What the scenario's steps cost, top-level steps summed (issue #466), next to DurationMs,
-    // which is the whole bracket. The difference is time no step owns. Sent by the projected lane;
-    // null from the Gherkin runner and from an older publisher, which means "not measured", never
-    // zero. Optional and additive.
+    // which is the whole bracket. The difference is time no step owns. Always sent now;
+    // null from an older publisher (including the removed Gherkin runner), which means "not
+    // measured", never zero. Optional and additive.
     long? StepsMs = null) : MonitorEvent(RunId);
 
 /// <summary>
@@ -323,8 +323,7 @@ public record StepFinished(
 /// Before this, such a cell reached a consumer as
 /// <c>{"name":"x","status":"ok","expected":null,"actual":null}</c> and a grid rendered the column
 /// empty, because the text lived only in <c>CellResult.DisplayText</c> and nothing on the wire
-/// carried it. Both lanes were affected: the projected lane's table literal and the Gherkin lane's
-/// <c>[Table]</c> and <c>[TableGrammar]</c> rows all build input cells the same way.
+/// carried it. A table literal's input cells are built exactly that way.
 /// </para>
 /// </remarks>
 public record StepCell(

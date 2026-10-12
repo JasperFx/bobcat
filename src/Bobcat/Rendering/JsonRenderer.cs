@@ -20,10 +20,9 @@ public static class JsonRenderer
     };
 
     /// <summary>
-    /// The timing block on its own -- the same shape <see cref="RenderSuite"/> nests under
-    /// <c>timing</c> -- for a suite that produced no <see cref="SuiteResults"/>: a projected one,
-    /// read through <see cref="SuiteTiming.For(IEnumerable{ScenarioRecorder.Recording})"/> (issue
-    /// #466). <c>null</c> when nothing was measured and nothing is flagged.
+    /// The timing block on its own, for a projected suite, read through
+    /// <see cref="SuiteTiming.For(IEnumerable{ScenarioRecorder.Recording})"/> (issue #466).
+    /// <c>null</c> when nothing was measured and nothing is flagged.
     /// </summary>
     public static string RenderTiming(SuiteTiming timing)
         => JsonSerializer.Serialize(timingToJson(timing), options);
@@ -218,8 +217,8 @@ internal class JsonTimingOutput
 
     /// <summary>
     /// <c>false</c> for projected input, whose lifecycle belongs to the test runner and is not
-    /// measured (issue #466); absent for a Gherkin run, which always measured it. Additive, so a
-    /// Gherkin artifact reads exactly as it did.
+    /// measured (issue #466); absent in an artifact written by the removed Gherkin runner, which
+    /// always measured it. Additive, so such an artifact reads exactly as it did.
     /// </summary>
     public bool? LifecycleMeasured { get; set; }
 

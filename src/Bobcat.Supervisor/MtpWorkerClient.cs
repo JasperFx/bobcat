@@ -7,8 +7,8 @@ namespace Bobcat.Supervisor;
 /// Launches a Microsoft.Testing.Platform test host and drives it over server mode.
 /// </summary>
 /// <remarks>
-/// Works against any MTP host — Bobcat's own (<c>Bobcat.Mtp</c>), xUnit v3, or tUnit — which is
-/// what makes the supervisor a <c>dotnet test</c> alternative rather than a Gherkin-only tool.
+/// Works against any MTP host — xUnit v3, TUnit, NUnit or MSTest — which is what makes the
+/// supervisor a <c>dotnet test</c> alternative.
 /// </remarks>
 public sealed class MtpWorkerClient : IWorkerClient
 {

@@ -109,7 +109,7 @@ internal static class CuratedModelReader
         }
 
         // An arranged event pointed at an aggregate no slice declares (issue #320). A warning and
-        // not a problem: the step it scaffolds is still valid Gherkin and the type may exist in
+        // not a problem: the step it scaffolds is still a valid step and the type may exist in
         // code the model has not caught up with — but far more often it is a typo, and the
         // scaffolded arrange then silently addresses a stream of a type nothing else mentions.
         var declared = file.Slices.SelectMany(x => x.Aggregates).ToHashSet(StringComparer.Ordinal);

@@ -6,8 +6,8 @@ using Shouldly;
 namespace Bobcat.Tests.MarkerSteps;
 
 /// <summary>
-/// A projected test renders through the same <see cref="SpecRender"/> model a <c>.feature</c>
-/// scenario does — so "Bobcat's specification output" means one thing rather than two.
+/// A projected test renders through the <see cref="SpecRender"/> model — so "Bobcat's
+/// specification output" means one thing.
 /// </summary>
 public class ProjectedSpecRenderTests : IDisposable
 {

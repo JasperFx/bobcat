@@ -290,8 +290,7 @@ internal sealed class SourceWatcher : IDisposable
         if (parts.Any(p => p is "bin" or "obj" or ".git" or ".vs" or ".idea")) return;
         if (!(path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
               || path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
-              || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-              || path.EndsWith(".feature", StringComparison.OrdinalIgnoreCase))) return;
+              || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))) return;
 
         lock (_gate) _lastChange = DateTime.UtcNow;
     }

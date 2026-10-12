@@ -7,17 +7,16 @@ using Bobcat.Engine;
 namespace Bobcat.CritterStack;
 
 /// <summary>
-/// Builds a command or event object from a Gherkin table row at runtime — the piece the shipped
-/// grammars need that a compile-time entity binder (<c>[EfCoreEntities]</c>) does not cover,
-/// because a grammar's event/command type is named in the step text (<c>{command}</c>,
-/// <c>{event}</c>) and its columns are read as constructor arguments per row. Records land on their
-/// primary constructor; a settable-property object is the fallback. Cells convert with the same
-/// rules a Gherkin literal uses everywhere else in Bobcat.
+/// Builds a command or event object from a <see cref="StepTable"/> row at runtime — what
+/// <see cref="Bobcat.Runtime.TableRunner"/> uses to turn a table literal into records, with the row's
+/// columns read as constructor arguments. Records land on their primary constructor; a
+/// settable-property object is the fallback. Cells convert through
+/// <see cref="Bobcat.Runtime.CellValues"/>, the same rules a cell follows everywhere else in Bobcat.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Public because <c>[IncludeGrammars]</c> is the designed extension point</b> (issue #272).
-/// Any custom grammar module that declares a <see cref="StepTable"/> parameter needs exactly this
+/// <b>Public because a custom grammar is the designed extension point</b> (issue #272).
+/// Any grammar helper that declares a <see cref="StepTable"/> parameter needs exactly this
 /// conversion, and while it was <c>internal</c> every one of them had to hand-roll a poorer copy —
 /// each with its own type coercion, its own treatment of a blank cell, and its own message when a
 /// column matches nothing. That is precisely the divergence issue #241 spent effort removing from
@@ -126,17 +125,3 @@ internal static class EventTypeResolver
     }
 }
 
-/// <summary>
-/// Converts a Gherkin cell string to a target type, for the grammars' reflective record building.
-/// </summary>
-/// <remarks>
-/// Delegates to <see cref="Bobcat.Runtime.CellValues"/>, which is the one runtime authority on what a
-/// cell means. It used to be a third copy of the rules beside the generator's literal emission and the
-/// expected-side checkers, and the copies had drifted: this one could not read <c>TODAY+2</c> or
-/// <c>NULL</c>, so a table that supplied a date and a table that asserted one disagreed about what the
-/// same word meant.
-/// </remarks>
-internal static class GherkinValue
-{
-    public static object? Convert(string raw, Type target) => Bobcat.Runtime.CellValues.Read(raw, target);
-}

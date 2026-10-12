@@ -16,7 +16,7 @@ public class DefaultFailurePolicyTests
         bool retriesAvailable = true,
         int attemptNumber = 1,
         int attemptsAllowed = 2,
-        params string[] tags)
+        params string[] traits)
         => new()
         {
             TestId = "Feature/Scenario",
@@ -27,7 +27,7 @@ public class DefaultFailurePolicyTests
             Exception = exception,
             RetriesAvailable = retriesAvailable,
             AttemptsAllowed = attemptsAllowed,
-            Traits = ResilienceTags.ToTraits(tags)
+            Traits = TestTraits.Of(traits)
         };
 
     [Fact]
@@ -37,20 +37,20 @@ public class DefaultFailurePolicyTests
     }
 
     [Fact]
-    public void an_untagged_failure_is_never_retried()
+    public void a_failure_without_retry_traits_is_never_retried()
     {
         // Retries are opt-in. Retrying by default would turn every real assertion failure into
         // a slower real assertion failure, and make flaky indistinguishable from broken.
-        var disposition = _policy.Decide(attempt(tags: []))!;
+        var disposition = _policy.Decide(attempt(traits: []))!;
 
         disposition.Kind.ShouldBe(DispositionKind.FailAndContinue);
         disposition.Reason.ShouldBe("assertion failure");
     }
 
     [Fact]
-    public void a_retry_tag_asks_for_an_in_process_retry()
+    public void a_retry_trait_asks_for_an_in_process_retry()
     {
-        var disposition = _policy.Decide(attempt(tags: "retry(2)"))!;
+        var disposition = _policy.Decide(attempt(traits: "Retry=2"))!;
 
         disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
         disposition.IsRetry.ShouldBeTrue();
@@ -58,19 +58,19 @@ public class DefaultFailurePolicyTests
     }
 
     [Fact]
-    public void an_isolated_tag_asks_for_a_fresh_process()
+    public void an_isolated_trait_asks_for_a_fresh_process()
     {
-        var disposition = _policy.Decide(attempt(tags: ["retry(2)", "isolated"]))!;
+        var disposition = _policy.Decide(attempt(traits: ["Retry=2", "Isolated=true"]))!;
 
         disposition.Kind.ShouldBe(DispositionKind.RetryInFreshProcess);
         disposition.RequiresSupervisor.ShouldBeTrue();
     }
 
     [Fact]
-    public void a_recycle_tag_names_the_resources_and_wins_over_isolated()
+    public void a_recycle_trait_names_the_resources_and_wins_over_isolated()
     {
         // Recycle names a specific known cause, so it outranks the more generic isolation ask.
-        var disposition = _policy.Decide(attempt(tags: ["isolated", "recycle(rabbit,kafka)"]))!;
+        var disposition = _policy.Decide(attempt(traits: ["Isolated=true", "RecycleOnRetry=rabbit,kafka"]))!;
 
         disposition.Kind.ShouldBe(DispositionKind.RetryAfterRecycle);
         disposition.Resources.ShouldBe(["rabbit", "kafka"]);
@@ -81,7 +81,7 @@ public class DefaultFailurePolicyTests
     {
         var disposition = _policy.Decide(attempt(
             level: FailureLevel.Catastrophic,
-            tags: "retry(5)"))!;
+            traits: "Retry=5"))!;
 
         disposition.Kind.ShouldBe(DispositionKind.AbortRun);
         disposition.IsRetry.ShouldBeFalse();
@@ -93,7 +93,7 @@ public class DefaultFailurePolicyTests
         var disposition = _policy.Decide(attempt(
             level: FailureLevel.None,
             exception: new SpecCatastrophicException("the database is gone"),
-            tags: "retry(5)"))!;
+            traits: "Retry=5"))!;
 
         disposition.Kind.ShouldBe(DispositionKind.AbortRun);
         disposition.Reason.ShouldContain("the database is gone");
@@ -102,7 +102,7 @@ public class DefaultFailurePolicyTests
     [Fact]
     public void an_exhausted_budget_downgrades_a_retry_request_to_a_plain_failure()
     {
-        var disposition = _policy.Decide(attempt(retriesAvailable: false, tags: "retry(2)"))!;
+        var disposition = _policy.Decide(attempt(retriesAvailable: false, traits: "Retry=2"))!;
 
         disposition.Kind.ShouldBe(DispositionKind.FailAndContinue);
     }
@@ -112,7 +112,7 @@ public class DefaultFailurePolicyTests
     {
         // "assertion failure" alone would hide that the budget, not the test, ended the retrying.
         var disposition = _policy.Decide(attempt(
-            retriesAvailable: false, attemptNumber: 3, attemptsAllowed: 3, tags: "retry(3)"))!;
+            retriesAvailable: false, attemptNumber: 3, attemptsAllowed: 3, traits: "Retry=3"))!;
 
         disposition.Reason.ShouldBe("assertion failure — this test has used all 3 allowed attempts");
     }
@@ -122,15 +122,15 @@ public class DefaultFailurePolicyTests
     {
         // Still on attempt 1 of an allowed 3, so it was the RUN's ceiling that stopped this.
         var disposition = _policy.Decide(attempt(
-            retriesAvailable: false, attemptNumber: 1, attemptsAllowed: 3, tags: "retry(3)"))!;
+            retriesAvailable: false, attemptNumber: 1, attemptsAllowed: 3, traits: "Retry=3"))!;
 
         disposition.Reason.ShouldBe("assertion failure — the run's retry budget is exhausted");
     }
 
     [Fact]
-    public void an_untagged_test_with_no_retries_left_is_not_told_about_a_budget_it_never_used()
+    public void a_test_without_retry_traits_and_no_retries_left_is_not_told_about_a_budget_it_never_used()
     {
-        var disposition = _policy.Decide(attempt(retriesAvailable: false, tags: []))!;
+        var disposition = _policy.Decide(attempt(retriesAvailable: false, traits: []))!;
 
         disposition.Reason.ShouldBe("assertion failure");
     }
@@ -145,14 +145,14 @@ public class DefaultFailurePolicyTests
     [Fact]
     public void a_custom_policy_decides_before_the_default_and_may_abstain()
     {
-        var chain = new FailurePolicyChain(new AbstainUnlessTagged(), new DefaultFailurePolicy());
+        var chain = new FailurePolicyChain(new AbstainUnlessQuarantined(), new DefaultFailurePolicy());
 
-        chain.Decide(attempt(tags: "quarantine"))!.Kind.ShouldBe(DispositionKind.RetryInProcess);
+        chain.Decide(attempt(traits: "quarantine=true"))!.Kind.ShouldBe(DispositionKind.RetryInProcess);
         // Abstained — the default answers instead.
-        chain.Decide(attempt(tags: []))!.Kind.ShouldBe(DispositionKind.FailAndContinue);
+        chain.Decide(attempt(traits: []))!.Kind.ShouldBe(DispositionKind.FailAndContinue);
     }
 
-    private class AbstainUnlessTagged : IFailurePolicy
+    private class AbstainUnlessQuarantined : IFailurePolicy
     {
         public Disposition? Decide(AttemptContext attempt)
             => attempt.HasTrait("quarantine")

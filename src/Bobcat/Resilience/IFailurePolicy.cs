@@ -6,9 +6,9 @@ namespace Bobcat.Resilience;
 /// Everything a policy is allowed to see about one attempt at one test.
 /// </summary>
 /// <remarks>
-/// Deliberately framework-neutral: no Gherkin, no <c>ScenarioDefinition</c>, no
-/// <c>ExecutionResults</c>. A Bobcat scenario, an xUnit fact and a tUnit test all project onto
-/// this shape, which is what keeps the resilience engine reusable across front-ends.
+/// Deliberately framework-neutral: an xUnit fact, a TUnit test, an NUnit or MSTest test all
+/// project onto this shape, which is what keeps the resilience engine reusable across
+/// front-ends.
 /// </remarks>
 public sealed class AttemptContext
 {
@@ -47,8 +47,8 @@ public sealed class AttemptContext
     }
 
     /// <summary>
-    /// Key/value metadata: Gherkin tags projected by <see cref="ResilienceTags"/>, or traits read
-    /// off an xUnit <c>[Trait]</c> / tUnit <c>[Property]</c> through the MTP wire. The spike for
+    /// Key/value metadata: traits read off an xUnit <c>[Trait]</c> / TUnit <c>[Property]</c>
+    /// through the MTP wire, keyed by the <see cref="ResilienceTags"/> vocabulary. The spike for
     /// issue #43 found traits are the only metadata channel that survives every front-end
     /// intact, so policy keys off these rather than off exception types.
     /// </summary>

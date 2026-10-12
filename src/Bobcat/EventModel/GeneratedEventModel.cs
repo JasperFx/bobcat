@@ -4,8 +4,8 @@ using JasperFx.Events.EventModeling;
 namespace Bobcat;
 
 /// <summary>
-/// The Event Model half a spec assembly's generated source declares — the slices its
-/// <c>.feature</c> files and code-first specs describe, and the <c>{Feature}/{Scenario}</c>
+/// The Event Model half a spec assembly's generated source declares — the slices its projected
+/// specifications describe, and the <c>{Feature}/{Scenario}</c>
 /// identities they bind to them (issues #106, #170).
 /// </summary>
 /// <remarks>

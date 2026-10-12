@@ -8,11 +8,10 @@ namespace Bobcat.Rendering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why this is its own type.</b> It has two callers in two lanes: <see cref="SpecOutput"/>
-/// hands a projected spec's scenario to its runner's per-test output, and <c>Bobcat.Mtp</c>
-/// attaches a Gherkin scenario's to its test node. The rendering is the same question in both, so
-/// it gets one answer here rather than two that agree by accident — the discipline
-/// <c>CellResult.derive()</c> and <see cref="ScenarioReportVisibility"/> already follow.
+/// <b>Why this is its own type.</b> <see cref="SpecOutput"/> hands a projected spec's scenario to
+/// its runner's per-test output through it, and the console rendering it mirrors lives elsewhere,
+/// so the plain-text answer lives in one place — the discipline <c>CellResult.derive()</c> and
+/// <see cref="ScenarioReportVisibility"/> already follow.
 /// </para>
 /// <para>
 /// <b>Plain text, not markup.</b> A test runner's output pane and a CI log show the text and none

@@ -1,8 +1,9 @@
 namespace Bobcat.Engine;
 
 /// <summary>
-/// Where a scenario's reports accumulate. Implemented by the Gherkin lane's execution results and
-/// the projected lane's recording — the two things that own a scenario (issue #408).
+/// Where a scenario's reports accumulate. Implemented by the scenario's recording,
+/// <see cref="ScenarioRecorder.Recording"/>, the thing that owns a scenario
+/// (issue #408).
 /// </summary>
 public interface IReportSink
 {
@@ -29,14 +30,13 @@ public interface IReportSink
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Ambient because a report producer must compile once and work in both lanes.</b> A helper in
-/// <c>WolverineFx.Bobcat</c> is called from a <c>.feature</c> fixture, which has an
-/// <see cref="IStepContext"/>, and from a projected <c>[BobcatSpec]</c> test, which has none and
-/// cannot be given one — there is no Bobcat DI scope or <c>TestResources</c> behind an xUnit test,
-/// so <c>GetService&lt;T&gt;()</c> would have to throw, and a context whose half throws is worse
-/// than no context. A static ambient surface is the only shape that reaches both, and it is
-/// already this codebase's answer to exactly this problem: <c>ScenarioRecorder.Current</c> and
-/// <c>BobcatClock</c> are both <see cref="AsyncLocal{T}"/> for the same reason.
+/// <b>Ambient because a report producer has no context to be handed.</b> A helper in
+/// <c>WolverineFx.Bobcat</c> is called from a projected <c>[BobcatSpec]</c> test, an ordinary xUnit
+/// / TUnit / NUnit / MSTest test with no Bobcat DI scope behind it, so there is nothing to pass the
+/// helper and nothing it could resolve a context from. A static ambient surface is the shape that
+/// reaches it, and it is already this codebase's answer to exactly this problem:
+/// <c>ScenarioRecorder.Current</c> and <c>BobcatClock</c> are both <see cref="AsyncLocal{T}"/> for
+/// the same reason.
 /// </para>
 /// <para>
 /// <b>Silent when nothing opened a scenario.</b> A grammar helper gets called from plenty of places
@@ -84,10 +84,9 @@ public static class ScenarioReports
 /// </summary>
 /// <remarks>
 /// <para>
-/// The static twin of <see cref="IStepContext.ReportFor{TReport}"/>, and the reason it is static is
-/// in <see cref="ScenarioReports"/>: a producer shared between the Gherkin and projected lanes has
-/// an <see cref="IStepContext"/> in one of them and nothing in the other. <c>SpecAssert</c> is the
-/// same decision for the same reason.
+/// The static front for <see cref="IReportSink.ReportFor{TReport}"/>, and the reason it is static is
+/// in <see cref="ScenarioReports"/>: a producer in another package has no scenario context to be
+/// handed. <c>SpecAssert</c> is the same decision for the same reason.
 /// </para>
 /// </remarks>
 public static class SpecReport

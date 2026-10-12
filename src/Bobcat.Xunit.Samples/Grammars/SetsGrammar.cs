@@ -18,13 +18,9 @@ public record CityRow(string City, int Distance, string Zip);
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b><c>[SetVerification]</c> cannot be reached from here, and that is why this form exists.</b> A
-/// <c>[SetVerification]</c> method returns the actual collection and the generator supplies the
-/// expected rows from the document — so there is no way for a C# test to hand it an expectation. A
-/// step taking a <see cref="StepTable"/> takes them as an argument instead, and
-/// <see cref="SetVerificationComparer.Verify"/> runs the identical comparison, so one grammar body
-/// serves a <c>.feature</c> file and a test alike. Compare
-/// <c>Bobcat.Gherkin.Samples/SetsFixture.cs</c>: same samples, the declarative form.
+/// <b>The expected rows are an argument.</b> A step taking a <see cref="StepTable"/> receives the
+/// expected rows from the test, and <see cref="SetVerificationComparer.Verify"/> compares them
+/// against the actual collection, with key columns, ordering and column selection as arguments.
 /// </para>
 /// <para>
 /// On a grammar that inherits <c>Fixture</c> this is <c>VerifySet(...)</c> directly, the sibling of
@@ -41,8 +37,8 @@ public class SetsGrammar
 
     /// <summary>
     /// Storyteller's <c>InvoiceDetailsAre</c>, whose only job is to set up the actual state the
-    /// verification then reads. <c>TODAY-1</c> is a date because the cell conversion is the same one
-    /// the Gherkin lane uses.
+    /// verification then reads. <c>TODAY-1</c> is a date because Bobcat's cell conversion
+    /// (<c>CellValues</c>) reads it as one.
     /// </summary>
     [Given("the invoice details are")]
     internal void TheInvoiceDetailsAre(StepTable table)

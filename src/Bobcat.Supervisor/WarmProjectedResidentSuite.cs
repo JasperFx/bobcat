@@ -31,8 +31,7 @@ namespace Bobcat.Supervisor;
 /// <b>What warmth actually buys here, and what it does not.</b> It keeps the CLR warm: the JIT,
 /// the loaded assemblies, the codegen. It does <em>not</em> keep the suite's own fixtures up —
 /// xUnit's assembly and collection fixtures are created and disposed within a run request, so a
-/// second request pays for them again. That is the opposite of the Gherkin lane, where what warms
-/// is Bobcat's own <c>TestResources.StartAll</c>. Issue #394 measured the saving as 72ms → 11ms →
+/// second request pays for them again. Issue #394 measured the saving as 72ms → 11ms →
 /// 4ms for the same work, which is real but is CLR warmth, not boot warmth.
 /// </para>
 /// <para>
@@ -94,7 +93,7 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
     /// Cold always; warm until a warm session leaves the host unusable.
     /// </summary>
     /// <remarks>
-    /// The withdrawal follows the Gherkin lane's rule (issue #393): the runner drops <c>warm</c>
+    /// The withdrawal follows issue #393's rule: the runner drops <c>warm</c>
     /// from the modes it registers, re-registers so the monitor stops offering a button that would
     /// now be refused, and refuses a warm command <em>with the reason</em> — because "warm is not a
     /// mode this runner offers", from a runner that was offering it a minute ago, explains nothing.
@@ -117,8 +116,7 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
     {
         if (!string.Equals(mode, RunnerWire.WarmMode, StringComparison.OrdinalIgnoreCase))
         {
-            // A cold command closes the warm session first. They cannot coexist for the same
-            // reason they cannot in the Gherkin lane: the booted host holds the port, the database
+            // A cold command closes the warm session first. They cannot coexist: the booted host holds the port, the database
             // and the queues a second one would ask for, so "fresh everything" has to include
             // tearing down what is up.
             await StopWarmSession();

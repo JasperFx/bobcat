@@ -255,7 +255,7 @@ public class ProjectedResidentRunnerTests : IDisposable
     [Fact]
     public async Task a_cold_command_closes_the_warm_session_first()
     {
-        // They cannot coexist for the same reason they cannot in the Gherkin lane: the booted host
+        // They cannot coexist: the booted host
         // holds the port, the database and the queues a second one would ask for, so "fresh
         // everything" has to include tearing down what is up.
         using var monitor = new FakeMonitorHost();

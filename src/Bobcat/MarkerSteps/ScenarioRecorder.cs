@@ -94,9 +94,8 @@ public static class ScenarioRecorder
         var recording = new Recording(feature, scenario, publisher, runId);
         _current.Value = recording;
 
-        // The same scenario, as the ambient report sink (issue #408), so a grammar shared with the
-        // Gherkin lane reports here through one static surface and does not have to know which
-        // lane it is in.
+        // The same scenario, as the ambient report sink (issue #408), so a grammar helper in another
+        // package reports here through one static surface without being handed anything.
         recording.OpenReporting();
         return recording;
     }
@@ -161,8 +160,7 @@ public static class ScenarioRecorder
         var step = recording.BeginStep(keyword, rendered.Text, declaredIndex, plannedIndex, rendered.Values);
 
         // A table argument is the step's data, not a word in its sentence, so it is recorded as a
-        // grid — the same cells-plus-columns shape a Gherkin [Table] step produces, so both lanes
-        // render and publish one table the same way.
+        // grid of cells plus its column order, so it renders and publishes as a table.
         foreach (var argument in arguments)
         {
             if (argument.Value is StepTable table) recording.RecordTable(table);
@@ -336,8 +334,7 @@ public static class ScenarioRecorder
 
         /// <summary>
         /// The CLR types this scenario observably touched (issue #465), in first-touch order, deduplicated —
-        /// the projected twin of the Gherkin lane's <c>ExecutionResults.TouchedTypes</c>, and published the
-        /// same way on <c>scenario_finished</c>.
+        /// published on <c>scenario_finished</c>.
         /// </summary>
         public IReadOnlyList<Type> TouchedTypes
         {
@@ -415,8 +412,7 @@ public static class ScenarioRecorder
 
         /// <summary>
         /// Record the table the open step was handed, as one <c>ok</c> cell per (row, column) plus
-        /// the column order — the shape a Gherkin <c>[Table]</c> step produces, so the grid renders
-        /// and travels identically in both lanes.
+        /// the column order, so the grid renders and travels as a table.
         /// </summary>
         internal void RecordTable(StepTable table)
         {
@@ -613,8 +609,7 @@ public static class ScenarioRecorder
                     : null,
 
                 // The column order of a grid: the one thing cells cannot carry themselves, and
-                // without it a viewer cannot reassemble the table. The Gherkin lane has always sent
-                // it; a projected step handed a table literal sends the same field.
+                // without it a viewer cannot reassemble the table.
                 Columns: step.TableColumns.Count > 0 ? step.TableColumns.ToList() : null,
                 ExceptionType: thrown?.GetType().Name,
                 StackTrace: thrown?.StackTrace,
@@ -643,7 +638,7 @@ public static class ScenarioRecorder
 
         /// <summary>
         /// The scenario's rights, wrongs and errors, read off the steps that ran — Storyteller's
-        /// three counts, and the same vocabulary a Gherkin scenario reports.
+        /// three counts.
         /// </summary>
         /// <remarks>
         /// A step with cells counts its CELLS, not itself: a sentence asserting a sum and a product
@@ -891,7 +886,7 @@ public static class ScenarioRecorder
         public List<CellResult> Cells { get; } = new();
 
         /// <summary>
-        /// The step's verdict, on the same four-way vocabulary the Gherkin lane reports:
+        /// The step's verdict, on a four-way vocabulary:
         /// a failed, missing or invalid cell (a wrong value, a missing row, an extra row) or an
         /// assertion exception is <c>failed</c> (a Storyteller <i>wrong</i>), any other exception
         /// or a table row whose code threw is <c>error</c>, and a step that finished with nothing
@@ -910,7 +905,6 @@ public static class ScenarioRecorder
                 // a missing row is a disagreement with the document exactly as a wrong cell is. Left
                 // out, it was the one bad cell a projected step could carry while reporting success —
                 // a red grid under a green test, which is the failure mode this lane exists to avoid.
-                // The Gherkin lane's IStepContext.RecordCells has always counted it.
                 //
                 // `invalid` is here for the same reason (bobcat#471): it's what an extra-row marker
                 // carries, and a row the document doesn't describe is a wrong, not an exception. It

@@ -10,8 +10,8 @@ namespace Bobcat.EventModel;
 /// <para>
 /// The projected lane has no title attribute: a test's scenario title is derived from its METHOD
 /// NAME, with underscores read as spaces. So the scenario name a curated model declares has to be
-/// spellable as a C# identifier, and has to round-trip back to itself — a constraint the Gherkin
-/// and code-first lanes do not have, since both carry the title as a string.
+/// spellable as a C# identifier, and has to round-trip back to itself — a constraint the removed
+/// Gherkin and code-first lanes did not have, since both carried the title as a string.
 /// </para>
 /// <para>
 /// The cost of getting it wrong is silent: a scenario named "Accepting an assignment, twice"

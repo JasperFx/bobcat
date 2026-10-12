@@ -7,12 +7,6 @@ namespace Bobcat.Xunit.Samples.Specs;
 /// an extra row, a missing row, a reordering — because the samples exist to show what each outcome
 /// looks like in the grid.
 /// </summary>
-/// <remarks>
-/// The Gherkin lane recreates the same documents in
-/// <c>Bobcat.Gherkin.Samples/Features/Sets.feature</c> against the declarative
-/// <c>[SetVerification]</c> form. Reading the two side by side is the point: the grids are identical,
-/// because the comparison is.
-/// </remarks>
 [BobcatFeature("Sets"), BobcatScenario]
 public class SetSpecs
 {

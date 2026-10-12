@@ -53,7 +53,7 @@ public class EmlangImportTests
     [Fact]
     public void triggered_by_makes_an_automation_slice_and_the_board_closes_the_pattern_gap()
     {
-        // Gherkin cannot express an automation's trigger, so the derived Pattern stays null
+        // Step text cannot express an automation's trigger, so the derived Pattern stays null
         // there — the board is the source that CAN say it, which is #202's whole point.
         var slice = import(SwipeChapter).Slices.First(x => x.Name == "DetectMutualMatch");
 

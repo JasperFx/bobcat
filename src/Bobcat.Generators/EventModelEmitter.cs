@@ -147,20 +147,19 @@ internal static class EventModelEmitter
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Roles from the vocabulary, as the Gherkin arm takes them from captures.</b>
+    /// <b>Roles from the vocabulary.</b>
     /// <c>GivenEvents&lt;Account&gt;(id, new AccountOpened(…))</c>, <c>WhenReceived(new Deposit(…))</c>,
-    /// <c>ThenEvents(typeof(FundsDeposited))</c> say exactly what <c>Given events for Account</c>,
-    /// <c>When Deposit is received</c> and <c>Then FundsDeposited is emitted</c> said, and they land in the
-    /// same <see cref="SliceModel"/> lists by the same rules: every command into <c>Commands</c>, the LAST
+    /// <c>ThenEvents(typeof(FundsDeposited))</c> each state a role, and they land in the
+    /// <see cref="SliceModel"/> lists by these rules: every command into <c>Commands</c>, the LAST
     /// one as <c>ActCommand</c>; an arranged event into <c>ArrangedEvents</c>, which only a View slice
-    /// emits (#297); a document into resolved types only. <c>patternOf</c> and <c>emitSlice</c> are shared,
-    /// so the two arms cannot drift there. <see cref="ProjectedRoles"/> reads the roles; this only folds.
+    /// emits (#297); a document into resolved types only. <see cref="ProjectedRoles"/> reads the roles; this
+    /// only folds.
     /// </para>
     /// <para>
     /// A method-level binding REPLACES the class's, which is how one test class covers several
     /// slices — a rebinding is a whole binding, so a test wanting the class's domain as well says
     /// so. A test with neither a binding nor roles contributes nothing; one with roles and no binding falls
-    /// back to the feature title, as an untagged Gherkin scenario that resolves roles does.
+    /// back to the feature title.
     /// </para>
     /// </remarks>
     public static void Collect(MarkerCommentSpecs.MarkedSpec spec, Dictionary<string, SliceModel> slices)
@@ -170,14 +169,14 @@ internal static class EventModelEmitter
             // A method-level binding REPLACES the class's rather than overriding part of it. The
             // first cut concatenated them, so a method rebinding to another slice dragged the
             // class's Domain/Chapter/Pattern along and stamped them on a slice that already had
-            // its own answers — CreditWallet came out of Wallet.feature as a Command slice with no
+            // its own answers — CreditWallet came out of the Wallet specs as a Command slice with no
             // chapter and was relabelled an Automation in "Operations". A rebinding is a whole
             // binding: if a test wants the class's domain too, it says so.
             var rebound = scenario.Tags.Count > 0;
             var tags = rebound ? scenario.Tags : spec.Tags;
             var roles = scenario.Roles;
 
-            // The Gherkin arm's rule: no binding and no roles has nothing to say about a model, and
+            // No binding and no roles has nothing to say about a model, and
             // inventing a slice for it would fill the canvas with every ordinary test in the suite.
             var declared = GeneratorSliceTags.Slice(tags);
             if (declared == null && roles.Roles.Count == 0) continue;
@@ -210,7 +209,7 @@ internal static class EventModelEmitter
             }
 
             // The act is the LAST command the test sends (#464); its trigger is the act's own. First
-            // scenario to say so wins, like ActCommand and the Gherkin arm's HTTP act.
+            // scenario to say so wins, like ActCommand.
             slice.ActCommand ??= roles.Act;
             if (roles.TriggerKind != null)
             {
@@ -237,9 +236,8 @@ internal static class EventModelEmitter
             var identity = MarkerCommentSpecs.IdentityOf(spec, scenario);
 
             // Issue #404. A pending spec is declared before the behaviour it describes, so it is a
-            // hotspot — the same PendingSpecification the Gherkin lane's step-less scenario
-            // produces, and the same reason: the design states a question nothing answers yet.
-            // Both arms put the identity on the slice, which is what keeps SpecIdentityAudit
+            // hotspot: the design states a question nothing answers yet. The identity goes on the
+            // slice, which is what keeps SpecIdentityAudit
             // reading it as JOINED rather than as drift: a pending spec is not an orphan (a test
             // claiming an identity the model lacks) and the slice it names is not a hole (a
             // declared behaviour no test covers). It is one declaration, not yet answered.
