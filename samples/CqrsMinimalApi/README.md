@@ -30,7 +30,7 @@ A CQRS demonstration using MediatR for command/query dispatch with a Student man
 | Database | SQLite via EF Core + migrations | PostgreSQL via Marten (auto-schema) |
 | Packages | MediatR, EF Core, MiniValidation | WolverineFx.Http, Marten |
 | Identity type | `int` (auto-increment) | `int` (Marten HiLo) |
-| Tests | None | Alba integration tests |
+| Tests | None | Bobcat specifications (xUnit v3 + Alba) |
 
 ### Architecture
 
@@ -61,3 +61,33 @@ dotnet run
 ```
 
 Swagger UI available at `/swagger`.
+
+## Specifications
+
+The specs in `Tests/` are Bobcat's projected (code-first) model: ordinary xUnit v3 tests that render as
+Given/When/Then specifications. There is no `.feature` file anymore. `StudentSpecs` covers the five
+scenarios -- create, list in name order, a 404 for a missing id, update, and delete-then-404 -- and every
+step is a method on that class with a `[Given]`, `[When]` or `[Then]` attribute, so calling it records it.
+
+```csharp
+[BobcatSpec]
+public async Task delete_student_and_verify_404()
+{
+    await GivenAStudent("Carol White", "carol@school.com");
+
+    await WhenTheStudentIsDeleted();
+    ThenTheResponseStatusIs(204);
+
+    await WhenTheStudentIsRead(_studentId);
+    ThenTheResponseStatusIs(404);
+}
+```
+
+The host is booted once through Alba (`CqrsMinimalApiHost`), and `CqrsMinimalApiSpec` empties the store
+before every spec -- the host seeds five students at start-up, and "at least 2 students are returned"
+should mean the two the spec created.
+
+```bash
+dotnet test Tests/Tests.csproj                     # the specs
+BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests   # ...and print every spec as it rendered
+```

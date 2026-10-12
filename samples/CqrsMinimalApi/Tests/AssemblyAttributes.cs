@@ -1,4 +1,12 @@
+using CqrsMinimalApi.Tests;
 using Microsoft.AspNetCore.Mvc.Testing;
+
+// One host for the whole run, booted once.
+[assembly: AssemblyFixture(typeof(CqrsMinimalApiHost))]
+
+// Every spec empties the store before it runs (see CqrsMinimalApiSpec), so two specs running at
+// once would wipe each other's students.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 // Tell ASP.NET Core's WebApplicationFactory (used by Alba) where to find the
 // host project's content root. Without this, Alba walks up from the test
