@@ -66,6 +66,14 @@ public static class CSharpModelWriter
         /// chapter; <see cref="Definition"/> is then empty. Empty for a single definition.
         /// </summary>
         public IReadOnlyList<GeneratedFile> DefinitionFiles { get; init; } = [];
+
+        /// <summary>
+        /// The strong-typed identifiers written for this model (bobcat#512), and what each could not
+        /// type. Empty without <c>--strong-typed-ids</c>. The structs themselves are an ordinary entry
+        /// in <see cref="StubFiles"/> (<c>Identities.cs</c>), so the additive re-import adds a new one
+        /// to an existing file and never touches one somebody edited.
+        /// </summary>
+        public StrongTypedIds Identities { get; init; } = StrongTypedIds.None;
     }
 
     public static Output Write(ImportedEventModel model, string? namespaceName = null)
@@ -100,6 +108,29 @@ public static class CSharpModelWriter
     /// so every chapter joins the application's model (jasperfx#992).
     /// </param>
     public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions, bool perChapter)
+        => Write(model, namespaceName, additions, perChapter, strongTypedIds: false);
+
+    /// <inheritdoc cref="Write(ImportedEventModel, string?, StubAdditions?, bool)"/>
+    /// <param name="strongTypedIds">
+    /// Give each aggregate a strong-typed identifier (bobcat#512): <c>readonly record struct OrderId(Guid
+    /// Value)</c> in <c>Identities.cs</c>, every <c>Id</c> and <c>{Aggregate}Id</c> member that addresses
+    /// that stream typed with it, and <c>.IdentifiedBy&lt;OrderId&gt;()</c> on the aggregate's
+    /// declaration. Off by default: an undeclared identity is a <see cref="Guid"/>, and typing one is a
+    /// modelling choice no board expresses.
+    /// </param>
+    public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions, bool perChapter,
+        bool strongTypedIds)
+        => Write(model, namespaceName, additions, perChapter,
+            strongTypedIds ? StrongTypedIds.For(model, StubNames(model)) : StrongTypedIds.None);
+
+    /// <inheritdoc cref="Write(ImportedEventModel, string?, StubAdditions?, bool, bool)"/>
+    /// <param name="identities">
+    /// The strong-typed identifiers to write, already decided — what a caller that has also handed them
+    /// to <c>EmlangSpecWriter</c> passes, so the stubs and the specifications cannot be written against
+    /// two different answers.
+    /// </param>
+    public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions, bool perChapter,
+        StrongTypedIds identities)
     {
         var ns = namespaceName
                  ?? (string.IsNullOrWhiteSpace(model.Namespace) ? null : model.Namespace)
@@ -118,13 +149,34 @@ public static class CSharpModelWriter
         var extra = additions?.Fields ?? new Dictionary<string, IReadOnlyList<StubField>>();
         var layout = Layout(model, ns, additions);
 
-        var stubFiles = writeStubs(layout, model, stubs, streams, documents, extra);
+        var ids = identities;
+
+        // An identity type IS a type of that name, so a stub of the same name would be a second
+        // declaration of it. StrongTypedIds skips an aggregate whose id name the MODEL takes; this
+        // catches the same collision with a type only an example names, where the identity wins
+        // because the stubs and the definition are already written against it.
+        if (ids.Any)
+        {
+            var minted = ids.Declarations.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+            stubs = stubs.Where(x => !minted.Contains(x)).ToList();
+            streams = streams.Where(x => !minted.Contains(x)).ToList();
+        }
+
+        var stubFiles = writeStubs(layout, model, stubs, streams, documents, extra, ids).ToList();
+        if (ids.Any) stubFiles.Insert(0, writeIdentities(ns, ids));
+
         if (!perChapter)
-            return new Output(stubFiles, writeDefinition(ns, model, stubs, layout), stubs.Count + streams.Count, layout);
+        {
+            return new Output(stubFiles, writeDefinition(ns, model, stubs, layout, ids), stubs.Count + streams.Count, layout)
+            {
+                Identities = ids
+            };
+        }
 
         return new Output(stubFiles, "", stubs.Count + streams.Count, layout)
         {
-            DefinitionFiles = writeChapterDefinitions(ns, model, stubs, layout)
+            DefinitionFiles = writeChapterDefinitions(ns, model, stubs, layout, ids),
+            Identities = ids
         };
     }
 
@@ -180,7 +232,8 @@ public static class CSharpModelWriter
     }
 
     private static IReadOnlyList<GeneratedFile> writeStubs(ModelLayout layout, ImportedEventModel model, IReadOnlyList<string> stubs,
-        IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra)
+        IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra,
+        StrongTypedIds ids)
     {
         var aggregates = model.Slices.SelectMany(AggregatesOf)
             .Select(x => Identifiers.Sanitize(x ?? ""))
@@ -189,15 +242,15 @@ public static class CSharpModelWriter
 
         var fields = stubs.Concat(streams).Distinct(StringComparer.Ordinal).ToDictionary(x => x, x =>
         {
-            var named = FieldsOf(model, x)
-                .Concat(extra.GetValueOrDefault(x) ?? [])
+            var named = FieldsOf(model, x, ids)
+                .Concat(Retyped(x, extra.GetValueOrDefault(x) ?? [], ids))
                 .ToList();
 
             // bobcat#444: a command deciding against several streams names each one's identity,
             // {Aggregate}Id, which is how each [WriteModel] IEventStream<T> finds its stream
             foreach (var streamId in StreamIdFieldsOf(model, x).Where(id => named.All(f => f.Name != id)))
             {
-                named.Add(new StubField(streamId, "Guid"));
+                named.Add(new StubField(streamId, ids.IdOfMember(streamId) ?? "Guid"));
             }
 
             // bobcat#438: a command, aggregate or read model the model gives no identity is
@@ -205,7 +258,7 @@ public static class CSharpModelWriter
             // [WriteModel] resolves it with nothing declared. A document the specs load by id
             // needs one whatever its kind.
             var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
-            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", DefaultIdType(model, x)), .. named];
+            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", DefaultIdType(model, x, ids)), .. named];
 
             // An Id a specification added comes first too, where a reader looks for the identity
             return named.FirstOrDefault(f => f.Name == "Id") is { } id ? [id, .. named.Where(f => f != id)] : named;
@@ -244,7 +297,7 @@ public static class CSharpModelWriter
                 if (aggregates.Contains(name))
                 {
                     if (!describe(model, name).Any()) writer.WriteLine("/// <summary>A stream the generated specifications arrange events on.</summary>");
-                    writeAggregate(writer, name, fields[name]);
+                    writeAggregate(writer, name, fields[name], ids);
                 }
                 else
                 {
@@ -267,11 +320,11 @@ public static class CSharpModelWriter
     /// write model the event store folds, and every Critter Stack store (Marten, Polecat, Fisher)
     /// builds one from an <c>Id</c> and its events the same way.
     /// </summary>
-    private static void writeAggregate(ISourceWriter writer, string name, IReadOnlyList<StubField> fields)
+    private static void writeAggregate(ISourceWriter writer, string name, IReadOnlyList<StubField> fields, StrongTypedIds identities)
     {
-        if (fields.Count == 1 && fields[0] is { Name: "Id", Type: "Guid" })
+        if (fields.Count == 1 && fields[0] is { Name: "Id" } id && (id.Type == "Guid" || identities.Contains(id.Type)))
         {
-            writer.WriteLine($"public class {name} {{ public Guid Id {{ get; set; }} }}");
+            writer.WriteLine($"public class {name} {{ public {id.Type} Id {{ get; set; }} }}");
             return;
         }
 
@@ -368,14 +421,85 @@ public static class CSharpModelWriter
     /// The type of the conventional <c>Id</c> a stub is given: <c>string</c> for a command that starts
     /// a string-keyed stream and for that stream's aggregate (bobcat#453), else <c>Guid</c>.
     /// </summary>
-    public static string DefaultIdType(ImportedEventModel model, string stub)
+    public static string DefaultIdType(ImportedEventModel model, string stub) => DefaultIdType(model, stub, StrongTypedIds.None);
+
+    /// <inheritdoc cref="DefaultIdType(ImportedEventModel, string)"/>
+    /// <param name="ids">
+    /// The strong-typed identifiers in force (bobcat#512). When the stream this stub addresses has one,
+    /// that type IS the stub's <c>Id</c> — an aggregate's own, the <c>Id</c> of a command that decides
+    /// against it, and the <c>Id</c> of a read model projected from it are one identity, and Marten
+    /// requires a single-stream projection's document id to be the stream's id type.
+    /// </param>
+    public static string DefaultIdType(ImportedEventModel model, string stub, StrongTypedIds ids)
     {
+        if (ids.Any && IdentityOwnerOf(model, stub) is { } owner && ids.IdOf(owner) is { } typed) return typed;
+
         var started = model.Slices
             .Where(s => Identifiers.Sanitize(s.Command ?? "") == stub && OnlyStartsStream(s))
             .Select(s => s.StartsStream!)
             .Concat(model.Slices.SelectMany(AggregatesOf).Where(x => Identifiers.Sanitize(x) == stub));
 
         return started.Any(x => StreamIdentityType(model, x) == "string") ? "string" : "Guid";
+    }
+
+    /// <summary>
+    /// The aggregate whose identity a stub's identity members ARE, or null when no single stream owns
+    /// it (bobcat#512): the aggregate itself; the stream an event is stored on; the one stream a command
+    /// starts or decides against; the one aggregate behind every slice that produces a read model, or —
+    /// for a view slice, which names no aggregate — the one stream every event it consumes is stored on.
+    /// Null where the model names several, or none: a stub whose identity belongs to nothing keeps the
+    /// primitive.
+    /// </summary>
+    /// <remarks>
+    /// The read-model arm is a correctness claim, not a convenience: a single-stream projection's
+    /// document id must BE the stream's identity type, so a read model projected from <c>Order</c> and
+    /// keyed by a bare <c>Guid</c> is a projection that will not register.
+    /// </remarks>
+    public static string? IdentityOwnerOf(ImportedEventModel model, string stub)
+    {
+        var name = Identifiers.Sanitize(stub ?? "");
+        if (name.Length == 0) return null;
+
+        if (model.Slices.SelectMany(AggregatesOf).Any(x => Identifiers.Sanitize(x) == name)) return name;
+
+        if (Identifiers.Sanitize(model.EventStreams.GetValueOrDefault(name) ?? "") is { Length: > 0 } stream) return stream;
+
+        if (single(model.Slices.Where(s => Identifiers.Sanitize(s.Command ?? "") == name)) is { } byCommand)
+        {
+            return byCommand;
+        }
+
+        var producing = model.Slices
+            .Where(s => s.ReadModels.Concat(s.ReadsFrom).Any(x => Identifiers.Sanitize(x ?? "") == name))
+            .ToList();
+
+        return single(producing) ?? onlyStreamConsumed(model, producing);
+
+        static string? single(IEnumerable<CuratedSlice> slices)
+        {
+            var aggregates = slices.SelectMany(AggregatesOf).Select(Identifiers.Sanitize)
+                .Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+
+            return aggregates.Count == 1 ? aggregates[0] : null;
+        }
+    }
+
+    /// <summary>
+    /// The one stream every event these slices consume is stored on, or null when they span several or
+    /// the model places none of them.
+    /// </summary>
+    private static string? onlyStreamConsumed(ImportedEventModel model, IReadOnlyList<CuratedSlice> slices)
+    {
+        var streams = slices
+            .SelectMany(s => s.ConsumedEvents.Concat(s.Events))
+            .Select(x => Identifiers.Sanitize(x ?? ""))
+            .Where(x => x.Length > 0)
+            .Select(x => model.EventStreams.GetValueOrDefault(x))
+            .Select(x => Identifiers.Sanitize(x ?? ""))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        return streams is [{ Length: > 0 } only] ? only : null;
     }
 
     /// <summary>
@@ -406,7 +530,33 @@ public static class CSharpModelWriter
     /// order: the first sketch of a field wins, and a sketch the type table does not know (a
     /// sample such as <c>order-123</c>) is a <c>string</c>.
     /// </summary>
-    public static IReadOnlyList<StubField> FieldsOf(ImportedEventModel model, string stub)
+    public static IReadOnlyList<StubField> FieldsOf(ImportedEventModel model, string stub) => fieldsOf(model, stub);
+
+    /// <inheritdoc cref="FieldsOf(ImportedEventModel, string)"/>
+    /// <param name="ids">
+    /// The strong-typed identifiers in force (bobcat#512): a member called <c>{Aggregate}Id</c> takes the
+    /// aggregate's identity type, which is the whole of "every OrderId field on its events and commands
+    /// uses that type".
+    /// </param>
+    public static IReadOnlyList<StubField> FieldsOf(ImportedEventModel model, string stub, StrongTypedIds ids)
+        => Retyped(stub, fieldsOf(model, stub), ids);
+
+    /// <summary>
+    /// Each of <paramref name="stub"/>'s fields with its identity type, where one applies (bobcat#512) —
+    /// a member named <c>{Aggregate}Id</c>, or one the model marks as this element's identity.
+    /// </summary>
+    /// <remarks>
+    /// Only where the field already holds what the identity type wraps, so a string the model declared
+    /// is never quietly re-read as a Guid.
+    /// </remarks>
+    public static IReadOnlyList<StubField> Retyped(string stub, IReadOnlyList<StubField> fields, StrongTypedIds ids)
+        => !ids.Any
+            ? fields
+            : fields.Select(x => ids.IdOfMember(stub, x.Name) is { } typed && ids.Inner(typed) == x.Type
+                ? x with { Type = typed }
+                : x).ToList();
+
+    private static IReadOnlyList<StubField> fieldsOf(ImportedEventModel model, string stub)
     {
         var fields = new List<StubField>();
 
@@ -482,6 +632,99 @@ public static class CSharpModelWriter
     }
 
     /// <summary>
+    /// The strong-typed identifiers, one file in the root namespace (bobcat#512).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One file, in the root namespace</b>, because an identity is shared: a chapter's stubs and
+    /// another chapter's both name <c>OrderId</c>, and the root namespace encloses every chapter's, so
+    /// nothing needs a <c>using</c> for it.
+    /// </para>
+    /// <para>
+    /// <b>The shape is Wolverine's generated one</b>: a positional <c>readonly record struct</c> over
+    /// <c>Value</c> (which is what Marten, Polecat and Fisher recognise — a constructor for the inner
+    /// value and a public <c>Value</c> getter), a <c>ToString</c> that is the value rather than the
+    /// record's generated <c>OrderId { Value = ... }</c>, <see cref="IParsable{T}"/> so a route
+    /// parameter binds, and a nested JSON converter so the wire carries the value rather than an object
+    /// wrapping it. All four are needed by something an imported model routinely does — an HTTP slice
+    /// posts the command and reads the id back — so a bare struct would be a type the first endpoint
+    /// breaks on.
+    /// </para>
+    /// </remarks>
+    private static GeneratedFile writeIdentities(string ns, StrongTypedIds ids)
+    {
+        using var writer = new SourceWriter();
+
+        writer.WriteLine("// Imported from an event model by `bobcat import-event-model --strong-typed-ids`.");
+        writer.WriteLine("//");
+        writer.WriteLine("// One identity type per aggregate, wrapping the identity its stream would otherwise have.");
+        writer.WriteLine("// Nothing regenerates this file, so your edits are safe.");
+        writer.BlankLine();
+
+        // IParsable and the converter take nullable parameters, and the consumer's project may not
+        // have nullable reference types on (CS8632 on every one of them). The file says so itself
+        // rather than depending on a setting it cannot see.
+        writer.WriteLine("#nullable enable");
+        writer.BlankLine();
+        writer.WriteLine("using System;");
+        writer.WriteLine("using System.Text.Json;");
+        writer.WriteLine("using System.Text.Json.Serialization;");
+        writer.BlankLine();
+        writer.WriteLine($"namespace {ns};");
+        writer.BlankLine();
+
+        foreach (var (name, inner) in ids.Declarations)
+        {
+            var aggregate = name[..^2];
+
+            writer.WriteLine($"/// <summary>The identity of {aggregate}, and of everything that addresses its stream.</summary>");
+            writer.WriteLine($"[JsonConverter(typeof({name}.Converter))]");
+            writer.Write($"BLOCK:public readonly record struct {name}({inner} Value) : IParsable<{name}>");
+
+            writer.Write("public override string ToString() => Value.ToString();");
+            writer.BlankLine();
+
+            writer.Write(inner == "Guid"
+                ? $"public static {name} Parse(string s, IFormatProvider? provider) => new(Guid.Parse(s));"
+                : $"public static {name} Parse(string s, IFormatProvider? provider) => new(s);");
+            writer.BlankLine();
+
+            writer.Write($"BLOCK:public static bool TryParse(string? s, IFormatProvider? provider, out {name} result)");
+            if (inner == "Guid")
+            {
+                writer.Write("var parsed = Guid.TryParse(s, out var value);");
+                writer.Write($"result = new {name}(value);");
+                writer.Write("return parsed;");
+            }
+            else
+            {
+                writer.Write($"result = new {name}(s ?? string.Empty);");
+                writer.Write("return s is not null;");
+            }
+            writer.FinishBlock();
+            writer.BlankLine();
+
+            writer.WriteLine("/// <summary>So the wire carries the value, not an object wrapping it.</summary>");
+            writer.Write($"BLOCK:public sealed class Converter : JsonConverter<{name}>");
+            writer.Write($"public override {name} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)");
+            writer.IndentionLevel++;
+            writer.Write(inner == "Guid" ? "=> new(reader.GetGuid());" : "=> new(reader.GetString() ?? string.Empty);");
+            writer.IndentionLevel--;
+            writer.BlankLine();
+            writer.Write($"public override void Write(Utf8JsonWriter writer, {name} value, JsonSerializerOptions options)");
+            writer.IndentionLevel++;
+            writer.Write("=> writer.WriteStringValue(value.Value);");
+            writer.IndentionLevel--;
+            writer.FinishBlock();
+
+            writer.FinishBlock();
+            writer.BlankLine();
+        }
+
+        return new GeneratedFile("Identities.cs", writer.Code());
+    }
+
+    /// <summary>
     /// The <c>EventModelDefinition</c> subclass's name.
     /// </summary>
     /// <remarks>
@@ -502,7 +745,8 @@ public static class CSharpModelWriter
         return string.Equals(name, last, StringComparison.Ordinal) ? name + "EventModel" : name;
     }
 
-    private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs, ModelLayout layout)
+    private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs, ModelLayout layout,
+        StrongTypedIds ids)
     {
         var className = DefinitionClassName(model.Model, ns);
 
@@ -537,7 +781,7 @@ public static class CSharpModelWriter
 
         if (aggregates.Count > 0)
         {
-            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + ";");
+            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + identifiedBy(aggregate, ids) + ";");
             writer.BlankLine();
         }
 
@@ -562,7 +806,7 @@ public static class CSharpModelWriter
     /// with the default drops its own <c>.Against</c>, one that does not keeps it.
     /// </summary>
     private static IReadOnlyList<GeneratedFile> writeChapterDefinitions(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
-        ModelLayout layout)
+        ModelLayout layout, StrongTypedIds ids)
     {
         var stubbed = stubs.ToHashSet(StringComparer.Ordinal);
         var files = new List<GeneratedFile>();
@@ -607,14 +851,14 @@ public static class CSharpModelWriter
                     writer.WriteLine("// default; .Against<T>() on a slice replaces it, and .NoAggregate() says it has none.");
                 }
 
-                writer.Write(declare("model.ForAggregate", dominant, stubbed) + ";");
+                writer.Write(declare("model.ForAggregate", dominant, stubbed) + identifiedBy(dominant, ids) + ";");
                 declared.Add(dominant);
             }
 
             // An aggregate is declared in the first chapter that uses it; ForAggregate declares its own
             var aggregates = slices.SelectMany(AggregatesOf).Select(x => Identifiers.Sanitize(x)).Where(x => x.Length > 0)
                 .Distinct(StringComparer.Ordinal).Where(declared.Add).ToList();
-            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + ";");
+            foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + identifiedBy(aggregate, ids) + ";");
             writer.BlankLine();
 
             var defaults = new SliceDefaults(Chapter: true, Domain: sharedDomain is not null, Aggregate: dominant);
@@ -692,7 +936,12 @@ public static class CSharpModelWriter
 
     /// <summary>The declaration of an aggregate, generic when its type exists.</summary>
     internal static string AggregateDeclaration(string aggregate, IReadOnlyCollection<string> stubbed)
-        => declare("model.Aggregate", aggregate, stubbed.ToHashSet(StringComparer.Ordinal)).Replace('`', '"') + ";";
+        => AggregateDeclaration(aggregate, stubbed, StrongTypedIds.None);
+
+    /// <inheritdoc cref="AggregateDeclaration(string, IReadOnlyCollection{string})"/>
+    internal static string AggregateDeclaration(string aggregate, IReadOnlyCollection<string> stubbed, StrongTypedIds ids)
+        => (declare("model.Aggregate", aggregate, stubbed.ToHashSet(StringComparer.Ordinal)) + identifiedBy(aggregate, ids))
+            .Replace('`', '"') + ";";
 
     private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed, SliceDefaults? defaults)
     {
@@ -898,6 +1147,15 @@ public static class CSharpModelWriter
 
     private static string declare(string method, string name, HashSet<string> stubbed)
         => stubbed.Contains(name) ? $"{method}<{name}>()" : $"{method}(`{escape(name)}`)";
+
+    /// <summary>
+    /// The aggregate's declared identity type (bobcat#512, jasperfx#1004), or nothing when it keeps a
+    /// primitive one. Generic: the struct is written in the same import, so the type is known to compile
+    /// — and a <c>Declared</c> claim the store's own projection later agrees with is how the two rungs
+    /// of the model meet on an identity rather than minting a hotspot.
+    /// </summary>
+    private static string identifiedBy(string aggregate, StrongTypedIds ids)
+        => ids.IdOf(aggregate) is { } id ? $".IdentifiedBy<{id}>()" : "";
 
     /// <summary>
     /// The board's pattern word as a <c>SlicePattern</c> member, or null for anything the enum has

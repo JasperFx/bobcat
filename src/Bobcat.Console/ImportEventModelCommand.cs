@@ -53,6 +53,10 @@ public class ImportEventModelInput
     [FlagAlias("single-definition", true)]
     public bool SingleDefinitionFlag { get; set; }
 
+    [Description("Give each aggregate a strong-typed identifier -- readonly record struct OrderId(Guid Value) in Identities.cs -- and type every Id and {Aggregate}Id member, the generated specifications and the definition's IdentifiedBy with it (bobcat#512). Without it an identity is a Guid")]
+    [FlagAlias("strong-typed-ids", true)]
+    public bool StrongTypedIdsFlag { get; set; }
+
     [Description("The aggregate a slice decides against, as Slice=Type, which wins over the one inferred from the examples (bobcat#444). Several at once: --aggregate A=Order B=Order B=Customer")]
     // A List, not an array: JasperFx's enumerable flag assigns the List<T> it builds, and a string[]
     // property refused it with "List`1 cannot be converted to String[]", so --aggregate never parsed
@@ -254,8 +258,29 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var ns = input.NamespaceFlag
                  ?? CSharpModelWriter.Identifiers.Sanitize(model);
         var specsNamespace = input.SpecsNamespaceFlag ?? ns + ".Specs";
-        var specs = input.SpecsFlag ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace, input.StoreFlag) : null;
-        var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions, perChapter: !input.SingleDefinitionFlag);
+
+        // One decision, handed to both writers (bobcat#512): the specifications declare identities as
+        // the typed values the stubs take, so they cannot be written against two different answers
+        var identities = input.StrongTypedIdsFlag
+            ? StrongTypedIds.For(result.Model, CSharpModelWriter.StubNames(result.Model))
+            : StrongTypedIds.None;
+
+        var specs = input.SpecsFlag
+            ? EmlangSpecWriter.Write(board, result.Model, ns, specsNamespace, input.StoreFlag, identities)
+            : null;
+        var generated = CSharpModelWriter.Write(result.Model, ns, specs?.Additions,
+            perChapter: !input.SingleDefinitionFlag, identities);
+
+        // An aggregate that could not be typed is a ⚠ line like any other guess the import reports
+        if (identities.Callouts.Count > 0)
+        {
+            run.Callouts = run.Callouts.Concat(identities.Callouts).ToList();
+            foreach (var callout in identities.Callouts)
+            {
+                run.Out.WriteLine($"⚠ [{callout.Code}] {callout.Message}");
+                if (callout.Fix is not null) run.Out.WriteLine($"    {callout.Fix}");
+            }
+        }
 
         // --out names a DIRECTORY, the application project's. It may not exist yet: letting
         // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the

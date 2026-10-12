@@ -1833,6 +1833,34 @@ and so cannot be handed a class to host.
   - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
     information at all (the board's props are intentionally omitted), so a name is the whole truth
     it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
+  - **`--strong-typed-ids` gives each aggregate an identity type (bobcat#512/#433), and the decision
+    lives in one place — `StrongTypedIds`.** Off by default: an undeclared identity is a `Guid`,
+    which is what every store defaults a stream id to, and typing one is a modelling choice no board
+    expresses. The name is `{Aggregate}Id` because **Marten treats a type as a strong-typed identity
+    only when its name ends in `Id`** (case sensitive), so the convention IS the requirement; it
+    wraps what `StreamIdentityType` says the stream's id would otherwise be. The struct is written by
+    Bobcat rather than left to `wolverine scaffold`, because an import whose stubs name a type
+    nothing declares does not build — and it carries `ToString`, `IParsable<T>` and a nested JSON
+    converter, each needed by something an imported model routinely does (an HTTP slice posts the
+    command and reads the id back).
+    - **One identity per STREAM, not per type.** An aggregate's `Id`, the `Id` of a command that
+      decides against it, each `{Aggregate}Id` of a command against several, the identity member of
+      its events, and the `Id` of a read model projected from it are one identity
+      (`IdentityOwnerOf`). The read-model arm is correctness: a single-stream projection's document
+      id must BE the stream's identity type.
+    - **A member is an identity by name OR by the model's mark.** `{Aggregate}Id` is the name rule;
+      a stream keyed by an email has an identity member called `Email`, which only `idAttribute`
+      says. Retyping happens only where the field already holds what the id type wraps, so a
+      declared `string` is never silently re-read as a `Guid`.
+    - **The spec writer gets the SAME instance**, and that is the whole reason `Write` takes a
+      `StrongTypedIds` rather than a bool: a `Guid` local handed to an `OrderId` member is an import
+      whose two halves do not compile together, which is worse than no option at all. A typed
+      identity renders as `new OrderId(Guid.CreateVersion7())` and has **no table-cell form** —
+      `CellValues` builds primitives and cannot construct one — so `Cell` answers null and the value
+      is written as code.
+    - **An aggregate whose `{Aggregate}Id` the board already uses keeps a primitive id**, with a
+      `strong-typed-id-name-taken` callout. Two types of one name in one namespace is output that
+      does not build, which is the one thing a scaffolder must never produce.
   - **Everything goes through `ISourceWriter`**, the rule the issue states and the reason the bump
     had to come first (jasperfx#956's whitespace fixes). Backticks are the writer's stand-in for
     double quotes, so a literal backtick in a board label is swapped for a single quote rather than

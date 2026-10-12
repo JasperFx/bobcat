@@ -214,6 +214,7 @@ that settles it:
 | `stream-start-unknown` | No example says whether it starts the stream, so it is assumed to append | `--starts-stream Slice=Type` |
 | `several-streams` | Draws on several streams: several `[WriteAggregate]` streams or a DCB decider | a design decision, no flag |
 | `missing-aggregate` | No aggregate could be declared or inferred | `--aggregate Slice=Type` |
+| `strong-typed-id-name-taken` | `--strong-typed-ids` was asked for and the board already names a type `{Aggregate}Id`, so that aggregate keeps a primitive identity | rename the board's element |
 | `spec-project-file-kept` | A spec project file (`.csproj`, `AssemblyAttributes.cs`) already exists and was kept | nothing; it is yours |
 | `spec-project-missing-reference` | The existing spec project lacks a package the specs need | the `fix`: a `PackageReference` |
 | `spec-project-missing-event-model-name` | The existing spec project declares no `[assembly: EventModelName]` | the `fix`: the attribute |
@@ -283,6 +284,50 @@ own. The definitions set no `Name`, so every chapter joins the application's mod
 Register each with `services.AddEventModel<BookingAppointmentsModel>()` and it joins the model on the
 **Declared** rung, where a claim the code derives always wins and any difference between the two
 shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do list.
+
+#### `--strong-typed-ids`: an identity type per aggregate
+
+Without it an identity the model does not type is a `Guid`, which is what every Critter Stack store
+defaults a stream id to. With it each aggregate gets one, in `Identities.cs` in the root namespace:
+
+```csharp
+[JsonConverter(typeof(OrderId.Converter))]
+public readonly record struct OrderId(Guid Value) : IParsable<OrderId>
+{
+    public override string ToString() => Value.ToString();
+    public static OrderId Parse(string s, IFormatProvider? provider) => new(Guid.Parse(s));
+    // TryParse, and a nested JSON converter so the wire carries the value
+}
+```
+
+Everything that addresses that stream then takes it — the aggregate's `Id`, the command's `Id` or
+`{Aggregate}Id`, the identity member of each of its events (including one the board marks, such as an
+`Email` keying a customer), the read model projected from it, and the generated specifications:
+
+```csharp
+var theOrder = new OrderId(Guid.CreateVersion7());
+
+await GivenEvents<Order>(theOrder, Specify<OrderPlaced>().With(x => x.OrderId, theOrder));
+```
+
+and the definition declares it, which is a **Declared** claim the store's own projection later agrees
+with (jasperfx#1004):
+
+```csharp
+model.Aggregate<Order>().IdentifiedBy<OrderId>();
+```
+
+Three things worth knowing:
+
+- **The name is the requirement.** Marten treats a type as a strong-typed identity only when its name
+  ends in `Id` (case sensitive), so `{Aggregate}Id` is not a style choice. The struct wraps what the
+  stream's id would otherwise have been — a `Guid`, or a `string` for a natural key.
+- **A read model projected from the stream is keyed by the same type.** A single-stream projection's
+  document id must *be* the stream's identity type, so `OrderSummary(OrderId Id)` is correctness, not
+  tidiness.
+- **An aggregate whose `{Aggregate}Id` the board already uses as an element keeps a primitive id**, and
+  the import says so (`strong-typed-id-name-taken`): two types of one name in one namespace is output
+  that does not build.
 
 Write your Bobcat specs against the stubs straight away. They are red until the behaviour exists,
 and that is the point.
@@ -551,6 +596,7 @@ says so, and points at `EventModelDefinition`.
 | `--bobcat-version <v>` | Bobcat package version for a spec project the import writes; defaults to the tool's own |
 | `--app-project <csproj>` | the application project the spec project references and the checks read; defaults to the one `.csproj` in `--out` |
 | `--single-definition` | one `EventModelDefinition` for the whole model instead of one per chapter |
+| `--strong-typed-ids` | give each aggregate an identity type — `OrderId` in `Identities.cs` — and write every member, specification and `IdentifiedBy` that addresses its stream with it |
 | `--aggregate Slice=Type …` | the aggregate a slice decides against, over the inference |
 | `--starts-stream Slice=Type …` | the aggregate whose stream a slice starts, over the inference |
 | `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |

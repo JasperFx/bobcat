@@ -134,6 +134,13 @@ public static class ImportCalloutCodes
 
     /// <summary>More than one place in the file could take the addition, so none was chosen.</summary>
     public const string MergeSkippedAmbiguous = "merge-skipped-ambiguous";
+
+    /// <summary>
+    /// <c>--strong-typed-ids</c> was asked for and one aggregate keeps a primitive identity, because the
+    /// model already names a type <c>{Aggregate}Id</c> (bobcat#512). Writing both would be two types of
+    /// one name in one namespace.
+    /// </summary>
+    public const string StrongTypedIdNameTaken = "strong-typed-id-name-taken";
 }
 
 /// <summary>

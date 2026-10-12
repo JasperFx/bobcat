@@ -74,10 +74,26 @@ public static class EmlangSpecWriter
     /// The application's event store: <c>marten</c>, <c>polecat</c> or <c>fisher</c>. It decides how the
     /// generated host runs the store's async daemon; when null the host names each store's way in a comment.
     /// </param>
+    /// <inheritdoc cref="Write(EmlangBoard, ImportedEventModel, string, string?, string?)"/>
+    /// <param name="identities">
+    /// The strong-typed identifiers the stubs are written with (bobcat#512/#433), so a specification
+    /// declares an identity as the typed value — <c>var theOrder = new OrderId(Guid.CreateVersion7());</c>
+    /// — and every member that takes it compiles. <see cref="StrongTypedIds.None"/>, or null, keeps the
+    /// Guid it always was.
+    /// </param>
+    public static GeneratedSpecs Write(EmlangBoard board, ImportedEventModel model, string ns, string? specsNamespace,
+        string? store, StrongTypedIds? identities)
+        => write(board, model, ns, specsNamespace, store, identities ?? StrongTypedIds.None);
+
+    /// <inheritdoc cref="Write(EmlangBoard, ImportedEventModel, string, string?, string?, StrongTypedIds?)"/>
     public static GeneratedSpecs Write(EmlangBoard board, ImportedEventModel model, string ns, string? specsNamespace = null,
         string? store = null)
+        => write(board, model, ns, specsNamespace, store, StrongTypedIds.None);
+
+    private static GeneratedSpecs write(EmlangBoard board, ImportedEventModel model, string ns, string? specsNamespace,
+        string? store, StrongTypedIds identities)
     {
-        var context = new Context(model);
+        var context = new Context(model, identities);
         context.Declare(board);
         var modelName = CSharpModelWriter.Identifiers.Sanitize(model.Model);
         if (modelName.Length == 0) modelName = "Imported";
@@ -421,8 +437,18 @@ public static class EmlangSpecWriter
         return writer.Code();
     }
 
-    private sealed class Context(ImportedEventModel model)
+    private sealed class Context(ImportedEventModel model, StrongTypedIds identities)
     {
+        /// <summary>The strong-typed identifiers the stubs use, so a spec's locals take the same types.</summary>
+        public StrongTypedIds Ids { get; } = identities;
+
+        /// <summary>
+        /// The primitive a member's type IS: a strong-typed identity's inner <c>Guid</c> or
+        /// <c>string</c>, else the type itself. Every decision about how to render or declare a value
+        /// asks this, so <c>OrderId</c> takes exactly the path <c>Guid</c> takes.
+        /// </summary>
+        public string Primitive(string type) => Ids.Inner(type) ?? type;
+
         private readonly Dictionary<string, (string? Stream, List<string> Identities, List<string> Props)> _declared = new(StringComparer.Ordinal);
 
         /// <summary>
@@ -504,7 +530,7 @@ public static class EmlangSpecWriter
 
             if (!_fields.TryGetValue(typeName, out var fields))
             {
-                fields = CSharpModelWriter.FieldsOf(Model, typeName);
+                fields = CSharpModelWriter.FieldsOf(Model, typeName, Ids);
                 _fields[typeName] = fields;
             }
 
@@ -513,7 +539,7 @@ public static class EmlangSpecWriter
             if (!ExtraFields.TryGetValue(typeName, out var extra)) ExtraFields[typeName] = extra = [];
             if (extra.FirstOrDefault(x => x.Name == name) is { } added) return (name, added.Type);
 
-            var type = name.EndsWith("Id", StringComparison.Ordinal) ? "Guid"
+            var type = name.EndsWith("Id", StringComparison.Ordinal) ? Ids.IdOfMember(typeName, name) ?? "Guid"
                 : sample is List<object> ? CuratedFieldTypes.StringList
                 : CuratedFieldTypes.TryInfer(EmlangReader.Text(sample), out var inferred) ? inferred
                 : "string";
@@ -566,6 +592,8 @@ public static class EmlangSpecWriter
         {
             var references = test.Given.Concat(test.When).Concat(test.Then).Where(x => Elements.Contains(x.Kind)).ToList();
 
+            // A strong-typed identity takes the pass of what it wraps (bobcat#512): OrderId is a Guid
+            // identity that happens to say so in the type system, not a third kind of value
             foreach (var wanted in new[] { "Guid", "string" })
             {
                 foreach (var reference in references)
@@ -574,7 +602,7 @@ public static class EmlangSpecWriter
                     foreach (var (prop, value) in reference.Props)
                     {
                         var (member, type) = context.Member(typeName, prop, reference.Values.GetValueOrDefault(prop));
-                        if (type != wanted || value.Length == 0 || _ids.ContainsKey(value)) continue;
+                        if (context.Primitive(type) != wanted || value.Length == 0 || _ids.ContainsKey(value)) continue;
                         if (type == "string" && !member.EndsWith("Id", StringComparison.Ordinal)) continue;
 
                         declare(member, value, type);
@@ -656,11 +684,18 @@ public static class EmlangSpecWriter
             var variable = count == 1 ? name : name + count;
             _mintedLocals.Add(variable);
 
-            _lines.Add(type == "Guid"
-                ? $"var {variable} = Guid.CreateVersion7();"
-                : $"var {variable} = {quote(EmlangImport.PascalName(owner).ToLowerInvariant() + "-1")};");
+            _lines.Add(context.Primitive(type) == "Guid"
+                ? $"var {variable} = {wrap(type, "Guid.CreateVersion7()")};"
+                : $"var {variable} = {wrap(type, quote(EmlangImport.PascalName(owner).ToLowerInvariant() + "-1"))};");
             return variable;
         }
+
+        /// <summary>
+        /// An identity value in its declared type: <c>new OrderId(...)</c> for a strong-typed identifier
+        /// (bobcat#512), the expression itself for a primitive one.
+        /// </summary>
+        private string wrap(string type, string expression)
+            => context.Ids.Contains(type) ? $"new {type}({expression})" : expression;
 
         private void declare(string member, string value, string type)
         {
@@ -670,9 +705,9 @@ public static class EmlangSpecWriter
             var variable = count == 1 ? name : name + count;
 
             _ids[value] = (variable, type);
-            _lines.Add(type == "Guid"
-                ? $"var {variable} = Guid.CreateVersion7(); // {quote(value)} in the model"
-                : $"var {variable} = {quote(value)};");
+            _lines.Add(context.Primitive(type) == "Guid"
+                ? $"var {variable} = {wrap(type, "Guid.CreateVersion7()")}; // {quote(value)} in the model"
+                : $"var {variable} = {wrap(type, quote(value))};");
         }
 
         /// <returns>Whether any event was arranged.</returns>
@@ -838,8 +873,9 @@ public static class EmlangSpecWriter
             if (_actKey is null || built.Has("Id")) return built;
             if (!CSharpModelWriter.GetsDefaultId(context.Model, typeName)) return built;
 
-            // A string-keyed stream's command carries a string Id (bobcat#453), where Member would type it Guid
-            if (CSharpModelWriter.DefaultIdType(context.Model, typeName) is "string" and var idType)
+            // A string-keyed stream's command carries a string Id (bobcat#453), and a strong-typed one
+            // carries the identity type (bobcat#512) — both of which Member would otherwise type Guid
+            if (CSharpModelWriter.DefaultIdType(context.Model, typeName, context.Ids) is var idType && idType != "Guid")
             {
                 if (!context.ExtraFields.TryGetValue(typeName, out var extra)) context.ExtraFields[typeName] = extra = [];
                 if (extra.All(x => x.Name != "Id")) extra.Add(new CSharpModelWriter.StubField("Id", idType));
@@ -991,7 +1027,7 @@ public static class EmlangSpecWriter
                     continue;
                 }
 
-                spec.Add(member, Literal(type, text, raw), Cell(type, text, raw));
+                spec.Add(member, Literal(type, text, raw, context.Ids), Cell(type, text, raw, context.Ids));
             }
 
             foreach (var (member, variable) in _minted.GetValueOrDefault(reference) ?? [])
@@ -1038,7 +1074,7 @@ public static class EmlangSpecWriter
             var owner = stream ?? "Stream";
             if (_streams.TryGetValue(owner, out var minted)) return minted;
 
-            var variable = mint(owner, "Guid");
+            var variable = mint(owner, context.Ids.IdOf(owner) ?? "Guid");
             _streams[owner] = variable;
             return variable;
         }
@@ -1065,7 +1101,8 @@ public static class EmlangSpecWriter
         }
 
         /// <summary>The test's first identity, which is usually the stream the view is projected from.</summary>
-        private string? anyIdentity() => _ids.Values.FirstOrDefault(x => x.Type == "Guid").Variable;
+        private string? anyIdentity()
+            => _ids.Values.FirstOrDefault(x => context.Primitive(x.Type) == "Guid").Variable;
 
         /// <summary>
         /// A view arranged directly: its example as a partial, with the document's <c>Id</c> set to the
@@ -1146,8 +1183,18 @@ public static class EmlangSpecWriter
     /// An example value as table cell text, read back by the cell rules to the same value
     /// <see cref="Literal"/> writes; null when it has no faithful cell form.
     /// </summary>
-    public static string? Cell(string type, string text, object? raw = null)
+    public static string? Cell(string type, string text, object? raw = null) => Cell(type, text, raw, StrongTypedIds.None);
+
+    /// <inheritdoc cref="Cell(string, string, object?)"/>
+    /// <param name="ids">
+    /// The strong-typed identifiers in force. A typed identity has NO cell form (bobcat#512): a cell is
+    /// read back by <c>CellValues</c>, which builds the primitives and cannot construct an
+    /// <c>OrderId</c>, so the value is written as code instead — which is what a null answer here means.
+    /// </param>
+    public static string? Cell(string type, string text, object? raw, StrongTypedIds ids)
     {
+        if (ids.Contains(type)) return null;
+
         var trimmed = text.Trim();
         if (type == "string")
         {
@@ -1176,8 +1223,17 @@ public static class EmlangSpecWriter
         => CSharpModelWriter.Identifiers.Sanitize(EmlangImport.PascalName(label));
 
     /// <summary>A C# expression of <paramref name="type"/> for an example value.</summary>
-    public static string Literal(string type, string text, object? raw = null)
+    public static string Literal(string type, string text, object? raw = null) => Literal(type, text, raw, StrongTypedIds.None);
+
+    /// <inheritdoc cref="Literal(string, string, object?)"/>
+    /// <param name="ids">
+    /// The strong-typed identifiers in force: a typed identity is its inner value wrapped in the type
+    /// (bobcat#512), so the one rule for reading an example value is still the primitive's.
+    /// </param>
+    public static string Literal(string type, string text, object? raw, StrongTypedIds ids)
     {
+        if (ids.Inner(type) is { } inner) return $"new {type}({Literal(inner, text, raw, ids)})";
+
         var trimmed = text.Trim();
 
         switch (type)
