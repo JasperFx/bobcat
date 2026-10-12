@@ -16,7 +16,7 @@ public class TUnitTreeNodeFilterTests
 {
     private const string Namespace = "Bobcat.TUnit.Tests.Filtering";
 
-    [Theory]
+    [TUnitHostedTheory]
     [InlineData("/*/" + Namespace + "/Alpha/one", new[] { "Alpha.one" })]
     [InlineData("/*/" + Namespace + "/Beta/one", new[] { "Beta.one" })]
     // The assembly segment can be named instead of wildcarded.

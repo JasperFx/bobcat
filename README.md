@@ -138,6 +138,7 @@ a green `./build.sh CI` on your machine means the same thing as a green push.
 | Restore, build and test (the default) | `build.cmd` | `build.ps1` | `./build.sh` | `dotnet run --project build/Build.csproj` |
 | Start the Docker services | `build.cmd docker` | `build.ps1 docker` | `./build.sh docker` | `dotnet run --project build/Build.csproj -- docker` |
 | Everything the `tests` workflow runs | `build.cmd ci` | `build.ps1 ci` | `./build.sh ci` | `dotnet run --project build/Build.csproj -- ci` |
+| The TUnit-hosted tests CI leaves out for now ([#521](https://github.com/JasperFx/bobcat/issues/521)) | `build.cmd tunittests` | `build.ps1 tunittests` | `./build.sh tunittests` | `dotnet run --project build/Build.csproj -- tunittests` |
 | Pack every package to `artifacts/packages` | `build.cmd pack` | `build.ps1 pack` | `./build.sh pack` | `dotnet run --project build/Build.csproj -- pack` |
 | Build every sample and run its specs | `build.cmd samples` | `build.ps1 samples` | `./build.sh samples` | `dotnet run --project build/Build.csproj -- samples` |
 | List every target and parameter | `build.cmd --help` | `build.ps1 --help` | `./build.sh --help` | `dotnet run --project build/Build.csproj -- --help` |

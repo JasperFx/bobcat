@@ -37,7 +37,7 @@ public class TUnitResidentSuiteTests : IDisposable
     private Task<WarmProjectedResidentSuite> warmSuiteFor(FakeMonitorHost monitor)
         => WarmProjectedResidentSuite.For(host, monitorUrl: monitor.Url, listingDirectory: _directory);
 
-    [Fact]
+    [TUnitHostedFact]
     public async Task a_tunit_suite_lists_its_identities_and_is_no_longer_refused_at_launch()
     {
         using var monitor = new FakeMonitorHost();
@@ -53,7 +53,7 @@ public class TUnitResidentSuiteTests : IDisposable
         warm.Modes.ShouldBe([RunnerWire.ColdMode, RunnerWire.WarmMode]);
     }
 
-    [Theory]
+    [TUnitHostedTheory]
     [InlineData(ledgerOpening)]
     // Two methods in one class: alternatives in the method segment.
     [InlineData(ledgerOpening, ledgerClosing)]
@@ -78,7 +78,7 @@ public class TUnitResidentSuiteTests : IDisposable
         scenariosOf(monitor).ShouldBe(identities, ignoreOrder: true);
     }
 
-    [Fact]
+    [TUnitHostedFact]
     public async Task a_cold_selection_no_single_tree_node_path_can_name_is_refused_before_anything_runs()
     {
         // LedgerSpecs.opening_a_ledger + AuditSpecs.closing_a_ledger: per-segment alternatives would
@@ -93,7 +93,7 @@ public class TUnitResidentSuiteTests : IDisposable
         eventsNamed(monitor, "run_started").ShouldBeEmpty();
     }
 
-    [Fact]
+    [TUnitHostedFact]
     public async Task two_warm_tunit_commands_are_two_runs_in_one_live_host()
     {
         // The warm path runs by uid, so the selection the cold path refuses is fine here; and
@@ -121,7 +121,7 @@ public class TUnitResidentSuiteTests : IDisposable
         scenariosOf(monitor).ShouldBe([ledgerOpening, auditClosing, auditTrail], ignoreOrder: true);
     }
 
-    [Fact]
+    [TUnitHostedFact]
     public async Task a_warm_tunit_command_through_the_runner_is_accepted_and_published_as_the_command()
     {
         using var monitor = new FakeMonitorHost();
