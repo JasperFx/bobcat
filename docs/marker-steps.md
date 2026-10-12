@@ -650,9 +650,9 @@ public Task WhenPosted(object command, string route)
 | `SliceRole` | Reaches the slice as |
 |---|---|
 | `Command` | `Commands`; the **last** one a test sends is the act, its `CommandType` (earlier ones arranged state) |
-| `Aggregate` | `AggregateTypes` |
+| `Aggregate` | `AggregateTypes`; nothing on a **Query** slice (#501) |
 | `Event` | `EmittedEvents` |
-| `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice -- there it is the aggregate's own history (#297) -- and nothing on a Query slice, where it is context (#501) |
+| `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice -- there it is the aggregate's own history (#297) -- and nothing on a Query slice, where it is setup (#501) |
 | `ReadModel` | `ReadModelTypes`; `ReadsFrom` on a **Query** slice (#501) |
 | `Document` | the specification's resolved types only, never a slot |
 | `Message` | `PublishedMessages` |
@@ -685,10 +685,11 @@ public Task WhenReading<T>(string route, params object[] routeValues) where T : 
 The last act a test makes -- a command or a read -- is its act. When a slice has a read act and no command
 act, and declares no `Pattern`, it's a `Query` (JasperFx 2.85.0):
 
-- what it reads goes to `ReadsFrom`, never `ReadModelTypes`, so JasperFx's `ReadModelRead` link joins it to
-  the View slice that produces that read model;
-- the streams its specs arranged are context: their types go to `ReadsFrom` and their events are not
-  `ConsumedEvents`, with no `GivenContext` needed (an explicit `GivenContext` still works);
+- what it reads -- the read act's type and any asserted read model -- goes to `ReadsFrom`, never
+  `ReadModelTypes`, so JasperFx's `ReadModelRead` link joins it to the View slice that produces that read model;
+- a stream its specs arranged with `GivenEvents` stamps **nothing**: no `ReadsFrom`, no `AggregateTypes`, no
+  `ConsumedEvents`. It's setup feeding a projection, not something the endpoint reads. A stream the endpoint
+  does read is a `GivenContext`, which goes to `ReadsFrom` as on any slice;
 - it has no `CommandType` and no `AggregateTypes`, even when a test sent a command to arrange state first;
 - the act's `GET` route is its trigger. On a slice that comes out anything but a Query -- a command act on the
   same slice wins, whichever folds first -- the read act's trigger is left off.

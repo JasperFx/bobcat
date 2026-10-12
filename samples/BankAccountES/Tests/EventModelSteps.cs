@@ -286,6 +286,27 @@ public class EventModelSteps(BankAccountHost app)
         SpecAssert.Fact(reads.Contains(type), $"{slice} reads from [{string.Join(", ", reads)}], expected '{type}'.");
     }
 
+    /// <summary>
+    /// bobcat#501: the whole ReadsFrom list, in order, written "A, B" -- a Query's arranged GivenEvents stream must not
+    /// be in it.
+    /// </summary>
+    [Then("the {slice} slice reads from exactly {types}")]
+    public void TheSliceReadsFromExactly(string slice, string types)
+    {
+        if (sliceNamed(slice) is not { } s) return;
+        var reads = string.Join(", ", s.ReadsFrom.Select(t => t.Name));
+        SpecAssert.Fact(reads == types, $"{slice} reads from [{reads}], expected exactly [{types}].");
+    }
+
+    [Then("there is no {kind} link to the {to} slice via {via}")]
+    public void ThereIsNoLinkTo(EventModelLinkKind kind, string to, string via)
+    {
+        if (model() is not { } m) return;
+        var links = m.Links.Where(l => l.Kind == kind && l.ToSlice == to && l.Via.Name == via).ToList();
+        SpecAssert.Fact(links.Count == 0,
+            $"Unexpected {kind} link(s) to {to} via {via}: {string.Join(" | ", links.Select(l => $"{l.FromSlice} -> {l.ToSlice}"))}");
+    }
+
     [Then("{type} is not an aggregate of the {slice} slice")]
     public void IsNotAnAggregateOf(string type, string slice)
     {

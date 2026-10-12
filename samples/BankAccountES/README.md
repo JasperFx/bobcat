@@ -117,8 +117,8 @@ its trigger), and `ThenEvents` in the happy-path spec names what it emits. `When
 those attributes, because the generator reads the method a test calls and never what that method calls.
 
 `WhenReading<T>` declares a `GET` trigger beside a `ReadModel` role, which makes it a read act: a spec whose
-act it is lands on a **Query** slice (bobcat#501). The slice reads `T` and the streams the spec arranged
-through `ReadsFrom`, and the arranged events are context, so the query claims to consume none of them. The
+act it is lands on a **Query** slice (bobcat#501). The slice reads `T` through `ReadsFrom`. Streams the spec
+arranged with `GivenEvents` are setup feeding a projection, so they stamp nothing on the query. The
 two GET specs bind the slices Wolverine derives from those endpoints, which it names for their routes.
 
 | Spec class | What it covers |

@@ -100,9 +100,10 @@ public class EventModel(BankAccountHost app)
     }
 
     /// <summary>
-    /// bobcat#501: a GET spec is a Query slice. Its read type and the streams it arranged go to ReadsFrom, so the
-    /// store's AccountTransactions View is joined to the transactions query by a ReadModelRead link nobody drew, and
-    /// the arranged events are context rather than events the query consumes.
+    /// bobcat#501: a GET spec is a Query slice. Its read type goes to ReadsFrom, so the store's AccountTransactions
+    /// View is joined to the transactions query by a ReadModelRead link nobody drew. The Account stream the spec
+    /// arranges with GivenEvents is setup feeding that projection, so it stamps nothing: no ReadsFrom (which used to
+    /// link every slice producing Account to the query), no ConsumedEvents.
     /// </summary>
     /// <remarks>
     /// Wolverine still derives every GET chain as a View until wolverine#4975, and Derived outranks Declared, so the
@@ -117,10 +118,11 @@ public class EventModel(BankAccountHost app)
         _model.TheSpecsAloneSayTheSliceIsAQueryReading("GET /api/clients/{clientId}/accounts", "Account");
 
         await _model.AssembleEventModel();
-        _model.TheSliceReadsFrom("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
-        _model.TheSliceReadsFrom("GET /api/clients/{clientId}/accounts", "Account");
+        _model.TheSliceReadsFromExactly("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+        _model.TheSliceReadsFromExactly("GET /api/clients/{clientId}/accounts", "Account");
         _model.ThereIsALink(EventModelLinkKind.ReadModelRead, "AccountTransactions",
             "GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+        _model.ThereIsNoLinkTo(EventModelLinkKind.ReadModelRead, "GET /api/accounts/{accountId}/transactions", "Account");
 
         // wolverine#4975: expected, and pinned
         _model.TheQuerySliceIsStillDerivedAsAView("GET /api/accounts/{accountId}/transactions");

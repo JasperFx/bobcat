@@ -369,7 +369,7 @@ public class ProjectedEventModelRoleTests
     // ---------------------------------------------------------------- bobcat#501, a read-only act is a Query
 
     [Fact]
-    public void a_get_read_act_is_a_query_slice_that_reads_what_it_arranged()
+    public void a_get_read_act_is_a_query_slice_and_its_arranged_stream_stamps_nothing()
     {
         var slice = describe(
             """
@@ -392,9 +392,10 @@ public class ProjectedEventModelRoleTests
         slice.TriggerOrigin!.HttpRoute.ShouldBe("/accounts/{id}/summary");
         slice.TriggerOrigin.HttpMethod.ShouldBe("GET");
 
-        // What it reads is ReadsFrom -- the ReadModelRead link's end -- never a read model it produces. The arranged
-        // stream is context, as GivenContext would have said: read, not decided against, and its events not consumed
-        names(slice.ReadsFrom).ShouldBe(["AccountSummary", "Account"]);
+        // What it reads is ReadsFrom -- the ReadModelRead link's end -- never a read model it produces. The stream
+        // arranged with plain GivenEvents is setup feeding the projection: not read, not decided against, its events
+        // not consumed. It stamps nothing on the slice
+        names(slice.ReadsFrom).ShouldBe(["AccountSummary"]);
         slice.ReadModelTypes.ShouldBeEmpty();
         slice.AggregateTypes.ShouldBeEmpty();
         slice.ConsumedEvents.ShouldBeEmpty();
@@ -418,14 +419,18 @@ public class ProjectedEventModelRoleTests
                     var client = Guid.NewGuid();
                     await GivenContext<Client>(client, new ClientEnrolled(client, "Ann"));
                     await GivenEvents<Account>(Guid.NewGuid(), new AccountOpened(Guid.NewGuid(), "Ann"));
-                    await WhenProbing<Account>("/clients/{client}/accounts");
+                    await WhenProbing<AccountSummary>("/clients/{client}/accounts");
+                    await ThenReadModel<Statement>(client);
                 }
             }
             """).Single(x => x.Name == "Client accounts");
 
+        // Only the explicit GivenContext, the read type and an asserted read model are read; the GivenEvents<Account>
+        // stream is setup
         slice.Pattern.ShouldBe(SlicePattern.Query);
         slice.TriggerOrigin!.HttpMethod.ShouldBe("HEAD");
-        names(slice.ReadsFrom).ShouldBe(["Client", "Account"]);
+        names(slice.ReadsFrom).ShouldBe(["Client", "AccountSummary", "Statement"]);
+        slice.ReadModelTypes.ShouldBeEmpty();
         slice.AggregateTypes.ShouldBeEmpty();
         slice.ConsumedEvents.ShouldBeEmpty();
     }

@@ -311,14 +311,15 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   assertion (`ThenReadModel<T>` carries the same role and no trigger), and the verb separates it from a write, so a
   `SliceRole.QueryResult` or `Query = true` would restate what is already there. `patternOf`: declared → act
   command → `ReadActs` → any command → read model. On a Query `emitSlice` writes no `CommandType` (an arranging
-  command is not its act), no `ReadModelTypes`, no `AggregateTypes`, no `ConsumedEvents`, and folds read models +
-  aggregates into `ReadsFrom` — so arranged `GivenEvents` are context automatically, like `GivenContext` (#502),
-  and `ReadModelRead` links the read model's View to the query. A read act's trigger (`TriggerFromRead`) is
+  command is not its act), no `ReadModelTypes`, no `AggregateTypes`, no `ConsumedEvents`, and folds read models
+  (the read act's type, asserted read models) into `ReadsFrom` beside any `GivenContext` (#502), so `ReadModelRead`
+  links the read model's View to the query. **A stream arranged with plain `GivenEvents` stamps nothing on a
+  Query** — it is setup feeding a projection, not a read; an earlier cut put it in `ReadsFrom`, which linked every
+  slice producing `Account` to the transactions query. A read act's trigger (`TriggerFromRead`) is
   replaced by any command act's and stamped only on a Query. The manifest skips `inferCommand` for a read act.
   Wolverine derives GET chains as View until wolverine#4975, so BankAccountES's two GET slices merge as View with
   a Pattern `SourceDisagreement` — pinned in `EventModel.cs`, filtered out of the "exactly one planted
-  disagreement" count by `isQueryDerivedAsView`. Known noise: a Query arranging `GivenEvents<Account>` reads
-  `Account`, so every slice producing `Account` gets a `ReadModelRead` link to it.
+  disagreement" count by `isQueryDerivedAsView`.
 - **Projected specs feed the model, and the identity has three copies.** `MarkerCommentSpecs` reads
   the tests and `EventModelEmitter.Collect` folds them into one slice dictionary; a test with
   neither a binding nor roles contributes nothing. The identity is `{derived feature title}/{derived

@@ -14,7 +14,10 @@ public enum SliceRole
     /// </summary>
     Command,
 
-    /// <summary>The aggregate whose stream the specification arranges, acts on or reads.</summary>
+    /// <summary>
+    /// The aggregate whose stream the specification arranges, acts on or reads. Stamps nothing on a Query slice
+    /// (bobcat#501): a stream arranged for a query is setup, and one the query reads is a <see cref="Context"/>.
+    /// </summary>
     Aggregate,
 
     /// <summary>An event the act emits.</summary>
@@ -23,8 +26,8 @@ public enum SliceRole
     /// <summary>
     /// An event laid down <em>before</em> the act. On a View slice it is what the projection consumes
     /// (<c>ConsumedEvents</c>); on a Command slice it is the aggregate's own history and stamps nothing
-    /// (bobcat#297); on a Query slice it is context and stamps nothing either, while its stream is read
-    /// (<c>ReadsFrom</c>, bobcat#501). It still reaches the specification's resolved types either way.
+    /// (bobcat#297); on a Query slice it is setup feeding a projection and stamps nothing either (bobcat#501). It
+    /// still reaches the specification's resolved types either way.
     /// </summary>
     ArrangedEvent,
 

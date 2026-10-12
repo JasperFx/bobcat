@@ -422,9 +422,10 @@ internal static class EventModelEmitter
         var pattern = patternOf(slice, contract);
 
         // bobcat#501: a Query changes nothing, so it has no command (an arranging command is not its act), and
-        // what it reads -- the read act's type, an asserted read model, an arranged stream -- is ReadsFrom, never
-        // a read model it produces or an aggregate it decides against. ReadsFrom is what JasperFx's
-        // ReadModelRead link joins to the View producing it. Arranged events are context too: no ConsumedEvents
+        // what it reads -- the read act's type, an asserted read model, an explicit GivenContext -- is ReadsFrom,
+        // never a read model it produces. ReadsFrom is what JasperFx's ReadModelRead link joins to the View
+        // producing it. A stream arranged with plain GivenEvents stamps NOTHING on a Query: it is setup feeding a
+        // projection, not something the endpoint reads -- no AggregateTypes, no ReadsFrom, no ConsumedEvents
         var query = pattern == "Query";
         var command = query ? null : slice.ActCommand ?? slice.Commands.FirstOrDefault();
         var readModels = query ? EmptyTypes : slice.ReadModels;
@@ -433,7 +434,7 @@ internal static class EventModelEmitter
         if (query)
         {
             readsFrom = new List<string>(slice.ReadsFrom);
-            foreach (var type in slice.ReadModels.Concat(slice.Aggregates)) addDistinct(readsFrom, type);
+            foreach (var type in slice.ReadModels) addDistinct(readsFrom, type);
         }
 
         var sb = new StringBuilder();
