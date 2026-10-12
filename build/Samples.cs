@@ -59,6 +59,7 @@ partial class Build
         ("OutboxDemo", "outbox_demo"),
         ("BankAccountES", "bank_account"),
         ("EcommerceMicroservices", "ecommerce_catalog"),
+        ("ProjectManagement", "project_management"),
     ];
 
     Target CompileSamples => _ => _
