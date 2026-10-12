@@ -227,65 +227,12 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
     }
 
     /// <summary>
-    /// Map every specification identity to the platform uids that run it.
+    /// Map every specification identity to the platform uids that run it — the join itself is
+    /// <see cref="SpecUidJoin"/>'s, shared with the supervisor's reporting of the same pair
+    /// (issue #515) so the two cannot disagree about which test an identity names.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The join is one lookup</b>, which issue #394 established: xUnit v3 reports a test's
-    /// discovery display name as <c>Namespace.Class.method</c>, which is exactly what the
-    /// manifest's <c>TestClass</c> + <c>TestMethod</c> spell. A uid is a better filter than the
-    /// cold path's <c>--filter-method</c>, too — a uid cannot match more than one test, while a
-    /// method name can.
-    /// </para>
-    /// <para>
-    /// <b>TUnit needs the location instead (bobcat#470).</b> Its display name is the bare method
-    /// name, so it joins nothing; its <c>location.type</c> / <c>location.method</c> are the
-    /// manifest's <c>TestClass</c> (nested as <c>Outer+Inner</c>) and <c>TestMethod</c> exactly,
-    /// measured against <c>Bobcat.TUnit.Tests</c>. A data-driven method is one identity and several
-    /// tests, so an identity maps to every uid at its location. This is also why warm can run any
-    /// set of TUnit identities while cold cannot: a uid list has no tree-node filter's
-    /// cross-product limit.
-    /// </para>
-    /// </remarks>
     private async Task<Dictionary<string, IReadOnlyList<string>>> discover(IWorkerClient client, CancellationToken token)
-    {
-        var discovered = await client.Discover(token);
-
-        var byDisplayName = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var test in discovered) byDisplayName[test.DisplayName] = test.Uid;
-
-        var byLocation = discovered
-            .Where(test => test.TestClass is { Length: > 0 } && test.TestMethod is { Length: > 0 })
-            .GroupBy(test => $"{test.TestClass}.{test.TestMethod}", StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)group.Select(test => test.Uid).ToList(),
-                StringComparer.Ordinal);
-
-        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-
-        foreach (var entry in Manifest.Specs)
-        {
-            if (entry.QualifiedTestMethod is not { Length: > 0 } qualified) continue;
-
-            if (byDisplayName.TryGetValue(qualified, out var uid))
-            {
-                map[entry.Identity] = [uid];
-                continue;
-            }
-
-            // A nested class is `Ns.Outer+Inner` in the manifest, because that is what a
-            // framework's class filter takes, while a display name may spell it with a dot.
-            // Tried as a fallback rather than instead: the exact match is the one #394 verified.
-            if (byDisplayName.TryGetValue(qualified.Replace('+', '.'), out uid))
-            {
-                map[entry.Identity] = [uid];
-                continue;
-            }
-
-            if (byLocation.TryGetValue(qualified, out var located)) map[entry.Identity] = located;
-        }
-
-        return map;
-    }
+        => SpecUidJoin.UidsByIdentity(Manifest, await client.Discover(token));
 
     /// <summary>
     /// Tear down the warm session, if one is up. Idempotent, and never throws — a teardown that

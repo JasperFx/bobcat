@@ -326,15 +326,24 @@ public sealed class Supervisor
     public RecoveryHintSet RecoveryHints { get; } = new();
 
     /// <summary>
-    /// Read the recovery hints the worker declares on itself from its spec manifest, during
-    /// discovery (issue #469). On by default: a hint an author wrote down and nothing honoured is
+    /// Ask the worker for its spec manifest during discovery, for the recovery hints it declares
+    /// on itself (issue #469). On by default: a hint an author wrote down and nothing honoured is
     /// the bug this exists to fix.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Costs one environment variable on the discovery worker and one small file. A worker that
     /// writes no manifest — one that does not reference Bobcat, or a front-end that does not
     /// write one — simply contributes no hints, and the run proceeds on whatever
     /// <see cref="RecoveryHints"/> holds.
+    /// </para>
+    /// <para>
+    /// The manifest has a second reader since issue #515: the spec identity each test runs, which
+    /// the monitor's forwarded per-test stream carries beside the platform uid. Turning this off
+    /// therefore also leaves <c>test_started</c> / <c>test_finished</c> without a <c>specId</c>.
+    /// The name is kept because it is public API; what it gates is "read what the suite says
+    /// about itself".
+    /// </para>
     /// </remarks>
     public bool ReadWorkerRecoveryHints { get; set; } = true;
 
@@ -541,6 +550,12 @@ public sealed class Supervisor
             // Before the filter, so a hint's reach is decided against everything the worker has —
             // a filter narrows what runs, not what was declared.
             applyDeclaredHints(manifest, tests);
+
+            // The same manifest names each test's specification, which is what lets a console
+            // fold the forwarded per-test stream onto the worker's own scenario stream exactly
+            // (issue #515). Also before the filter: the map is a lookup, and a filtered-out test
+            // is simply never looked up.
+            monitor?.BindSpecIdentities(SpecUidJoin.IdentityByUid(manifest, tests));
 
             if (TestFilter is not null)
             {

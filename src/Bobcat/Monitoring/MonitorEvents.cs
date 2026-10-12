@@ -453,13 +453,27 @@ public record RunProgress(
 // the WORKER's test id, not the {Feature}/{Scenario} spec identity ScenarioStarted carries;
 // for a foreign worker it corresponds to no SpecificationDescriptor, which is why the run
 // evidence join stays on the scenario events. Lane is null for a one-test process.
+//
+// SpecId (issue #515) is that identity carried BESIDE the uid, for the tests the supervisor
+// could name from the suite's own spec manifest. Beside rather than instead: Uid keeps its
+// documented meaning for every existing consumer, and a run of foreign tests has no identity
+// to give. It is what makes the documented fold — a worker's own scenario stream winning over
+// its supervisor's forwarding of the same test — an exact match rather than a method-name
+// heuristic, which is what Stoat had to do without it.
 
 public record TestStarted(
     Guid RunId,
     string Uid,
     string DisplayName,
     int? Lane,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    // The specification this test is, when the supervisor could name it (issue #515) — the same
+    // {Feature}/{Scenario} string scenario_started carries, so the two streams fold together
+    // exactly instead of by a method name that is ambiguous across classes and overloads. Null
+    // for a test no spec manifest binds (a plain xUnit test, a suite that writes no manifest, or
+    // an identity more than one test claims), and trailing-optional so a consumer that predates
+    // it reads the event as it always did.
+    string? SpecId = null) : MonitorEvent(RunId);
 
 // State is the framework's own word — Passed / Failed / Error / Skipped / Timeout / Cancelled
 // — never re-labelled into RunOutcome by the publisher. Indeterminate never travels here:
@@ -472,4 +486,7 @@ public record TestFinished(
     string State,
     long? DurationMs,
     int? Lane,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    // As on TestStarted (issue #515): the spec identity when the supervisor could name it, null
+    // otherwise.
+    string? SpecId = null) : MonitorEvent(RunId);

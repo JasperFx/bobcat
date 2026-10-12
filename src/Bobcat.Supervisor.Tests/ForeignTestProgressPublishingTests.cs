@@ -1,4 +1,5 @@
 using Bobcat.Monitoring;
+using Bobcat.Runtime;
 using Shouldly;
 
 namespace Bobcat.Supervisor.Tests;
@@ -145,5 +146,117 @@ public class ForeignTestProgressPublishingTests
 
         sink.Events.OfType<TestFinished>().Single(e => e.Uid == "A.alone").Lane.ShouldBeNull();
         sink.Events.OfType<TestFinished>().Single(e => e.Uid == "A.batched").Lane.ShouldBe(0);
+    }
+
+    // Issue #515: the spec identity beside the uid, so a console folds the two per-test streams
+    // exactly instead of matching them by method name.
+
+    private static SpecManifest manifestOf(params (string Identity, string Class, string Method)[] specs)
+        => new(SpecManifest.ProjectedLane, SpecManifest.XunitFramework, "Orders.Tests",
+            specs.Select(s => new SpecManifestEntry(s.Identity, s.Class, s.Method)).ToArray());
+
+    [Fact]
+    public async Task a_forwarded_test_carries_the_specification_identity_the_manifest_names()
+    {
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.InClass("Orders.Tests.OrderSpecs", "places_an_order")],
+            Manifest = manifestOf(("Orders/places an order", "Orders.Tests.OrderSpecs", "places_an_order")),
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        await supervised(factory, sink).Run();
+
+        // The uid keeps its documented meaning -- the platform's own id -- and the identity rides
+        // beside it, the same string the worker's own scenario_* events carry.
+        var started = sink.Events.OfType<TestStarted>().ShouldHaveSingleItem();
+        started.Uid.ShouldBe("Orders.Tests.OrderSpecs.places_an_order");
+        started.SpecId.ShouldBe("Orders/places an order");
+
+        sink.Events.OfType<TestFinished>().ShouldHaveSingleItem().SpecId.ShouldBe("Orders/places an order");
+    }
+
+    [Fact]
+    public async Task an_opaque_uid_is_named_through_the_reported_location()
+    {
+        // The case that matters: xUnit's real uid is a hash, so the display name is no help and
+        // the discovery location is what places the test. Same join the resident runner uses.
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests =
+            [
+                new WorkerTest("9F2C51A7", "places an order")
+                {
+                    TestClass = "Orders.Tests.OrderSpecs",
+                    TestMethod = "places_an_order"
+                }
+            ],
+            Manifest = manifestOf(("Orders/places an order", "Orders.Tests.OrderSpecs", "places_an_order")),
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        await supervised(factory, sink).Run();
+
+        sink.Events.OfType<TestFinished>().ShouldHaveSingleItem().SpecId.ShouldBe("Orders/places an order");
+    }
+
+    [Fact]
+    public async Task a_test_no_manifest_names_carries_no_identity_at_all()
+    {
+        // A plain xUnit suite -- the #195 case -- writes no manifest, and a suite that writes one
+        // need not have bound every test in it. Null rather than a guess: the field exists to
+        // make a fold exact, and an invented identity would fold two tests into one card.
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests =
+            [
+                FakeWorkerFactory.InClass("Orders.Tests.OrderSpecs", "places_an_order"),
+                FakeWorkerFactory.InClass("Orders.Tests.PlainTests", "an_ordinary_unit_test")
+            ],
+            Manifest = manifestOf(("Orders/places an order", "Orders.Tests.OrderSpecs", "places_an_order")),
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        await supervised(factory, sink).Run();
+
+        var finished = sink.Events.OfType<TestFinished>().ToDictionary(e => e.Uid);
+        finished["Orders.Tests.OrderSpecs.places_an_order"].SpecId.ShouldBe("Orders/places an order");
+        finished["Orders.Tests.PlainTests.an_ordinary_unit_test"].SpecId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task an_identity_two_tests_claim_names_neither_of_them()
+    {
+        // bobcat#489's duplicate. The manifest keeps the first claimant as its one entry, so
+        // stamping it would say "this is the specification" about one of two tests that both are,
+        // and a fold keyed on it would attach the other's scenario to the wrong card.
+        var sink = new RecordingSink();
+        var duplicate = new SpecManifest(
+            SpecManifest.ProjectedLane, SpecManifest.XunitFramework, "Orders.Tests",
+            [new SpecManifestEntry("Orders/places an order", "Orders.Tests.OrderSpecs", "places_an_order")])
+        {
+            Duplicates =
+            [
+                new SpecManifestDuplicate("Orders/places an order",
+                [
+                    new SpecManifestEntry("Orders/places an order", "Orders.Tests.OrderSpecs", "places_an_order"),
+                    new SpecManifestEntry("Orders/places an order", "Orders.Tests.OtherSpecs", "places_an_order")
+                ])
+            ]
+        };
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.InClass("Orders.Tests.OrderSpecs", "places_an_order")],
+            Manifest = duplicate,
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        await supervised(factory, sink).Run();
+
+        sink.Events.OfType<TestFinished>().ShouldHaveSingleItem().SpecId.ShouldBeNull();
     }
 }

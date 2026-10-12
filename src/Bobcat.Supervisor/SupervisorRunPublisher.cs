@@ -28,6 +28,13 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _startedAt = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Uid → <c>{Feature}/{Scenario}</c> for the tests the suite's own spec manifest names
+    /// (issue #515), bound once at discovery. Empty for a suite that writes no manifest, which
+    /// is every run of foreign tests — those simply carry no identity.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> _specIds = new Dictionary<string, string>(StringComparer.Ordinal);
+
     private Timer? _heartbeat;
 
     private SupervisorRunPublisher(IMonitorEventSink sink, MonitorRunInfo info, IAsyncDisposable? ownedPublisher)
@@ -75,6 +82,13 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
 
     /// <summary>The pair every worker launch carries, via <see cref="WorkerLaunchContext.Environment"/>.</summary>
     public IReadOnlyDictionary<string, string> WorkerEnvironment { get; }
+
+    /// <summary>
+    /// Give the publisher the uid → spec identity map discovery produced, so the forwarded
+    /// per-test stream can name the specification each test is (issue #515). Called before
+    /// <see cref="RunStarted"/>, since nothing is forwarded until a lane runs.
+    /// </summary>
+    public void BindSpecIdentities(IReadOnlyDictionary<string, string> specIds) => _specIds = specIds;
 
     public void RunStarted(int? totalTests)
     {
@@ -203,6 +217,14 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
     /// anyway. Two extra events per test against a publisher that batches and drops under
     /// backpressure was the cheaper side of that trade.
     /// </para>
+    /// <para>
+    /// <strong>What makes that fold exact is <c>SpecId</c></strong> (issue #515). The uid here is
+    /// the platform's and the scenario stream's is the spec identity, so for the whole of the
+    /// projected lane the two never matched and a console had to fold them by method name —
+    /// ambiguous across classes and overloads. The identity now travels beside the uid, taken
+    /// from the suite's own manifest through <see cref="SpecUidJoin"/> (the same join the resident
+    /// runner runs a named specification with), and is null for any test no manifest names.
+    /// </para>
     /// </remarks>
     public void TestUpdated(WorkerLaunchContext worker, WorkerTestUpdate update)
     {
@@ -211,7 +233,8 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         if (update.InProgress)
         {
             lock (_startedAt) _startedAt[update.Uid] = at;
-            _sink.Post(new TestStarted(_info.RunId, update.Uid, update.DisplayName, laneOf(worker), at));
+            _sink.Post(new TestStarted(
+                _info.RunId, update.Uid, update.DisplayName, laneOf(worker), at, specIdOf(update.Uid)));
             return;
         }
 
@@ -226,7 +249,8 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         }
 
         _sink.Post(new TestFinished(
-            _info.RunId, update.Uid, update.DisplayName, state.ToString(), durationMs, laneOf(worker), at));
+            _info.RunId, update.Uid, update.DisplayName, state.ToString(), durationMs, laneOf(worker), at,
+            specIdOf(update.Uid)));
     }
 
     public void Heartbeat(SupervisorHeartbeat heartbeat)
@@ -241,6 +265,8 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
             heartbeat.LongestRunning is { } longest ? (long)longest.InFlight.TotalMilliseconds : null,
             heartbeat.PeakWorkerRssBytes,
             DateTimeOffset.UtcNow));
+
+    private string? specIdOf(string uid) => _specIds.GetValueOrDefault(uid);
 
     private static int? laneOf(WorkerLaunchContext worker)
         => worker.Purpose == WorkerPurpose.Lane ? worker.Lane : null;

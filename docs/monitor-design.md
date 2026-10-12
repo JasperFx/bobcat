@@ -323,6 +323,25 @@ real HTTP without one.
      isolated or recycled process, the same rule as `worker_faulted`. Discovery is never tapped.
    - Free consequence: a supervised xUnit run now has per-test rows in `GET /api/runs/{id}`
      and therefore a CTRF/JUnit eject, without a Bobcat reference anywhere in the suite.
+   - **`specId`: the identity beside the uid** (added 2026-10-12, issue #515). The fold above —
+     a worker's own scenario stream winning for any uid it has touched — needs the two streams
+     to name the same test, and in the projected lane they never did: `test_*.uid` is the MTP
+     node uid (a hash) while `scenario_*.uid` is `{Feature}/{Scenario}`. So the fold could not
+     dedupe, and Stoat matched the pair by **method name**, which is ambiguous across classes
+     and overloads. Both events now carry the spec identity as a trailing optional `specId`,
+     taken from the suite's own `SpecManifest` through the supervisor's discovery join
+     (`SpecUidJoin`, the same lookup the resident runner runs a named specification with).
+     - **Beside the uid, never instead of it.** `uid` keeps its documented meaning — the
+       platform's own id — so no existing consumer changes, and the run-evidence join stays on
+       the scenario events.
+     - **Null means nobody could name it**, and that is the honest answer for a plain xUnit
+       test, a suite that writes no manifest, a front-end whose discovery places nothing, and
+       an identity more than one test claims (bobcat#489: the manifest keeps one entry, so
+       stamping it would name one of two tests that both are it). A receiving fold therefore
+       keys on `specId` when present and falls back to whatever it did before.
+     - Receiving side: fold `test_*` onto a scenario when `specId == {Feature}/{Scenario}`, and
+       drop the method-name heuristic. The additive field needs no wire version bump — a reader
+       that predates it deserializes the event exactly as before.
 
 
 ## A repeated step is its own row (issue #322, built 2026-09-16)

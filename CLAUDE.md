@@ -1896,6 +1896,20 @@ foreign specs into the Bobcat model is #110, not this.
   measured on the supervisor's own clock and is null when it never saw the start — unmeasured is
   never zero. `Lane` is null for a one-test isolated or recycled process, and discovery is never
   tapped.
+- **`SpecId` carries the spec identity beside the uid (issue #515), and that is what makes the
+  fold exact.** The receiving fold needs the two streams to name the same test, and in the
+  projected lane they never did — `test_*.uid` is the MTP node uid (a hash) while `scenario_*`
+  carries `{Feature}/{Scenario}` — so Stoat matched them by **method name**, ambiguous across
+  classes and overloads. The identity is read from the suite's own `SpecManifest` at discovery
+  through **`SpecUidJoin`**, which is `WarmProjectedResidentSuite`'s identity → uid lookup
+  (#394/#470) extracted so both directions are one rule: two copies is how the end that runs a
+  specification and the end that reports it would start naming different tests. Trailing and
+  optional, so no wire version bump and no change for a reader that predates it. **Null is the
+  honest answer** for a plain xUnit test, a suite that writes no manifest, a front-end whose
+  discovery places nothing, and an identity more than one test claims (#489 — the manifest keeps
+  one entry, so stamping it would name one of two tests that both are it, and `SpecFilterArguments`
+  refuses such an identity for the same reason). `ReadWorkerRecoveryHints` is the gate, because it
+  is the gate on reading the manifest at all; its name is kept because it is public API.
 
 ### A cell says exactly one thing on the wire (issue #396)
 
