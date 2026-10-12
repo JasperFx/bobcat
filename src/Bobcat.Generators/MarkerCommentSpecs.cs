@@ -218,6 +218,18 @@ internal static class MarkerCommentSpecs
             scenario.TriggeredBy = triggeredBy(method);
             scenario.Roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
 
+            // bobcat#500: an HTTP act whose route cannot be known at all says so (BOBCAT038, info)
+            if (scenario.Roles.RouteProblem is { } routeProblem)
+            {
+                spec.Problems.Add(new MarkedProblem
+                {
+                    Id = "UnresolvedRoute",
+                    IsError = false,
+                    Where = scenario.Roles.RouteProblemLocation,
+                    Message = routeProblem
+                });
+            }
+
             spec.Scenarios.Add(scenario);
         }
 

@@ -111,14 +111,15 @@ public static class GeneratorHarness
 
     /// <summary>
     /// Compile <paramref name="source"/> into an assembly of its own, with no generator run, and hand back
-    /// its image — for a test that needs a referenced assembly rather than a source file.
+    /// its image — for a test that needs a referenced assembly rather than a source file. <paramref name="references"/>
+    /// are other such images it builds against (an application assembly referencing a stand-in Wolverine.Http).
     /// </summary>
-    public static byte[] CompileLibrary(string assemblyName, string source)
+    public static byte[] CompileLibrary(string assemblyName, string source, params MetadataReference[] references)
     {
         var compilation = CSharpCompilation.Create(
             assemblyName,
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
-            referenceSet(),
+            referenceSet().AddRange(references),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableContextOptions.Enable));
 

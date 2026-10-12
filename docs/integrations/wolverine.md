@@ -383,6 +383,12 @@ public Task WhenReceived(object message)
         services => services.GetRequiredService<IMessageBus>().InvokeAsync(message));
 ```
 
+An act can also address an endpoint by its route name: `[WolverinePut("/api/clients/{clientId}", RouteName =
+"UpdateClient")]` on the endpoint, and `[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName))]` on
+the act. The generator resolves a constant route name to the endpoint's template at compile time. It also
+matches an interpolated route against the endpoints' templates. See
+[The act's route](../marker-steps.md#act-route).
+
 ## Cold hosts and brokers
 
 **Handler warm-up is automatic.** Under Wolverine's default `TypeLoadMode.Dynamic` a handler compiles

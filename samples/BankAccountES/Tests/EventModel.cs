@@ -47,6 +47,11 @@ public class EventModel(BankAccountHost app)
         _model.ThatDisagreementDropped(EventModelProvenance.Declared, "AccountFrozen");
         _model.TheSliceReportsNoDisagreement("DepositFunds");
         _model.TheSliceReportsNoDisagreement("WithdrawFunds");
+
+        // bobcat#500: update_a_client addresses its endpoint by route name; the route the generator resolved
+        // from it is the specs' own claim, and agrees with the one Wolverine derives from the chain
+        _model.TheSpecsAloneSayTheSliceIsTriggeredAt("UpdateClient", "PUT /api/clients/{clientId}");
+        _model.TheSliceReportsNoDisagreement("UpdateClient");
     }
 
     [BobcatSpec]

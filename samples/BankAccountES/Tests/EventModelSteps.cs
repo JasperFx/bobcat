@@ -226,6 +226,23 @@ public class EventModelSteps(BankAccountHost app)
     }
 
     /// <summary>
+    /// bobcat#500: the trigger this assembly's specs alone give a slice, before the merge -- so a route the
+    /// generator resolved from a route name is checked as the specs' own claim, not as whatever Wolverine derived.
+    /// </summary>
+    [Then("this assembly's specs alone say the {slice} slice is triggered by {label}")]
+    public void TheSpecsAloneSayTheSliceIsTriggeredAt(string slice, string label)
+    {
+        var declared = BobcatEventModelSource.Describe().Slices.FirstOrDefault(s => s.Name == slice);
+        if (declared is null)
+        {
+            SpecAssert.Fail($"The specs declare no slice named '{slice}'.");
+            return;
+        }
+
+        SpecAssert.Check("trigger", declared.TriggerOrigin?.Label, label);
+    }
+
+    /// <summary>
     /// The cross-slice join computed upstream on read (jasperfx#823): nobody declares a link, it falls out of
     /// one slice's EmittedEvents meeting another's ConsumedEvents.
     /// </summary>

@@ -150,13 +150,30 @@ public sealed class EventModelTriggerAttribute : Attribute
     public TriggerKind Kind { get; }
 
     /// <summary>
-    /// The value parameter carrying the HTTP route — write it with <c>nameof</c>. Its argument must be a
-    /// non-empty compile-time constant to be stamped; any other argument leaves the kind certain and the
-    /// route unknown, which is better on a canvas than a wrong route. When several specifications of one
-    /// slice disagree, a known route wins over an unknown one whatever order they are read in. Ignored on
+    /// The value parameter carrying the HTTP route — write it with <c>nameof</c>. A non-empty compile-time
+    /// constant is stamped as it is. An interpolated string (<c>$"/api/accounts/{id}/deposits"</c>) takes the
+    /// template of the one endpoint whose literal segments match it, with a parameter at every hole — an endpoint
+    /// attribute (Wolverine's <c>[WolverinePost]</c> family, MVC's <c>[HttpPost]</c> / <c>[Route]</c>) in the
+    /// compilation or its references (bobcat#500). With no single match the template is rebuilt from the
+    /// interpolation, each hole named for its expression, and any read or resolved route on the slice replaces
+    /// it. Anything else — a helper call, a variable — leaves the kind certain and the route unknown, which is
+    /// better on a canvas than a wrong route, and is reported as BOBCAT038 (info). When several specifications of
+    /// one slice disagree, a known route wins over an unknown one whatever order they are read in. Ignored on
     /// any kind but <see cref="TriggerKind.Http"/>.
     /// </summary>
     public string? Route { get; set; }
+
+    /// <summary>
+    /// The value parameter carrying an ASP.NET Core <b>route name</b> in place of a route — write it with
+    /// <c>nameof</c> (bobcat#500). A constant route name is resolved at compile time against the endpoint
+    /// attributes in the compilation and its references that declare it — <c>[WolverinePost("…", RouteName = "…")]</c>,
+    /// <c>[HttpPost("…", Name = "…")]</c>, <c>[Route("…", Name = "…")]</c> — and that endpoint's template is
+    /// stamped as the route. A name only a minimal API's <c>.WithName("…")</c> declares cannot be resolved before
+    /// the host runs: the route stays unknown, and BOBCAT038 (info) says so. A method may declare both
+    /// <see cref="Route"/> and <see cref="RouteName"/>; a route argument that can be known wins. Ignored on any
+    /// kind but <see cref="TriggerKind.Http"/>.
+    /// </summary>
+    public string? RouteName { get; set; }
 
     /// <summary>
     /// The HTTP verb, for an <see cref="TriggerKind.Http"/> act; <c>POST</c> when not set. It travels with

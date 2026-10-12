@@ -69,12 +69,34 @@ internal static class ProjectedRoles
 
         /// <summary>
         /// The act's route, or null when the act has no HTTP trigger, declares no route, or passes one that
-        /// is not a non-empty compile-time constant. Never "": an unknown route is null, so it cannot beat a
-        /// known one when slices fold.
+        /// cannot be known at compile time (bobcat#500 resolves a route name and an interpolated route through
+        /// <see cref="TriggerRoutes"/>). Never "": an unknown route is null, so it cannot beat a known one when
+        /// slices fold.
         /// </summary>
         public string? TriggerRoute;
 
-        /// <summary>The HTTP act's verb, when its vocabulary declares one.</summary>
+        /// <summary>
+        /// True when <see cref="TriggerRoute"/> was rebuilt from an interpolated route that matched no single
+        /// endpoint template (bobcat#500), so its parameter names are the test's, not the endpoint's. A read or
+        /// resolved route on the same slice replaces it.
+        /// </summary>
+        public bool TriggerRouteReconstructed;
+
+        /// <summary>
+        /// The constant route name the act passed through <c>RouteName</c>, resolved or not (bobcat#500). Never
+        /// stamped as a route: JasperFx's <c>PublisherOrigin</c> has no field for it yet.
+        /// </summary>
+        public string? TriggerRouteName;
+
+        /// <summary>
+        /// Why the act's route could not be known at all — BOBCAT038 — and where, or null. Kept for the act only,
+        /// like the rest of the trigger.
+        /// </summary>
+        public string? RouteProblem;
+
+        public Location? RouteProblemLocation;
+
+        /// <summary>The HTTP act's verb, when its vocabulary declares one or its matched endpoint does.</summary>
         public string? HttpMethod;
 
         /// <summary>Every type stamped, distinct, in call order — the specification's <c>ResolvedTypes</c>.</summary>
@@ -122,7 +144,7 @@ internal static class ProjectedRoles
             // last: its roles count, but it never becomes the act
             if (command is null || isDeferred(invocation, body)) continue;
             reading.Act = command;
-            readTrigger(operation, reading);
+            readTrigger(operation, reading, compilation);
         }
 
         return reading;
@@ -149,7 +171,7 @@ internal static class ProjectedRoles
            }));
 
     /// <summary>
-    /// BOBCAT034: every <c>From</c> / <c>Route</c> on this method's role attributes names one of its
+    /// BOBCAT034: every <c>From</c> / <c>Route</c> / <c>RouteName</c> on this method's role attributes names one of its
     /// parameters (or, for <c>From</c>, its type parameters or a type parameter of a type declaring it).
     /// Null when there is nothing to report.
     /// </summary>
@@ -167,52 +189,58 @@ internal static class ProjectedRoles
         foreach (var attribute in method.GetAttributes())
         {
             var name = attribute.AttributeClass?.ToDisplayString();
-            string? named, kind;
-            bool typeParametersCount;
+            var checks = new List<(string? Named, string Kind, bool TypeParametersCount)>();
             if (name == RoleAttributeName)
             {
-                named = attribute.ConstructorArguments.Length > 1 ? attribute.ConstructorArguments[1].Value as string : null;
-                kind = "From";
-                typeParametersCount = true;
+                checks.Add((attribute.ConstructorArguments.Length > 1 ? attribute.ConstructorArguments[1].Value as string : null, "From", true));
             }
             else if (name == TriggerAttributeName)
             {
-                named = attribute.NamedArguments.FirstOrDefault(x => x.Key == "Route").Value.Value as string;
-                if (named is null) continue;
-                kind = "Route";
-                typeParametersCount = false;
+                // Route and, since bobcat#500, RouteName: each names a value parameter when it is set at all
+                foreach (var argument in new[] { "Route", "RouteName" })
+                {
+                    if (attribute.NamedArguments.FirstOrDefault(x => x.Key == argument).Value.Value is string value)
+                        checks.Add((value, argument, false));
+                }
             }
             else continue;
 
-            if (named is not null
-                && (method.Parameters.Any(x => x.Name == named)
-                    || (typeParametersCount && typeParameters.Contains(named))))
-                continue;
-
-            var candidates = method.Parameters.Select(x => x.Name)
-                .Concat(typeParametersCount ? typeParameters : Enumerable.Empty<string>())
-                .ToList();
-
-            (findings ??= new List<Finding>()).Add(new Finding
+            foreach (var (named, kind, typeParametersCount) in checks)
             {
-                Location = attribute.ApplicationSyntaxReference?.GetSyntax(ct).GetLocation(),
-                Message = $"{kind} = \"{named}\" on '{method.Name}' names no "
-                          + (typeParametersCount ? "parameter or type parameter" : "parameter")
-                          + $" of it, so the role is never stamped at any call. "
-                          + (candidates.Count == 0
-                              ? "The method has none to name."
-                              : $"It has: {string.Join(", ", candidates)}.")
-                          + $" Write it with nameof(…) so a rename keeps the two in step."
-            });
+                if (named is not null
+                    && (method.Parameters.Any(x => x.Name == named)
+                        || (typeParametersCount && typeParameters.Contains(named))))
+                    continue;
+
+                var candidates = method.Parameters.Select(x => x.Name)
+                    .Concat(typeParametersCount ? typeParameters : Enumerable.Empty<string>())
+                    .ToList();
+
+                (findings ??= new List<Finding>()).Add(new Finding
+                {
+                    Location = attribute.ApplicationSyntaxReference?.GetSyntax(ct).GetLocation(),
+                    Message = $"{kind} = \"{named}\" on '{method.Name}' names no "
+                              + (typeParametersCount ? "parameter or type parameter" : "parameter")
+                              + $" of it, so the role is never stamped at any call. "
+                              + (candidates.Count == 0
+                                  ? "The method has none to name."
+                                  : $"It has: {string.Join(", ", candidates)}.")
+                              + $" Write it with nameof(…) so a rename keeps the two in step."
+                });
+            }
         }
 
         return findings;
     }
 
-    private static void readTrigger(IInvocationOperation operation, Reading reading)
+    private static void readTrigger(IInvocationOperation operation, Reading reading, Compilation compilation)
     {
         reading.TriggerKind = null;
         reading.TriggerRoute = null;
+        reading.TriggerRouteReconstructed = false;
+        reading.TriggerRouteName = null;
+        reading.RouteProblem = null;
+        reading.RouteProblemLocation = null;
         reading.HttpMethod = null;
 
         var trigger = attributesOf(operation.TargetMethod, TriggerAttributeName).Attributes.FirstOrDefault();
@@ -227,12 +255,20 @@ internal static class ProjectedRoles
         string? named(string name) => trigger.NamedArguments.FirstOrDefault(x => x.Key == name).Value.Value as string;
 
         reading.HttpMethod = named("HttpMethod");
-        if (named("Route") is not { } routeParameter) return;
+        var routeParameter = named("Route");
+        var routeNameParameter = named("RouteName");
+        if (routeParameter is null && routeNameParameter is null) return;
 
-        // A route that is not a constant is unknown — null, never "", so it cannot shadow a known one
-        var argument = operation.Arguments.FirstOrDefault(x => x.Parameter?.Name == routeParameter);
-        if (argument?.Value.ConstantValue is { HasValue: true, Value: string { Length: > 0 } route })
-            reading.TriggerRoute = route;
+        // bobcat#500: a constant route, a route name an endpoint attribute declares, or an interpolated route
+        // matched against the endpoints (or rebuilt from the interpolation). A route that cannot be known is
+        // null, never "", so it cannot shadow a known one — and BOBCAT038 says so rather than leaving it silent.
+        var resolved = TriggerRoutes.Resolve(operation, routeParameter, routeNameParameter, reading.HttpMethod, compilation);
+        reading.TriggerRoute = string.IsNullOrEmpty(resolved.Route) ? null : resolved.Route;
+        reading.TriggerRouteReconstructed = reading.TriggerRoute is not null && resolved.Reconstructed;
+        reading.TriggerRouteName = resolved.RouteName;
+        reading.HttpMethod ??= resolved.Verb;
+        reading.RouteProblem = resolved.Problem;
+        reading.RouteProblemLocation = resolved.ProblemLocation;
     }
 
     /// <summary>Whether the call sits in a local function or a lambda / anonymous method within the body.</summary>

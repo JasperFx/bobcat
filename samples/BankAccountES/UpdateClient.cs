@@ -21,7 +21,9 @@ public static class UpdateClientEndpoint
     // [DeciderFunction] is the store-agnostic spelling of Wolverine.Marten's [AggregateHandler]
     // (which now derives from it): load the Client stream, hand the current state in, append what
     // comes back. Same attribute, whichever store Program.cs registered.
-    [WolverinePut("/api/clients/{clientId}")]
+    // RouteName is what a spec can address the endpoint by instead of its URL (bobcat#500): the Bobcat
+    // generator resolves it to this template at compile time, from this assembly's metadata.
+    [WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]
     [DeciderFunction]
     public static (IResult, ClientUpdated) Put(UpdateClient command, Client client)
     {
