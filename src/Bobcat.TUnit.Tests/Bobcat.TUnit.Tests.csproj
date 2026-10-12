@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    bobcat#470's stretch: a real TUnit host in this repository, now that src is on
+    Microsoft.Testing.Platform 2.5.1 (the platform TUnit.Engine 1.74.0 needs). It exists to pin the
+    MTP tree-node filter spelling that runs exactly one TUnit test by Namespace.Class.Method —
+    TreeNodeFilterTests drives this very host as a child process with that filter.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+</Project>

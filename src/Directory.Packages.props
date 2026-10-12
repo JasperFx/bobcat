@@ -272,6 +272,8 @@
     -->
     <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.2" />
     <PackageVersion Include="TUnit.Core" Version="1.74.0" />
+    <!-- Bobcat.TUnit.Tests only (bobcat#470): a real TUnit host. Same version as TUnit.Core above. -->
+    <PackageVersion Include="TUnit" Version="1.74.0" />
     <!--
       Bobcat.NUnit (issue #385) takes the NUnit framework package only, which depends on no test
       platform, so it is safe to ship beside whatever platform the pin above names. Bobcat.MSTest (issue #386) takes
