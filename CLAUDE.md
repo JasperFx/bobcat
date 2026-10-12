@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Bobcat?
 
-Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. Specifications are ordinary xUnit v3 / TUnit / NUnit / MSTest tests — the **projected** model — which a Roslyn source generator and the runtime recorder render as readable specifications (step interceptors on `[Given]`/`[When]`/`[Then]`/`[Step]`/`[Check]` helpers, marker comments, declared values, the Event Model fold).
+Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller.
+Specifications are ordinary xUnit v3 / TUnit / NUnit / MSTest tests — the **projected** model —
+which a Roslyn source generator and the runtime recorder render as readable specifications (step
+interceptors on `[Given]`/`[When]`/`[Then]`/`[Step]`/`[Check]` helpers, marker comments, declared
+values, the Event Model fold).
 
-> **The Gherkin lane was removed in 0.50.0 (bobcat#471 phase 3).** `.feature` files, `Fixture`,
-> `BobcatRunner`, `IStepContext`/`StepResult`, `TestResources`/`IHostResource`, `[TableGrammar]`,
-> `[IncludeGrammars]`, `CritterStackFixture`, and the `Bobcat.Mtp`, `Bobcat.Alba`,
-> `Bobcat.EntityFrameworkCore` and `Bobcat.Testing.Wolverine` projects are gone, with diagnostics
-> BOBCAT001–022, 030, 031 and 035 (ids retired, never reused). Architecture sections below that
-> describe those pieces are history, kept for the reasoning; trust the code.
+> **The Gherkin lane was removed in 0.50.0 (bobcat#471)**, with diagnostics BOBCAT001–022, 030, 031
+> and 035 (ids retired, never reused). Everything below is the projected model.
 
 ## Every new capability ships with its ai-skills entry
 
@@ -151,8 +151,8 @@ Two clarifications the rule does not state, both settled by what the codebase al
 
 Not renamed, deliberately: `override` members (the base declares the name), entry points (`Main`),
 and anything a source generator emits. The only generated private members in the build today come
-from .NET's `[GeneratedRegex]` (see `Fixture.cs`) — Bobcat's own generator emits none, so there is
-nothing to fix in its templates.
+from .NET's `[GeneratedRegex]` (see `MarkerSpecNaming.cs`) — Bobcat's own generator emits none, so
+there is nothing to fix in its templates.
 
 The codebase was converted in one pass using a Roslyn `Renamer`, not by hand or by regex — a
 textual rename of a name like `Record` would have hit unrelated identifiers. The same tool is the
@@ -164,163 +164,52 @@ for `@` identifiers afterwards and give those a real name instead — `testsInCl
 
 ## Architecture
 
-### Source Generator Pipeline (primary authoring flow)
+### The projected pipeline
 
-`.feature` file → **Bobcat.Generators** (compile time) → generated C# with direct method calls → **Executor** (runtime) → **SpecRender** → console/HTML output
+An ordinary test calls step helpers → **Bobcat.Generators** (compile time) intercepts those calls
+and reads the test's marker comments → the runner adapter opens a recording per test →
+**`ScenarioRecorder`** (run time) records steps, cells and verdicts → **`SpecRender`** → console,
+JSON report, the platform's own test output, and the monitor wire.
 
-1. **Feature files** are `<AdditionalFiles>` in the consuming project's `.csproj`
-2. **Source generator** (`BobcatGenerator`) reads features + fixture Roslyn symbols in same pass
-3. **Cucumber Expression parser** matches step text to `[Given]`/`[When]`/`[Then]` methods at compile time
-4. **Generated code** creates `FeatureDefinition` with `DelegateExecutionStep` lambdas (no reflection)
-5. **BobcatRunner** discovers generated features, manages resources, executes via `Executor`, renders results
+- **Step interceptors** (`StepInterceptors`): a call to a method carrying a step attribute becomes a
+  recorded step, and a `SpecAssert` inside it records onto that step. Projected Shouldly assertions
+  (`ProjectedAssertions`) are the opt-in second source.
+- **Marker comments and declared values** (`MarkerCommentSpecs`, `DeclaredValues`): `// Given …`
+  comments in a test body are steps too; `DeclaredSteps` holds what each test declares, keyed by
+  spec identity.
+- **Specification bindings** (`SpecificationManifest`, `MarkerSpecNaming`): one identity per
+  `[BobcatSpec]`/`[BobcatScenario]` test, the Event Model fold (`EventModelEmitter`) and the spec
+  manifest all read the same names.
+- **Runner adapters** (`Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit`, `Bobcat.MSTest`) open and
+  close the recording; core names none of their types.
 
-### Fixture → Feature Mapping
-One fixture per feature. Matched by `[FixtureTitle("...")]` attribute or naming convention (`OrderAggregateFixture` → "Order Aggregate").
+User-facing docs: `docs/marker-steps.md`, `docs/tutorials/specifications-with-code.md`.
 
-### Named arrangements (`@arrangement`, issue #259)
-A scenario tagged `@arrangement` is a **named list of Given steps that never runs as a test**;
-wherever a Given step says `the arrangement "<name>"` (name case-insensitive), the parser inlines
-its steps in place (`Arrangements.Expand`, end of `SimpleGherkinParser.Parse`). Chosen over `Background:`
-(one prefix per feature — the BookingAppointments chapter needs three overlapping ones) and over a
-C# `[Given]` method (moves the history out of the document and renders one opaque step). Valid
-Gherkin, no new keyword.
+### Step attributes (`src/Bobcat/Attributes.cs`)
 
-- **Expansion is before step matching**, so inlined steps bind, resolve captures (a misspelled
-  event is still BOBCAT011) and stamp Event Modeling roles **exactly as if written longhand** —
-  which is why arranged `{event}`s are never *emitted* events (the Given demotion; on a View slice
-  they are `ConsumedEvents`, issue #297 — see the slice-tags section) and an arrangement never
-  has a spec identity (it is not in `FeatureInfo.Scenarios`). The report shows the inlined steps,
-  not the name.
-- **Given only, referenced only from a Given**: an arrangement is history, so it can never supply
-  a scenario's act or the `When` the Event Model reads as the slice's command. Composition (one
-  arrangement referencing another) is allowed; cycles, duplicate names, a Scenario Outline, and a
-  reference carrying a table/doc string are all **BOBCAT022** and suppress the feature. The stream
-  is the scenario's: `Given no events for X "id"` comes first, and an arrangement referenced with
-  no stream open fails at run time with `GivenEventOccurred`'s "precede it with Given no events
-  for …" critical error.
-- **The reference is a fixed phrase, `the arrangement "<name>"`, and a real step** —
-  `Bobcat.ArrangementSteps.TheArrangement` (`[Given("the arrangement {string}")]`, shipped as source
-  in the Bobcat package) — purely so VS Code completes it; the generator expands references itself
-  and never binds that method, which throws if ever invoked. The first cut matched the bare name
-  (`And a proposed home check`), which read better but was an undefined step to every editor.
-  The phrase is written as a literal in the attribute (the extension's tree-sitter query cannot see
-  a constant) and pinned to `Arrangements.ReferenceExpression` by a test. It also retired the
-  "name equals a real step's text" rule, since a reference can no longer be confused with a step.
-- **A reference naming no declared arrangement is BOBCAT021** and suppresses the feature — always,
-  because the phrase makes it unmistakably a reference; the message suggests the nearest name
-  ("did you mean …") or lists what the feature declares. A Given writing an arrangement's name bare
-  is also BOBCAT021, saying how to reference it.
-- Scope is the feature file. An unused arrangement is not a warning (decided 2026-09-10).
-- **Scaffolding arrangements was a Bobcat feature and is now Wolverine's problem** (issue #406,
-  retired 2026-10-06). `Bobcat.EventModel.Scaffolding` is gone; the capability moves to Wolverine's
-  `scaffold` command (wolverine#4832). Two decisions are worth carrying over rather than
-  rediscovering, because whoever writes that command meets both:
-  - **Write arrangements only when asked** (decided 2026-09-10): extracting repeated history
-    changes what a regenerated feature looks like, so the user decides, and the tool reports what
-    *would* change rather than doing it.
-  - **The rule that earned the right three on BookingAppointments**: build a prefix tree of each
-    feature's `given:` events, and a node earns an arrangement when two or more scenarios pass
-    through it **and they do not all continue into the same child**. A value carrying `{streamId}`
-    is never shared. Anything looser produced arrangements nobody wanted.
+`[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` are **one family** —
+`StepAttribute` is the base, and a project's own attribute deriving from `GivenAttribute` inherits
+the keyword (read off the attribute's type, never by instantiating it). Two expression syntaxes,
+decided **per placeholder**: Cucumber captures by type (`{int}`, `{string}`, `{word}`, the Event
+Modeling type words) and Storyteller-style named templates by parameter name (`{sum}`); a built-in
+type word wins, and mixing is allowed. `[BobcatStep]` (`src/Bobcat/MarkerSteps/`) is the same family
+for a shared helper.
 
-### Step discovery walks base classes — base class *or* `[IncludeGrammars]`, both ship (issue #104)
-The generator discovers `[Given]/[When]/[Then]/[Check]` methods declared on a fixture **and on its
-base classes**, stopping at `Bobcat.Fixture`/`object` (`BobcatGenerator.collectStepsAndHooks`). This
-works across an assembly boundary — a base fixture in a referenced package is read from metadata —
-so a shipped grammar base class binds from the NuGet reference alone, no source needed by the
-*generator* (the editor is another matter; see "ship as source" below).
+- **`[Check]` (not `[Fact]`) for boolean assertions** — avoids the xUnit collision.
+- **`[Header("…")]`** on a row-method parameter or a compared property names its column. The title
+  **replaces** the name; it is not an alias.
+- **`Bobcat.StepTable`** — a step parameter receiving a table literal whole (headers + rows), for
+  `TableRunner`, set verifications and partial-object tables. Never resolved from DI.
 
-- **Most-derived wins** on duplicate step text (keyword + expression): a derived `[Then("the label
-  is {string}")]` hides the base one, and the hidden base step is reported as **BOBCAT015** (info,
-  not an error). Method overrides/`new`-hiding are de-duplicated by signature so an `override` is not
-  double-counted.
-- **Lifecycle hooks nest**: discovered `BeforeEach`/`BeforeAll` run base-first, `AfterEach`/`AfterAll`
-  derived-first — constructor/disposer order.
-- **Two composition mechanisms, and which is canonical:** a **base class** (`class WithdrawFunds :
-  WolverineCritterStackFixture`) is canonical for "this fixture *is* a … fixture" — the whole vocabulary with
-  no attribute. `[IncludeGrammars(typeof(Module))]` is for **mix-ins** — a shared module dropped into
-  a fixture that already has another base, or several grammars combined. Modules inherit their own
-  base's steps too, so an empty `sealed class XGrammars : XFixture` exposes a base fixture as a module.
-- **Parameterized modules (issue #212 phase 2):** `[IncludeGrammars(typeof(DocumentGrammars),
-  "orders")]` — literals after the type flow to the module's per-scenario construction. The
-  vocabulary stays a compile-time fact (steps read from the symbol); only the *binding* is a
-  construction fact. Literals bind positionally to the constructor's value parameters; uncovered
-  parameters resolve like step parameters (`IStepContext`, resources, scoped services — a module
-  needing any of these is constructed lazily by its first step, inside the scenario scope, via
-  `??=`; literal-only modules stay eager at plan build); trailing optionals may be omitted (the
-  emitted construction uses named arguments). `[IncludeGrammars]` is discovered on base classes —
-  most-derived declaration of a module type wins, which is how a derived fixture re-parameterizes
-  a base-declared module (`BaseComposedFixture` / `DerivedComposedFixture` in
-  `Bobcat.Acceptance.Tests/ParameterizedModules.cs` pin it; the deleted `CritterStackHttpFixture`
-  was the original case). **One instance per module type per fixture** is load-bearing
-  (phase 3 refused): a same-class duplicate is **BOBCAT018** (error) — two instances of one
-  vocabulary re-open the ambiguity BOBCAT013 closes — and arguments no public constructor can take
-  are **BOBCAT019** (error). Composition errors suppress feature emission for that fixture so the
-  diagnostic isn't buried under generated-code errors. `Bobcat.Generators.Tests` drives the real
-  generator in memory for both sides of both diagnostics (Bobcat.Tests stays deliberately
-  Roslyn-free).
-- **Scenario state is the cross-grammar contract (issue #212 phase 1):** `IStepContext.SetState<T>`
-  / `GetState<T>` / `TryGetState<T>` — a typed per-scenario blackboard, one entry per CLR type,
-  implemented as default interface members over a `ConditionalWeakTable` keyed by the context
-  instance (`Engine/ScenarioState.cs`), so every implementation (fakes included) carries working
-  state and adding it broke no `IStepContext` implementer. The runner builds a context per attempt,
-  so state dies with the scenario bracket and a retry starts blank. Composed grammar instances
-  cooperate agreeing only on a capture *type* — the acting grammar publishes, the asserting grammar
-  reads; `GetState` on a missing entry throws "no step in this scenario produced a T…". Run
-  evidence (#107) deliberately does **not** ride it: `TouchedTypes` must live on
-  `ExecutionResults` to reach the wire, and both are accumulate-onto-context already.
-- **Type-name captures** — `{type}`, the Event Modeling aliases `{aggregate}`/`{command}`/
-  `{event}`/`{readmodel}`/`{message}`, the document-store `{document}` (issue #270) and Wolverine's
-  `{saga}` (issue #281; still recognised by the generator, though no shipped grammar uses it since
-  `SagaGrammars` was deleted) — capture a type *name* in the step text and bind to a `System.Type`
-  parameter as `typeof(global::…)`. **`{document}` and `{saga}` stamp no Event Modeling role**,
-  deliberately: a document-backed application has no stream, and a saga's state is not an
-  aggregate, event or read model, so an element on the canvas for either would describe nothing.
-  Both are inert in `EventModelEmitter` by construction — that switches on the role words and lets
-  them fall through exactly as it does `{type}` — and `EventModelDescriptorTests` asserts each
-  positively rather than by silence. `TypeNameResolver` resolves the name against the
-  consuming compilation and its non-framework references: a dotted name matches a full name; a simple
-  name must match exactly one type by simple name. Unresolved is **BOBCAT011**, ambiguous is
-  **BOBCAT012** (qualify it in the step text). Ambiguous *step* matches are **BOBCAT013**; a
-  `[SetVerification]` step with no table is **BOBCAT014**.
-- **`Bobcat.StepTable`** — declare a `StepTable` (nullable when optional) parameter to receive the
-  step's whole trailing data table as one argument (headers + rows as written), instead of the
-  per-row `[Table]` calls. Never binds a column, never resolved from DI. Built for grammars whose row
-  shape is not fixed at compile time (event records of several types, a command bound by column name).
-  **The nullable annotation is load-bearing and enforced (issue #233): a step with no trailing table
-  bound to a method declaring a non-nullable `StepTable` is BOBCAT020, an error.** Before it, the
-  generator passed null and the fixture dereferenced it — `NullReferenceException at
-  CritterStackFixture.WhenCommandIsReceived`, a stack that is Bobcat's rather than the author's, over
-  legal Gherkin that bound fine. The binding's own doc comment already said "null when the step has
-  none *and the parameter is nullable*"; nothing enforced the second half. Nullable-disabled
-  consumer projects are exempt — there the author had no way to say the table is optional.
-  Consequence in the shipped grammar: `When {command} is received` takes `StepTable?` and builds a
-  field-less command through its parameterless constructor (an emlang import carries no field
-  information, so a scaffolded act routinely has nothing to tabulate), while `Given events for
-  {aggregate}` and `Then the {readmodel} read model contains` keep the non-nullable parameter and so
-  are refused at build time.
+### Event Modeling slices and descriptors (issues #104/#106)
 
-### Event Modeling slice tags and descriptors (`SliceTags`, issues #104/#106)
-
-A feature declares the non-derivable bits of an Event Modeling slice: `@slice:<name>` and
-`@domain:<name>` tags, and a `Triggered by …` description line. The parser carries feature tags
-(inherited by every scenario, standard Gherkin) and the description onto
-`FeatureDefinition.Tags`/`Description`, surfaced as `Slice`/`Domain`/`TriggeredBy`.
-
-**`Triggered by` may sit on the scenario, and there it wins (issue #258).** Free text between
-`Scenario:` and the first step is the scenario's description (`ScenarioInfo.Description`; the
-parser used to drop it). For the slice descriptor, a scenario's own `Triggered by` beats the
-feature's whatever order scenarios fold in (`SliceModel.TriggerLabelDeclaredOnScenario`); the
-feature line stays the fallback, correct when the feature's slices share a trigger. Found by the
-#258 equivalence experiment: one feature-level line had put a wrong trigger on 9 of the
-CritterCrush chapter's 10 slices, and the scaffolder produced it — it wrote the *first* slice's
-label at feature level. The rule that fixed it — **write the feature line only when every slice in
-the feature agrees, and per-scenario lines otherwise** — outlived the scaffolder it was written for
-(retired with #406) and is owed to Wolverine's `scaffold` command. The runtime
-`FeatureDefinition.TriggeredBy` is
-unchanged: scenario descriptions reach the generator's descriptor, not the runtime model.
-`ResilienceTags` projects any `key:value` tag onto a `key = value` trait, so `@slice:` reaches a
-supervisor/viewer with no Bobcat reference.
+A projected test declares the non-derivable bits of an Event Modeling slice on `[BobcatSlice]` or
+`[BobcatSpec]`: the slice (`SliceType`, or a literal `SliceName`), `Domain`, `Chapter`, `Pattern`
+and `TriggeredBy`. `GeneratorSliceTags` reads the first four in the generator; `TriggeredBy` is read
+on its own (#463, below). A method-level binding **replaces** the class's for that test rather than
+overriding part of it — a rebinding is a whole binding, so a test that wants the class's domain too
+says so. A method's `TriggeredBy` beats its class's whatever order tests fold in
+(`TriggerLabelDeclaredOnScenario`, the #258 rule).
 
 **The generator turns these into a JasperFx `EventModelSliceDescriptor` (issue #106)** —
 Bobcat is the first real implementation of `IEventModelDefinitionSource` anywhere. One
@@ -332,166 +221,152 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   spec assembly called `BankAccountES.Tests` can never merge with the chains it describes unless
   it declares the service's name. The attribute renames only the descriptor; the source's
   `Subject` URI keeps the assembly name, because two spec assemblies may legitimately feed one
-  model. `samples/BankAccountES` is the worked example and its `EventModel.feature` pins the
-  merge end to end.
+  model. `samples/BankAccountES` is the worked example (`Tests/AssemblyAttributes.cs`), and its
+  `EventModel.cs` specs pin the merge end to end.
 - **The generated source is `internal`, and that has a consequence:** the app host cannot see the
   spec assembly's slices (the reference points the other way), so composing all four design-time
   sources — chains + store + overlay + specs — inside one process only works in the spec runner's,
-  where `samples/BankAccountES/Tests/EventModelFixture.cs` does it. **The store rung** (issue
+  where `samples/BankAccountES/Tests/EventModelSteps.cs` does it. **The store rung** (issue
   #300, jasperfx#825): since JasperFx.Events 2.69 every Critter Stack store registers a
   `ProjectionEventModelSource` from `AddMarten`/`AddFisher`/`AddPolecat` — one `View` slice per
   registered projection, named after the **document type**, carrying `ProjectionTypes`,
-  `ReadModelTypes` and `ConsumedEvents` from the projection's real apply set. Slices merge by
-  name, so a spec-declared View slice folds into it only if `@slice:` names the document type
-  exactly; `AccountView.feature` + `EventModel.feature` in the sample pin "one slice, not two",
-  and the falsification (mis-tag it) shows as the `Specifications`/`Domain` roles going unclaimed
-  on the store's slice, not as a second slice appearing. A handler that starts a stream through
-  `Storage.StartStream` needs Wolverine's `[Emits(typeof(…))]` before any source knows what it
-  appends — the event is built in the body, so nothing on the signature says it (wolverine
-  GH-4386) — and without it the store's view has no `EventConsumed` link back to that slice. The host's own
-  `event-model --url` export (and therefore Stoat's `watch-event-model`) pushes a document
-  *without* the spec-declared slices or their `Specifications` bindings. **The two halves meet on
-  the console — Stoat's — instead:** #268 made `/api/event-model` merge per source and #294 made the runner
-  publish the spec half as it attaches, so each producer pushes what it can see and `GET` folds
-  them by slice name. That is the whole reason the `[EventModelName]` above is load-bearing rather
-  than cosmetic — the merge is keyed on the model name at both altitudes.
+  `ReadModelTypes` and `ConsumedEvents` from the projection's real apply set. Slices merge by name,
+  so a spec-declared View slice folds into it only if the binding names the document type exactly
+  (`[BobcatSpec(typeof(Account))]`); `AccountView.cs` + `EventModel.cs` in the sample pin "one
+  slice, not two", and the falsification (mis-bind it) shows as the `Specifications`/`Domain` roles
+  going unclaimed on the store's slice, not as a second slice appearing. A handler that starts a
+  stream through `Storage.StartStream` needs Wolverine's `[Emits(typeof(…))]` before any source
+  knows what it appends — the event is built in the body, so nothing on the signature says it
+  (wolverine GH-4386) — and without it the store's view has no `EventConsumed` link back to that
+  slice. The host's own `event-model --url` export (and therefore Stoat's `watch-event-model`)
+  pushes a document *without* the spec-declared slices or their `Specifications` bindings. **The two
+  halves meet on the console — Stoat's — instead:** #268 made `/api/event-model` merge per source
+  and #294 made the runner publish the spec half as it attaches, so each producer pushes what it can
+  see and `GET` folds them by slice name. That is the whole reason the `[EventModelName]` above is
+  load-bearing rather than cosmetic — the merge is keyed on the model name at both altitudes.
 - **An overlay's human trigger label on an HTTP slice works again as of WolverineFx 6.31.0**
   (wolverine#4181/#4182, both fixed by wolverine#4185). Before it, the HTTP-derived source
   claimed `TriggerLabel` with the verb+route, so the overlay's label lost the merge and minted a
   noise `SourceDisagreement` hotspot per labelled slice — and a query endpoint returning
-  `IReadOnlyList<T>` reported the raw generic CLR string as its read model. `samples/BankAccountES`
-  encoded that workaround (no `TriggeredBy` on HTTP slices) with `EventModel.feature` asserting
-  the *broken* behaviour so the fix would trip a spec rather than go unnoticed. It did: both
-  tripwires are flipped, the six overlay labels are restored, and the sample is pinned to 6.31.0.
-  The scenarios that now assert the fixed behaviour are the regression guard — don't delete them
-  as redundant.
-
-- **A slice is a scenario-level grouping, not a feature-level one.** A feature is a document; a
-  slice is a vertical behaviour, and several specs usually describe the same one —
-  `Wallet.feature` tags `@slice:CreditWallet` three times. Because `SimpleGherkinParser` already
-  merges feature tags into every scenario's tag list, reading the tag off the *scenario* handles
-  both placements with one rule, and a slice may legitimately span several feature files. Slices
-  accumulate across the whole compilation, so two features feeding one slice yield one descriptor.
+  `IReadOnlyList<T>` reported the raw generic CLR string as its read model. The specs in
+  `samples/BankAccountES/Tests/EventModel.cs` that assert the fixed behaviour are the regression
+  guard — don't delete them as redundant.
+- **A slice accumulates across the whole compilation.** Several specs usually describe the same
+  slice, and a slice may span several test classes; every test bound to it feeds one descriptor.
 - **Only roles are stamped, never a graph.** `EventModelSliceDescriptor.Elements`/`.Edges` are
   *computed upstream* from the typed roles on every read. Building the element graph in the
   generator would be a second opinion about the same slice, which is what "computed on read"
   exists to prevent.
-- **`@chapter:<name>` is the third slice tag (issue #298, canvas design decision 5).** A chapter
-  is the span of the timeline a slice belongs to — the grouping every Event Modeling tool zooms
-  into (eventmodelers.ai's wide arrow, Miro's frames, emlang's per-chapter documents) — and it is
-  **independent of `@domain:`**: a bounded context has many chapters. Parsed by both `SliceTags`
-  and `GeneratorSliceTags` (agreement test extended), exposed as `FeatureDefinition.Chapter` and
-  the `Chapter` trait, stamped by `EventModelEmitter` onto JasperFx 2.69's `Chapter` role (which
-  merges like `Domain`: per claim, first wins on a tie, a genuine disagreement is a
-  `SourceDisagreement` hotspot). The importer's model carries `Chapter`; `EmlangImport` stops
-  discarding the board's chapter name — every slice carries the chapter it was segmented from,
-  and a slice folded from a second chapter **keeps the first** with a report line saying so, since
-  the descriptor carries one chapter per slice. The scaffolder follows the trigger's rule: one
-  feature-level `@chapter:` when every slice in the feature agrees, otherwise `@slice:X @chapter:Y`
-  on each scenario. The console round-trips it (Stoat's end-to-end specs), and `@jasperfx/event-model-vue`
-  0.12.0 draws **one band per contiguous run** of same-chapter slices above the lanes, focuses a
-  chapter from its band, filters by chapter chips, and puts the chapter (not the domain) in the
-  breadcrumb of a slice that has one. **The canvas never reorders slices**, so an interleaved
-  chapter draws one band per run with the same name — nothing upstream orders chapters, and
-  whether it should is an open decision (2026-09-15), not a gap the import papers over.
-- **An arranged `{event}` is what a View slice consumes, and nothing on a Command slice (issue
-  #297, canvas design decision 3).** `Given AccountOpened occurred … Then the Account read model
-  contains` is the best evidence there is that the projection applies `AccountOpened`, and
-  *consumed* is a different claim from *emitted* — JasperFx 2.69's `ConsumedEvents` role, the
-  `EventConsumed` link, the State View arrow. The #259 demotion still stands for Command slices:
-  there the same Given is the aggregate's own stream, and stamping it would draw an arrow from
-  `OpenWallet` into every slice that merely starts from an open wallet. Mechanics: `roleOf` maps
-  a Given `{event}` to the internal `consumed` role, `SliceModel.ArrangedEvents` collects it, and
+- **`Chapter` is the third slice setting (issue #298, canvas design decision 5).** A chapter is the
+  span of the timeline a slice belongs to — the grouping every Event Modeling tool zooms into
+  (eventmodelers.ai's wide arrow, Miro's frames, emlang's per-chapter documents) — and it is
+  **independent of `Domain`**: a bounded context has many chapters. `EventModelEmitter` stamps it
+  onto JasperFx 2.69's `Chapter` role (which merges like `Domain`: per claim, first wins on a tie, a
+  genuine disagreement is a `SourceDisagreement` hotspot). `EmlangImport` keeps the board's chapter
+  name — every imported slice carries the chapter it was segmented from, and a slice folded from a
+  second chapter **keeps the first** with a report line saying so. `@jasperfx/event-model-vue` 0.12.0
+  draws **one band per contiguous run** of same-chapter slices; **the canvas never reorders
+  slices**, and whether something upstream should order chapters is an open decision (2026-09-15).
+- **An arranged event is what a View slice consumes, and nothing on a Command slice (issue #297,
+  canvas design decision 3).** Arranging `AccountOpened` and then asserting the Account read model
+  is the best evidence there is that the projection applies `AccountOpened`, and *consumed* is a
+  different claim from *emitted* — JasperFx 2.69's `ConsumedEvents` role, the `EventConsumed` link,
+  the State View arrow. On a Command slice the same arrangement is the aggregate's own stream, and
+  stamping it would draw an arrow from `OpenWallet` into every slice that merely starts from an
+  open wallet. Mechanics: the `ArrangedEvent` role collects into `SliceModel.ArrangedEvents`, and
   `emitSlice` writes `ConsumedEvents` only when `patternOf` is `View` — so the decision is per
-  *slice*, after every scenario has folded in (one acting scenario makes the whole slice Command).
-  Code-first mirrors it: `GivenEvents<T>(id, …)` argument types are consumed on a View spec.
-  **Not stamped: the `Event` column of `Given events for {aggregate}`** — a table cell is a
-  runtime lookup, not a capture, and resolving cells at compile time would give that step a
-  second, softer type-checking rule; write `Given {event} occurred` when the model should see it.
-  The importer's model carries `ConsumedEvents` / `ReadsFrom`, the emlang import fills a `v:`'s
-  `consumedEvents` from the `e:` steps since the chapter start or the previous `v:` (and reports
-  a view with none), and a scaffolder must prefer a declared `consumedEvents:` over every inference
-  it could make — the rule `SliceScaffolder.ViewSourcesFor` encoded before #406 retired it.
-  `ReadsFrom` has no Gherkin source yet — no shipped step reads a document *before*
-  acting — so it reaches a model only through the importer. Pinned by `EventModelDescriptorTests` (both halves, plus the
-  arrangement-inlined twins) and by `EventModel.feature` in the sample. **Type
-  lists merge by equality, not union**: a View slice whose scenarios between them arrange fewer
-  events than the store's projection applies is a `SourceDisagreement` hotspot — the same finding
-  `FreezeAccount.feature` plants on purpose for emitted events, and the right reading (the view is
-  under-specified). The sample's two `AccountView.feature` scenarios arrange all four of the
-  Account projection's events so the store rung and the spec rung agree; drop one and the sample
-  goes red.
-- **The command is the act — the last `{command}` on a `When`, not the first one named.** Specs
-  routinely arrange by issuing earlier commands (`When OpenWallet is received` before the
-  `When CreditWallet is received` the scenario is about), so first-wins mislabelled the slice.
-  Arrange commands are not lost: they stay in the specification's `ResolvedTypes`, which is where
-  "this spec touched that type" belongs and what #107's run evidence joins on.
+  *slice*, after every test has folded in (one acting test makes the whole slice Command). **Type
+  lists merge by equality, not union**: a View slice whose specs between them arrange fewer events
+  than the store's projection applies is a `SourceDisagreement` hotspot, and the right reading (the
+  view is under-specified). The sample's two `AccountView.cs` specs arrange all four of the Account
+  projection's events so the store rung and the spec rung agree; drop one and the sample goes red.
+  `ReadsFrom` reaches a model only through the importer.
+- **The command is the act — the last `Command` call, not the first one named (#464).** Specs
+  routinely arrange by issuing earlier commands (an `OpenWallet` before the `CreditWallet` the test
+  is about), so first-wins mislabelled the slice. Arrange commands are not lost: they stay in the
+  specification's `ResolvedTypes`, which is where "this spec touched that type" belongs and what
+  #107's run evidence joins on.
 - **Gated on the reference, by type probe.** Nothing is emitted unless the consuming compilation
   has `JasperFx.Events.EventModeling.EventModelSliceDescriptor` — most Bobcat suites do no event
   sourcing. A type probe rather than an assembly-name check because JasperFx.Events **2.53.0
   shipped an early, incompatible sketch** of that namespace; "the assembly is referenced" and
   "the shape emitted against exists" are different questions. Requires **2.54.0+**.
-- **Spec identity is `{Feature}/{Scenario}`** — the same string `SpecNodeMapping.Uid` produces and
-  `scenario_finished` carries, so design-time and run evidence join with no mapping table.
-- **A scenario with no steps is a pending-specification hotspot** (jasperfx#689). A scenario whose
-  steps do not *match* is not this case — that is already a compile error and the whole feature is
-  skipped first.
-- **`Pattern` is derived only where Gherkin can tell**: a slice receiving a command is `Command`,
-  one that only asserts a read model is `View`. `Automation` and `Translation` need a trigger
-  Gherkin does not express, so they stay null — a wrong pattern miscolours the canvas, a null one
-  does not.
-- **`ParameterCapture.ParameterName` exists for this.** The six type-name words all share one
-  `CSharpType` (`System.Type`), so without the word a resolved capture says "this is a type" but
-  not *which role* — and a `{command}` and an `{event}` land in different slots and different
-  lanes. Every step binding stayed correct while that distinction was being discarded.
-- **`GeneratorSliceTags` duplicates `Bobcat.Runtime.SliceTags`** because the netstandard2.0
-  generator references nothing. `SliceTagParsingAgreementTests` pins them together (the source is
-  `<Compile Link>`-ed into `Bobcat.Tests` rather than referencing the analyzer assembly). Without
-  it the runtime and the descriptor could report different slice names and nothing would say so —
-  same guard as `ResourceParsingAgreementTests`.
-- **Marker-projected specs contribute slices too.** `MarkerCommentSpecs` reads marker-commented
-  xUnit/TUnit tests and `EventModelEmitter.Collect` folds them into the *same* slice dictionary
-  the features feed — so one slice fed by a `.feature` and a projected test is one descriptor.
-  Slice/domain come from `[BobcatSlice]` and the tag vocabulary (no `@`); identity is
-  `{derived feature title}/{derived scenario title}`, derived by
-  `Bobcat.Generators.MarkerSpecNaming` at compile time and `Bobcat.MarkerSpecNaming` (through
-  `MarkerStepRun`) at run time. **`MarkerSpecNamingAgreementTests` pins the two together** — that
-  string is looked up by `DeclaredSteps.For(Uid)` AND published on `scenario_finished`, so a
-  divergence costs a projected suite both its rendered steps and its place on the model, silently.
-  The rule: `[BobcatFeature]`'s title verbatim when present; else strip one
-  `Specification`/`Specs`/`Spec`/`Fixture` suffix, read underscores as spaces (dropping empty
-  segments), else split PascalCase. Scenario titles use the same reading of the method name.
+- **Spec identity is `{Feature}/{Scenario}`** — the same string `scenario_finished` carries, so
+  design-time and run evidence join with no mapping table.
+- **`Pattern` is derived only where the test can tell**: a slice whose test sends a command is
+  `Command`, one that only asserts a read model is `View`. `Automation` and `Translation` need a
+  trigger the test does not express, so they stay null unless `Pattern` declares them — a wrong
+  pattern miscolours the canvas, a null one does not.
+- **Projected specs feed the model, and the identity has three copies.** `MarkerCommentSpecs` reads
+  the tests and `EventModelEmitter.Collect` folds them into one slice dictionary; a test with
+  neither a binding nor roles contributes nothing. The identity is `{derived feature title}/{derived
+  scenario title}`, derived by `Bobcat.Generators.MarkerSpecNaming` at compile time and
+  `Bobcat.MarkerSpecNaming` (through `MarkerStepRun`) at run time.
+  **`MarkerSpecNamingAgreementTests` pins the two together** — that string is looked up by
+  `DeclaredSteps.For(Uid)` AND published on `scenario_finished`, so a divergence costs a projected
+  suite both its rendered steps and its place on the model, silently. The rule: `[BobcatFeature]`'s
+  title verbatim when present; else strip one `Specification`/`Specs`/`Spec`/`Fixture` suffix, read
+  underscores as spaces (dropping empty segments), else split PascalCase. Scenario titles use the
+  same reading of the method name, unless `[BobcatSpec(Name = "…")]` states it.
   `ProjectedSpecNaming.RoundTrips` in `Bobcat.EventModel` is a third copy of the scenario half —
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
 - **A projected spec's Event Model ROLES come off its vocabulary (bobcat#462, #463).** Scenario
   vocabulary methods carry `[EventModelRole(SliceRole.X, nameof(param or TParam))]` (and the act
   `[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]`), both in core
   (`src/Bobcat/EventModel/EventModelRoleAttribute.cs`). `ProjectedRoles.Read` walks a test method's
-  invocations through `IInvocationOperation` and reads them off the resolved symbol — **from metadata,
-  never by method name**, because the vocabulary (`WolverineScenario`) lives in another repository and a
-  rename there must not silently stop the stamping. `MarkerCommentSpecs.Extract` stores the reading on
-  `MarkedScenario.Roles`; the `MarkedSpec` arm of `EventModelEmitter.Collect` folds it into the same
-  `SliceModel` lists the Gherkin arm fills, so `patternOf` / `emitSlice` stay shared.
-  - **Rules carried over, not rediscovered:** the act is the LAST `Command` call (#464), and its
-    trigger is read only off that call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a
-    View slice (#297); `Document` → resolved types only (as `{document}`); an argument whose type is not
-    knowable (`object`, interface, rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and
-    `TaggedValue` are unwrapped by metadata name — Bobcat's own types, so the same-repo contract.
-  - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature** — the Gherkin
-    rule for an untagged scenario that resolves roles. Before #462 an unbound projected test
-    contributed nothing at all.
-  - `Specifications[].ResolvedTypes` (#107's join target) is now filled in this arm, and the same list
+  invocations through `IInvocationOperation` and reads them off the resolved symbol — **from
+  metadata, never by method name**, because the vocabulary (`WolverineScenario`) lives in another
+  repository and a rename there must not silently stop the stamping. `MarkerCommentSpecs.Extract`
+  stores the reading on `MarkedScenario.Roles`; `EventModelEmitter.Collect` folds it into the
+  `SliceModel` lists that `patternOf` / `emitSlice` read.
+  - **The rules:** the act is the LAST `Command` call (#464), and its trigger is read only off that
+    call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a View slice (#297);
+    `Document` → resolved types only (a document is not an aggregate, event or read model, so it
+    gets no element on the canvas); an argument whose type is not knowable (`object`, interface,
+    rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and `TaggedValue` are unwrapped
+    by metadata name — Bobcat's own types, so the same-repo contract.
+  - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature.**
+  - `Specifications[].ResolvedTypes` (#107's join target) is filled here, and the same list
     rides `SpecificationBindingDescriptor.ResolvedTypes` from `SpecificationManifest` — gated on the
     property existing in the consumer's JasperFx. The manifest prefers the role-stamped act over its
     name-based `inferCommand`, which stays as the fallback for a vocabulary with no roles.
   - **`TriggeredBy` on `[BobcatSlice]` / `[BobcatSpec]` is the trigger label** (#463), read like
-    `Pending` rather than as a tag (no second copy of `GeneratorSliceTags` to keep in step). Method beats
-    class regardless of fold order (#258, via `TriggerLabelDeclaredOnScenario`); a method attribute that
-    sets only `TriggeredBy` keeps the class's slice (and the manifest agrees, `onlyTriggeredBy`).
-    `TriggerKind` is deliberately NOT declarable there — upstream says it is derived, never declared.
+    `Pending` rather than as a tag (no second copy of `GeneratorSliceTags` to keep in step). Method
+    beats class regardless of fold order (#258, via `TriggerLabelDeclaredOnScenario`); a method
+    attribute that sets only `TriggeredBy` keeps the class's slice (and the manifest agrees,
+    `onlyTriggeredBy`). `TriggerKind` is deliberately NOT declarable there — upstream says it is
+    derived, never declared.
   - **BOBCAT034** (error): a `From`/`Route` naming no parameter, reported where the vocabulary is
     compiled. `ProjectedEventModelRoleTests` pins all of it, including a vocabulary compiled into a
-    separate assembly (metadata path) and agreement with the Gherkin arm on the same scenarios.
+    separate assembly (metadata path).
+- **`[BobcatSpec(…, Pending = true)]` is a pending specification (issue #404)** — a
+  `HotspotDescriptor.PendingSpecification` (jasperfx#689) that `SpecIdentityAudit` reads as
+  **joined, not drift**. Without it a scaffolded skeleton *threw* and a pending spec was
+  indistinguishable from a failing one. `EventModelEmitter.Collect` routes the identity to
+  `PendingSpecifications` instead of `Specifications` — both put it on the slice, which is what
+  keeps it joined (not an orphan, and its slice not a hole) while stopping a stub from looking like
+  evidence.
+  - **Skipped, never swallowed.** `Pending = true` sets `FactAttribute.Skip`, so every runner and
+    IDE reports it the way it reports any skip: nobody ran it. Running the body and absorbing the
+    failure was the alternative and is exactly how red gets laundered into green — the same
+    guardrail as the ledger's refusal to feed proposals back into a policy. An explicit `Skip`
+    wins in either written order, which is two tests because property initializers run in written
+    order.
+  - **"No steps" is NOT read as pending.** A projected test with no marker comments says plenty, and
+    **33 of this repo's own 41 projected samples declare no marker steps at all**. Inferring it
+    would have turned most of a working suite into open questions.
+  - **On `[BobcatSpec]` only, not on `[BobcatSlice]`.** Putting it on the slice attribute would let
+    a TUnit suite write it today, but that attribute is not the test: it would mint the hotspot
+    while the body still ran and still failed — the exact state #404 exists to end. A partial
+    capability that looks complete is worse than an absent one.
+  - **Carried on `MarkedScenario.Pending` with its own reader, not as a slice tag.** Pending is a
+    property of one specification; the tag vocabulary is slice grouping, and routing it through
+    `GeneratorSliceTags` would carry something no slice has an opinion about.
+  - A pending spec **stays in the spec manifest and in `--list-tests`** — xUnit discovers a skipped
+    test like any other.
+
+### Runner adapters (`Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit`, `Bobcat.MSTest`)
+
 - **`[BobcatSpec]` is the one-attribute projected spec, and it is three facts rather than one
   (issue #403).** `Bobcat.Xunit.BobcatSpecAttribute` IS the `[Fact]`, opens the scenario recording
   `[BobcatScenario]` opens, and carries the `[BobcatSlice]` settings — so
@@ -527,7 +402,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `Xunit.FactAttribute`. `[BobcatScenario]` stays for the class-level opt-in and for suites
     already written against it. `Bobcat.Xunit.Samples/Specs/OneAttributeSpecs.cs` keeps one class
     in each form, which is what makes
-    `SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
+    `ProjectedSpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
     the generator recognises the attribute by name and xUnit by base class, two independent
     mechanisms, and that test asserts the two counts agree.
 - **A projected run's bracket is per REQUEST, not per process (issue #402).**
@@ -545,8 +420,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `SelfRegisteredExtensions` class calling `AddExtensions` on every type a
     `TestingPlatformBuilderHook` item names, so `Bobcat.Xunit` ships
     `buildTransitive/Bobcat.Xunit.props` — and **in-repo projects declare the item themselves**,
-    because a `ProjectReference` takes no build assets (the same rule as `Bobcat.Mtp.props` and
-    `GenerateTestingPlatformEntryPoint`). **Except the samples (bobcat#484):**
+    because a `ProjectReference` takes no build assets. **Except the samples (bobcat#484):**
     `samples/Directory.Build.props` `<Import>`s `Bobcat.Generators.props` and `Bobcat.Xunit.props`
     straight from `src/*/buildTransitive/` for every `Tests` project, so a sample is configured
     exactly like a package consumer and no `Tests.csproj` restates either setting.
@@ -562,8 +436,8 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     first platform reference either adapter has had — and it costs an xUnit consumer nothing, since
     such a consumer already resolves the platform through `xunit.v3` at the same pinned 1.9.1.
     `TUnit.Core` depends on no test platform at all, which is exactly what makes that package safe
-    to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm projected lane
-    for it to serve yet. Nothing regresses, because the backstop below is still its whole bracket.
+    to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm path for it to
+    serve yet. Nothing regresses, because the backstop below is still its whole bracket.
     The reasoning lives in `Bobcat.TUnit.csproj`, where whoever changes it will read it.
   - **`Bobcat.NUnit` and `Bobcat.MSTest` (issues #385/#386) follow `Bobcat.TUnit`: no platform
     reference.** Their *test projects* run on NUnit3TestAdapter 5.2.0 and MSTest.TestAdapter 3.11.1,
@@ -585,7 +459,8 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
       MSTest) is re-run by the real host with a filter, and a `ScenarioCompleted` listener writes
       what was published. That is how "the outcome is populated in AfterTest / GlobalTestCleanup"
       and "a throw from there fails the test" are tested rather than assumed. Note `SpecAssert`
-      records onto the **step in progress** — a probe with no open step gathers nothing.
+      records onto the **step in progress**; a wrong with no step open goes on `SteplessWrongs`
+      (above).
     - **Run by identity refuses both** (`SpecFilterArguments`), like TUnit — but unlike TUnit their
       filter spelling *could* be verified here, since both run on MTP 1.9. That is the follow-up.
   - **`ProcessExit` stays as the backstop and now drains unconditionally.** `CloseRun` is
@@ -601,140 +476,44 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     this uncovered: a child's environment is fixed at launch, and MTP 1.9.1 has no per-request
     metadata slot — the `runId` on `testing/runTests` is the client's own and is **not** the
     `SessionUid` the handler receives (measured; unrelated GUIDs). A file whose path is fixed at
-    launch, the way `BOBCAT_LIST_SPECS` works in the other direction, is the shape that would fit,
-    and it is a new public variable rather than a detail.
-- **The projected lane runs warm too (issue #402 item 4): `WarmProjectedResidentSuite`, in
-  `Bobcat.Supervisor`.** It wraps `OutOfProcessResidentSuite` — **cold is delegated unchanged**,
-  so a cold command is byte-for-byte what it always was — and holds an `MtpWorkerClient` open for
-  warm, so a warm command is one `testing/runTests` request into the live process. `bobcat
-  resident` registers `cold` and `warm`; a console chooses per command, so nothing changes for
-  anyone who never asks for warm.
-  - **`BOBCAT_RUN_COMMAND_FILE` is the per-request command channel, and a new public variable.**
-    A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
-    command after the first would carry the first one's id — precisely the mis-attribution #401
-    was opened to fix. Nor is there a protocol slot: measured on MTP 1.9.1, the `runId` a client
-    sends on `testing/runTests` is the client's own and is **not** the `SessionUid` the session
-    handler receives (unrelated GUIDs). So the parent writes the id to a path fixed at launch
-    **before** sending each request — **the exact inverse of `BOBCAT_LIST_SPECS`**, where the child
-    writes what the parent reads. No race, because a resident runner runs one command at a time and
-    refuses rather than queues. It **wins over `BOBCAT_RUN_COMMAND`** as the narrower claim, every
-    read failure falls back to the variable and then to null (attribution must never fail a run),
-    and `EnvironmentFor` **clears** it for a cold child alongside the four it already clears — a
-    parent's stale file must never be read as this command.
-  - **Layering: the warm suite moved UP, the client did not move DOWN.** `MtpWorkerClient` stays in
-    `Bobcat.Supervisor`, because **core is what every spec project references** and an MTP JSON-RPC
-    client there would tax all of them for a capability only the resident tool uses. `IWorkerClient`
-    is documented as *the* seam for exactly this and #402 anticipated "a second caller of
-    `IWorkerClient` rather than a new transport", so the second caller sits on the supervisor's side
-    of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest — driving a test host as a process is
-    that tool's whole job in this lane. (Watch the `Bobcat.Cli` assembly name while in that csproj:
-    `Bobcat.Supervisor.dll` beside `Bobcat.Cli.dll` is fine, where `bobcat.dll` beside `Bobcat.dll`
-    was one file on a case-insensitive filesystem.)
-  - **The identity → uid join is one lookup**, per #394: the manifest's `QualifiedTestMethod`
-    against the discovery display name, with `Ns.Outer+Inner` → dotted tried as a *fallback* after
-    the exact match #394 verified. An identity whose uid cannot be named is **refused**, not dropped
-    from the subset — a request for three specs that silently ran two looks exactly like a pass.
-  - **What warmth buys is the CLR, not the boot**, and the Q2 caveat stands word for word: xUnit's
-    assembly and collection fixtures are created and disposed *within* a run request, so a second
-    request pays for them again. The Gherkin lane is the opposite — there what warms is Bobcat's own
-    `TestResources.StartAll`. A suite whose cost is a collection fixture standing up a database will
-    see far less than #394's 72ms → 4ms.
-  - **Withdrawal follows the Gherkin lane's rule**: a faulted warm session drops `warm` from the
-    registered modes, re-registers so the monitor stops offering a button that would now be
-    refused, and refuses a warm command *with that reason*. **Cold is unaffected** — it starts over
-    from exactly the thing that poisoned the warm host — and a cold command **closes the warm
-    session first**, since a booted host holds the port, the database and the queues.
-  - `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` holds the warm tests **beside the cold ones**,
-    which is why it now has a real `Bobcat.Supervisor` reference: two modes of one lane from one
-    class, the same reasoning as `SpecIdentityEndToEndTests`. One of them re-learned a documented
-    rule the hard way — **`run_finished` does not mean the runner is free**, the bracket closing a
-    hair before the in-flight slot clears — so a second command sent the instant it arrived was
-    refused `busy`. The test waits for `ResidentRunner.Busy` to clear, which is what a real client's
-    "send again" amounts to.
-- **`[BobcatSpec(…, Pending = true)]` is the projected lane's pending specification (issue
-  #404).** The Gherkin lane already turns a step-less scenario into
-  `HotspotDescriptor.PendingSpecification` (jasperfx#689) and `SpecIdentityAudit` reads it as
-  **joined, not drift**; the projected lane had no equivalent, so a scaffolded skeleton *threw* and
-  a pending spec was indistinguishable from a failing one. `EventModelEmitter.Collect(MarkedSpec)`
-  now routes the identity to `PendingSpecifications` instead of `Specifications` — both arms put it
-  on the slice, which is what keeps it joined (not an orphan, and its slice not a hole) while
-  stopping a stub from looking like evidence.
-  - **Skipped, never swallowed.** `Pending = true` sets `FactAttribute.Skip`, so every runner and
-    IDE reports it the way it reports any skip: nobody ran it. Running the body and absorbing the
-    failure was the alternative and is exactly how red gets laundered into green — the same
-    guardrail as the ledger's refusal to feed proposals back into a policy. An explicit `Skip`
-    wins in either written order, which is two tests because property initializers run in written
-    order.
-  - **"No steps" is NOT read as pending in this lane, and that is the one place the two lanes
-    differ.** A Gherkin scenario with no steps says nothing; a projected test with no marker
-    comments says plenty, and **33 of this repo's own 41 projected samples declare no marker steps
-    at all**. Inferring it would have turned most of a working suite into open questions.
-  - **On `[BobcatSpec]` only, not on `[BobcatSlice]`.** Putting it on the slice attribute would let
-    a TUnit suite write it today, but that attribute is not the test: it would mint the hotspot
-    while the body still ran and still failed — the exact state #404 exists to end. A partial
-    capability that looks complete is worse than an absent one.
-  - **Carried on `MarkedScenario.Pending` with its own reader, not as a slice tag.** Pending is a
-    property of one specification; the tag vocabulary is slice grouping, and routing it through
-    `GeneratorSliceTags` would mean a new tag in both copies of that parser plus an entry in
-    `SliceTagParsingAgreementTests`, to carry something no slice has an opinion about.
-  - A pending spec **stays in the spec manifest and in `--list-tests`** — xUnit discovers a skipped
-    test like any other, and the `Bobcat.Mtp.Tests` manifest/platform agreement test covers the
-    sample corpus's pending spec, so the two halves cannot drift apart on it.
+    launch, the way `BOBCAT_LIST_SPECS` works in the other direction, is the answer —
+    `BOBCAT_RUN_COMMAND_FILE`, under the resident runner's warm suite.
 
-### Step Attributes (`src/Bobcat/Attributes.cs`)
-`[Given("...")]`, `[When("...")]`, `[Then("...")]`, `[Check("...")]` using Cucumber Expression syntax (`{int}`, `{string}`, `{word}`, raw regex). `[Table]` for table data steps. `[SetVerification(KeyColumns = "...")]` for set comparison.
+### Tables, sets and objects (`src/Bobcat/Runtime/`)
 
-### Table Grammar (`[TableGrammar]`)
-`[TableGrammar("step text")]` on a **class** gives one grammar a Before-once / per-row /
-After-once envelope inside a single scenario — batched setup and decision tables. Surface syntax
-is a normal Gherkin step plus a trailing `|...|` table; no new keywords. Internals are discovered
-by convention (`Before` / `Row` / `After`, `Async` suffix recognized; `[Before]`/`[Row]`/`[After]`
-override). Table grammars are discovered across the compilation and matched by step text alone —
-keyword-agnostic, so a shared grammar drops into any feature.
-
-- Fresh instance per execution, so `Before`'s session and `After`'s save share fields.
-- Columns bind to `Row` parameters by header name; a type no cell can produce is injected from
-  the scenario scope. `[ScopePerRow]` on the class gives each row its own child scope.
-- **Decision-table disambiguation:** `Row` returns a value + exactly one unbound column → that
-  column is the *expected* output, compared via `CellCheck`. `[Expected("col")]` on `Row` names it.
-- **Failure tiers:** `Before` throws → critical (rows skipped, `After` still runs); per-row
-  comparison failures gather and render the full table; `SpecCatastrophicException` stops the
-  suite. `After` always runs in a `finally`.
-
-### The table/set/object helpers on `Fixture`
-
-Four `protected` wrappers over public statics, so a grammar that is **not** a `Fixture` (the
-projected lane's plain classes) can reach the same engine:
+Public statics, so any projected grammar — a plain class — reaches one engine:
 
 | | |
 |---|---|
-| `RunTable(nameof(rowMethod), table)` | `TableRunner.Run` — Storyteller's `AsTable(...).Before(...).After(...)`, where the hooks are the lines either side of the call |
-| `BuildRows<T>(table)` | `TableRunner.BuildRows` — Storyteller's `CreateNewObject<T>` |
-| `VerifySet(actual, expected, keyColumns:, ordered:, column:)` | `SetVerificationComparer.Verify` |
-| `VerifyObject(subject, expected)` | `PropertyCells.Verify` — Storyteller's `VerifyObject` / `CheckPropertyGrammar` (issue #395) |
+| `TableRunner.Run(this, nameof(rowMethod), table)` | Storyteller's `AsTable(...).Before(...).After(...)`, where the hooks are the lines either side of the call |
+| `TableRunner.BuildRows<T>(table)` | Storyteller's `CreateNewObject<T>` |
+| `SetVerificationComparer.Verify(actual, expected, keyColumns:, ordered:, column:)` | set verification |
+| `PropertyCells.Verify(subject, expected)` | Storyteller's `VerifyObject` / `CheckPropertyGrammar` (issue #395) |
+| `ObjectSetVerification.Verify(...)` | sets of objects and partial objects (below) |
 
-**`VerifyObject` is the one family with no declarative twin, and that is a decision** (2026-10-06).
-Everywhere else the declarative form is canonical where it reaches — `[SetVerification]` over
-`VerifySet`, `[Table]` over `RunTable` — because those carry settings (`KeyColumns`, `Ordered`,
-`Column`) that are compile-time facts the preview and the editor read. A property check has nothing
-to configure: the columns come from the table and the subject from the method, so an attribute would
-carry no information. One consequence follows rather than being a separate choice — a column naming
-no property is an `invalid` cell **at run time**, because with no declarative form the generator
-never has the subject's type in view. **Superseded for constant tables (bobcat#415/#420):** the
-generator now recognizes the *call shape* instead of needing an attribute — see BOBCAT032 below.
+**`TableRunner` is a decision table when it has outputs.** Columns bind to the row method's
+parameters by name (`[Header]` title, else the name, case-insensitive); an optional parameter's
+column may be left out; cells convert through `CellValues`. **Each `out` parameter is an output
+column (bobcat#483)**, compared after the call exactly as a returned value is; a returned value is
+compared against the one column no parameter names, in or out — with none, or more than one, it is
+not checked. A row that throws is a `row-error` cell and the remaining rows still run
+(`DecisionTableComparer.IsRowFailure`); `SpecCriticalException`, `SpecCatastrophicException` and
+cancellation are not row failures. Naming the row method by string is a bounded softening of "no
+reflection", beside `RecordBuilding` and the store conventions.
 
-`PropertyCells` arrived as the engine behind two event-store grammars (`Then the {readmodel} read
-model contains`, `Then the {document} with id {string} has`) and is general-purpose; it is **not** a
-set verification of one row, because a set matches by key columns so one wrong value becomes a
-missing row beside an extra one, where here the subject is known and the columns *are* the claim.
+A column naming no property is an `invalid` cell **at run time**, unless the table is a constant the
+generator can check — see BOBCAT032 below.
+
+`PropertyCells` is general-purpose; it is **not** a set verification of one row, because a set
+matches by key columns so one wrong value becomes a missing row beside an extra one, where here the
+subject is known and the columns *are* the claim.
 
 **A column may be a dotted path into a nested object (issue #411).** `Customer.Address.City` resolves
 left to right over public instance properties, with `[Header]` titling applied **per segment** so a
 renamed property stays addressable at every depth. Put in the shared lookup rather than in any one
-grammar because four callers share it — the two shipped event-store grammars, `Fixture.VerifyObject`,
-and the Wolverine side's event and HTTP-response assertions (wolverine#4835/#4836) — and solving it
-in one would leave the others with a different rule for what a column name means. Three decisions
-worth keeping:
+grammar because several callers share it — `PropertyCells.Verify` and the Wolverine side's event and
+HTTP-response assertions (wolverine#4835/#4836) among them — and solving it in one would leave the
+others with a different rule for what a column name means. Three decisions worth keeping:
 
 - **A missing segment is `invalid`; a null partway along is `failed`.** The first is the
   specification asking about something that does not exist, decidable without running anything; the
@@ -756,13 +535,14 @@ an ordered list of `SpecifiedValue(Path, Value, IsText)` — typed values from c
 a table, read later with `CellValues.Read` so `NULL`/`EMPTY`/relative times mean what they mean in
 every other table. Three ways to write one:
 
-- `Specify<T>().With(x => x.Prop, value)` (on `Fixture`, or `using static Bobcat.Specifications;`
-  anywhere). Nested: `.With(x => x.Address.City, …)` or `.With(x => x.Address, Specify<Address>()…)`.
+- `Specify<T>().With(x => x.Prop, value)` (`using static Bobcat.Specifications;`). Nested:
+  `.With(x => x.Address.City, …)` or `.With(x => x.Address, Specify<Address>()…)`.
   `.With(nameof(T.Prop), value)` for a string path. **Refactor friendly by construction** — teach
   this, and `nameof` in table headers, over bare strings.
-- `PartialObjects.FromTable(type, table)`: a horizontal table is one object per row; a vertical
-  `| field | value |` table (`PartialObjects.IsVertical`) is exactly one. **A blank cell is "not
-  specified"** (so one table can carry several types under a union header); `EMPTY` is the empty string.
+- `PartialObjects.FromTable(type, table)`: a horizontal table is one object per row; a vertical `|
+  field | value |` table (`PartialObjects.IsVertical`) is exactly one. **A blank cell is "not
+  specified"** (so one table can carry several types under a union header); `EMPTY` is the empty
+  string.
 - `PartialObjects.FromCells(type, row)`.
 
 **Building** (`ObjectConstruction`) — constructor first, then members:
@@ -777,7 +557,8 @@ every other table. Three ways to write one:
    left null, get the fill policy's value. **A member the type initialized itself is left alone** —
    that default is the author's.
 5. Spec defects throw `SpecCriticalException` naming the member: matches nothing (lists what the
-   type has), read-only and taken by no constructor, specified both whole and by members, an index path.
+   type has), read-only and taken by no constructor, specified both whole and by members, an index
+   path.
 
 **Unspecified values go through `IUnspecifiedValues`**; `PredictableValues` is the default: null
 where nullable (NRT annotations; *unknown* — F#, oblivious code — counts as non-nullable), `""`,
@@ -804,17 +585,13 @@ expected, noun, SetMode)`: `Ordered` (exact + ORDER), `AnyOrder` (exact), `Conta
 others allowed); `Absent(actual, forbidden, noun)` for "not emitted" (a `Type`, or a partial = only
 matching ones). **Exact pairs are a maximum matching (Kuhn), not greedy** — a broad expectation
 written first must not steal the event a narrow one needs. A matched partial row shows only the
-specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)` /
-`Fixture.VerifyObject(subject, partial)` give a one-row grid of just the specified columns.
+specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)` gives a one-row
+grid of just the specified columns.
 
-**Gherkin (#419).** `RecordBuilding.Build` is a thin call into this engine; **every build is partial
-now, the `When` act included** (#241 kept the act strict; its `partial` flag is kept and ignored).
-It fills with `DefaultValues` (`default(T)`, the #241 rule) — *not* `PredictableValues` — so the
-Gherkin lane changes once, when #421 decides. A blank cell is not specified everywhere. `Then {event}
-is emitted` reports a grid (`Contains`; each row consumes its own event, so two identical rows need two
-events). New: `Then exactly these events are emitted` (Ordered) and `Then these events are emitted in
-any order` (AnyOrder), both with an `Event` column like `Given events for`; `Then {event} is not
-emitted` (+ optional rows). Pinned end to end in `Bobcat.CritterStack.Tests/Features/Wallet.feature`.
+**`RecordBuilding.Build`** (`src/Bobcat/CritterStack/`, public) is a thin call into this engine, and
+every build is partial (#419). It fills with `DefaultValues` (`default(T)`, the #241 rule) — *not*
+`PredictableValues` — until #421 decides. A blank cell is not specified; a column matching nothing
+on the type still fails by name.
 
 ### BOBCAT032: table columns checked at compile time (`TableColumns`, `TableCallChecks`, bobcat#415/#420)
 
@@ -825,11 +602,10 @@ attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is cover
 
 | Call shape | Type checked | Rule (`TableColumns.ColumnRule`) |
 |---|---|---|
-| `(object subject, StepTable expected)` — `PropertyCells.Verify`, `Fixture.VerifyObject`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
-| `(IEnumerable actual, StepTable expected)` — `VerifySet`, `SetVerificationComparer.Verify` | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
+| `(object subject, StepTable expected)` — `PropertyCells.Verify`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
+| `(IEnumerable actual, StepTable expected)` — `SetVerificationComparer.Verify`, any such pair | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
 | `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
 | `Specified<T>.With("path", value)` | `T` | `Partial` |
-| shipped Gherkin steps (`Bobcat.CritterStack` methods with a `StepTable` and an `{event}`/`{command}`/`{readmodel}`/`{document}` capture) | the captured type | `Partial`; `events for {aggregate}` checks each row's non-blank cells against that row's `Event` type |
 
 Vertical `| field | value |` tables check the first-column values. Indexers are refused, depth is 8.
 
@@ -839,58 +615,13 @@ check, set) — an **open class**: one that is not a struct, sealed, or a record
 in the compilation or its non-framework references derives from (#415's option 1, chosen pending
 the user's call), because a subclass may legitimately carry the column. The same rule applies to
 each nested segment of a dotted path. A partial object builds exactly `T`, so it is always checked.
-A consumer's own Gherkin grammar is never checked — what its table means is its own business.
 
 **Rendering (#420):** a projected (Shouldly) assertion's sentence shows `nameof(Foo.Bar)` and constant
 interpolations by value (`"Bar"`), and a `Specify<T>().With(x => x.Bar, v)[.Build()]` argument as
 `T(Bar: v)` (`ArgumentText`). Those sentences are the only place the generator renders C# argument
 source; `[BobcatStep]` placeholders and marker comments already show run-time values/prose.
 
-### Persistence Recipes
-A recipe attribute on a `[TableGrammar]` class auto-supplies the envelope plus a per-row
-persistence sink, so a data-setup table needs almost no code. `[EfCoreEntities]`
-(`Bobcat.EntityFrameworkCore`) is the one shipped recipe; `[MartenEntities]` went with
-`Bobcat.Marten` on 2026-09-21:
-
-```csharp
-[TableGrammar("the following customers exist")]
-[EfCoreEntities<Customer>(ContextType = typeof(ShopContext))]
-public class CustomerEntities { }   // no Row body — columns bind to Customer's constructor
-```
-
-- **Seam:** `IGrammarBehavior` (Open / Row / Close) + `GrammarBehaviorAttribute` in core. The
-  netstandard2.0 generator must never reference Marten or EF; it only recognizes "this attribute
-  derives from `GrammarBehaviorAttribute`" and emits a generic envelope call. `GrammarBehaviors.Resolve`
-  is the one runtime-resolved piece — the accepted, bounded softening of "no reflection".
-- **The behavior** lives in the extension package and resolves its context from
-  `IHostResource.CurrentServices`, so the recipe's `DbContext` and a hand-injected
-  `[FromScopedService]` one are the **same instance** — that is what batches the save.
-- **Entity construction** is compile-time: columns bind to the entity's constructor parameters
-  first (records-friendly), then to settable properties, by header name. A hand-written `Row`
-  returning the entity is the override for custom construction. With a recipe applied, `Row`'s
-  return means "a product to persist", never an expected value.
-
-### Lifecycle (convention-discovered)
-Declare hooks on the fixture by name — the generator emits the calls with parameters resolved
-by type, so there is no reflection:
-- **Per scenario:** `BeforeEach` / `AfterEach` (+`Async`). Runs *inside* the scenario's DI scope,
-  so it injects the same scoped services the steps see.
-- **Per feature:** `static BeforeAll` / `AfterAll` (+`Async`). Runs before any scenario scope
-  exists — may inject `IStepContext`, test resources, and `[FromRootService]` values, but a
-  scoped ask is a compile error (BOBCAT004).
-- **Per run:** a plain `IHostedService` registered with `runner.Resources.Add(...)`. There is no
-  `IGlobalAction` any more and no separate global phase: it starts and stops in ONE registration
-  order shared with the resources, so a service registered before a resource starts before it.
-  Named / resettable / preflight-checkable work belongs in an `ITestResource`, which is an
-  `IHostedService` too.
-
-`[BeforeEach]`/`[AfterEach]`/`[BeforeAll]`/`[AfterAll]` override the naming convention. There is
-no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
-
-**Important:** `[Check]` (not `[Fact]`) for boolean assertions — avoids xUnit collision.
-
 ### Engine (`src/Bobcat/Engine/`)
-- **`Executor`** — Sequential step execution with timeout, cancellation, `IContinuationRule[]`, `IExecutionObserver`
 - **A cell says what it compared (`Engine/Comparison.cs`, issue #384 part B).** `CellResult` was
   equality-shaped by construction — `Expected` + `Actual`, rendered `expected 'x', got 'y'` — so a
   cell produced by a non-equality assertion **stated something false**: Shouldly interception shipped
@@ -949,13 +680,13 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
       C#'s `interceptors` feature must be enabled for `Bobcat.Generated` — without either, the
       generator emits nothing and a compile assertion passes over an empty file. **It did: the first
       cut of that theory went green on 15 rows having generated nothing at all**, which is why every
-      row now asserts the interceptor exists before asserting it compiles. The Shouldly mapping is a pure function of
-    method name plus has-a-tolerance (`ShouldlyDialect.ComparisonFor`), testable without a
-    compilation — and `ShouldBe(x, 0.01)` is `Approximately`, the one case the name alone cannot
-    settle. **The halves are in different assemblies** (the netstandard2.0 generator cannot
-    reference the runtime), so a typo would emit `Comparison.GreatherThan` and break the
-    *consumer's* build in a generated file; a test checks every mapped name against
-    `Enum.GetNames<Comparison>()`.
+      row now asserts the interceptor exists before asserting it compiles.
+  - **The Shouldly mapping is a pure function of method name plus has-a-tolerance**
+    (`ShouldlyDialect.ComparisonFor`), testable without a compilation — and `ShouldBe(x, 0.01)` is
+    `Approximately`, the one case the name alone cannot settle. **The halves are in different
+    assemblies** (the netstandard2.0 generator cannot reference the runtime), so a typo would emit
+    `Comparison.GreatherThan` and break the *consumer's* build in a generated file; a test checks
+    every mapped name against `Enum.GetNames<Comparison>()`.
   - On the wire it is a trailing optional camelCase word on `StepCell`, **null meaning equality** —
     so a consumer that ignores it is exactly as correct as it was.
 - **A scenario can report an account of itself, not only a verdict (`Engine/ScenarioReport.cs`,
@@ -963,25 +694,16 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
   Storyteller's custom logging (`ISpecContext.Reporting`, `Report.ToHtml()`) answered with the Cell
   model instead of HTML. Built for asynchronous messaging specs, where the evidence that diagnoses
   a failure is a tracked session's envelope record and belongs to no single step.
-  - **Scenario-scoped is the whole point.** `Log`, `AttachDiagnostic` and `RecordCells` all route
-    through `SpecExecutionContext.CurrentStep` and are no-ops between steps. `ReportFor<T>()`
-    accumulates onto `ExecutionResults.Reports` (Gherkin) and `ScenarioRecorder.Recording.Reports`
-    (projected), one instance per report type per scenario — which is how several grammars append
-    to one table agreeing on nothing but the type, Storyteller's `ReporterFor<T>()`.
-  - **Not on the scenario blackboard, and #107 already settled why.** `SetState<T>` is
-    `ReporterFor<T>()` minus the rendering and is the obvious reach. Run evidence deliberately does
-    not ride it, because `TouchedTypes` must reach the wire; a report must reach the wire for
-    exactly the same reason, so it sits beside `TouchedTypes` and `Timeline` on the results.
+  - **Scenario-scoped is the whole point.** `SpecReport.For<T>()` accumulates onto
+    `ScenarioRecorder.Recording.Reports`, one instance per report type per scenario — which is how
+    several grammars append to one table agreeing on nothing but the type, Storyteller's
+    `ReporterFor<T>()`. It sits beside `TouchedTypes` on the recording, because a report must reach
+    the wire for the same reason run evidence does.
   - **`SpecReport` is static, and that is load-bearing rather than convenient.** A producer in
-    another package (`WolverineFx.Bobcat`) must compile **once** and work in a `.feature` fixture
-    *and* in a projected `[BobcatSpec]` test. The projected lane has no `IStepContext` and cannot be
-    given one — there is no Bobcat DI scope or `TestResources` behind an xUnit test, so
-    `GetService<T>()` would have to throw, and a context whose half throws is worse than no context.
-    So the surface is `AsyncLocal`-backed and ambient (`ScenarioReports`), the same answer
-    `ScenarioRecorder.Current`, `BobcatClock` and `SpecAssert` already give to the same problem.
-    `IStepContext.ReportFor<T>` is a default member delegating to it, so the two cannot resolve to
-    different scenarios. `BothLanesReportTests` pins the equivalence **from one class** — split in
-    two, one lane gains a rule the other never hears about.
+    another package (`WolverineFx.Bobcat`) must compile **once** and work inside any projected test,
+    which has no context object to hand it. So the surface is `AsyncLocal`-backed and ambient
+    (`ScenarioReports`), the same answer `ScenarioRecorder.Current`, `BobcatClock` and `SpecAssert`
+    already give to the same problem. `BothLanesReportTests` pins the shared producer.
   - **Rows are unjudged `Value` cells (#396), so a log table cannot claim it checked anything.** A
     report that *does* want to judge one row — the envelope that was dead-lettered among a dozen
     that were fine — builds an ordinary judged `CellResult` for it, so a red row inside an
@@ -989,9 +711,6 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     `SetVerificationRender.FromCells` and renders through `CommandLineRenderer.RenderSetVerification`,
     so a report's table and a set verification's table cannot look different, and
     `ShowsStatusColumn` already drops the Status column for an all-unjudged grid.
-  - **No declarative twin**, by #395's rule: the declarative form is canonical where it carries
-    settings a compile-time reader needs (`KeyColumns`, `Ordered`, `Column`). A report carries none —
-    its columns come from its rows and its rows come from running code.
   - **`ReportVisibility` is `OnFailure` by default and `run --json --verbose` is the only thing that
     lifts it** (decided 2026-10-06). `ScenarioReportVisibility` is the one rule all three surfaces
     ask — console, JSON report and wire — so they cannot disagree about what a run reported, the
@@ -1008,16 +727,11 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     698MB tracked-session log into test output, faulted the worker, and turned every unreported test
     indeterminate — a run that read as a crash because something tried to say too much. The cap is
     in `TableReport` rather than left to each producer to remember.
-  - **`AttachDiagnostic` stays, with its boundary written down.** It is the hook that *looks* like
-    the answer and destroys the payload: `MonitorPublishingObserver` and `SpecRender` both project
-    it as `kv.Value?.ToString() ?? ""`, so `AttachDiagnostic("messages", session.AllRecordsInOrder())`
-    reaches a console as `System.Collections.Generic.List'1[…EnvelopeRecord]`. Kept for the one
-    scalar fact about one step its wire shape can honestly carry — a correlation id, a resolved
-    route — and **not** the vehicle for a table.
-  - **On the wire: `ScenarioFinished.Reports`, trailing and optional**, carrying `ScenarioReportInfo`
-    whose cells are `StepCell` — one cell shape on this wire, not a sibling record. `MonitorReports.From`
-    is the single projection and applies the visibility rule itself, the `StepCells.From` lesson from
-    #396: two copies of one projection is what silently dropped a literal's text in both lanes at once.
+  - **On the wire: `ScenarioFinished.Reports`, trailing and optional**, carrying
+    `ScenarioReportInfo` whose cells are `StepCell` — one cell shape on this wire, not a sibling
+    record. `MonitorReports.From` is the single projection and applies the visibility rule itself,
+    the `StepCells.From` lesson from
+    #396: two copies of one projection is what once silently dropped a literal's text.
     Null rather than an empty list when there is nothing, so "reported nothing" and "a publisher too
     old to know about reports" look the same — because they mean the same thing.
   - **One core fix fell out of building it.** `CellResult.WithNote` copied through the *structured*
@@ -1062,215 +776,86 @@ no discovered "system" class, and no `virtual Fixture.SetUp()/TearDown()`.
     in exactly the place a failure is read. The row that disagreed is marked `<-- FAILED` in text
     rather than coloured, so it is findable by eye in a CI log and by grep — neither of which sees
     an ANSI code. Same model, two outputs, which is the split `SpecRender` exists for.
-  - **The Gherkin lane followed, and needed no sink at all (issue #445).** `IStepContext.Log`
-    forwards to `SpecOutput`, and no Gherkin run opens one — `Bobcat.Mtp` is its own test framework
-    with no output helper to hand over. It turned out not to need one: `ExecutionContext.Log` already
-    puts the line on the **step result**, so `SpecRender` carries it and the renderer prints it, and
-    the whole scenario goes onto the MTP test node instead (see the MTP host section). The forward
-    stays for the day some Gherkin front end does have a sink. The projected lane still carries no
-    log lines on its *results* (they are output, not a result field), which is a larger change than
-    either issue needed.
-  - **`PlainSpecText` is where the plain-text rendering lives, and it is shared on purpose.** #409
-    put it inside `SpecOutput`; #445 needed the identical text for a test node, in another package,
-    and two copies of one rendering is the defect `StepCells.From` already taught (#396) — so it was
-    lifted into `Bobcat.Rendering` and `SpecOutput` delegates. `PlainSpecTextTests` asserts
-    `SpecOutput.WriteScenario` writes exactly `PlainSpecText.Lines`, which is what keeps a change to
-    one lane's output from skipping the other.
-- **`IStepContext`** — Narrow interface for fixture code: `GetService<T>()`, `GetResource<T>()`, `Log()`, `AttachDiagnostic()`
-- **`DelegateExecutionStep`** — `IExecutionStep` backed by lambda (target for generated code)
-- **`StepKind`** / **`FailureLevel`** — drives automatic failure classification
-- Auto-marks success when steps complete without error
-- **In-flight progress (issue #99):** `IExecutionObserver.ScenarioStarted(feature, scenario,
-  totalSteps)` is a default member the runner calls (plan is built first, so the count is a
-  fact) that forwards to the two-argument form; `StepUpdate.Row`/`TotalRows` (via
-  `StepUpdate.ForRow`) is what the generated `[TableGrammar]` envelope reports before each row,
-  message-less so the console stays quiet. `MonitorPublishingObserver` maps these onto
-  `step_progress` (coalesced to one per 100 ms per step, first and last row always) plus
-  `TotalSteps`/`StepNumber`/`ScenarioElapsedMs` on the existing events. Details in
-  `docs/monitor-design.md`, Bobcat-side seams item 5.
-- **Run evidence (issue #107):** `IStepContext.RecordTouchedType(Type)` (default no-op)
-  accumulates onto `ExecutionResults.TouchedTypes` — first-touch order, deduplicated — and
-  travels on `scenario_finished` as `TouchedTypes` (JasperFx `TypeDescriptor`'s three fields,
-  mirrored into both contract copies, `FullName` joining a design-time
-  `SpecificationDescriptor.ResolvedTypes` on the #106 descriptor) plus the `At` finish stamp.
-  Observed, never asserted: `Bobcat.CritterStack`'s typed steps record the aggregate arranged,
-  the command dispatched, the events the stream gained, the messages the tracked session sent,
-  the read model loaded — never what a `Then` merely names. Nothing recorded is null, not an
-  empty list. Read back per scenario by the console (Stoat's); the CTRF/JUnit exports there are
-  untouched, since they project explicit shapes with no vocabulary for this. Details in
-  `docs/monitor-design.md`, Bobcat-side seams item 6.
-- **Step timeline (issue #141):** one wall clock per attempt, owned by the runner and zeroed at
-  the `ScenarioStarted` announcement — which now fires *before* `ResetAll` (the plan is built
-  first, so the step count was already a fact). The `Executor` stamps step offsets from that
-  shared clock (`Executor` ctor's optional `scenarioClock`; a bare executor keeps its own,
-  zeroed at `Execute`), `IExecutionObserver.StepStarted` gained a four-argument overload
-  carrying the offset, and `MonitorPublishingObserver`'s second scenario stopwatch is gone —
-  the wire's `ScenarioElapsedMs` is now literally `StepResult.Start`/`End`, so wire and report
-  agree by construction (null, not zero, from a three-argument caller with no clock). Lifecycle
-  work that is not a step is captured as named `ExecutionResults.Timeline` points (`ResetAll`,
-  `BeginScenarioAll`, `BeforeEach`, `AfterEach`, `EndScenarioAll`) on the same clock;
-  `ExecutionResults.WallClockMs` is the bracket's true duration, which `SpecRender.DurationMs`
-  now reports (falling back to `max(step.End)` — honestly under-reporting — only for results
-  with no bracket). `JsonStepOutput.StartedAtMs` + the scenario's `lifecycle` block are the
-  persisted artifact #142's analysis reads. Deliberately not captured: per-row table-grammar
-  stop points (too fine), and anything for foreign MTP workers — steps are a Bobcat concept,
-  and a consumer must degrade to "not measured", never zero-fill.
-- **Timeline analysis (issue #142, items 1–3 only):** `SuiteTiming` (`Runtime/SuiteTiming.cs`)
-  is the in-process sibling of the supervisor's `RunTiming` — pure computation over
-  `SuiteResults`, rendered as `CommandLineRenderer.RenderTimingSummary` (a compact console
-  block; a 100ms display floor on gaps, count of the rest noted) and the uncapped `timing`
-  block in `JsonRenderer.RenderSuite`. Report, don't act — same guardrail as `RunTiming` and
-  #44's hints. Three facts, no heuristics: **gap ranking** (time no step or lifecycle point
-  owns, a subtraction attributed by its neighbours), **per-step aggregation** grouped by
-  *normalized* step text (`NormalizeStepText` folds quoted strings/bare numbers to
-  placeholders, because results carry rendered text, not the Cucumber expression — word-embedded
-  digits and dotted versions survive) plus lifecycle points by name (the ResetAll line is the
-  headline in a database-backed suite), and **scenarios that assert nothing** (no Then-kind
-  step, no comparison cell; `Counts.Rights` is deliberately not the signal — the executor
-  auto-marks every completed step `success`; a zero-step scenario is #106's pending hotspot,
-  not this list; and the check is honestly blind to foreign MTP workers — #56's own
-  `try_it_out` example arrives as a bare duration and cannot be caught here). Figures describe
-  the final attempt (retry cost is `RunTiming`'s). "Measured" means the results carry a wall
-  clock *or* timeline points — a sub-millisecond scenario legitimately reads 0ms and is not
-  "unmeasured". Item 5 (cross-run trends) now ships on the committed ledger
-  (`TestLedger.Trends()`, `docs/ledger-design.md`); item 4 (sleep-shaped durations) stays
-  unbuilt — its false-positive question is open, and `[SlowByDesign]` is a JasperFx.Testing
-  decision.
-
-### Runtime (`src/Bobcat/Runtime/`)
-- **`BobcatRunner`** — CLI entry point. Discovers features, manages suite lifecycle, renders results.
-- **`FeatureDefinition`** / **`ScenarioDefinition`** — compiled feature structure from generator
-- **`TestResources`** — Everything the run owns a lifecycle for, as one ordered list of
-  `IHostedService`. `Add(...)` takes a resource (indexed by name) or a bare hosted service.
-  Reached as `BobcatRunner.Resources`
-- **`ITestResource`** — Database, IHost, Docker container, etc.
-- **`IHostResource`** — A resource that owns a DI container. Exposes `RootServices` (the host's
-  root container) and `CurrentServices` (the per-scenario scope), and owns the scope itself via
-  `BeginScenarioScope()`/`EndScenarioScope()`. `CurrentServices` **throws** outside a scenario —
-  there is no silent root fallback.
-- **`IRestartableResource`** — `Restart()` on a host resource (`HostResource`, both forms; the
-  rebuilt `AlbaResource` does not implement it — no sample needed it) for specs whose subject is survival across a bounce: stop the application,
-  start a fresh one over the *same* persistent state, keep the registration, and re-enter the
-  scenario scope on the new container if one was open. Steps call it as `context.RestartHost(name)`.
-  It is deliberately **not** `IRecyclableResource.Recycle` — recycle assumes the resource is
-  broken and belongs to the supervisor between attempts; restart assumes it is healthy and is a
-  step, mid-scenario, because the spec says so. A restart never runs `ResetBetweenScenarios`.
-- **`AlbaContentRoot`** (core, `Runtime/`, reading `[WebApplicationFactoryContentRoot]` by
-  reflection so core takes no ASP.NET testing reference) — `AlbaResource<TProgram>` resolves the host's content
-  root itself instead of trusting `WebApplicationFactory`, whose manifest lookup is relative to
-  the *working directory* and whose `<solution>/<assembly>` fallback is wrong for anything under
-  `src/` or `samples/`. Order: `TEST_CONTENTROOT_*` setting (left to the factory) → manifest in
-  the test output → `[WebApplicationFactoryContentRoot]` → `<solution>/<name>` if it exists →
-  `<name>.csproj` found below the solution → the test output directory. The rebuilt resource
-  has no `WithContentRoot` override and no `ContentRoot` report — the samples needed neither.
-- **`AlbaResource` sets `JasperFxEnvironment.AutoStartHost = true` on `Start()`**. Required for any host
-  whose `Main` ends in `RunJasperFxCommands` — every Critter Stack app — because under
-  WebApplicationFactory the command runner otherwise parses the factory's synthesized
-  `--environment/--contentRoot/--applicationName` flags and races the factory to start the host.
-  It is a process-wide static that Bobcat never sets back, deliberately; see
-  docs/sample-wiring.md footgun 15 for the trade-off and the JasperFx console chatter that is
-  harmless (`Searching '…' for commands`, `cannot override the environment name`).
-- **No console log-level floor any more.** The deleted `AlbaResource` capped the hosted app's
-  console at `Warning` (`ConsoleLogLevel`); the rebuild dropped it with the rest of what no sample
-  used, so a chatty host now writes to the runner's console. Configure logging in the app, or bring
-  the floor back when a suite needs it.
-- **`SetVerificationComparer`** — Static comparison utility called by generated code
-- **`SuiteResults`** — Cross-feature aggregation with exit codes (0=pass, 1=regression fail, 2=catastrophic)
-
-**`BobcatRunner.RunAll` never throws for a harness failure** (issue #123). A resource whose
-`Start` throws, a global action whose `SetUp` throws, a `SpecCatastrophicException` from a
-feature hook, or anything else that escapes the orchestration comes back as
-`SuiteResults.CatastrophicFailure` (+ `CatastrophicException`), exit code 2, with every planned
-scenario that has no result listed in `SuiteResults.NotRun` — by name, with the reason, and
-deliberately *not* as a synthesized `ScenarioResult` (a scenario that never ran has no steps or
-counts to report). `PreflightFailure` populates `NotRun` the same way. Before this, the
-`SpecCatastrophicException` from `TestResources.StartAll` escaped `RunAll`, the MTP host process
-died with an unhandled exception (exit 134, nothing on the wire), and a supervisor could only
-call that a crash. Two finer rules that fell out of it:
-
-- **A `BeforeAll`/`AfterAll` that throws is a feature-level failure, not a suite one.**
-  `FeatureResults.LifecycleFailure` is set, a `BeforeAll` failure puts the feature's scenarios
-  in `NotRun`, the run exits 2 and **moves on to the next feature** — the feature-level analogue
-  of a critical step aborting its scenario. `AfterAll` still runs when `BeforeAll` threw (the
-  half-finished `BeforeAll` is the one that leaves something to clean up), so write it to
-  tolerate that. A `SpecCatastrophicException` from either hook still stops the suite.
-- **`TestResources.DisposeAsync` disposes what `StartAll` started or tried to start**, in reverse
-  order, every resource getting its turn before failures surface as one `AggregateException`.
-  The resource that threw from `Start` is disposed too (a Docker resource may have its
-  containers up and its health check failed); the ones after it were never asked to start and
-  are not touched — their `DisposeAsync` was written assuming `Start` ran.
-
-### Per-Scenario DI Scope
-Each scenario runs as `ResetAll()` → `BeginScenarioAll()` → scenario → `EndScenarioAll()`. Persistent
-state (DB rows, queues) is cleaned first, then a fresh DI scope is opened over it. Scope disposal
-resets service *instances*; `ResetBetweenScenarios` resets *persistent* state — both matter.
-
-Step/grammar parameter binding: `IStepContext` and any type a Gherkin cell can't produce are
-resolved from the scenario scope; a name matching a data-table header wins over convention
-injection. On a `[Table]` step (and a grammar's `Row`) whose text also carries Cucumber captures
-(`these steps ran in {string}`), the captures bind positionally to the parameters no header
-names — the same rule a non-table step uses — so a capture is never silently `default` (#122).
-Overrides: `[FromScopedService]`, `[FromRootService]`, `[FromKeyedServices]` (all take
-an optional `Resource` for multi-host suites), plus `[NewScope]` (child scope for one step) and
-`[ScopePerRow]` (child scope per table row).
+  - **`PlainSpecText` (`Bobcat.Rendering`) is where the plain-text rendering lives**, and
+    `SpecOutput` delegates to it, so there is one copy of the rendering — the lesson `StepCells.From`
+    already taught (#396).
+- **`StepKind`** / **`FailureLevel`** — drive failure classification.
+- **In-flight progress:** `ScenarioRecorder` posts `step_progress`, and `TotalSteps` / `StepNumber` /
+  `ScenarioElapsedMs` ride the step events; a long table's progress is its cells-so-far update
+  (#387). Details in `docs/monitor-design.md`.
+- **Run evidence (#107, #465):** `ScenarioRecorder.RecordTouchedType(Type)` accumulates onto the
+  recording and reaches `scenario_finished.TouchedTypes` through `MonitorTouchedTypes` (JasperFx
+  `TypeDescriptor`'s three fields, `FullName` joining a design-time
+  `SpecificationDescriptor.ResolvedTypes`). Observed, never asserted. Nothing recorded is null, not
+  an empty list.
+- **Timeline analysis (issue #142, items 1–3 only):** `SuiteTiming.For(recordings)`
+  (`Runtime/SuiteTiming.Projected.cs`) is the in-process sibling of the supervisor's `RunTiming` —
+  pure computation, rendered as `CommandLineRenderer.RenderTimingSummary` and the `timing` block of
+  `JsonRenderer.RenderTiming`. Report, don't act — same guardrail as `RunTiming` and #44's hints.
+  Gap ranking, per-step aggregation grouped by *normalized* step text (`NormalizeStepText` folds
+  quoted strings/bare numbers to placeholders), and scenarios that assert nothing. **Lifecycle is
+  not measured** (`LifecycleMeasured` is false): it belongs to the test runner — `IAsyncLifetime`,
+  class and assembly fixtures, TUnit's hooks — and Bobcat neither owns nor sees it; a consumer
+  renders "not measured", never a zero (#141's rule). Item 5 (cross-run trends) ships on the
+  committed ledger (`TestLedger.Trends()`, `design/ledger-design.md`); item 4 (sleep-shaped
+  durations) stays unbuilt — its false-positive question is open, and `[SlowByDesign]` is a
+  JasperFx.Testing decision.
 
 ### Rendering (`src/Bobcat/Rendering/`)
-- **`SpecRender`** — Intermediate model (feeds both Spectre.Console and future HTML)
-- **`CommandLineRenderer`** — Consumes `SpecRender`, outputs Spectre.Console ANSI markup
-- **`SpectreProgressObserver`** — `IExecutionObserver` for live progress during long tests
-- Set verification renders as table with per-cell coloring (green/red/yellow)
+- **`SpecRender`** — the intermediate model every output reads (`SpecRender.FromRecording`)
+- **`CommandLineRenderer`** — Spectre.Console ANSI output; set verifications render as a table with
+  per-cell colouring
+- **`TextGrid`** / **`PlainSpecText`** — plain text for a platform's captured test output
+- **`JsonRenderer`** — the JSON report
 
 ### Three-Level Failure Semantics
-1. **Assertion** — `[Check]` returns false → continue (gather all failures)
-2. **Critical** — Exception in any step → abort scenario
-3. **Catastrophic** — `SpecCatastrophicException` → stop entire suite
+1. **Assertion** — a gathered wrong (`SpecAssert`, a `[Check]` returning false,
+   `SpecAssertionException`) → continue, gathering every failure
+2. **Critical** — `SpecCriticalException` or any other exception in a step → abort the scenario
+3. **Catastrophic** — `SpecCatastrophicException`: unrecoverable infrastructure (host won't start,
+   database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it
 
 ### Resilience (`src/Bobcat/Resilience/`)
-The retry policy layer — `FailureLevel` promoted to a decision the *caller* of the executor acts
-on. Framework-neutral by design: nothing here references Gherkin, so the same engine can drive a
-`dotnet test` alternative over xUnit/tUnit (issue #41).
+The retry policy layer — `FailureLevel` promoted to a decision the supervisor acts on.
+Framework-neutral by design, so the same engine drives xUnit, TUnit, NUnit and MSTest workers
+(issue #41).
 
 - **`Disposition`** — `Pass` / `FailAndContinue` / `RetryInProcess` / `RetryInFreshProcess` /
   `RetryAfterRecycle(resources…)` / `AbortRun`, each with a human-readable `Reason` that reaches
   the report.
 - **`IFailurePolicy`** — `AttemptContext → Disposition?`. **Returning null abstains**, so narrow
   policies compose; `FailurePolicyChain` takes the first non-null and `DefaultFailurePolicy`
-  always decides last. Register with `runner.AddFailurePolicy(...)`.
+  always decides last. Register with `Supervisor.AddFailurePolicy(...)`.
 - **`RetryBudget`** — two independent ceilings because they fail differently:
   `MaxAttemptsPerTest` stops one pathological test, `MaxRetriesPerRun` stops a pathological
   *environment*. Default is `RetryBudget.None`, so an unconfigured run behaves exactly as before.
-- **`ResilienceTags`** — projects Gherkin tags onto the trait dictionary policies read:
-  `@retry(N)` → `Retry`, `@isolated` → `Isolated`, `@recycle(rabbit,kafka)` → `RecycleOnRetry`.
-  Unrecognized tags pass through as `tag => "true"`. The #43 spike found traits are the only
-  metadata channel that survives every front-end intact, which is why policy keys off **traits,
-  not exception types** — tUnit erases exception types entirely on the MTP wire.
+- **`ResilienceTags`** — the trait vocabulary policies read: `Retry=N`, `Isolated=true`,
+  `RecycleOnRetry=rabbit,kafka` (a test writes `[Trait("Retry", "2")]`). The #43 spike found traits
+  are the only metadata channel that survives every front-end intact, which is why policy keys off
+  **traits, not exception types** — tUnit erases exception types entirely on the MTP wire.
 
-**Retries are opt-in.** An untagged failure is never retried, even with a budget configured.
-Retrying by default would turn every genuine assertion failure into a slower one and make flaky
-indistinguishable from broken.
+**Retries are opt-in.** A failure with no `Retry` trait is never retried, even with a budget
+configured. Retrying by default would turn every genuine assertion failure into a slower one and
+make flaky indistinguishable from broken.
 
 **Honest reporting ships with it** — `RunOutcome` is `CleanPass` / `PassOnRetry` / `Failed` /
-`Aborted`, and `PassOnRetry` is never folded into `CleanPass`. `SuiteResults.PassedOnRetry` is
-the run's flakiness ledger; a pass-on-retry still exits 0 but is reported separately. Retry
-dispositions the runner cannot yet honour (`RetryInFreshProcess`, `RetryAfterRecycle` — both need
-the supervisor) are recorded in `UnsupportedDispositions` rather than silently downgraded, so a
-report never implies a retry that never happened.
-
-Every attempt gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket; a retry
-reusing dirty state would be testing something other than the scenario.
+`Aborted`, and `PassOnRetry` is never folded into `CleanPass`. `SupervisorResults.PassedOnRetry`
+is the run's flakiness ledger; a pass-on-retry still exits 0 but is reported separately. A
+disposition that could not be honoured is recorded in `UnsupportedDispositions` rather than
+silently downgraded, so a report never implies a retry that never happened.
 
 #### Recovery hints — author-declared, per failure class (issue #44 layer 1)
 
-A tag says *this test* is unreliable; a hint says **which failure** is unreliable and what fixes
-it. Declared on the fixture, so an assertion failure on the same scenario is still reported as
-the bug it is:
+A trait says *this test* is unreliable; a hint says **which failure** is unreliable and what fixes
+it. Declared on the test class (or method, or assembly), so an assertion failure in the same test
+is still reported as the bug it is:
 
 ```csharp
 [ClearsOnRetry(typeof(TimeoutException), Because = "the broker is slow to warm up")]
 [ClearsOnRecycle("rabbit,kafka", typeof(BrokerUnavailableException))]
 [ClearsInFreshProcess(typeof(BadImageFormatException))]
 [NeverRecovers(typeof(SomeDeterministicBug), Because = "this is a real bug")]
-public class OrderFixture : Fixture;
+public class OrderSpecs;
 ```
 
 - **The attributes and `DispositionKind` live in JasperFx, not Bobcat** — namespace
@@ -1289,176 +874,69 @@ public class OrderFixture : Fixture;
     2.37.0 did not apply and it compiled against a JasperFx nobody chose.
   - `ClearsOnRecycle` parses its resource list independently of `ResilienceTags.ParseResources`,
     because JasperFx must not reference Bobcat. `ResourceParsingAgreementTests` pins the two
-    together; without it they can diverge silently and a tag and a hint naming the same brokers
+    together; without it they can diverge silently and a trait and a hint naming the same brokers
     would resolve to different names.
 - **`HintedFailurePolicy` sits between the user's policies and `DefaultFailurePolicy`** — explicit
-  code still wins, and any failure no hint describes falls through to the tag-driven default
+  code still wins, and any failure no hint describes falls through to the trait-driven default
   unchanged. A run with no hints behaves exactly as it did before.
 - **A hint never widens the budget.** `RetryBudget.MaxAttemptsPerTest` is the operator's ceiling;
   an unconfigured run still retries nothing however many hints are declared. Knowledge of what
   recovers belongs to the test's author, how much time the run may spend belongs to whoever runs
   it, and conflating them would let a spec author escape the ceiling.
-- **`NeverRecovers` is the counterweight.** Without it the only way to stop a broad `@retry(3)`
-  re-running a deterministic bug is to remove the tag, which also stops the retries that were
+- **`NeverRecovers` is the counterweight.** Without it the only way to stop a broad `Retry=3`
+  re-running a deterministic bug is to remove the trait, which also stops the retries that were
   pulling their weight.
 - **`FailureSignature` is the matching key** — type *names*, not `Type`, because out of process a
   name is all there ever is. In process it holds the whole inheritance chain, so a hint on a base
   class matches a derived failure; from the MTP wire it holds one name, so a base-class hint
   abstains. That asymmetry is deliberate and degrades to "no hint applied" — never to a wrong
   retry. A worker that erases the type entirely (tUnit) simply matches nothing.
-- **Hints do not cross the process boundary as attributes.** The supervisor drives the worker as a
-  process and never loads its assembly, so `Supervisor.RecoveryHints` takes `RecoveryHint` records
-  directly. Projecting a worker's own hints across the wire is the follow-on. This is why
-  `RecoveryHint` exists separately from `RecoveryHintAttribute` — it is also the shape the layer-2
-  ledger will produce.
-- **Scope beats type specificity.** Assembly < fixture < test, and the narrowest declaration wins
-  even when it names a less specific type, so a fixture can override a run-wide default without
+- **Hints cross the process boundary through the spec manifest, not as attributes (issue #469).**
+  The supervisor drives the worker as a process and never loads its assembly. The worker can read
+  the attributes — it is the process they live in — so it writes them into its `SpecManifest` as
+  `SpecManifestHint`s (the declaration's own coordinates: assembly, class or method), and the
+  supervisor joins those to the uids its discovery reported and adds them to
+  `Supervisor.RecoveryHints` (`ReadWorkerRecoveryHints`, on by default). Hints registered by hand
+  still work and come first. This is why `RecoveryHint` exists separately from
+  `RecoveryHintAttribute` — it is also the shape the ledger's proposals take.
+- **Scope beats type specificity.** Assembly < class < method, and the narrowest declaration wins
+  even when it names a less specific type, so a class can override a run-wide default without
   knowing what that default names. Within one scope, the hint naming the exact type wins.
 - **The hint travels on the `Disposition`**, not just inside its `Reason` prose, because the case
-  most needing a report is a hint that *suppressed* a retry — otherwise a tagged test that failed
-  once looks like its tag stopped working. Surfaced as `↯ recovery hint applied` in the console
-  and as a `hint` object per attempt in `RunReport.ToJson`.
+  most needing a report is a hint that *suppressed* a retry — otherwise a test with a `Retry` trait
+  that failed once looks like its trait stopped working. Surfaced as `↯ recovery hint applied` in
+  the console and as a `hint` object per attempt in `RunReport.ToJson`.
 
-**Layer 2, the committed ledger, is built** (`src/Bobcat/Ledger/TestLedger.cs`, design of
-record `docs/ledger-design.md`) — one store serving #44's hint proposals, #142's duration
-trends, and `Supervisor.KnownTestDurations` (the third consumer that made it infrastructure:
-`ledger.KnownDurations()` feeds `WorkPlan`'s balancer from the first pass). The open questions
-were settled by making the merge strategy the design: a grow-only set of per-(test, run)
-observations plus a deterministic clock-free prune — `Record`/`Merge` commutative, associative,
-idempotent; serialization canonical (byte-identical for the same observations, whoever folds) —
-so a git conflict always resolves by load-both-sides → `Merge` → save, no artifacts needed.
-Failure classes are keyed by type *name* (the `FailureSignature` rule); aging is newest
-`MaxRunsPerTest` per test plus explicit `PruneTestsNotSeenSince(cutoff)` for deleted tests.
-Feeds: `SupervisorLedger.From(SupervisorResults, runId, at)` (rich — every attempt survives) and
-`LedgerRuns.From(SuiteResults, runId, at)` (in-process; the #141 wall clock is the duration, and
-a pass-on-retry's original failure type is honestly unknown). Nothing writes the ledger
-implicitly — recording is the caller's line of code, and stall-induced entries (#173) never
-feed hint evidence. The DECIDED fork stands, now in code: `ProposeHints()` emits attribute
-*text* with `Because` evidence (plus the `[NeverRecovers]` counterweight, `minOccurrences`
-gating both) — a human accepts by writing it into the code, and nothing reads proposals back
-into an `IFailurePolicy`; a policy that silently learns "just retry this" is exactly how red
-gets laundered into green with nobody deciding to.
+**Layer 2, the committed ledger, is built** (`src/Bobcat/Ledger/TestLedger.cs`, design of record
+`design/ledger-design.md`) — one store serving #44's hint proposals, #142's duration trends, and
+`Supervisor.KnownTestDurations` (the third consumer that made it infrastructure:
+`ledger.KnownDurations()` feeds `WorkPlan`'s balancer from the first pass). The open questions were
+settled by making the merge strategy the design: a grow-only set of per-(test, run) observations
+plus a deterministic clock-free prune — `Record`/`Merge` commutative, associative, idempotent;
+serialization canonical (byte-identical for the same observations, whoever folds) — so a git
+conflict always resolves by load-both-sides → `Merge` → save, no artifacts needed. Failure classes
+are keyed by type *name* (the `FailureSignature` rule); aging is newest `MaxRunsPerTest` per test
+plus explicit `PruneTestsNotSeenSince(cutoff)` for deleted tests. Fed by
+`SupervisorLedger.From(SupervisorResults, runId, at)` (every attempt survives). Nothing writes the
+ledger implicitly — recording is the caller's line of code, and stall-induced entries (#173) never
+feed hint evidence. The DECIDED fork stands, now in code: `ProposeHints()` emits attribute *text*
+with `Because` evidence (plus the `[NeverRecovers]` counterweight, `minOccurrences` gating both) — a
+human accepts by writing it into the code, and nothing reads proposals back into an
+`IFailurePolicy`; a policy that silently learns "just retry this" is exactly how red gets laundered
+into green with nobody deciding to.
 
-### MTP Host (`src/Bobcat.Mtp/`)
-Bobcat's spec runner exposed as a **Microsoft.Testing.Platform test host**, so an IDE Test
-Explorer, CI, or a future Bobcat supervisor sees scenarios as ordinary tests. This is the
-"expose" half of the #41 seam; the "drive" half (supervisor) is still to come.
+### Listing and running by specification identity (issue #391)
 
-```csharp
-public static class SpecsRunner
-{
-    public static Task<int> Main(string[] args)
-        => BobcatTestApplication.Run(args, runner =>
-        {
-            runner.ScanForFeatures(typeof(SpecsRunner).Assembly);
-            runner.Suite.AddResource(new AlbaResource<Program>());
-        });
-}
-```
+A monitor only ever names **identities** — `{Feature}/{Scenario}` — and never a test framework's
+own filter. Three pure pieces in core plus one artifact:
 
-- **One scenario = one MTP test node.** Features are not nodes — they are a grouping concept
-  owning `BeforeAll`/`AfterAll`, and making them nodes would imply the platform could schedule
-  them independently.
-- **`SpecNodeMapping`** is pure and static so the projection is testable without launching a
-  host. Uid is `"{Feature}/{Scenario}"` — deliberately **the same string `BobcatRunner` uses as
-  the retry budget's test id**, so one scenario has one identity everywhere.
-- **`failed` vs `error` is honoured** (a comparison disagreed vs an exception escaped), because
-  that split is what a supervisor's `Disposition` policy keys off.
-- Tags travel as MTP traits via `ResilienceTags`, so `@isolated` / `@recycle(...)` are readable
-  by a supervisor that knows nothing about Gherkin.
-- MTP has no "passed on retry" state, so `RunOutcome` travels as `bobcat.outcome` /
-  `bobcat.attempts` metadata rather than being collapsed into a clean pass.
-- Discovery **never starts resources** — IDEs discover on every build.
-- **A failed scenario carries its whole specification on its own node (issue #445).**
-  `SpecNodeMapping.OutputFor` renders it through `PlainSpecText` and `PublishingObserver` attaches it
-  as `StandardOutputProperty`; the platform prints it under `Standard output` for a failure and
-  carries it silently for a pass, which is the latching #409 chose for reports arriving for free.
-  Before it, the host suppressed its own console rendering (`SuppressConsoleOutput = true`, rightly
-  — a test host's stdout is the platform's) and attached no output property, so the specification
-  behind a red Gherkin scenario was rendered **nowhere**: `dotnet test` and every IDE showed a
-  one-line failure message and no steps. This is #409's argument reaching the lane that could not
-  take it then, and it reuses `BOBCAT_SPEC_OUTPUT` with the same meaning — off, the node carries the
-  scenario's reports only — because one variable read two ways is worse than two variables.
-  `StandardOutputProperty` is `[Experimental("TPEXP")]` on the pinned 1.9.1 and the suppression is
-  deliberate: the pin cannot move (xunit.v3 3.2.2 builds against it), and if the type goes the cost
-  is a compile error in one file and a capability that degrades to what the lane had before.
-- **A scenario the run planned and could not execute is reported as a node in `error`**, with
-  the harness exception (a `ScenarioNotRunException` wrapping the real cause) and
-  `bobcat.outcome = NotRun` (issue #123). `PublishingObserver.RunFinished` publishes one per
-  `SuiteResults.NotRun` entry, and `BobcatTestFramework.run` has a last-resort catch that does
-  the same for anything still unreported should `RunAll` ever throw — so the host process never
-  dies of a harness failure. `error` rather than `skipped`, because a supervisor counts skipped
-  as succeeded and a suite whose broker never came up must not read as green; and rather than
-  publishing nothing, because a run with no verdicts is exactly what a crashed worker looks
-  like. The distinction from a real crash is structural — every planned node gets a verdict
-  and the process exits normally — which is why `Bobcat.Supervisor.Tests` asserts a
-  start-failure run has **no `Indeterminate` and no `WorkerFaults`**, just `Error` outcomes
-  naming the resource.
-
-**`dotnet test` works** — it needs `Microsoft.Testing.Platform.MSBuild`, which `Bobcat.Mtp`
-depends on, so a consumer gets it transitively. That package also supplies the `ProjectCapability`
-Visual Studio and VS Code Test Explorers look for. It normally synthesizes a `Main`, which would
-be a second entry point beside the consumer's own `BobcatTestApplication.Run` (CS0017), so
-`Bobcat.Mtp` ships `buildTransitive/Bobcat.Mtp.props` turning that off. A `ProjectReference` does
-not consume another project's build assets, so in-repo projects must set
-`GenerateTestingPlatformEntryPoint=false` themselves — `Bobcat.Mtp.SampleHost` does.
-
-Turning that entry point off also drops the generated `AddSelfRegisteredExtensions`, which is
-where the **MSBuild extension** (the thing `dotnet test` actually talks to, via
-`--internal-msbuild-node`) would have been registered. `BobcatTestApplication.Run` therefore
-registers it itself (`TestingPlatformBuilderHook.AddExtensions`). For a long time no Bobcat host
-in the repo had `IsTestProject=true`, so `dotnet test` had never actually collected one and the
-missing registration went unnoticed — running the executable directly never exercises that path.
-`Bobcat.Mtp.SampleHost` and `Bobcat.Mtp.GeneratedHost` are the hosts that keep it exercised
-today.
-
-The host is also runnable directly (`./MySpecs`, `--list-tests`, `--filter-uid <uid>`), which is
-what `Bobcat.Mtp.Tests` exercises.
-
-**The entry point is generated (issue #207)** — a consumer needs only package references +
-`.feature` files, the zero-ceremony bar xUnit v3 sets. `Bobcat.Generators` emits
-`BobcatEntryPoint.g.cs` (a `Main` through `BobcatTestApplication.Run`, so the MSBuild-extension
-registration above keeps working, scanning the assembly for generated features) when
-**all four gates** pass, in order: the compilation references `Bobcat.Mtp` (type probe for
-`BobcatTestApplication`, same pattern as the `EventModelSliceDescriptor` probe); the
-`BobcatGenerateEntryPoint` MSBuild property is not `false` (opt-out — surfaced as a
-`CompilerVisibleProperty` in the buildTransitive props; opt-out rather than opt-in because the
-gates already mean the consumer asked to be a host); the output is an executable; and **the
-assembly declares no entry point of its own** — a hand-written `Main` always wins, which is what
-keeps every existing consumer compiling unchanged and makes CS0017 impossible. The configure
-seam is `[BobcatConfiguration]` (core `Bobcat`, on any `static void M(BobcatRunner)`): the
-generated `Main` calls every such method, sorted by declaring type then method name; a wrong
-shape is **BOBCAT016** (error), and a configuration method that will never be called — because
-one of the gates suppressed emission — is **BOBCAT017** (warning naming the reason), never
-silence. `Bobcat.Mtp.GeneratedHost` is the proof project: no `Main` anywhere, `IsTestProject=true`
-so root `dotnet test` collects it, and `Bobcat.Mtp.Tests` drives it as an executable.
-
-**Friendly filters (issue #207)**: `--filter-feature` (case-insensitive substring of the feature
-title) and `--filter-tag` (case-insensitive exact tag; written *without* the `@` — MTP consumes
-`@`-prefixed args as response files) register via `BobcatFilterOptionsProvider` inside
-`BobcatTestApplication.Run`, so hand-written-`Main` hosts get them too. Semantics deliberately
-mirror `BobcatRunner`'s own `--feature`/`--tag`; the pure logic is `SpecFilters` (testable like
-`SpecNodeMapping`), and the filters intersect with the platform's uid filter and narrow
-`--list-tests` as well. User docs: `docs/dotnet-test.md`, including the documented-not-engineered
-cost that an IDE single-scenario run still pays the suite's full resource `StartAll`.
-
-`Bobcat.Mtp.SampleHost` is a spec project run as a host; `IsTestProject=false` keeps `dotnet
-test` from collecting its deliberately-failing scenarios, and `Bobcat.Mtp.Tests` launches it as
-an executable instead.
-
-### Listing and running by specification identity, in either lane (issue #391)
-
-"Run this specification" has to mean the same thing whichever lane a suite is written in, because a
-monitor only ever names **identities** — `{Feature}/{Scenario}` — and never a test framework's own
-filter. Three pure pieces in core plus one artifact:
-
-- **`SpecIdentity`** finally names the string that was already being built in eight places
-  (`SpecNodeMapping.Uid`, the retry budget's test id, `DeclaredSteps`'s key, `scenario_finished`'s
-  uid, the ledger, the timing report, the generator's descriptor, `WorkPlan`'s key). Comparison is
-  **ordinal and exact**: this is a machine identity, not a search, so folding case would let two
-  scenarios differing only in case collide into one — silently running the wrong spec, which is
-  worse than a miss, because a miss is reported. Nothing offers to *parse* an identity: a feature
-  title may contain a `/`, so the pieces are read off the model, never out of the string.
+- **`SpecIdentity`** names the string every consumer keys on (the retry budget's test id,
+  `DeclaredSteps`'s key, `scenario_finished`'s uid, the ledger, the timing report, the generator's
+  descriptor, `WorkPlan`'s key). Comparison is **ordinal and exact**: this is a machine identity,
+  not a search, so folding case would let two scenarios differing only in case collide into one —
+  silently running the wrong spec, which is worse than a miss, because a miss is reported. Nothing
+  offers to *parse* an identity: a feature title may contain a `/`, so the pieces are read off the
+  model, never out of the string.
 - **`SpecSelection`** is the set a run was asked for. **Empty means everything**, so a run path
   takes one unconditionally; `NarrowsAnything` is how a caller tells "nothing in particular" from
   "asked, and it covers the suite" — the distinction MTP forces, since it ignores a subset
@@ -1468,44 +946,36 @@ filter. Three pure pieces in core plus one artifact:
 - **`SpecManifest`** is what a suite says it specifies, written to the path `BOBCAT_LIST_SPECS`
   names and **only when something asked**. A file, not stdout, because the listing has to cross a
   process boundary — a resident runner is not the suite, and for a projected suite it *cannot* be.
-  Not `--list-tests` either: that prints display names (`"Ordering: An order is accepted"`), not
-  identities, and deriving one from the other works until a feature title contains `": "`. Writing
-  it **can never fail the suite** — same invariant as the monitor probe. `Lane`
-  (gherkin/projected) and `Framework` (bobcat/xunit/tunit) are both on it, because the lane does
-  not settle the filter spelling: a projected suite is filtered by *its framework's*.
-- **`SpecFilterArguments.For(manifest, selection)`** is the translation, and the asymmetry is the
-  whole issue: a Gherkin host's platform uid **is** the identity, so `--filter-uid` takes it
-  unchanged, while a projected suite's uid is its framework's own (assembly + class + method +
-  arguments) and the identity becomes `--filter-method Ns.Class.method`. It **refuses rather than
-  guesses** — an unknown framework, an unbound entry, or an identity the manifest lacks all throw.
-  **TUnit is deliberately unsupported**: it filters by tree-node path and nothing here can run a
-  TUnit host to verify the spelling (`TUnit.Engine` needs MTP 2.4.0, src is pinned to 1.9.1), and an
-  unverified filter is exactly the run that looks filtered and is not.
+  Not `--list-tests` either: that prints display names, not identities. Writing it **can never
+  fail the suite** — same invariant as the monitor probe. `Framework` (xunit/tunit/nunit/mstest)
+  settles the filter spelling; `Lane` is always `projected` now. It also carries the suite's
+  recovery hints (#469, see Resilience).
+- **`SpecFilterArguments.For(manifest, selection)`** is the translation: a projected suite's
+  platform uid is its framework's own (assembly + class + method + arguments), so the identity
+  becomes `--filter-method Ns.Class.method`. It **refuses rather than guesses** — an unknown
+  framework, an unbound entry, or an identity the manifest lacks all throw. **TUnit, NUnit and
+  MSTest are refused**: TUnit filters by tree-node path and nothing here can run a TUnit host to
+  verify the spelling (`TUnit.Engine` needs MTP 2.4.0, src is pinned to 1.9.1); NUnit and MSTest
+  run on MTP 1.9 here, so verifying theirs is the follow-up. An unverified filter is exactly the run
+  that looks filtered and is not.
 
-Where each lane answers:
+**The manifest is written from the generated module initializer**, which calls
+`DeclaredSteps.Bind(uid, class, method)` and then `SpecManifest.WriteIfRequested`, because that
+initializer is the only code Bobcat owns in that process and the only moment sure to run —
+discovery loads the assembly, so `--list-tests` reaches it without executing a test. The binding is
+**recorded, not re-derived**: the identity is a one-way function of the names and an explicit
+`[BobcatFeature("…")]` title shares nothing with its class name. `MarkerCommentSpecs.FrameworkOf`
+type-probes for each adapter's `BobcatScenarioAttribute`, the same pattern as the
+`EventModelSliceDescriptor` gate.
 
-- **Gherkin**: `BobcatRunner.SpecIdentities` / `.Manifest()` / `.NarrowTo(selection)`, and
-  `BobcatTestFramework.discover` writes the manifest — discovery is the moment the features are
-  scanned and nothing has executed. `NarrowTo` **composes with** `ScenarioFilter` rather than
-  replacing it, because an MTP host has already set the platform's uid filter and a selection must
-  never widen past it. The listing is the **whole** suite, not the filtered subset: what a runner
-  registers is everything it could be asked for.
-- **Projected**: the generated module initializer calls `DeclaredSteps.Bind(uid, class, method)`
-  and then `SpecManifest.WriteIfRequested`, because that initializer is the only code Bobcat owns
-  in that process and the only moment sure to run — discovery loads the assembly, so `--list-tests`
-  reaches it without executing a test. The binding is **recorded, not re-derived**: the identity is
-  a one-way function of the names (`Prettify` reads underscores as spaces, a `Specs` suffix is
-  stripped) and an explicit `[BobcatFeature("…")]` title shares nothing with its class name.
-  `MarkerCommentSpecs.FrameworkOf` type-probes for `Bobcat.Xunit`/`Bobcat.TUnit`'s
-  `BobcatScenarioAttribute`, the same pattern as the `EventModelSliceDescriptor` gate.
-- **A projected binding is emitted on a wider rule than `DeclaredSteps.Register`**, and the
-  difference is load-bearing. A projected spec declares its steps by marker comments, by
-  `[BobcatStep]` interceptors, **or by grammar calls** — and only the first reaches `Register`
-  (an unmarked test is deliberately not a declared-steps entry). Keyed on that set, the first cut
-  of this listed **8 of `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and
-  published verdicts perfectly well. What makes a test a specification is that `[BobcatScenario]`
-  records it, so `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate
-  on emitting the initializer at all.
+- **A binding is emitted on a wider rule than `DeclaredSteps.Register`**, and the difference is
+  load-bearing. A projected spec declares its steps by marker comments, by `[BobcatStep]`
+  interceptors, **or by grammar calls** — and only the first reaches `Register` (an unmarked test is
+  deliberately not a declared-steps entry). Keyed on that set, the first cut of this listed **8 of
+  `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and published verdicts
+  perfectly well. What makes a test a specification is that `[BobcatScenario]` records it, so
+  `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate on emitting the
+  initializer at all.
 
 - **Duplicate identities and the explicit scenario name (bobcat#489).** Two projected specs
   resolving to one identity is **BOBCAT036** (error), computed in
@@ -1519,12 +989,8 @@ Where each lane answers:
   prints them on stderr and **still writes** (never fail the suite), and `SpecFilterArguments`
   refuses a duplicated identity by name.
 
-`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests` pins **both lanes from one class** against the real
-hosts — one identity per lane, listed and then run. Deliberately not split across two test
-projects: that is how one lane gains a rule the other never hears about, the same reasoning as
-`MarkerSpecNamingAgreementTests`. It is the project that already launches a test host as a process,
-and both lanes genuinely are MTP hosts — which is the reason an identity can be a lane-neutral
-request at all.
+`Bobcat.Xunit.Tests/SpecIdentity/ProjectedSpecIdentityEndToEndTests` pins it against the real
+`Bobcat.Xunit.Samples` host — listed and then run by identity.
 
 ### Supervisor (`src/Bobcat.Supervisor/`)
 The out-of-process half of #41: runs a suite across **worker processes** and applies the
@@ -1545,9 +1011,9 @@ var results = await supervisor.Run();   // results.ExitCode, results.PassedOnRet
   mode is undocumented and has moved between versions, so if it shifts (or we ever want the
   native-protocol fallback) it is one implementation, not a refactor.
 - **No `Microsoft.Testing.Platform` dependency.** The supervisor speaks the wire protocol rather
-  than hosting the platform. That is part of what lets it drive xUnit v3 and tUnit workers as
-  readily as Bobcat's own — there is a test that drives `Bobcat.Tests` (an xUnit v3 host) to prove
-  it, not just assert it.
+  than hosting the platform. That is part of what lets it drive any MTP worker, Bobcat or not —
+  `ForeignFrameworkTests` drives `Bobcat.Tests` (a plain xUnit v3 host) to prove it, not just
+  assert it.
 - **Scheduling:** isolated tests are identified from **discovery traits, before anything runs**,
   and each gets its own process. Everything else is spread across `MaxParallelWorkers` lanes (one
   by default). Discovery itself uses a throwaway worker so it neither inherits nor leaves state.
@@ -1567,7 +1033,7 @@ ones on upgrade. Same reasoning as retries being opt-in.
   processes, each restarts at zero and all four collide. **Nothing about that is visible in the
   test list**, so the planner must never separate tests the author kept together.
 - **`WorkPlan.ClassOf` derives the key from the display name** because that is the only structural
-  naming signal every front-end supplies. It handles Bobcat's `Feature/Scenario` and the dotted
+  naming signal every front-end supplies. It handles `Feature/Scenario` and the dotted
   `Namespace.Class.method`, stripping theory arguments first so `method(x: "a.b")` does not shatter
   into a partition per argument. `Supervisor.PartitionKey` overrides it when the real coupling is
   something else.
@@ -1586,17 +1052,15 @@ ones on upgrade. Same reasoning as retries being opt-in.
 - **Recording is serial and in lane order** even though lanes finish in whatever order the OS
   decides — a report must not depend on which worker won the race.
 - **What it cannot protect against** is state shared *between* classes: a fixed port, or one
-  database every class truncates. That needs per-worker environments (`MtpWorkerFactory.EnvironmentFor`), which is
-  still unbuilt. `PersistenceTests` did not need it; running several *projects* concurrently will.
+  database every class truncates. That needs per-worker environments
+  (`MtpWorkerFactory.EnvironmentFor`), which is still unbuilt. `PersistenceTests` did not need it;
+  running several *projects* concurrently will.
 - **`GuardAgainstAnUnfilteredRun` is not optional.** MTP silently ignores an unrecognised subset
   parameter and runs the whole suite, which is indistinguishable from a filter matching
   everything. A retry that did that would fold unrelated failures into the attempt, so a
   mismatch is treated as a protocol fault rather than trusted.
 - **A crashed worker yields `Indeterminate`, never "failed".** The spike measured 0-of-9 outcomes
-  surviving a crash on some hosts, so silence is absence of evidence. The converse holds too: a
-  worker whose *harness* failed — a resource that would not start — reports every planned test
-  as `error` with the reason and exits normally (see the MTP host note on issue #123), so it is an
-  ordinary red run with a message, not a crash. Indeterminate maps to exit
+  surviving a crash on some hosts, so silence is absence of evidence. Indeterminate maps to exit
   code **2**, not 1 — "we don't know what happened" is not an ordinary red build. Every
   indeterminate outcome carries the worker's **exit code and last standard error** (bounded to
   the final 20 lines) in its `ErrorMessage`, and the run collects them in
@@ -1611,17 +1075,18 @@ ones on upgrade. Same reasoning as retries being opt-in.
     `Complete` now stamps the fault onto any non-terminal outcome with nothing to say, and never
     over a verdict the worker did give. Found because #445 made the final node update bigger, which
     shifted a crash race that had always been able to land here.
-- **`RetryAfterRecycle` recycles, then runs the test alone in a fresh process.** Reusing the
+- **`RetryAfterRecycle` recycles, then runs the test alone in a fresh process.** Resources are
+  registered with `Supervisor.AddRecyclableResource` (an `IRecyclableResource`;
+  `DockerComposeResource` is the shipped one). Reusing the
   shared worker would leave it connected to the broker we just discarded. Naming a resource
   nobody registered is reported as a wiring mistake, not silently retried without recycling. A
   recycle that *fails* aborts the run with `AbortReason` rather than throwing, so results
   gathered before the infrastructure broke survive.
-- **`ISupervisorObserver` narrates the run live** (`Supervisor.AddObserver`, issue #84):
-  every attempt with the verdict that followed it, scheduled retries, lane start/finish,
-  recycles, worker faults. Default no-op members, and an observer that throws is logged and
-  stepped over — a dashboard must not be able to fail a test run. A scheduled retry carries the
-  **true attempt number**, which is the fact only the supervisor has: a worker counts from one,
-  because its tracking belongs to a `BobcatRunner` and the MTP host builds a fresh one per run
+- **`ISupervisorObserver` narrates the run live** (`Supervisor.AddObserver`, issue #84): every
+  attempt with the verdict that followed it, scheduled retries, lane start/finish, recycles, worker
+  faults. Default no-op members, and an observer that throws is logged and stepped over — a
+  dashboard must not be able to fail a test run. A scheduled retry carries the **true attempt
+  number**, which is the fact only the supervisor has: a worker counts from one on every run
   request. `WorkerFaulted` has a structured form (`WorkerFault`: description, exit code, stderr
   tail, lane or null for a one-test process, pid) whose default forwards to the string one, so
   either signature works for an observer. All of it reaches the monitor as wire events
@@ -1685,7 +1150,8 @@ ones on upgrade. Same reasoning as retries being opt-in.
   crashed one already has `WorkerFault`. `MtpWorkerClient.InvokeBounded` wraps the hook in
   `Task.Run` so even a synchronously-blocking hook cannot hold the kill past the deadline —
   this is the one callback a run genuinely waits on, which is why the ceiling is explicit.
-  The sample worker's `Basics/hangs when armed` (`BOBCAT_HANG`) is the reusable wedge.
+  `Bobcat.Supervisor.ProjectedWorker`'s `Basics/hangs when armed` (`BOBCAT_HANG`) is the reusable
+  wedge.
 - **`ResourceSampleInterval` is RunTiming for RSS** (issue #149): `IWorkerClient.SampleWorkingSet()`
   (default null; `MtpWorkerClient` reads `Process.WorkingSet64` — no new dependency, null once
   the process is gone), `MemorySampler` brackets every attempt with boundary samples off the
@@ -1720,8 +1186,8 @@ ones on upgrade. Same reasoning as retries being opt-in.
   and kept in `docs/monitor-design.md` (Bobcat-side seams item 4) because the fold is half of
   the contract — a publisher that does not know how its events are read cannot tell an
   additive change from a breaking one.
-- **Preflight runs once before any worker is launched** (`Supervisor.Preflight`), and in-process
-  before any feature (`BobcatRunner.Preflight`). See the environment-check note below.
+- **Preflight runs once before any worker is launched** (`Supervisor.Preflight`, which also checks
+  every recyclable resource). See the environment-check note below.
 - **Reporting** lives in `RunReport.ToText` / `RunReport.ToJson`. `Quarantine` is every test that
   needed more than one attempt — membership is *"was retried"*, not *"eventually failed"*,
   because a green build is exactly when chronic flakiness would otherwise go unnoticed.
@@ -1740,7 +1206,7 @@ ones on upgrade. Same reasoning as retries being opt-in.
     same as exception types) yields `Unmeasured` counts and `null` JSON figures, and the text
     report says the numbers are a floor. Zero-filling would make every other figure quietly wrong.
   - Layer 3 (trend across runs) now rides the committed ledger — `TestLedger.Trends()`, see
-    `docs/ledger-design.md`. Layer 2 (sleep-shaped-duration heuristics) stays **not built**:
+    `design/ledger-design.md`. Layer 2 (sleep-shaped-duration heuristics) stays **not built**:
     the cross-run variance it needs exists now, but its false-positive question is open and
     `[SlowByDesign]` belongs in `JasperFx.Testing` per the #63 precedent.
 
@@ -1748,8 +1214,7 @@ ones on upgrade. Same reasoning as retries being opt-in.
 static per-process counter), so the isolation tests prove isolation happened rather than merely
 proving a process was launched. There is a control test showing the same test fails when batched.
 It is an ordinary projected xUnit v3 suite (serial, declaration-ordered, traits as plain
-`[Trait]`s) and replaced the Gherkin-lane `Bobcat.Supervisor.SampleWorker` for bobcat#471; only
-`SampleWorkerEndToEndTests` still drives the old one, and goes with it in Phase 3.
+`[Trait]`s).
 
 #### Environment checks reuse JasperFx — there is no Bobcat `IEnvironmentCheck`
 
@@ -1814,19 +1279,17 @@ Container or remote workers remain speculative. Same rule applies: build it when
 
 Decision of record 2026-08-20 (issue #103): Bobcat's event-sourcing helpers bind to the
 **`JasperFx.Events` abstractions**, never to Marten — the same discipline `Wolverine.CritterWatch`
-lives by — so one package serves Marten, Polecat and Fisher. They live in **Bobcat core** now
-(the `Bobcat.CritterStack` package is gone, the namespace is not), and reach the store through
-the `JasperFx.Events` package; **core does not reference Marten, Polecat or Fisher**, and a spec
-project using it needs none of those either (`samples/BankAccountES/Tests` has no `using Marten`).
-There is no Marten-specific package any more: `Bobcat.Marten` (`MartenResource`,
-`[MartenEntities]`, `QueryByIdAsync`) was deleted on 2026-09-21 and not rebuilt, and the document
-side is `DocumentGrammars`, below, over `JasperFx.Events.Documents`.
+lives by — so one package serves Marten, Polecat and Fisher. They live in **Bobcat core** (the
+`Bobcat.CritterStack` namespace), and reach the store through the `JasperFx.Events` package; **core
+does not reference Marten, Polecat or Fisher**, and a spec project using it needs none of those
+either (`samples/BankAccountES/Tests` has no `using Marten`). The document side (`DocumentStores`)
+goes through `JasperFx.Events.Documents`.
 
 - **The store comes from the host's container, not from a Bobcat resource type.** Marten
   (`AddMarten`), Polecat (`AddPolecat`) and Fisher (`AddFisher`) all register their store as
-  `JasperFx.Events.IEventStore`; `context.EventStore()` / `services.EventStore()` resolve it from
-  the `IHostResource`'s `RootServices`. `storeName` (matched on `IEventStore.Identity.Name`)
-  disambiguates a host with several stores.
+  `JasperFx.Events.IEventStore`; `services.EventStore()` (`CritterStackHostExtensions`) resolves it
+  from the host's services. `storeName` (matched on `IEventStore.Identity.Name`) disambiguates a
+  host with several stores.
 - **Everything the abstractions cover goes through them.** Streams are read via
   `IEventStore.OpenReadOnlyEventStore()`; projection waits via
   `IEventDatabase.WaitForNonStaleProjectionDataAsync` (the same wait JasperFx's
@@ -1841,201 +1304,58 @@ side is `DocumentGrammars`, below, over `JasperFx.Events.Documents`.
   uses the read-only view when it is an `IQueryEventStore` (Marten, Polecat) and otherwise opens a
   session through the `IEventStore<TOps,TQuery>` closure and finds its `Events` member (Fisher).
   `EventStores.ResetAllDataAsync` follows `Advanced.ResetAllData(ct)` / `ResetAllDataAsync(ct)` /
-  `Advanced.Clean.DeleteAll*` — the shape all three stores share — and a store matching none gets
-  an exception naming what was looked for. JasperFx's own `IStatefulResource.ClearState` is *not*
-  enough: Marten's database does not implement `IDatabaseWithRewindableState`, so
-  `jasperfx resources clear` is a no-op for it (`ClearStatefulResourcesAsync` is still offered, for
-  Wolverine's envelope storage). Both are the same bounded, documented softening as
-  `GrammarBehaviors.Resolve`; when the abstraction lands upstream, the convention path is what gets
-  deleted.
+  `Advanced.Clean.DeleteAll*` — the shape all three stores share — and a store matching none gets an
+  exception naming what was looked for. JasperFx's own `IStatefulResource.ClearState` is *not*
+  enough: Marten's database does not implement `IDatabaseWithRewindableState`, so `jasperfx
+  resources clear` is a no-op for it (`ClearStatefulResourcesAsync` is still offered, for
+  Wolverine's envelope storage). Both are a bounded, documented softening of "no reflection"; when
+  the abstraction lands upstream, the convention path is what gets deleted.
 - **`ProjectionScenario<,>` is not what the waits delegate to, and that is a decision, not a gap
-  (2026-08-21, JasperFx.Events 2.53.0).** Checked on the bump: it is a *scripted* harness — it
-  wipes data (`DeleteExistingData` defaults to true), builds and owns its **own** daemon, appends
-  through its **own** session, and is reached only through each store's `Advanced`
+  (2026-08-21, JasperFx.Events 2.53.0).** Checked on the bump: it is a *scripted* harness — it wipes
+  data (`DeleteExistingData` defaults to true), builds and owns its **own** daemon, appends through
+  its **own** session, and is reached only through each store's `Advanced`
   (`EventProjectionScenario` on Marten and Polecat, `EventProjectionScenarioAsync` on Fisher), each
-  closed over that store's session pair with no non-generic interface and no `IEventStore`
-  accessor. A Bobcat spec appends through the application's own handlers and waits on the host's
-  daemon, so the right tool is what the scenario itself calls after each batch —
+  closed over that store's session pair with no non-generic interface and no `IEventStore` accessor.
+  A Bobcat spec appends through the application's own handlers and waits on the host's daemon, so
+  the right tool is what the scenario itself calls after each batch —
   `IEventDatabase.WaitForNonStaleProjectionDataAsync` / `IProjectionDaemon.WaitForNonStaleData` —
-  which is what `EventStores` already does. A "given these events, then this document" grammar is
-  where a scenario would earn its place; that is #104's grammar modules, and it would have to be
-  store-specific or reflective. Nothing in 2.53.0 retired a convention path either: there is still
-  no aggregate-stream member on `IReadOnlyEventStore` (Fisher's view is not an `IQueryEventStore`,
-  so `AggregateStreamAsync` still opens a session through the `IEventStore<,>` closure — proved on
-  the real store) and still no reset abstraction (`Advanced.ResetAllDataAsync` is Fisher's spelling
-  — also proved). The `IProjectionCoordinator` fallback stays for a store that does not override
-  `IEventStore.AllDatabases()`; all three do.
+  which is what `EventStores` already does. Nothing in 2.53.0 retired a convention path either:
+  there is still no aggregate-stream member on `IReadOnlyEventStore` (Fisher's view is not an
+  `IQueryEventStore`, so `AggregateStreamAsync` still opens a session through the `IEventStore<,>`
+  closure — proved on the real store) and still no reset abstraction (`Advanced.ResetAllDataAsync`
+  is Fisher's spelling — also proved). The `IProjectionCoordinator` fallback stays for a store that
+  does not override `IEventStore.AllDatabases()`; all three do.
 - **Fisher is the inner-loop target, and is covered by the samples.** The current aligned version
-  set is the header of `src/Directory.Packages.props`. `Bobcat.CritterStack.Tests` covers the
-  convention paths against fakes shaped like each store (`EventStoresTests`) and the grammar against
-  Marten (Postgres 5445, `[PostgresFact]`); its Wolverine-driven Fisher suite went with the
-  2026-09-21 deletion, so the real-Fisher proof is BankAccountES's Fisher leg (plus
-  `StreamVersionVocabularyTests`, which runs on a temp SQLite file with no Wolverine at all). The Fisher host needs `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` —
-  Fisher builds its schema lazily and the daemon reads the progression table on start
-  (`docs/sample-wiring.md` footgun 13). Polecat needs SQL Server and is a documented manual run:
-  `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and reset
-  share Marten's spellings, so the same code path applies.
-- **Acceptance (#103): `samples/BankAccountES` runs on Marten and on Fisher — the same specs on
-  each — with no store-specific Bobcat reference, switched by `EventStore=Marten|Fisher` in configuration.** The
-  host was rewritten to the store-agnostic vocabulary (`[DeciderFunction]`, `[Entity]`,
-  `Storage.StartStream`, `IEventStoreOperations`, `IDocumentReadOperations`, a self-aggregating
-  `Snapshot<T>` read model in place of a `SingleStreamProjection<,>` subclass) so that
-  `Program.cs` is the only file naming a store; the swap table is footgun 14. The Fisher leg runs
-  in CI (the `TestSamplesOnFisher` target, via `samples.yml`), because a SQLite file needs nothing the runner does not have — which is
-  the whole argument for Fisher as the inner loop.
+  set is the header of `src/Directory.Packages.props`. `Bobcat.CritterStackScenario.Tests` covers
+  the convention paths against fakes shaped like each store (`EventStoresTests`) and the scenario on
+  real Marten (Postgres 5445, `[PostgresFact]`) and real Fisher (temp SQLite), with no Wolverine;
+  the samples' Fisher leg is BankAccountES. The Fisher host needs
+  `ApplyAllDatabaseChangesOnStartup()` registered *before* `AddAsyncDaemon` — Fisher builds its
+  schema lazily and the daemon reads the progression table on start
+  (`design/critter-stack-interop-notes.md`). Polecat needs SQL Server and is a documented manual
+  run: `AddPolecat(...)` registers `IEventStore` like the others and its `ProjectionScenario` and
+  reset share Marten's spellings, so the same code path applies.
+- **Acceptance (#103): `samples/BankAccountES` runs on Marten and on Fisher — the same specs on each
+  — with no store-specific Bobcat reference, switched by `EventStore=Marten|Fisher` in
+  configuration.** The host was rewritten to the store-agnostic vocabulary (`[DeciderFunction]`,
+  `[Entity]`, `Storage.StartStream`, `IEventStoreOperations`, `IDocumentReadOperations`, a
+  self-aggregating `Snapshot<T>` read model in place of a `SingleStreamProjection<,>` subclass) so
+  that `Program.cs` is the only file naming a store; the swap table is in
+  `design/critter-stack-interop-notes.md`. The Fisher leg runs in CI (the `TestSamplesOnFisher`
+  target, via `samples.yml`), because a SQLite file needs nothing the runner does not have — which
+  is the whole argument for Fisher as the inner loop.
 
-#### `CritterStackFixture` + shipped grammar modules (issue #104)
+#### `CritterStackScenario` — the store-only vocabulary (bobcat#471)
 
-Core ships the slice-declaring Gherkin vocabulary as an **abstract** base fixture,
-`CritterStackFixture`, whose single abstract member is the act —
-`DispatchAsync(object command, int timeout) → IActOutcome`. Everything a scenario *says* (arrange,
-assert) runs against the `JasperFx.Events` abstractions in core; only sending the command needs a
-bus. `Bobcat.Wolverine`'s **`WolverineCritterStackFixture`** supplies it (Wolverine invoke inside a
-tracked session, outcome `WolverineActOutcome`), so `public class FreezeAccountFixture :
-WolverineCritterStackFixture;` is a whole fixture — the canonical route, riding the base-class
-discovery above. There is **no mix-in form** of this vocabulary: `CritterStackGrammars` went with
-the 2026-09-21 deletion.
+Decided as **Option A** on #471: a code-first scenario in core
+(`src/Bobcat/CritterStack/CritterStackScenario.cs`, with `CritterStackSpec` as the xUnit/TUnit base
+class and `CritterStackActOutcome` as the act's capture) that needs **no Wolverine** — plenty of
+applications use Marten, Polecat or Fisher without it. WolverineFx.Bobcat's `WolverineScenario`
+derives from it and adds only the acts that go through the tracked session, the message assertions,
+the DCB boundary steps and correlation.
 
-- **Typed steps** sit on the fixture: `GivenEvents<T>(id,
-  events)` / `GivenNoEvents<T>(id)`, `WhenCommand<T>(command)` (through `DispatchAsync`, returns
-  the `AggregateExecution<T>`), `ThenEvents(...)`, `ThenNoEvents()`, `ThenValidationFails(string)`,
-  `ThenCommandRefused()`, `ThenDocument<T>(id, assert)`, `ThenMessagesSent<T>()`.
-- **A named stream from a named version, for apps not using Wolverine (wolverine#4938).**
-  `TheStreamVersion(id)`, `ThenEventsOn<T>(id, afterVersion, events…)` / `ThenNoEventsOn<T>(id,
-  afterVersion)` (exactly these, in order, past that version — ordered `ObjectSetVerification`, partial
-  objects and tags as `Then {event} is emitted`; a version past the stream's end is
-  `SpecCriticalException`, never a vacuous pass), and `WhenActingOn<T>(id, [description,] act,
-  events…)`: capture the version, run `Func<IServiceProvider, Task>` against the scenario scope's
-  `CurrentServices`, check what followed, as one `Paragraph` of Given/When/Then sentences. That needed
-  `Paragraph.Sentence(keyword, text)` — a sentence that changes keyword, "And" when it repeats one.
-  The act's failure is captured into `LastExecution` (the `WhenCommand` contract) with an
-  `IActOutcome` that records no messages. Typed only — no `[Then]` attribute, since the version is
-  captured at run time rather than written in a feature. Each takes a `Guid` or a string key; there
-  is no version-less `ThenEventsOn` in core (that one is `WolverineFx.Bobcat`'s, over tracked
-  appended events). `StreamVersionVocabularyTests` runs them on Marten and Fisher hosts with no
-  Wolverine registered and a fixture whose `DispatchAsync` throws.
-- **Grammar steps** wrap those: `Given no events for {aggregate} "{id}"` · `Given events for
-  {aggregate}` + table (an `Event` column names each row's type, the rest are its fields) · `Given
-  {event} occurred` (issue #259 — one event per step, type in the step text so a misspelling is
-  BOBCAT011 at build; optional table of only that event's fields, one horizontal row *or* a
-  vertical `| field | value |` table, orientation detected per step from the header; an arranged
-  `{event}` is never an *emitted* event — on a Command slice it stamps no role, on a View slice it
-  is `ConsumedEvents`, issue #297) · `When
-  {command} is received` + table (binds the command record) · `Then {event} is emitted` (+ optional
-  table) · `Then no events are emitted` · `Then validation fails with {string}` · `Then the command
-  is refused` · `Then the {readmodel} read model contains` + table · `Then the {readmodel} read model
-  with id {string} contains` + table · `Then a {aggregate} stream is started with id {string}` ·
-  `Then {message} is sent` (reads `IActOutcome.MessagesSent`).
-- **The document lane is `DocumentGrammars` (issue #270), for an app that is not event sourced.**
-  `Given documents of type {document}` + table · `Then the {document} with id {string} has` + table ·
-  `Then no {document} exists with id {string}`. A module, not a base class — compose it with
-  `[IncludeGrammars(typeof(DocumentGrammars))]` onto a bare `Fixture`, or beside
-  `WolverineCritterStackFixture` when the messaging vocabulary is also wanted (its stream steps then simply
-  go unused). It exists because exactly **four of the ten** shipped steps applied to a measured
-  document-backed Wolverine app — `Storage.Insert`, `[Entity]`, a revisioned document — and all
-  four were the messaging and HTTP halves, so such a project had to write a private grammar before
-  its first scenario. Assertions compare **only the columns the row names** and the arrange is
-  partial, following #241 rather than inventing a second convention. Store-agnostic through
-  `JasperFx.Events.Documents`, and nothing extra has to be registered: on every Critter Stack store
-  the concrete store object is **both** `IEventStore` and `IDocumentSessionFactory`, so the document
-  steps resolve what the event steps already resolve and cast. `DocumentStores.LoadAsync(store,
-  type, id)` is public for the same reason `RecordBuilding` is — `LoadAsync<T>` is generic-only on
-  every store while a `{document}` capture yields nothing but a `Type`, and every type-capturing
-  grammar hits that wall.
-- **No saga lane today.** `SagaGrammars` (issue #281: `Then the {saga} with id {string} is active`
-  / `Then no {saga} exists…`, read through `IWolverineRuntime.SagaStorage`) was deleted on
-  2026-09-21 with the rest of the old Wolverine package and not rebuilt. Its decisions still stand
-  for whoever brings it back: no "is complete" step (every saga storage deletes a completed saga,
-  so complete and never-started are the same row), no arrange step, and an unknown saga type is
-  refused rather than read as absent.
-- **When-vs-Then semantics mirror JasperFx's `ProjectionScenario`.** Arrange (`GivenEvents`) commits
-  through a session; a failure there is critical and stops the scenario. The act (`WhenCommand`)
-  **captures** the command's outcome — success or a domain/validation failure — into `LastError` so a
-  `Then` can assert on it (that is what makes `Then validation fails with …` work). Assertions throw
-  the new **`SpecAssertionException`** (in core: `ResultStatus.failed` at `FailureLevel.Assertion`, so
-  they accumulate rather than abort).
-- **Two refusal styles, two steps (issue #168, decided for option 2).** `Then validation fails
-  with {string}` describes a refusal that *throws* — `executeCommandCore` populates `LastError`
-  only from a caught exception. Wolverine's recommended messaging railway refuses *without*
-  throwing (`HandlerContinuation.Stop` from a `Before`/`Load`), and `Then the command is refused`
-  / `ThenCommandRefused()` describes that: dispatched, nothing thrown, nothing appended to the
-  current stream. Deliberately **reason-less**: a clean stop's reason exists only as Wolverine's
-  `Validation failure: …` log line (all three built-in continuation policies funnel there) and a
-  bare `Stop` has no reason anywhere, so a reason clause would assert on nothing. A refusal that
-  also notifies composes with `Then {message} is sent`. Messages are deliberately not constrained
-  by the refusal step itself.
-- **The tracked HTTP call is `WhenTracked`, on `WolverineCritterStackFixture` (issue #211).**
-  Wolverine's sample `TrackedHttpCall` pattern — the Alba call executed inside
-  `TrackActivity().ExecuteAndWaitAsync(...)` so the session waits for everything the call *caused*
-  (cascades, forwarded events, local queues drained) — as `WhenTracked(Func<Task<T>>)`, with the same
-  before/after stream bracket and capture-don't-throw semantics as `WhenCommand` (one shared
-  `executeTrackedCore`), so the whole assertion vocabulary works unchanged after an HTTP act. The
-  call is a *delegate*, so `Bobcat.Wolverine` needs no Alba reference and `Bobcat.Alba` stays
-  Wolverine-free: `WhenTracked(() => Context.PostJsonAsync<TReq, TRes>(url, body))`. The
-  hand-written-fixture surface is `context.ExecuteAndWaitAsync(Func<Task>)`. The capture is the
-  public `ActExecution` (outcome, new stream events, error) on `CritterStackFixture.LastExecution`,
-  written only via `RecordExecution(...)` and published to scenario state (#212), so an act performed
-  by another grammar feeds these `Then` steps; `LastEvents`/`LastOutcome`/`LastError` are read-only
-  views over it. `configureTracking` exists for the call that only *enqueues* (wolverine GH-3714).
-  `ScenarioActs.ExecuteAsync` is the shared act bracket; the Givens publish `ScenarioStream` so a
-  foreign act can bracket the fixture's stream.
-- **Every tracked act primes Wolverine's compiler before its session starts (issue #287).**
-  Under `TypeLoadMode.Dynamic` a handler compiles on first use, which put the cold host's codegen
-  *inside* the first act's 5s window (7.98s on a loaded CI runner, reported as a downstream `Then`
-  failure). `Bobcat.Wolverine`'s step-context helpers — which every shipped act goes through —
-  call `HandlerWarmUp.WarmBeforeTracking` when they resolve the host, once per
-  `IWolverineRuntime`. Default `AutomaticWarmUp.PrimeCompiler` compiles **one** chain, not all:
-  starting the compiler is ~2/3 of the cold cost and is paid once, while compiling every chain
-  charges a large application for handlers the suite never reaches (measured: warm-all cost more
-  in total than the lazy path on an 8-handler host). `WarmUpWolverineHandlers` (a hosted
-  service) / `host.WarmUpHandlers()` compile everything before the first feature when a
-  suite wants no codegen in any scenario. A chain that fails to compile is a
-  `HandlerWarmUpException` naming every broken handler, remembered per host — never skipped.
-  The 5s default is unchanged. Wolverine.HTTP routes are out of reach (no Wolverine.HTTP
-  reference) and are documented instead: `WarmUpRoutes = RouteWarmup.Eager`, footgun 18.
-- **No HTTP grammar today.** `CritterStackHttpFixture`, `HttpGrammars` (`When {command} is posted
-  to {string}`, `Then the response is {int}`), `TrackedActs` and the core `IHttpResource` /
-  `SpecHttpRequest` / `SpecHttpResponse` seam (issue #210) were all deleted on 2026-09-21 — both
-  implementors of the seam were `AlbaResource`. An HTTP act is a hand-written step calling
-  `WhenTracked` over `Bobcat.Alba`'s `PostJsonAsync`, and the slice scaffolder says so in the stubs
-  it writes. A slice is still a behaviour, not a transport: HTTP- and bus-driven scenarios tagged
-  with one `@slice:` fold into one descriptor.
-- **Store-agnostic, no Marten reference.** Everything reaches the store through `JasperFx.Events`
-  resolved from the `IHostResource`. Two operations JasperFx.Events 2.37.0 has no abstraction for —
-  **appending** arrange-events and **loading** a read-model document — go through the shared
-  convention (`EventStoreAuthoring`: a session's `Events`/`SaveChangesAsync`/`LoadAsync<T>`), the same
-  bounded softening as `EventStores`' aggregate/reset helpers. `RecordBuilding`/`EventTypeResolver`
-  build command/event objects from table rows at runtime (the one runtime type-name lookup — the
-  compile-time `{command}`/`{event}` captures never come there).
-- **Ship as source.** `CritterStackFixture.cs`, `DocumentGrammars.cs` and `ArrangementSteps.cs`
-  travel in the `Bobcat` package under `contentFiles/cs/` (buildAction `None`, so a consumer never
-  double-compiles them) and `content/grammars/`, so VS Code's tree-sitter and Rider can parse the
-  step source in a consumer's workspace. **Decided 2026-10-11 (wolverine#4915, option 2): the
-  vocabulary stays in Bobcat core and ships as source from here** — not moved beside
-  `WolverineFx.Bobcat`'s act — because an application that does not use Wolverine is a target
-  (wolverine#4938) and the steps reach the store through JasperFx.Events only. All the steps are
-  attributes in that one file, so it is the whole of what an editor needs. The *generator* needs no
-  source either way; it reads the base fixture's steps from assembly metadata.
-  `Bobcat.Tests/Packaging/ShippedGrammarSourceTests` checks `Bobcat.csproj` packs each one, and scans
-  `src/Bobcat` so a new step-declaring file fails until it ships too; `ClockGrammars.cs` is its one
-  named exception, not source-shipped yet.
-- **Proven** end to end by `Bobcat.CritterStack.Tests/GrammarSpecTests`: `Wallet.feature` and
-  `WalletSummary.feature`, written only in shipped-grammar steps against `WolverineCritterStackFixture`
-  subclasses, compile through the generator, run on Marten (Postgres 5445), and render. The Fisher
-  proof is the BankAccountES sample (see above).
-
-#### `CritterStackScenario` — the store-only projected vocabulary (bobcat#471, phase 1)
-
-The projected lane's replacement for `CritterStackFixture`, decided as **Option A** on #471: a
-code-first scenario in core (`src/Bobcat/CritterStack/CritterStackScenario.cs`, with
-`CritterStackSpec` as the xUnit/TUnit base class and `CritterStackActOutcome` as the act's capture)
-that needs **no Wolverine** — plenty of applications use Marten, Polecat or Fisher without it.
-WolverineFx.Bobcat's `WolverineScenario` derives from it (step 2, after the release that ships it)
-and keeps only the acts that go through the tracked session, the message assertions, the DCB
-boundary steps and correlation.
-
-- **Public signatures and step text are `WolverineScenario`'s, verbatim**, so step 2 is "derive and
-  delete duplicates" with no API break: Givens (tagged, strong-typed-id, aggregate-less, read
+- **Public signatures and step text are `WolverineScenario`'s, verbatim**, so deriving was "delete
+  duplicates" with no API break: Givens (tagged, strong-typed-id, aggregate-less, read
   model), the event assertions over the last act, the refusals, aggregates/documents/read models,
   DCB models, `Verify`/`ThenMatches`, `ResetAsync`, `storeName`.
 - **The seams a derived scenario overrides:** `runActAsync(Func<IServiceProvider, Task>)` (the
@@ -2050,28 +1370,28 @@ boundary steps and correlation.
 - **No store reads an event's tags back** (checked on Marten and Fisher), so after a store-only act
   a step that judges tags fails saying so (`tagsCanBeJudged`) instead of reporting every tagged
   event MISSING. Name the stream, or read the boundary's model with `TheDcbModel<T>`.
-- **Recovered from the Gherkin fixture:** the stream-version steps (`TheStreamVersion`,
-  `ThenEventsOn<T>(id, afterVersion, …)`, `ThenNoEventsOn<T>(id, afterVersion)`,
-  `WhenActingOn<T>` as one `Paragraph`); the reason-less `ThenCommandRefused()`; a configurable
-  `ProjectionTimeout` (**20 s**, the fixture's value — `WolverineScenario` was fixed at 5 s);
-  refusal-reason matching across inner and aggregate exceptions, compared in **one** place
-  (`ReasonComparison`, Ordinal until exact-vs-ignore-case is decided); `ThenMessagesSent<T>(count)`
-  over `CritterStackActOutcome.MessagesSent` (always empty for a store-only act, filled by a bus);
-  and `ClockGrammars` as recorded steps over `BobcatClock` (`GivenTheDateIs`, `GivenTheTimeIs`,
-  `WhenTheClockAdvancesBy`, `WhenTimePasses`, `WhenTheClockAdvancesTo` — synchronous on purpose,
-  because the clock is `AsyncLocal` and a value set inside an async method never flows back).
-- **Run evidence (#465, decided REPLACE):** `ScenarioRecorder.RecordTouchedType(Type)` is an ambient
-  accumulator on the recording, static and `AsyncLocal`-backed for the reason `SpecReport` is (#408);
+- **Two refusal styles, two steps (issue #168).** `ThenValidationFails(reason)` /
+  `ThenRefusedWith(reason)` describe a refusal that *throws*. A handler that refuses *without*
+  throwing (a messaging railway's `Stop`) is `ThenCommandRefused()`: the act ran, nothing threw,
+  nothing was appended. Deliberately **reason-less** — a clean stop carries no reason anywhere an
+  act surfaces, so a reason clause would assert on nothing.
+- **Also on the scenario:** the stream-version steps (`TheStreamVersion`, `ThenEventsOn<T>(id,
+  afterVersion, …)`, `ThenNoEventsOn<T>(id, afterVersion)`, `WhenActingOn<T>` as one `Paragraph`); a
+  configurable `ProjectionTimeout` (**20 s**); refusal-reason matching across inner and aggregate
+  exceptions, compared in **one** place (`ReasonComparison`, Ordinal until exact-vs-ignore-case is
+  decided); `ThenMessagesSent<T>(count)` over `CritterStackActOutcome.MessagesSent` (always empty
+  for a store-only act, filled by a bus); and the clock steps, recorded over `BobcatClock`
+  (`GivenTheDateIs`, `GivenTheTimeIs`, `WhenTheClockAdvancesBy`, `WhenTimePasses`,
+  `WhenTheClockAdvancesTo` — synchronous on purpose, because the clock is `AsyncLocal` and a value
+  set inside an async method never flows back).
+- **Run evidence (#465):** `ScenarioRecorder.RecordTouchedType(Type)` is an ambient accumulator on
+  the recording, static and `AsyncLocal`-backed for the reason `SpecReport` is (#408);
   `Recording.TouchedTypes` reaches `scenario_finished.TouchedTypes` through `MonitorTouchedTypes`,
-  the one mapping both lanes share, so Stoat's MCP/API field keeps its shape. Observed, never asserted:
-  arranged aggregates and events, the events an act appended, the models and documents loaded — never
-  a type a Then step only expected.
-- **Tested in `Bobcat.CritterStackScenario.Tests`**, a new project (Bobcat.CritterStack.Tests goes in
-  phase 3): every member on Marten (Postgres 5445, a schema per host) and on Fisher (temp SQLite),
-  with no Wolverine anywhere in the project.
-
-### Model (`src/Bobcat/Model/`) — Legacy
-AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
+  so Stoat's MCP/API field keeps its shape. Observed, never asserted: arranged aggregates and
+  events, the events an act appended, the models and documents loaded — never a type a Then step
+  only expected.
+- **Tested in `Bobcat.CritterStackScenario.Tests`**: every member on Marten (Postgres 5445, a schema
+  per host) and on Fisher (temp SQLite), with no Wolverine anywhere in the project.
 
 ## Package Structure
 
@@ -2090,25 +1410,9 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner |
 
-**Gone in 0.50.0 (bobcat#471):** `Bobcat.Mtp`, `Bobcat.Alba`, `Bobcat.EntityFrameworkCore`, the
-non-packable `Bobcat.Testing.Wolverine`, and the Gherkin test and sample projects
-(`Bobcat.Acceptance.Tests`, `Bobcat.CritterStack.Tests`, `Bobcat.Mtp.Tests`, `Bobcat.Alba.Tests`,
-`Bobcat.EntityFrameworkCore.Tests`, `Bobcat.Gherkin.Samples`, `Bobcat.Mtp.SampleHost`,
-`Bobcat.Mtp.GeneratedHost`, `Bobcat.Alba.SampleWeb`, `Bobcat.Supervisor.SampleWorker`,
-`ConsolePreview`). Their projected-lane coverage lives in `Bobcat.Projected.Acceptance.Tests`
-(see `design/acceptance-coverage-map.md`), `Bobcat.CritterStackScenario.Tests` and
-`Bobcat.Supervisor.Tests`.
-
-**Gone earlier:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
-deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
-unlike Alba and Wolverine, was not rebuilt — the event store is reached through the
-`JasperFx.Events` abstractions in core. The `Bobcat.CritterStack` *package* went the same day
-(8586eaa, "Move the Critter Stack helpers into Bobcat core"). `CritterStackFixture` and
-`DocumentGrammars` are in core (812ac92) and `WolverineCritterStackFixture` + `WhenTracked` went
-to `Bobcat.Wolverine`, which #407 then retired in favour of `WolverineFx.Bobcat` (next paragraph);
-`SagaGrammars`, `HttpGrammars`, `CritterStackHttpFixture`,
-`CritterStackGrammars` and the `IHttpResource` seam were not restored. See the Critter Stack
-section above for what each one was.
+`design/acceptance-coverage-map.md` maps the retired acceptance suite onto
+`Bobcat.Projected.Acceptance.Tests`; `Bobcat.CritterStackScenario.Tests` and
+`Bobcat.Supervisor.Tests` cover the rest.
 
 **Retired as a package (#407):** `Bobcat.Wolverine`. Its act, warm-up, transport draining and
 `WolverineScenario` ship in **`WolverineFx.Bobcat`** from the Wolverine repo, so no Bobcat package
@@ -2132,47 +1436,46 @@ What stays here is **the format and the run**, and none of its vocabulary is obs
 change for consumers that have nothing to do with the split — it needs its own decision, not a
 sweep:
 
-- The `Bobcat.Monitoring` namespace (`src/Bobcat/Monitoring/`), `BobcatRunner.PublishToMonitor`,
-  `Supervisor.PublishToMonitor`, `MonitorPublisher` / `MonitorPublishingObserver`, and the
-  publisher's copy of the wire records in `src/Bobcat/Monitoring/MonitorEvents.cs`. **Two copies
-  of those records is a decision, not drift** (issue #65) — the receiver's lives in Stoat, and
-  the wire shape, not an assembly, is the contract. That is what let a BSL console absorb an MIT
-  viewer without either side acquiring a reference to the other. The cost is that an additive field
-  is **invisible** to the other side: `StepCell.Value` (issue #396) is read by nobody until a
-  console is changed to read it, and nothing warns either party.
+- The `Bobcat.Monitoring` namespace (`src/Bobcat/Monitoring/`), `Supervisor.PublishToMonitor`,
+  `MonitorPublisher`, and the publisher's copy of the wire records in
+  `src/Bobcat/Monitoring/MonitorEvents.cs`. **Two copies of those records is a decision, not drift**
+  (issue #65) — the receiver's lives in Stoat, and the wire shape, not an assembly, is the contract.
+  That is what let a BSL console absorb an MIT viewer without either side acquiring a reference to
+  the other. The cost is that an additive field is **invisible** to the other side: `StepCell.Value`
+  (issue #396) is read by nobody until a console is changed to read it, and nothing warns either
+  party.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
   `BOBCAT_RUN_COMMAND`, **`BOBCAT_RUN_COMMAND_FILE`** (issue #402 — a file whose contents are the
-  CURRENT request's command id, which **wins** over `BOBCAT_RUN_COMMAND`; see the warm projected
-  lane below for why a variable cannot serve), `BOBCAT_LIST_SPECS` (issue #391 — the path a suite
+  CURRENT request's command id, which **wins** over `BOBCAT_RUN_COMMAND`; see the resident runner's
+  warm suite for why a variable cannot serve), `BOBCAT_LIST_SPECS` (issue #391 — the path a suite
   writes its spec manifest to, and only when asked), `BOBCAT_RESIDENT` (issue #390 — the same
-  request as `--resident`),
-  `BOBCAT_RUNNER_ID` (issue #397 — the stable runner id a parent hands over, so the same checkout
-  is the same runner across every relaunch), and the reserved `Monitor:*` configuration keys. **`BOBCAT_RUN_COMMAND`
-  (issue #392) is `RunStarted.Command`** — the resident runner's command id, so a viewer can follow
-  its own button press to the run it produced. Opaque like the tag, and deliberately independent of
-  it: the tag says what work a run speaks for, the command says which request produced it, and a
-  commanded run routinely carries both. It *is* a `BOBCAT_*` variable, unlike the session below,
-  because here Bobcat is the thing asking — a commanded run in the out-of-process lane is a child
-  test host and the id travels down to it exactly as `BOBCAT_RUN_ID` does.
-  **`CLAUDE_CODE_SESSION_ID` is read as well**
-  (issue #389) — `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to
-  the agent that ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*`
-  variable: Bobcat reads what an agent session already put in the environment instead of asking for
-  it, so attribution needs no configuration. **It loses to the command (issue #401): a run carrying
-  a `Command` reports no `Session` at all**, because a resident runner holds its launching agent's
-  session for life and would otherwise claim every button press a person made. Every one is user-facing or on the wire. The
-  `Monitor:*` keys that were ever *read* (`DataPath`, `RetentionDays`, `RetentionRuns`,
-  `IdleMinutes`) belonged to the console and went with it, along with their
-  `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved rather
-  than reused.
+  request as `--resident`), `BOBCAT_RUNNER_ID` (issue #397 — the stable runner id a parent hands
+  over, so the same checkout is the same runner across every relaunch), and the reserved `Monitor:*`
+  configuration keys. **`BOBCAT_RUN_COMMAND` (issue #392) is `RunStarted.Command`** — the resident
+  runner's command id, so a viewer can follow its own button press to the run it produced. Opaque
+  like the tag, and deliberately independent of it: the tag says what work a run speaks for, the
+  command says which request produced it, and a commanded run routinely carries both. It *is* a
+  `BOBCAT_*` variable, unlike the session below, because here Bobcat is the thing asking — a
+  commanded run is a child test host and the id travels down to it
+  exactly as `BOBCAT_RUN_ID` does. **`CLAUDE_CODE_SESSION_ID` is read as well** (issue #389) —
+  `RunStarted.Session`, opaque exactly like `Tag`, so a viewer can attach a run to the agent that
+  ran it rather than inferring it from a working tree. Deliberately not a `BOBCAT_*` variable:
+  Bobcat reads what an agent session already put in the environment instead of asking for it, so
+  attribution needs no configuration. **It loses to the command (issue #401): a run carrying a
+  `Command` reports no `Session` at all**, because a resident runner holds its launching agent's
+  session for life and would otherwise claim every button press a person made. Every one is
+  user-facing or on the wire. The `Monitor:*` keys that were ever *read* (`DataPath`,
+  `RetentionDays`, `RetentionRuns`, `IdleMinutes`) belonged to the console and went with it, along
+  with their `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved
+  rather than reused.
 - **Port 5525**, the address a publisher probes (`MonitorPublisher.DefaultUrl`). Deliberately kept
   rather than collapsed into Stoat's coordination port, because every publisher already probes it;
   Stoat's single host binds both.
-- `Bobcat.Runtime.PortHolder`, which names the process holding a port when a resource fails to
-  bind (appended to `TestResources.StartAll`'s `SpecCatastrophicException`) — report, never act.
 
-**The `bobcat` tool is `src/Bobcat.Console/`, and it has two commands: `import-event-model` and
-`resident`.** It carries the free, no-server half of the toolset — convert an eventmodelers.ai
+**The `bobcat` tool is `src/Bobcat.Console/`**: `run` (the default — a bare `bobcat` runs the spec
+project found from the current directory), `preview`, `pick` and `watch` over a spec project,
+`import-event-model` and `resident` (`docs/bobcat-tool.md`). Registration is explicit, never a
+scan (issue #369). It carries the free, no-server half of the toolset — convert an eventmodelers.ai
 board export into C#, optionally pushing the assembled model at a console's
 `PUT /api/event-model`; and (issue #399) keep a suite whose process Bobcat does not own available
 to a monitor, which has to ship from here because the console references nothing in this repository
@@ -2208,24 +1511,11 @@ and so cannot be handed a class to host.
     (so it was deleted rather than weakened into a duplicate), and the second became
     `the_import_maps_clean_to_a_descriptor`, dropping only the hop. The C# path that replaced the
     YAML one is pinned by `CSharpModelWriterTests`, which compiles and runs its output.
-  - **`*.spec-ownership.yaml` is retired with it, and this one removes a capability.** The manifest,
-    `SpecOwnershipManifest`/`SpecOwnershipDiagnostics` in the generator, `SpecOwnershipReader`/
-    `SpecOwnershipFile` in `Bobcat.EventModel`, the `SpecOwnershipParsingAgreementTests` guard that
-    pinned the two readers together, and **BOBCAT025/BOBCAT026** are all gone. Nothing in core ever
-    referenced it, so the removal was self-contained.
-    - **What it did and what is lost.** It declared *forward* — before any code existed — that a
-      slice would be specified as a projected test rather than a `.feature`, which mattered chiefly
-      so Bobcat's scaffolder wrote the right kind of skeleton; that scaffolder is now Wolverine's.
-      With it go two checks: a slice specified in two lanes (**BOBCAT025**, error — the
-      duplicate-identity guard, since two lanes means two specs claiming one `{Feature}/{Scenario}`)
-      and a manifest naming a slice nothing binds (**BOBCAT026**, warning, soft on purpose because
-      the owner may live in a sibling assembly). **The intent is that this content moves onto
-      attributes, and no such attribute exists yet** — so a slice's authoring lane is currently not
-      declarable before the spec exists. Written down rather than dropped quietly.
-    - **`[BobcatSlice]` is untouched**, and it was always the more useful half: binding a test that
-      already exists to a slice. `SpecIdentityAudit` (#338) is unaffected too and is now the only
-      gate of its kind — which it already had to be, because BOBCAT025/026 compared slice *names*,
-      so a test bound to the right slice under a scenario nobody designed passed both of them.
+  - **`*.spec-ownership.yaml` is retired with it**, and with it **BOBCAT025/BOBCAT026**. That
+    removed a capability: declaring *forward*, before any code exists, how a slice will be
+    specified. **The intent is that this moves onto attributes, and no such attribute exists yet.**
+    `[BobcatSlice]` — binding a test that already exists to a slice — is untouched, and
+    `SpecIdentityAudit` (#338) is the only gate of its kind.
   - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
     information at all (the board's props are intentionally omitted), so a name is the whole truth
     it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
@@ -2246,15 +1536,16 @@ and so cannot be handed a class to host.
     merge compare by `Name` (jasperfx#798), so the two spellings mean the same thing — while
     reaching for a generic over a type no stub declares simply would not compile.
   - **`CSharpModelWriterTests` compiles its own output with Roslyn, loads it, runs `Configure` and
-    compares the descriptor to `CuratedModelMapper.ToDescriptor` of the same model.** Asserting on
+    compares the descriptor to `ImportedModelMapper.ToDescriptor` of the same model.** Asserting on
     the emitted text would pass for a file with a missing brace, a shadowed namespace or a generic
     naming a type no stub declares — all three of which happened. The round-trip is a real guard,
     checked by dropping `.Emits` and watching it go red; `Bobcat.EventModel.Tests` therefore
-    references `Microsoft.CodeAnalysis.CSharp`, which is new for that project. It is a plain
-JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not `bobcat`** — see the
-resident-runner section for why that is load-bearing rather than cosmetic; the command a person
-types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it lives in Stoat's
-`Stoat.Console`.
+    references `Microsoft.CodeAnalysis.CSharp`.
+
+It is a plain JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not
+`bobcat`** — see the resident-runner section for why that is load-bearing rather than cosmetic; the
+command a person types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it
+lives in Stoat's `Stoat.Console`.
 
 **The runner publishes the spec half of the Event Model** (issue #294,
 `Monitoring/SpecEventModelPublisher.cs`). A model has two producers compiled into different
@@ -2270,7 +1561,7 @@ are keyed on the model name, which is why setting it explicitly is load-bearing 
 cosmetic.
 
 **A supervised suite that is not Bobcat's still gets live progress (issue #195).** Per-scenario
-events come from each *worker's* `MonitorPublishingObserver`, so a plain xUnit worker published
+events come from each *worker's* own recorder, so a plain xUnit worker published
 nothing and a supervised run's card sat at `0 / 1627` for its whole five minutes — the shape of a
 wedged run. `SupervisorRunPublisher` forwards `ISupervisorObserver.TestUpdated` as **`test_started`
 / `test_finished`**, a deliberately separate, lower-fidelity pair: `scenario_finished.Uid` keeps
@@ -2297,12 +1588,10 @@ foreign specs into the Bobcat model is #110, not this.
 `StepCell` carries four content fields and a cell fills **one** of them: `Expected`/`Actual` for a
 judged cell, `Note` for one that says a sentence (the set comparer's missing/extra/out-of-order
 rows), and **`Value`** for one that was *not judged* — a decision table's input column.
-`Bobcat.Monitoring.StepCells.From` is the single projection that decides, and it being single is
-half the fix: there were two copies (`ScenarioRecorder` for projected, `MonitorPublishingObserver`
-for Gherkin) and **both dropped a literal's text**, because both sent
-`Expected`/`Actual`/`Note` and neither had anywhere to put `CellResult.DisplayText`. A literal
-reached a consumer as `{"name":"x","status":"ok","expected":null,"actual":null}` and the column
-rendered empty in every grid, in both lanes, while the console showed it perfectly.
+`Bobcat.Monitoring.StepCells.From` is the single projection that decides. Before `Value`, a literal
+reached a consumer as `{"name":"x","status":"ok","expected":null,"actual":null}` — there was
+nowhere to put `CellResult.DisplayText` — and the column rendered empty in every grid while the
+console showed it perfectly.
 
 **`Value` is not a reuse of `Actual`, and that is load-bearing.** A cell with neither an expected
 nor an actual is how `JsonRenderer` decides an input column earns no Status column (#384) — so
@@ -2315,19 +1604,9 @@ which is what had kept the set comparer's out-of-order cell on the legacy constr
 ### The resident runner (`src/Bobcat/Residency/`, issue #390)
 
 A suite kept available to a monitor, running specifications **when the monitor asks** — the Bobcat
-half of Stoat's interactive execution. `MySpecs --resident` (or `BOBCAT_RESIDENT=1`) and the host
-never becomes a test host at all.
-
-**Both Gherkin entry points check it, and `ResidentMode` lives in core for that reason (issue
-#398).** It was in `Bobcat.Mtp` when `BobcatTestApplication.Run` was the only caller, but nothing
-in it was ever about the test platform, and `BobcatRunner.Run` — the JasperFx command family — read
-`--resident` as an unknown flag and ignored `BOBCAT_RESIDENT` entirely, so every suite written
-against the runner before the MTP host existed (Stoat's own `Stoat.Specs` among them) ran all its
-specs and exited 0 instead of going resident. The check is before the parser in both, because
-`--resident` is not one of the command family's options. `ConsolePreview` is the proof host — a
-`BobcatRunner.Run` `Main` with no Bobcat.Mtp reference anywhere — pinned from
-`ResidentModeEndToEndTests` beside the MTP one rather than from a class of its own, the same
-"both from one place" reasoning as `SpecIdentityEndToEndTests`.
+half of Stoat's interactive execution. It ships as `bobcat resident <host>`; `ResidentMode.Run` is
+the loop, and `BOBCAT_RESIDENT` / `--resident` are the request's spellings (cleared for a child,
+below).
 
 - **The runner is a client, and that is the whole security model.** It connects *out* to the same
   5525 origin every publisher already probes and *asks* for work; a monitor can only answer a
@@ -2361,50 +1640,89 @@ specs and exited 0 instead of going resident. The check is before the parser in 
     `run_finished` arrives, and the right response is to send again. With only the prose to go on,
     Stoat was matching the sentence "already running a command" — so a rewording here would have
     quietly turned every busy into a hard rejection a person reads as a failed button.
-- **Cold by default** — a fresh `BobcatRunner` per command, so a command always runs the current
-  code and a second cannot see the first's state because none of it survived.
-- **Warm keeps one booted runner between commands (issue #393)**, opted into per command and
-  offered only by a lane that can do it. The Gherkin lane can, because Bobcat owns the process; a
-  projected suite's test framework owns its own, which is why that lane is cold-only (#394). It is
-  built on #209's warm-session trio (`StartWarmSuite` / `RunWarmSelection` / `StopWarmSuite`, now
-  public), so what warmth buys is **only who pays for `StartAll`** — every selected scenario still
-  gets the full `ResetAll` → `BeginScenarioAll` → `EndScenarioAll` bracket, and warm never means
-  dirty. The test that would catch a leak records what each scenario *found* in the resource before
-  writing to it, so a leak reads as a value rather than having to be inferred.
-  - **Each command is its own run on the wire** — `run_started` … `run_finished`, its own `RunId`,
-    carrying its command (#392) — so a viewer cannot tell a warm run from a cold one except by its
-    speed. The monitor publisher is therefore attached and **detached** per selection, which is
-    what `BobcatRunner.RemoveObserver` exists for: a session that ran ten commands would otherwise
-    hold ten disposed publishers, every one still being handed every step of the eleventh.
-  - **A failed reset withdraws warm, not the suite.** `IResidentSuite.WarmUnavailable` carries the
-    damage (`BobcatRunner.WarmSuiteUnusable`, set on any suite-level catastrophe in a warm
-    selection), the runner drops `warm` from its registered modes, **re-registers** so the monitor
-    stops offering a button that will now be refused, and refuses a warm command *with that
-    reason* — "warm is not a mode this runner offers", from a runner that was offering it a minute
-    ago, explains nothing. **Cold is unaffected**, deliberately: a cold command starts over from
-    exactly the thing that poisoned the warm host. Never cleared — a broken session is broken, and
-    a person who wants a working one asks for `restart`.
-  - **A cold command closes the warm session first.** They cannot coexist: a booted host holds the
-    port, the database and the queues a second one would ask for, so "fresh everything" has to
-    include tearing down what is up.
-  - **The projected lane is cold-only, and that is measured rather than assumed (issue #394,
-    `docs/warm-projected-runs.md`).** Server mode takes repeated run requests in one live process
-    on MTP 1.9.1 (72ms → 11ms → 4ms for the same work), and an identity maps to a platform uid
-    through one join — xUnit v3's discovery display name is `Namespace.Class.method`, exactly what
-    #391's manifest spells. The blocker #394 found was **Bobcat's own run bracket**, and **#402
-    fixed it** (below). The lane is still cold, now for three reasons #394 could not see: there is
-    no per-request channel for the command id, the server-mode client is in `Bobcat.Supervisor`
-    while `OutOfProcessResidentSuite` is in core, and warm would mean holding a live client across
-    that seam. `WarmProjectedRunTests` used to pin the broken behaviour with **two tripwires**;
-    they fired, and it now asserts the fixed behaviour.
-  - Any suite-level catastrophe counts as damage, not only a reset that threw. The narrower rule
-    would have to tell a broken resource from a `SpecCatastrophicException` a step raised
-    deliberately, and the cost of being wrong is asymmetric: keeping a poisoned host on offer
-    produces a run nobody can trust, while retiring a healthy one costs a boot.
-  - `BobcatRunner.RunWarm(selection, commandId)` is **named apart** from `RunWarmSelection` rather
-    than overloading it, because `RunWarmSelection(null, null)` — which the interactive command
-    writes to mean "no feature filter, no tag filter" — binds to a `SpecSelection` overload and
-    dereferences the null. The compiler is happy and the call means something else.
+- **Cold by default** — every command launches a fresh child, so a command always runs the current
+  code and a second cannot see the first's state because none of it survived. **Each command is its
+  own run on the wire** — `run_started` … `run_finished`, its own `RunId`, carrying its command
+  (#392).
+- **`IResidentSuite` is the seam**, the same shape of decision as the supervisor's
+  `IWorkerClient`: the protocol knows identities and modes, the suite knows how to run anything.
+  `OutOfProcessResidentSuite` (cold) and `WarmProjectedResidentSuite` (cold and warm) implement it.
+  A source change restarts the runner, so a suite's identity list describes exactly the code the
+  process was built from.
+- **`OutOfProcessResidentSuite` is the cold implementation (issue #399).** It holds the suite's
+  `SpecManifest` and runs a command by launching **the suite's own test host** with
+  `SpecFilterArguments.For`'s translation of the selection. A projected suite's entry point belongs
+  to xUnit or TUnit, which will never learn what `--resident` means — so a resident runner is not
+  the suite. Everything it does is a function of the manifest. **This class is cold-only and stays
+  so** — it is in core, and warmth needs the supervisor's MTP client; `WarmProjectedResidentSuite`
+  is what offers both (below).
+  - **It ships as `bobcat resident <host>`, a command on the free tool**, because the console at
+    the other end references nothing in this repository and so cannot be handed a class to host.
+    That forced the tool's assembly to be renamed **`Bobcat.Cli`**: it now references core, and
+    `bobcat.dll` beside `Bobcat.dll` is **one file** on a case-insensitive filesystem — on macOS
+    the tool's own assembly overwrote core's in the output directory and every call into it died
+    with `Could not load type … from assembly 'bobcat'`, while the same build was fine on Linux and
+    would have shipped green from CI. `ToolCommandName` is still `bobcat`, so nothing a person
+    types changed.
+  - **A wiring mistake is refused at launch, not at the first button press**: a host that is not
+    built, a suite that lists no specifications (usually a spec project with no runner adapter
+    referenced), or a framework whose filter spelling Bobcat will not guess at (TUnit). A runner
+    that registered and then refused every command would look broken rather than unsupported.
+  - **What the child does *not* inherit is the substance of it** (`EnvironmentFor`). Four variables
+    a parent routinely sets break a commanded run silently: `BOBCAT_RUN_ID` collapses every command
+    into one ever-growing run card, `BOBCAT_RUN_OWNER` stops the child publishing a run bracket at
+    all, `BOBCAT_LIST_SPECS` turns a run into a listing, and `BOBCAT_RESIDENT` would have the child
+    register itself instead of running (no projected host reads it today, which is exactly why it
+    is cleared rather than relied upon). `BOBCAT_MONITOR=1` is *forced on* — a resident runner
+    exists to serve a console, and `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole
+    box — and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`, because a runner pointed at a
+    second console with `--url` would otherwise take that console's commands and publish the runs
+    to the default one.
+- **Warm is `WarmProjectedResidentSuite`, in `Bobcat.Supervisor` (issue #402 item 4).** It wraps
+  `OutOfProcessResidentSuite` — **cold is delegated unchanged**, so a cold command is byte-for-byte
+  what it always was — and holds an `MtpWorkerClient` open for warm, so a warm command is one
+  `testing/runTests` request into the live process. `bobcat resident` registers `cold` and `warm`; a
+  console chooses per command, so nothing changes for anyone who never asks for warm.
+  - **`BOBCAT_RUN_COMMAND_FILE` is the per-request command channel, and a new public variable.**
+    A warm child's environment is **fixed at launch**, so `BOBCAT_RUN_COMMAND` cannot serve: every
+    command after the first would carry the first one's id — precisely the mis-attribution #401
+    was opened to fix. Nor is there a protocol slot: measured on MTP 1.9.1, the `runId` a client
+    sends on `testing/runTests` is the client's own and is **not** the `SessionUid` the session
+    handler receives (unrelated GUIDs). So the parent writes the id to a path fixed at launch
+    **before** sending each request — **the exact inverse of `BOBCAT_LIST_SPECS`**, where the child
+    writes what the parent reads. No race, because a resident runner runs one command at a time and
+    refuses rather than queues. It **wins over `BOBCAT_RUN_COMMAND`** as the narrower claim, every
+    read failure falls back to the variable and then to null (attribution must never fail a run),
+    and `EnvironmentFor` **clears** it for a cold child alongside the four it already clears — a
+    parent's stale file must never be read as this command.
+  - **Layering: the warm suite moved UP, the client did not move DOWN.** `MtpWorkerClient` stays in
+    `Bobcat.Supervisor`, because **core is what every spec project references** and an MTP JSON-RPC
+    client there would tax all of them for a capability only the resident tool uses. `IWorkerClient`
+    is documented as *the* seam for exactly this and #402 anticipated "a second caller of
+    `IWorkerClient` rather than a new transport", so the second caller sits on the supervisor's side
+    of it. `Bobcat.Console` → `Bobcat.Supervisor` is honest — driving a test host as a process is
+    that tool's whole job here. (Watch the `Bobcat.Cli` assembly name while in that csproj:
+    `Bobcat.Supervisor.dll` beside `Bobcat.Cli.dll` is fine, where `bobcat.dll` beside `Bobcat.dll`
+    was one file on a case-insensitive filesystem.)
+  - **The identity → uid join is one lookup**, per #394: the manifest's `QualifiedTestMethod`
+    against the discovery display name, with `Ns.Outer+Inner` → dotted tried as a *fallback* after
+    the exact match #394 verified. An identity whose uid cannot be named is **refused**, not dropped
+    from the subset — a request for three specs that silently ran two looks exactly like a pass.
+  - **What warmth buys is the CLR, not the boot**, and the Q2 caveat stands word for word: xUnit's
+    assembly and collection fixtures are created and disposed *within* a run request, so a second
+    request pays for them again. A suite whose cost is a collection fixture standing up a database
+    will see far less than #394's 72ms → 4ms.
+  - **Withdrawal**: a faulted warm session drops `warm` from the registered modes, re-registers so
+    the monitor stops offering a button that would now be refused, and refuses a warm command *with
+    that reason*. **Cold is unaffected** — it starts over from exactly the thing that poisoned the
+    warm host — and a cold command **closes the warm session first**, since a booted host holds the
+    port, the database and the queues.
+  - `Bobcat.Supervisor.Tests/ProjectedResidentRunnerTests` holds the warm tests **beside the cold
+    ones**: two modes from one class, so neither gains a rule the other never hears about. One of
+    them re-learned a documented rule the hard way — **`run_finished` does not mean the runner is
+    free**, the bracket closing a hair before the in-flight slot clears — so a second command sent
+    the instant it arrived was refused `busy`. The test waits for `ResidentRunner.Busy` to clear,
+    which is what a real client's "send again" amounts to.
 - **`restart` means "exit so I can be relaunched"**, and it **cuts an in-flight run short** rather
   than waiting: a wedged run is the main reason someone restarts a runner, so a restart that waited
   would be useless in exactly the case it exists for. **A restart exits 75 (`EX_TEMPFAIL`), an
@@ -2442,89 +1760,38 @@ specs and exited 0 instead of going resident. The check is before the parser in 
   `data` joined with newlines, comment lines, one optional space after each colon, and a trailing
   event with no blank line after it. **`retry` is read and dropped** — the reconnect delay is the
   runner's own backoff, so a monitor cannot make a runner reconnect in a tight loop.
-- **`IResidentSuite` is the lane seam**, the same shape of decision as the supervisor's
-  `IWorkerClient`: the protocol knows identities and modes, the lane knows how to run anything.
-  `BobcatResidentSuite` is the Gherkin lane (in-process, cold or warm), and its spec identities are
-  read **once at construction** — not a cache to invalidate, because a source change restarts the
-  runner, so the list describes exactly the code this process was built from.
-- **`OutOfProcessResidentSuite` is the second implementation, and it is how the projected lane can
-  be resident at all (issue #399).** It holds the suite's `SpecManifest` and runs a command by
-  launching **the suite's own test host** with `SpecFilterArguments.For`'s translation of the
-  selection. A projected suite's entry point belongs to xUnit or TUnit, which will never learn
-  what `--resident` means — "a resident runner is not the suite" is a design note in the Gherkin
-  lane and a constraint here.
-  - **Named for the mechanism, not the lane, because it is lane-neutral** — everything it does is a
-    function of the manifest, and `SpecFilterArguments` switches on the *framework*, so pointing it
-    at a Gherkin host works and gets `--filter-uid`. Doing that is still the wrong call for a
-    Gherkin suite, whose in-process runner warms Bobcat's own `StartAll`. **This class is cold-only
-    and stays so** — it is in core, and warmth needs the supervisor's MTP client;
-    `WarmProjectedResidentSuite` is what offers both (below).
-  - **It ships as `bobcat resident <host>`, a command on the free tool**, because the console at
-    the other end references nothing in this repository and so cannot be handed a class to host.
-    That forced the tool's assembly to be renamed **`Bobcat.Cli`**: it now references core, and
-    `bobcat.dll` beside `Bobcat.dll` is **one file** on a case-insensitive filesystem — on macOS
-    the tool's own assembly overwrote core's in the output directory and every call into it died
-    with `Could not load type … from assembly 'bobcat'`, while the same build was fine on Linux and
-    would have shipped green from CI. `ToolCommandName` is still `bobcat`, so nothing a person
-    types changed.
-  - **A wiring mistake is refused at launch, not at the first button press**: a host that is not
-    built, a suite that lists no specifications (usually a spec project with no runner adapter
-    referenced), or a framework whose filter spelling Bobcat will not guess at (TUnit). A runner
-    that registered and then refused every command would look broken rather than unsupported.
-  - **What the child does *not* inherit is the substance of it** (`EnvironmentFor`). Four variables
-    a parent routinely sets break a commanded run silently: `BOBCAT_RUN_ID` collapses every command
-    into one ever-growing run card, `BOBCAT_RUN_OWNER` stops the child publishing a run bracket at
-    all, `BOBCAT_LIST_SPECS` turns a run into a listing, and `BOBCAT_RESIDENT` would have the child
-    register itself instead of running (no projected host reads it today, which is exactly why it
-    is cleared rather than relied upon). `BOBCAT_MONITOR=1` is *forced on* — a resident runner
-    exists to serve a console, and `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole
-    box — and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`, because a runner pointed at a
-    second console with `--url` would otherwise take that console's commands and publish the runs
-    to the default one.
-- **The command id reaches `run_started` through `BobcatRunner.MonitorCommand`** in the Gherkin
-  lane, not through `BOBCAT_RUN_COMMAND`: a resident runner holds one process open across many
-  commands, so putting each id in the process environment would make it mutable global state for no
-  gain. The variable is how it travels in the out-of-process lane, which is the case it was built
-  for — the runner and the run are different processes there.
 - **A commanded run leaves `Session` null, and that is one rule rather than a flag (issue #401).**
   A resident runner started from an agent's terminal inherits `CLAUDE_CODE_SESSION_ID` and holds it
   for its whole life, so every run it made for a monitor command was stamped with the session that
   launched the *runner* — and Stoat's agent page said "started by this session" about runs a person
   had pressed in the UI. The fix is on `MonitorRunInfo`: `Session`'s getter returns null whenever
-  `Command` is set, so a `with { Command = … }` anywhere honours it and the out-of-process lane's
+  `Command` is set, so a `with { Command = … }` anywhere honours it and an out-of-process
   child gets it for free from the variable. `Command` (#392) is the true answer to who asked;
   **`Tag` is unaffected**, because it answers a different question — what work the run speaks for —
   and a commanded re-run of a slice's specs is still that slice's node's.
 
 `ResidentRunnerTests` drives the whole loop against `FakeMonitorHost` over **real HTTP**, because
 the invariant under test is about an absent, slow or hostile monitor and a seam in front of the
-transport would test the seam instead. `Bobcat.Mtp.Tests/ResidentModeEndToEndTests` goes further:
-the real `Bobcat.Mtp.GeneratedHost` process, launched `--resident` through its *generated* `Main`,
-registering, refusing a foreign identity, running a named one, and exiting on `restart`. The fake
-host is `<Compile Link>`-ed into that project rather than copied — one source, two compilations, the
-same arrangement `SliceTagParsingAgreementTests` uses, and the same class now pins the command
-family's entry point (#398). `Bobcat.Mtp.Tests/ProjectedResidentRunnerTests` is the out-of-process
-lane's twin: the real `Bobcat.Xunit.Samples` xUnit host, listed and then filtered to one
-specification by identity, with the `bobcat resident` executable itself driven as a process so that
-a class nothing ships is not mistaken for a feature. **Everything in this repository is proved
-against a stand-in console** (`FakeMonitorHost` — real HTTP, not a real consumer), which is the
-honest limit of what can be pinned here: Stoat references nothing in this repository and this
-repository references nothing in Stoat, so neither side's CI can boot the other. The live
-half was done once, on Stoat's side (stoat@0ecd122, 2026-10-04): `Stoat.Specs` resident on
-`BobcatRunner.Run` at cold 1.0s / warm 0.3s / 0.1s, restarting under the same id with its runs
-carrying the command and no session, and `Stoat.ProjectedSpecs` through `bobcat resident` running
-a feature's 7 scenarios exactly. Two things only a live run could surface came out of it, both
-fixed: a runner id that was per checkout rather than per project (Stoat's side), and
-`run_finished` not meaning the runner is free.
+transport would test the seam instead. `Bobcat.Supervisor.Tests/ProjectedResidentRunnerTests` goes
+further: the real `Bobcat.Xunit.Samples` xUnit host, listed and then filtered to one specification
+by identity, with the `bobcat resident` executable itself driven as a process so that a class
+nothing ships is not mistaken for a feature. **Everything in this repository is proved against a
+stand-in console** (`FakeMonitorHost` — real HTTP, not a real consumer), which is the honest limit
+of what can be pinned here: Stoat references nothing in this repository and this repository
+references nothing in Stoat, so neither side's CI can boot the other. The live half was done once,
+on Stoat's side (stoat@0ecd122, 2026-10-04): `Stoat.ProjectedSpecs` through `bobcat resident` ran a
+feature's 7 scenarios exactly. Two things only a live run could surface came out of it, both fixed:
+a runner id that was per checkout rather than per project (Stoat's side), and `run_finished` not
+meaning the runner is free.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 
 Split 2026-08-09, finished 2026-09-18 when the console followed. **Bobcat is the MIT integration
-testing framework** — Gherkin runner, source generator, supervisor, MTP host, and the *publisher*
-side of the monitor wire. **[Stoat](https://github.com/JasperFx/stoat) is the BSL AI agent
-coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims, MCP), and it
-now hosts the run console as well. The viewer's `Coordination/` folder went first; the rest of the
-viewer went in 3ee3db9.
+testing framework** — source generator, specification recorder, runner adapters, supervisor, and the
+*publisher* side of the monitor wire. **[Stoat](https://github.com/JasperFx/stoat) is the BSL AI
+agent coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims, MCP), and
+it now hosts the run console as well. The viewer's `Coordination/` folder went first; the rest of
+the viewer went in 3ee3db9.
 
 Two rules this creates, both load-bearing:
 
@@ -2545,43 +1812,37 @@ the correlation hook — an opaque string Bobcat stamps on a run and never inter
 ## Key Dependencies
 
 - **JasperFx** — Utility library (core Bobcat). Source at ~/code/jasperfx
+- **JasperFx.Events** — the store abstractions the Critter Stack helpers bind to
 - **Spectre.Console** — Terminal rendering
 - **Microsoft.CodeAnalysis.CSharp** — Roslyn (generator only, compile time)
 
 ## Consuming Project Setup
 
 ```xml
-<ProjectReference Include="Bobcat" />
-<ProjectReference Include="Bobcat.Generators" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-<AdditionalFiles Include="Features/**/*.feature" />
+<PackageReference Include="Bobcat" />
+<PackageReference Include="Bobcat.Generators" />
+<PackageReference Include="Bobcat.Xunit" />   <!-- or Bobcat.TUnit / Bobcat.NUnit / Bobcat.MSTest -->
 ```
+
+The `Bobcat.Generators` package's `buildTransitive/Bobcat.Generators.props` opts the project into
+`InterceptorsNamespaces=Bobcat.Generated` (without it, BOBCAT037). A `ProjectReference` to the
+generator (`OutputItemType="Analyzer" ReferenceOutputAssembly="false"`) takes no build assets, so
+in-repo projects import that props file — and `Bobcat.Xunit.props` — themselves, the way
+`samples/Directory.Build.props` does. `BobcatProjectAssertions=true` opts a project into projected
+Shouldly assertions.
 
 ## Design References
 
-- `spec-driven-development-design.md` — Vision document: Gherkin, Critter Stack steps, failure semantics
-- `.claude/plans/declarative-roaming-kazoo.md` — Implementation plan
-- `docs/composing-grammars.md` — User-facing guide to grammar composition: parameterized
-  `[IncludeGrammars]`, scenario state, and why the HTTP lane is a hand-written act over
-  `WhenTracked` rather than the shipped vocabulary deleted on 2026-09-21
-- `docs/marker-steps.md` — The projected lane, user-facing: the one step-attribute family across
-  both lanes and its two expression syntaxes, the rendered spec console (`BOBCAT_SPEC_CONSOLE` /
-  `BOBCAT_SPEC_PREVIEW`), `SpecAssert`, tables and sets from a table literal, projected Shouldly
-  assertions, `[BobcatSlice]`, and BOBCAT027–031
-- `docs/tutorials/data-intensive-specifications.md` — Tables, table grammars, set verification and
-  decision tables in **both** lanes, the cell expressions (`NULL`/`EMPTY`/relative times) and the
-  four row markers. Written from the two sample corpora; was an outline until 2026-10-02
-- `docs/resident-runner.md` — The resident runner, user-facing: `--resident` on both Gherkin entry
-  points, the four refusals, cold vs warm, the 75/0 exit contract, `BOBCAT_RUNNER_ID`, and
-  `bobcat resident <host>` for the out-of-process lane
-- `docs/spec-identities.md` — Both halves: #391's listing and running by identity
-  (`BOBCAT_LIST_SPECS`, `SpecSelection`, `SpecFilterArguments`) and #338's `SpecIdentityAudit`
-- `docs/warm-projected-runs.md` — Issue #394's findings: why the projected lane is cold-only in
-  the resident runner, what MTP server mode actually does on 1.9.1, and what closing the gap would
-  cost
-- `docs/editor-integration.md` — Step completion / go-to-definition in VS Code (works, zero
-  code, via the official Cucumber extension's tree-sitter query on `Given|When|Then` short names)
-  and Rider (blocked on `Reqnroll.Rider`'s CLR-name gating; proposed upstream diff). Which
-  attribute shapes each editor sees — `[Check]`, `[Step]` and `[TableGrammar]` are invisible, and
-  so is a named-template expression's `{sum}` — and why a `[Then]` stacked on a `[Check]` is now
-  guaranteed to stay a check (`StepAttributes.On` picks the strongest claim, not the last one).
-- Alba source at ~/code/alba, JasperFx source at ~/code/jasperfx
+- `docs/` — the user-facing docs: `getting-started.md` (package setup), `marker-steps.md` (writing
+  specifications), `xunit.md` / `tunit.md` / `nunit.md` / `mstest.md`, `spec-identities.md` (#391
+  and #338's `SpecIdentityAudit`), `resident-runner.md`, `warm-projected-runs.md` (#394's findings),
+  `parallel-ready-suites.md`, `bobcat-tool.md`, and `monitor-design.md` (the wire contract and the
+  receiving-side folds)
+- `docs/tutorials/` — `specifications-with-code.md`, `data-intensive-specifications.md` (tables,
+  set verification, decision tables, cell expressions and the four row markers),
+  `agent-friendly-tests.md`, `event-modeling.md`, `continuous-integration.md`,
+  `ide-integration.md`, `reliable-integration-testing.md`
+- `design/` — internal records: `ledger-design.md` (the committed ledger),
+  `acceptance-coverage-map.md`, `critter-stack-interop-notes.md`, `sample-wiring-playbook.md`,
+  `versions.md`, `wolverine-ci-rollout.md`
+- JasperFx source at ~/code/jasperfx
