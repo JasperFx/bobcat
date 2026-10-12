@@ -47,6 +47,8 @@ public class ProjectedEventModelRoleTests
             public class Account { public Guid Id { get; set; } }
             public class AccountSummary { public Guid Id { get; set; } }
             public class Statement { public Guid Id { get; set; } }
+            public record ClientEnrolled(Guid Id, string Name);
+            public class Client { public Guid Id { get; set; } }
         }
 
         """;
@@ -63,6 +65,13 @@ public class ProjectedEventModelRoleTests
 
                 [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
                 public Task GivenNoEventsFor<TAggregate>(Guid id) where TAggregate : class => Task.CompletedTask;
+
+                [EventModelRole(SliceRole.Context, nameof(TContext))]
+                [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+                public Task GivenContext<TContext>(Guid id, params object[] events) where TContext : class => Task.CompletedTask;
+
+                [EventModelRole(SliceRole.Context, nameof(context))]
+                public Task GivenContext(Type context, Guid id) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.ReadModel, nameof(T))]
                 public Task GivenReadModel<T>(object document) where T : class => Task.CompletedTask;
@@ -136,6 +145,88 @@ public class ProjectedEventModelRoleTests
         var spec = slice.Specifications.ShouldHaveSingleItem();
         spec.Identity.ShouldBe("Accounts/a deposit is credited");
         names(spec.ResolvedTypes).ShouldBe(["Account", "AccountOpened", "Deposit", "FundsDeposited", "DepositReceipt"]);
+    }
+
+    [Fact]
+    public void an_arranged_lookup_stream_is_read_from_and_never_an_aggregate()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(OpenAccount))]
+                public async Task an_account_is_opened_for_an_enrolled_client()
+                {
+                    var client = Guid.NewGuid();
+                    await GivenContext<Client>(client, new ClientEnrolled(client, "Ann"));
+                    await WhenReceived(new OpenAccount(Guid.NewGuid(), "Ann"));
+                    ThenEvents(typeof(AccountOpened));
+                }
+            }
+            """).Single(x => x.Name == "OpenAccount");
+
+        // bobcat#502: the slice reads Client before deciding; it does not decide against it
+        names(slice.ReadsFrom).ShouldBe(["Client"]);
+        slice.AggregateTypes.ShouldBeEmpty();
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+
+        // Its events are arranged history, which a Command slice does not consume (#297)
+        slice.ConsumedEvents.ShouldBeEmpty();
+
+        // Still something the specification touched
+        names(slice.Specifications.Single().ResolvedTypes).ShouldBe(["Client", "ClientEnrolled", "OpenAccount", "AccountOpened"]);
+    }
+
+    [Fact]
+    public void a_context_beside_the_decided_stream_keeps_the_two_apart_and_reads_typeof_too()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit_checks_the_client()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await GivenContext(typeof(Client), Guid.NewGuid());
+                    await WhenReceived(new Deposit(id, 10m));
+                }
+
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_second_spec_naming_the_same_context_adds_nothing()
+                {
+                    await GivenContext<Client>(Guid.NewGuid());
+                    await WhenReceived(new Deposit(Guid.NewGuid(), 1m));
+                }
+            }
+            """).Single(x => x.Name == "Deposit");
+
+        names(slice.AggregateTypes).ShouldBe(["Account"]);
+        names(slice.ReadsFrom).ShouldBe(["Client"]);
+    }
+
+    [Fact]
+    public void a_slice_with_no_context_says_nothing_it_reads_from()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenReceived(new Deposit(id, 10m));
+                }
+            }
+            """).Single(x => x.Name == "Deposit");
+
+        slice.ReadsFrom.ShouldBeEmpty();
     }
 
     [Fact]

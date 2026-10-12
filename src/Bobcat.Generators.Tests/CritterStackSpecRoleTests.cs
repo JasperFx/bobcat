@@ -31,6 +31,8 @@ public class CritterStackSpecRoleTests
             public class Account { public Guid Id { get; set; } }
             public class AccountSummary { public Guid Id { get; set; } }
             public class Statement { public Guid Id { get; set; } }
+            public record ClientEnrolled(Guid Id, string Name);
+            public class Client { public Guid Id { get; set; } }
         }
 
         namespace Specs
@@ -63,6 +65,15 @@ public class CritterStackSpecRoleTests
                     var id = Guid.NewGuid();
                     await GivenEvents(typeof(Account), id, new AccountOpened(id, "Ann"));
                     await WhenActingOn<Account>(id, "a withdrawal", _ => Task.CompletedTask, new FundsWithdrawn(id, 1m));
+                }
+
+                [Fact, BobcatSlice(SliceName = "OpenAccount")]
+                public async Task an_account_is_opened_for_a_known_client()
+                {
+                    var client = Guid.NewGuid();
+                    await GivenContext<Client>(client, new ClientEnrolled(client, "Ann"));
+                    await WhenActing("an account is opened", _ => Task.CompletedTask);
+                    await ThenAggregate<Account>(Guid.NewGuid());
                 }
             }
 
@@ -106,6 +117,13 @@ public class CritterStackSpecRoleTests
         names(withdraw.EmittedEvents).ShouldBe(["FundsWithdrawn"]);
         names(withdraw.Specifications.ShouldHaveSingleItem().ResolvedTypes)
             .ShouldBe(["Account", "AccountOpened", "FundsWithdrawn"]);
+
+        // bobcat#502: the arranged lookup is read from, and only the stream the act decides against is an aggregate
+        var open = slices.Single(x => x.Name == "OpenAccount");
+        names(open.ReadsFrom).ShouldBe(["Client"]);
+        names(open.AggregateTypes).ShouldBe(["Account"]);
+        names(open.Specifications.ShouldHaveSingleItem().ResolvedTypes).ShouldBe(["Client", "ClientEnrolled", "Account"]);
+        names(deposit.ReadsFrom).ShouldBeEmpty();
 
         var summary = slices.Single(x => x.Name == "AccountSummary");
         summary.Pattern.ShouldBe(SlicePattern.View);

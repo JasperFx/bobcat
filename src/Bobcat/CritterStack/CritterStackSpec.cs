@@ -143,6 +143,29 @@ public abstract class CritterStackSpec
     [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(string key, params object[] events) => Scenario.GivenEvents(key, events);
 
+    /// <inheritdoc cref="CritterStackScenario.GivenContext{TContext}(Guid, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(Guid id, params object[] events) where TContext : class
+        => Scenario.GivenContext<TContext>(id, events);
+
+    /// <inheritdoc cref="CritterStackScenario.GivenContext{TContext}(string, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(string key, params object[] events) where TContext : class
+        => Scenario.GivenContext<TContext>(key, events);
+
+    /// <inheritdoc cref="CritterStackScenario.GivenContext{TContext}(object, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(object id, params object[] events) where TContext : class
+        => Scenario.GivenContext<TContext>(id, events);
+
+    /// <inheritdoc cref="CritterStackScenario.GivenContext(Type, object, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(context))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext(Type context, object id, params object[] events) => Scenario.GivenContext(context, id, events);
+
     /// <inheritdoc cref="CritterStackScenario.GivenNoEventsFor{TAggregate}(Guid)" />
     [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(Guid id) where TAggregate : class => Scenario.GivenNoEventsFor<TAggregate>(id);

@@ -53,6 +53,7 @@ internal static class ProjectedRoles
         ["ReadModel"] = EventModelEmitter.ReadModel,
         ["Document"] = EventModelEmitter.Document,
         ["Message"] = EventModelEmitter.Message,
+        ["Context"] = EventModelEmitter.Context,
     };
 
     /// <summary>What one test body states, in source order.</summary>

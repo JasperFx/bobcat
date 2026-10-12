@@ -184,7 +184,12 @@ public class CritterStackScenario
     /// <remarks>A null <paramref name="aggregate" /> arranges a stream with no aggregate type (GH-4892).</remarks>
     [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
     [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
-    public async Task GivenEvents(Type? aggregate, object id, params object[] events)
+    public Task GivenEvents(Type? aggregate, object id, params object[] events)
+        => arrange(aggregate, id, events, isContext: false);
+
+    // GivenEvents and GivenContext: the same step and the same append. Only an arranged stream the act decides
+    // against becomes "the stream the scenario is about"; a lookup arranged after it must not take its place
+    private async Task arrange(Type? aggregate, object id, object[] events, bool isContext)
     {
         var stream = streamName(aggregate, id);
         events = flatten(events);
@@ -193,13 +198,55 @@ public class CritterStackScenario
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             // wolverine#4865: a strong-typed id is the Guid or string it wraps, to the store
-            _stream = StrongTypedIds.StreamIdentity(id);
+            var identity = StrongTypedIds.StreamIdentity(id);
+            if (!isContext || _stream is null) _stream = identity;
             if (aggregate is not null) recordTouched(aggregate);
             recordTouchedExpectations(events);
             if (!inline) recordValues("event", events);
             // Every store's StartStream(Type, ...) takes a null aggregate type as an untyped stream
-            if (events.Length > 0) await EventStoreAuthoring.AppendAsync(Store, aggregate!, _stream, build(events, text));
+            if (events.Length > 0) await EventStoreAuthoring.AppendAsync(Store, aggregate!, identity, build(events, text));
         });
+    }
+
+    /// <summary>
+    /// bobcat#502. The stream the act <em>looks up</em> already holds exactly these events — the Client an
+    /// <c>OpenAccount</c> handler loads to check it exists, as opposed to the Account stream the command decides
+    /// against. At run time it is <see cref="GivenEvents{TAggregate}(Guid, object[])" />: the same step, the same
+    /// append. The difference is the Event Model's: <typeparamref name="TContext" /> is stamped into the slice's
+    /// <c>ReadsFrom</c>, never as one of its aggregates.
+    /// </summary>
+    /// <remarks>
+    /// The arranged events are arranged events as for <see cref="GivenEvents{TAggregate}(Guid, object[])" />:
+    /// nothing on a Command slice, consumed on a View one. A context stream never replaces the stream the scenario
+    /// is about (the one <see cref="ThenSingleReadModel{T}" /> reads) once a <c>GivenEvents</c> has named one.
+    /// </remarks>
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(Guid id, params object[] events) where TContext : class
+        => GivenContext(typeof(TContext), id, events);
+
+    /// <inheritdoc cref="GivenContext{TContext}(Guid, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(string key, params object[] events) where TContext : class
+        => GivenContext(typeof(TContext), key, events);
+
+    /// <summary>
+    /// <see cref="GivenContext{TContext}(Guid, object[])" /> for a stream identified by a strong-typed id around a
+    /// Guid or a string (wolverine#4865).
+    /// </summary>
+    [EventModelRole(SliceRole.Context, nameof(TContext))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext<TContext>(object id, params object[] events) where TContext : class
+        => GivenContext(typeof(TContext), id, events);
+
+    /// <inheritdoc cref="GivenContext{TContext}(Guid, object[])" />
+    [EventModelRole(SliceRole.Context, nameof(context))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
+    public Task GivenContext(Type context, object id, params object[] events)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return arrange(context, id, events, isContext: true);
     }
 
     /// <summary>

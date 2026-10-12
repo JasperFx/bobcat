@@ -59,6 +59,8 @@ The query endpoints take `IDocumentReadOperations` (documents: `LoadAsync<T>`, `
 
 `OpenAccount` uses `[Entity]` to load the Client by `ClientId` -- verifying the client exists before opening an account.
 
+The spec arranges that Client with `GivenContext<Client>(…)`, not `GivenEvents<Client>(…)` (bobcat#502). At run time the two are the same append; on the Event Model, `GivenContext` puts Client in the OpenAccount slice's `ReadsFrom` -- a lookup the slice reads before deciding -- instead of claiming it as an aggregate. The stream OpenAccount decides against is the Account it starts. `EventModel.cs` pins it.
+
 ## Running
 
 On Marten (the default) it needs the samples' Postgres -- `cd samples && docker compose up -d`. On Fisher it needs nothing.

@@ -39,6 +39,15 @@ public enum SliceRole
 
     /// <summary>A message the act sends, publishes or schedules.</summary>
     Message,
+
+    /// <summary>
+    /// A stream (or model) the specification arranges only so the act can <em>look it up</em> — the Client an
+    /// <c>OpenAccount</c> handler loads to check it exists — not the stream the command decides against
+    /// (bobcat#502). Stamped into the slice's <c>ReadsFrom</c> (jasperfx#824), where it becomes a read model
+    /// linked into the slice's processor; never into <c>AggregateTypes</c>. It still reaches the specification's
+    /// resolved types.
+    /// </summary>
+    Context,
 }
 
 /// <summary>

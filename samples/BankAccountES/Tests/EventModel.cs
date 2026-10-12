@@ -136,6 +136,22 @@ public class EventModel(BankAccountHost app)
     }
 
     /// <summary>
+    /// bobcat#502: OpenAccount's spec arranges a Client stream only so the endpoint's <c>[Entity]</c> lookup finds
+    /// the client. <c>GivenContext&lt;Client&gt;</c> says so, and the slice reads Client instead of claiming it as
+    /// an aggregate -- the stream the command decides against is the Account it starts.
+    /// </summary>
+    [BobcatSpec]
+    public async Task an_arranged_lookup_is_read_from_and_not_an_aggregate_of_the_slice()
+    {
+        _model.TheSpecsAloneSayTheSliceReadsFrom("OpenAccount", "Client");
+
+        // ...and the merged model agrees: the chain's [Entity] Client is a read too (wolverine GH-4419)
+        await _model.AssembleEventModel();
+        _model.TheSliceReadsFrom("OpenAccount", "Client");
+        _model.IsNotAnAggregateOf("Client", "OpenAccount");
+    }
+
+    /// <summary>
     /// The payoff of jasperfx#823 + #824 + #825 landing together: the store supplies ConsumedEvents, the roles
     /// give them an element, and Links turns the pair into a cross-slice edge nobody drew.
     /// </summary>

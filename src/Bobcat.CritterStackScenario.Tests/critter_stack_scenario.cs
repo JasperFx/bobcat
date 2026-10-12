@@ -80,6 +80,34 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
     }
 
     [Fact]
+    public async Task a_context_stream_is_arranged_exactly_as_given_events_and_never_becomes_the_scenarios_stream()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var lookup = Guid.NewGuid();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"), new WalletCredited(id, 3));
+            // bobcat#502: a lookup the act reads, arranged after the stream the act decides against
+            await scenario.GivenContext<Wallet>(lookup, new WalletOpened(lookup, "Bea"));
+            await scenario.GivenContext(typeof(Wallet), new WalletId(Guid.NewGuid()));
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps.Select(x => x.Keyword).ShouldBe(["Given", "And", "And"]);
+        recording.Steps[1].Text.ShouldContain("has already recorded WalletOpened(");
+        recording.Steps[2].Text.ShouldEndWith("has no events yet");
+
+        // The same append GivenEvents makes
+        (await scenario.TheAggregate<Wallet>(lookup))!.Owner.ShouldBe("Bea");
+        (await scenario.TheStreamVersion(lookup)).ShouldBe(1);
+
+        // ...but the stream the scenario is about is still the one GivenEvents named
+        (await scenario.ThenSingleReadModel<Wallet>()).Balance.ShouldBe(3);
+    }
+
+    [Fact]
     public async Task a_read_model_is_arranged_directly_and_read_back_as_a_document()
     {
         var scenario = newScenario();

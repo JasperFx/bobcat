@@ -285,7 +285,8 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   than the store's projection applies is a `SourceDisagreement` hotspot, and the right reading (the
   view is under-specified). The sample's two `AccountView.cs` specs arrange all four of the Account
   projection's events so the store rung and the spec rung agree; drop one and the sample goes red.
-  `ReadsFrom` reaches a model only through the importer.
+  `ReadsFrom` reaches a model through the importer, and from a spec through `SliceRole.Context`
+  (`GivenContext`, #502, below).
 - **The command is the act — the last `Command` call, not the first one named (#464).** Specs
   routinely arrange by issuing earlier commands (an `OpenWallet` before the `CreditWallet` the test
   is about), so first-wins mislabelled the slice. Arrange commands are not lost: they stay in the
@@ -327,7 +328,9 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   - **The rules:** the act is the LAST `Command` call (#464), and its trigger is read only off that
     call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a View slice (#297);
     `Document` → resolved types only (a document is not an aggregate, event or read model, so it
-    gets no element on the canvas); an argument whose type is not knowable (`object`, interface,
+    gets no element on the canvas); `Context` → `SliceModel.ReadsFrom` → `ReadsFrom`, on any pattern
+    and never `AggregateTypes` (#502: `GivenContext<Client>` for a stream the act only looks up, written
+    only when non-empty); an argument whose type is not knowable (`object`, interface,
     rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and `TaggedValue` are unwrapped
     by metadata name — Bobcat's own types, so the same-repo contract.
   - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature.**
@@ -1399,7 +1402,8 @@ the DCB boundary steps and correlation.
 
 - **Public signatures and step text are `WolverineScenario`'s, verbatim**, so deriving was "delete
   duplicates" with no API break: Givens (tagged, strong-typed-id, aggregate-less, read
-  model), the event assertions over the last act, the refusals, aggregates/documents/read models,
+  model, and since #502 `GivenContext` — `GivenEvents`'s append under `SliceRole.Context`, which never
+  takes over the scenario's own stream `_stream` from a `GivenEvents`), the event assertions over the last act, the refusals, aggregates/documents/read models,
   DCB models, `Verify`/`ThenMatches`, `ResetAsync`, `storeName`.
 - **The seams a derived scenario overrides:** `runActAsync(Func<IServiceProvider, Task>)` (the
   store-only act: high-water mark, run in a new scope, read back every event since — so
