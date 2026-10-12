@@ -75,6 +75,48 @@ is worse than a miss, because a miss is reported.
 Nothing offers to *parse* an identity: a feature title may contain a `/`, so the pieces are read off
 the model and never out of the string.
 
+### Where the two halves come from
+
+| | Default | Stated outright |
+|---|---|---|
+| **Feature** | the class name, a `Specs`/`Spec`/`Specification`/`Fixture` suffix stripped, read as a sentence | `[BobcatFeature("Booking appointments")]` |
+| **Scenario** | the method name, underscores read as spaces (or PascalCase split) | `[BobcatSpec(Name = "A volunteer can't re-confirm, twice")]` (bobcat#489) |
+
+An explicit name is taken verbatim, so it can carry the punctuation a method name can't -- the
+apostrophe and the dash Stoat lost from two of its identities when it converted to the projected
+lane. Leave it off and the identity is exactly what it always was. See
+[the explicit scenario name](marker-steps.md#explicit-name).
+
+### Two specs, one identity
+
+Nothing used to stop two specs from resolving to the same identity -- same-named methods in two
+classes bound to one feature is all it takes -- and nothing reported it either. When it was found in
+Wolverine the symptom was an unrelated test failing after a new test happened to take an existing
+one's name. Everything keyed on the identity treats the two as one spec: filtering by identity, the
+resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list.
+
+It is now caught twice.
+
+**At build time, BOBCAT036 is an error.** The generator compares the identities it is about to emit,
+through the same derivation it emits them with, so it can't disagree with the runtime about case,
+separators or punctuation: `order_is_placed` and `order__is_placed` collide, `an_order` and
+`An_Order` don't. It is reported at each spec, naming the other with its file and line, and the fix
+is a distinct method name or an explicit `[BobcatSpec(Name = "…")]`.
+
+**At run time, the manifest write reports what the compiler couldn't see together** -- specs in two
+assemblies loaded into one process, or BOBCAT036 suppressed. The generated binding used to be
+last-one-wins, so the listing quietly named whichever test bound last. Now the first binding stays,
+every claimant is recorded, and when `BOBCAT_LIST_SPECS` is set:
+
+- each duplicate is reported on standard error, one line apiece, with every test that claims it;
+- the manifest carries them as `duplicates`, an additive field left out when there are none;
+- running a duplicated identity by name is **refused**, the same way an unknown one is.
+
+The manifest is **still written**. Refusing the write would cost every other spec in the suite its
+listing -- a resident runner with no manifest can't run anything -- to protect one identity that is
+already refused by name. The build-time error is where a duplicate is meant to stop; the manifest is
+the backstop, and it keeps the same invariant it always had: writing it can never fail the suite.
+
 ### Asking for a subset
 
 `SpecSelection` is the set a run was asked for, and **empty means everything**, so a run path takes

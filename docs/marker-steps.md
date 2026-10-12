@@ -752,6 +752,33 @@ two cannot come apart.
 **xUnit-only, for now.** It subclasses `Xunit.FactAttribute`, so TUnit needs its own equivalent;
 that is a follow-up. On TUnit, NUnit and MSTest, bind with `[BobcatSlice]` beside `[BobcatScenario]`.
 
+### An explicit scenario name: `Name = "…"` (bobcat#489) {#explicit-name}
+
+A projected spec's scenario title is its method name read as a sentence. Two things a method name
+can't do: tell apart two specs whose names read the same under one feature, and spell an apostrophe,
+a dash or a comma. `Name` states the title outright:
+
+```csharp
+[BobcatSpec(typeof(ConfirmAppointment), Name = "A volunteer can't re-confirm, twice")]
+public async Task volunteer_cannot_reconfirm() { /* … */ }
+```
+
+The identity is now `Booking/A volunteer can't re-confirm, twice`, verbatim, the same way a
+`[BobcatFeature("…")]` title is. It reaches everything the identity does -- the declared steps, the
+recorder's `scenario_finished`, the spec manifest, running by identity, and the Event Model's spec
+list -- because the generator and the runtime read it through the same derivation, and
+`MarkerSpecNamingAgreementTests` keeps the two together. A `const` or a `nameof` works as well as a
+literal.
+
+Leave it off and nothing changes: an identity that states no name is byte-for-byte the string it was
+before. A null, empty or all-whitespace name counts as no name. Setting one *does* change the
+identity, which is the point, so it also moves that spec's ledger history and its curated-model
+scenario to the new string.
+
+It is not xUnit's `DisplayName`, which renames the test in a runner's output and nothing else;
+Bobcat doesn't read that. And like `Pending`, it is on `[BobcatSpec]`, so it is xUnit-only for now.
+On the other runners the fix for a collision is a distinct method name.
+
 ### Stub-first: `Pending = true` (issue #404)
 
 Stub-first work produces specifications that exist before their behaviour does. Without a marker for
@@ -840,6 +867,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path. A stale column is always a broken spec |
 | **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
 | **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
+| **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
 | **BOBCAT035** (warning) | `[WaitFor]` or `[Approx]` on a step helper a C# test calls, or on a method of a projected spec. No generated code wraps the call, so the poll or the tolerance silently never happens. Poll with [`SpecAssert.EventuallyAsync`](#waiting-for-an-answer-that-arrives-later) and pass `tolerance:` to `SpecAssert.Check` instead |
 
 The honest limit on BOBCAT029, pinned by

@@ -20,6 +20,31 @@ public sealed class BobcatFeatureAttribute : Attribute
 }
 
 /// <summary>
+/// An attribute on a projected test method that states the scenario part of its
+/// <c>{Feature}/{Scenario}</c> identity outright (bobcat#489), instead of having it read off the
+/// method name. <c>Bobcat.Xunit</c>'s <c>[BobcatSpec(Name = "…")]</c> implements it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>An interface, not an attribute in core,</b> because the attribute a test already carries is the
+/// runner's own — <c>[BobcatSpec]</c> IS xUnit's <c>[Fact]</c> — and core cannot reference a runner. The
+/// runtime finds the name through this; the generator finds it by attribute name and the
+/// <c>Name</c> argument, the way it reads <c>Pending</c>, and <c>MarkerSpecNamingAgreementTests</c>
+/// keeps the two derivations together.
+/// </para>
+/// <para>
+/// Two things it is for: telling apart two specifications whose method names would otherwise give
+/// them the same identity (BOBCAT036), and an identity a method name cannot spell -- an apostrophe, a
+/// dash, a comma.
+/// </para>
+/// </remarks>
+public interface IExplicitScenarioName
+{
+    /// <summary>The scenario title, verbatim. Null, empty or whitespace means "derive it from the method name".</summary>
+    string? Name { get; }
+}
+
+/// <summary>
 /// Binds a projected test — a class or a single test method — to an Event Modeling slice
 /// (issue #324).
 /// </summary>

@@ -146,6 +146,49 @@ public class MarkerSpecNamingAgreementTests
     }
 
     /// <summary>
+    /// bobcat#489: an explicit scenario name means the same thing on both sides -- verbatim when it says
+    /// anything, the method name derived when it is null, empty or whitespace.
+    /// </summary>
+    [Theory]
+    [InlineData("a_wallet_is_credited", "A volunteer can't re-confirm, twice")]
+    [InlineData("a_wallet_is_credited", "Slashes/and \"quotes\"")]
+    [InlineData("a_wallet_is_credited", "  padded  ")]
+    [InlineData("a_wallet_is_credited", null)]
+    [InlineData("a_wallet_is_credited", "")]
+    [InlineData("a_wallet_is_credited", "   ")]
+    [InlineData("EventsThenResponse", null)]
+    public void an_explicit_scenario_name_agrees(string methodName, string? explicitName)
+        => GeneratorNaming.ScenarioTitle(methodName, explicitName)
+            .ShouldBe(MarkerSpecNaming.ScenarioTitle(methodName, explicitName));
+
+    /// <summary>
+    /// The whole identity again, for a method that names itself: what the generator emits for the
+    /// attribute's argument and what the runtime publishes off the attribute instance, through both of
+    /// <c>BeginScenario</c>'s shapes -- the <see cref="MethodInfo"/> xUnit hands over, and the type and
+    /// method name TUnit hands over.
+    /// </summary>
+    [Fact]
+    public void the_whole_identity_agrees_for_an_explicitly_named_method()
+    {
+        var method = typeof(WalletSpecs).GetMethod(nameof(WalletSpecs.named_explicitly))!;
+
+        var generated = GeneratorNaming.Identity(
+            GeneratorNaming.FeatureTitle(nameof(WalletSpecs), null),
+            GeneratorNaming.ScenarioTitle(method.Name, NamedAttribute.Text));
+
+        generated.ShouldBe("Wallet/a wallet can't go below zero -- ever");
+
+        (MarkerStepRun.FeatureNameFor(method) + "/" + MarkerStepRun.ScenarioNameFor(method)).ShouldBe(generated);
+        (MarkerStepRun.FeatureNameFor(typeof(WalletSpecs)) + "/"
+         + MarkerStepRun.ScenarioNameFor(typeof(WalletSpecs), method.Name)).ShouldBe(generated);
+    }
+
+    [Fact]
+    public void a_method_that_states_no_name_keeps_its_derived_identity_through_the_type_and_name_shape()
+        => MarkerStepRun.ScenarioNameFor(typeof(WalletSpecs), nameof(WalletSpecs.a_wallet_is_credited))
+            .ShouldBe("a wallet is credited");
+
+    /// <summary>
     /// The decided derivation, pinned as values rather than only as agreement — two
     /// implementations can agree on the wrong answer, and the acronym case below was the wrong
     /// answer on both sides until this wave ("HTTP sponse", the matched characters deleted by a
@@ -172,6 +215,18 @@ public class MarkerSpecNamingAgreementTests
     {
         public void a_wallet_is_credited() { }
         public void EventsThenResponse() { }
+
+        [Named]
+        public void named_explicitly() { }
+    }
+
+    /// <summary>Stands in for <c>[BobcatSpec(Name = "…")]</c>, which lives in Bobcat.Xunit.</summary>
+    [AttributeUsage(AttributeTargets.Method)]
+    private sealed class NamedAttribute : Attribute, IExplicitScenarioName
+    {
+        public const string Text = "a wallet can't go below zero -- ever";
+
+        public string? Name => Text;
     }
 
     public class rebuilding_projections

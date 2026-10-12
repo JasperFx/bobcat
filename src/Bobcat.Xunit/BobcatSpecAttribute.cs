@@ -55,7 +55,7 @@ namespace Bobcat.Xunit;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute
+public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IExplicitScenarioName
 {
     /// <param name="sourceFilePath">Filled in by the compiler; never pass this.</param>
     /// <param name="sourceLineNumber">Filled in by the compiler; never pass this.</param>
@@ -97,6 +97,31 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute
 
     /// <inheritdoc cref="BobcatSliceAttribute.TriggeredBy"/>
     public string? TriggeredBy { get; set; }
+
+    /// <summary>
+    /// The scenario part of this specification's <c>{Feature}/{Scenario}</c> identity, stated outright
+    /// instead of read off the method name (bobcat#489). Taken verbatim, the way a
+    /// <c>[BobcatFeature("…")]</c> title is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two reasons to reach for it.</b> Two specifications whose method names read as the same
+    /// sentence under one feature share an identity, which the generator refuses as BOBCAT036 -- naming
+    /// one of them is the fix when renaming the method is not. And a method name cannot spell an
+    /// apostrophe, a dash or a comma, so a scenario called "A volunteer can't confirm twice" can only
+    /// keep its punctuation this way.
+    /// </para>
+    /// <para>
+    /// <b>Leave it off and nothing changes.</b> An identity that states no name is exactly the string it
+    /// was before this existed. Setting one <em>does</em> change the identity, which is the point -- and
+    /// so it also moves the spec's ledger history and its place in a curated model to the new string.
+    /// </para>
+    /// <para>
+    /// It is not xUnit's <see cref="FactAttribute.DisplayName"/>: that renames the test in a runner's
+    /// output and nothing else, and Bobcat does not read it.
+    /// </para>
+    /// </remarks>
+    public string? Name { get; set; }
 
     /// <summary>
     /// This specification exists before the behaviour it describes (issue #404). It reaches the

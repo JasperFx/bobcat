@@ -1497,6 +1497,18 @@ Where each lane answers:
   records it, so `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate
   on emitting the initializer at all.
 
+- **Duplicate identities and the explicit scenario name (bobcat#489).** Two projected specs
+  resolving to one identity is **BOBCAT036** (error), computed in
+  `MarkerCommentSpecs.DuplicateIdentities` over `IdentityOf`, the same string `Emit` writes, so it
+  cannot disagree with the runtime. `[BobcatSpec(Name = "…")]` states the scenario title verbatim:
+  the generator reads it by name (`ScenarioTitleOf`, used by every identity site: marker specs, the
+  step interceptors' `UidOf`, `SpecificationManifest`, the Event Model), the runtime through core's
+  `IExplicitScenarioName` (`MarkerSpecNaming.ScenarioTitle(MethodInfo)` / `(Type, name)`). The
+  run-time guard: `DeclaredSteps.Bind` keeps the FIRST binding and records the rest
+  (`DeclaredSteps.Duplicates`); the manifest carries them as `Duplicates`, `WriteIfRequested`
+  prints them on stderr and **still writes** (never fail the suite), and `SpecFilterArguments`
+  refuses a duplicated identity by name.
+
 `Bobcat.Mtp.Tests/SpecIdentityEndToEndTests` pins **both lanes from one class** against the real
 hosts — one identity per lane, listed and then run. Deliberately not split across two test
 projects: that is how one lane gains a rule the other never hears about, the same reasoning as

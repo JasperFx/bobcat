@@ -77,7 +77,10 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
         // Refused at construction, not per command. SpecFilterArguments throws for a framework
         // whose filter spelling is unverified (TUnit today), and a runner that registered its
         // specs and then refused every single command would look broken rather than unsupported.
-        SpecFilterArguments.For(manifest, SpecSelection.Of(manifest.Identities[0]));
+        // Probed with an identity one test owns (bobcat#489): a duplicated one is refused by name, and
+        // that refusal is about the identity, not the framework, so it must not stop the whole runner.
+        SpecFilterArguments.For(manifest, SpecSelection.Of(
+            manifest.Identities.FirstOrDefault(x => !manifest.IsAmbiguous(x)) ?? manifest.Identities[0]));
     }
 
     /// <summary>

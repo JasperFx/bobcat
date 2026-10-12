@@ -84,6 +84,33 @@ public class ProjectedSpecIdentityEndToEndTests : IDisposable
         => _harness.RunsExactly(
             projectedHost, ["Calculator/using sentences", "Calculator/asserting values"], requireGreen: false);
 
+    private const string explicitlyNamed =
+        "Facts, in one attribute/a spec's name can't always be a method name -- re-stated, verbatim";
+
+    [Fact]
+    public async Task an_explicit_scenario_name_is_the_identity_the_manifest_lists()
+    {
+        // bobcat#489: [BobcatSpec(Name = "…")] is the scenario half of the identity, punctuation
+        // kept, and the binding still names the method a filter can ask for
+        var manifest = await _harness.List(projectedHost);
+
+        manifest.For(explicitlyNamed).ShouldNotBeNull()
+            .QualifiedTestMethod
+            .ShouldBe("Bobcat.Xunit.Samples.Specs.OneAttributeSpecs.named_explicitly");
+
+        manifest.Identities.ShouldNotContain("Facts, in one attribute/named explicitly");
+        manifest.Duplicates.ShouldBeNull("the sample corpus must not collide with itself");
+    }
+
+    [Fact]
+    public Task an_explicitly_named_specification_runs_by_its_name_and_records_under_it()
+        // The sample asserts ScenarioRecorder.Current.Uid inside its body, so a green run is the
+        // recorder publishing the same string the generator bound and the manifest listed
+        => _harness.RunsExactly(
+            projectedHost,
+            [explicitlyNamed],
+            ["--filter-method", "Bobcat.Xunit.Samples.Specs.OneAttributeSpecs.named_explicitly"]);
+
     [Fact]
     public Task an_identity_the_suite_does_not_have_is_refused_before_anything_is_launched()
         => _harness.RefusesAnIdentityItDoesNotHave(projectedHost, "Calculator/no such specification");

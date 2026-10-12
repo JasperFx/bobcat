@@ -81,6 +81,44 @@ public sealed record SpecManifest(
         Converters = { new JsonStringEnumConverter() }
     };
 
+    /// <summary>
+    /// Every identity two or more tests claim (bobcat#489), each with all of its claimants. Null --
+    /// and so absent from the document -- when every identity names one test, which is the only
+    /// healthy state.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Specs"/> still carries one entry per identity, the first test that bound it, because
+    /// it is a set and a reader that predates this field must keep reading it as one. This is where
+    /// the others are, and <see cref="SpecFilterArguments"/> refuses to run a listed identity by name
+    /// rather than run whichever test happened to be kept.
+    /// </para>
+    /// <para>
+    /// BOBCAT036 refuses duplicates at build time within one compilation; what reaches a manifest is
+    /// what the compiler could not see together -- specs in two assemblies loaded into one process -- or
+    /// the error suppressed. Additive, like <see cref="RecoveryHints"/>.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<SpecManifestDuplicate>? Duplicates { get; init; }
+
+    /// <summary>Whether more than one test claims <paramref name="identity"/> (bobcat#489).</summary>
+    public bool IsAmbiguous(string identity)
+        => Duplicates?.Any(x => SpecIdentity.Same(x.Identity, identity)) == true;
+
+    /// <summary>
+    /// One line per duplicated identity, saying which tests share it and what to do about it -- what a
+    /// manifest write prints on standard error. Empty when there are no duplicates.
+    /// </summary>
+    public IReadOnlyList<string> DescribeDuplicates()
+        => (Duplicates ?? [])
+            .Select(duplicate =>
+                $"Bobcat: the spec identity '{duplicate.Identity}' in {Suite} is claimed by {duplicate.Claims.Count} tests: "
+                + string.Join(", ", duplicate.Claims.Select(x => x.QualifiedTestMethod ?? x.Identity))
+                + ". Identity filtering, the resident runner, the flake/duration ledger and the Event Model treat "
+                + "them as one specification, so running it by identity is refused. Rename one of the test "
+                + "methods, or give one an explicit scenario name with [BobcatSpec(Name = \"...\")].")
+            .ToList();
+
     /// <summary>Every identity in the manifest — what a resident runner registers as its specs.</summary>
     [JsonIgnore]
     public IReadOnlyList<string> Identities => Specs.Select(spec => spec.Identity).ToList();
@@ -113,8 +151,19 @@ public sealed record SpecManifest(
     /// publisher's probe: an unwritable path is the asker's mistake, and a test run that collapsed
     /// because a listing could not be saved would be a far worse bug than a listing that did not
     /// arrive. The exception is reported on standard error and swallowed.
+    /// <para>
+    /// <b>Duplicate identities are reported, and the manifest is still written</b> (bobcat#489). One
+    /// line per duplicate goes to standard error, and the document carries them as
+    /// <see cref="Duplicates"/>. Refusing the write would cost every other specification in the suite
+    /// its listing -- a resident runner with no manifest cannot run anything -- to protect one identity
+    /// that <see cref="SpecFilterArguments"/> already refuses to run by name. The build-time error is
+    /// where a duplicate is meant to stop; this is the backstop for what the compiler could not see.
+    /// </para>
     /// </remarks>
-    public static bool WriteIfRequested(Func<SpecManifest> build)
+    public static bool WriteIfRequested(Func<SpecManifest> build) => WriteIfRequested(build, Console.Error);
+
+    /// <summary>The same, reporting to <paramref name="errors"/> -- the seam a test reads standard error through.</summary>
+    internal static bool WriteIfRequested(Func<SpecManifest> build, TextWriter errors)
     {
         var path = RequestedPath();
         if (path is null) return false;
@@ -124,12 +173,15 @@ public sealed record SpecManifest(
             var directory = Path.GetDirectoryName(Path.GetFullPath(path));
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
 
-            File.WriteAllText(path, build().ToJson());
+            var manifest = build();
+            foreach (var line in manifest.DescribeDuplicates()) errors.WriteLine(line);
+
+            File.WriteAllText(path, manifest.ToJson());
             return true;
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"Bobcat could not write its spec manifest to '{path}': {e.Message}");
+            errors.WriteLine($"Bobcat could not write its spec manifest to '{path}': {e.Message}");
             return false;
         }
     }
@@ -162,3 +214,10 @@ public sealed record SpecManifestEntry(
             ? $"{type}.{method}"
             : null;
 }
+
+/// <summary>
+/// An identity more than one test claims (bobcat#489), with every test that claims it.
+/// </summary>
+/// <param name="Identity">The shared <c>{Feature}/{Scenario}</c> string.</param>
+/// <param name="Claims">Each test that bound it, sorted by its qualified method name.</param>
+public sealed record SpecManifestDuplicate(string Identity, IReadOnlyList<SpecManifestEntry> Claims);

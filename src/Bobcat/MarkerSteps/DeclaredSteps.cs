@@ -29,6 +29,13 @@ public static class DeclaredSteps
     private static readonly ConcurrentDictionary<string, SpecManifestEntry> _bindings = new();
 
     /// <summary>
+    /// Every test that tried to bind an identity another test already holds (bobcat#489), keyed by
+    /// identity and then by test, so a binding repeated under contention or by a reloaded assembly
+    /// is recorded once.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<string, SpecManifestEntry>> _duplicates = new();
+
+    /// <summary>
     /// Declare the ordered steps of one scenario. Called from generated code; last registration
     /// wins, so a rebuilt assembly loaded twice in one process does not accumulate.
     /// </summary>
@@ -59,9 +66,51 @@ public static class DeclaredSteps
     /// lifetime: the generated module initializer declares a scenario's steps and its method in
     /// the same breath, and a scenario with no marker comments is not registered either way.
     /// </para>
+    /// <para>
+    /// <b>A second test claiming a bound identity is recorded, not overwritten</b> (bobcat#489). It
+    /// used to be last-one-wins, so the listing silently named whichever test bound last and the
+    /// other vanished from it. The first binding stays, and both are reported as
+    /// <see cref="SpecManifest.Duplicates"/> -- the same test binding again (an assembly loaded twice)
+    /// is not a duplicate.
+    /// </para>
     /// </remarks>
     public static void Bind(string uid, string testClass, string testMethod)
-        => _bindings[uid] = new SpecManifestEntry(uid, testClass, testMethod);
+    {
+        var entry = new SpecManifestEntry(uid, testClass, testMethod);
+
+        _bindings.AddOrUpdate(uid, entry, (_, existing) =>
+        {
+            if (sameTest(existing, entry)) return entry;
+
+            var claims = _duplicates.GetOrAdd(uid, _ => new ConcurrentDictionary<string, SpecManifestEntry>());
+            claims.TryAdd(keyOf(existing), existing);
+            claims.TryAdd(keyOf(entry), entry);
+            return existing;
+        });
+    }
+
+    /// <summary>
+    /// Every identity two or more tests bound in this process (bobcat#489), each with the tests that
+    /// claim it, sorted. Empty when every identity names one test.
+    /// </summary>
+    /// <remarks>
+    /// BOBCAT036 refuses this at build time for the tests one compilation can see together. What
+    /// reaches here is what it could not: specs in two assemblies loaded into one process, or the
+    /// error suppressed.
+    /// </remarks>
+    public static IReadOnlyList<SpecManifestDuplicate> Duplicates
+        => _duplicates
+            .Select(pair => new SpecManifestDuplicate(
+                pair.Key,
+                pair.Value.Values.OrderBy(x => x.QualifiedTestMethod, StringComparer.Ordinal).ToList()))
+            .OrderBy(x => x.Identity, SpecIdentity.Comparer)
+            .ToList();
+
+    private static bool sameTest(SpecManifestEntry left, SpecManifestEntry right)
+        => string.Equals(left.TestClass, right.TestClass, StringComparison.Ordinal)
+           && string.Equals(left.TestMethod, right.TestMethod, StringComparison.Ordinal);
+
+    private static string keyOf(SpecManifestEntry entry) => entry.TestClass + "\n" + entry.TestMethod;
 
     /// <summary>The test method an identity was derived from, or null when nothing bound it.</summary>
     public static SpecManifestEntry? BindingFor(string uid)
@@ -81,7 +130,10 @@ public static class DeclaredSteps
             SpecManifest.ProjectedLane,
             framework,
             suite,
-            _bindings.Values.OrderBy(entry => entry.Identity, SpecIdentity.Comparer).ToList());
+            _bindings.Values.OrderBy(entry => entry.Identity, SpecIdentity.Comparer).ToList())
+        {
+            Duplicates = Duplicates is { Count: > 0 } duplicates ? duplicates : null
+        };
 
     /// <summary>
     /// The manifest, plus the recovery hints <paramref name="assembly"/> declares on itself
@@ -108,6 +160,7 @@ public static class DeclaredSteps
     {
         _byUid.TryRemove(uid, out _);
         _bindings.TryRemove(uid, out _);
+        _duplicates.TryRemove(uid, out _);
     }
 }
 

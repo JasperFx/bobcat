@@ -64,11 +64,26 @@ internal static class MarkerSpecNaming
 
     /// <summary>
     /// The scenario title for a projected test method: underscores read as spaces, else Pascal
-    /// splitting. No attribute — the marker lane has no per-test title, which is why a curated
-    /// model's scenario name has to be spellable as a method name and round-trip back
-    /// (<c>ProjectedSpecNaming</c>).
+    /// splitting. This is the title when the test states no explicit name.
     /// </summary>
     public static string ScenarioTitle(string methodName) => Prettify(methodName);
+
+    /// <summary>
+    /// The scenario title for a projected test method that may carry an explicit name —
+    /// <c>[BobcatSpec(Name = "…")]</c> (bobcat#489). The name is taken verbatim, exactly as a
+    /// <c>[BobcatFeature("…")]</c> title is, so it can say what a method name cannot: an apostrophe,
+    /// a dash, a comma. A null, empty or all-whitespace name is no name, and the method name is read
+    /// as it always was — which keeps every identity that states none byte-for-byte unchanged.
+    /// </summary>
+    public static string ScenarioTitle(string methodName, string? explicitName)
+        => explicitName is { } name && name.Trim().Length > 0 ? name : Prettify(methodName);
+
+    /// <summary>
+    /// The <c>{Feature}/{Scenario}</c> identity from its two titles — the generator's spelling of
+    /// <c>SpecIdentity.Of</c>. Every place the generator builds an identity goes through here, and so
+    /// does BOBCAT036's duplicate check, so the check compares exactly the strings that get emitted.
+    /// </summary>
+    public static string Identity(string featureTitle, string scenarioTitle) => featureTitle + "/" + scenarioTitle;
 
     /// <summary>
     /// A C# identifier as the sentence it was standing in for. Underscores are how a test method
