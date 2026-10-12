@@ -40,14 +40,11 @@ public static class SpecStackTrace
     /// </summary>
     private static readonly string[] noise =
     [
-        // Bobcat's own plumbing: the generated interceptor, the step bracket, the executor.
+        // Bobcat's own plumbing: the generated interceptor and the step bracket.
         "Bobcat.Generated.",
         "Bobcat.MarkerStepRuntime.",
         "Bobcat.ScenarioRecorder",
         "Bobcat.SpecAssert.",
-        "Bobcat.Engine.Executor",
-        "Bobcat.Engine.DelegateExecutionStep",
-        "Bobcat.Runtime.BobcatRunner",
 
         // The test runners.
         "Xunit.",

@@ -220,32 +220,4 @@ public class TestLedgerTests
 
         ledger.ProposeHints(minOccurrences: 3).ShouldBeEmpty();
     }
-
-    // ---- the in-process feed ------------------------------------------------------------------
-
-    [Fact]
-    public async Task a_runner_suite_feeds_the_ledger_with_wall_clocks_and_identities()
-    {
-        var scenario = new ScenarioDefinition("timed", [], (_, plan) =>
-        {
-            plan.Add(new DelegateExecutionStep("s1", StepKind.Then, "a check",
-                (_, _, _) => Task.CompletedTask));
-        });
-        var feature = new FeatureDefinition("Ledger", typeof(Runtime.StepTimelineTests.TimelineFixture), [scenario]);
-
-        var runner = new BobcatRunner { SuppressConsoleOutput = true };
-        runner.AddFeature(feature);
-        var results = await runner.RunAll();
-
-        var observations = LedgerRuns.From(results, "run-1", t0);
-
-        var observed = observations.ShouldHaveSingleItem();
-        observed.Uid.ShouldBe("Ledger/timed");
-        observed.Outcome.ShouldBe("CleanPass");
-        // The #141 bracket wall clock is the duration — present because the timeline is.
-        observed.TotalMs.ShouldNotBeNull();
-
-        var durations = TestLedger.Empty().Record(observations).KnownDurations();
-        durations.ShouldContainKey("Ledger/timed");
-    }
 }

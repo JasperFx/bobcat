@@ -123,7 +123,7 @@ public static class GeneratorHarness
             .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
             .ToList();
 
-        references.Add(MetadataReference.CreateFromFile(typeof(Fixture).Assembly.Location));
+        references.Add(MetadataReference.CreateFromFile(typeof(StepTable).Assembly.Location));
 
         // Shouldly, so the projected-assertion interceptors can be generated AND COMPILED here
         // (issue #410). Without it, the one failure mode that matters for that feature — an

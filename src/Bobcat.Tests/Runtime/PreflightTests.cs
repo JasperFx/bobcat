@@ -81,29 +81,6 @@ public class PreflightTests
         results.Succeeded().ShouldBeTrue();
     }
 
-    [Fact]
-    public async Task a_failing_preflight_aborts_the_run_before_any_feature_executes()
-    {
-        var runner = new BobcatRunner { SuppressConsoleOutput = true };
-        runner.Preflight.Add("docker is running", () => throw new InvalidOperationException("connection refused"));
-        runner.AddFeature(new FeatureDefinition("Never Runs", typeof(NeverRunsFixture),
-        [
-            new ScenarioDefinition("should not execute", [], (_, _) =>
-                throw new Exception("the preflight should have stopped this"))
-        ]));
-
-        var results = await runner.RunAll();
-
-        results.PreflightFailure.ShouldNotBeNull();
-        results.PreflightFailure.ShouldContain("connection refused");
-        results.Features.ShouldBeEmpty();
-
-        // A broken harness is not the same fact as failing tests.
-        results.ExitCode.ShouldBe(2);
-    }
-
-    public class NeverRunsFixture : Fixture;
-
     private sealed class StubResource(string name, Action? onCheck = null) : ITestResource
     {
         public string Name { get; } = name;

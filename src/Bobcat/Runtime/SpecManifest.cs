@@ -17,27 +17,21 @@ namespace Bobcat.Runtime;
 /// </para>
 /// <para>
 /// <b>Why not just read <c>--list-tests</c>.</b> Because its output is display names, not
-/// identities. A Gherkin host prints <c>"Ordering: An order is accepted"</c> while the identity is
-/// <c>"Ordering/An order is accepted"</c>, and a projected host prints the test framework's own
-/// name for a method — neither is the string a monitor must send back. Deriving one from the other
-/// works until a feature title contains <c>": "</c>, which is precisely the kind of silent
-/// mismatch a machine identity exists to prevent.
+/// identities. A projected host prints the test framework's own name for a method, which is not the
+/// string a monitor must send back.
 /// </para>
 /// <para>
-/// <b>Each lane writes it at the only moment it can.</b> A Gherkin host writes it during
-/// discovery, where its features are already scanned and nothing is executed. A projected suite
-/// writes it from the generated module initializer, because that is the only code Bobcat owns in
-/// that process — so the caller pairs the variable with <c>--list-tests</c> and the framework
-/// runs nothing. Both are reached by the same request and produce the same document.
+/// <b>It is written at the only moment it can be.</b> A projected suite writes it from the generated
+/// module initializer, because that is the only code Bobcat owns in that process — so the caller
+/// pairs the variable with <c>--list-tests</c> and the framework runs nothing.
 /// </para>
 /// </remarks>
 /// <param name="Lane">
-/// <c>gherkin</c> or <c>projected</c>. Only the runner knows its own lane, which is the whole
-/// premise of issue #391, so it is stated here rather than inferred by a reader.
+/// <c>projected</c>, the only lane since the Gherkin lane was removed (bobcat#471). Kept on the
+/// document so a reader of an older manifest (<c>gherkin</c>) can still tell them apart.
 /// </param>
 /// <param name="Framework">
-/// Which runner owns the process — <c>bobcat</c>, <c>xunit</c>, <c>tunit</c>, <c>nunit</c> or
-/// <c>mstest</c>. The lane does not
+/// Which runner owns the process — <c>xunit</c>, <c>tunit</c>, <c>nunit</c> or <c>mstest</c>. The lane does not
 /// settle it: a projected suite's filter spelling is its *framework's*, and two projected suites
 /// can disagree about it.
 /// </param>
@@ -69,10 +63,8 @@ public sealed record SpecManifest(
     /// </summary>
     public const string PathVariable = "BOBCAT_LIST_SPECS";
 
-    public const string GherkinLane = "gherkin";
     public const string ProjectedLane = "projected";
 
-    public const string BobcatFramework = "bobcat";
     public const string XunitFramework = "xunit";
     public const string TUnitFramework = "tunit";
     public const string NUnitFramework = "nunit";
@@ -148,13 +140,13 @@ public sealed record SpecManifest(
 /// </summary>
 /// <param name="Identity">The <c>{Feature}/{Scenario}</c> string a monitor sends back.</param>
 /// <param name="TestClass">
-/// The fully qualified class the projected test is declared on, or null in the Gherkin lane where
+/// The fully qualified class the projected test is declared on, or null in the (removed) Gherkin lane where
 /// the identity is itself the platform's uid. This is the fact a framework's filter needs and the
 /// identity cannot supply: <see cref="MarkerSpecNaming"/> maps a class name to a feature title but
 /// an explicit <c>[BobcatFeature("…")]</c> title has no way back, so the binding is recorded here
 /// rather than re-derived.
 /// </param>
-/// <param name="TestMethod">The projected test's method name, or null in the Gherkin lane.</param>
+/// <param name="TestMethod">The projected test's method name.</param>
 public sealed record SpecManifestEntry(
     string Identity,
     string? TestClass = null,

@@ -118,46 +118,49 @@ public class ScenarioReportVisibilityTests
 
 public class ReportSinkTests
 {
+    private static ScenarioRecorder.Recording begin()
+        => ScenarioRecorder.Begin("Feature", "spec", publisher: null, runId: Guid.NewGuid());
+
     [Fact]
     public void report_for_is_get_or_create_one_per_type()
     {
-        var results = new ExecutionResults("spec", DateTimeOffset.UtcNow);
+        using var recording = begin();
 
-        var first = results.ReportFor<MessageActivityReport>();
+        var first = recording.ReportFor<MessageActivityReport>();
         first.Record(0, "Sent", "X", null, 1);
 
-        var second = results.ReportFor<MessageActivityReport>();
+        var second = recording.ReportFor<MessageActivityReport>();
 
         // The cross-grammar contract: two grammars agreeing only on the type append to one table.
         second.ShouldBeSameAs(first);
-        results.Reports.ShouldHaveSingleItem();
+        recording.Reports.ShouldHaveSingleItem();
     }
 
     [Fact]
     public void attach_replaces_a_report_of_the_same_type_rather_than_adding_a_second()
     {
-        var results = new ExecutionResults("spec", DateTimeOffset.UtcNow);
-        results.ReportFor<MessageActivityReport>();
+        using var recording = begin();
+        recording.ReportFor<MessageActivityReport>();
 
         var replacement = new MessageActivityReport();
         replacement.Record(0, "Sent", "X", null, 1);
-        results.AttachReport(replacement);
+        recording.AttachReport(replacement);
 
-        results.Reports.ShouldHaveSingleItem().ShouldBeSameAs(replacement);
+        recording.Reports.ShouldHaveSingleItem().ShouldBeSameAs(replacement);
     }
 
     [Fact]
     public void the_static_facade_reaches_the_ambient_scenario()
     {
-        var results = new ExecutionResults("spec", DateTimeOffset.UtcNow);
+        using var recording = begin();
 
-        using (ScenarioReports.Open(results))
+        using (ScenarioReports.Open(recording))
         {
             SpecReport.IsRecording.ShouldBeTrue();
             SharedProducer.Report();
         }
 
-        results.Reports.ShouldHaveSingleItem().ShouldBeOfType<MessageActivityReport>()
+        recording.Reports.ShouldHaveSingleItem().ShouldBeOfType<MessageActivityReport>()
             .Cells.ShouldNotBeEmpty();
     }
 
@@ -176,8 +179,8 @@ public class ReportSinkTests
     [Fact]
     public void a_nested_scope_restores_the_scenario_it_interrupted()
     {
-        var outer = new ExecutionResults("outer", DateTimeOffset.UtcNow);
-        var inner = new ExecutionResults("inner", DateTimeOffset.UtcNow);
+        var outer = new NullSink();
+        var inner = new NullSink();
 
         using (ScenarioReports.Open(outer))
         {
@@ -186,11 +189,19 @@ public class ReportSinkTests
                 ScenarioReports.Current.ShouldBeSameAs(inner);
             }
 
-            // Restores rather than clears: a feature-level bracket around a scenario-level one must
-            // not leave the outer scenario unable to report.
+            // Restores rather than clears: an outer bracket around an inner one must not leave the
+            // outer scenario unable to report.
             ScenarioReports.Current.ShouldBeSameAs(outer);
         }
 
         ScenarioReports.Current.ShouldBeNull();
+    }
+
+    /// <summary>A sink that holds nothing: the scoping is what is under test.</summary>
+    private sealed class NullSink : IReportSink
+    {
+        public TReport ReportFor<TReport>() where TReport : IScenarioReport, new() => new();
+        public void AttachReport(IScenarioReport report) { }
+        public IReadOnlyList<IScenarioReport> Reports => [];
     }
 }

@@ -5,9 +5,8 @@ namespace Bobcat.Runtime;
 public sealed partial class SuiteTiming
 {
     /// <summary>
-    /// Where a projected suite spent its time (issue #466): the same report
-    /// <see cref="For(SuiteResults)"/> builds for a Gherkin run, read off the recordings a
-    /// marker-step suite produces.
+    /// Where a projected suite spent its time (issue #466), read off the recordings a marker-step
+    /// suite produces.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -22,9 +21,8 @@ public sealed partial class SuiteTiming
     /// <c>IAsyncLifetime</c>, class and assembly fixtures -- which run outside the adapter's
     /// bracket, and Bobcat does not stamp points on a lifecycle it does not own.
     /// <see cref="LifecycleMeasured"/> is false, <see cref="Lifecycle"/> is empty, and every
-    /// <see cref="ScenarioTiming.Lifecycle"/> is null. Nothing is zero-filled, so the ResetAll
-    /// headline a Gherkin suite gets has no projected equivalent, and a gap is time outside any
-    /// step and nothing more.
+    /// <see cref="ScenarioTiming.Lifecycle"/> is null. Nothing is zero-filled, and a gap is time
+    /// outside any step and nothing more.
     /// </para>
     /// <para>
     /// A recording that never closed has no wall clock and counts toward
@@ -125,8 +123,8 @@ internal sealed record ProjectedScenarioSample(
     /// and comments, not the test's own assertion library.
     /// </para>
     /// <para>
-    /// <see cref="Counts.Rights"/> is not the signal, for the reason the Gherkin half gives: every
-    /// finished step counts as a right, so rights count steps, not assertions.
+    /// <see cref="Counts.Rights"/> is not the signal: every finished step counts as a right, so
+    /// rights count steps, not assertions.
     /// </para>
     /// </remarks>
     public bool Asserts => DeclaresThen || Steps.Any(x => x.IsThen || x.Compares);

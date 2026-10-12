@@ -362,7 +362,7 @@ public class CritterStackScenario
                 PartialMatching.DescribeExpected(values[i])) { RowIndex = i });
         }
 
-        run.Report(null);
+        run.Report();
     }
 
     // ---- run evidence (bobcat#465) ---------------------------------------------------------
@@ -641,7 +641,7 @@ public class CritterStackScenario
         }
 
         var run = ObjectSetVerification.Verify(actual, expected, "event", SetMode.Ordered, tagsOf(gained));
-        if (recording) run.Report(null);
+        if (recording) run.Report();
 
         fact(run.Succeeded,
             (actual.Count == 0
@@ -836,7 +836,7 @@ public class CritterStackScenario
 
         var run = ObjectSetVerification.Absent(LastAct.NewEvents.Select(x => x.Data).ToArray(), forbidden, "event",
             tagsOf(LastAct.NewEvents));
-        if (recording) run.Report(null);
+        if (recording) run.Report();
 
         fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")));
     }
@@ -1879,7 +1879,7 @@ public class CritterStackScenario
             ? ObjectSetVerification.Verify(actual, expected, noun, mode)
             : ObjectSetVerification.Verify(actual, expected, noun, mode, tags);
 
-        if (recording) run.Report(null);
+        if (recording) run.Report();
 
         fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, noun)));
     }

@@ -69,20 +69,6 @@ public class SpecStackTraceTests
     }
 
     [Fact]
-    public void the_gherkin_lanes_own_plumbing_is_removed_too()
-    {
-        var filtered = SpecStackTrace.Filter(
-            """
-               at void Specs.WalletFixture.CreditWallet(Decimal amount) in WalletFixture.cs:22
-               at async Task Bobcat.Engine.DelegateExecutionStep.Execute(IExecutionContext ctx)
-               at async Task Bobcat.Engine.Executor.Execute(IExecutionContext context)
-            """);
-
-        filtered.Frames.ShouldHaveSingleItem().ShouldContain("WalletFixture.CreditWallet");
-        filtered.Hidden.ShouldBe(2);
-    }
-
-    [Fact]
     public void an_empty_or_missing_stack_filters_to_nothing()
     {
         SpecStackTrace.Filter((string?)null).Frames.ShouldBeEmpty();

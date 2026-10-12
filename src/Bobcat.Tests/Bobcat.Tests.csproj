@@ -22,15 +22,8 @@
 
 
   <ItemGroup>
-    <!--
-      Issue #106. Bobcat.Generators is netstandard2.0 and references nothing, so it carries its own
-      copy of the slice-tag parsing that Bobcat.Runtime.SliceTags owns. Linking the source (rather
-      than referencing the analyzer assembly, which would drag Roslyn in here) lets
-      SliceTagParsingAgreementTests compare the two implementations directly. Same reason
-      ResourceParsingAgreementTests exists for the recovery-hint resource lists.
-    -->
-    <Compile Include="..\Bobcat.Generators\GeneratorSliceTags.cs" Link="Runtime\GeneratorSliceTags.cs" />
-    <!-- Same deal for the marker lane's naming rules (issue #110): the generator stamps a
+    <!-- Bobcat.Generators is netstandard2.0 and references nothing, so it carries its own copy of
+      the marker lane's naming rules (issue #110): the generator stamps a
       projected test's {Feature}/{Scenario} identity at compile time from its own copy, and
       MarkerStepRun publishes it at runtime from the other. MarkerSpecNamingAgreementTests pins
       the two together — a divergence costs the suite both its rendered steps (DeclaredSteps is

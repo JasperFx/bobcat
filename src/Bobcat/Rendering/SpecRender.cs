@@ -64,50 +64,12 @@ public class SpecRender
     /// </summary>
     public List<ReportRender> Reports { get; init; } = new();
 
-    public static SpecRender FromResults(string title, ExecutionResults results, string? featureTitle = null)
-    {
-        var steps = results.Steps.Select(StepRender.FromStepResult).ToList();
-        var durationMs = results.WallClockMs > 0
-            ? results.WallClockMs
-            : results.Steps.Where(s => s.End > 0).Select(s => s.End).DefaultIfEmpty(0).Max();
-
-        var succeeded = results.Counts.Succeeded;
-
-        return new SpecRender
-        {
-            Title = title,
-            FeatureTitle = featureTitle,
-            Succeeded = succeeded,
-            Reports = ScenarioReportVisibility
-                .Filter(results.Reports, scenarioFailed: !succeeded)
-                .Select(ReportRender.From)
-                .ToList(),
-            Steps = steps,
-            Counts = results.Counts,
-            DurationMs = durationMs,
-            Timeline = results.Timeline
-                .Select(p => new TimelinePointRender
-                {
-                    Name = p.Name,
-                    StartedAtMs = p.StartMs,
-                    DurationMs = p.DurationMs
-                })
-                .ToList()
-        };
-    }
-
     /// <summary>
-    /// The same rendering model, built from a <b>projected</b> test — an ordinary xUnit or TUnit
-    /// test whose steps were declared by marker comments and recorded by <c>[BobcatStep]</c>
-    /// helpers (issue #110).
+    /// The rendering model, built from a <b>projected</b> test — an ordinary xUnit or TUnit test
+    /// whose steps were declared by marker comments and recorded by <c>[BobcatStep]</c> helpers
+    /// (issue #110).
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>Why the projected lane renders through the same model.</b> A projected spec and a
-    /// <c>.feature</c> spec are the same artifact seen from two authoring styles, so they have to
-    /// reach the console, the JSON report and any later HTML through one model — otherwise
-    /// "Bobcat's spec output" quietly means two different things and only one of them gets improved.
-    /// </para>
     /// <para>
     /// <b>Declared is not executed, and the render says which is which.</b> The steps a test
     /// DECLARED in comments are its narrative; the steps it RECORDED are what ran. When both exist
@@ -403,47 +365,6 @@ public class StepRender
     public List<string> Logs { get; init; } = new();
     public Dictionary<string, string> Diagnostics { get; init; } = new();
 
-    public static StepRender FromStepResult(StepResult result)
-    {
-        SetVerificationRender? sv = null;
-        List<CellRender> cells = new();
-
-        if (result.IsSetVerification && result.SetVerificationColumns != null)
-        {
-            sv = SetVerificationRender.FromStepResult(result);
-        }
-        else
-        {
-            cells = result.Cells.Select(c => new CellRender
-            {
-                Name = c.Name,
-                Status = c.Status,
-                DisplayText = c.DisplayText,
-                Expected = c.Expected,
-                Actual = c.Actual,
-                Note = c.Note
-            }).ToList();
-        }
-
-        return new StepRender
-        {
-            StepId = result.StepId,
-            Kind = result.StepKind,
-            StepText = result.StepText ?? result.StepId,
-            Status = result.StepStatus,
-            FailureLevel = result.FailureLevel,
-            StartedAtMs = result.Start,
-            DurationMs = result.End > result.Start ? result.End - result.Start : 0,
-            ErrorMessage = result.Exception?.Message,
-            ExceptionType = result.Exception?.GetType().Name,
-            SetVerification = sv,
-            Cells = cells,
-            Logs = result.Logs.ToList(),
-            Diagnostics = result.Diagnostics.ToDictionary(
-                kv => kv.Key, kv => kv.Value?.ToString() ?? "")
-        };
-    }
-
     /// <summary>Whether the step's own cells already account for its failure.</summary>
     private static bool explainedByCells(ScenarioRecorder.RecordedStep step)
         => step.Cells.Any(x => x.Status is not (ResultStatus.success or ResultStatus.ok));
@@ -653,17 +574,9 @@ public class SetVerificationRender
     public List<string> Columns { get; init; } = new();
     public List<SetVerificationRowRender> Rows { get; init; } = new();
 
-    public static SetVerificationRender FromStepResult(StepResult result)
-        => FromCells(result.SetVerificationColumns ?? [], result.Cells);
-
     /// <summary>
     /// The grid for a set of cells carrying a <c>RowIndex</c>, under the given column order.
     /// </summary>
-    /// <remarks>
-    /// Taken as cells rather than as a <c>StepResult</c> so the projected lane can use it: a C# test
-    /// handing a step a table literal produces exactly the same cells, and one fold means the two
-    /// lanes cannot render the same table two ways.
-    /// </remarks>
     public static SetVerificationRender FromCells(
         IReadOnlyList<string> columnOrder, IReadOnlyList<CellResult> allCells)
     {

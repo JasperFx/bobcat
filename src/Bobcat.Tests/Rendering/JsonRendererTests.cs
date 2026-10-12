@@ -10,9 +10,8 @@ public class JsonRendererTests
 {
     public record Item(string Sku, int Quantity);
 
-    private static JsonElement renderStep(StepResult step)
+    private static JsonElement renderStep(StepRender render)
     {
-        var render = StepRender.FromStepResult(step);
         var spec = new SpecRender { Title = "spec", Steps = { render } };
         var json = JsonRenderer.RenderScenario(spec);
         return JsonDocument.Parse(json).RootElement
@@ -22,16 +21,20 @@ public class JsonRendererTests
     [Fact]
     public void set_verification_cells_are_structured_with_row_and_column()
     {
-        var step = new StepResult("inv", 0) { StepText = "the inventory should be" };
         var actual = new[] { new Item("SKU-1", 90) };
         var expected = new[]
         {
             new Dictionary<string, string> { ["Sku"] = "SKU-1", ["Quantity"] = "85" }
         };
 
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, step);
+        var run = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
-        var stepJson = renderStep(step);
+        var stepJson = renderStep(new StepRender
+        {
+            StepId = "inv",
+            StepText = "the inventory should be",
+            SetVerification = SetVerificationRender.FromCells(run.Columns, run.Cells)
+        });
         var sv = stepJson.GetProperty("setVerification");
 
         var qty = sv.GetProperty("rows").EnumerateArray()
@@ -47,13 +50,12 @@ public class JsonRendererTests
     [Fact]
     public void note_is_carried_into_json()
     {
-        var step = new StepResult("s", 0) { StepText = "approx" };
-        step.MarkCells(new CellResult("total", ResultStatus.success)
+        var stepJson = renderStep(new StepRender
         {
-            Expected = "10.0", Actual = "10.01", Note = "±0.1"
+            StepId = "s",
+            StepText = "approx",
+            Cells = [new CellRender { Name = "total", Status = ResultStatus.success, Expected = "10.0", Actual = "10.01", Note = "±0.1" }]
         });
-
-        var stepJson = renderStep(step);
         var cell = stepJson.GetProperty("cells").EnumerateArray().Single();
         cell.GetProperty("note").GetString().ShouldBe("±0.1");
         cell.GetProperty("expected").GetString().ShouldBe("10.0");

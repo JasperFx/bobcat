@@ -6,9 +6,7 @@ namespace Bobcat.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Each lane translates differently, and that asymmetry is the whole issue.</b> A Gherkin host's
-/// platform uid <i>is</i> the identity, so <c>--filter-uid</c> takes it unchanged. A projected
-/// suite's uid is its test framework's, built from the assembly, class, method and arguments —
+/// <b>The identity has to be translated.</b> A projected suite's uid is its test framework's, built from the assembly, class, method and arguments —
 /// nothing a monitor could know or should have to — so the identity is translated to the method
 /// the manifest bound it to and passed as that framework's method filter.
 /// </para>
@@ -29,9 +27,6 @@ namespace Bobcat.Runtime;
 /// </remarks>
 public static class SpecFilterArguments
 {
-    /// <summary>MTP's own option: a list of test node uids.</summary>
-    public const string UidOption = "--filter-uid";
-
     /// <summary>xUnit v3's option: one or more fully qualified method names, ORed.</summary>
     public const string MethodOption = "--filter-method";
 
@@ -65,10 +60,6 @@ public static class SpecFilterArguments
 
         switch (manifest.Framework)
         {
-            // The identity IS the uid here, so there is nothing to translate.
-            case SpecManifest.BobcatFramework:
-                return [UidOption, .. selection.Identities];
-
             case SpecManifest.XunitFramework:
                 return [MethodOption, .. selection.Identities.Select(identity => qualifiedMethod(manifest, identity))];
 
@@ -94,8 +85,8 @@ public static class SpecFilterArguments
             default:
                 throw new NotSupportedException(
                     $"'{manifest.Framework}' is not a framework Bobcat knows how to filter by specification "
-                    + $"identity. Expected one of '{SpecManifest.BobcatFramework}', "
-                    + $"'{SpecManifest.XunitFramework}' or '{SpecManifest.TUnitFramework}'.");
+                    + $"identity. Expected one of '{SpecManifest.XunitFramework}', "
+                    + $"'{SpecManifest.TUnitFramework}', '{SpecManifest.NUnitFramework}' or '{SpecManifest.MSTestFramework}'.");
         }
     }
 
