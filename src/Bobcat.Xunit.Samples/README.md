@@ -54,6 +54,7 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | `Fixtures/AsyncOperationsFixture.cs` | `AsyncSpecs.*` | green / wrong / error |
 | `Specs/Tables/Table_with_Options.md` | `TableSpecs.a_table_of_setup_data` | green, one column left out |
 | `StoryTeller.Samples/Specs/Tables/Tables.md` | `TableSpecs.a_decision_table_with_a_wrong_answer` | one wrong row |
+| — (a Storyteller decision table with output parameters) | `TableSpecs.a_decision_table_with_out_parameters` | green, two out-parameter columns and a returned value |
 | `Specs/Sets/Object_Sets.md` | `SetSpecs.an_unordered_set_*` / `every_cell_*` / `an_ordered_set_*` | green / two wrong cells + a mismatch / a reordering |
 | `Specs/Sets/Data_Tables.md` | `SetSpecs.every_row_*` / `the_database_has_*` / `the_specification_expects_*` / `a_row_whose_key_*` | green / extra row / missing row / mismatch |
 | `Specs/Sets/String_Lists.md` | `SetSpecs.a_set_of_names_*` | a reordering, and a name nobody has |

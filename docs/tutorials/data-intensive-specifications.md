@@ -181,6 +181,64 @@ The escape hatch is Bobcat's existing failure vocabulary rather than a new one. 
 suite, so a step that means "stop here" can still say so, and cancellation propagates untouched.
 The rows already reached stay on the grid even then.
 
+## Decision tables with out parameters
+
+<!-- JEREMY -->
+Storyteller let a decision table grammar declare its outputs as `out` parameters, and it's still the
+most natural way to write a table where one set of inputs produces more than one answer. A returned
+value only gives you one output column. Out parameters give you as many as you need, and each one is
+named right there in the method signature.
+
+Hand `TableRunner.Run` a row method with `out` parameters, and each one is an output column:
+
+```csharp
+[Then("the batting lines are")]
+internal async Task TheBattingLinesAre(StepTable table) => await TableRunner.Run(this, nameof(battingLine), table);
+
+private string battingLine([Header("At Bats")] int atBats, int hits, int walks,
+    out decimal average, [Header("On Base")] out decimal onBase)
+{
+    average = Math.Round((decimal)hits / atBats, 3);
+    onBase = Math.Round((decimal)(hits + walks) / (atBats + walks), 3);
+
+    // The returned value is compared against the one column no parameter names: Verdict.
+    return average >= 0.300m ? "All-Star" : "Bench";
+}
+```
+
+```csharp
+await _roster.TheBattingLinesAre("""
+    | At Bats | hits | walks | average | On Base | Verdict  |
+    | 500     | 150  | 50    | 0.300   | 0.364   | All-Star |
+    | 400     | 100  | 40    | 0.250   | 0.318   | Bench    |
+    | 600     | 198  | 0     | 0.330   | 0.330   | All-Star |
+    """);
+```
+
+That's `TableSpecs.a_decision_table_with_out_parameters` in `Bobcat.Xunit.Samples`, and it renders as
+one grid with a verdict in each of the `average`, `On Base` and `Verdict` columns of every row.
+
+The rules:
+
+- **The ordinary parameters are the inputs.** They bind from their columns exactly as they do for any
+  row method: by name, case-insensitive, or by a `[Header]` title, and an optional parameter's column
+  may be left out.
+- **Every `out` parameter is an output.** Its column is found the same way an input's is -- its name,
+  case-insensitive, or its `[Header]` title -- and after the call its value is compared with that
+  row's cell. An out parameter's column is never read as an argument.
+- **A returned value is compared against the one column no parameter names**, in or out. Out
+  parameter names are always outputs, so they never count toward that "one leftover column" rule.
+  With no leftover column, or more than one, the returned value isn't checked.
+- **A method can have both**, and you get one judged column per output, as in the example above.
+- **An output with no column isn't checked.** Leave `On Base` out of the table and `onBase` is simply
+  not compared, the same way an optional input's column can be left out. A table only asserts what it
+  writes down.
+- **An output cell is compared exactly like a returned value's cell**: the same value parsing, the
+  same type-aware comparison, and the same `NULL` and `EMPTY` rules. A wrong value fails that cell
+  with `expected '0.320', got '0.318'` and leaves the row's other outputs judged on their own.
+- **A row that throws is that row's failure**, as above. Nothing is invented for its output
+  columns, and the rest of the table still runs.
+
 ## Set verification
 
 A set verification says the collection is **exactly** these rows. Rows are matched by the columns
