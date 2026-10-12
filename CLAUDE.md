@@ -1443,6 +1443,18 @@ the DCB boundary steps and correlation.
   (`GivenTheDateIs`, `GivenTheTimeIs`, `WhenTheClockAdvancesBy`, `WhenTimePasses`,
   `WhenTheClockAdvancesTo` — synchronous on purpose, because the clock is `AsyncLocal` and a value
   set inside an async method never flows back).
+- **Catch-up timeouts before a read are errors that say why (#497, decided C).** `ThenDocument`,
+  `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`/`ThenSingleDocument` and
+  `ThenProjectionsAreCaughtUp` wait through `waitBeforeReading`, which rethrows a store's
+  `TimeoutException` as `ProjectionCatchUpTimeoutException` (still a `TimeoutException`, so the step is
+  `error`, never `failed`): the wait, `EventStores.ProjectionsBehindAsync`'s best-effort
+  `'shard' at N of M` list, the timeout, the type and identity read, the original as `InnerException`.
+  The #497 root cause: Marten's `WaitForNonStaleProjectionDataAsync` throws an **immediate**
+  `TimeoutException` ("No event activity was detected") on a store with no events, because a fresh
+  `mt_events_sequence` reports last value 1 with zero events. So `ThenDocument` on a fresh schema threw
+  when the test ran first in its class (xUnit's order follows the assembly path) and passed after any
+  test had appended. `WaitForNonStaleProjectionsAsync` now returns at once for a single-database store
+  whose read-only view holds no events; `reading_an_empty_store_on_marten` pins it in a class of its own.
 - **Run evidence (#465):** `ScenarioRecorder.RecordTouchedType(Type)` is an ambient accumulator on
   the recording, static and `AsyncLocal`-backed for the reason `SpecReport` is (#408);
   `Recording.TouchedTypes` reaches `scenario_finished.TouchedTypes` through `MonitorTouchedTypes`,

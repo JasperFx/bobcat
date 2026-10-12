@@ -981,6 +981,90 @@ public abstract class resetting_a_scenario<THost>(THost store) where THost : Sto
 
 }
 
+/// <summary>
+/// bobcat#497. A read of a projected document is a spec verdict even on a store that holds no events at all — the
+/// first test to run against a fresh schema. Marten's own non-stale wait throws an immediate TimeoutException on a
+/// store with no events, which made <c>a_missing_aggregate_or_document_is_a_failure_with_nothing_to_hand_back</c>
+/// fail whenever xUnit happened to run it first in its class. A class of its own, so its host's store is empty.
+/// </summary>
+public abstract class reading_an_empty_store<THost>(THost store) where THost : StoreHost
+{
+    [Fact]
+    public async Task a_missing_document_on_a_store_with_no_events_is_a_spec_failure_not_a_timeout()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CritterStackScenario(store.Host);
+        (await EventStores.HighWaterSequenceAsync(scenario.Store)).ShouldBe(0, "this class's store must start empty");
+
+        await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenDocument<Customer>(Guid.NewGuid()));
+        await scenario.ThenNoReadModel<Ghost>();
+        await scenario.ThenProjectionsAreCaughtUp(typeof(WalletSummary));
+    }
+}
+
+public class reading_an_empty_store_on_marten(MartenStoreHost store)
+    : reading_an_empty_store<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
+
+public class reading_an_empty_store_on_fisher(FisherStoreHost store)
+    : reading_an_empty_store<FisherStoreHost>(store), IClassFixture<FisherStoreHost>;
+
+/// <summary>
+/// bobcat#497, decided as C: a catch-up wait that times out before a read stays an error, but says which wait, which
+/// projections were behind, the timeout and what was being read — the store's own exception kept inside.
+/// </summary>
+public class a_catch_up_timeout_before_a_read
+{
+    [Fact]
+    public async Task is_an_error_that_names_the_wait_the_lagging_projection_the_timeout_and_the_identity()
+    {
+        var storeTimeout = new TimeoutException("No event activity was detected within the timeout span");
+        var database = NSubstitute.Substitute.For<JasperFx.Events.IEventDatabase>();
+        NSubstitute.SubstituteExtensions.Returns(database.WaitForNonStaleProjectionDataAsync(NSubstitute.Arg.Any<TimeSpan>()),
+            Task.FromException(storeTimeout));
+        NSubstitute.SubstituteExtensions.Returns(database.FetchHighestEventSequenceNumber(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromResult(12L));
+        NSubstitute.SubstituteExtensions.Returns(database.AllProjectionProgress(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromResult<IReadOnlyList<JasperFx.Events.Projections.ShardState>>(
+            [
+                new(JasperFx.Events.Projections.ShardState.HighWaterMark, 12),
+                new("WalletSummary:All", 7),
+                new("Ledger:All", 12)
+            ]));
+
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<JasperFx.Events.IEventStore>(
+            services, new FakeEventStore { Databases = [database] });
+        var scenario = new CritterStackScenario(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services))
+        {
+            ProjectionTimeout = TimeSpan.FromSeconds(3)
+        };
+        var id = Guid.NewGuid();
+
+        // An error, not a spec failure: never a SpecAssertionException, gathered or thrown
+        var ex = await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.ThenDocument<Customer>(id));
+
+        ex.InnerException.ShouldBeSameAs(storeTimeout);
+        ex.ShouldBeAssignableTo<TimeoutException>();
+        ex.Wait.ShouldBe("the Customer read model has caught up");
+        ex.Behind.ShouldBe(["'WalletSummary:All' at 7 of 12"]);
+        ex.Timeout.ShouldBe(TimeSpan.FromSeconds(3));
+        ex.ReadType.ShouldBe(typeof(Customer));
+        ex.Identity.ShouldBe(id);
+        ex.Message.ShouldContain("'the Customer read model has caught up' timed out after 3s");
+        ex.Message.ShouldContain($"the Customer with id {id}");
+        ex.Message.ShouldContain("Behind: 'WalletSummary:All' at 7 of 12.");
+        ex.Message.ShouldContain("No event activity was detected");
+
+        // Inside a recording the step that waited fails on its own line, with the same exception
+        var recording = await Recordings.RecordAsync(async () =>
+            await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.ThenReadModel<Customer>(id)));
+        // ...at the error level: the environment, not a wrong
+        recording.Steps.Single().Text.ShouldBe("the Customer read model has caught up");
+        recording.Steps.Single().Status.ShouldBe(ResultStatus.error);
+    }
+}
+
 public class resetting_a_scenario_on_marten(MartenStoreHost store)
     : resetting_a_scenario<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
 

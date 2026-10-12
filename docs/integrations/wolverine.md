@@ -176,6 +176,13 @@ Every step that reads a projection first waits for the async daemons to catch up
 `ProjectionTimeout` (20 seconds by default). An async projection read straight after the act would
 read a stale document.
 
+**A wait that times out is an error, not a failed spec (bobcat#497).** A daemon that is behind, stopped
+or not running says nothing about the document, so the step errors with a
+`ProjectionCatchUpTimeoutException` (a `TimeoutException`). Its message names the wait, the projection
+shards that were behind (`'WalletSummary:All' at 7 of 12`, when the store can say), the timeout, and the
+type and id being read. The store's own exception is the `InnerException`. A store with no events at
+all has nothing to be stale, so the wait returns at once there.
+
 | Step | |
 |---|---|
 | `ThenAggregate<T>(id, expected?)` | the aggregate as the store serves it through `FetchLatest<T>`: a projected snapshot where there is one, else built from the stream. Throws when there is no such stream |

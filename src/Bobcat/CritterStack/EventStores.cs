@@ -253,6 +253,14 @@ public static class EventStores
     /// <see cref="IEventStore.AllDatabases"/>: the host's <see cref="IProjectionCoordinator"/>, whose
     /// main-database daemon is asked to <see cref="IProjectionDaemon.WaitForNonStaleData"/> instead.
     /// </param>
+    /// <remarks>
+    /// <b>A single-database store with no events at all returns at once (bobcat#497)</b>: nothing can be stale.
+    /// Marten's own wait does not see it that way — a fresh <c>mt_events_sequence</c> reports a last value of 1
+    /// with no events, and its <c>WaitForNonStaleProjectionDataAsync</c> answers that with an immediate
+    /// <see cref="TimeoutException"/> ("No event activity was detected within the timeout span"). So the first
+    /// read in a fresh schema threw while every later one passed, which made a document read depend on whether an
+    /// earlier test had appended anything.
+    /// </remarks>
     public static async Task WaitForNonStaleProjectionsAsync(
         IEventStore store,
         TimeSpan? timeout = null,
@@ -261,6 +269,10 @@ public static class EventStores
     {
         var wait = timeout ?? DefaultProjectionTimeout;
         var databases = await store.AllDatabases().ConfigureAwait(false);
+
+        // The read-only view reads the one database, so its emptiness is that database's. Several databases
+        // are each waited on, as before: the default view would speak for only one of them
+        if (databases.Count == 1 && await holdsNoEventsAsync(store, token).ConfigureAwait(false)) return;
 
         if (databases.Count > 0)
         {
@@ -303,6 +315,58 @@ public static class EventStores
         }
 
         await WaitForNonStaleProjectionsAsync(store, timeout, null, token).ConfigureAwait(false);
+    }
+
+    // True only when the store positively says it holds no events. Anything it cannot answer is "not known to be
+    // empty", so the wait goes ahead as it always did
+    private static async Task<bool> holdsNoEventsAsync(IEventStore store, CancellationToken token)
+    {
+        try
+        {
+            return await readAsync(store, async reader =>
+            {
+                var page = await reader.QueryEventsAsync(new EventQuery { PageSize = 1 }, token).ConfigureAwait(false);
+                return page is { TotalCount: 0 };
+            }).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// bobcat#497. The async projection shards that had not reached the store's newest event, best effort: each as
+    /// <c>'shard' at N of M</c>, a configured shard with no progress yet at 0. Empty when the store cannot say —
+    /// it is a diagnosis for a timeout's message, never a decision.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> ProjectionsBehindAsync(IEventStore store, CancellationToken token = default)
+    {
+        var behind = new List<string>();
+        try
+        {
+            var configured = EventStoreShards.TryNames(store);
+            foreach (var database in await store.AllDatabases().ConfigureAwait(false))
+            {
+                var target = await database.FetchHighestEventSequenceNumber(token).ConfigureAwait(false);
+                var progress = (await database.AllProjectionProgress(token).ConfigureAwait(false))
+                    .Where(x => !isHighWaterShard(x))
+                    .ToList();
+
+                var shards = configured ?? progress.Select(x => x.ShardName).ToList();
+                foreach (var shard in shards)
+                {
+                    var sequence = progress.FirstOrDefault(x => x.ShardName.Equals(shard, StringComparison.OrdinalIgnoreCase))?.Sequence ?? 0L;
+                    if (sequence < target) behind.Add($"'{shard}' at {sequence} of {target}");
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Nothing knowable; the caller says so
+        }
+
+        return behind;
     }
 
     // The database a tenant's events live in, through the store's own Storage.FindOrCreateDatabase(string)

@@ -95,7 +95,9 @@ Wolverine or HTTP act, a message step, a boundary step or `ThenEventuallyCaused`
 | [DCB models](wolverine.md#dynamic-consistency-boundaries) | `ThenEventsOn(EventTagQuery, …)`, `TheDcbModel`, `ThenDcbModel` |
 
 Every step that reads a projection waits for the async daemons first, up to `ProjectionTimeout` --
-**20 seconds** by default, which is what a cold daemon on a loaded CI runner needs.
+**20 seconds** by default, which is what a cold daemon on a loaded CI runner needs. A wait that runs out
+is an error, a `ProjectionCatchUpTimeoutException` naming the projections that were behind and what was
+being read, never a failed spec ([details](wolverine.md#assert-aggregates-documents-and-read-models)).
 
 ## Below the vocabulary
 

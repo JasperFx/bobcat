@@ -1596,7 +1596,7 @@ public class CritterStackScenario
 
     private async Task<T> thenReadModel<T>(object id, object? expected) where T : class
     {
-        await ThenProjectionsAreCaughtUp(typeof(T));
+        await projectionsCaughtUpBefore(typeof(T), id);
 
         // The step opens before the load, so a missing document fails a rendered step
         return await inStep(ScenarioRecorder.Step("Then", expected is null ? existsText<T>(id) : matchesText(expected)), async () =>
@@ -1616,7 +1616,7 @@ public class CritterStackScenario
     /// </summary>
     public async Task ThenNoReadModel<T>(object id) where T : class
     {
-        await ThenProjectionsAreCaughtUp(typeof(T));
+        await projectionsCaughtUpBefore(typeof(T), id);
 
         await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name} {ScenarioValues.Format(id)}"), async () =>
         {
@@ -1645,7 +1645,7 @@ public class CritterStackScenario
                 $"ThenSingleReadModel<{typeof(T).Name}>() reads a single-stream projection, but {typeof(T).Name} is a {kind}. " +
                 $"Name the document instead: ThenReadModel<{typeof(T).Name}>(id, ...).");
 
-        await AfterAsyncDaemonsCatchUpAsync();
+        await daemonsCaughtUpBefore(typeof(T));
 
         return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
         {
@@ -1670,7 +1670,7 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.Document, nameof(T))]
     public async Task<T> ThenSingleDocument<T>(object? expected = null) where T : class
     {
-        await AfterAsyncDaemonsCatchUpAsync();
+        await daemonsCaughtUpBefore(typeof(T));
 
         return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
         {
@@ -1721,7 +1721,7 @@ public class CritterStackScenario
     /// <summary>There is no <typeparamref name="T" /> at all once the projections have caught up.</summary>
     public async Task ThenNoReadModel<T>() where T : class
     {
-        await ThenProjectionsAreCaughtUp(typeof(T));
+        await projectionsCaughtUpBefore(typeof(T), null);
 
         await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name}"), async () =>
         {
@@ -1751,10 +1751,40 @@ public class CritterStackScenario
     /// on, up to <see cref="ProjectionTimeout" />.
     /// </summary>
     [EventModelRole(SliceRole.ReadModel, nameof(readModel))]
-    public async Task ThenProjectionsAreCaughtUp(Type readModel)
+    public Task ThenProjectionsAreCaughtUp(Type readModel) => projectionsCaughtUpBefore(readModel, null);
+
+    // The catch-up step every read of a projected document opens with: its timeout names what was being read
+    private Task projectionsCaughtUpBefore(Type read, object? identity)
     {
-        await inStep(ScenarioRecorder.Step("Then", $"the {readModel.Name} read model has caught up"),
-            () => EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout));
+        var text = $"the {read.Name} read model has caught up";
+        return inStep(ScenarioRecorder.Step("Then", text), () => waitBeforeReading(text, read, identity));
+    }
+
+    // AfterAsyncDaemonsCatchUpAsync's step, before a read of the scenario's own stream
+    private Task daemonsCaughtUpBefore(Type read)
+    {
+        const string text = "the async daemons have caught up";
+        var stream = LastAct.StartedStreams is [var started] ? started.Key ?? (object)started.Id : _stream;
+        return inStep(ScenarioRecorder.Step("Given", text), () => waitBeforeReading(text, read, stream));
+    }
+
+    /// <summary>
+    /// bobcat#497. Wait for the async projections before a read, and when the wait times out, rethrow it as a
+    /// <see cref="ProjectionCatchUpTimeoutException" /> that names the wait, the projections that were behind, the
+    /// timeout and what was being read — still an error, never a specification failure: a daemon that is behind is
+    /// the environment, not evidence about the document.
+    /// </summary>
+    private async Task waitBeforeReading(string wait, Type read, object? identity)
+    {
+        try
+        {
+            await EventStores.WaitForNonStaleProjectionsAsync(Store, ProjectionTimeout);
+        }
+        catch (TimeoutException e) when (e is not ProjectionCatchUpTimeoutException)
+        {
+            var behind = await EventStores.ProjectionsBehindAsync(Store);
+            throw new ProjectionCatchUpTimeoutException(wait, behind, ProjectionTimeout, read, identity, e);
+        }
     }
 
     /// <summary>
