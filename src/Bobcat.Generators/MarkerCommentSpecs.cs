@@ -91,6 +91,12 @@ internal static class MarkerCommentSpecs
         public string TestMethod = "";
 
         /// <summary>
+        /// The method's name in source, where BOBCAT036 points when this scenario's identity is
+        /// shared with another's (bobcat#489).
+        /// </summary>
+        public Location? Where;
+
+        /// <summary>
         /// Whether <c>[BobcatScenario]</c> opens a recording around this test — on the class, or on
         /// the method itself. It is what makes the test a specification at all, and therefore what
         /// decides whether its identity belongs in a listing (issue #391).
@@ -184,8 +190,9 @@ internal static class MarkerCommentSpecs
 
             var scenario = new MarkedScenario
             {
-                Title = MarkerSpecNaming.ScenarioTitle(method.Identifier.Text),
+                Title = ScenarioTitleOf(method, ctx.SemanticModel, ct),
                 TestMethod = method.Identifier.Text,
+                Where = method.Identifier.GetLocation(),
                 OpensRecording = featuresRecord || HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
                 Pending = isPending(method)
             };
@@ -451,6 +458,92 @@ internal static class MarkerCommentSpecs
             .Select(argument => literalOf(argument.Expression)?.Trim())
             .FirstOrDefault(label => label is { Length: > 0 });
 
+    /// <summary>
+    /// The scenario title of a projected test method: its <c>[BobcatSpec(Name = "…")]</c> when it
+    /// states one (bobcat#489), else the method name read as a sentence. The one place the generator
+    /// reads a scenario title, so the declared steps, the binding, the planned steps, the Event Model
+    /// and the specification bindings all agree, and so does BOBCAT036.
+    /// </summary>
+    internal static string ScenarioTitleOf(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
+        => MarkerSpecNaming.ScenarioTitle(method.Identifier.ValueText, explicitNameOf(method, model, ct));
+
+    /// <summary>A scenario's <c>{Feature}/{Scenario}</c> identity, as everything this generator emits spells it.</summary>
+    internal static string IdentityOf(MarkedSpec spec, MarkedScenario scenario)
+        => MarkerSpecNaming.Identity(spec.FeatureTitle, scenario.Title);
+
+    /// <summary>
+    /// <c>Name = "…"</c> on this method's <c>[BobcatSpec]</c> (bobcat#489). Read with the semantic model
+    /// so a <c>const</c> or a <c>nameof</c> works, with the literal as the fallback for a compilation
+    /// that cannot bind the attribute — matched by name, like <see cref="isPending"/>, because the
+    /// generator references no runner.
+    /// </summary>
+    private static string? explicitNameOf(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
+        => method.AttributeLists
+            .SelectMany(list => list.Attributes)
+            .Where(a => shortName(a.Name.ToString()) == SpecAttributeName)
+            .SelectMany(a => a.ArgumentList?.Arguments ?? default)
+            .Where(argument => argument.NameEquals?.Name.Identifier.Text == "Name")
+            .Select(argument => model.GetConstantValue(argument.Expression, ct).Value as string
+                                ?? literalOf(argument.Expression))
+            .FirstOrDefault(name => name is { } value && value.Trim().Length > 0);
+
+    /// <summary>
+    /// Every identity two or more projected tests in this compilation share (bobcat#489), with each
+    /// test that claims it. Ordinal and exact, the way <c>SpecIdentity</c> compares at run time: two
+    /// identities differing only in case are two specifications, and two method names that read as the
+    /// same sentence (<c>order_is_placed</c> and <c>order__is_placed</c>) are one.
+    /// </summary>
+    /// <remarks>
+    /// Every test method of a <c>[BobcatFeature]</c> class counts, whether or not it records or declares
+    /// steps: the attribute says its methods project into the model, and the Event Model, the
+    /// specification bindings and a run all key on the identity regardless.
+    /// </remarks>
+    internal static IReadOnlyList<DuplicateIdentity> DuplicateIdentities(IEnumerable<MarkedSpec> specs)
+        => specs
+            .SelectMany(spec => spec.Scenarios.Select(scenario => (Identity: IdentityOf(spec, scenario), spec, scenario)))
+            .GroupBy(x => x.Identity, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => new DuplicateIdentity(
+                group.Key,
+                group.Select(x => new DuplicateClaim(x.spec.TestClass, x.scenario.TestMethod, x.scenario.Where)).ToList()))
+            .ToList();
+
+    internal sealed class DuplicateIdentity
+    {
+        public DuplicateIdentity(string identity, IReadOnlyList<DuplicateClaim> claims)
+        {
+            Identity = identity;
+            Claims = claims;
+        }
+
+        public string Identity { get; }
+        public IReadOnlyList<DuplicateClaim> Claims { get; }
+    }
+
+    internal sealed class DuplicateClaim
+    {
+        public DuplicateClaim(string testClass, string testMethod, Location? where)
+        {
+            TestClass = testClass;
+            TestMethod = testMethod;
+            Where = where;
+        }
+
+        public string TestClass { get; }
+        public string TestMethod { get; }
+        public Location? Where { get; }
+
+        /// <summary><c>Ns.Class.method</c>, with the file and line when the location is in source.</summary>
+        public string Describe()
+        {
+            var name = TestClass.Length > 0 ? TestClass + "." + TestMethod : TestMethod;
+            if (Where is null || !Where.IsInSource) return name;
+
+            var span = Where.GetLineSpan();
+            return $"{name} ({System.IO.Path.GetFileName(span.Path)}:{span.StartLinePosition.Line + 1})";
+        }
+    }
+
     private static string? literalOf(ExpressionSyntax expression)
         => expression is LiteralExpressionSyntax { Token.Value: string text } ? text : null;
 
@@ -655,7 +748,7 @@ internal static class MarkerCommentSpecs
         {
             foreach (var scenario in spec.Scenarios)
             {
-                var identity = spec.FeatureTitle + "/" + scenario.Title;
+                var identity = IdentityOf(spec, scenario);
 
                 // Issue #391. The identity cannot be inverted back to a method — Prettify reads
                 // underscores as spaces and strips a Specs suffix, and an explicit

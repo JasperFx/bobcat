@@ -60,7 +60,14 @@ public static class MarkerStepRun
     /// in a process fixes it, because a run has one mode.
     /// </param>
     public static ScenarioRecorder.Recording BeginScenario(MethodInfo method, string mode)
-        => BeginScenario(method.DeclaringType, method.Name, mode);
+    {
+        var info = OpenRun(mode);
+
+        // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
+        // lookup by name could land on an overload.
+        return ScenarioRecorder.Begin(
+            FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), _sink, info.RunId);
+    }
 
     /// <summary>
     /// Open a scenario for a test the runner identifies by type and method name rather than by
@@ -77,7 +84,7 @@ public static class MarkerStepRun
         var info = OpenRun(mode);
 
         return ScenarioRecorder.Begin(
-            FeatureNameFor(declaringType), ScenarioNameFor(methodName), _sink, info.RunId);
+            FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), _sink, info.RunId);
     }
 
     /// <summary>
@@ -143,11 +150,18 @@ public static class MarkerStepRun
     /// <summary>The feature title for a test class.</summary>
     public static string FeatureNameFor(Type? declaringType) => MarkerSpecNaming.FeatureTitle(declaringType);
 
-    /// <summary>The scenario title: the method name derived.</summary>
+    /// <summary>The scenario title: the explicit name the method states (bobcat#489), else the method name derived.</summary>
     public static string ScenarioNameFor(MethodInfo method) => MarkerSpecNaming.ScenarioTitle(method);
 
-    /// <summary>The scenario title for a method name, for a runner that hands out no MethodInfo.</summary>
+    /// <summary>The scenario title for a bare method name: the method name derived, no explicit name consulted.</summary>
     public static string ScenarioNameFor(string methodName) => MarkerSpecNaming.ScenarioTitle(methodName);
+
+    /// <summary>
+    /// The scenario title for a test a runner identifies by type and method name: its explicit name
+    /// (bobcat#489) when the method states one, else the method name derived.
+    /// </summary>
+    public static string ScenarioNameFor(Type? declaringType, string methodName)
+        => MarkerSpecNaming.ScenarioTitle(declaringType, methodName);
 
     /// <summary>
     /// A C# identifier as the sentence it was standing in for. Kept as the spelling callers know;

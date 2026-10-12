@@ -51,11 +51,60 @@ public static partial class MarkerSpecNaming
         return Prettify(name);
     }
 
-    /// <summary>The scenario title: the method name read as a sentence.</summary>
-    public static string ScenarioTitle(MethodInfo method) => Prettify(method.Name);
+    /// <summary>
+    /// The scenario title: the explicit name the test states (<c>[BobcatSpec(Name = "…")]</c>,
+    /// bobcat#489) when it states one, else the method name read as a sentence.
+    /// </summary>
+    public static string ScenarioTitle(MethodInfo method) => ScenarioTitle(method.Name, ExplicitNameOf(method));
 
-    /// <summary>The scenario title for a method name. The marker lane has no per-test title.</summary>
+    /// <summary>
+    /// The scenario title for a test a runner identifies by type and method name, for a runner that
+    /// hands out no <see cref="MethodInfo"/> (TUnit). The explicit name is looked up on the method of
+    /// that name, so both shapes of <c>BeginScenario</c> mint the same identity.
+    /// </summary>
+    public static string ScenarioTitle(Type? declaringType, string methodName)
+        => ScenarioTitle(methodName, ExplicitNameOf(declaringType, methodName));
+
+    /// <summary>The scenario title for a bare method name: the method name read as a sentence.</summary>
     public static string ScenarioTitle(string methodName) => Prettify(methodName);
+
+    /// <summary>
+    /// The scenario title for a method name and the explicit name it may carry (bobcat#489): the
+    /// name verbatim, or the method name read as a sentence when there is none. A null, empty or
+    /// all-whitespace name is no name. The generator holds the copy of this that has to agree.
+    /// </summary>
+    public static string ScenarioTitle(string methodName, string? explicitName)
+        => explicitName is { } name && name.Trim().Length > 0 ? name : Prettify(methodName);
+
+    /// <summary>
+    /// The explicit scenario name on a test method — any attribute implementing
+    /// <see cref="IExplicitScenarioName"/>, which is how <c>Bobcat.Xunit</c>'s <c>[BobcatSpec]</c> reaches
+    /// core without core referencing a runner. Null when the method states none.
+    /// </summary>
+    public static string? ExplicitNameOf(MethodInfo? method)
+        => method?.GetCustomAttributes(inherit: true)
+            .OfType<IExplicitScenarioName>()
+            .Select(x => x.Name)
+            .FirstOrDefault(name => name is { } value && value.Trim().Length > 0);
+
+    /// <summary>
+    /// The explicit scenario name on the method <paramref name="methodName"/> of
+    /// <paramref name="declaringType"/>, inherited methods included. An overload that names itself wins
+    /// over one that does not; two overloads naming themselves differently is the duplicate-identity
+    /// case BOBCAT036 refuses at build time, so the first is as good an answer as any.
+    /// </summary>
+    public static string? ExplicitNameOf(Type? declaringType, string methodName)
+    {
+        if (declaringType is null) return null;
+
+        const BindingFlags everything =
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
+        return declaringType.GetMethods(everything)
+            .Where(method => method.Name == methodName)
+            .Select(ExplicitNameOf)
+            .FirstOrDefault(name => name is not null);
+    }
 
     /// <summary>
     /// A C# identifier as the sentence it was standing in for. Underscores are how a test method

@@ -214,7 +214,7 @@ internal static class EventModelEmitter
                 }
             }
 
-            var identity = $"{spec.FeatureTitle}/{scenario.Title}";
+            var identity = MarkerCommentSpecs.IdentityOf(spec, scenario);
 
             // Issue #404. A pending spec is declared before the behaviour it describes, so it is a
             // hotspot — the same PendingSpecification the Gherkin lane's step-less scenario

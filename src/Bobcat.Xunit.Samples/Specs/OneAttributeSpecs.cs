@@ -55,6 +55,26 @@ public class OneAttributeSpecs
     }
 
     /// <summary>
+    /// An explicit scenario name (bobcat#489): the identity is the name, verbatim, punctuation and
+    /// all, instead of the method name read as a sentence. A method name cannot spell the apostrophe,
+    /// the dash or the comma.
+    /// </summary>
+    /// <remarks>
+    /// <c>ProjectedSpecIdentityEndToEndTests</c> lists this identity from the manifest and then runs it
+    /// by name, so the assertion below is what proves the recorder published the same string the
+    /// generator bound.
+    /// </remarks>
+    [BobcatSpec(Name = ExplicitName)]
+    public void named_explicitly()
+    {
+        _facts.TheThingIsActivated();
+
+        ScenarioRecorder.Current?.Uid.ShouldBe("Facts, in one attribute/" + ExplicitName);
+    }
+
+    public const string ExplicitName = "a spec's name can't always be a method name -- re-stated, verbatim";
+
+    /// <summary>
     /// Stub-first (issue #404): the specification is written before the behaviour exists. It is
     /// SKIPPED, so the throw below never happens, and it reaches the Event Model as a
     /// <c>PendingSpecification</c> hotspot rather than as evidence the slice is verified.

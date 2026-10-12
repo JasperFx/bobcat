@@ -115,7 +115,7 @@ internal static class SpecificationManifest
             if (!isTest(method)) continue;
             if (ctx.SemanticModel.GetDeclaredSymbol(method, ct) is not IMethodSymbol symbol) continue;
 
-            var identity = featureTitle + "/" + MarkerSpecNaming.ScenarioTitle(method.Identifier.ValueText);
+            var identity = MarkerSpecNaming.Identity(featureTitle, MarkerCommentSpecs.ScenarioTitleOf(method, ctx.SemanticModel, ct));
             // A method attribute stating only TriggeredBy (bobcat#463) says nothing about WHICH slice, so it
             // keeps the class's binding rather than replacing it with none — as the Event Model fold does
             var methodSlice = attribute(symbol, SliceAttribute);

@@ -58,6 +58,19 @@ public static class SpecFilterArguments
                 nameof(selection));
         }
 
+        // bobcat#489. Two tests under one identity: the manifest kept one of them, and a filter built
+        // from it would run that one while the request meant "this specification". Refused by name,
+        // like an unknown identity, because guessing is the silent wrong run this class exists to stop.
+        var ambiguous = selection.Identities.Where(manifest.IsAmbiguous).ToList();
+        if (ambiguous.Count > 0)
+        {
+            throw new ArgumentException(
+                $"'{manifest.Suite}' has more than one test claiming {string.Join(", ", ambiguous.Select(x => $"'{x}'"))}, "
+                + "so there is no one specification to run by that identity. Rename one of the test methods, or give "
+                + "one an explicit scenario name with [BobcatSpec(Name = \"...\")].",
+                nameof(selection));
+        }
+
         switch (manifest.Framework)
         {
             case SpecManifest.XunitFramework:

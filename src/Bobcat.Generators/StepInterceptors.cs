@@ -343,7 +343,7 @@ internal static class StepInterceptors
 
         if (!MarkerCommentSpecs.TryFeatureTitle(declaration, model, ct, out var feature)) return null;
 
-        return feature + "/" + MarkerSpecNaming.ScenarioTitle(method.Identifier.ValueText);
+        return MarkerSpecNaming.Identity(feature, MarkerCommentSpecs.ScenarioTitleOf(method, model, ct));
     }
 
     /// <summary>

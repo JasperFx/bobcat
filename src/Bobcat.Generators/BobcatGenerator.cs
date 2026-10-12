@@ -207,6 +207,25 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
+            // bobcat#489. Two specifications under one identity are one specification to everything
+            // keyed on it, so it is refused here, the one place that sees every test in the
+            // compilation. Reported at EACH claimant, naming the others, so whichever file the author
+            // has open says what it collides with.
+            foreach (var duplicate in MarkerCommentSpecs.DuplicateIdentities(marked))
+            {
+                foreach (var claim in duplicate.Claims)
+                {
+                    var others = duplicate.Claims.Where(x => !ReferenceEquals(x, claim)).ToList();
+
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.DuplicateSpecIdentity,
+                        claim.Where ?? Microsoft.CodeAnalysis.Location.None,
+                        others.Select(x => x.Where).Where(x => x is not null).Cast<Microsoft.CodeAnalysis.Location>(),
+                        duplicate.Identity,
+                        string.Join(", ", others.Select(x => x.Describe()))));
+                }
+            }
+
             // Issue #106. Only emit Event Modeling descriptors where the consuming compilation can
             // actually host them. A type probe rather than an assembly-name check: JasperFx.Events
             // 2.53.0 shipped an early, incompatible sketch of this namespace, so "the assembly is
@@ -257,7 +276,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT037. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -367,6 +386,36 @@ internal static class Diagnostics
         "BOBCAT034",
         "An Event Model role names no parameter of its method",
         "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#489: two projected tests in one compilation resolve to the same <c>{Feature}/{Scenario}</c>
+    /// identity -- same-named methods in two classes bound to one feature, or two method names that
+    /// read as the same sentence.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An error, because nothing downstream can tell them apart.</b> Filtering by identity runs both
+    /// or the wrong one, the resident runner's binding keeps one, the flake/duration ledger and Stoat's
+    /// per-spec history merge two histories into one, and the Event Model lists one specification where
+    /// there are two. The symptom when it was found was none of those: an unrelated test failed after a
+    /// new test happened to take an existing one's name.
+    /// </para>
+    /// <para>
+    /// Compared ordinally on the identity string the generator emits, through the same
+    /// <c>MarkerSpecNaming</c> derivation, so it agrees with <c>SpecIdentity</c> at run time by
+    /// construction. The run-time half -- identities the compiler cannot see together, such as specs
+    /// in two assemblies, or this error suppressed -- is reported when the spec manifest is written.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor DuplicateSpecIdentity = new(
+        "BOBCAT036",
+        "Two projected specifications share one spec identity",
+        "The spec identity '{0}' is also claimed by {1}. Identity filtering, the resident runner, the " +
+        "flake/duration ledger and the Event Model would treat them as one specification. Rename one of " +
+        "the test methods, or give one an explicit scenario name with [BobcatSpec(Name = \"...\")].",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
