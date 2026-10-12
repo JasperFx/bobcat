@@ -23,6 +23,12 @@ namespace Bobcat.Monitoring;
 /// should push.
 /// </para>
 /// <para>
+/// <b>Who calls it now.</b> The Gherkin runner did, from the moment it attached to a console, once
+/// per run. That lane is gone (bobcat#471), and since bobcat#488 the projected lane's run bracket
+/// does the same thing from <see cref="MarkerStepRun"/>: once per bracket, which is once per
+/// <c>dotnet test</c> process, or once per run request in a warm xUnit host.
+/// </para>
+/// <para>
 /// <b>The same invariant <see cref="MonitorPublisher"/> lives under: a test run is never slowed
 /// or failed by the monitor.</b> Nothing here runs unless a console already answered
 /// <c>/api/ping</c>; the whole exchange is bounded by <see cref="Ceiling"/> and abandoned when it
@@ -98,10 +104,8 @@ internal static class SpecEventModelPublisher
     /// <c>--tag</c> narrows what executes, never what the model declares.
     /// </param>
     /// <param name="notify">
-    /// Where the one actionable message goes; null to say nothing. The runner routes it to
-    /// <c>Console.WriteLine</c> behind <c>SuppressConsoleOutput</c>, which means a
-    /// <c>bobcat run</c> shows it and an MTP host does not — under MTP the platform owns stdout,
-    /// and the same gate already silences preflight failures there.
+    /// Where the one actionable message goes; null to say nothing. The projected run bracket sends
+    /// it to standard error, since the test platform owns standard output.
     /// </param>
     internal static Task<IReadOnlyList<string>> PublishAll(
         MonitorPublisher publisher, IEnumerable<Assembly> assemblies, Action<string>? notify = null)

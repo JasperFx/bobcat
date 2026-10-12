@@ -81,7 +81,7 @@ public static class MarkerStepRun
     /// </remarks>
     public static ScenarioRecorder.Recording BeginScenario(Type? declaringType, string methodName, string mode)
     {
-        var info = OpenRun(mode);
+        var info = openRun(mode, declaringType?.Assembly);
 
         return ScenarioRecorder.Begin(
             FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), _sink, info.RunId);
@@ -200,7 +200,13 @@ public static class MarkerStepRun
     /// </para>
     /// </remarks>
     /// <param name="mode">How the run was executed — "xunit", "tunit".</param>
-    public static MonitorRunInfo OpenRun(string mode)
+    public static MonitorRunInfo OpenRun(string mode) => openRun(mode, null);
+
+    /// <summary>
+    /// <see cref="OpenRun"/>, plus the assembly of the scenario that opened the bracket when there
+    /// is one, which is the second place <see cref="publishEventModel"/> looks for a spec half.
+    /// </summary>
+    private static MonitorRunInfo openRun(string mode, Assembly? scenarioAssembly)
     {
         lock (_gate)
         {
@@ -227,7 +233,93 @@ public static class MarkerStepRun
                 _started = true;
             }
 
+            publishEventModel(scenarioAssembly);
+
             return info;
+        }
+    }
+
+    /// <summary>
+    /// Test seam: where a new bracket finds the Event Model halves it publishes. The default is
+    /// <see cref="specHalves"/>; <see cref="Reset"/> puts it back.
+    /// </summary>
+    internal static Func<Assembly?, IReadOnlyList<SpecEventModelPublisher.Half>> FindEventModelHalves
+    {
+        get;
+        set;
+    } = specHalves;
+
+    /// <summary>
+    /// Test seam: where the one actionable Event Model notice goes. The default is standard error;
+    /// <see cref="Reset"/> puts it back.
+    /// </summary>
+    internal static Action<string> EventModelNotice { get; set; } = writeNotice;
+
+    /// <summary>
+    /// Publish the spec assembly's half of the Event Model when this bracket has a console to send
+    /// it to (bobcat#488).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why here.</b> The Gherkin runner published the half from the same place it attached to the
+    /// console, once per run, which for a resident runner meant once per command, cold or warm. The
+    /// projected lane's run is this bracket, so this is the same moment: a one-shot <c>dotnet test</c>
+    /// sends it once, and a warm process sends it once per run request, because the session hook
+    /// opens one bracket per request. It is a <c>PUT</c> under a stable source name, so a resend
+    /// replaces the last one rather than piling up, and it puts the half back on a console that was
+    /// restarted between two commands.
+    /// </para>
+    /// <para>
+    /// <b>It lives in core rather than in <c>Bobcat.Xunit</c>'s session hook</b> so that every
+    /// adapter gets it. A TUnit, NUnit or MSTest suite has no session hook and opens its bracket on
+    /// the first scenario, so it publishes once per process, which for those runners is the run.
+    /// </para>
+    /// <para>
+    /// The same bounds as the event pump: nothing runs without a live <see cref="MonitorPublisher"/>
+    /// (so <c>BOBCAT_MONITOR=0</c> or no console means no request at all), the exchange is held to
+    /// <see cref="SpecEventModelPublisher.Ceiling"/>, and nothing here can fail a run.
+    /// </para>
+    /// </remarks>
+    private static void publishEventModel(Assembly? scenarioAssembly)
+    {
+        if (_sink is not MonitorPublisher publisher) return;
+
+        try
+        {
+            var halves = FindEventModelHalves(scenarioAssembly);
+            if (halves.Count == 0) return;
+
+            SpecEventModelPublisher.PublishAll(publisher, halves, EventModelNotice).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // A spec half that will not publish is never a reason to disturb a run.
+        }
+    }
+
+    /// <summary>
+    /// The halves to publish: the entry assembly's, which is the spec assembly in every
+    /// Microsoft.Testing.Platform host because the test project IS the executable, and the opening
+    /// scenario's, for a host where it is not (VSTest's <c>testhost</c>). Discovery skips duplicates
+    /// and any assembly with no generated <c>BobcatEventModelSource</c>.
+    /// </summary>
+    private static IReadOnlyList<SpecEventModelPublisher.Half> specHalves(Assembly? scenarioAssembly)
+        => SpecEventModelPublisher.Discover(
+            new[] { Assembly.GetEntryAssembly(), scenarioAssembly }.OfType<Assembly>());
+
+    /// <summary>
+    /// Standard error, because a projected run is always inside a test platform that owns standard
+    /// output, and this notice is the one thing about the Event Model a person has to act on.
+    /// </summary>
+    private static void writeNotice(string notice)
+    {
+        try
+        {
+            Console.Error.WriteLine(notice);
+        }
+        catch
+        {
+            // Nowhere to say it is not a reason to fail a run either.
         }
     }
 
@@ -357,6 +449,8 @@ public static class MarkerStepRun
             _started = false;
             _passed = 0;
             _failed = 0;
+            FindEventModelHalves = specHalves;
+            EventModelNotice = writeNotice;
 
             // The sink is whatever the caller just installed, so the probe must not run and
             // overwrite it. _exitHooked is deliberately NOT reset: the handler is idempotent and
