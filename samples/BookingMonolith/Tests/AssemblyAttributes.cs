@@ -1,4 +1,12 @@
+using BookingMonolith.Tests;
 using Microsoft.AspNetCore.Mvc.Testing;
+
+// One host for the whole run, booted once.
+[assembly: AssemblyFixture(typeof(BookingMonolithHost))]
+
+// Every spec empties the store before it runs (see BookingMonolithSpec), so two specs running at once would
+// wipe each other's data.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 // Tells ASP.NET Core's WebApplicationFactory (which Alba uses) where the host's content root
 // is. Without it, discovery walks up from the test assembly's bin directory and synthesizes
