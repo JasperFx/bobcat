@@ -17,7 +17,9 @@ namespace Bobcat.CritterStack;
 /// </remarks>
 /// <param name="NewEvents">
 /// The events the act itself appended, in commit order. For a store-only act that is every event appended
-/// while it ran; a scenario that can tell an act's own work from its cascades' puts only the act's own here.
+/// while it ran on a stream the specification arranged, addressed or started (bobcat#503) — the rest are
+/// <see cref="ForeignEvents" />; a scenario that can tell an act's own work from its cascades' puts only the
+/// act's own here.
 /// </param>
 /// <param name="Error">The exception the act raised, when it raised one. Captured, never rethrown.</param>
 /// <param name="Refusal">A refusal that is an answer rather than a failure, such as an HTTP endpoint's 4xx body.</param>
@@ -34,6 +36,19 @@ public record CritterStackActOutcome(
     /// where the scenario can see them. What a stream already held never counts.
     /// </summary>
     public IReadOnlyList<IEvent> AllNewEvents { get; init; } = Array.Empty<IEvent>();
+
+    /// <summary>
+    /// bobcat#503. Events appended while a store-only act ran on streams that already existed and that the
+    /// specification never arranged, addressed or started — most likely another test writing to the same store.
+    /// Never judged by a whole-store assertion (<c>ThenEvents</c>, <c>ThenNoEvents</c>, …); a failing one says
+    /// "cross-talk suspected" when this is not empty. A step that names a stream or a tag query still sees the
+    /// ones it addresses. Always empty for a scenario that tracks its act, such as WolverineFx.Bobcat's.
+    /// </summary>
+    /// <remarks>
+    /// A stream another test <em>started</em> during the act cannot be told from one the act started, so its
+    /// events are in <see cref="NewEvents" />, not here.
+    /// </remarks>
+    public IReadOnlyList<IEvent> ForeignEvents { get; init; } = Array.Empty<IEvent>();
 
     /// <summary>The streams the act itself started, with the ids it assigned.</summary>
     public IReadOnlyList<StreamAction> StartedStreams { get; init; } = Array.Empty<StreamAction>();

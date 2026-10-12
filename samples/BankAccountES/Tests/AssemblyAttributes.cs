@@ -13,8 +13,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 [assembly: AssemblyFixture(typeof(BankAccountHost))]
 
 // Not optional. CritterStackScenario's store-only act reads back everything appended to the store
-// while it ran, by sequence, so a second test acting at the same moment would have its events
-// counted as this one's.
+// while it ran, by sequence, and attributes it by stream (bobcat#503): another test's appends to its
+// own streams are set aside as ForeignEvents, but a stream another test STARTS at the same moment
+// still looks like one this act started. Whole-store assertions on a store-only act need serial
+// execution on a shared store (this), or a store or tenant per test.
 [assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]
 
 // Tells ASP.NET Core's WebApplicationFactory (which Alba uses) where the host's content root

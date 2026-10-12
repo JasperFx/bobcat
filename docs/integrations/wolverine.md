@@ -84,6 +84,7 @@ Prefer a deterministic clock to `Ignoring(...)` for a timestamp.
 | `GivenEvents(id, params events)` | a stream with no aggregate type, for an event model that names none |
 | `GivenNoEventsFor<TAggregate>(id)` | the stream has no events yet. Appends nothing, says so, and names the stream the act's events are read from |
 | `GivenEventsOn<TAggregate>(id, params events)` | events on a *different* stream from the one the act runs against -- a second aggregate for a rule that spans two, or history a read model fans in from |
+| `GivenContext<TContext>(id, params events)` | a stream the act only *looks up* -- the Client an `OpenAccount` loads -- not the one it decides against. The same append and step as `GivenEvents`; on the Event Model it is the slice's `ReadsFrom`, never an aggregate (bobcat#502). Also `GivenContext(Type, id, params events)` |
 | `GivenReadModel<T>(document)` | a read model already exists, stored directly. It bypasses the projection, so a spec about how the view is built should arrange the events instead |
 | `GivenTheDateIs(date)` / `GivenTheTimeIs(now)` | freeze the ambient clock (`BobcatClock.Current`, also `Clock`) |
 | `WhenTheClockAdvancesBy(duration)` / `WhenTimePasses(duration)` / `WhenTheClockAdvancesTo(instant)` | move it forward. Each renders as its own step |
@@ -130,6 +131,14 @@ open -- it falls back to the store's high-water read, as the store-only act does
 message (or its HTTP request) committed. A cascade's events are in `LastAct.AllNewEvents`, not
 `LastAct.NewEvents`. A store-only act can't tell the two apart, so there they are the same list.
 
+**A store-only act attributes what it reads back by stream (bobcat#503).** An event counts when it is on
+a stream the specification arranged (any Given), addressed (`WhenActingOn`), or that one of its acts wrote
+to or started. Anything appended meanwhile to another stream that already existed is
+`LastAct.ForeignEvents`: never judged by the whole-store steps above, and named by them when they fail --
+"cross-talk suspected: N event(s) on streams this specification never arranged or started were appended
+during the act". A step that names a stream (`ThenEventsOn<T>(id, …)`) or a tag query still sees what was
+appended there. A stream the host seeds outside the vocabulary is foreign until the spec arranges or addresses it.
+
 ### A named stream from a named version
 
 For an act whose events nothing can attribute -- a domain service, a background job run by hand, an
@@ -166,6 +175,13 @@ Then WalletCredited is emitted on it
 Every step that reads a projection first waits for the async daemons to catch up, up to
 `ProjectionTimeout` (20 seconds by default). An async projection read straight after the act would
 read a stale document.
+
+**A wait that times out is an error, not a failed spec (bobcat#497).** A daemon that is behind, stopped
+or not running says nothing about the document, so the step errors with a
+`ProjectionCatchUpTimeoutException` (a `TimeoutException`). Its message names the wait, the projection
+shards that were behind (`'WalletSummary:All' at 7 of 12`, when the store can say), the timeout, and the
+type and id being read. The store's own exception is the `InnerException`. A store with no events at
+all has nothing to be stale, so the wait returns at once there.
 
 | Step | |
 |---|---|

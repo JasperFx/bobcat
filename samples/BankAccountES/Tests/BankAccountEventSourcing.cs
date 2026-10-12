@@ -50,7 +50,8 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
     public async Task open_a_bank_account()
     {
         var clientId = Guid.NewGuid();
-        await GivenEvents<Client>(clientId, new ClientEnrolled(clientId, "Alice", "alice@example.com"));
+        // A lookup, not the stream the command decides against: the endpoint's [Entity] loads the client
+        await GivenContext<Client>(clientId, new ClientEnrolled(clientId, "Alice", "alice@example.com"));
 
         await WhenPosted(new OpenAccount(clientId), "/api/accounts");
 

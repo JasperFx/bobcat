@@ -225,6 +225,45 @@ public class EventModelSteps(BankAccountHost app)
         SpecAssert.Fact(names.Contains(eventName), $"The specs say {slice} consumes [{string.Join(", ", names)}], expected '{eventName}'.");
     }
 
+    [Then("the {slice} slice reads from {type}")]
+    public void TheSliceReadsFrom(string slice, string type)
+    {
+        if (sliceNamed(slice) is not { } s) return;
+        var reads = s.ReadsFrom.Select(t => t.Name).ToList();
+        SpecAssert.Fact(reads.Contains(type), $"{slice} reads from [{string.Join(", ", reads)}], expected '{type}'.");
+    }
+
+    [Then("{type} is not an aggregate of the {slice} slice")]
+    public void IsNotAnAggregateOf(string type, string slice)
+    {
+        if (sliceNamed(slice) is not { } s) return;
+        var aggregates = s.AggregateTypes.Select(t => t.Name).ToList();
+        SpecAssert.Fact(!aggregates.Contains(type), $"{slice}'s aggregates are [{string.Join(", ", aggregates)}]; '{type}' should not be one.");
+    }
+
+    /// <summary>
+    /// bobcat#502: a stream a spec arranges with <c>GivenContext</c> is one the slice reads before deciding --
+    /// its <c>ReadsFrom</c> -- and not one of its aggregates. Read off the generated source directly, before the
+    /// merge.
+    /// </summary>
+    [Then("this assembly's specs alone say the {slice} slice reads from {type} and does not decide against it")]
+    public void TheSpecsAloneSayTheSliceReadsFrom(string slice, string type)
+    {
+        var declared = BobcatEventModelSource.Describe().Slices.FirstOrDefault(s => s.Name == slice);
+        if (declared is null)
+        {
+            SpecAssert.Fail($"The specs declare no slice named '{slice}'.");
+            return;
+        }
+
+        var reads = declared.ReadsFrom.Select(t => t.Name).ToList();
+        SpecAssert.Fact(reads.Contains(type), $"The specs say {slice} reads from [{string.Join(", ", reads)}], expected '{type}'.");
+
+        var aggregates = declared.AggregateTypes.Select(t => t.Name).ToList();
+        SpecAssert.Fact(!aggregates.Contains(type),
+            $"The specs say {type} is an aggregate of {slice} ([{string.Join(", ", aggregates)}]); a lookup stream is read from, not decided against.");
+    }
+
     /// <summary>
     /// bobcat#500: the trigger this assembly's specs alone give a slice, before the merge -- so a route the
     /// generator resolved from a route name is checked as the specs' own claim, not as whatever Wolverine derived.

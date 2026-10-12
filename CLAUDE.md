@@ -285,7 +285,8 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   than the store's projection applies is a `SourceDisagreement` hotspot, and the right reading (the
   view is under-specified). The sample's two `AccountView.cs` specs arrange all four of the Account
   projection's events so the store rung and the spec rung agree; drop one and the sample goes red.
-  `ReadsFrom` reaches a model only through the importer.
+  `ReadsFrom` reaches a model through the importer, and from a spec through `SliceRole.Context`
+  (`GivenContext`, #502, below).
 - **The command is the act — the last `Command` call, not the first one named (#464).** Specs
   routinely arrange by issuing earlier commands (an `OpenWallet` before the `CreditWallet` the test
   is about), so first-wins mislabelled the slice. Arrange commands are not lost: they stay in the
@@ -327,7 +328,9 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   - **The rules:** the act is the LAST `Command` call (#464), and its trigger is read only off that
     call; `ArrangedEvent` → `ArrangedEvents` → `ConsumedEvents` only on a View slice (#297);
     `Document` → resolved types only (a document is not an aggregate, event or read model, so it
-    gets no element on the canvas); an argument whose type is not knowable (`object`, interface,
+    gets no element on the canvas); `Context` → `SliceModel.ReadsFrom` → `ReadsFrom`, on any pattern
+    and never `AggregateTypes` (#502: `GivenContext<Client>` for a stream the act only looks up, written
+    only when non-empty); an argument whose type is not knowable (`object`, interface,
     rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and `TaggedValue` are unwrapped
     by metadata name — Bobcat's own types, so the same-repo contract.
   - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature.**
@@ -1399,17 +1402,30 @@ the DCB boundary steps and correlation.
 
 - **Public signatures and step text are `WolverineScenario`'s, verbatim**, so deriving was "delete
   duplicates" with no API break: Givens (tagged, strong-typed-id, aggregate-less, read
-  model), the event assertions over the last act, the refusals, aggregates/documents/read models,
+  model, and since #502 `GivenContext` — `GivenEvents`'s append under `SliceRole.Context`, which never
+  takes over the scenario's own stream `_stream` from a `GivenEvents`), the event assertions over the last act, the refusals, aggregates/documents/read models,
   DCB models, `Verify`/`ThenMatches`, `ResetAsync`, `storeName`.
 - **The seams a derived scenario overrides:** `runActAsync(Func<IServiceProvider, Task>)` (the
-  store-only act: high-water mark, run in a new scope, read back every event since — so
-  `NewEvents == AllNewEvents`, `StartedStreams` from version-1 events, `MessagesSent` empty,
-  `EventTagsKnown = false`), `failureOf(message)` (the exception a wrong is thrown as outside a
+  store-only act: high-water mark, run in a new scope, read back every event since, attributed by
+  stream (#503, `attributeToSpecification`) — so `NewEvents == AllNewEvents`, `ForeignEvents` the
+  rest, `StartedStreams` from version-1 events, `MessagesSent` empty, `EventTagsKnown = false`), `failureOf(message)` (the exception a wrong is thrown as outside a
   recording — `SpecAssertionException` here, Wolverine's `SpecificationFailedException` there), the
   protected `LastAct` setter, `ResetAsync` (virtual), and the protected helpers its own steps reuse
   (`actSucceeded`, `failureSuffix`, `verifySet`, `flatten`, `describe`, `recordValues`, `anyOf`,
   `tagsOf`, `isOn`, `unwrap`, `describeTypes`, `exceptionsIn`, `hasStore`, `recordTouched`,
-  `tagsCanBeJudged`, `fail`/`fact`).
+  `tagsCanBeJudged`, `fail`/`fact`, and #503's `claimStream`, `attributeToSpecification`,
+  `crossTalkSuffix`).
+- **Store-only attribution (#503).** The scenario's own streams are every stream a Given arranged
+  (`GivenContext` included), `WhenActingOn` addressed, or an act wrote to or started; an event on any
+  other pre-existing stream is `ForeignEvents`. Whole-store steps (`ThenEvents*`, `ThenEmitted`,
+  `ThenNotEmitted`, `ThenNoEvents`, `TheEvent`, `ThenCommandRefused`, the started-stream steps) judge
+  only the own events and, **when they fail** with `ForeignEvents` non-empty, append "cross-talk
+  suspected: N event(s) …"; a passing one stays quiet. Stream- and tag-addressed steps
+  (`ThenEventsOn`) look at own + foreign (`addressable()`), since naming the stream already scopes them.
+  Residual, documented: a stream another test *starts* during the act still counts, so whole-store
+  assertions on a shared store still need serial execution (BankAccountES keeps
+  `Parallelization(Mode = ParallelMode.None)`). DCB: no store reads tags back, so a tagged append is attributed by its
+  stream; where tags are returned, a tag value the spec arranged events with also counts.
 - **No store reads an event's tags back** (checked on Marten and Fisher), so after a store-only act
   a step that judges tags fails saying so (`tagsCanBeJudged`) instead of reporting every tagged
   event MISSING. Name the stream, or read the boundary's model with `TheDcbModel<T>`.
@@ -1427,6 +1443,18 @@ the DCB boundary steps and correlation.
   (`GivenTheDateIs`, `GivenTheTimeIs`, `WhenTheClockAdvancesBy`, `WhenTimePasses`,
   `WhenTheClockAdvancesTo` — synchronous on purpose, because the clock is `AsyncLocal` and a value
   set inside an async method never flows back).
+- **Catch-up timeouts before a read are errors that say why (#497, decided C).** `ThenDocument`,
+  `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`/`ThenSingleDocument` and
+  `ThenProjectionsAreCaughtUp` wait through `waitBeforeReading`, which rethrows a store's
+  `TimeoutException` as `ProjectionCatchUpTimeoutException` (still a `TimeoutException`, so the step is
+  `error`, never `failed`): the wait, `EventStores.ProjectionsBehindAsync`'s best-effort
+  `'shard' at N of M` list, the timeout, the type and identity read, the original as `InnerException`.
+  The #497 root cause: Marten's `WaitForNonStaleProjectionDataAsync` throws an **immediate**
+  `TimeoutException` ("No event activity was detected") on a store with no events, because a fresh
+  `mt_events_sequence` reports last value 1 with zero events. So `ThenDocument` on a fresh schema threw
+  when the test ran first in its class (xUnit's order follows the assembly path) and passed after any
+  test had appended. `WaitForNonStaleProjectionsAsync` now returns at once for a single-database store
+  whose read-only view holds no events; `reading_an_empty_store_on_marten` pins it in a class of its own.
 - **Run evidence (#465):** `ScenarioRecorder.RecordTouchedType(Type)` is an ambient accumulator on
   the recording, static and `AsyncLocal`-backed for the reason `SpecReport` is (#408);
   `Recording.TouchedTypes` reaches `scenario_finished.TouchedTypes` through `MonitorTouchedTypes`,

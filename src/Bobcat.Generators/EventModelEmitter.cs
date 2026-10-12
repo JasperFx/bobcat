@@ -61,6 +61,12 @@ internal static class EventModelEmitter
     /// </summary>
     internal const string Consumed = "consumed";
 
+    /// <summary>
+    /// Not a capture word: a projected <c>SliceRole.Context</c> (bobcat#502) — a stream the specification arranges
+    /// only so the act can look it up. It reaches the descriptor as <c>ReadsFrom</c>, never as an aggregate.
+    /// </summary>
+    internal const string Context = "context";
+
     /// <summary>One slice of the model, accumulated across every scenario that declares it.</summary>
     internal sealed class SliceModel
     {
@@ -125,6 +131,12 @@ internal static class EventModelEmitter
         /// history is the aggregate's stream, and the list is discarded at emit time.
         /// </summary>
         public readonly List<string> ArrangedEvents = new();
+
+        /// <summary>
+        /// Every type the slice's specifications arranged as <em>context</em> (bobcat#502): a lookup the act
+        /// reads before deciding. Emitted as <c>ReadsFrom</c> (jasperfx#824) whatever the slice's pattern.
+        /// </summary>
+        public readonly List<string> ReadsFrom = new();
         public readonly List<(string Identity, List<string> Types)> Specifications = new();
         public readonly List<string> PendingSpecifications = new();
     }
@@ -216,6 +228,8 @@ internal static class EventModelEmitter
                     case ReadModel: addDistinct(slice.ReadModels, type); break;
                     case Message: addDistinct(slice.Messages, type); break;
                     case Consumed: addDistinct(slice.ArrangedEvents, type); break;
+                    // bobcat#502: a lookup stream is read before deciding, never an aggregate of the slice
+                    case Context: addDistinct(slice.ReadsFrom, type); break;
                     // Document reaches the resolved types only, exactly as {document} does
                 }
             }
@@ -378,6 +392,10 @@ internal static class EventModelEmitter
         // from every slice that emits WalletOpened into every slice that merely starts from it.
         if (pattern == "View" && slice.ArrangedEvents.Count > 0)
             sb.AppendLine($"            ConsumedEvents = {typeDescriptorList(slice.ArrangedEvents)},");
+        // bobcat#502: a context stream is what the slice reads before deciding. Written only when there is
+        // one, like ConsumedEvents, so a model with no context keeps the descriptor it always had
+        if (slice.ReadsFrom.Count > 0)
+            sb.AppendLine($"            ReadsFrom = {typeDescriptorList(slice.ReadsFrom)},");
         sb.AppendLine($"            PublishedMessages = {typeDescriptorList(slice.Messages)},");
         sb.AppendLine($"            Specifications = {specifications(slice)},");
         sb.AppendLine($"            Hotspots = {hotspots(slice)}");

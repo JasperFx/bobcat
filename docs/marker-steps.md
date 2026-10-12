@@ -656,6 +656,22 @@ public Task WhenPosted(object command, string route)
 | `ReadModel` | `ReadModelTypes` |
 | `Document` | the specification's resolved types only, never a slot |
 | `Message` | `PublishedMessages` |
+| `Context` | `ReadsFrom` -- a stream the act only looks up, never an aggregate (#502) |
+
+**A lookup stream is context, not an aggregate (bobcat#502).** `GivenEvents<Client>(…)` says Client is an
+aggregate of the slice. When the spec arranges Client only so the handler can load it -- an `OpenAccount`
+whose endpoint checks the client exists -- write `GivenContext<Client>(…)` instead. It appends exactly what
+`GivenEvents` appends and renders the same step; the difference is the model's. Client lands in the slice's
+`ReadsFrom` (jasperfx#824), and upstream draws it as a read model linked into the slice's processor. Its
+events are arranged events, as for `GivenEvents`.
+
+```csharp
+await GivenContext<Client>(clientId, new ClientEnrolled(clientId, "Alice"));   // ReadsFrom Client
+await WhenPosted(new OpenAccount(clientId), "/api/accounts");                  // the act
+await ThenAggregate<Account>(TheStartedStream<Account>());                      // aggregate Account
+```
+
+<!-- JEREMY: when to reach for GivenContext, in your words -->
 
 A value parameter's type is read off the argument: `new T(…)`, `typeof(T)`, `Specify<T>()` at the root of
 a `.With(…)` chain, `Expect.Value(…)`, `Tagged(value, …)`, or the argument's static type when it is a

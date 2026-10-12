@@ -59,6 +59,8 @@ The query endpoints take `IDocumentReadOperations` (documents: `LoadAsync<T>`, `
 
 `OpenAccount` uses `[Entity]` to load the Client by `ClientId` -- verifying the client exists before opening an account.
 
+The spec arranges that Client with `GivenContext<Client>(…)`, not `GivenEvents<Client>(…)` (bobcat#502). At run time the two are the same append; on the Event Model, `GivenContext` puts Client in the OpenAccount slice's `ReadsFrom` -- a lookup the slice reads before deciding -- instead of claiming it as an aggregate. The stream OpenAccount decides against is the Account it starts. `EventModel.cs` pins it.
+
 ## Running
 
 On Marten (the default) it needs the samples' Postgres -- `cd samples && docker compose up -d`. On Fisher it needs nothing.
@@ -71,6 +73,8 @@ dotnet test Tests/Tests.csproj                              # the Bobcat specs, 
 EventStore=Fisher dotnet test Tests/Tests.csproj            # the same specs, on Fisher
 BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests            # ...and print every spec as it rendered
 ```
+
+**The specs run one at a time, on purpose** (`Tests/AssemblyAttributes.cs`). Every act here is Bobcat's store-only act, which reads back what the store gained while it ran and attributes it by stream (bobcat#503): events another test appends to its own streams are set aside as `LastAct.ForeignEvents`, and a failing `ThenEvents` says "cross-talk suspected" when there were any. That narrows the problem without closing it -- a stream another test *starts* at the same moment still looks like one this act started, and every spec here starts one (`EnrollClient`, `OpenAccount`). So whole-store assertions on a shared store keep parallelization off. For real parallelism, act through Wolverine's tracked session with WolverineFx.Bobcat's `WolverineScenario`, or give each test its own store or tenant.
 
 Fisher builds its schema lazily, so the host calls `ApplyAllDatabaseChangesOnStartup()` -- without it the first append on a fresh file fails with `no such table: fi_streams` (footgun 13).
 

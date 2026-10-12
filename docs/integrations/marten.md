@@ -51,16 +51,22 @@ the other store; `samples/BankAccountES` runs its specifications on both.
 
 `WhenActing(description, act)` runs any act an application performs -- a domain service, an endpoint
 called in-process, a background job run by hand -- handed a fresh service scope. What it appended is
-read back from the store afterwards: the act takes the store's high-water mark before it runs, and
-every event appended since is the act's. An exception it throws is captured, not rethrown, so a
-refusal can be asserted with `ThenValidationFails` or `ThenRefusedWith`.
+read back from the store afterwards: the act takes the store's high-water mark before it runs, reads
+every event appended since, and keeps the ones on the specification's own streams -- those its Givens
+arranged, `WhenActingOn` addressed, or one of its acts wrote to or started (bobcat#503). The rest are
+`LastAct.ForeignEvents`. An exception it throws is captured, not rethrown, so a refusal can be asserted
+with `ThenValidationFails` or `ThenRefusedWith`.
 
 Two consequences of reading by sequence, worth designing around:
 
-- **Anything concurrent work appends while the act runs is counted as the act's.** A suite on the
-  store-only act runs its tests one at a time against a shared store --
-  `[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]` in xUnit -- or gives each test
-  its own store. `samples/BankAccountES` does the first.
+- **Whole-store assertions on a store-only act need serial execution on a shared store, or a store or
+  tenant per test. For real parallelism, use `WolverineScenario`.** Attribution by stream drops what
+  another test appends to *its* streams, but a stream another test *starts* while the act runs looks
+  exactly like one the act started, and still counts. A whole-store step (`ThenEvents`, `ThenNoEvents`,
+  `ThenStreamIsStartedWithEvents`, …) that fails while foreign events were seen says "cross-talk
+  suspected" in its message; a passing one says nothing. `samples/BankAccountES` runs serially, with
+  `[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]`. A `WolverineScenario` reads its act
+  from Wolverine's tracked session, which knows exactly what the act committed.
 - **No store reads an event's tags back**, so a step that judges Dynamic Consistency Boundary tags
   after a store-only act fails and says why, rather than reporting every tagged event missing.
 
@@ -81,7 +87,7 @@ Wolverine or HTTP act, a message step, a boundary step or `ThenEventuallyCaused`
 
 | | |
 |---|---|
-| [Arrange](wolverine.md#arrange) | `GivenEvents`, `GivenNoEventsFor`, `GivenEventsOn`, `GivenReadModel`, the clock steps |
+| [Arrange](wolverine.md#arrange) | `GivenEvents`, `GivenContext`, `GivenNoEventsFor`, `GivenEventsOn`, `GivenReadModel`, the clock steps |
 | [Act](wolverine.md#act) | `WhenActing`, `WhenActingOn` |
 | [Events](wolverine.md#assert-events) | `ThenEvents`, `ThenEventsInAnyOrder`, `ThenEmitted`, `ThenNotEmitted`, `ThenNoEvents`, `ThenEventsOn`, `ThenStreamIsStarted`, `ThenStreamIsStartedWithEvents` |
 | [Aggregates, documents and read models](wolverine.md#assert-aggregates-documents-and-read-models) | `ThenAggregate`, `ThenDocument`, `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`, `ThenSingleDocument`, `Verify`, `ThenMatches` |
@@ -89,7 +95,9 @@ Wolverine or HTTP act, a message step, a boundary step or `ThenEventuallyCaused`
 | [DCB models](wolverine.md#dynamic-consistency-boundaries) | `ThenEventsOn(EventTagQuery, …)`, `TheDcbModel`, `ThenDcbModel` |
 
 Every step that reads a projection waits for the async daemons first, up to `ProjectionTimeout` --
-**20 seconds** by default, which is what a cold daemon on a loaded CI runner needs.
+**20 seconds** by default, which is what a cold daemon on a loaded CI runner needs. A wait that runs out
+is an error, a `ProjectionCatchUpTimeoutException` naming the projections that were behind and what was
+being read, never a failed spec ([details](wolverine.md#assert-aggregates-documents-and-read-models)).
 
 ## Below the vocabulary
 
