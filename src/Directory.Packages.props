@@ -176,7 +176,6 @@
 
   <ItemGroup>
     <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx" Version="6.46.0" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
     <PackageVersion Include="WolverineFx.Marten" Version="6.46.0" />
     <PackageVersion Include="WolverineFx.Fisher" Version="6.46.0" />
@@ -205,10 +204,6 @@
          the real attribute so the reflective read is proved against the real type. -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
 
-    <!-- Entity Framework Core (Bobcat.EntityFrameworkCore) -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
-
     <!--
       Wolverine host packages. Same 6.46.0 as the aligned set above — the earlier monitor-only
       version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
@@ -233,7 +228,7 @@
     <PackageVersion Include="YamlDotNet" Version="16.3.0" />
 
     <!--
-      Microsoft.Testing.Platform (Bobcat.Mtp — Bobcat as an MTP test host).
+      Microsoft.Testing.Platform (Bobcat.Xunit's platform extension, and the MTP orchestration spike).
 
       Pinned to 1.9.1 to match what xunit.v3 3.2.2 builds against (its package is literally named
       xunit.v3.core.mtp-v1). Forcing 2.x here loads a platform assembly whose types have moved,
@@ -242,7 +237,6 @@
       consumer mix Bobcat specs and xUnit v3 tests in one solution — the point of issue #41.
     -->
     <PackageVersion Include="Microsoft.Testing.Platform" Version="1.9.1" />
-    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="1.9.1" />
 
     <!-- Roslyn (source generator only) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
