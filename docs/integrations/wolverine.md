@@ -68,12 +68,26 @@ Most steps take events, commands or documents as `object`, and accept any of the
 | `Expect.Value(x).Ignoring(e => e.OccurredAt)` | a whole object with members nobody controls shown but not judged |
 | `Specify<T>().With(x => x.Prop, value)` | a **partial object**: judged and shown on only the members it names. Handed to a Given or a When, it is *built*, with every unspecified member filled by `UnspecifiedValues` |
 | `Specify<T>(table)` | a partial object written as a table: `Property \| Value` rows, or the members as headers over one row |
-| `Specify<T>(x => x.Age.ShouldBe(4), …)` | a partial object to check against, written as assertions on its members |
+| `Specify<T>(x => x.Age.ShouldBe(4), …)` | a partial object to check against, written as assertions on its members. **Needs C# 14** -- see below |
 | `typeof(T)` | the type alone, whatever its values (`ThenEvents(params Type[])`) |
 | `Tagged(value, tags…)` / `Specify<T>().Tagged(tags…)` | an event expected (or arranged) with exactly these Dynamic Consistency Boundary tags |
 
 `Specify`, `Tagged` and `Expect.Value` are static, so a `*Spec` class reaches them unqualified.
 Prefer a deterministic clock to `Ignoring(...)` for a timestamp.
+
+Every form, with what each one judges and how it renders, is [Expected Objects](../expected-objects.md).
+
+::: warning A member check needs C# 14
+`Specify<T>(x => x.Age.ShouldBe(4))` is an expression tree -- that is how Bobcat reads the member path
+and the expected value out of it -- and before C# 14 an expression tree cannot leave out an optional
+argument, which every Shouldly assertion has (`customMessage`). The error is **CS0854**, "An
+expression tree may not contain a call or invocation that uses optional arguments".
+
+On C# 12 or 13 (net9.0, or a pinned `LangVersion` -- Wolverine's own tests pin C# 12) either write
+every optional argument out positionally, `x => x.Age.ShouldBe(4, null)`, or use the `.With(…)` chain
+or a table instead. [The full table is in Expected
+Objects](../expected-objects.md#member-checks-and-the-c-version-they-need).
+:::
 
 ## Arrange
 

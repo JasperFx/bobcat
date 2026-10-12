@@ -20,6 +20,7 @@ drift.
 | Binding a specification to its slice -- `[BobcatSpec]`, `[BobcatSlice]`, `TriggeredBy`, `Pending = true` | [Writing Specifications](../marker-steps.md#bobcatslice) |
 | The slice's command, aggregates, events, read models and messages, read off the vocabulary's `[EventModelRole]` attributes | [Binding, not roles](../marker-steps.md#event-model-roles) |
 | The Given/When/Then vocabulary the specifications are written in | [Bobcat with Wolverine](../integrations/wolverine.md) |
+| What a specification claims about an event, an aggregate or a read model -- partial objects, collection expectations, tolerances, member checks and the C# version they need | [Expected Objects](../expected-objects.md) |
 | The gate that keeps the model and the specifications honest | [Checking Spec Identities Against the Model](../spec-identities.md#checking-identities-against-the-model) |
 
 Skeleton generation for declared-only slices is Wolverine's `scaffold` command, not Bobcat's.
