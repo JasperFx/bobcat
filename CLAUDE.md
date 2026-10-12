@@ -546,7 +546,17 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `TestingPlatformBuilderHook` item names, so `Bobcat.Xunit` ships
     `buildTransitive/Bobcat.Xunit.props` — and **in-repo projects declare the item themselves**,
     because a `ProjectReference` takes no build assets (the same rule as `Bobcat.Mtp.props` and
-    `GenerateTestingPlatformEntryPoint`).
+    `GenerateTestingPlatformEntryPoint`). **Except the samples (bobcat#484):**
+    `samples/Directory.Build.props` `<Import>`s `Bobcat.Generators.props` and `Bobcat.Xunit.props`
+    straight from `src/*/buildTransitive/` for every `Tests` project, so a sample is configured
+    exactly like a package consumer and no `Tests.csproj` restates either setting.
+  - **A missing interceptor opt-in can no longer pass vacuously (bobcat#484).** Without
+    `Bobcat.Generated` in `InterceptorsNamespaces` the generator emits no interceptors and reports
+    **BOBCAT037** (error) once, at the first call site, read from the same parse option the compiler
+    enforces (it was a CS9137 per call site before). At run time, a `SpecAssert` wrong with a scenario
+    open and **no step** open (an un-intercepted helper, or no generator at all) goes on
+    `Recording.SteplessWrongs` and fails the scenario through `GatheredFailures`; it used to be
+    dropped. A *passing* check outside a step stays silent.
   - **`Bobcat.Xunit` takes a `Microsoft.Testing.Platform` reference; `Bobcat.TUnit` deliberately
     does NOT.** `xunit.v3.extensibility.core` depends only on `xunit.v3.common`, so this is the
     first platform reference either adapter has had — and it costs an xUnit consumer nothing, since

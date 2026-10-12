@@ -27,9 +27,10 @@ public class BobcatGenerator : IIncrementalGenerator
             .Select((c, _) => c!);
 
         context.RegisterSourceOutput(
-            stepCalls.Collect().Combine(context.AnalyzerConfigOptionsProvider), (spc, pair) =>
+            stepCalls.Collect().Combine(context.AnalyzerConfigOptionsProvider).Combine(context.ParseOptionsProvider),
+            (spc, input) =>
         {
-            var (extracted, config) = pair;
+            var ((extracted, config), parseOptions) = input;
 
             // Projected assertions are opt-in per PROJECT: extracted always (a transform cannot see
             // MSBuild properties), kept only when the project asked for them. Off, a suite behaves
@@ -59,6 +60,27 @@ public class BobcatGenerator : IIncrementalGenerator
                         call.Location ?? Microsoft.CodeAnalysis.Location.None,
                         call.MethodName, placeholder, parameters));
                 }
+            }
+
+            // bobcat#484. Without the opt-in every interceptor below is a CS9137 in a generated file,
+            // one per call site, and a project that gets the build to go green some other way (the
+            // generator missing, or this error suppressed) has helpers that run as plain method calls:
+            // no step opens, and a SpecAssert inside one has nothing to report to. One error, at the
+            // first call site, that says which line to add, instead of a wall of CS9137s.
+            if (!DeclaredValues.InterceptorsEnabled(parseOptions))
+            {
+                var first = calls
+                    .Where(c => c.Location != null)
+                    .OrderBy(c => c.Location!.SourceTree?.FilePath, StringComparer.Ordinal)
+                    .ThenBy(c => c.Location!.SourceSpan.Start)
+                    .FirstOrDefault();
+
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.InterceptorsNotEnabled,
+                    first?.Location ?? Microsoft.CodeAnalysis.Location.None,
+                    calls.Length,
+                    calls.Length == 1 ? "" : "s"));
+                return;
             }
 
             // Numbered before either output: the interceptor writes each call's ordinal into the
@@ -276,7 +298,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT037. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT038. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -416,6 +438,39 @@ internal static class Diagnostics
         "The spec identity '{0}' is also claimed by {1}. Identity filtering, the resident runner, the " +
         "flake/duration ledger and the Event Model would treat them as one specification. Rename one of " +
         "the test methods, or give one an explicit scenario name with [BobcatSpec(Name = \"...\")].",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#484: the compilation has step-helper calls (or projected assertions) to intercept, but the
+    /// project never opted <c>Bobcat.Generated</c> into C# interceptors.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <c>Bobcat.Generators</c> package sets <c>InterceptorsNamespaces</c> from its
+    /// <c>buildTransitive</c> props. A <c>ProjectReference</c> analyzer, the way this repository's own
+    /// tests and samples consume the generator, takes no build assets, so it gets the generator and not
+    /// the opt-in. What that cost used to be a CS9137 per call site in a generated file, and a project
+    /// that silenced it some other way ran every <c>[Given]</c>/<c>[When]</c>/<c>[Then]</c> helper as an
+    /// ordinary method call: no step, so a <c>SpecAssert</c> wrong landed nowhere and the spec passed.
+    /// </para>
+    /// <para>
+    /// <b>An error, because the check cannot be wrong.</b> It reads the same parse option the compiler
+    /// enforces (<c>InterceptorsNamespaces</c> or <c>InterceptorsPreviewNamespaces</c> arrive as
+    /// <c>/features:</c>), and it only fires where interceptors would otherwise have been emitted and
+    /// failed to compile. A project with nothing to intercept never sees it. Reported once, at the first
+    /// call site, and no interceptor is emitted alongside it.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor InterceptorsNotEnabled = new(
+        "BOBCAT037",
+        "Bobcat's interceptors are not enabled in this project",
+        "This project has {0} Bobcat step call{1} to intercept, but interceptors are not enabled for the " +
+        "Bobcat.Generated namespace, so no step would record and a SpecAssert inside a step helper would report " +
+        "to nothing. Add <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces> " +
+        "to the project. The Bobcat.Generators package does this for you; a ProjectReference to the generator " +
+        "does not, so import its buildTransitive/Bobcat.Generators.props instead.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

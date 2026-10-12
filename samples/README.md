@@ -29,10 +29,11 @@ every spec. The event-sourced samples -- BookingMonolith, MeetingGroupMonolith, 
 BankAccountES -- derive that base from `CritterStackSpec`, so a spec can also assert the events a
 request appended and the aggregate they built.
 
-Two settings in each `Tests.csproj` are what a package consumer would inherit from Bobcat's
-`buildTransitive` props and a `ProjectReference` does not: `InterceptorsNamespaces` (without it a
-`[Given]` / `[When]` / `[Then]` helper records nothing and `SpecAssert` reports to no step, so every spec
-passes vacuously) and the `Bobcat.Xunit` `TestingPlatformBuilderHook`.
+A package consumer gets two settings from Bobcat's `buildTransitive` props that a `ProjectReference`
+does not: the `InterceptorsNamespaces` opt-in for `Bobcat.Generated` and the `Bobcat.Xunit`
+`TestingPlatformBuilderHook`. `Directory.Build.props` imports those same props files into every
+`Tests` project, so no `Tests.csproj` states either one. A new sample gets them by being named `Tests`;
+without the interceptor opt-in the build stops with BOBCAT037.
 
 ## Samples
 

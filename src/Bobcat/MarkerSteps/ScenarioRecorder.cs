@@ -59,8 +59,18 @@ public static class ScenarioRecorder
     public static void RecordCell(CellResult cell)
     {
         var recording = _current.Value;
-        var step = recording?.OpenStep;
-        if (recording is null || step is null) return;
+        if (recording is null) return;
+
+        var step = recording.OpenStep;
+        if (step is null)
+        {
+            // bobcat#484: a wrong with a scenario open and no step to hang it on is still a wrong.
+            // Dropping it is how a project whose step helpers were never intercepted passed.
+            if (cell.Status is not (ResultStatus.success or ResultStatus.ok))
+                recording.RecordSteplessWrong(
+                    string.IsNullOrEmpty(cell.Name) ? cell.DisplayText : $"{cell.Name}: {cell.DisplayText}");
+            return;
+        }
 
         step.Cells.Add(cell);
         recording.CellsProgressed(step);
@@ -677,6 +687,39 @@ public static class ScenarioRecorder
             }
         }
 
+        private readonly List<string> _steplessWrongs = new();
+
+        /// <summary>
+        /// Wrongs a <see cref="SpecAssert"/> reported while this scenario was open but no step was
+        /// (bobcat#484), in the order they were reported.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The everyday cause is a step helper that was never intercepted -- the project has no
+        /// <c>Bobcat.Generated</c> interceptor opt-in, or no generator at all -- so the helper runs as
+        /// an ordinary method call and opens no step. A <c>SpecAssert</c> called from a test body or
+        /// setup code outside every helper lands here too. Either way the wrong is real, and dropping
+        /// it is exactly how such a spec used to pass.
+        /// </para>
+        /// <para>
+        /// Only wrongs. A passing check outside a step stays silent, as it always was: a helper used
+        /// from setup code asserts things that are fine, and reporting them would attach a cell to
+        /// nothing in particular.
+        /// </para>
+        /// </remarks>
+        public IReadOnlyList<string> SteplessWrongs
+        {
+            get
+            {
+                lock (_steplessWrongs) return _steplessWrongs.ToList();
+            }
+        }
+
+        internal void RecordSteplessWrong(string description)
+        {
+            lock (_steplessWrongs) _steplessWrongs.Add(description);
+        }
+
         /// <summary>
         /// The failures the steps GATHERED rather than threw — a <see cref="SpecAssert"/> wrong or a
         /// failed cell — described for the runner, or null when there are none.
@@ -696,15 +739,39 @@ public static class ScenarioRecorder
                 .Select(x => (Step: x, Description: describe(x)))
                 .ToList();
 
-            if (failed.Count == 0) return null;
+            var stepless = SteplessWrongs;
+            if (failed.Count == 0 && stepless.Count == 0) return null;
 
-            var lines = failed.Select(x =>
-                x.Description is null ? $"  {x.Step}" : $"  {x.Step} => {x.Description}");
-            var heading = failed.Count == 1
-                ? "1 specification step failed:"
-                : $"{failed.Count} specification steps failed:";
+            var sections = new List<string>();
 
-            return heading + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            if (failed.Count > 0)
+            {
+                var lines = failed.Select(x =>
+                    x.Description is null ? $"  {x.Step}" : $"  {x.Step} => {x.Description}");
+                var heading = failed.Count == 1
+                    ? "1 specification step failed:"
+                    : $"{failed.Count} specification steps failed:";
+
+                sections.Add(heading + Environment.NewLine + string.Join(Environment.NewLine, lines));
+            }
+
+            if (stepless.Count > 0) sections.Add(describeStepless(stepless));
+
+            return string.Join(Environment.NewLine, sections);
+        }
+
+        private static string describeStepless(IReadOnlyList<string> wrongs)
+        {
+            var heading = wrongs.Count == 1
+                ? "1 SpecAssert wrong was reported with no step open:"
+                : $"{wrongs.Count} SpecAssert wrongs were reported with no step open:";
+
+            var lines = wrongs.Select(x => string.IsNullOrEmpty(x) ? "  (a fact with no message)" : $"  {x}");
+
+            return heading + Environment.NewLine + string.Join(Environment.NewLine, lines) + Environment.NewLine
+                   + "  If these came from a [Given]/[When]/[Then] helper, it was not intercepted: the project needs "
+                   + "Bobcat.Generators as an analyzer and Bobcat.Generated in InterceptorsNamespaces (see BOBCAT037). "
+                   + "A SpecAssert called outside every step helper lands here too.";
         }
 
         /// <summary>
