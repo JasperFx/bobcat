@@ -8,33 +8,28 @@ namespace Bobcat.Supervisor.Tests;
 /// prove the scheduling logic; only this proves the protocol, the process handling, and that
 /// isolation actually isolates.
 /// </summary>
+/// <remarks>
+/// The worker is <c>Bobcat.Supervisor.ProjectedWorker</c>, an ordinary projected xUnit v3 suite
+/// (bobcat#471 moved these off the Gherkin-lane <c>Bobcat.Supervisor.SampleWorker</c>). Its uids
+/// are xUnit's opaque hashes, so tests are named by display name — see
+/// <see cref="WorkerHosts.IsNamed"/> — and run by the uid discovery handed back.
+/// </remarks>
 public class SupervisorEndToEndTests : IDisposable
 {
-    private static readonly string workerPath = locateWorker();
+    private static readonly string workerPath = WorkerHosts.ProjectedWorker;
     private readonly List<string> _tempFiles = [];
-
-    private static string locateWorker()
-    {
-        var configuration = Path.GetFileName(
-            Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))!);
-
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && directory.Name != "src") directory = directory.Parent;
-
-        if (directory is null) throw new InvalidOperationException("Could not locate the src directory.");
-
-        return Path.Combine(
-            directory.FullName, "Bobcat.Supervisor.SampleWorker", "bin", configuration, "net10.0",
-            OperatingSystem.IsWindows()
-                ? "Bobcat.Supervisor.SampleWorker.exe"
-                : "Bobcat.Supervisor.SampleWorker");
-    }
 
     private MtpWorkerFactory factory(Dictionary<string, string>? environment = null)
     {
-        File.Exists(workerPath).ShouldBeTrue($"The sample worker was not built at {workerPath}");
+        File.Exists(workerPath).ShouldBeTrue($"The projected worker was not built at {workerPath}");
         return new MtpWorkerFactory(workerPath, environment);
     }
+
+    private static TestReport named(SupervisorResults results, string classAndMethod)
+        => results.Tests.Single(t => WorkerHosts.IsNamed(t.DisplayName, classAndMethod));
+
+    private static bool isNamed(TestReport test, string classAndMethod)
+        => WorkerHosts.IsNamed(test.DisplayName, classAndMethod);
 
     private string tempFile()
     {
@@ -58,11 +53,10 @@ public class SupervisorEndToEndTests : IDisposable
 
         var tests = await worker.Discover();
 
-        tests.Select(t => t.Uid).ShouldContain("Fussy/only works alone");
-
         // Traits arrive at discovery, before anything runs — which is what lets the supervisor
-        // plan isolation up front rather than discovering it after a failure.
-        var isolated = tests.Single(t => t.Uid == "Fussy/only works alone");
+        // plan isolation up front rather than discovering it after a failure. They are plain xUnit
+        // [Trait]s here: the supervisor reads traits, whatever framework wrote them.
+        var isolated = tests.Single(t => WorkerHosts.IsNamed(t.DisplayName, "Fussy.only_works_alone"));
         isolated.Traits[ResilienceTags.Isolated].ShouldBe("true");
         isolated.Traits[ResilienceTags.Retry].ShouldBe("2");
     }
@@ -81,7 +75,7 @@ public class SupervisorEndToEndTests : IDisposable
         process.HasExited.ShouldBeFalse();
 
         // The pid also rides on the run's result, which is what lets a fault name its process.
-        var result = await worker.Run(["Basics/passes"]);
+        var result = await worker.Run(await WorkerHosts.UidsOf(worker, "Basics.passes"));
         result.ProcessId.ShouldBe(pid);
     }
 
@@ -104,9 +98,10 @@ public class SupervisorEndToEndTests : IDisposable
     {
         await using var worker = await MtpWorkerClient.Launch(workerPath);
 
-        var result = await worker.Run(["Basics/passes"]);
+        var passes = await WorkerHosts.UidsOf(worker, "Basics.passes");
+        var result = await worker.Run(passes);
 
-        result.Outcomes.ShouldHaveSingleItem().Uid.ShouldBe("Basics/passes");
+        result.Outcomes.ShouldHaveSingleItem().Uid.ShouldBe(passes.Single());
         result.Crashed.ShouldBeFalse();
     }
 
@@ -117,11 +112,11 @@ public class SupervisorEndToEndTests : IDisposable
         // nothing at all.
         await using var worker = await MtpWorkerClient.Launch(workerPath);
 
-        var result = await worker.Run([
-            "Basics/passes", "Basics/also passes", "Fussy/only works alone"
-        ]);
+        var uids = await WorkerHosts.UidsOf(
+            worker, "Basics.passes", "Basics.also_passes", "Fussy.only_works_alone");
+        var result = await worker.Run(uids);
 
-        var lonely = result.Outcomes.Single(o => o.Uid == "Fussy/only works alone");
+        var lonely = result.Outcomes.Single(o => o.Uid == uids[2]);
         lonely.Succeeded.ShouldBeFalse();
         lonely.ErrorMessage.ShouldContain("not alone");
     }
@@ -135,13 +130,13 @@ public class SupervisorEndToEndTests : IDisposable
 
         var results = await supervisor.Run();
 
-        var lonely = results.Tests.Single(t => t.Uid == "Fussy/only works alone");
+        var lonely = named(results, "Fussy.only_works_alone");
         lonely.Outcome.ShouldBe(RunOutcome.CleanPass);
         lonely.Final.Placement.ShouldBe(AttemptPlacement.IsolatedProcess);
         lonely.AttemptCount.ShouldBe(1); // isolation worked first time — no retry needed
 
         // And the deliberately broken test is still reported as broken.
-        results.Failed.Select(t => t.Uid).ShouldContain("Basics/always fails");
+        results.Failed.ShouldContain(t => isNamed(t, "Basics.always_fails"));
     }
 
     [Fact]
@@ -184,7 +179,7 @@ public class SupervisorEndToEndTests : IDisposable
 
         var results = await supervisor.Run();
 
-        var flaky = results.Tests.Single(t => t.Uid == "Fussy/flaky until second attempt");
+        var flaky = named(results, "Fussy.flaky_until_second_attempt");
         flaky.Outcome.ShouldBe(RunOutcome.PassOnRetry);
         flaky.AttemptCount.ShouldBe(2);
 
@@ -214,7 +209,7 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_worker_crash_reports_the_exit_code_rather_than_just_the_closed_socket()
     {
-        // The sample worker exits 70 on purpose. Reporting only "the connection closed" would
+        // The projected worker exits 70 on purpose. Reporting only "the connection closed" would
         // leave the user with an indeterminate run and nothing to act on.
         var supervisor = new Supervisor(factory(new Dictionary<string, string>
         {
@@ -245,7 +240,8 @@ public class SupervisorEndToEndTests : IDisposable
             ["BOBCAT_UNHANDLED"] = "true"
         });
 
-        var result = await worker.Run(["Fussy/dies with an unhandled exception when armed"]);
+        var result = await worker.Run(
+            await WorkerHosts.UidsOf(worker, "Fussy.dies_with_an_unhandled_exception_when_armed"));
 
         result.Crashed.ShouldBeTrue();
         result.StandardError.ShouldNotBeNullOrWhiteSpace();
@@ -256,11 +252,10 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_resource_that_fails_to_start_is_a_reported_failure_not_a_crash()
     {
-        // Issue #123. The worker's broker resource refuses to start, so nothing in it can run.
-        // Before the fix the SpecCatastrophicException escaped the MTP host, the process died,
-        // and the supervisor could only call every test Indeterminate with a worker fault —
-        // which is the right answer for a crash, and the wrong one for a failure the worker knew
-        // all about.
+        // Issue #123's shape in a projected suite: the worker's broker, an xUnit assembly fixture,
+        // refuses to start, so nothing in it can run. A supervisor that called every test
+        // Indeterminate with a worker fault would be giving the right answer for a crash and the
+        // wrong one for a failure the worker knew all about.
         var supervisor = new Supervisor(factory(new Dictionary<string, string>
         {
             ["BOBCAT_START_FAILS"] = "true"
@@ -274,8 +269,9 @@ public class SupervisorEndToEndTests : IDisposable
         // Every test has a verdict, and the verdict names the resource.
         results.Tests.Count.ShouldBe(8);
         results.Failed.Count.ShouldBe(8);
-        results.Failed.ShouldAllBe(t => t.Final.Outcome.State == WorkerTestState.Error);
-        results.Failed.ShouldAllBe(t => t.Final.Outcome.ErrorMessage!.Contains("the broker refused the connection"));
+        results.Failed.ShouldAllBe(t =>
+            t.Final.Outcome.ErrorMessage != null
+            && t.Final.Outcome.ErrorMessage.Contains("the broker refused the connection"));
 
         // An ordinary red build, not "we do not know what happened".
         results.ExitCode.ShouldBe(1);
@@ -302,14 +298,14 @@ public class SupervisorEndToEndTests : IDisposable
 
         var results = await supervisor.Run();
 
-        results.Tests.Single(t => t.Uid == "Basics/always fails").AttemptCount.ShouldBe(1);
+        named(results, "Basics.always_fails").AttemptCount.ShouldBe(1);
     }
 
     [Fact]
     public async Task an_isolation_sweep_separates_a_real_interference_victim_from_ordinary_red()
     {
         // The fake-worker tests prove the classification; this proves the isolation was real.
-        // "Fussy/only works alone" throws when anything else has executed in its process, so it
+        // "Fussy.only_works_alone" throws when anything else has executed in its process, so it
         // can only come back green from the sweep if that process genuinely contained one test.
         // A sweep whose isolation did not isolate would report it as failing both ways, which is
         // exactly the false negative worth catching here rather than in a fake.
@@ -324,11 +320,11 @@ public class SupervisorEndToEndTests : IDisposable
         results.Discovered.ShouldBe(8);
         results.Partitions.ShouldBe(8);
 
-        results.InterferenceVictims.Select(f => f.Uid).ShouldBe(["Fussy/only works alone"]);
+        results.InterferenceVictims.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Fussy.only_works_alone");
 
         // Fails with the suite and alone — a real bug, and the sweep must not dress it up as an
         // isolation problem.
-        results.FailedInBoth.Select(f => f.Uid).ShouldBe(["Basics/always fails"]);
+        results.FailedInBoth.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Basics.always_fails");
 
         // Nothing here passes only because something else ran first.
         results.OrderDependent.ShouldBeEmpty();
@@ -337,22 +333,22 @@ public class SupervisorEndToEndTests : IDisposable
     [Fact]
     public async Task a_per_class_sweep_groups_by_feature_over_the_wire()
     {
-        // Two features, so two processes — which only holds because ClassOf understands Bobcat's
-        // "Feature: Scenario" display name. Before that fix this returned seven, and the supervisor
-        // was quietly partitioning Bobcat suites per test.
+        // Two classes, so two processes — ClassOf reading the class off xUnit's fully qualified
+        // "Namespace.Class.method" display name.
         var sweep = new IsolationSweep(factory()) { Granularity = SweepGranularity.PerClass };
 
         var results = await sweep.Run();
 
         results.Partitions.ShouldBe(2);
-        results.Findings.ShouldAllBe(f => f.Partition == "Basics" || f.Partition == "Fussy");
+        results.Findings.ShouldAllBe(f => f.Partition.EndsWith(".Basics") || f.Partition.EndsWith(".Fussy"));
 
         // "only works alone" is still found here, and the reason is worth knowing: it is the first
-        // scenario registered in Fussy, so when that feature runs as its own group it executes
-        // first and nothing has polluted the process yet. Per-class is not blind to this defect —
+        // test declared in Fussy, and the worker runs a class's tests in declaration order, so when
+        // that class runs as its own group it executes first and nothing has polluted the process
+        // yet. Per-class is not blind to this defect —
         // it is blind to one where the *classmate that runs before it* is the culprit, which
         // IsolationSweepTests covers directly.
-        results.InterferenceVictims.Select(f => f.Uid).ShouldBe(["Fussy/only works alone"]);
-        results.FailedInBoth.Select(f => f.Uid).ShouldBe(["Basics/always fails"]);
+        results.InterferenceVictims.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Fussy.only_works_alone");
+        results.FailedInBoth.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Basics.always_fails");
     }
 }

@@ -15,7 +15,13 @@
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.Supervisor\Bobcat.Supervisor.csproj" />
 
-    <!-- Build ordering only. The sample worker is launched as a process, not linked. -->
+    <!-- Build ordering only. The projected worker is launched as a process, not linked: an
+         ordinary projected xUnit v3 suite, and the worker every end-to-end test drives. -->
+    <ProjectReference Include="..\Bobcat.Supervisor.ProjectedWorker\Bobcat.Supervisor.ProjectedWorker.csproj"
+                      ReferenceOutputAssembly="false" />
+
+    <!-- Build ordering only, for SampleWorkerEndToEndTests: the Gherkin-lane worker the projected
+         one replaced. Phase 3: delete with SampleWorker. -->
     <ProjectReference Include="..\Bobcat.Supervisor.SampleWorker\Bobcat.Supervisor.SampleWorker.csproj"
                       ReferenceOutputAssembly="false" />
 
