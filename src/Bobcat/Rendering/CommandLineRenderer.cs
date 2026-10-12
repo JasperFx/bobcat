@@ -660,69 +660,6 @@ public class CommandLineRenderer
         }
     }
 
-    // --- Legacy ExecutionResults-based rendering (bridge) ---
-
-    public void RenderResults(string specTitle, ExecutionResults results)
-    {
-        Render(SpecRender.FromResults(specTitle, results));
-    }
-
-    /// <summary>
-    /// A harness failure as it happens — a resource that would not start, a feature hook that
-    /// threw. Rendered where a feature header would have been, so the console shows the reason
-    /// at the point the run stopped rather than only in the summary.
-    /// </summary>
-    public void RenderCatastrophicFailure(string description)
-    {
-        output.MarkupLine($"  [red bold]✗ {Markup.Escape(description)}[/]");
-    }
-
-    /// <summary>
-    /// The harness section of the summary: what broke, and every scenario that did not run
-    /// because of it. Silent when the harness held up.
-    /// </summary>
-    public void RenderHarnessSummary(SuiteResults results)
-    {
-        if (results.DiscoveryFailure is null && results.PreflightFailure is null &&
-            results.CatastrophicFailure is null &&
-            results.NotRun.Count == 0 && results.Features.All(f => f.LifecycleFailure is null))
-        {
-            return;
-        }
-
-        output.WriteLine();
-
-        if (results.DiscoveryFailure is not null)
-        {
-            output.MarkupLine($"  [red bold]{Markup.Escape(results.DiscoveryFailure)}[/]");
-        }
-
-        if (results.PreflightFailure is not null)
-        {
-            output.MarkupLine($"  [red bold]{Markup.Escape(results.PreflightFailure)}[/]");
-        }
-
-        if (results.CatastrophicFailure is not null)
-        {
-            output.MarkupLine($"  [red bold]Catastrophic: {Markup.Escape(results.CatastrophicFailure)}[/]");
-        }
-
-        foreach (var feature in results.Features.Where(f => f.LifecycleFailure is not null))
-        {
-            output.MarkupLine($"  [red]{Markup.Escape(feature.LifecycleFailure!)}[/]");
-        }
-
-        if (results.NotRun.Count > 0)
-        {
-            output.MarkupLine($"  [red]{results.NotRun.Count} scenario(s) did not run[/]");
-            foreach (var scenario in results.NotRun)
-            {
-                output.MarkupLine(
-                    $"    [red]•[/] {Markup.Escape(scenario.FeatureTitle)}: {Markup.Escape(scenario.Title)}");
-            }
-        }
-    }
-
     public void RenderCounts(Counts counts) => RenderCounts(counts, counts.Succeeded);
 
     /// <summary>
@@ -741,47 +678,6 @@ public class CommandLineRenderer
         var word = succeeded ? "Succeeded" : "Failed";
         output.MarkupLine(
             $"  [{color}]{word} with Rights: {counts.Rights}, Wrongs: {counts.Wrongs}, Errors: {counts.Errors}[/]");
-    }
-
-    // --- Retry reporting ---
-    //
-    // Retries are shown as they happen and again on the scenario's own line. A retry that only
-    // appears in the final summary reads as a clean pass while the run is in flight, which is
-    // exactly the laundering this feature has to avoid.
-
-    /// <summary>Announces a retry before the next attempt starts.</summary>
-    public void RenderRetryNotice(string scenarioTitle, int nextAttempt, string reason)
-    {
-        output.MarkupLine(
-            $"  [yellow]↻ retrying[/] [italic]{Markup.Escape(scenarioTitle)}[/] " +
-            $"[grey](attempt {nextAttempt}: {Markup.Escape(reason)})[/]");
-    }
-
-    /// <summary>
-    /// Marks a scenario that needed more than one attempt, or whose requested retry could not
-    /// be honoured. Silent for the ordinary clean-pass case.
-    /// </summary>
-    public void RenderRetrySummary(ScenarioResult result)
-    {
-        if (result.Outcome == RunOutcome.PassOnRetry)
-        {
-            output.MarkupLine(
-                $"  [yellow]⚠ passed on retry[/] [grey]after {result.AttemptCount} attempts — " +
-                "not a clean pass[/]");
-        }
-
-        // A hint that stopped a tagged scenario from retrying is the case most in need of saying
-        // so out loud: nothing else on screen would explain why the tag appeared not to work.
-        if (result.Attempts.LastOrDefault() is { Disposition: { Hint: { } hint, IsRetry: false } })
-        {
-            output.MarkupLine(
-                $"  [grey]↯ recovery hint applied:[/] [italic]{Markup.Escape(hint.ToString())}[/]");
-        }
-
-        foreach (var unsupported in result.UnsupportedDispositions)
-        {
-            output.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
-        }
     }
 
     /// <summary>
@@ -863,34 +759,6 @@ public class CommandLineRenderer
             {
                 output.MarkupLine($"    [yellow]•[/] {Markup.Escape(uid)}");
             }
-        }
-    }
-
-    /// <summary>The run-level flakiness ledger. Silent when everything passed cleanly.</summary>
-    public void RenderResilienceSummary(SuiteResults results)
-    {
-        var passedOnRetry = results.PassedOnRetry;
-        if (passedOnRetry.Count == 0 && results.UnsupportedDispositions.Count == 0) return;
-
-        output.WriteLine();
-
-        if (passedOnRetry.Count > 0)
-        {
-            output.MarkupLine(
-                $"  [yellow]{passedOnRetry.Count} scenario(s) passed on retry[/] " +
-                $"[grey]({results.RetriesPerformed} retries performed)[/]");
-
-            foreach (var scenario in passedOnRetry)
-            {
-                output.MarkupLine(
-                    $"    [yellow]•[/] {Markup.Escape(scenario.Title)} " +
-                    $"[grey]({scenario.AttemptCount} attempts)[/]");
-            }
-        }
-
-        foreach (var unsupported in results.UnsupportedDispositions)
-        {
-            output.MarkupLine($"  [yellow]⚠ {Markup.Escape(unsupported)}[/]");
         }
     }
 

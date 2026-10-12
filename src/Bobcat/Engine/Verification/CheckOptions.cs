@@ -1,8 +1,8 @@
 namespace Bobcat.Engine.Verification;
 
 /// <summary>
-/// Per-comparison options, typically derived from step/method attributes
-/// (e.g. <c>[Approx]</c>) and carried into an <see cref="IValueChecker{T}"/>.
+/// Per-comparison options, passed to <c>SpecAssert.Check</c> (or <see cref="CellCheck"/>) and carried
+/// into an <see cref="IValueChecker{T}"/>.
 /// </summary>
 public sealed class CheckOptions
 {
@@ -10,8 +10,8 @@ public sealed class CheckOptions
     public static readonly CheckOptions Default = new();
 
     /// <summary>
-    /// Absolute tolerance for numeric comparisons (from <c>[Approx(...)]</c>).
-    /// Null means exact comparison.
+    /// Absolute tolerance for numeric comparisons — <c>SpecAssert.Check(..., tolerance:)</c> is the
+    /// shorthand. Null means exact comparison.
     /// </summary>
     public double? Tolerance { get; init; }
 
@@ -29,7 +29,7 @@ public sealed class CheckOptions
     public bool Trim { get; init; } = true;
 
     /// <summary>
-    /// An explicit checker type from <c>[Comparison(typeof(X))]</c>. When set this
+    /// An explicit checker type. When set this
     /// takes precedence over every other entry in the resolution chain. The type must
     /// implement <see cref="IValueChecker{T}"/> for the value being checked and have a
     /// parameterless constructor.

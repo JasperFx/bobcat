@@ -21,9 +21,8 @@ namespace Bobcat;
 /// <para>
 /// <b>The comparison is Bobcat's own, not a second opinion.</b> Every check goes through
 /// <see cref="CellCheck"/> — the same type-aware comparison, the same <c>NULL</c>/<c>EMPTY</c>
-/// tokens, the same <c>[Approx]</c> tolerance handling and the same structured
-/// Expected/Actual/Note cell — that the Gherkin lane's return-value verification uses. A projected
-/// spec and a <c>.feature</c> spec checking the same value therefore agree, and render identically.
+/// tokens, the same tolerance handling and the same structured Expected/Actual/Note cell that table
+/// rows and set verifications use, so every check renders the same way.
 /// </para>
 /// <para>
 /// <b>Silent outside a scenario.</b> Like every other marker-step call, a helper is used from
@@ -53,12 +52,11 @@ public static partial class SpecAssert
         => record(CellCheck.For(name, actual, CheckFormat.Of(expected), options, rowIndex));
 
     /// <summary>
-    /// Compare two numbers within an absolute <paramref name="tolerance"/> rather than exactly -- the
-    /// projected lane's answer to <c>[Approx]</c>, which only the Gherkin generator reads.
+    /// Compare two numbers within an absolute <paramref name="tolerance"/> rather than exactly.
     /// </summary>
     /// <remarks>
-    /// Shorthand for <c>new CheckOptions { Tolerance = tolerance }</c>, so it is the same comparison
-    /// and the cell carries the same <c>±0.1</c> note a Gherkin <c>[Approx(0.1)]</c> step shows.
+    /// Shorthand for <c>new CheckOptions { Tolerance = tolerance }</c>, so it is the same comparison,
+    /// and the cell carries a <c>±0.1</c> note.
     /// </remarks>
     public static bool Check<T>(string name, T actual, T expected, double tolerance, int rowIndex = -1)
         => Check(name, actual, expected, new CheckOptions { Tolerance = tolerance }, rowIndex);

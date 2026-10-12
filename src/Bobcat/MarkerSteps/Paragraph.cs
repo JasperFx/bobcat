@@ -12,7 +12,7 @@ namespace Bobcat;
 /// using (paragraph.Sentence("VolunteerApplicationSubmitted is emitted on it")) { ... }
 /// </code>
 /// A paragraph that arranges, acts and asserts changes keyword as it goes, and a sentence repeating
-/// the keyword before it reads "And" (wolverine#4938, <c>CritterStackFixture.WhenActingOn</c>):
+/// the keyword before it reads "And" (wolverine#4938, <c>CritterStackScenario.WhenActingOn</c>):
 /// <code>
 /// var paragraph = new Paragraph("Given");
 /// using (paragraph.Sentence("the Wallet stream is at version 2")) { ... }

@@ -32,7 +32,6 @@
         "Pack",
         "Restore",
         "Samples",
-        "SpecsThroughDotnetTest",
         "Test",
         "TestSamples",
         "TestSamplesOnFisher"

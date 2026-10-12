@@ -11,14 +11,8 @@ namespace Bobcat.Runtime;
 /// <remarks>
 /// <para>
 /// <b>Storyteller's <c>VerifyObject</c> / <c>CheckPropertyGrammar</c>, and general-purpose</b>: any
-/// step with an object and a row can call it, and <c>Fixture.VerifyObject</c> is the wrapper
-/// (issue #395). It arrived as the engine behind two event-store grammars, which is where it came
-/// from and not what it is.
-/// </para>
-/// <para>
-/// Those two are <c>Then the {readmodel} read model contains</c> and
-/// <c>Then the {document} with id {string} has</c>. Both used to flatten the whole
-/// comparison into one exception message —
+/// step with an object and a row can call it (issue #395). It arrived as the engine behind two
+/// event-store grammar steps, which used to flatten the whole comparison into one exception message —
 /// <c>"AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0, was 1;
 /// Confirmed: expected 0, was -1"</c> — which is a sentence a reader has to parse to find the one
 /// column that disagreed, and three green columns nobody ever saw. As cells it is a grid with a
@@ -37,13 +31,13 @@ public static class PropertyCells
 {
     /// <summary>
     /// Compare <paramref name="subject"/> against the first row of <paramref name="expected"/> and
-    /// report the grid to whichever lane is listening.
+    /// report the grid on the recorded step, if one is open.
     /// </summary>
     /// <returns>The grid, whose <c>Succeeded</c> is the comparison's verdict.</returns>
-    public static TableRun Verify(object subject, StepTable expected, IStepContext? context = null)
+    public static TableRun Verify(object subject, StepTable expected)
     {
         var run = Cells(subject, expected);
-        run.Report(context);
+        run.Report();
         return run;
     }
 
@@ -51,7 +45,7 @@ public static class PropertyCells
     /// Compare <paramref name="subject"/> against a partial object — <c>Specify&lt;T&gt;()</c> or a table
     /// row — judging and showing only the members it names (bobcat#418), and report the grid.
     /// </summary>
-    public static TableRun Verify(object subject, IPartialObject expected, IStepContext? context = null)
+    public static TableRun Verify(object subject, IPartialObject expected)
     {
         var run = new TableRun(expected.Values.Select(v => v.Path).ToList());
         var differences = PartialMatching.Differences(subject, expected)
@@ -77,7 +71,7 @@ public static class PropertyCells
                 });
         }
 
-        run.Report(context);
+        run.Report();
         return run;
     }
 
@@ -144,9 +138,9 @@ public static class PropertyCells
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Public, and here rather than in any one grammar</b>, because four callers share this
-    /// lookup: the two shipped event-store grammars, <c>Fixture.VerifyObject</c>, and the Wolverine
-    /// side's event and HTTP-response assertions. Solving it in one of them would leave the others
+    /// <b>Public, and here rather than in any one grammar</b>, because several callers share this
+    /// lookup: <see cref="Verify(object, StepTable)"/>, the store vocabulary, and the Wolverine side's
+    /// event and HTTP-response assertions. Solving it in one of them would leave the others
     /// with a different rule for what a column name means — the drift <see cref="ColumnNames"/> and
     /// <see cref="CellCheck"/> exist to prevent.
     /// </para>

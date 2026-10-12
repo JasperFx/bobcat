@@ -17,11 +17,9 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-1", "Widget", 90) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
-
-        result.StepStatus.ShouldBe(ResultStatus.success);
+        result.Succeeded.ShouldBeTrue();
         var qtyCell = result.Cells.Single(c => c.Name == "Quantity");
         qtyCell.Status.ShouldBe(ResultStatus.success);
         qtyCell.Expected.ShouldBe("90");
@@ -33,11 +31,9 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-1", "Widget", 90) };
         var expected = new[] { row("SKU-1", "Widget", "85") };
-        var result = new StepResult("step", 0);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
-
-        result.StepStatus.ShouldBe(ResultStatus.failed);
+        result.Succeeded.ShouldBeFalse();
         var qtyCell = result.Cells.Single(c => c.Name == "Quantity");
         qtyCell.Status.ShouldBe(ResultStatus.failed);
         qtyCell.Expected.ShouldBe("85");
@@ -50,11 +46,9 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
-
-        result.StepStatus.ShouldBe(ResultStatus.failed);
+        result.Succeeded.ShouldBeFalse();
         result.Cells.ShouldContain(c => c.Name == "missing-row");
         result.Cells.ShouldContain(c => c.Name == "extra-row");
     }
@@ -64,13 +58,11 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-1", "Widget", 90), new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
-
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
         // Every expected row matched, so nothing else here is wrong — but the set is not the set
         // the specification described.
-        result.StepStatus.ShouldBe(ResultStatus.failed);
+        result.Succeeded.ShouldBeFalse();
     }
 
     [Fact]
@@ -78,9 +70,7 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
-
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
         var missingRow = result.Cells.Single(c => c.Name == "missing-row").RowIndex;
         var cells = result.Cells.Where(c => c.RowIndex == missingRow && c.Name != "missing-row").ToList();
@@ -94,9 +84,7 @@ public class SetVerificationComparerTests
     {
         var actual = new[] { new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
-
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
         var extraRow = result.Cells.Single(c => c.Name == "extra-row").RowIndex;
         var cells = result.Cells.Where(c => c.RowIndex == extraRow && c.Name != "extra-row").ToList();
@@ -106,32 +94,13 @@ public class SetVerificationComparerTests
     }
 
     [Fact]
-    public void the_values_of_an_absent_row_do_not_change_what_the_row_counts_as()
-    {
-        var actual = new[] { new Item("SKU-2", "Gadget", 10) };
-        var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
-
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
-
-        var counts = new Counts();
-        result.Tabulate(counts);
-
-        // one missing row and one extra row, plus the step itself
-        counts.Errors.ShouldBe(2);
-        counts.Rights.ShouldBe(0);
-    }
-
-    [Fact]
     public void the_render_shows_an_absent_rows_values_in_place()
     {
         var actual = new[] { new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90") };
-        var result = new StepResult("step", 0);
+        var result = SetVerificationComparer.Cells(actual, expected, new[] { "Sku" });
 
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result);
-
-        var render = SetVerificationRender.FromStepResult(result);
+        var render = SetVerificationRender.FromCells(result.Columns, result.Cells);
 
         var missing = render.Rows.Single(r => r.RowType == SetVerificationRowType.Missing);
         missing.Cells.Select(c => c.DisplayText).ShouldBe(new[] { "SKU-1", "Widget", "90" });
@@ -145,12 +114,8 @@ public class SetVerificationComparerTests
 
     // --- ordered comparison ---
 
-    private static StepResult compare(Item[] actual, Dictionary<string, string>[] expected, bool ordered)
-    {
-        var result = new StepResult("step", 0);
-        SetVerificationComparer.Compare(actual, expected, new[] { "Sku" }, result, ordered);
-        return result;
-    }
+    private static TableRun compare(Item[] actual, Dictionary<string, string>[] expected, bool ordered)
+        => SetVerificationComparer.Cells(actual, expected, new[] { "Sku" }, ordered);
 
     [Fact]
     public void an_unordered_comparison_does_not_care_what_order_the_rows_are_in()
@@ -158,7 +123,7 @@ public class SetVerificationComparerTests
         var actual = new[] { new Item("SKU-1", "Widget", 90), new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-2", "Gadget", "10"), row("SKU-1", "Widget", "90") };
 
-        compare(actual, expected, ordered: false).StepStatus.ShouldBe(ResultStatus.success);
+        compare(actual, expected, ordered: false).Succeeded.ShouldBeTrue();
     }
 
     [Fact]
@@ -167,7 +132,7 @@ public class SetVerificationComparerTests
         var actual = new[] { new Item("SKU-1", "Widget", 90), new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-1", "Widget", "90"), row("SKU-2", "Gadget", "10") };
 
-        compare(actual, expected, ordered: true).StepStatus.ShouldBe(ResultStatus.success);
+        compare(actual, expected, ordered: true).Succeeded.ShouldBeTrue();
     }
 
     [Fact]
@@ -178,7 +143,7 @@ public class SetVerificationComparerTests
 
         var result = compare(actual, expected, ordered: true);
 
-        result.StepStatus.ShouldBe(ResultStatus.failed);
+        result.Succeeded.ShouldBeFalse();
 
         // The first expected row matched at position 2; the second is at position 1, behind it.
         var marker = result.Cells.Single(c => c.Name == SetVerificationComparer.OutOfOrderCell);
@@ -227,7 +192,8 @@ public class SetVerificationComparerTests
         var actual = new[] { new Item("SKU-1", "Widget", 90), new Item("SKU-2", "Gadget", 10) };
         var expected = new[] { row("SKU-2", "Gadget", "10"), row("SKU-1", "Widget", "90") };
 
-        var render = SetVerificationRender.FromStepResult(compare(actual, expected, ordered: true));
+        var result = compare(actual, expected, ordered: true);
+        var render = SetVerificationRender.FromCells(result.Columns, result.Cells);
 
         render.Rows[0].RowType.ShouldBe(SetVerificationRowType.Matched);
 
@@ -241,14 +207,9 @@ public class SetVerificationComparerTests
     [Fact]
     public void a_producer_that_carried_only_a_description_still_renders_a_row()
     {
-        var result = new StepResult("step", 0)
-        {
-            IsSetVerification = true,
-            SetVerificationColumns = new[] { "Sku", "Name" }
-        };
-        result.MarkCells(new CellResult("missing-row", ResultStatus.missing, "Expected row not found: Sku=SKU-1"));
-
-        var render = SetVerificationRender.FromStepResult(result);
+        var render = SetVerificationRender.FromCells(
+            ["Sku", "Name"],
+            [new CellResult("missing-row", ResultStatus.missing, "Expected row not found: Sku=SKU-1")]);
 
         var missing = render.Rows.Single();
         missing.RowType.ShouldBe(SetVerificationRowType.Missing);
@@ -256,7 +217,7 @@ public class SetVerificationComparerTests
         missing.Description.ShouldBe("Expected row not found: Sku=SKU-1");
     }
 
-    // ---- the split: a comparison with no StepResult in it, and the StepTable entry point ----
+    // ---- the pure comparison, and the StepTable entry point ----
 
     [Fact]
     public void cells_is_the_comparison_with_no_step_in_the_signature()
@@ -268,23 +229,6 @@ public class SetVerificationComparerTests
         run.Columns.ShouldBe(new[] { "Sku", "Name", "Quantity" });
         run.Succeeded.ShouldBeFalse();
         run.Cells.Single(c => c.Name == "Quantity").Actual.ShouldBe("90");
-    }
-
-    [Fact]
-    public void the_adapter_and_the_pure_function_agree_on_the_verdict()
-    {
-        var actual = new[] { new Item("SKU-1", "Widget", 90) };
-        var expected = new[] { row("SKU-2", "Gadget", "1") };
-
-        var result = new StepResult("step", 0);
-        SetVerificationComparer.Compare(actual, expected, ["Sku"], result);
-
-        var run = SetVerificationComparer.Cells(actual, expected, ["Sku"]);
-
-        // The cells ARE the verdict — the step's own status is read off them, not computed twice.
-        run.Succeeded.ShouldBeFalse();
-        result.StepStatus.ShouldBe(ResultStatus.failed);
-        result.Cells.Count.ShouldBe(run.Cells.Count);
     }
 
     [Fact]

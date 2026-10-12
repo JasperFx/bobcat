@@ -4,25 +4,10 @@ using Bobcat.Runtime;
 namespace Bobcat.Residency;
 
 /// <summary>
-/// Turns a Bobcat spec host into a resident runner when it is asked to be one (issue #390):
-/// <c>MySpecs --resident</c>, or <c>BOBCAT_RESIDENT=1</c>.
+/// Runs a resident runner over a suite (issue #390): the <c>bobcat resident</c> tool's loop, driving
+/// an <see cref="IResidentSuite"/> until it is asked to stop.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Checked before anything else is built, not registered as an option of whatever parser the
-/// host uses.</b> Resident mode is not a way of running tests — it never executes a platform
-/// request or a command at all — so a host that had been built and then abandoned would be
-/// ceremony. Checking the argument first also means the entry point a consumer already has is the
-/// entry point for this too: <c>dotnet watch --no-hot-reload run -- --resident</c> works with no
-/// change to a spec project.
-/// </para>
-/// <para>
-/// <b>It lives in core, and both Gherkin entry points check it</b> (issue #398):
-/// <c>BobcatTestApplication.Run</c> (the MTP host) and <c>BobcatRunner.Run</c> (the JasperFx
-/// command family). It was in <c>Bobcat.Mtp</c> when there was only one, but nothing in it was
-/// ever about the test platform, and a suite written against the runner before the MTP host
-/// existed — Stoat's own specs among them — could not be driven from a console's run buttons.
-/// </para>
 /// <para>
 /// <b>A restart exits 75; an orderly stop exits 0</b> (issue #397). Neither says anything about
 /// any test — the verdicts went out on the ingest stream as they happened, so a parent deciding
@@ -57,15 +42,9 @@ public static class ResidentMode
            || Environment.GetEnvironmentVariable(Variable)?.ToLowerInvariant() is "1" or "on" or "true";
 
     /// <summary>
-    /// Run this Gherkin spec project as a resident runner, taking commands until the process is
-    /// asked to stop — by a <c>restart</c> command, or by Ctrl+C / SIGTERM.
-    /// </summary>
-    public static Task<int> Run(Action<BobcatRunner> configure, ResidentRunnerOptions? options = null)
-        => Run(new BobcatResidentSuite(configure), options);
-
-    /// <summary>
-    /// The same, for a suite the caller built — the out-of-process lane (issue #399), whose runner
-    /// is a different process from the suite and so cannot be reached by a configure callback.
+    /// Run <paramref name="suite"/> as a resident runner, taking commands until the process is asked
+    /// to stop — by a <c>restart</c> command, or by Ctrl+C / SIGTERM. The suite is the out-of-process
+    /// lane (issue #399): the runner is a different process from the suite.
     /// </summary>
     public static async Task<int> Run(IResidentSuite suite, ResidentRunnerOptions? options = null)
     {

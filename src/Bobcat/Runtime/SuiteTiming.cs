@@ -59,9 +59,8 @@ public sealed record TimelineGap(string Feature, string Scenario, string After, 
 /// </summary>
 /// <remarks>
 /// <para>
-/// Pure computation over <see cref="SuiteResults"/>, so it is testable without a run and
-/// renderable more than one way (<c>CommandLineRenderer.RenderTimingSummary</c>, the
-/// <c>timing</c> block in <c>JsonRenderer.RenderSuite</c>).
+/// Pure computation over recordings, so it is testable without a run and renderable more than one
+/// way (<c>CommandLineRenderer.RenderTimingSummary</c>, <c>JsonRenderer.RenderTiming</c>).
 /// </para>
 /// <para>
 /// <strong>Report, don't act</strong> — the guardrail carried from #56 and #44. Nothing here
@@ -76,16 +75,10 @@ public sealed record TimelineGap(string Feature, string Scenario, string After, 
 /// <c>Task.Delay</c> and no assertions), because that arrives as a bare duration on the wire.
 /// </para>
 /// <para>
-/// <strong>Two inputs, one report.</strong> <see cref="For(SuiteResults)"/> reads a Gherkin run;
 /// <see cref="For(IEnumerable{ScenarioRecorder.Recording})"/> reads projected recordings (issue
-/// #466), the lane Bobcat is moving to. The projected half keeps the bracket's wall clock, the step
-/// figures, the gaps between steps and the assertion-free check, and gives up the lifecycle points
-/// on purpose: see <see cref="LifecycleMeasured"/>.
-/// </para>
-/// <para>
-/// Figures describe each scenario's <em>final</em> attempt — <see cref="ScenarioResult.Results"/>
-/// is the only attempt whose <see cref="ExecutionResults"/> survives in-process. What retries
-/// cost is <c>RunTiming.RetryCost</c>'s question.
+/// #466): the bracket's wall clock, the step figures, the gaps between steps and the assertion-free
+/// check. The lifecycle points are given up on purpose: see <see cref="LifecycleMeasured"/>. What
+/// retries cost is <c>RunTiming.RetryCost</c>'s question.
 /// </para>
 /// </remarks>
 public sealed partial class SuiteTiming
@@ -113,14 +106,13 @@ public sealed partial class SuiteTiming
     public IReadOnlyList<StepCost> Lifecycle { get; private init; } = [];
 
     /// <summary>
-    /// Whether the input carried lifecycle points at all. True for a Gherkin suite, whose runner
-    /// owns the bracket and stamps ResetAll, BeforeEach and the rest on it. False for projected
-    /// recordings (issue #466): in that lane the lifecycle is the test runner's -- xUnit's
+    /// Whether the input carried lifecycle points at all. False for projected recordings (issue
+    /// #466), which is every input now that the Gherkin runner is gone (bobcat#471): there the lifecycle is the test runner's -- xUnit's
     /// <c>IAsyncLifetime</c>, class and assembly fixtures, TUnit's hooks -- and Bobcat neither owns
     /// it nor sees it. That loss is accepted, not pending; a consumer renders "not measured" and
     /// never a zero (#141's rule).
     /// </summary>
-    public bool LifecycleMeasured { get; private init; } = true;
+    public bool LifecycleMeasured { get; private init; }
 
     /// <summary>
     /// Time no stop point owns, largest first -- a subtraction, zero false positives. When
@@ -154,76 +146,6 @@ public sealed partial class SuiteTiming
         => Measured > TimeSpan.Zero ? span / Measured : null;
 
     public IReadOnlyList<ScenarioTiming> Slowest(int count) => Scenarios.Take(count).ToList();
-
-    public static SuiteTiming For(SuiteResults results)
-    {
-        var scenarios = new List<ScenarioTiming>();
-        var gaps = new List<TimelineGap>();
-        var withoutAssertions = new List<string>();
-        var stepCosts = new Dictionary<string, (int Occurrences, long TotalMs, long MaxMs)>();
-        var lifecycleCosts = new Dictionary<string, (int Occurrences, long TotalMs, long MaxMs)>();
-        var unmeasured = 0;
-
-        foreach (var feature in results.Features)
-        {
-            foreach (var scenario in feature.Scenarios)
-            {
-                var r = scenario.Results;
-
-                if (r.Steps.Count > 0 && assertsNothing(r))
-                {
-                    withoutAssertions.Add(SpecIdentity.Of(feature.Title, scenario.Title));
-                }
-
-                foreach (var step in r.Steps)
-                {
-                    accumulate(stepCosts, NormalizeStepText(step.StepText ?? step.StepId),
-                        Math.Max(0, step.End - step.Start));
-                }
-
-                foreach (var point in r.Timeline)
-                {
-                    accumulate(lifecycleCosts, point.Name, point.DurationMs);
-                }
-
-                // A sub-millisecond scenario legitimately measures 0ms, so a bare zero is not
-                // the "no clock" sentinel: results from the runner's bracket always carry
-                // timeline points, and results with neither came from something that never had
-                // the #141 clock — a bare executor, an older artifact.
-                if (r.WallClockMs <= 0 && r.Timeline.Count == 0)
-                {
-                    unmeasured++;
-                    continue;
-                }
-
-                collectGaps(feature.Title, scenario.Title,
-                    r.Timeline.Select(p => (p.Name, Start: p.StartMs, End: p.EndMs))
-                        .Concat(r.Steps.Select(s => (Name: s.StepText ?? s.StepId, s.Start, s.End))),
-                    r.WallClockMs, gaps);
-
-                scenarios.Add(new ScenarioTiming(feature.Title, scenario.Title)
-                {
-                    WallClock = TimeSpan.FromMilliseconds(r.WallClockMs),
-                    Steps = TimeSpan.FromMilliseconds(r.Steps.Sum(s => Math.Max(0, s.End - s.Start))),
-                    Lifecycle = TimeSpan.FromMilliseconds(r.Timeline.Sum(p => p.DurationMs))
-                });
-            }
-        }
-
-        scenarios.Sort((left, right) => right.WallClock.CompareTo(left.WallClock));
-        gaps.Sort((left, right) => right.Duration.CompareTo(left.Duration));
-
-        return new SuiteTiming
-        {
-            Scenarios = scenarios,
-            Steps = toCosts(stepCosts),
-            Lifecycle = toCosts(lifecycleCosts),
-            Gaps = gaps,
-            WithoutAssertions = withoutAssertions,
-            Unmeasured = unmeasured,
-            Measured = scenarios.Aggregate(TimeSpan.Zero, (sum, s) => sum + s.WallClock)
-        };
-    }
 
     /// <summary>
     /// Walk one scenario's known intervals — steps and lifecycle points, all on the same clock
@@ -261,17 +183,6 @@ public sealed partial class SuiteTiming
                 TimeSpan.FromMilliseconds(wallClockMs - cursor)));
         }
     }
-
-    /// <summary>
-    /// No Then-kind step (the grammar's assertion slot — [Then] and [Check] both bind there)
-    /// and no comparison cell (a decision table or set verification asserts through cells on
-    /// whatever keyword carries it; input/echo cells stay <see cref="ResultStatus.ok"/> and do
-    /// not count). <see cref="Counts.Rights"/> is deliberately not the signal: the executor
-    /// auto-marks every completed step <c>success</c>, so rights count steps, not assertions.
-    /// </summary>
-    private static bool assertsNothing(ExecutionResults results)
-        => results.Steps.All(s => s.StepKind != StepKind.Then
-                                  && s.Cells.All(c => c.Status == ResultStatus.ok));
 
     private static void accumulate(
         Dictionary<string, (int Occurrences, long TotalMs, long MaxMs)> costs, string key, long durationMs)

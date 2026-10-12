@@ -3,34 +3,23 @@
   <!--
     Shared build settings for samples/.
 
-    The nine sample spec projects are Microsoft.Testing.Platform test hosts — `dotnet test` and an
-    IDE's Test Explorer see one scenario as one test node. That is what docs/integrating-gherkin.md
-    tells a reader to pick, and the samples are what a reader copies, so they take that path too.
+    Every sample spec project is an xUnit v3 test host on Microsoft.Testing.Platform, written in
+    Bobcat's projected (code-first) model (bobcat#471), so `dotnet test` and an IDE's Test Explorer
+    see one spec as one test node. There are no .feature files and no Bobcat-generated entry point
+    any more: xUnit v3 generates its own, so the platform's synthesized one is turned off below.
 
-    Every one of them used to declare its own Main and go through BobcatRunner.Run instead. That is
-    a supported surface (it is what carries `preview` and `interactive`), but it is the minority
-    one, and it made each sample pay for a footgun it never needed: a Tests project with its own
-    entry point collides with the `Program` its referenced web app synthesizes from top-level
-    statements, which surfaces as a native PAL crash with no managed stack. Every SpecsRunner.cs
-    carried a paragraph explaining that. As MTP hosts they declare no entry point at all, the
-    generator emits one, and the collision cannot arise.
+    A test project with its own Main used to collide with the `Program` its referenced web app
+    synthesizes from top-level statements, which surfaced as a native PAL crash with no managed
+    stack. With exactly one generated entry point that collision cannot arise.
 
     Applied only to the spec projects. The sample web apps beside them are ordinary executables.
-
-    BankAccountES/Tests is the exception to the Bobcat.Mtp half of this: its specs are projected
-    xUnit v3 tests (bobcat#471), and xUnit v3 generates its own entry point, so turning the
-    platform's off below costs it nothing.
   -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Tests'">
     <IsTestProject>true</IsTestProject>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
 
-    <!--
-      A package consumer inherits this from Bobcat.Mtp's buildTransitive props; a ProjectReference
-      does not consume build assets, so in-repo it is set by hand. The Bobcat-generated entry point
-      replaces the platform's synthesized one.
-    -->
+    <!-- xUnit v3 generates the entry point; the platform's synthesized one would be a second. -->
     <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
   </PropertyGroup>
 

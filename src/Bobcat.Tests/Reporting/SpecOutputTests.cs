@@ -181,22 +181,6 @@ public class SpecOutputTests
     }
 
     [Fact]
-    public void a_log_line_reaches_the_output_as_it_is_written_rather_than_at_the_end()
-    {
-        var lines = capture(() =>
-        {
-            var context = new SpecExecutionContext("spec");
-
-            context.Log("first");
-            SpecOutput.Write("the test's own write");
-            context.Log("second");
-        });
-
-        // Source order, one stream — not Bobcat's lines in a block after the test's own.
-        lines.ShouldBe(["first", "the test's own write", "second"]);
-    }
-
-    [Fact]
     public void a_sink_that_throws_cannot_fail_the_test()
     {
         // A runner whose output helper has already been torn down throws, and a specification that

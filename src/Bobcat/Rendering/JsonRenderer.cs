@@ -6,7 +6,7 @@ using Bobcat.Runtime;
 namespace Bobcat.Rendering;
 
 /// <summary>
-/// Renders suite/feature/scenario results as structured JSON.
+/// Renders scenario results and suite timing as structured JSON.
 /// Designed for AI consumption via MCP diagnose_failing_spec tool.
 /// </summary>
 public static class JsonRenderer
@@ -19,33 +19,6 @@ public static class JsonRenderer
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static string RenderSuite(SuiteResults results)
-    {
-        var output = new JsonSuiteOutput
-        {
-            ExitCode = results.ExitCode,
-            Counts = countsToJson(results.Counts),
-            DiscoveryFailure = results.DiscoveryFailure,
-            PreflightFailure = results.PreflightFailure,
-            CatastrophicFailure = results.CatastrophicFailure,
-            NotRun = results.NotRun.Count > 0
-                ? results.NotRun.Select(n => new JsonNotRunOutput
-                {
-                    Feature = n.FeatureTitle, Title = n.Title, Reason = n.Reason
-                }).ToList()
-                : null,
-            Features = results.Features.Select(renderFeature).ToList(),
-            Timing = timingToJson(SuiteTiming.For(results))
-        };
-
-        return JsonSerializer.Serialize(output, options);
-    }
-
-    /// <summary>
-    /// The full #142 figures — every scenario, step, lifecycle point and gap, uncapped: the
-    /// console renders a summary, this is the record. Null when nothing was measured and
-    /// nothing is flagged, so an older artifact reads as absent rather than zero.
-    /// </summary>
     /// <summary>
     /// The timing block on its own -- the same shape <see cref="RenderSuite"/> nests under
     /// <c>timing</c> -- for a suite that produced no <see cref="SuiteResults"/>: a projected one,
@@ -101,20 +74,6 @@ public static class JsonRenderer
     public static string RenderScenario(SpecRender spec)
     {
         return JsonSerializer.Serialize(specToJson(spec), options);
-    }
-
-    private static JsonFeatureOutput renderFeature(FeatureResults feature)
-    {
-        return new JsonFeatureOutput
-        {
-            Title = feature.Title,
-            Counts = countsToJson(feature.Counts),
-            HasRegressionFailure = feature.HasRegressionFailure,
-            WasCatastrophic = feature.WasCatastrophic,
-            LifecycleFailure = feature.LifecycleFailure,
-            Scenarios = feature.Scenarios.Select(s => specToJson(
-                SpecRender.FromResults(s.Title, s.Results, feature.Title))).ToList()
-        };
     }
 
     private static JsonScenarioOutput specToJson(SpecRender spec)
@@ -237,25 +196,6 @@ public static class JsonRenderer
 }
 
 // JSON output models — kept internal, serialized by JsonRenderer
-internal class JsonSuiteOutput
-{
-    public int ExitCode { get; set; }
-    public JsonCountsOutput Counts { get; set; } = null!;
-
-    /// <summary>Why the harness stopped the run, when it did. Null on a run that got going.</summary>
-    public string? DiscoveryFailure { get; set; }
-
-    public string? PreflightFailure { get; set; }
-    public string? CatastrophicFailure { get; set; }
-
-    /// <summary>Scenarios the run planned and never executed, each with the reason.</summary>
-    public List<JsonNotRunOutput>? NotRun { get; set; }
-
-    public List<JsonFeatureOutput> Features { get; set; } = new();
-
-    /// <summary>Where the run spent its time (issue #142). Null when nothing was measured.</summary>
-    public JsonTimingOutput? Timing { get; set; }
-}
 
 internal class JsonTimingOutput
 {
@@ -321,23 +261,6 @@ internal class JsonGapOutput
     public string After { get; set; } = "";
     public string Before { get; set; } = "";
     public long DurationMs { get; set; }
-}
-
-internal class JsonNotRunOutput
-{
-    public string Feature { get; set; } = "";
-    public string Title { get; set; } = "";
-    public string Reason { get; set; } = "";
-}
-
-internal class JsonFeatureOutput
-{
-    public string Title { get; set; } = "";
-    public JsonCountsOutput Counts { get; set; } = null!;
-    public bool HasRegressionFailure { get; set; }
-    public bool WasCatastrophic { get; set; }
-    public string? LifecycleFailure { get; set; }
-    public List<JsonScenarioOutput> Scenarios { get; set; } = new();
 }
 
 internal class JsonScenarioOutput

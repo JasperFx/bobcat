@@ -373,19 +373,21 @@ public static class ScenarioRecorder
         /// costs nothing because the next one restates everything.
         /// </para>
         /// <para>
-        /// Coalesced on the same <see cref="MonitorPublishingObserver.DefaultProgressInterval"/> the
-        /// engine lane uses, per step, because a step checking five hundred cells in a tight loop must
+        /// Coalesced on <see cref="CellsProgressIntervalMs"/>, per step, because a step checking five hundred cells in a tight loop must
         /// not put five hundred payloads into a channel that drops on backpressure.
         /// <c>StepFinished.Cells</c> is the authority, so dropping interim updates is always safe.
         /// </para>
         /// </remarks>
+        /// <summary>Minimum spacing, in milliseconds, between two interim cell posts.</summary>
+        internal const long CellsProgressIntervalMs = 100;
+
         internal void CellsProgressed(RecordedStep step)
         {
             if (_publisher is null || step.Cells.Count == 0) return;
 
             var elapsed = _clock.ElapsedMilliseconds;
             if (_lastCellsPostedAtMs != long.MinValue
-                && elapsed < _lastCellsPostedAtMs + (long)MonitorPublishingObserver.DefaultProgressInterval.TotalMilliseconds)
+                && elapsed < _lastCellsPostedAtMs + CellsProgressIntervalMs)
             {
                 return;
             }

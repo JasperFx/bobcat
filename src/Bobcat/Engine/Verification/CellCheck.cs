@@ -10,7 +10,7 @@ namespace Bobcat.Engine.Verification;
 /// result as a <see cref="CellResult"/> with structured Expected/Actual/Note.
 /// <para>Resolution chain (highest precedence first):</para>
 /// <list type="number">
-///   <item><c>[Comparison(typeof(X))]</c> override via <see cref="CheckOptions.ComparisonType"/></item>
+///   <item>an explicit checker type via <see cref="CheckOptions.ComparisonType"/></item>
 ///   <item>a checker registered through <see cref="Register{T}"/></item>
 ///   <item>a built-in checker for the type</item>
 ///   <item>the reflection-based fallback (<c>TypeConverter</c> + <c>EqualityComparer&lt;T&gt;.Default</c>)</item>

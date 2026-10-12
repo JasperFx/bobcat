@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Bobcat?
 
-Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. `.feature` files are compiled to direct fixture method calls via a Roslyn source generator — no runtime reflection, compile-time step matching with compile errors for unmatched steps.
+Bobcat is a spec-driven integration testing framework for .NET, successor to Storyteller. Specifications are ordinary xUnit v3 / TUnit / NUnit / MSTest tests — the **projected** model — which a Roslyn source generator and the runtime recorder render as readable specifications (step interceptors on `[Given]`/`[When]`/`[Then]`/`[Step]`/`[Check]` helpers, marker comments, declared values, the Event Model fold).
+
+> **The Gherkin lane was removed in 0.50.0 (bobcat#471 phase 3).** `.feature` files, `Fixture`,
+> `BobcatRunner`, `IStepContext`/`StepResult`, `TestResources`/`IHostResource`, `[TableGrammar]`,
+> `[IncludeGrammars]`, `CritterStackFixture`, and the `Bobcat.Mtp`, `Bobcat.Alba`,
+> `Bobcat.EntityFrameworkCore` and `Bobcat.Testing.Wolverine` projects are gone, with diagnostics
+> BOBCAT001–022, 030, 031 and 035 (ids retired, never reused). Architecture sections below that
+> describe those pieces are history, kept for the reasoning; trust the code.
 
 ## Every new capability ships with its ai-skills entry
 
@@ -48,18 +55,6 @@ dotnet test
 # — on CI they never skip, so a missing database fails the build.
 docker compose up -d
 
-# Run the spec runner demo (uses source-generated code from .feature files)
-dotnet run --project src/ConsolePreview/ -- run
-
-# List discovered features/scenarios
-dotnet run --project src/ConsolePreview/ -- list
-
-# Filter by feature name
-dotnet run --project src/ConsolePreview/ -- run --feature "Calculator"
-
-# Filter by tag
-dotnet run --project src/ConsolePreview/ -- run --tag regression
-
 # Run a specific test class. Tests run on Microsoft.Testing.Platform, not VSTest, so the
 # old `--filter "FullyQualifiedName~X"` is gone. Arguments after `--` go to the test host.
 dotnet test src/Bobcat.Tests/ -- --filter-class "*PipelineTests"
@@ -71,8 +66,8 @@ dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console`,
-`Bobcat.EntityFrameworkCore`, and every test and sample host target net10.0 only, and
+Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console` and every test and
+sample host target net10.0 only, and
 `Bobcat.Generators` targets netstandard2.0 (a Roslyn analyzer). See Package Structure below.
 
 Tests use **xUnit v3 + Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather
@@ -90,8 +85,7 @@ its own equivalents.
 - **Solutions are `.slnx`, everywhere** — `bobcat.slnx`, one per sample
   (`samples/*/*.slnx`), and `spikes/mtp-orchestration/MtpSpike.slnx`. There are no `.sln` files
   left; converted with `dotnet sln migrate` on 2026-09-28. The samples and the spike are
-  deliberately **not** in `bobcat.slnx`. `AlbaContentRoot.FindSolutionDirectory` recognises both
-  extensions, so a consumer still on `.sln` is unaffected.
+  deliberately **not** in `bobcat.slnx`.
 - **Central Package Management, one file per tree**, never an inline `Version=` on a
   `PackageReference`: `src/Directory.Packages.props`, `samples/Directory.Packages.props` (its
   Critter Stack versions must stay **identical** to src's — read src's header before moving
@@ -100,13 +94,11 @@ its own equivalents.
   `Directory.Packages.props` and pins inline, like the JasperFx repo's build: the Nuke bootstrap
   stays self-contained, and the root file must not grow Nuke.Common.
 - **The Nuke build (`build/`) is the one definition of CI** — `Build.cs` (Restore / Compile / Test /
-  SpecsThroughDotnetTest / `CI` / Pack / Docker) and `Samples.cs` (CompileSamples / TestSamples /
+  `CI` / Pack / Docker) and `Samples.cs` (CompileSamples / TestSamples /
   TestSamplesOnFisher / `Samples`). `tests.yml` runs `./build.sh CI`, `publish.yml` runs
   `./build.sh CI Pack`, `samples.yml` runs `./build.sh Samples`. **Change what CI does in `build/`,
   not in a workflow** — the workflows only supply services (Postgres) and environment.
   Configuration defaults to Debug locally and Release on a CI server.
-  - `SpecsThroughDotnetTest` runs `Bobcat.Mtp.GeneratedHost` through `dotnet test` and **fails a
-    run that collected zero tests**, which `dotnet test` does not reliably treat as a failure.
   - `Docker` (`docker compose up -d --wait`) is never a dependency of `Test`: someone pointing
     `BOBCAT_POSTGRES` at their own database must not have Docker started for them.
   - **`Pack` writes to `artifacts/packages` and `Clean` touches only that.** `artifacts/local-feed`
@@ -128,17 +120,14 @@ what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mt
 to 2.x loads a platform assembly whose types have moved and xUnit's auto-registered MSBuild
 extension dies with a `TypeLoadException` on `IDataConsumer`.
 
-**Database-backed tests:** `Bobcat.CritterStack.Tests` exercises the store plumbing against a
+**Database-backed tests:** `Bobcat.CritterStackScenario.Tests` exercises the store plumbing against a
 real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to
 the `docker-compose.yml` instance on **5445**. The skip is deliberately disabled when `CI=true`,
 so CI can never report a silent pass for a missing database.
 
-**Generator note:** every type name emitted *as a type* (casts, generic args, local declarations,
-`default(...)`, `typeof(...)`, `new`) must use `ParameterInfo.QualifiedType` /
-`QualifiedReturnType` / the `global::`-qualified class FQNs. Generated code lives in the fixture's
-own namespace, where an unqualified name binds to the wrong type — e.g. `Marten.IDocumentSession`
-resolving to `Bobcat.Marten.IDocumentSession` inside the (since deleted) `Bobcat.Marten.Tests`. The plain `Type`
-string stays short ("int", "string") because the Gherkin literal conversion switches on it.
+**Generator note:** every type name the generator emits *as a type* (`typeof(...)` in the Event
+Model source, interceptor signatures) must be `global::`-qualified: generated code lives in its own
+namespace, where an unqualified name can bind to the wrong type.
 
 ## Naming conventions
 
@@ -2065,24 +2054,30 @@ AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being super
 ## Package Structure
 
 Every shipped package is `<IsPackable>true</IsPackable>` in its own csproj (src/ defaults to false)
-and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these ten.
+and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these nine.
 
 | Package | Target | Responsibility |
 |---------|--------|----------------|
-| **Bobcat** | net9.0; net10.0 | Runtime: engine, rendering, resources, runner, Gherkin + code-first specs, and the store-agnostic Critter Stack helpers (`Bobcat.CritterStack` namespace, bound to `JasperFx.Events` only) |
-| **Bobcat.Generators** | netstandard2.0 | Source generator: Gherkin parser, Cucumber Expressions, code gen, the Event Model descriptor and the MTP entry point |
-| **Bobcat.Mtp** | net9.0; net10.0 | Runs Bobcat specs as a Microsoft.Testing.Platform test host |
+| **Bobcat** | net9.0; net10.0 | Runtime: the projected specification recorder, verification (`TableRunner`, `PropertyCells`, `SetVerificationComparer`, `ObjectSetVerification`, partial objects), rendering, the monitor wire, the resident runner, and the store-agnostic Critter Stack vocabulary (`CritterStackScenario`/`CritterStackSpec`, `Bobcat.CritterStack` namespace, bound to `JasperFx.Events` only) |
+| **Bobcat.Generators** | netstandard2.0 | Source generator: step interceptors, marker-comment specs, declared values, specification bindings, the Event Model descriptor, BOBCAT032 table checks |
 | **Bobcat.Supervisor** | net9.0; net10.0 | Drives MTP hosts as worker processes; retry/isolation policy, parallel lanes |
-| **Bobcat.Alba** | net9.0; net10.0 | `AlbaResource` — an ASP.NET Core app hosted in memory as a test resource, and the HTTP calls a step makes |
-| **Bobcat.EntityFrameworkCore** | net10.0 | `[EfCoreEntities]` table-grammar persistence recipe |
 | **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
 | **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
 | **Bobcat.NUnit** | net9.0; net10.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
 | **Bobcat.MSTest** | net9.0; net10.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
-| **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner; see below |
+| **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner |
 
-**Gone:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
+**Gone in 0.50.0 (bobcat#471):** `Bobcat.Mtp`, `Bobcat.Alba`, `Bobcat.EntityFrameworkCore`, the
+non-packable `Bobcat.Testing.Wolverine`, and the Gherkin test and sample projects
+(`Bobcat.Acceptance.Tests`, `Bobcat.CritterStack.Tests`, `Bobcat.Mtp.Tests`, `Bobcat.Alba.Tests`,
+`Bobcat.EntityFrameworkCore.Tests`, `Bobcat.Gherkin.Samples`, `Bobcat.Mtp.SampleHost`,
+`Bobcat.Mtp.GeneratedHost`, `Bobcat.Alba.SampleWeb`, `Bobcat.Supervisor.SampleWorker`,
+`ConsolePreview`). Their projected-lane coverage lives in `Bobcat.Projected.Acceptance.Tests`
+(see `design/acceptance-coverage-map.md`), `Bobcat.CritterStackScenario.Tests` and
+`Bobcat.Supervisor.Tests`.
+
+**Gone earlier:** `Bobcat.Marten` (with `MartenResource`, `[MartenEntities]` and `QueryByIdAsync`) was
 deleted on 2026-09-21 (6718431, "Delete Bobcat.Alba, Bobcat.Marten and Bobcat.Wolverine") and,
 unlike Alba and Wolverine, was not rebuilt — the event store is reached through the
 `JasperFx.Events` abstractions in core. The `Bobcat.CritterStack` *package* went the same day
@@ -2094,12 +2089,10 @@ to `Bobcat.Wolverine`, which #407 then retired in favour of `WolverineFx.Bobcat`
 section above for what each one was.
 
 **Retired as a package (#407):** `Bobcat.Wolverine`. Its act, warm-up, transport draining and
-`WolverineCritterStackFixture` ship in **`WolverineFx.Bobcat`** from the Wolverine repo, so no Bobcat
-package depends on Wolverine. `src/Bobcat.Testing.Wolverine` keeps the fixture, the step-context helpers
-and `HandlerWarmUp` as NON-packable test support for the Gherkin grammar suite and BankAccountES.
+`WolverineScenario` ship in **`WolverineFx.Bobcat`** from the Wolverine repo, so no Bobcat package
+depends on Wolverine.
 
-Not packed: `Bobcat.Testing.Wolverine`, `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
-`Bobcat.Supervisor.SampleWorker`, `Bobcat.Supervisor.ProjectedWorker` and `ConsolePreview` are hosts the tests and demos drive.
+Not packed: `Bobcat.Xunit.Samples` and `Bobcat.Supervisor.ProjectedWorker` are hosts the tests drive.
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
 console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over

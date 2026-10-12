@@ -13,8 +13,8 @@ namespace Bobcat.Generators;
 /// string, or a constant interpolated string built from <c>nameof</c> — whose columns do not name
 /// members of the type it is about. Four shapes:
 /// <list type="bullet">
-/// <item>a property check, <c>(object subject, StepTable expected)</c> — <c>PropertyCells.Verify</c>,
-/// <c>Fixture.VerifyObject</c>, and any method with that parameter pair (Wolverine's
+/// <item>a property check, <c>(object subject, StepTable expected)</c> — <c>PropertyCells.Verify</c>
+/// and any method with that parameter pair (Wolverine's
 /// <c>Verify(state, table)</c>), checked against the subject's static type;</item>
 /// <item>a set verification, <c>(IEnumerable actual, StepTable expected)</c>, checked against the
 /// element type, with a constant <c>keyColumns</c> too;</item>

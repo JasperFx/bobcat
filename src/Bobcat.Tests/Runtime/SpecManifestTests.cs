@@ -22,10 +22,6 @@ public class SpecManifestTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
-    private static SpecManifest gherkin() => new(
-        SpecManifest.GherkinLane, SpecManifest.BobcatFramework, "Orders.Specs",
-        [new SpecManifestEntry("Orders/places an order"), new SpecManifestEntry("Stock/counts")]);
-
     private static SpecManifest projected() => new(
         SpecManifest.ProjectedLane, SpecManifest.XunitFramework, "DaemonTests",
         [
@@ -56,15 +52,9 @@ public class SpecManifestTests : IDisposable
     }
 
     [Fact]
-    public void a_gherkin_entry_carries_no_test_method_because_the_identity_is_the_uid()
-    {
-        gherkin().For("Orders/places an order")!.QualifiedTestMethod.ShouldBeNull();
-    }
-
-    [Fact]
     public void an_identity_the_suite_does_not_have_reads_as_absent_rather_than_throwing()
     {
-        gherkin().For("Nope/not here").ShouldBeNull();
+        projected().For("Nope/not here").ShouldBeNull();
     }
 
     // --- Writing it only when asked.
@@ -75,7 +65,7 @@ public class SpecManifestTests : IDisposable
         Environment.SetEnvironmentVariable(SpecManifest.PathVariable, null);
 
         var built = false;
-        SpecManifest.WriteIfRequested(() => { built = true; return gherkin(); }).ShouldBeFalse();
+        SpecManifest.WriteIfRequested(() => { built = true; return projected(); }).ShouldBeFalse();
 
         built.ShouldBeFalse("a suite that was not asked should not pay to build the answer");
     }
@@ -86,9 +76,12 @@ public class SpecManifestTests : IDisposable
         var path = Path.Combine(_directory, "nested", "specs.json");
         Environment.SetEnvironmentVariable(SpecManifest.PathVariable, path);
 
-        SpecManifest.WriteIfRequested(gherkin).ShouldBeTrue();
+        SpecManifest.WriteIfRequested(projected).ShouldBeTrue();
 
-        SpecManifest.Read(path).Identities.ShouldBe(["Orders/places an order", "Stock/counts"]);
+        SpecManifest.Read(path).Identities.ShouldBe([
+            "Booking appointments/a proposal is confirmed",
+            "Booking appointments/a proposal is declined"
+        ]);
     }
 
     [Fact]
@@ -99,31 +92,28 @@ public class SpecManifestTests : IDisposable
         Environment.SetEnvironmentVariable(SpecManifest.PathVariable, _directory);
         Directory.CreateDirectory(_directory);
 
-        SpecManifest.WriteIfRequested(gherkin).ShouldBeFalse();
+        SpecManifest.WriteIfRequested(projected).ShouldBeFalse();
     }
 
     // --- Turning identities into a command line.
 
     [Fact]
-    public void a_gherkin_suite_is_filtered_by_the_identity_unchanged()
-    {
-        // The platform's uid IS the identity here, so there is nothing to translate.
-        SpecFilterArguments.For(gherkin(), SpecSelection.Of("Stock/counts"))
-            .ShouldBe(["--filter-uid", "Stock/counts"]);
-    }
-
-    [Fact]
     public void several_identities_travel_as_one_option()
     {
         SpecFilterArguments
-            .For(gherkin(), SpecSelection.Of("Stock/counts", "Orders/places an order"))
-            .ShouldBe(["--filter-uid", "Stock/counts", "Orders/places an order"]);
+            .For(projected(), SpecSelection.Of(
+                "Booking appointments/a proposal is declined", "Booking appointments/a proposal is confirmed"))
+            .ShouldBe([
+                "--filter-method",
+                "Booking.Tests.BookingSpecs.a_proposal_is_declined",
+                "Booking.Tests.BookingSpecs.a_proposal_is_confirmed"
+            ]);
     }
 
     [Fact]
     public void a_projected_suite_is_filtered_by_the_method_the_identity_was_bound_to()
     {
-        // The whole asymmetry of issue #391: a projected uid is the test framework's own, built
+        // Issue #391: a projected uid is the test framework's own, built
         // from assembly, class, method and arguments — nothing a monitor could know.
         SpecFilterArguments
             .For(projected(), SpecSelection.Of("Booking appointments/a proposal is declined"))
@@ -142,10 +132,10 @@ public class SpecManifestTests : IDisposable
         // Checked before a filter is built, because a framework asked for a test it does not have
         // simply runs nothing — which reads as a passing run.
         var refusal = Should.Throw<ArgumentException>(() => SpecFilterArguments.For(
-            gherkin(), SpecSelection.Of("Orders/places an order", "Nope/not here")));
+            projected(), SpecSelection.Of("Booking appointments/a proposal is declined", "Nope/not here")));
 
         refusal.Message.ShouldContain("'Nope/not here'");
-        refusal.Message.ShouldContain("Orders.Specs");
+        refusal.Message.ShouldContain("DaemonTests");
     }
 
     [Fact]

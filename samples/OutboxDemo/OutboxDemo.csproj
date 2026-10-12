@@ -14,9 +14,6 @@
     <Compile Remove="Tests\**" />
     <Content Remove="Tests\**" />
     <None Remove="Tests\**" />
-    <!-- The spec fixture is compiled by Tests.csproj, which references Bobcat. Leaving it here
-         is what made this project ~46 undefined symbols: the host has no such reference. -->
-    <Compile Remove="OutboxDemoFixture.cs" />
   </ItemGroup>
 
   <ItemGroup>

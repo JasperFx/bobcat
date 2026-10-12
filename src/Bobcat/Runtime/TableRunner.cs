@@ -7,23 +7,19 @@ namespace Bobcat.Runtime;
 
 /// <summary>
 /// Runs a table a step was handed: a method once per row, or a type constructed once per row. The
-/// engine behind <c>Fixture.RunTable</c> and <c>Fixture.BuildRows</c>.
+/// engine behind a projected grammar's <c>TableRunner.Run(this, nameof(row), table)</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The reflective twin of the generated envelope</b>, and the fourth bounded softening of "no
-/// reflection" beside <c>GrammarBehaviors.Resolve</c>, <c>RecordBuilding</c> and the store
-/// conventions. A <c>[Table]</c> step's rows are bound at compile time because the generator can see
-/// the method the step text matched; a method named by a <c>string</c> at a call site cannot be, and
-/// naming one is the whole point — <c>RunTable(nameof(BuildUser), table)</c> keeps the row method a
-/// private implementation detail of the fixture instead of a step in the document.
+/// <b>A bounded softening of "no reflection"</b>, beside <c>RecordBuilding</c> and the store
+/// conventions: the row method is named by a <c>string</c> at a call site, and naming one is the whole
+/// point — <c>TableRunner.Run(this, nameof(BuildUser), table)</c> keeps the row method a private
+/// implementation detail of the grammar instead of a step of its own.
 /// </para>
 /// <para>
-/// Everything else is the same as the generated envelope, deliberately: columns bind by name through
-/// <see cref="Bobcat.HeaderAttribute"/>, an optional parameter's column may be left out, cells convert
-/// through <see cref="CellValues"/>, a row that throws is a <c>row-error</c> cell and the remaining
-/// rows still run, and the whole thing renders as one grid. A table run this way and a table bound by
-/// the generator report the same way over the same document.
+/// Columns bind by name through <see cref="Bobcat.HeaderAttribute"/>, an optional parameter's column
+/// may be left out, cells convert through <see cref="CellValues"/>, a row that throws is a
+/// <c>row-error</c> cell and the remaining rows still run, and the whole thing renders as one grid.
 /// </para>
 /// </remarks>
 public static class TableRunner
@@ -33,8 +29,7 @@ public static class TableRunner
     /// <paramref name="table"/>, and report the grid.
     /// </summary>
     /// <returns>The cells and columns reported, for a caller that wants them.</returns>
-    public static async Task<TableRun> Run(object target, MethodInfo method, StepTable table,
-        IStepContext? context)
+    public static async Task<TableRun> Run(object target, MethodInfo method, StepTable table)
     {
         var parameters = method.GetParameters();
         var run = new TableRun(table.Headers.ToList());
@@ -53,8 +48,6 @@ public static class TableRunner
 
         for (var r = 0; r < rows.Count; r++)
         {
-            context?.ReportProgress(StepUpdate.ForRow(r + 1, rows.Count));
-
             var row = rows[r];
 
             try
@@ -76,7 +69,7 @@ public static class TableRunner
             addInputCells(run, table, row, r, expectedColumn);
         }
 
-        run.Report(context);
+        run.Report();
         return run;
     }
 
@@ -84,7 +77,7 @@ public static class TableRunner
     /// Build one <paramref name="type"/> per row and report the grid. A row that cannot be built is a
     /// <c>row-error</c> cell and is left out of the result; the rest are still built.
     /// </summary>
-    public static TableRun Build(Type type, StepTable table, IStepContext? context, out object?[] built)
+    public static TableRun Build(Type type, StepTable table, out object?[] built)
     {
         var run = new TableRun(table.Headers.ToList());
         var rows = table.AsDictionaries();
@@ -105,30 +98,28 @@ public static class TableRunner
         }
 
         built = results.ToArray();
-        run.Report(context);
+        run.Report();
         return run;
     }
 
     /// <summary>
-    /// <see cref="Run(object,MethodInfo,StepTable,IStepContext?)"/> by method name — what
-    /// <c>Fixture.RunTable</c> calls, and the form a grammar that is not a <c>Fixture</c> uses.
+    /// <see cref="Run(object,MethodInfo,StepTable)"/> by method name — the form a grammar uses.
     /// </summary>
-    public static Task<TableRun> Run(object target, string methodName, StepTable table,
-        IStepContext? context = null)
-        => Run(target, MethodNamed(target, methodName), table, context);
+    public static Task<TableRun> Run(object target, string methodName, StepTable table)
+        => Run(target, MethodNamed(target, methodName), table);
 
     /// <summary>
-    /// One <typeparamref name="T"/> per row, and the grid — what <c>Fixture.BuildRows</c> calls.
+    /// One <typeparamref name="T"/> per row, and the grid.
     /// </summary>
-    public static T[] BuildRows<T>(StepTable table, IStepContext? context = null)
+    public static T[] BuildRows<T>(StepTable table)
     {
-        Build(typeof(T), table, context, out var built);
+        Build(typeof(T), table, out var built);
         return built.OfType<T>().ToArray();
     }
 
     /// <summary>
     /// The method a <c>nameof</c> names, on this object's type — including a private one, because a
-    /// row method is an implementation detail of the fixture rather than part of its vocabulary.
+    /// row method is an implementation detail of the grammar rather than part of its vocabulary.
     /// </summary>
     /// <exception cref="SpecCriticalException">No such method, or more than one.</exception>
     public static MethodInfo MethodNamed(object target, string name)
@@ -255,20 +246,11 @@ public sealed class TableRun(List<string> columns)
     public bool Succeeded => Cells.All(c => c.Status is ResultStatus.ok or ResultStatus.success);
 
     /// <summary>
-    /// Report this grid on whichever step is open — the Gherkin lane's through
-    /// <paramref name="context"/>, the projected lane's through <c>ScenarioRecorder</c>.
+    /// Report this grid on the step <c>ScenarioRecorder</c> has open, if any. Outside a recorded
+    /// scenario it is a no-op, and the returned <see cref="TableRun"/> is the whole answer.
     /// </summary>
-    /// <remarks>
-    /// <b>Both, not either</b>, and that is what makes one grammar body serve both lanes: a step
-    /// executing under <c>BobcatRunner</c> has a context and no recorder, one called from a C# test
-    /// has a recorder and no context, and neither has to know which it is.
-    /// </remarks>
-    public void Report(IStepContext? context)
+    public void Report()
     {
-        context?.RecordCells(Cells, Columns);
-
-        // The projected lane's step, when one is open. A grammar called from a C# test has no step
-        // context — the recorder is what holds its step.
         var step = ScenarioRecorder.CurrentStep;
         if (step is null) return;
 

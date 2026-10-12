@@ -7,7 +7,6 @@ namespace Bobcat.Runtime;
 
 /// <summary>
 /// Static utility for set verification comparison.
-/// Called by source-generated code with pre-generated expected data.
 /// Per-cell comparisons go through <see cref="CellCheck"/> so they are type-aware
 /// (driven by the runtime type of each actual property value) and produce
 /// structured Expected/Actual/Note on every <see cref="CellResult"/>.
@@ -22,14 +21,23 @@ public static class SetVerificationComparer
     public const string OutOfOrderCell = "out-of-order";
 
     /// <summary>
-    /// Compare an actual collection against expected rows, producing per-cell CellResults.
+    /// The comparison itself: the grid an actual collection and a document's expected rows produce,
+    /// with no step of any kind in the signature.
     /// </summary>
     /// <param name="ordered">
     /// When true the expected rows must also appear in the order the specification writes them:
     /// rows are still matched by <paramref name="keyColumns"/>, and a matched row that turns up
     /// behind one written before it is reported as out of order. See the remarks.
     /// </param>
+    /// <param name="scalarColumn">
+    /// For a collection of plain values, the single column each value is compared under. Null for a
+    /// collection of objects, whose columns are read off its properties.
+    /// </param>
     /// <remarks>
+    /// <para>
+    /// The cells, the columns and the verdict are the whole of what a set verification produces; who
+    /// they are reported to is the caller's business, and <see cref="TableRun.Report"/> is how.
+    /// </para>
     /// <para>
     /// <b>Order is checked after matching, not instead of it.</b> Comparing position by position
     /// would read one inserted row as every row after it disagreeing — an event stream with a
@@ -38,66 +46,16 @@ public static class SetVerificationComparer
     /// reported as a reordering.
     /// </para>
     /// <para>
-    /// So <c>KeyColumns</c> earns its keep in an ordered comparison too: with no key columns a row
+    /// So key columns earn their keep in an ordered comparison too: with no key columns a row
     /// is matched on every column, and a row with one wrong value is then a missing row beside an
     /// extra one rather than a row with one wrong cell. Naming the columns that identify a row —
     /// the event type, the SKU — is what turns that back into a cell-level disagreement.
     /// </para>
     /// </remarks>
-    /// <param name="scalarColumn">
-    /// For a collection of plain values, the single column each value is compared under —
-    /// <c>[SetVerification(Column = "…")]</c>. Null for a collection of objects, whose columns are
-    /// read off its properties.
-    /// </param>
-    /// <param name="columns">
-    /// The column order the document wrote, independently of its rows. A header row says what the
-    /// columns are even with nothing under it, and "the set should be empty" is a real expectation.
-    /// Null reads them off the first expected row, which is columnless when there are none.
-    /// </param>
-    public static void Compare(
-        IEnumerable actual,
-        IReadOnlyList<Dictionary<string, string>> expectedRows,
-        string[] keyColumns,
-        StepResult result,
-        bool ordered = false,
-        string? scalarColumn = null,
-        IReadOnlyList<string>? columns = null)
-    {
-        var run = Cells(actual, expectedRows, keyColumns, ordered, scalarColumn, columns);
-
-        result.IsSetVerification = true;
-        result.SetVerificationColumns = run.Columns;
-        result.MarkCells(run.Cells.ToArray());
-
-        if (run.Succeeded)
-            result.MarkSuccess();
-        else
-            result.MarkFailed();
-    }
-
-    /// <summary>
-    /// The comparison itself: the grid an actual collection and a document's expected rows produce,
-    /// with no step of any kind in the signature.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Split out of <see cref="Compare(IEnumerable,IReadOnlyList{Dictionary{string,string}},string[],StepResult,bool,string?)"/>
-    /// so a set verification can be made from somewhere that has no <see cref="StepResult"/> — a
-    /// hand-written step with only its context, or a grammar called straight from a C# test. The
-    /// cells, the columns and the verdict are the whole of what a set verification produces; who
-    /// they are reported to is the caller's business, and <see cref="TableRun.Report"/> is how.
-    /// </para>
-    /// <para>
-    /// Every parameter means exactly what the <c>[SetVerification]</c> attribute's property of the
-    /// same name means. See <see cref="Compare(IEnumerable,IReadOnlyList{Dictionary{string,string}},string[],StepResult,bool,string?)"/>
-    /// for what <paramref name="ordered"/> and <paramref name="scalarColumn"/> decide.
-    /// </para>
-    /// </remarks>
     /// <param name="columns">
     /// The column order, when the caller knows it independently of the rows — a table's header row
     /// says what the columns are even when it has no rows under it, and "the set should be empty"
-    /// is a real expectation. Null reads them off the first expected row, as the generated path
-    /// always has.
+    /// is a real expectation. Null reads them off the first expected row.
     /// </param>
     public static TableRun Cells(
         IEnumerable actual,
@@ -212,43 +170,29 @@ public static class SetVerificationComparer
     }
 
     /// <summary>
-    /// Verify a collection against a <see cref="StepTable"/> and report the grid — the form a
-    /// hand-written step uses, and the only form a C# test can reach.
+    /// Verify a collection against a <see cref="StepTable"/> and report the grid on the recorded
+    /// step, if one is open.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>One grammar body, both lanes.</b> A step declaring a <c>StepTable</c> parameter is handed
-    /// the table that trails it in a <c>.feature</c> file, or a table literal from a C# call site, so
-    /// a set verification written this way is the same comparison over the same document either way:
-    /// </para>
+    /// <example>
     /// <code>
     /// [Then("the inventory should be")]
     /// public void TheInventoryShouldBe(StepTable expected)
-    ///     =&gt; VerifySet(_inventory.Values, expected, keyColumns: "Sku");
+    ///     =&gt; SetVerificationComparer.Verify(_inventory.Values, expected, keyColumns: "Sku");
     /// </code>
-    /// <para>
-    /// <b><c>[SetVerification]</c> is still the canonical declarative form</b> and is not replaced by
-    /// this. It carries <c>KeyColumns</c>, <c>Ordered</c> and <c>Column</c> as compile-time facts, which
-    /// is what lets the preview and the editor see them, and it needs no table-shaped parameter. This
-    /// is the escape hatch, at the price of those settings being arguments rather than declarations —
-    /// and it is the one a projected test can call, because the expected rows reach it as an argument
-    /// instead of from the generator.
-    /// </para>
-    /// </remarks>
+    /// </example>
     /// <param name="keyColumns">
-    /// The columns that identify a row, comma-separated — <c>[SetVerification(KeyColumns = "…")]</c>
-    /// spelled as an argument. Empty matches on every column the table names.
+    /// The columns that identify a row, comma-separated. Empty matches on every column the table
+    /// names.
     /// </param>
+    /// <param name="ordered">Whether the rows must also appear in the order the table writes them.</param>
     /// <param name="column">
     /// For a set of plain values, the single column each value is compared under. Left empty with a
     /// one-column table over scalar elements it is inferred from the header, because there is only
-    /// one thing it could be; <c>[SetVerification(Column = "…")]</c> has to be told because
-    /// BOBCAT031 is a compile-time diagnostic with no table in view.
+    /// one thing it could be.
     /// </param>
     public static TableRun Verify(
         IEnumerable actual,
         StepTable expected,
-        IStepContext? context = null,
         string keyColumns = "",
         bool ordered = false,
         string column = "")
@@ -260,16 +204,13 @@ public static class SetVerificationComparer
         var run = Cells(actual, rows, ParseKeyColumns(keyColumns), ordered,
             scalarColumn(actual, expected, column), expected.Headers);
 
-        run.Report(context);
+        run.Report();
         return run;
     }
 
     /// <summary>
-    /// A comma-separated key column list — split on commas, each name trimmed. <b>The one authority
-    /// on that reading:</b> generated code for <c>[SetVerification(KeyColumns = "…")]</c> calls this
-    /// too rather than splitting the string itself at compile time, exactly as it calls
-    /// <see cref="CellValues.Read{T}"/> for a cell, so the declarative form and a list that arrives
-    /// as an argument cannot mean different things over the same string.
+    /// A comma-separated key column list — split on commas, each name trimmed. The one authority on
+    /// that reading.
     /// </summary>
     public static string[] ParseKeyColumns(string keyColumns)
         => string.IsNullOrWhiteSpace(keyColumns)

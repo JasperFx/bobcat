@@ -109,16 +109,6 @@ public class ProjectedWallClockTests
     }
 
     [Fact]
-    public void a_gherkin_scenario_json_is_unchanged_and_carries_no_step_figure()
-    {
-        var results = new ExecutionResults("timed", DateTimeOffset.UtcNow) { WallClockMs = 30 };
-
-        var json = JsonDocument.Parse(JsonRenderer.RenderScenario(SpecRender.FromResults("timed", results))).RootElement;
-
-        json.TryGetProperty("stepsMs", out _).ShouldBeFalse();
-    }
-
-    [Fact]
     public void the_console_prints_the_step_figure_beside_the_duration()
     {
         var writer = new StringWriter();

@@ -48,14 +48,18 @@ Requires PostgreSQL.
 dotnet run
 ```
 
-Specs (requires PostgreSQL — `cd .. && docker compose up -d` starts the samples' instance on
+Specs (requires PostgreSQL -- `cd .. && docker compose up -d` starts the samples' instance on
 5433 with a `more_speakers` database):
 
 ```bash
-dotnet run --project Tests/ -- run
+dotnet test Tests/Tests.csproj                     # the specs
+BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests   # ...and print every spec as it rendered
 ```
 
-`Tests/` is a Bobcat spec runner over `Features/MoreSpeakers.feature`, driving the host through
-Alba. See `docs/sample-wiring.md` for how it is wired.
+`Tests/` holds Bobcat's projected (code-first) specs: ordinary xUnit v3 tests that render as
+Given/When/Then specifications, driving the host through Alba. `SpeakerSpecs` covers speaker
+registration and profiles, `MentorshipSpecs` the mentorship lifecycle, and every step is a method with
+a `[Given]`, `[When]` or `[Then]` attribute on `MoreSpeakersSpec`, which also empties the store before
+each spec -- registration refuses a duplicate email, and every spec registers under a fixed address.
 
 Swagger UI at `/swagger`.

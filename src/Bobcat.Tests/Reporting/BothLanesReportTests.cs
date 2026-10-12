@@ -6,76 +6,42 @@ using Shouldly;
 namespace Bobcat.Tests.Reporting;
 
 /// <summary>
-/// The property <c>WolverineFx.Bobcat</c> depends on (issue #408): one report producer, written
-/// against the static <see cref="SpecReport"/> surface with no knowledge of which lane it is in,
-/// renders identically from a Gherkin scenario and from a projected test.
+/// The property <c>WolverineFx.Bobcat</c> depends on (issue #408): a report producer written against
+/// the static <see cref="SpecReport"/> surface renders on the projected test it ran inside. (This
+/// class once pinned the same producer against the Gherkin lane too; that lane is gone, bobcat#471.)
 /// </summary>
-/// <remarks>
-/// <b>Both lanes from one class, deliberately</b> — the same reasoning as
-/// <c>SpecIdentityEndToEndTests</c> and <c>MarkerSpecNamingAgreementTests</c>. Split across two
-/// test classes, one lane gains a rule the other never hears about, and a cross-lane grammar is
-/// exactly the thing that would then break in only one of them.
-/// </remarks>
 [Collection(ReportVisibilityCollection.Name)]
 public class BothLanesReportTests
 {
-    private static SpecRender fromTheGherkinLane()
-    {
-        var results = new ExecutionResults("Appointments/a proposal is confirmed", DateTimeOffset.UtcNow);
-
-        // A wrong, so the OnFailure default is satisfied without needing verbose.
-        results.Counts.Read(ResultStatus.failed);
-
-        using (ScenarioReports.Open(results))
-        {
-            SharedProducer.Report();
-        }
-
-        return SpecRender.FromResults("a proposal is confirmed", results, "Appointments");
-    }
-
-    private static SpecRender fromTheProjectedLane()
+    private static SpecRender fromTheProjectedLane(bool failing = true)
     {
         using var recording = ScenarioRecorder.Begin(
             "Appointments", "a proposal is confirmed", publisher: null, runId: Guid.NewGuid());
 
         SharedProducer.Report();
 
-        recording.FailureDescription = "the patient was never notified";
+        if (failing) recording.FailureDescription = "the patient was never notified";
 
         // Read before disposal: Dispose is what closes the scenario and clears the ambient sink.
         return SpecRender.FromRecording(recording);
     }
 
     [Fact]
-    public void the_same_producer_renders_the_same_grid_in_both_lanes()
+    public void the_producer_renders_its_report_on_the_scenario()
     {
-        var gherkin = fromTheGherkinLane();
         var projected = fromTheProjectedLane();
 
-        gherkin.Succeeded.ShouldBeFalse();
         projected.Succeeded.ShouldBeFalse();
 
-        var fromFeature = gherkin.Reports.ShouldHaveSingleItem();
-        var fromTest = projected.Reports.ShouldHaveSingleItem();
-
-        fromFeature.Title.ShouldBe("Message activity");
-        fromTest.Title.ShouldBe(fromFeature.Title);
-        fromTest.ShortTitle.ShouldBe(fromFeature.ShortTitle);
-        fromTest.Grid.Columns.ShouldBe(fromFeature.Grid.Columns);
-        fromTest.Grid.Rows.Count.ShouldBe(fromFeature.Grid.Rows.Count);
-
-        for (var row = 0; row < fromFeature.Grid.Rows.Count; row++)
-        {
-            fromTest.Grid.Rows[row].Cells.Select(c => $"{c.Column}={c.DisplayText}")
-                .ShouldBe(fromFeature.Grid.Rows[row].Cells.Select(c => $"{c.Column}={c.DisplayText}"));
-        }
+        var report = projected.Reports.ShouldHaveSingleItem();
+        report.Title.ShouldBe("Message activity");
+        report.ShortTitle.ShouldBe("Messages");
     }
 
     [Fact]
     public void the_grid_carries_the_dead_lettered_row_as_the_only_judged_cell()
     {
-        var grid = fromTheGherkinLane().Reports.ShouldHaveSingleItem().Grid;
+        var grid = fromTheProjectedLane().Reports.ShouldHaveSingleItem().Grid;
 
         grid.Columns.ShouldBe(["at (ms)", "event", "message", "destination", "attempt"]);
         grid.Rows.Count.ShouldBe(4);
@@ -97,18 +63,13 @@ public class BothLanesReportTests
     [Fact]
     public void a_passing_scenario_carries_no_report_until_the_run_asks_for_verbose()
     {
-        var results = new ExecutionResults("spec", DateTimeOffset.UtcNow);
-        results.Counts.Read(ResultStatus.success);
-
-        using (ScenarioReports.Open(results)) SharedProducer.Report();
-
         ScenarioReportVisibility.Reset();
-        SpecRender.FromResults("spec", results).Reports.ShouldBeEmpty();
+        fromTheProjectedLane(failing: false).Reports.ShouldBeEmpty();
 
         try
         {
             ScenarioReportVisibility.Verbose = true;
-            SpecRender.FromResults("spec", results).Reports.ShouldHaveSingleItem();
+            fromTheProjectedLane(failing: false).Reports.ShouldHaveSingleItem();
         }
         finally
         {

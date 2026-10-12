@@ -56,7 +56,7 @@ public class CappedReport : TableReport
 
 /// <summary>
 /// The producer both lanes run, written the way a grammar in another package has to be written:
-/// against the static <see cref="SpecReport"/> surface, with no <see cref="IStepContext"/> and no
+/// against the static <see cref="SpecReport"/> surface, with no step context and no
 /// knowledge of which lane it is in.
 /// </summary>
 public static class SharedProducer

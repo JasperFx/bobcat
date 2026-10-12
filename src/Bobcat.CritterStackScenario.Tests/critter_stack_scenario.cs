@@ -754,22 +754,11 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
             "And the clock advances to 2026-01-02 10:15:30.1234567"
         ]);
 
-        // Each reads back through the parser the Gherkin clock grammar uses
+        // Each duration reads back through the friendly time-span parser
         FriendlyTimeSpanParser.TryParse("0.5 milliseconds", out var half).ShouldBeTrue();
         half.ShouldBe(TimeSpan.FromTicks(5_000));
         FriendlyTimeSpanParser.TryParse("1 second 500.25 milliseconds", out var longer).ShouldBeTrue();
         longer.ShouldBe(TimeSpan.FromTicks(15_002_500));
-        try
-        {
-            new ClockGrammars().SetTime("2026-01-02 09:15:30.1234567");
-            BobcatClock.Current.GetUtcNow().ShouldBe(at);
-            new ClockGrammars().SetTime("2026-01-02 09:15");
-            BobcatClock.Current.GetUtcNow().ShouldBe(new DateTimeOffset(2026, 1, 2, 9, 15, 0, TimeSpan.Zero));
-        }
-        finally
-        {
-            BobcatClock.Reset();
-        }
     }
 
     [Fact]

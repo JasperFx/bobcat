@@ -110,13 +110,6 @@ internal static class StepInterceptors
         public Location? Location;
 
         /// <summary>
-        /// <c>[WaitFor]</c> / <c>[Approx]</c> on the helper or one of its parameters, by short name.
-        /// Only the Gherkin generator reads either one, so at a C# call site each is a BOBCAT035
-        /// warning rather than a poll or a tolerance that silently never happens.
-        /// </summary>
-        public List<string> IgnoredGherkinAttributes = new();
-
-        /// <summary>
         /// 0-based index of the marker comment this call sits under, within its own test method,
         /// or -1 when it sits under none (issue #304).
         /// </summary>
@@ -186,7 +179,6 @@ internal static class StepInterceptors
             Location = invocation.GetLocation()
         };
 
-        call.IgnoredGherkinAttributes.AddRange(GherkinOnlyAttributes.On(method));
 
         foreach (var parameter in method.Parameters)
         {

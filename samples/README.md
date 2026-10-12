@@ -14,15 +14,25 @@ sample's `appsettings.json` at it instead.
 
 ## Running a sample's specs
 
-Samples wired to Bobcat carry a `Tests/` subdirectory that runs their `.feature` files:
+Every sample with specs carries a `Tests/` subdirectory of Bobcat's projected (code-first) specs:
+ordinary xUnit v3 tests that render as Given/When/Then specifications. There are no `.feature` files.
 
 ```bash
-cd PaymentsMonolith/Tests
-dotnet run -- list     # discovered features and scenarios
-dotnet run -- run      # execute them
+cd PaymentsMonolith
+dotnet test Tests/Tests.csproj                     # run them
+BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests   # ...and print every spec as it rendered
 ```
 
-See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that is not yet wired.
+Each `Tests/` project boots the host once through Alba (`AlbaHost.For<Program>()`, an xUnit assembly
+fixture), and a base spec class in the same folder holds the HTTP calls and empties the store before
+every spec. The event-sourced samples -- BookingMonolith, MeetingGroupMonolith, ProjectManagement and
+BankAccountES -- derive that base from `CritterStackSpec`, so a spec can also assert the events a
+request appended and the aggregate they built.
+
+Two settings in each `Tests.csproj` are what a package consumer would inherit from Bobcat's
+`buildTransitive` props and a `ProjectReference` does not: `InterceptorsNamespaces` (without it a
+`[Given]` / `[When]` / `[Then]` helper records nothing and `SpecAssert` reports to no step, so every spec
+passes vacuously) and the `Bobcat.Xunit` `TestingPlatformBuilderHook`.
 
 ## Samples
 
@@ -48,7 +58,7 @@ See [docs/sample-wiring.md](../docs/sample-wiring.md) for how to wire one that i
 - **`ValidateAsync` / `Validate`** — sad-path validation separated from happy-path handlers
 - **`Results.NoContent()`** — preferred over `[EmptyResponse]` for 204 responses with cascading messages
 - **FluentValidation** — `UseFluentValidationProblemDetailMiddleware()` in `MapWolverineEndpoints()`
-- **Alba + Shouldly** — integration tests with `CleanAllMartenDataAsync()` for test isolation
+- **Alba + Bobcat specs** -- xUnit v3 specs over `AlbaHost`, with `ResetEventStoresAsync()` for test isolation
 
 ## Running
 
@@ -61,5 +71,5 @@ dotnet test Tests/Tests.csproj                         # Marten, Postgres on 543
 EventStore=Fisher dotnet test Tests/Tests.csproj       # Fisher, a SQLite file, no docker
 ```
 
-BankAccountES is the one sample whose specs are projected (code-first) xUnit v3 tests rather than
-`.feature` files -- see [its README](BankAccountES/README.md#specifications).
+Every sample's specs are projected (code-first) xUnit v3 tests -- BankAccountES's
+[README](BankAccountES/README.md#specifications) is the fullest worked example, slices and all.

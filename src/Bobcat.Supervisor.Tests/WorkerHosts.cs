@@ -15,13 +15,6 @@ internal static class WorkerHosts
     /// </summary>
     public static string ProjectedWorker { get; } = Locate("Bobcat.Supervisor.ProjectedWorker");
 
-    /// <summary>
-    /// <c>Bobcat.Supervisor.SampleWorker</c>: the Bobcat MTP (Gherkin lane) host the projected
-    /// worker replaced. Only for the assertions nothing but that host can produce.
-    /// </summary>
-    // Phase 3: delete with SampleWorker
-    public static string SampleWorker { get; } = Locate("Bobcat.Supervisor.SampleWorker");
-
     /// <summary>The executable a project in <c>src/</c> builds, in this run's configuration.</summary>
     public static string Locate(string project)
     {

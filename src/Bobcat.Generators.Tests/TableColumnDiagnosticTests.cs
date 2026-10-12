@@ -31,11 +31,27 @@ public class TableColumnDiagnosticTests
         public class Derived : OpenBase { public string Extra { get; set; } = ""; }
 
         public class Leaf { public string Name { get; set; } = ""; }
+
+        // The call shapes a grammar wraps: (object subject, StepTable expected) and
+        // (IEnumerable actual, StepTable expected). BOBCAT032 recognises them by shape, so any
+        // grammar's own wrappers are checked, not just Bobcat's.
+        public abstract class Grammar
+        {
+            protected static Specified<T> Specify<T>() => Specifications.Specify<T>();
+
+            protected TableRun VerifyObject(object subject, StepTable expected) => PropertyCells.Verify(subject, expected);
+
+            protected TableRun VerifyObject(object subject, IPartialObject expected) => PropertyCells.Verify(subject, expected);
+
+            protected TableRun VerifySet<T>(IEnumerable<T> actual, StepTable expected,
+                string keyColumns = "", bool ordered = false, string column = "")
+                => SetVerificationComparer.Verify(actual, expected, keyColumns, ordered, column);
+        }
         """;
 
     private static GeneratorHarness.RunOutcome run(string body)
         => GeneratorHarness.Run(Types + "\n" + $$"""
-            public class Specs : Fixture
+            public class Specs : Grammar
             {
                 public void Check(Order order, Titled titled, OpenBase open, object anything, List<Order> orders, Leaf leaf, string dynamicTable)
                 {

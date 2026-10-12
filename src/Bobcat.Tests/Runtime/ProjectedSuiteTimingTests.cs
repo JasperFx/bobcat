@@ -180,23 +180,6 @@ public class ProjectedSuiteTimingTests
     }
 
     [Fact]
-    public void a_gherkin_suite_json_still_measures_its_lifecycle_and_says_nothing_new()
-    {
-        var r = new ExecutionResults("timed", DateTimeOffset.UtcNow) { WallClockMs = 100 };
-        r.RecordTimelinePoint("ResetAll", 0, 40);
-        var feature = new FeatureResults("F");
-        feature.Add(new ScenarioResult(r.SpecId, [], r));
-        var results = new SuiteResults();
-        results.Add(feature);
-
-        var json = JsonDocument.Parse(JsonRenderer.RenderSuite(results)).RootElement.GetProperty("timing");
-
-        json.TryGetProperty("lifecycleMeasured", out _).ShouldBeFalse();
-        json.GetProperty("lifecycle")[0].GetProperty("text").GetString().ShouldBe("ResetAll");
-        json.GetProperty("scenarios")[0].GetProperty("lifecycleMs").GetInt64().ShouldBe(40);
-    }
-
-    [Fact]
     public void the_console_summary_says_not_measured_and_never_prints_a_zero_lifecycle()
     {
         var writer = new StringWriter();
