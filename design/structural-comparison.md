@@ -324,12 +324,38 @@ Each row stands alone and lands on its own.
 |---|---|---|---|
 | 1 | §2.6 — `Format` via `Describe`, cycle detection | none; fixes §1.3's identical-sides line and §1.5 outright | done, `28be13b` |
 | 2 | §2.4 — dictionaries by key | behavioural: two dictionaries that disagreed now agree | done, `28be13b` |
-| 3 | §2.1 — `IExpectedItems` + `Expect.*` + the `Specified<T>` overload + the inline table, delegating to `ObjectSetVerification`; **a bare collection becomes unordered** | behavioural, per call 1 | |
-| 4 | §2.3 — `ValueDifference.Note` and the nested verdict rows | additive; 3 is not worth shipping without it | |
-| 5 | §2.7 — the difference cap | rendering only | |
-| 6 | §2.2a — `ShouldBe` on a collection is ordered | additive | |
+| 3 | §2.1 — `IExpectedItems` + `Expect.*` + the `Specified<T>` overload + the inline table, delegating to `ObjectSetVerification`; **a bare collection becomes unordered** | behavioural, per call 1 | done, `a52b748` |
+| 4 | §2.3 — `ValueDifference.Note` and the nested verdict rows | additive; 3 is not worth shipping without it | done, `a52b748` |
+| 5 | §2.7 — the difference cap | rendering only | done, `a52b748` |
+| 8 | §2.5 — the runtime-type check | behavioural | done, `a52b748` |
+| 6 | §2.2a — `ShouldBe` on a collection is ordered | additive | done |
 | 7 | §2.2 — `Approximately` / `Within` / `InAnyOrder` on `Expect.Value` | additive | |
-| 8 | §2.5 — the runtime-type check | behavioural | |
+
+### What building it taught
+
+Four things the design did not foresee, each now pinned by a test:
+
+- **`Expect.Containing("vip")` silently meant "a table".** `StepTable` converts implicitly from a
+  string, so an overload taking one beats `params object[]` for a single string argument — and a
+  table parsed from `"vip"` has no rows, which is an expectation that asserts nothing and passes.
+  The table forms are therefore named apart: `Expect.Rows(table, mode)` and `Expect.NoRowsLike(table)`.
+- **Near-match pairing must not pair scalars.** Pass 2 of the set matching exists to say "the right
+  thing with a wrong member"; a scalar has no members, so pairing two strings says "expected rush,
+  was vip" about two items with nothing to do with each other, where MISSING beside EXTRA is the
+  truth. The condition is in `Pair`, so the top level gets it too.
+- **The ancestor set has to span the whole comparison, not one call.** A collection's items are
+  compared through `PartialMatching`, which re-enters `ObjectComparison` — so a set each call owned
+  privately would be a fresh one per element, and a graph that cycles *through a collection* would
+  not terminate. It is `[ThreadStatic]`, owned by the outermost call.
+- **`Format` may not override a type's own `ToString` indiscriminately.** §2.6's first cut sent every
+  non-leaf to `Describe`, which broke the tag list, whose whole job is its `ToString`. A **record's**
+  generated one still does not count — it walks the members the graph walk already covers and
+  recurses forever on a cycle — and `PrintMembers` is how it gives itself away.
+
+One consequence of §2.3 that had to be fixed with it: `PropertyCells.Verify(subject, partial)` keyed
+differences on the member path alone, so a nested difference (`Lines[1].Quantity`) reached no cell
+and a failed comparison **rendered green** — and two items missing at one path threw on a duplicate
+dictionary key. A member now owns every path inside it (`PartialMatching.Owns`).
 
 Then, and Jeremy's own reading of this issue is that it is most of the value: **documentation and
 worked samples** for the expected-object forms, which is also #452's homeless docs. Plus the

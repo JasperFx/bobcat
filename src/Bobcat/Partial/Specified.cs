@@ -284,6 +284,13 @@ public static class PartialObjects
                 $"{partial.Type.Name}.{check.Path} is a check ({check.Value}), not a value, so this {partial.Type.Name} cannot be built. "
                 + "Checks are for what a specification expects; give a value with .With(...) to build one.");
 
+        // Same rule for a collection expectation: "exactly these, in any order" says what a
+        // collection must hold, not what to put in one (bobcat#456)
+        if (partial.Values.FirstOrDefault(x => x.Value is IExpectedItems) is { } items)
+            throw new SpecCriticalException(
+                $"{partial.Type.Name}.{items.Path} expects {items.Value}, which is what a collection must hold rather than "
+                + $"a collection, so this {partial.Type.Name} cannot be built. Give the items themselves with .With(...) to build one.");
+
         return ObjectConstruction.Build(partial.Type, partial.Values, unspecified ?? UnspecifiedValues, step);
     }
 

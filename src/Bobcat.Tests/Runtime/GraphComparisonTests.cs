@@ -1,4 +1,5 @@
 using Bobcat;
+using Bobcat.Engine;
 using Bobcat.Runtime;
 using Shouldly;
 using static Bobcat.Specifications;
@@ -174,6 +175,50 @@ public class GraphComparisonTests
         ObjectComparison.Differences(new[] { "vip" }, Expect.Containing("rush"))
             .ShouldHaveSingleItem()
             .Note.ShouldBe("MISSING: nothing like this");
+    }
+
+    // ---- Shouldly's ShouldBe over a collection -------------------------------------------------
+
+    [Fact]
+    public void should_be_over_a_collection_is_ordered_because_shouldly_says_so()
+    {
+        PartialMatching.Differences(TheBasket,
+            Specify<Basket>(x => x.Lines.ShouldBe(new List<Line> { new("A", 1), new("B", 2) }))).ShouldBeEmpty();
+
+        PartialMatching.Differences(TheBasket,
+                Specify<Basket>(x => x.Lines.ShouldBe(new List<Line> { new("B", 2), new("A", 1) })))
+            .ShouldHaveSingleItem()
+            .Note.ShouldStartWith("Out of order");
+    }
+
+    [Fact]
+    public void should_be_with_ignore_order_is_shouldlys_own_opt_out()
+    {
+        PartialMatching.Differences(TheBasket,
+            Specify<Basket>(x => x.Lines.ShouldBe(new List<Line> { new("B", 2), new("A", 1) }, true))).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void should_be_over_a_collection_compares_member_by_member_and_not_through_equals()
+    {
+        // Shouldly's own ShouldBe would compare these by reference, since Holder is a class
+        PartialMatching.Differences(new Bag([new Holder("A")]),
+            Specify<Bag>(x => x.Items.ShouldBe(new List<Holder> { new("A") }))).ShouldBeEmpty();
+    }
+
+    public class Holder(string Sku)
+    {
+        public string Sku { get; } = Sku;
+    }
+
+    public record Bag(List<Holder> Items);
+
+    [Fact]
+    public void a_collection_expectation_says_what_a_collection_must_hold_not_what_to_build()
+    {
+        Should.Throw<SpecCriticalException>(() =>
+                Specify<Basket>().With(x => x.Lines, Expect.NoItems()).Build())
+            .Message.ShouldContain("cannot be built");
     }
 
     // ---- a dictionary member is keyed ---------------------------------------------------------

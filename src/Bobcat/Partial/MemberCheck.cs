@@ -83,9 +83,24 @@ internal static class MemberChecks
             .Select(x => x.argument)
             .ToList();
 
-        if (call.Method.Name == "ShouldBe" && compared.Count == 1)
+        if (call.Method.Name == "ShouldBe" && compared.Count is 1 or 2)
         {
-            return (path, evaluate(compared[0], check));
+            var expected = evaluate(compared[0], check);
+            var second = compared.Count == 2 ? evaluate(compared[1], check) : null;
+
+            // Shouldly's own ShouldBe over an IEnumerable is ORDERED, and ignoreOrder is its own
+            // opt-out, so a specification that borrowed the spelling gets the meaning (bobcat#456).
+            // What Bobcat adds is member by member: Shouldly compares elements with Equals, which is
+            // reference equality for a class and silently wrong for exactly the reason
+            // ObjectComparison exists.
+            if (ExpectedItems.ItemsOf(expected) is { } elements && (compared.Count == 1 || second is bool))
+            {
+                return (path, new ExpectedItems(second is true ? Runtime.SetMode.AnyOrder : Runtime.SetMode.Ordered,
+                    false, elements));
+            }
+
+            // ShouldBe(expected, tolerance) is not equality and falls through to a member check
+            if (compared.Count == 1) return (path, expected);
         }
 
         var values = compared.Select(x => evaluate(x, check)).ToList();
