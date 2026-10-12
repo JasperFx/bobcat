@@ -3,7 +3,66 @@ using Bobcat.Engine;
 namespace Bobcat.Runtime;
 
 /// <summary>One leaf of an expected object that the actual one disagreed on.</summary>
-public sealed record ValueDifference(string Path, object? Expected, object? Actual);
+/// <param name="Note">
+/// Why, where the two values alone do not say it (bobcat#456) — an item of a collection that was
+/// MISSING, EXTRA, out of order or present when forbidden, or a member of the wrong type. Trailing and
+/// optional, so a caller that ignores it is exactly as correct as it was.
+/// </param>
+public sealed record ValueDifference(string Path, object? Expected, object? Actual, string? Note = null);
+
+/// <summary>
+/// How a list of disagreements reads in one cell — <b>in one place</b>, so the grid, the sentence a
+/// test throws and the report cannot word the same failure differently.
+/// </summary>
+public static class ValueDifferences
+{
+    /// <summary>
+    /// How many disagreements are shown before "…and N more". A reordered fifty-element collection is a
+    /// hundred disagreements, and a cell holding all of them is unreadable; the cap is here, where they
+    /// are rendered, so a caller reading them programmatically still gets every one.
+    /// </summary>
+    public const int Shown = 10;
+
+    /// <summary>
+    /// The <paramref name="expected"/> or actual side of each disagreement, as <c>path: value</c> pairs.
+    /// A note — MISSING, EXTRA, out of order — is shown on both sides, because it is the reason the two
+    /// values do not speak for themselves.
+    /// </summary>
+    public static string Describe(IReadOnlyList<ValueDifference> differences, bool expected, string? member = null)
+    {
+        var text = string.Join(", ", differences.Take(Shown).Select(difference =>
+        {
+            var path = trim(difference.Path, member);
+            var value = ObjectComparison.Format(expected ? difference.Expected : difference.Actual);
+            var named = path.Length == 0 ? value : $"{path}: {value}";
+
+            return difference.Note is null ? named : $"{named} ({difference.Note})";
+        }));
+
+        return differences.Count > Shown ? $"{text}, …and {differences.Count - Shown} more" : text;
+    }
+
+    /// <summary>One sentence per disagreement, for the message a test throws when nothing shows a grid.</summary>
+    public static IReadOnlyList<string> Sentences(IReadOnlyList<ValueDifference> differences)
+        => differences.Take(Shown)
+            .Select(difference =>
+            {
+                var sentence = $"{difference.Path}: expected {ObjectComparison.Format(difference.Expected)}, "
+                               + $"was {ObjectComparison.Format(difference.Actual)}";
+                return difference.Note is null ? sentence : $"{difference.Path}: {difference.Note}";
+            })
+            .Concat(differences.Count > Shown ? [$"…and {differences.Count - Shown} more"] : Array.Empty<string>())
+            .ToList();
+
+    // Inside a cell that is already a member's, the member's own name adds nothing to every path
+    private static string trim(string path, string? member)
+    {
+        if (member is null || !path.StartsWith(member, StringComparison.OrdinalIgnoreCase)) return path;
+
+        var rest = path.Substring(member.Length);
+        return rest.StartsWith('.') ? rest.Substring(1) : rest;
+    }
+}
 
 /// <summary>
 /// Set verification over OBJECTS rather than a document's table — the events a command appended,
@@ -37,6 +96,14 @@ public static class ObjectSetVerification
 
     /// <summary>The cell an <see cref="Absent"/> check adds to a row whose forbidden item was found.</summary>
     public const string PresentCell = "present-row";
+
+    /// <summary>
+    /// How a misplaced item reads, in one place so a top-level set and a collection member inside an
+    /// object say it the same way. Positions are 0-based and read out 1-based.
+    /// </summary>
+    public static string OutOfOrderNote(string typeName, int position, int before)
+        => $"Out of order: {typeName} was appended at position {position + 1}, "
+           + $"before one the specification writes ahead of it (position {before + 1})";
 
     /// <param name="actual">What the system produced, in the order it produced it.</param>
     /// <param name="expected">What the specification expects, as plain values (unwrapped).</param>
@@ -95,13 +162,38 @@ public static class ObjectSetVerification
         SetMode mode)
         => cells(actual, expected, compare, noun, mode, null);
 
-    private static TableRun cells(
+    /// <summary>
+    /// How a set of expectations paired with the items that actually happened — the matching on its
+    /// own, with nothing rendered. Extracted (bobcat#456) so that a collection <em>inside</em> an
+    /// object is matched by the same rules as a top-level set rather than position by position:
+    /// one matching, two renderings.
+    /// </summary>
+    /// <param name="Pairs">Expectation index to the actual index it took, or -1 for one that found nothing.</param>
+    /// <param name="Owner">Actual index to the expectation that took it, or -1 for an item nobody expected.</param>
+    /// <param name="Differences">
+    /// Per expectation: null when it matched exactly or found nothing, otherwise what it disagreed with
+    /// its paired item about — the near match that is a FAIL rather than a MISSING beside an EXTRA.
+    /// </param>
+    /// <param name="OutOfOrder">
+    /// Per expectation: -1 when in order, otherwise the actual position of the furthest expectation
+    /// written ahead of it, which it came before. Always -1 unless the mode is <see cref="SetMode.Ordered"/>.
+    /// </param>
+    public sealed record SetPairing(
+        int[] Pairs,
+        int[] Owner,
+        IReadOnlyList<ValueDifference>?[] Differences,
+        int[] OutOfOrder);
+
+    /// <summary>
+    /// Pair <paramref name="expected"/> with <paramref name="actual"/>. See <see cref="Cells(IReadOnlyList{object},
+    /// IReadOnlyList{object}, Func{object, int, IReadOnlyList{ValueDifference}}, string, SetMode)"/>'s remarks for
+    /// why the pairing is a maximum matching rather than first come first served.
+    /// </summary>
+    public static SetPairing Pair(
         IReadOnlyList<object> actual,
         IReadOnlyList<object> expected,
         Func<object, int, IReadOnlyList<ValueDifference>> compare,
-        string noun,
-        SetMode mode,
-        Func<object, IReadOnlyList<object>?>? tagsOf)
+        SetMode mode)
     {
         var exact = new bool[expected.Count, actual.Count];
         for (var i = 0; i < expected.Count; i++)
@@ -134,11 +226,15 @@ public static class ObjectSetVerification
 
         var differences = new IReadOnlyList<ValueDifference>?[expected.Count];
 
-        // Pass 2: the same type with different values — a FAIL row, not MISSING beside EXTRA
+        // Pass 2: the same type with different values — a FAIL row, not MISSING beside EXTRA.
+        // Only for an item that HAS members to disagree about: pairing two scalars says "expected
+        // rush, was vip" about two items that have nothing to do with each other, where MISSING
+        // beside EXTRA is the truth.
         for (var i = 0; i < expected.Count; i++)
         {
             if (pairs[i] >= 0) continue;
             var type = PartialMatching.ExpectedType(expected[i]);
+            if (ObjectComparison.IsLeaf(type)) continue;
             var candidate = -1;
             var (after, before) = ordered ? gap(pairs, i, actual.Count) : (-1, actual.Count);
             for (var j = 0; j < actual.Count; j++)
@@ -165,10 +261,34 @@ public static class ObjectSetVerification
             }
         }
 
+        // Which pairings came before one the specification writes ahead of them. An expectation that
+        // found nothing does not move the mark: a missing item must not read as reordering the rest.
+        var outOfOrder = new int[expected.Count];
+        Array.Fill(outOfOrder, -1);
+        var mark = -1;
+        for (var i = 0; i < expected.Count; i++)
+        {
+            if (pairs[i] < 0) continue;
+            if (ordered && pairs[i] < mark) outOfOrder[i] = mark;
+            mark = Math.Max(mark, pairs[i]);
+        }
+
+        return new SetPairing(pairs, owner, differences, outOfOrder);
+    }
+
+    private static TableRun cells(
+        IReadOnlyList<object> actual,
+        IReadOnlyList<object> expected,
+        Func<object, int, IReadOnlyList<ValueDifference>> compare,
+        string noun,
+        SetMode mode,
+        Func<object, IReadOnlyList<object>?>? tagsOf)
+    {
+        var (pairs, owner, differences, outOfOrder) = Pair(actual, expected, compare, mode);
+
         var columns = new List<string> { noun, ValuesColumn };
         var run = new TableRun(columns);
         var row = 0;
-        var furthest = -1;
 
         for (var i = 0; i < expected.Count; i++, row++)
         {
@@ -188,17 +308,14 @@ public static class ObjectSetVerification
             }
 
             var position = pairs[i];
-            if (mode == SetMode.Ordered && position < furthest)
+            if (outOfOrder[i] >= 0)
             {
                 run.Cells.Add(new CellResult(SetVerificationComparer.OutOfOrderCell, ResultStatus.failed)
                 {
-                    Note = $"Out of order: {typeName} was appended at position {position + 1}, "
-                           + $"before one the specification writes ahead of it (position {furthest + 1})",
+                    Note = OutOfOrderNote(typeName, position, outOfOrder[i]),
                     RowIndex = row
                 });
             }
-
-            furthest = Math.Max(furthest, position);
 
             run.Cells.Add(new CellResult(noun, ResultStatus.success)
             {
@@ -211,8 +328,8 @@ public static class ObjectSetVerification
             {
                 run.Cells.Add(new CellResult(ValuesColumn, ResultStatus.failed)
                 {
-                    Expected = string.Join(", ", diffs.Select(d => $"{d.Path}: {ScenarioValues.Format(d.Expected)}")),
-                    Actual = string.Join(", ", diffs.Select(d => $"{d.Path}: {ScenarioValues.Format(d.Actual)}")),
+                    Expected = ValueDifferences.Describe(diffs, expected: true),
+                    Actual = ValueDifferences.Describe(diffs, expected: false),
                     RowIndex = row
                 });
             }

@@ -499,3 +499,6 @@ equality, so they all leave it unstated. See
 ## See also
 
 - [Writing Specifications](../marker-steps.md#tables-and-sets-from-a-c-test) -- step helpers, and `SpecAssert`
+- [Expected Objects](../expected-objects.md) -- the other half of this: an object compared as a whole
+  rather than against a row, including a **collection member matched as a set**, which is the set
+  verification on this page applied inside an object

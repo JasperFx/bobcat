@@ -48,8 +48,7 @@ public static class PropertyCells
     public static TableRun Verify(object subject, IPartialObject expected)
     {
         var run = new TableRun(expected.Values.Select(v => v.Path).ToList());
-        var differences = PartialMatching.Differences(subject, expected)
-            .ToDictionary(d => d.Path, StringComparer.OrdinalIgnoreCase);
+        var differences = PartialMatching.Differences(subject, expected);
 
         foreach (var value in expected.Values)
         {
@@ -57,13 +56,21 @@ public static class PropertyCells
                 ? ScenarioValues.Format(ObjectComparison.Unwrap(found.Value))
                 : CellTokens.Null;
 
+            // A collection member's own disagreements are its items' (bobcat#456), so the member owns
+            // every path inside it — and there may be several, where a scalar member has one or none
+            var mine = differences.Where(d => PartialMatching.Owns(value.Path, d.Path)).ToList();
+
             // A check (bobcat#450) is shown as its assertion reads, and a failed one says why
             var check = value.Value as MemberCheck;
-            run.Cells.Add(differences.TryGetValue(value.Path, out var difference)
+            run.Cells.Add(mine.Count > 0
                 ? new CellResult(value.Path, ResultStatus.failed)
                 {
-                    Expected = check?.Description ?? ScenarioValues.Format(difference.Expected), Actual = shown, RowIndex = 0,
-                    Note = check?.Run(difference.Actual)
+                    Expected = check?.Description ?? ValueDifferences.Describe(mine, true, value.Path),
+                    Actual = mine.Count == 1 && mine[0].Path == value.Path
+                        ? shown
+                        : ValueDifferences.Describe(mine, false, value.Path),
+                    RowIndex = 0,
+                    Note = check?.Run(mine[0].Actual)
                 }
                 : new CellResult(value.Path, ResultStatus.success, shown)
                 {

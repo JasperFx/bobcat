@@ -2304,7 +2304,8 @@ public class CritterStackScenario
         return matched;
     }
 
-    private static void cell(string name, bool matched, object? expected, object? actual, int rowIndex = -1)
+    private static void cell(string name, bool matched, object? expected, object? actual, int rowIndex = -1,
+        string? note = null)
     {
         if (!recording) return;
 
@@ -2312,7 +2313,8 @@ public class CritterStackScenario
         {
             Expected = ObjectComparison.Format(expected),
             Actual = ObjectComparison.Format(actual),
-            RowIndex = rowIndex
+            RowIndex = rowIndex,
+            Note = note
         });
     }
 
@@ -2330,15 +2332,17 @@ public class CritterStackScenario
         foreach (var leaf in leaves)
         {
             if (leaf.Ignored) valueCell(leaf.Path, leaf.Actual, rowIndex);
-            else cell(leaf.Path, leaf.Matched, leaf.Expected, leaf.Actual, rowIndex);
+            else cell(leaf.Path, leaf.Matched, leaf.Expected, leaf.Actual, rowIndex, leaf.Note);
         }
 
         return leaves.All(x => x.Matched);
     }
 
     private static string describeLeaves(IEnumerable<ObjectComparison.Leaf> leaves)
-        => string.Join("; ", leaves.Where(x => !x.Matched)
-            .Select(x => $"{x.Path}: expected {ObjectComparison.Format(x.Expected)}, was {ObjectComparison.Format(x.Actual)}"));
+        => string.Join("; ", ValueDifferences.Sentences(leaves
+            .Where(x => !x.Matched)
+            .Select(x => new ValueDifference(x.Path, x.Expected, x.Actual, x.Note))
+            .ToList()));
 
     private void compareSequence(string noun, IReadOnlyList<object> actual, IReadOnlyList<object> expected)
     {
@@ -2369,7 +2373,8 @@ public class CritterStackScenario
                 continue;
             }
 
-            var leaves = ObjectComparison.Compare(actualValue, expectedValue, (expected[i] as IExpectedValue)?.IgnoredPaths);
+            var leaves = ObjectComparison.Compare(actualValue, expectedValue,
+                (expected[i] as IExpectedValue)?.Rules ?? ComparisonRules.None);
             if (!row(leaves, i)) problems.Add($"[{i}] {expectedValue.GetType().Name}: {describeLeaves(leaves)}");
         }
 

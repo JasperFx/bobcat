@@ -19,11 +19,22 @@ public static class PartialMatching
     public static IReadOnlyList<ValueDifference> Differences(object actual, object expected) => expected switch
     {
         IPartialObject partial => partialDifferences(actual, partial),
-        IExpectedValue value => ObjectComparison.Differences(actual, value.Value, value.IgnoredPaths),
+        IExpectedValue value => ObjectComparison.Differences(actual, value.Value, value.Rules),
         // A type alone judges no member, as ExpectedType and DescribeExpected already read it
         Type => [],
         _ => ObjectComparison.Differences(actual, expected)
     };
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is <paramref name="member"/> or something inside it —
+    /// <c>Lines</c> owns <c>Lines[1].Quantity</c>, so a collection member's cell carries the
+    /// disagreements of its items.
+    /// </summary>
+    public static bool Owns(string member, string path)
+        => path.Equals(member, StringComparison.OrdinalIgnoreCase)
+           || (path.Length > member.Length
+               && path.StartsWith(member, StringComparison.OrdinalIgnoreCase)
+               && path[member.Length] is '.' or '[');
 
     /// <summary>
     /// <see cref="Differences(object, object)" />, and — when <paramref name="expected"/> names tags
@@ -62,6 +73,24 @@ public static class PartialMatching
     };
 
     /// <summary>
+    /// An expectation as one item of a collection: <c>Line(Sku: "A", Quantity: 1)</c>, the type named
+    /// because a collection may hold several types and a bare value list would not say which is which.
+    /// </summary>
+    public static string DescribeItem(object expected)
+    {
+        // A scalar element is its own description: String("rush") says nothing "rush" does not
+        if (expected is not IPartialObject and not IExpectedValue and not Type
+            && ObjectComparison.IsLeaf(expected.GetType()))
+        {
+            return ObjectComparison.Format(expected);
+        }
+
+        var values = DescribeExpected(expected);
+        var name = ExpectedType(expected).Name;
+        return values.Length == 0 ? name : $"{name}({values})";
+    }
+
+    /// <summary>
     /// The expectation's values on one line: a partial object's specified members only
     /// (<c>TrackingNumber: 1Z999</c>), otherwise every property.
     /// </summary>
@@ -70,6 +99,7 @@ public static class PartialMatching
         {
             IPartialObject partial => PartialObjects.DescribeValues(partial),
             IExpectedValue value => ScenarioValues.DescribeProperties(value.Value),
+            IExpectedItems items => ExpectedItems.Describe(items, null),
             Type => "",
             _ => ScenarioValues.DescribeProperties(expected)
         }, Tagging.ExpectedTagsOf(expected));
@@ -125,6 +155,15 @@ public static class PartialMatching
                 ? ObjectComparison.Unwrap(resolved.Value)
                 : null;
 
+            // A collection member is matched as a set (bobcat#456), so a disagreement names the item
+            // that disagreed. Reporting the whole collection on both sides read "expected
+            // List`1[Line], was List`1[Line]" — the same text either side of a failure.
+            if (!specified.IsText && isCollection(specified.Value))
+            {
+                differences.AddRange(ObjectComparison.DifferencesAt(specified.Path, actualValue, specified.Value));
+                continue;
+            }
+
             if (!agrees(actualValue, specified))
                 differences.Add(new ValueDifference(specified.Path,
                     specified.IsText ? ((string?)specified.Value)?.Trim() : specified.Value, actualValue));
@@ -132,6 +171,10 @@ public static class PartialMatching
 
         return differences;
     }
+
+    // What this comparison matches as a set rather than as one value
+    private static bool isCollection(object? value)
+        => value is IExpectedItems || ExpectedItems.ItemsOf(value) is not null;
 
     private static bool agrees(object? actual, SpecifiedValue specified)
     {
