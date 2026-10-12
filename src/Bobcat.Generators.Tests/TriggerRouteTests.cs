@@ -202,6 +202,10 @@ public class TriggerRouteTests
         slice.TriggerOrigin.HttpMethod.ShouldBe("POST");
         slice.TriggerOrigin.Label.ShouldBe("POST /api/accounts/{accountId}/deposits");
         outcome.WithId("BOBCAT038").ShouldBeEmpty();
+
+        // The name the act addressed it by rides along (JasperFx 2.85.0); Label stays the verb and route, since
+        // it takes part in the TriggerOrigin merge against Wolverine's derived route
+        slice.TriggerOrigin.HttpRouteName.ShouldBe("MakeDeposit");
     }
 
     [Fact]
@@ -248,6 +252,7 @@ public class TriggerRouteTests
         var slice = GeneratedEventModel.For(load(outcome, wolverine, app))!.Slices.Single(x => x.Name == "Withdraw");
         slice.TriggerOrigin!.HttpRoute.ShouldBe("/api/accounts/{accountId}/withdrawals");
         slice.TriggerOrigin.HttpMethod.ShouldBe("POST");
+        slice.TriggerOrigin.HttpRouteName.ShouldBe("Withdraw");
     }
 
     [Fact]
@@ -300,14 +305,51 @@ public class TriggerRouteTests
             }
             """);
 
+        // The route stays unknown, but the name still says which endpoint: it is stamped on an origin with no route,
+        // labelled as a name so it cannot be read as one
         var slice = sliceIn(outcome, "Deposit");
         slice.TriggerKind.ShouldBe(TriggerKind.Http);
-        slice.TriggerOrigin.ShouldBeNull();
+        slice.TriggerOrigin!.HttpRoute.ShouldBeNull();
+        slice.TriggerOrigin.HttpRouteName.ShouldBe("MakeDeposit");
+        slice.TriggerOrigin.HttpMethod.ShouldBe("POST");
+        slice.TriggerOrigin.Label.ShouldBe("POST (route name MakeDeposit)");
 
         var diagnostic = outcome.WithId("BOBCAT038").ShouldHaveSingleItem();
         diagnostic.Severity.ShouldBe(DiagnosticSeverity.Info);
         diagnostic.GetMessage().ShouldContain("\"MakeDeposit\"");
         diagnostic.GetMessage().ShouldContain(".WithName");
+    }
+
+    [Fact]
+    public void a_resolved_route_name_beats_an_unresolved_one_whichever_specification_folds_first()
+    {
+        var outcome = run(
+            WolverineHttp +
+            """
+            namespace BankApp
+            {
+                public static class DepositEndpoint
+                {
+                    [Wolverine.Http.WolverinePost("/deposits", RouteName = "MakeDeposit")]
+                    public static void Post(Deposit command) { }
+                }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task by_an_unknown_name() => await WhenPostedTo(new Deposit(Guid.Empty, 1m), "Typo");
+
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task by_its_name() => await WhenPostedTo(new Deposit(Guid.Empty, 2m), "MakeDeposit");
+            }
+            """);
+
+        // The name travels with the route it resolved to
+        var origin = sliceIn(outcome, "Deposit").TriggerOrigin!;
+        origin.HttpRoute.ShouldBe("/deposits");
+        origin.HttpRouteName.ShouldBe("MakeDeposit");
     }
 
     // ---------------------------------------------------------------- an interpolated route

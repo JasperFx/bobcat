@@ -120,6 +120,25 @@ internal static class EventModelEmitter
 
         /// <summary>The HTTP act's verb, when its vocabulary declares one; POST otherwise.</summary>
         public string? TriggerHttpMethod;
+
+        /// <summary>
+        /// The ASP.NET Core route name the act addressed its endpoint by (bobcat#500), resolved or not. Stamped as
+        /// <c>PublisherOrigin.HttpRouteName</c>; it travels with the route it came beside.
+        /// </summary>
+        public string? TriggerRouteName;
+
+        /// <summary>
+        /// True while the slice's trigger came from a read act (bobcat#501). A command act's trigger replaces it,
+        /// and it is stamped only when the slice comes out a Query: a GET belongs to the query, not to a command
+        /// slice some other specification acts on.
+        /// </summary>
+        public bool TriggerFromRead;
+
+        /// <summary>
+        /// The types the slice's read acts read (bobcat#501). Any entry makes an undeclared slice with no command
+        /// act a Query; the types themselves reach <c>ReadsFrom</c> through <see cref="ReadModels"/>.
+        /// </summary>
+        public readonly List<string> ReadActs = new();
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -208,13 +227,20 @@ internal static class EventModelEmitter
                 slice.TriggerLabel ??= spec.TriggeredBy;
             }
 
-            // The act is the LAST command the test sends (#464); its trigger is the act's own. First
+            // The act is the LAST act the test makes (#464); its trigger is the act's own. First
             // scenario to say so wins, like ActCommand.
             slice.ActCommand ??= roles.Act;
-            if (roles.TriggerKind != null)
+            if (roles.ReadAct != null) addDistinct(slice.ReadActs, roles.ReadAct);
+
+            // bobcat#501: a command act outranks a read act's trigger, whichever folds first
+            if (roles.Act != null && slice.TriggerFromRead) clearTrigger(slice);
+
+            var fromRead = roles.ReadAct != null;
+            if (roles.TriggerKind != null && (!fromRead || slice.ActCommand == null))
             {
+                if (slice.TriggerKind == null) slice.TriggerFromRead = fromRead;
                 slice.TriggerKind ??= roles.TriggerKind;
-                adoptRoute(slice, roles.TriggerRoute, roles.TriggerRouteReconstructed, roles.HttpMethod);
+                adoptRoute(slice, roles.TriggerRoute, roles.TriggerRouteReconstructed, roles.HttpMethod, roles.TriggerRouteName);
             }
 
             foreach (var (role, type) in roles.Roles)
@@ -253,14 +279,39 @@ internal static class EventModelEmitter
     /// route <em>reconstructed</em> from an interpolation beats an unknown one and loses to a read or resolved
     /// one, again whatever the order.
     /// </summary>
-    private static void adoptRoute(SliceModel slice, string? route, bool reconstructed, string? httpMethod)
+    /// <remarks>
+    /// The route name (bobcat#500) travels with the route it came beside. A route name with no route still names
+    /// the endpoint, so it is kept — with its verb — until a scenario brings a known route.
+    /// </remarks>
+    private static void adoptRoute(SliceModel slice, string? route, bool reconstructed, string? httpMethod, string? routeName)
     {
-        if (string.IsNullOrEmpty(route)) return;
+        if (string.IsNullOrEmpty(route))
+        {
+            if (string.IsNullOrEmpty(slice.TriggerRoute) && routeName != null && slice.TriggerRouteName == null)
+            {
+                slice.TriggerRouteName = routeName;
+                slice.TriggerHttpMethod ??= httpMethod;
+            }
+
+            return;
+        }
+
         if (!string.IsNullOrEmpty(slice.TriggerRoute) && (reconstructed || !slice.TriggerRouteReconstructed)) return;
 
         slice.TriggerRoute = route;
         slice.TriggerRouteReconstructed = reconstructed;
         slice.TriggerHttpMethod = httpMethod;
+        slice.TriggerRouteName = routeName;
+    }
+
+    private static void clearTrigger(SliceModel slice)
+    {
+        slice.TriggerKind = null;
+        slice.TriggerRoute = null;
+        slice.TriggerRouteReconstructed = false;
+        slice.TriggerHttpMethod = null;
+        slice.TriggerRouteName = null;
+        slice.TriggerFromRead = false;
     }
 
     /// <summary>A slice name as a C# identifier: letters and digits kept, spaces as underscores.</summary>
@@ -299,6 +350,23 @@ internal static class EventModelEmitter
     /// </para>
     /// </remarks>
     public static string EmitSource(string assemblyName, string? modelName, IReadOnlyList<SliceModel> slices)
+        => EmitSource(assemblyName, modelName, slices, Contract.Latest);
+
+    /// <summary>
+    /// What the consuming compilation's JasperFx can host beyond the 2.54.0 floor: <c>SlicePattern.Query</c> and
+    /// <c>PublisherOrigin.HttpRouteName</c> are 2.85.0's (bobcat#501, #500). Probed, like the gate type, so a
+    /// consumer on an older JasperFx keeps compiling: without Query a read act's slice falls back to the inference
+    /// it had before; without the field the route name is simply not stamped.
+    /// </summary>
+    internal sealed class Contract
+    {
+        public static readonly Contract Latest = new() { Query = true, RouteName = true };
+
+        public bool Query;
+        public bool RouteName;
+    }
+
+    public static string EmitSource(string assemblyName, string? modelName, IReadOnlyList<SliceModel> slices, Contract contract)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>");
@@ -333,7 +401,7 @@ internal static class EventModelEmitter
         foreach (var slice in slices)
         {
             sb.AppendLine();
-            sb.Append(emitSlice(slice));
+            sb.Append(emitSlice(slice, contract));
         }
 
         sb.AppendLine("}");
@@ -349,8 +417,26 @@ internal static class EventModelEmitter
     }
 
     /// <summary>Emit one slice's builder as a member of the model class.</summary>
-    private static string emitSlice(SliceModel slice)
+    private static string emitSlice(SliceModel slice, Contract contract)
     {
+        var pattern = patternOf(slice, contract);
+
+        // bobcat#501: a Query changes nothing, so it has no command (an arranging command is not its act), and
+        // what it reads -- the read act's type, an asserted read model, an explicit GivenContext -- is ReadsFrom,
+        // never a read model it produces. ReadsFrom is what JasperFx's ReadModelRead link joins to the View
+        // producing it. A stream arranged with plain GivenEvents stamps NOTHING on a Query: it is setup feeding a
+        // projection, not something the endpoint reads -- no AggregateTypes, no ReadsFrom, no ConsumedEvents
+        var query = pattern == "Query";
+        var command = query ? null : slice.ActCommand ?? slice.Commands.FirstOrDefault();
+        var readModels = query ? EmptyTypes : slice.ReadModels;
+        var aggregates = query ? EmptyTypes : slice.Aggregates;
+        var readsFrom = slice.ReadsFrom;
+        if (query)
+        {
+            readsFrom = new List<string>(slice.ReadsFrom);
+            foreach (var type in slice.ReadModels) addDistinct(readsFrom, type);
+        }
+
         var sb = new StringBuilder();
         sb.AppendLine($"    /// <summary>The <c>{escapeXml(slice.Name)}</c> slice.</summary>");
         sb.AppendLine($"    internal static global::{Ns}.EventModelSliceDescriptor {slice.ClassName}()");
@@ -358,33 +444,46 @@ internal static class EventModelEmitter
         sb.AppendLine($"            {literal(slice.Name)},");
         sb.AppendLine($"            {literal(slice.TriggerLabel)},");
         sb.AppendLine("            null,");
-        sb.AppendLine($"            {typeDescriptorOrNull(slice.ActCommand ?? slice.Commands.FirstOrDefault())},");
+        sb.AppendLine($"            {typeDescriptorOrNull(command)},");
         sb.AppendLine("            null,");
         sb.AppendLine($"            {typeDescriptorList(slice.Events)},");
         sb.AppendLine($"            {typeDescriptorList(EmptyTypes)},");
-        sb.AppendLine($"            {typeDescriptorList(slice.ReadModels)})");
+        sb.AppendLine($"            {typeDescriptorList(readModels)})");
         sb.AppendLine("        {");
         if (slice.Domain != null) sb.AppendLine($"            Domain = {literal(slice.Domain)},");
         if (slice.Chapter != null) sb.AppendLine($"            Chapter = {literal(slice.Chapter)},");
-        var pattern = patternOf(slice);
         if (pattern != null) sb.AppendLine($"            Pattern = global::{Ns}.SlicePattern.{pattern},");
-        if (slice.TriggerKind != null)
+        // bobcat#501: a read act's trigger is the query's; on a slice that is not a Query it is left off
+        if (slice.TriggerKind != null && (!slice.TriggerFromRead || query))
         {
             sb.AppendLine($"            TriggerKind = global::{Ns}.TriggerKind.{slice.TriggerKind},");
+            // POST is the default verb; a projected act's vocabulary may name another through
+            // [EventModelTrigger(HttpMethod = …)].
+            var verb = slice.TriggerHttpMethod ?? "POST";
             if (!string.IsNullOrEmpty(slice.TriggerRoute))
             {
-                // POST is the only verb the HTTP grammar has; a projected act's vocabulary may name
-                // another through [EventModelTrigger(HttpMethod = …)].
                 sb.AppendLine($"            TriggerOrigin = new global::{Ns}.PublisherOrigin");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                HttpRoute = {literal(slice.TriggerRoute)},");
-                var verb = slice.TriggerHttpMethod ?? "POST";
                 sb.AppendLine($"                HttpMethod = {literal(verb)},");
+                if (slice.TriggerRouteName != null && contract.RouteName)
+                    sb.AppendLine($"                HttpRouteName = {literal(slice.TriggerRouteName)},");
                 sb.AppendLine($"                Label = {literal(verb + " " + slice.TriggerRoute)}");
                 sb.AppendLine("            },");
             }
+            else if (slice.TriggerRouteName != null && slice.TriggerKind == "Http" && contract.RouteName)
+            {
+                // bobcat#500: a route name that resolved to no template (a minimal API's .WithName, a typo) still
+                // names the endpoint. The label says it is a name, so it cannot be read as a route
+                sb.AppendLine($"            TriggerOrigin = new global::{Ns}.PublisherOrigin");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                HttpMethod = {literal(verb)},");
+                sb.AppendLine($"                HttpRouteName = {literal(slice.TriggerRouteName)},");
+                sb.AppendLine($"                Label = {literal($"{verb} (route name {slice.TriggerRouteName})")}");
+                sb.AppendLine("            },");
+            }
         }
-        sb.AppendLine($"            AggregateTypes = {typeDescriptorList(slice.Aggregates)},");
+        sb.AppendLine($"            AggregateTypes = {typeDescriptorList(aggregates)},");
         // Issue #297: only a View slice consumes what its scenarios arranged. On a Command slice
         // the same Givens are the aggregate's own stream, and stamping them would draw an arrow
         // from every slice that emits WalletOpened into every slice that merely starts from it.
@@ -392,8 +491,8 @@ internal static class EventModelEmitter
             sb.AppendLine($"            ConsumedEvents = {typeDescriptorList(slice.ArrangedEvents)},");
         // bobcat#502: a context stream is what the slice reads before deciding. Written only when there is
         // one, like ConsumedEvents, so a model with no context keeps the descriptor it always had
-        if (slice.ReadsFrom.Count > 0)
-            sb.AppendLine($"            ReadsFrom = {typeDescriptorList(slice.ReadsFrom)},");
+        if (readsFrom.Count > 0)
+            sb.AppendLine($"            ReadsFrom = {typeDescriptorList(readsFrom)},");
         sb.AppendLine($"            PublishedMessages = {typeDescriptorList(slice.Messages)},");
         sb.AppendLine($"            Specifications = {specifications(slice)},");
         sb.AppendLine($"            Hotspots = {hotspots(slice)}");
@@ -404,21 +503,24 @@ internal static class EventModelEmitter
     private static readonly List<string> EmptyTypes = new();
 
     /// <summary>
-    /// Which of the four canonical patterns this is. A <c>@pattern:</c> tag settles it outright,
-    /// which is how a scaffolded feature carries the curated model's answer through.
+    /// Which pattern this is. A declared <c>Pattern</c> settles it outright, which is how a scaffolded
+    /// specification carries the curated model's answer through.
     ///
-    /// Failing that, inference: a slice that receives a command is a Command slice; one that only
-    /// asserts on a read model is a View. Automation and Translation need a trigger step text does
-    /// not express, so they stay null rather than being guessed — a wrong pattern miscolours the
-    /// canvas, a null one does not.
+    /// Failing that, inference: a slice whose act sends a command is a Command slice; one whose act is a
+    /// read-only HTTP call (GET/HEAD with a read role, bobcat#501) and none a command is a Query; one with
+    /// only arranging commands is still Command; one that only asserts on a read model is a View.
+    /// Automation and Translation need a trigger the test does not express, so they stay null rather
+    /// than being guessed — a wrong pattern miscolours the canvas, a null one does not.
     /// </summary>
-    private static string? patternOf(SliceModel slice)
+    private static string? patternOf(SliceModel slice, Contract contract)
     {
         // The model's own word, when it gave one (issue #323). Inference below cannot reach
         // Automation or Translation, and guessing Command for an automation produced a
         // SourceDisagreement against the curated file that no change to either could resolve.
         if (slice.DeclaredPattern is { } declared) return declared;
 
+        if (slice.ActCommand != null) return "Command";
+        if (slice.ReadActs.Count > 0 && contract.Query) return "Query";
         if (slice.Commands.Count > 0) return "Command";
         if (slice.ReadModels.Count > 0) return "View";
         return null;

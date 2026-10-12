@@ -296,10 +296,16 @@ public static class EventStores
 
     /// <summary>
     /// <see cref="WaitForNonStaleProjectionsAsync(IEventStore, TimeSpan?, IProjectionCoordinator?, CancellationToken)"/>
-    /// for one tenant: the database that tenant's events live in. A store that can say which database that is —
-    /// Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c> — waits on that one; any other waits on every
-    /// database, which holds the tenant's too.
+    /// for one tenant: the database that tenant's events live in. A store that can say which database that is waits
+    /// on that one; any other waits on every database, which holds the tenant's too.
     /// </summary>
+    /// <remarks>
+    /// The store is asked first, store-agnostically, through <see cref="IEventStore.FindDatabaseForTenantAsync"/>
+    /// (jasperfx#1005, wolverine#4962): its default answers a single-database store, and Marten, Polecat and Fisher
+    /// are expected to override it for database-per-tenant. When it says null, Marten's
+    /// <c>Storage.FindOrCreateDatabase(tenantId)</c> is still tried by reflection, so a Marten build that predates the
+    /// override keeps waiting on one tenant's database; then every database.
+    /// </remarks>
     public static async Task WaitForNonStaleProjectionsAsync(
         IEventStore store,
         string tenantId,
@@ -308,7 +314,7 @@ public static class EventStores
     {
         ArgumentException.ThrowIfNullOrEmpty(tenantId);
 
-        if (await tenantDatabaseAsync(store, tenantId).ConfigureAwait(false) is { } database)
+        if (await tenantDatabaseAsync(store, tenantId, token).ConfigureAwait(false) is { } database)
         {
             await database.WaitForNonStaleProjectionDataAsync(timeout ?? DefaultProjectionTimeout).WaitAsync(token).ConfigureAwait(false);
             return;
@@ -369,10 +375,12 @@ public static class EventStores
         return behind;
     }
 
-    // The database a tenant's events live in, through the store's own Storage.FindOrCreateDatabase(string)
-    // where it has one; null when the store offers no such lookup
-    private static async Task<IEventDatabase?> tenantDatabaseAsync(IEventStore store, string tenantId)
+    // The database a tenant's events live in: the store's own answer through FindDatabaseForTenantAsync first
+    // (jasperfx#1005), then Storage.FindOrCreateDatabase(string) where the store has one; null when neither can say
+    private static async Task<IEventDatabase?> tenantDatabaseAsync(IEventStore store, string tenantId, CancellationToken token)
     {
+        if (await store.FindDatabaseForTenantAsync(tenantId, token).ConfigureAwait(false) is { } found) return found;
+
         var storage = store.GetType().GetProperty("Storage", BindingFlags.Public | BindingFlags.Instance)?.GetValue(store);
         var find = storage?.GetType().GetInterfaces().Prepend(storage.GetType())
             .Select(x => x.GetMethod("FindOrCreateDatabase", [typeof(string)]))

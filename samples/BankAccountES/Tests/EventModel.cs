@@ -84,6 +84,11 @@ public class EventModel(BankAccountHost app)
     /// bobcat#175: read models asserted as an identity, not only as a provenance claim -- which is how
     /// wolverine#4182 came to be caught by eye on the canvas rather than by a spec.
     /// </summary>
+    /// <remarks>
+    /// These are Wolverine's claims: it derives a GET chain as a View that produces what it returns. Once
+    /// wolverine#4975 derives a Query instead, the type should move to ReadsFrom, as the specs already say it is
+    /// (<see cref="a_get_spec_is_a_query_slice_that_reads_what_it_returns"/>).
+    /// </remarks>
     [BobcatSpec]
     public async Task a_query_slice_reads_the_document_type_it_returns()
     {
@@ -92,6 +97,36 @@ public class EventModel(BankAccountHost app)
         _model.TheSliceReadsTheReadModel("GET /api/accounts/{id}", "Account");
         _model.TheSliceReadsTheReadModel("GET /api/clients/{id}", "Client");
         _model.TheSliceReadsTheReadModel("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+    }
+
+    /// <summary>
+    /// bobcat#501: a GET spec is a Query slice. Its read type goes to ReadsFrom, so the store's AccountTransactions
+    /// View is joined to the transactions query by a ReadModelRead link nobody drew. The Account stream the spec
+    /// arranges with GivenEvents is setup feeding that projection, so it stamps nothing: no ReadsFrom (which used to
+    /// link every slice producing Account to the query), no ConsumedEvents.
+    /// </summary>
+    /// <remarks>
+    /// Wolverine still derives every GET chain as a View until wolverine#4975, and Derived outranks Declared, so the
+    /// merged pattern is View and each GET slice carries one Query-vs-View Pattern disagreement. That is pinned here
+    /// on purpose rather than filtered out: when wolverine#4975 ships, these steps go red and should become "the
+    /// slice has pattern Query" with no disagreement.
+    /// </remarks>
+    [BobcatSpec]
+    public async Task a_get_spec_is_a_query_slice_that_reads_what_it_returns()
+    {
+        _model.TheSpecsAloneSayTheSliceIsAQueryReading("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+        _model.TheSpecsAloneSayTheSliceIsAQueryReading("GET /api/clients/{clientId}/accounts", "Account");
+
+        await _model.AssembleEventModel();
+        _model.TheSliceReadsFromExactly("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+        _model.TheSliceReadsFromExactly("GET /api/clients/{clientId}/accounts", "Account");
+        _model.ThereIsALink(EventModelLinkKind.ReadModelRead, "AccountTransactions",
+            "GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+        _model.ThereIsNoLinkTo(EventModelLinkKind.ReadModelRead, "GET /api/accounts/{accountId}/transactions", "Account");
+
+        // wolverine#4975: expected, and pinned
+        _model.TheQuerySliceIsStillDerivedAsAView("GET /api/accounts/{accountId}/transactions");
+        _model.TheQuerySliceIsStillDerivedAsAView("GET /api/clients/{clientId}/accounts");
     }
 
     /// <summary>

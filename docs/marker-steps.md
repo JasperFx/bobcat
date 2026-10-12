@@ -650,10 +650,10 @@ public Task WhenPosted(object command, string route)
 | `SliceRole` | Reaches the slice as |
 |---|---|
 | `Command` | `Commands`; the **last** one a test sends is the act, its `CommandType` (earlier ones arranged state) |
-| `Aggregate` | `AggregateTypes` |
+| `Aggregate` | `AggregateTypes`; nothing on a **Query** slice (#501) |
 | `Event` | `EmittedEvents` |
-| `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice -- there it is the aggregate's own history (#297) |
-| `ReadModel` | `ReadModelTypes` |
+| `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice -- there it is the aggregate's own history (#297) -- and nothing on a Query slice, where it is setup (#501) |
+| `ReadModel` | `ReadModelTypes`; `ReadsFrom` on a **Query** slice (#501) |
 | `Document` | the specification's resolved types only, never a slot |
 | `Message` | `PublishedMessages` |
 | `Context` | `ReadsFrom` -- a stream the act only looks up, never an aggregate (#502) |
@@ -672,6 +672,35 @@ await ThenAggregate<Account>(TheStartedStream<Account>());                      
 ```
 
 <!-- JEREMY: when to reach for GivenContext, in your words -->
+
+**A read-only act is a Query (bobcat#501).** A vocabulary method with a `GET` or `HEAD` trigger, a `ReadModel`
+role and no `Command` role is a *read act*:
+
+```csharp
+[EventModelRole(SliceRole.ReadModel, nameof(T))]
+[EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
+public Task WhenReading<T>(string route, params object[] routeValues) where T : class
+```
+
+The last act a test makes -- a command or a read -- is its act. When a slice has a read act and no command
+act, and declares no `Pattern`, it's a `Query` (JasperFx 2.85.0):
+
+- what it reads -- the read act's type and any asserted read model -- goes to `ReadsFrom`, never
+  `ReadModelTypes`, so JasperFx's `ReadModelRead` link joins it to the View slice that produces that read model;
+- a stream its specs arranged with `GivenEvents` stamps **nothing**: no `ReadsFrom`, no `AggregateTypes`, no
+  `ConsumedEvents`. It's setup feeding a projection, not something the endpoint reads. A stream the endpoint
+  does read is a `GivenContext`, which goes to `ReadsFrom` as on any slice;
+- it has no `CommandType` and no `AggregateTypes`, even when a test sent a command to arrange state first;
+- the act's `GET` route is its trigger. On a slice that comes out anything but a Query -- a command act on the
+  same slice wins, whichever folds first -- the read act's trigger is left off.
+
+A declared `Pattern` (#323) still wins. A Query that emits events, starts a stream or sends a message is stamped
+as stated, and JasperFx reports it as a `PatternViolation` hotspot.
+
+The trigger is what tells a read act from an assertion: `ThenReadModel<T>` carries the same `ReadModel` role
+and no trigger. So no new marker was needed. A `POST` with a read role is not a read act.
+
+<!-- JEREMY: why a GET is its own slice rather than part of the View it reads -->
 
 A value parameter's type is read off the argument: `new T(…)`, `typeof(T)`, `Specify<T>()` at the root of
 a `.With(…)` chain, `Expect.Value(…)`, `Tagged(value, …)`, or the argument's static type when it is a
@@ -779,8 +808,10 @@ public Task WhenPutTo(object command, string routeName, params object[] routeVal
 `[WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]`. The slice gets
 `PUT /api/clients/{clientId}`, the same route Wolverine derives from the chain, so the two sources agree.
 
-The route name itself isn't carried on the descriptor. JasperFx's `PublisherOrigin` has `HttpRoute` and
-`HttpMethod` but no route-name field, so a route name the generator can't resolve doesn't reach the model.
+The route name rides on the descriptor as `TriggerOrigin.HttpRouteName` (JasperFx 2.85.0), next to the route
+it resolved to. A route name the generator can't resolve is stamped too, on an origin with no route, labelled
+`PUT (route name UpdateClient)` so it can't be read as a route. JasperFx merges the name on its own: a known
+name fills in whichever origin wins, and two different names are a `SourceDisagreement`.
 
 ### Two spellings, and why `SliceType` is preferred
 

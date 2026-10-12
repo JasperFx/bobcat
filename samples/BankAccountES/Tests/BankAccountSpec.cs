@@ -74,7 +74,13 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
     /// GET <paramref name="route" /> (a template, as for <see cref="WhenPosted" />) and keep the response, which
     /// is read as a <typeparamref name="T" /> -- the read model a query slice reads.
     /// </summary>
+    /// <remarks>
+    /// A GET trigger beside a read role and no command makes this a <b>read act</b> (bobcat#501): a spec whose last
+    /// act it is describes a Query slice, which reads <typeparamref name="T" /> through <c>ReadsFrom</c> rather than
+    /// producing it. Streams the spec arranged with <c>GivenEvents</c> are setup and stamp nothing.
+    /// </remarks>
     [EventModelRole(SliceRole.ReadModel, nameof(T))]
+    [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
     public Task WhenReading<T>(string route, params object[] routeValues) where T : class
         => send("GET", null, route, routeValues);
 

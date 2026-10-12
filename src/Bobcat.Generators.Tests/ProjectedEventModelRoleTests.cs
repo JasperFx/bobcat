@@ -83,6 +83,20 @@ public class ProjectedEventModelRoleTests
                 [EventModelTrigger(TriggerKind.Http, Route = nameof(route))]
                 public Task WhenPosted(object command, string route) => Task.CompletedTask;
 
+                // bobcat#501: a read-only act -- a GET/HEAD trigger plus a read role, no command
+                [EventModelRole(SliceRole.ReadModel, nameof(T))]
+                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
+                public Task WhenReading<T>(string route) where T : class => Task.CompletedTask;
+
+                [EventModelRole(SliceRole.ReadModel, nameof(T))]
+                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "HEAD")]
+                public Task WhenProbing<T>(string route) where T : class => Task.CompletedTask;
+
+                // The same read role behind a POST is no read act: an unsafe verb is not a query
+                [EventModelRole(SliceRole.ReadModel, nameof(T))]
+                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
+                public Task WhenSearching<T>(string route) where T : class => Task.CompletedTask;
+
                 [EventModelRole(SliceRole.Event, nameof(events))]
                 public void ThenEvents(params Type[] events) { }
 
@@ -352,6 +366,241 @@ public class ProjectedEventModelRoleTests
         slice.TriggerKind.ShouldBeNull();
     }
 
+    // ---------------------------------------------------------------- bobcat#501, a read-only act is a Query
+
+    [Fact]
+    public void a_get_read_act_is_a_query_slice_and_its_arranged_stream_stamps_nothing()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts/{id}/summary")]
+                public async Task the_summary_is_read()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"), new FundsDeposited(id, 10m));
+                    await WhenReading<AccountSummary>("/accounts/{id}/summary");
+                }
+            }
+            """).Single(x => x.Name == "GET /accounts/{id}/summary");
+
+        slice.Pattern.ShouldBe(SlicePattern.Query);
+        slice.CommandType.ShouldBeNull();
+        slice.TriggerKind.ShouldBe(TriggerKind.Http);
+        slice.TriggerOrigin!.HttpRoute.ShouldBe("/accounts/{id}/summary");
+        slice.TriggerOrigin.HttpMethod.ShouldBe("GET");
+
+        // What it reads is ReadsFrom -- the ReadModelRead link's end -- never a read model it produces. The stream
+        // arranged with plain GivenEvents is setup feeding the projection: not read, not decided against, its events
+        // not consumed. It stamps nothing on the slice
+        names(slice.ReadsFrom).ShouldBe(["AccountSummary"]);
+        slice.ReadModelTypes.ShouldBeEmpty();
+        slice.AggregateTypes.ShouldBeEmpty();
+        slice.ConsumedEvents.ShouldBeEmpty();
+        slice.PatternViolations.ShouldBeEmpty();
+
+        names(slice.Specifications.Single().ResolvedTypes)
+            .ShouldBe(["Account", "AccountOpened", "FundsDeposited", "AccountSummary"]);
+    }
+
+    [Fact]
+    public void a_head_read_act_is_a_query_too_and_an_explicit_context_stays_valid()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "Client accounts")]
+                public async Task the_accounts_are_probed()
+                {
+                    var client = Guid.NewGuid();
+                    await GivenContext<Client>(client, new ClientEnrolled(client, "Ann"));
+                    await GivenEvents<Account>(Guid.NewGuid(), new AccountOpened(Guid.NewGuid(), "Ann"));
+                    await WhenProbing<AccountSummary>("/clients/{client}/accounts");
+                    await ThenReadModel<Statement>(client);
+                }
+            }
+            """).Single(x => x.Name == "Client accounts");
+
+        // Only the explicit GivenContext, the read type and an asserted read model are read; the GivenEvents<Account>
+        // stream is setup
+        slice.Pattern.ShouldBe(SlicePattern.Query);
+        slice.TriggerOrigin!.HttpMethod.ShouldBe("HEAD");
+        names(slice.ReadsFrom).ShouldBe(["Client", "AccountSummary", "Statement"]);
+        slice.ReadModelTypes.ShouldBeEmpty();
+        slice.AggregateTypes.ShouldBeEmpty();
+        slice.ConsumedEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_post_is_never_a_read_act_and_a_command_still_makes_a_command_slice()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(AccountSummary))]
+                public async Task searched()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenSearching<AccountSummary>("/accounts/search");
+                }
+
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task posted() => await WhenPosted(new Deposit(Guid.Empty, 10m), "/deposits");
+            }
+            """);
+
+        // A read role behind a POST is an asserted read model, as before: a View that consumes its arrangement,
+        // and no act to take a trigger from
+        var searched = slices.Single(x => x.Name == "AccountSummary");
+        searched.Pattern.ShouldBe(SlicePattern.View);
+        names(searched.ReadModelTypes).ShouldBe(["AccountSummary"]);
+        names(searched.ConsumedEvents).ShouldBe(["AccountOpened"]);
+        searched.TriggerKind.ShouldBeNull();
+
+        var posted = slices.Single(x => x.Name == "Deposit");
+        posted.Pattern.ShouldBe(SlicePattern.Command);
+        posted.TriggerOrigin!.HttpMethod.ShouldBe("POST");
+    }
+
+    [Fact]
+    public void a_declared_pattern_still_wins_over_a_read_act()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(AccountSummary), Pattern = "View")]
+                public async Task the_summary_is_read()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenReading<AccountSummary>("/accounts/{id}/summary");
+                }
+            }
+            """).Single(x => x.Name == "AccountSummary");
+
+        // #323: the model's word settles it, and the slice is the View it was before #501. The GET is the query's
+        // trigger, not the view's, so it is left off
+        slice.Pattern.ShouldBe(SlicePattern.View);
+        names(slice.ReadModelTypes).ShouldBe(["AccountSummary"]);
+        names(slice.ConsumedEvents).ShouldBe(["AccountOpened"]);
+        names(slice.AggregateTypes).ShouldBe(["Account"]);
+        slice.ReadsFrom.ShouldBeEmpty();
+        slice.TriggerKind.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_last_act_decides_so_a_read_after_an_arranging_command_is_a_query()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts/{id}")]
+                public async Task opened_then_read()
+                {
+                    var id = Guid.NewGuid();
+                    await WhenPosted(new OpenAccount(id, "Ann"), "/accounts");
+                    await WhenReading<Account>("/accounts/{id}");
+                }
+            }
+            """).Single(x => x.Name == "GET /accounts/{id}");
+
+        // The POST arranged; the GET is the act. The arranging command is no command of a Query
+        slice.Pattern.ShouldBe(SlicePattern.Query);
+        slice.CommandType.ShouldBeNull();
+        slice.TriggerOrigin!.Label.ShouldBe("GET /accounts/{id}");
+        names(slice.ReadsFrom).ShouldBe(["Account"]);
+        names(slice.Specifications.Single().ResolvedTypes).ShouldBe(["OpenAccount", "Account"]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void a_command_act_on_the_same_slice_outranks_a_read_act_whichever_folds_first(bool readFirst)
+    {
+        const string read = """
+                            [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                            public async Task read() => await WhenReading<Account>("/accounts/{id}");
+                            """;
+        const string command = """
+                               [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                               public async Task received() => await WhenReceived(new Deposit(Guid.Empty, 1m));
+                               """;
+
+        var slice = describe(
+            $$"""
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                {{(readFirst ? read : command)}}
+                {{(readFirst ? command : read)}}
+            }
+            """).Single(x => x.Name == "Deposit");
+
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        slice.CommandType!.Name.ShouldBe("Deposit");
+
+        // The GET is not this slice's trigger in either order
+        slice.TriggerKind.ShouldBeNull();
+        slice.TriggerOrigin.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_query_that_emits_events_is_a_pattern_violation_upstream()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts/{id}")]
+                public async Task a_read_that_writes()
+                {
+                    await WhenReading<Account>("/accounts/{id}");
+                    ThenEvents(typeof(FundsDeposited));
+                }
+            }
+            """).Single(x => x.Name == "GET /accounts/{id}");
+
+        // Stamped as stated; JasperFx computes the violation from the roles (jasperfx#1003)
+        slice.Pattern.ShouldBe(SlicePattern.Query);
+        names(slice.EmittedEvents).ShouldBe(["FundsDeposited"]);
+        slice.PatternViolations.ShouldHaveSingleItem().Role.ShouldBe(EventModelRole.EmittedEvents);
+    }
+
+    [Fact]
+    public void a_jasperfx_without_query_or_route_names_gets_the_inference_it_had_before()
+    {
+        // The consumer's JasperFx is probed (BobcatGenerator): one older than 2.85.0 has neither member, and the
+        // generated source must still compile against it
+        var slice = new EventModelEmitter.SliceModel { Name = "GET /accounts/{id}", ClassName = "GET_accounts_id" };
+        slice.ReadModels.Add("global::Bank.Account");
+        slice.ReadActs.Add("global::Bank.Account");
+        slice.TriggerKind = "Http";
+        slice.TriggerFromRead = true;
+        slice.TriggerHttpMethod = "GET";
+        slice.TriggerRouteName = "GetAccount";
+
+        var old = EventModelEmitter.EmitSource("Specs", null, [slice], new EventModelEmitter.Contract());
+        old.ShouldNotContain("SlicePattern.Query");
+        old.ShouldNotContain("HttpRouteName");
+        old.ShouldContain("SlicePattern.View");
+
+        var latest = EventModelEmitter.EmitSource("Specs", null, [slice]);
+        latest.ShouldContain("SlicePattern.Query");
+        latest.ShouldContain("HttpRouteName = \"GetAccount\"");
+    }
+
     [Fact]
     public void an_unbound_test_with_roles_falls_back_to_the_feature_title()
     {
@@ -548,6 +797,30 @@ public class ProjectedEventModelRoleTests
         // And the slice's own specification agrees with it, type for type
         var slice = GeneratedEventModel.For(load(outcome))!.Slices.ShouldHaveSingleItem();
         names(slice.Specifications.Single().ResolvedTypes).ShouldBe(names(binding.ResolvedTypes));
+    }
+
+    [Fact]
+    public void a_read_acts_specification_binding_names_no_command_even_after_an_arranging_one()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts/{id}")]
+                public async Task opened_then_read()
+                {
+                    await WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+                    await WhenReading<Account>("/accounts/{id}");
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // bobcat#501: the name-based fallback would have taken OpenAccount, the arrangement, as the command
+        var binding = SpecificationBindings.In(load(outcome)).ShouldHaveSingleItem();
+        binding.CommandType.ShouldBeNull();
+        binding.SliceName.ShouldBe("GET /accounts/{id}");
     }
 
     // ---------------------------------------------------------------- across a package boundary

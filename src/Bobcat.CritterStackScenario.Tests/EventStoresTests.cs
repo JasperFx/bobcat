@@ -245,6 +245,64 @@ public class EventStoresTests
         await second.Received(1).WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(1));
     }
 
+    // --- one tenant (wolverine#4962 phase 2, jasperfx#1005) ----------------------------------
+
+    /// <summary>A database-per-tenant store that can say which database holds a tenant.</summary>
+    private sealed class TenantedEventStore : FakeEventStore, IEventStore
+    {
+        public Dictionary<string, IEventDatabase> Tenants { get; } = new();
+        public List<string> Asked { get; } = new();
+
+        ValueTask<IEventDatabase?> IEventStore.FindDatabaseForTenantAsync(string tenantId, CancellationToken token)
+        {
+            Asked.Add(tenantId);
+            return ValueTask.FromResult(Tenants.GetValueOrDefault(tenantId));
+        }
+    }
+
+    [Fact]
+    public async Task a_tenant_wait_waits_on_only_the_database_the_store_finds_for_it()
+    {
+        var red = Substitute.For<IEventDatabase>();
+        var blue = Substitute.For<IEventDatabase>();
+        var store = new TenantedEventStore { Databases = [red, blue] };
+        store.Tenants["red"] = red;
+
+        await EventStores.WaitForNonStaleProjectionsAsync(store, "red", TimeSpan.FromSeconds(1));
+
+        store.Asked.ShouldBe(["red"]);
+        await red.Received(1).WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(1));
+        await blue.DidNotReceive().WaitForNonStaleProjectionDataAsync(Arg.Any<TimeSpan>());
+    }
+
+    [Fact]
+    public async Task a_tenant_the_store_cannot_place_waits_on_every_database()
+    {
+        var red = Substitute.For<IEventDatabase>();
+        var blue = Substitute.For<IEventDatabase>();
+        var store = new TenantedEventStore { Databases = [red, blue] };
+
+        await EventStores.WaitForNonStaleProjectionsAsync(store, "green", TimeSpan.FromSeconds(1));
+
+        store.Asked.ShouldBe(["green"]);
+        await red.Received(1).WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(1));
+        await blue.Received(1).WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task a_single_database_store_answers_a_tenant_through_the_default_lookup()
+    {
+        // FakeEventStore keeps the interface's default FindDatabaseForTenantAsync: Single cardinality, one database
+        var only = Substitute.For<IEventDatabase>();
+        var store = new FakeEventStore { Databases = [only] };
+
+        (await ((IEventStore)store).FindDatabaseForTenantAsync("anyone")).ShouldBeSameAs(only);
+
+        await EventStores.WaitForNonStaleProjectionsAsync(store, "anyone", TimeSpan.FromSeconds(1));
+
+        await only.Received(1).WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(1));
+    }
+
     [Fact]
     public async Task non_stale_wait_falls_back_to_the_coordinator_then_explains()
     {
