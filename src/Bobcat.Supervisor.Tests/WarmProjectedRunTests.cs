@@ -134,14 +134,14 @@ public class WarmProjectedRunTests
         // cannot tell a warm run from a cold one except by its speed.
         using var sink = new IngestSink();
 
-        await using var client = await MtpWorkerClient.Launch(projectedHost, wiredTo(sink));
+        var (client, first, second) = await launchAttached(sink);
+        await using var _ = client;
 
-        var discovered = await client.Discover();
-        var first = discovered.First(t => t.DisplayName.EndsWith("CalculatorSpecs.using_sentences"));
-        var second = discovered.First(t => t.DisplayName.EndsWith("FactSpecs.facts_in_action"));
-
-        await client.Run([first.Uid]);
-        await Task.Delay(500);
+        // A wait with a deadline, never a single read (bobcat#479): Run returns when the platform
+        // answers, and the bracket's events reach the sink on the publisher's own pump afterwards.
+        // Waiting for at least what is expected and then settling keeps "exactly" strict.
+        await sink.WaitUntil(() => sink.RunIds().Count >= 1 && sink.Count("run_finished") >= 1
+                                   && sink.Count("scenario_finished") >= 1);
 
         var afterFirst = sink.RunIds();
         afterFirst.Count.ShouldBe(1, "the first command opened a run, as it always did");
@@ -151,7 +151,8 @@ public class WarmProjectedRunTests
             .ShouldBe(1, "the first command's run closed when its session finished");
 
         await client.Run([second.Uid]);
-        await Task.Delay(500);
+        await sink.WaitUntil(() => sink.RunIds().Count >= 2 && sink.Count("run_finished") >= 2
+                                   && sink.Count("scenario_finished") >= 2);
 
         var runIds = sink.RunIds();
         runIds.Count.ShouldBe(2, "each command is its own run");
@@ -177,27 +178,93 @@ public class WarmProjectedRunTests
         // picked up the props). One run_started, one run_finished, whichever closed it.
         using var sink = new IngestSink();
 
-        var environment = wiredTo(sink);
-        var info = new ProcessStartInfo(projectedHost)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(projectedHost)!
-        };
-
-        info.ArgumentList.Add("--filter-method");
-        info.ArgumentList.Add("*using_sentences*");
-        foreach (var (name, value) in environment) info.Environment[name] = value;
-        info.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
-
-        using var process = Process.Start(info)!;
-        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
-        await Task.Delay(500);
+        await runOneShotAttached(sink);
+        await sink.WaitUntil(() => sink.RunIds().Count >= 1 && sink.Count("run_finished") >= 1);
 
         sink.RunIds().Count.ShouldBe(1, "one process, one run");
         sink.EventTypes().Count(type => type == "run_finished")
             .ShouldBe(1, "closed exactly once — the session hook and the backstop must not both post");
+    }
+
+    /// <summary>
+    /// How long a host that has not posted anything yet is given before it is taken to have lost the
+    /// probe race and is launched again.
+    /// </summary>
+    private static readonly TimeSpan attachWindow = TimeSpan.FromSeconds(5);
+
+    private const int attachAttempts = 3;
+
+    /// <summary>
+    /// Launch a warm host, discover, and run the first spec, until the host is seen to have
+    /// attached to <paramref name="sink"/> — up to three launches.
+    /// </summary>
+    /// <remarks>
+    /// The host probes <c>/api/ping</c> once per process with a 250ms ceiling, by Bobcat's rule that
+    /// an absent console costs a run next to nothing, and a cold process on a busy CI box can lose
+    /// that race and run unattached for its whole life. That is correct for the host and vacuous for
+    /// a test about what it sent, so attachment is observed (the run posted to <c>/api/ingest</c>)
+    /// rather than assumed — the same device <c>ProjectedEventModelPublishingEndToEndTests</c> uses.
+    /// </remarks>
+    private static async Task<(MtpWorkerClient Client, WorkerTest First, WorkerTest Second)> launchAttached(
+        IngestSink sink)
+    {
+        for (var attempt = 1; attempt <= attachAttempts; attempt++)
+        {
+            var client = await MtpWorkerClient.Launch(projectedHost, wiredTo(sink));
+
+            var discovered = await client.Discover();
+            var first = discovered.First(t => t.DisplayName.EndsWith("CalculatorSpecs.using_sentences"));
+            var second = discovered.First(t => t.DisplayName.EndsWith("FactSpecs.facts_in_action"));
+
+            await client.Run([first.Uid]);
+
+            if (await sink.WaitUntil(() => sink.BatchCount > 0, attachWindow, settle: false))
+            {
+                return (client, first, second);
+            }
+
+            await client.DisposeAsync();
+        }
+
+        throw new ShouldAssertException(
+            $"The warm host never attached to the sink at {sink.Url} in {attachAttempts} launches.");
+    }
+
+    /// <summary>
+    /// Run the host once, one-shot, over <c>using_sentences</c>, until a run is seen to have attached
+    /// to <paramref name="sink"/> — up to three runs. See <see cref="launchAttached"/> for why.
+    /// </summary>
+    private static async Task runOneShotAttached(IngestSink sink)
+    {
+        for (var attempt = 1; attempt <= attachAttempts; attempt++)
+        {
+            var info = new ProcessStartInfo(projectedHost)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(projectedHost)!
+            };
+
+            info.ArgumentList.Add("--filter-method");
+            info.ArgumentList.Add("*using_sentences*");
+            foreach (var (name, value) in wiredTo(sink)) info.Environment[name] = value;
+            info.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
+
+            using var process = Process.Start(info)!;
+
+            // Drained, or a chatty host blocks on a full pipe and never exits
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            await stdout;
+            await stderr;
+
+            if (await sink.WaitUntil(() => sink.BatchCount > 0, attachWindow, settle: false)) return;
+        }
+
+        throw new ShouldAssertException(
+            $"The one-shot host never attached to the sink at {sink.Url} in {attachAttempts} runs.");
     }
 
     /// <summary>
@@ -268,6 +335,37 @@ public class WarmProjectedRunTests
                 }
             });
         }
+
+        /// <summary>How many ingest batches have arrived — any at all means the host attached.</summary>
+        public int BatchCount
+        {
+            get
+            {
+                lock (_batches) return _batches.Count;
+            }
+        }
+
+        /// <summary>
+        /// Poll until <paramref name="condition"/> holds or <paramref name="timeout"/> (default 15s)
+        /// passes, then — when it held and <paramref name="settle"/> is on — wait a beat more so an
+        /// "exactly N" assertion after it also sees anything that would have made it N+1. Returns
+        /// whether the condition held; a caller that asserts afterwards gets its own message either way.
+        /// </summary>
+        public async Task<bool> WaitUntil(Func<bool> condition, TimeSpan? timeout = null, bool settle = true)
+        {
+            var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(15));
+            while (!condition())
+            {
+                if (DateTime.UtcNow >= deadline) return false;
+                await Task.Delay(25);
+            }
+
+            if (settle) await Task.Delay(300);
+            return true;
+        }
+
+        /// <summary>How many published events carry <paramref name="type"/>.</summary>
+        public int Count(string type) => EventTypes().Count(t => t == type);
 
         public IReadOnlyList<string> EventTypes() => read(e =>
             e.TryGetProperty("type", out var type) ? type.GetString() : null);

@@ -77,9 +77,13 @@ public static class SetVerificationComparer
         var columnList = columns?.ToList()
                          ?? (expectedRows.Count > 0 ? expectedRows[0].Keys.ToList() : new List<string>());
 
+        var pairs = ordered
+            ? pairInOrder(expectedRows, actualRows, keyColumns)
+            : null;
+
         foreach (var expected in expectedRows)
         {
-            var matchIndex = findMatch(expected, actualRows, keyColumns, matchedActualIndices);
+            var matchIndex = pairs?[rowIndex] ?? findMatch(expected, actualRows, keyColumns, matchedActualIndices);
 
             if (matchIndex >= 0)
             {
@@ -263,21 +267,120 @@ public static class SetVerificationComparer
         string[] keyColumns,
         HashSet<int> alreadyMatched)
     {
-        var matchColumns = keyColumns.Length > 0 ? keyColumns : expected.Keys.ToArray();
-
         for (var i = 0; i < actuals.Count; i++)
         {
             if (alreadyMatched.Contains(i)) continue;
-            var actual = actuals[i];
-
-            var allMatch = matchColumns.All(key =>
-                expected.TryGetValue(key, out var expectedVal) &&
-                CellCheck.ForValue(key, actual.GetValueOrDefault(key), expectedVal).Status == ResultStatus.success);
-
-            if (allMatch) return i;
+            if (matches(expected, actuals[i], keyColumns)) return i;
         }
 
         return -1;
+    }
+
+    private static bool matches(Dictionary<string, string> expected, Dictionary<string, object?> actual, string[] keyColumns)
+    {
+        var matchColumns = keyColumns.Length > 0 ? keyColumns : expected.Keys.ToArray();
+
+        return matchColumns.All(key =>
+            expected.TryGetValue(key, out var expectedVal) &&
+            CellCheck.ForValue(key, actual.GetValueOrDefault(key), expectedVal).Status == ResultStatus.success);
+    }
+
+    /// <summary>
+    /// The pairing for an ordered comparison (bobcat#476): the longest one that keeps both sides in
+    /// order first — a longest common subsequence over the rows that match — so a row is only reported
+    /// out of order when no pairing avoids it. First come first served could hand a row an actual one
+    /// that sits behind a row written earlier while a later actual row that keeps the order went spare.
+    /// The rows left over then take the first unpaired actual row they match, preferring one that sits
+    /// between their neighbours' positions. -1 is a missing row.
+    /// </summary>
+    private static int[] pairInOrder(
+        IReadOnlyList<Dictionary<string, string>> expectedRows,
+        List<Dictionary<string, object?>> actualRows,
+        string[] keyColumns)
+    {
+        var expectedCount = expectedRows.Count;
+        var actualCount = actualRows.Count;
+        var match = new bool[expectedCount, actualCount];
+        for (var i = 0; i < expectedCount; i++)
+        {
+            for (var j = 0; j < actualCount; j++)
+            {
+                match[i, j] = matches(expectedRows[i], actualRows[j], keyColumns);
+            }
+        }
+
+        var longest = new int[expectedCount + 1, actualCount + 1];
+        for (var i = expectedCount - 1; i >= 0; i--)
+        {
+            for (var j = actualCount - 1; j >= 0; j--)
+            {
+                var skip = Math.Max(longest[i + 1, j], longest[i, j + 1]);
+                longest[i, j] = match[i, j] ? Math.Max(1 + longest[i + 1, j + 1], skip) : skip;
+            }
+        }
+
+        var pairs = new int[expectedCount];
+        Array.Fill(pairs, -1);
+
+        // The walk back takes a diagonal whenever it is as long as skipping, so expected[i] keeps
+        // actual[i] whenever the two agree position by position
+        int x = 0, y = 0;
+        while (x < expectedCount && y < actualCount)
+        {
+            if (match[x, y] && longest[x, y] == 1 + longest[x + 1, y + 1])
+            {
+                pairs[x++] = y++;
+            }
+            else if (longest[x + 1, y] >= longest[x, y + 1])
+            {
+                x++;
+            }
+            else
+            {
+                y++;
+            }
+        }
+
+        var taken = new HashSet<int>(pairs.Where(p => p >= 0));
+        for (var i = 0; i < expectedCount; i++)
+        {
+            if (pairs[i] >= 0) continue;
+
+            var after = -1;
+            for (var k = i - 1; k >= 0; k--)
+            {
+                if (pairs[k] < 0) continue;
+                after = pairs[k];
+                break;
+            }
+
+            var before = actualCount;
+            for (var k = i + 1; k < expectedCount; k++)
+            {
+                if (pairs[k] < 0) continue;
+                before = pairs[k];
+                break;
+            }
+
+            var candidate = -1;
+            for (var j = 0; j < actualCount; j++)
+            {
+                if (taken.Contains(j) || !match[i, j]) continue;
+                if (j > after && j < before)
+                {
+                    candidate = j;
+                    break;
+                }
+
+                if (candidate < 0) candidate = j;
+            }
+
+            if (candidate < 0) continue;
+            pairs[i] = candidate;
+            taken.Add(candidate);
+        }
+
+        return pairs;
     }
 
     private static List<Dictionary<string, object?>> toRows(IEnumerable actual, string? scalarColumn)

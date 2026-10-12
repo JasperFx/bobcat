@@ -170,10 +170,11 @@ public class DecisionTableTests
         recording.Step("the line totals are calculated").Status.ShouldBe(ResultStatus.error);
     }
 
-    [Fact(Skip = "Projected-lane gap (bobcat#471 phase 2): TableRunner.Run cannot bind an `out` parameter, " +
-                 "so a row method shaped like a Gherkin [DecisionTable] with out-param outputs reports every " +
-                 "row as a row-error. The projected idiom is SpecAssert.Check(..., rowIndex: i) per output; " +
-                 "needs a maintainer decision on whether TableRunner should support out-param outputs at all.")]
+    /// <summary>
+    /// Out parameters are a decision table's outputs (bobcat#483): ordinary parameters bind from the
+    /// input columns, and each out parameter's column is judged after the call, like a return value.
+    /// </summary>
+    [Fact]
     public async Task out_param_columns_are_compared_per_row()
     {
         var (recording, render) = await Projected.RunAsync("out params", () => _grammar.TheDivModResultsAre("""
