@@ -45,6 +45,7 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Writing Specifications', link: '/marker-steps' },
+          { text: 'Expected Objects', link: '/expected-objects' },
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },
           { text: 'Bobcat with NUnit', link: '/nunit' },
