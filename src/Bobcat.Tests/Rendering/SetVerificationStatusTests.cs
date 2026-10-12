@@ -166,4 +166,44 @@ public class SetVerificationStatusTests
         CommandLineRenderer.ShowsStatusColumn(SetVerificationRender.FromCells(run.Columns, run.Cells))
             .ShouldBeTrue();
     }
+
+    // ---- the column's header ----
+
+    public record Ticket(string Name, string Status);
+
+    private static SetVerificationRender ticketGrid()
+    {
+        var rows = new List<Dictionary<string, string>> { new() { ["Name"] = "T-1", ["Status"] = "Open" } };
+        var run = SetVerificationComparer.Cells(new[] { new Ticket("T-1", "Closed") }, rows, ["Name"], false);
+        return SetVerificationRender.FromCells(run.Columns, run.Cells);
+    }
+
+    [Fact]
+    public void the_verdict_column_is_headed_status_when_nothing_else_is()
+    {
+        CommandLineRenderer.VerdictColumnHeader(compare([new Row("Cord", 100)], [("Cord", "100")], ordered: false))
+            .ShouldBe("Status");
+    }
+
+    [Fact]
+    public void a_read_model_with_its_own_status_column_gets_a_verdict_column_instead_of_a_second_status()
+    {
+        var grid = ticketGrid();
+        grid.Columns.ShouldContain("Status");
+        CommandLineRenderer.VerdictColumnHeader(grid).ShouldBe("Verdict");
+
+        var writer = new StringWriter();
+        var console = Spectre.Console.AnsiConsole.Create(new Spectre.Console.AnsiConsoleSettings
+        {
+            Ansi = Spectre.Console.AnsiSupport.No,
+            ColorSystem = Spectre.Console.ColorSystemSupport.NoColors,
+            Out = new Spectre.Console.AnsiConsoleOutput(writer)
+        });
+        console.Profile.Width = 200;
+        new CommandLineRenderer(console).RenderSetVerification(grid);
+
+        var header = writer.ToString().Split('\n').First(line => line.Contains("Name"));
+        header.Split("Status").Length.ShouldBe(2); // exactly one Status header
+        header.ShouldContain("Verdict");
+    }
 }
