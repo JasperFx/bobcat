@@ -4,7 +4,7 @@
     Shared build settings for samples/.
 
     Every sample spec project is an xUnit v3 test host on Microsoft.Testing.Platform, written in
-    Bobcat's projected (code-first) model (bobcat#471) -- `dotnet test` and an IDE's Test Explorer
+    Bobcat's projected (code-first) model (bobcat#471), so `dotnet test` and an IDE's Test Explorer
     see one spec as one test node. There are no .feature files and no Bobcat-generated entry point
     any more: xUnit v3 generates its own, so the platform's synthesized one is turned off below.
 
