@@ -1686,8 +1686,36 @@ and so cannot be handed a class to host.
   namespace, missing specs at the end of the `[BobcatFeature]` class, missing `global using`s.
   Rules that matter:
   - **Never change or remove anything that exists.** A type whose board members it lacks or types
-    differently is `type-differs-from-board`; a slice the board gives a new `Emits`/`Publishes`/`On`/
-    `Reads`/`Produces` is `slice-differs-from-board`. Members the code ADDED are not a difference.
+    differently is `type-differs-from-board`. Members the code ADDED are not a difference.
+  - **A new role on an existing slice is a reopening statement, never an edit (import-role-additions,
+    0.60.3).** For each `Emits`/`Publishes`/`On`(`From`)/`Reads`/`Produces`/`Projects` the board gives a
+    declared slice and NO statement in the project says, one `model.Slice("X").Emits<E>()…;` is appended
+    to the end of the chapter definition's `Configure` (several roles = one statement, a call per line):
+    `merged-slice-roles`, with `ImportCallout.Roles`. This works because JasperFx's
+    `EventModelBuilder.Slice(name)` always adds a NEW slice builder, and `EventModelDescriptor.Merge`
+    (via `GroupByName`, which every host path uses) folds same-name slices, same-rung lists unioned, in
+    one definition or across definitions. Verified 2026-10-12 against JasperFx.Events 2.85.0 and
+    origin/main 2.85.1; nothing new was needed in JasperFx. Rules that matter:
+    - **The reopen repeats an explicit `.InChapter`/`.InDomain` of the declaration** when the default in
+      force at the end of `Configure` is another. Without it the reopen takes the definition's chapter
+      and the merge records a `SourceDisagreement` "contradicts itself" hotspot — found by probe, pinned by
+      `a_slice_whose_declaration_names_its_own_chapter_is_reopened_in_that_chapter` (mutation-checked).
+    - **Roles are counted project-wide (`SourceIndex.RolesOf`)**, so a role in the declaration, an
+      earlier reopen, or a reopen moved to another file is never added twice. Opener-implied roles count
+      (`View<T>()` produces T, `Query<T>()` reads T) and are never reported as removed.
+    - **A slice declared outside its chapter's definition is not reopened** (another definition might
+      name another model): `slice-differs-from-board`, whose `Fix` is the calls to add and where.
+    - **Report-only, declared to declared** (the board's `SliceDeclaration` text vs the file's statements,
+      `ImportMerge.FactsOf`): `slice-aggregate-differs`, `slice-trigger-differs`, `slice-pattern-differs`,
+      `slice-role-removed-on-board`, `slice-removed-on-board`, each with a `Fix`. Only what the BOARD
+      claims is compared: no board aggregate (`missing-aggregate` asked for one), a declared DCB decider,
+      or a trigger added where the board states none are not differences — those are the corrections
+      the import asks for, and reporting them would nag on every re-import. An inferred board aggregate
+      carries an `Override` (`--aggregate`/`--starts-stream` naming the CODE's aggregate) that silences it.
+    - **Removal can't be told from a hand addition**, so the messages say "leave it if you added it". A
+      removed slice is checked in the definitions the import writes to and in every definition in
+      `--out` with the import header (a chapter the board dropped); with `--chapter` the command passes
+      the WHOLE board's slice names so a slice moved to a chapter left out isn't "removed".
   - **Roslyn locates, text inserts.** Parse the existing file (`LanguageVersion.Preview`; any syntax
     error is `merge-skipped-unparseable`), find the offset, insert re-indented text. Never re-print a
     tree: the "byte-identical except the insertion" guarantee is what the tests assert.

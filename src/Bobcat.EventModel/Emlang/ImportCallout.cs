@@ -89,10 +89,42 @@ public static class ImportCalloutCodes
     public const string TypeDiffersFromBoard = "type-differs-from-board";
 
     /// <summary>
-    /// The board gives a slice a role its existing declaration does not say: an event it emits, a message it
-    /// publishes, an event it is on, what it reads or produces. The declaration was left alone.
+    /// The board gives an existing slice roles no declaration of it says (an event it emits, a message it
+    /// publishes, an event it is on, what it reads, produces or projects), so a statement reopening the slice by
+    /// name, <c>model.Slice("X").Emits&lt;E&gt;()</c>, was added at the end of the definition's <c>Configure</c>.
+    /// The slice's own declaration was left alone. <see cref="ImportCallout.Roles"/> lists what was added.
+    /// </summary>
+    public const string MergedSliceRoles = "merged-slice-roles";
+
+    /// <summary>
+    /// The board gives a slice a role no declaration of it says, and the re-import could not add it: the slice
+    /// is declared in a file other than its chapter's definition. Nothing was changed.
     /// </summary>
     public const string SliceDiffersFromBoard = "slice-differs-from-board";
+
+    /// <summary>
+    /// The board's aggregate for an existing slice (what it decides against, which stream it starts) is not
+    /// what its declaration says. Report only: the declaration was left alone.
+    /// </summary>
+    public const string SliceAggregateDiffers = "slice-aggregate-differs";
+
+    /// <summary>The board's trigger for an existing slice (its label or kind) is not what its declaration says. Report only.</summary>
+    public const string SliceTriggerDiffers = "slice-trigger-differs";
+
+    /// <summary>The board's pattern for an existing slice (command, view, automation, translation) is not what its declaration says. Report only.</summary>
+    public const string SlicePatternDiffers = "slice-pattern-differs";
+
+    /// <summary>
+    /// A declaration says a role the board no longer gives the slice, or never did: a role added by hand looks
+    /// the same. Report only: nothing is ever removed.
+    /// </summary>
+    public const string SliceRoleRemovedOnBoard = "slice-role-removed-on-board";
+
+    /// <summary>
+    /// A definition declares a slice the board does not have, because the board removed it or because it was
+    /// declared by hand. Report only: nothing is ever removed.
+    /// </summary>
+    public const string SliceRemovedOnBoard = "slice-removed-on-board";
 
     /// <summary>An existing file does not parse, so nothing was merged into it.</summary>
     public const string MergeSkippedUnparseable = "merge-skipped-unparseable";
@@ -137,6 +169,13 @@ public sealed record ImportCallout(string Slice, string Code, IReadOnlyList<stri
 
     /// <summary>The type a merge callout is about (<c>merged-type</c>, <c>type-differs-from-board</c>); null otherwise.</summary>
     public string? Type { get; init; }
+
+    /// <summary>
+    /// The slice roles a merge callout is about, each as <c>Verb(Name)</c>, e.g. <c>Emits(AppointmentNoShowRecorded)</c>:
+    /// the roles added (<c>merged-slice-roles</c>), missing (<c>slice-differs-from-board</c>) or no longer on the
+    /// board (<c>slice-role-removed-on-board</c>). Empty otherwise.
+    /// </summary>
+    public IReadOnlyList<string> Roles { get; init; } = [];
 }
 
 /// <summary>A file <c>import-event-model</c> wrote, or kept because it already exists.</summary>
@@ -183,6 +222,7 @@ public static class ImportJson
                 if (callout.File is not null) json.WriteString("file", callout.File);
                 if (callout.Fix is not null) json.WriteString("fix", callout.Fix);
                 if (callout.Type is not null) json.WriteString("type", callout.Type);
+                if (callout.Roles.Count > 0) strings(json, "roles", callout.Roles);
                 json.WriteEndObject();
             }
 

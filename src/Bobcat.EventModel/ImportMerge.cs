@@ -220,10 +220,11 @@ public static class ImportMerge
     // ---------------------------------------------------------------- definitions
 
     /// <summary>
-    /// Add the slices <paramref name="slices"/> names that no definition in the project declares, at the
-    /// end of <paramref name="existing"/>'s <c>Configure</c>, written against what the definition already
-    /// says at its top (<c>InChapter</c>, <c>InDomain</c>, <c>ForAggregate</c>). Existing declarations are
-    /// never touched, even where the board now says something else.
+    /// Add what the board has and the definition lacks, at the end of <paramref name="existing"/>'s
+    /// <c>Configure</c>: a declaration for each slice no definition in the project declares, written against
+    /// what the definition already says at its top (<c>InChapter</c>, <c>InDomain</c>, <c>ForAggregate</c>),
+    /// and, for a slice it does declare, a statement reopening it by name with the roles the board gives it and
+    /// no declaration says. Existing statements are never touched; what cannot be added is reported.
     /// </summary>
     /// <param name="existing">The definition file as it is.</param>
     /// <param name="generated">The definition a fresh import would write, for the usings it needs.</param>
@@ -231,6 +232,15 @@ public static class ImportMerge
     /// <param name="path">The file's full path.</param>
     /// <param name="index">Every slice, aggregate and type the project already declares.</param>
     public static Result MergeDefinition(string existing, string generated, IReadOnlyList<CuratedSlice> slices, string path, SourceIndex index)
+        => MergeDefinition(existing, generated, slices, path, index, null);
+
+    /// <inheritdoc cref="MergeDefinition(string, string, IReadOnlyList{CuratedSlice}, string, SourceIndex)"/>
+    /// <param name="boardSlices">
+    /// Every slice name on the board, every chapter, so a slice this definition declares and the board does not
+    /// have is reported (<c>slice-removed-on-board</c>); null skips that check.
+    /// </param>
+    public static Result MergeDefinition(string existing, string generated, IReadOnlyList<CuratedSlice> slices, string path, SourceIndex index,
+        IReadOnlyCollection<string>? boardSlices)
     {
         var tree = TryParse(existing, out var error);
         if (tree is null) return Result.Unchanged(unparseable(path, error));
@@ -257,25 +267,90 @@ public static class ImportMerge
                 $"{definitions[0].Identifier.ValueText} has no Configure(EventModelBuilder) method with a block body, so {sliceNames(missing)} could not be declared in it. Declare {(missing.Count == 1 ? "it" : "them")} by hand."));
         }
 
-        // What the definition says once at the top, which a slice added to it must agree with
+        // What the definition says on the builder itself, which a slice added to it must agree with
         var parameter = method.ParameterList.Parameters[0].Identifier.ValueText;
-        string? said(string verb) => body.Statements.OfType<ExpressionStatementSyntax>()
+        var top = body.Statements.OfType<ExpressionStatementSyntax>()
             .Select(x => x.Expression).OfType<InvocationExpressionSyntax>()
-            .Where(x => x.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver } access
-                        && receiver.Identifier.ValueText == parameter && memberName(access) == verb)
-            .Select(Named)
-            .FirstOrDefault(x => x is not null);
+            .Where(x => x.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver }
+                        && receiver.Identifier.ValueText == parameter)
+            .ToList();
+        string? said(string verb) => top.Where(x => memberName((MemberAccessExpressionSyntax)x.Expression) == verb).Select(Named).FirstOrDefault(x => x is not null);
+
+        // The default in force at a position: InChapter and the rest apply to the slices opened after them
+        string? saidBefore(string verb, int position) => top
+            .Where(x => x.SpanStart < position && memberName((MemberAccessExpressionSyntax)x.Expression) == verb)
+            .Select(Named).LastOrDefault(x => x is not null);
 
         var chapter = said("InChapter");
         var domain = said("InDomain");
         var aggregate = said("ForAggregate");
-
         var stubbed = index.TypeNames;
-        var differing = slices.Except(missing)
-            .Select(x => sliceDiffers(x, body, CSharpModelWriter.SliceDeclaration(x, stubbed, chapter, domain, aggregate), path))
-            .OfType<ImportCallout>()
-            .ToList();
-        if (missing.Count == 0) return Result.Unchanged(differing.ToArray());
+        var file = Path.GetFileName(path);
+
+        var reported = new List<ImportCallout>();
+        var reopens = new List<(CuratedSlice Slice, IReadOnlyList<DeclaredRole> Roles, string Statement)>();
+        foreach (var slice in slices.Except(missing))
+        {
+            var name = SliceName(slice);
+            var board = SyntaxFactory.ParseStatement(CSharpModelWriter.SliceDeclaration(slice, stubbed, chapter, domain, aggregate), options: Parse);
+            var boardRoles = RolesOf(board).DistinctBy(x => x.Key).ToList();
+            var boardKeys = boardRoles.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+            var declared = index.RolesOf(name);
+            var declaredKeys = declared.Select(x => x.Role.Key).ToHashSet(StringComparer.Ordinal);
+            var own = body.Statements.Where(x => openerName(x) == name).ToList();
+
+            // The roles the board gives the slice and no declaration of it says, anywhere in the project
+            var toAdd = boardRoles.Where(x => !declaredKeys.Contains(x.Key)).ToList();
+            if (toAdd.Count > 0)
+            {
+                if (own.Count > 0)
+                {
+                    reopens.Add((slice, toAdd, reopen(name, toAdd, own, parameter, saidBefore, body.CloseBraceToken.SpanStart)));
+                }
+                else
+                {
+                    var where = index.FilesDeclaringSlice(name).Select(Path.GetFileName).ToList();
+                    var at = where.Count == 0 ? "another file" : string.Join(", ", where);
+                    reported.Add(callout(ImportCalloutCodes.SliceDiffersFromBoard, path,
+                            $"The board gives slice {slice.Name} {displays(toAdd)}, which no declaration of it says. It is declared in {at}, not in {file}, "
+                            + "so nothing was added; add the calls by hand if the board is right.")
+                        with
+                        {
+                            Slice = slice.Name, Roles = toAdd.Select(x => x.Display).ToList(),
+                            Fix = $"Add {string.Join("", toAdd.Select(x => x.Call))} to the declaration of slice {name} in {at}."
+                        });
+                }
+            }
+
+            // Roles a declaration says and the board no longer gives: a role added by hand looks the same
+            var removed = declared.Where(x => !x.Role.Implied && !boardKeys.Contains(x.Role.Key)).DistinctBy(x => x.Role.Key).ToList();
+            if (removed.Count > 0)
+            {
+                var where = string.Join(", ", removed.Select(x => Path.GetFileName(x.Path)).Distinct(StringComparer.Ordinal));
+                reported.Add(callout(ImportCalloutCodes.SliceRoleRemovedOnBoard, path,
+                        $"The board no longer gives slice {slice.Name} {displays(removed.Select(x => x.Role))}, which its declaration in {where} says. "
+                        + "Nothing was removed: if the board is right, delete the call; if you added it by hand, leave it.")
+                    with
+                    {
+                        Slice = slice.Name, Roles = removed.Select(x => x.Role.Display).ToList(),
+                        Fix = $"Delete {string.Join(", ", removed.Select(x => x.Role.Call))} from the declaration of slice {name} in {where}."
+                    });
+            }
+
+            if (own.Count == 0) continue;
+
+            // Declared to declared: what the board's declaration would say against what the file's statements say
+            var boardFacts = FactsOf([board]);
+            var code = FactsOf(own);
+            reported.AddRange(new[]
+            {
+                patternDiffers(slice, name, boardFacts, code, path),
+                triggerDiffers(slice, name, boardFacts, code, path),
+                aggregateDiffers(slice, name, boardFacts, aggregate, code, saidBefore("ForAggregate", own[0].SpanStart), path)
+            }.OfType<ImportCallout>());
+        }
+
+        if (boardSlices is not null) reported.AddRange(removedSlices([body], path, boardSlices));
 
         var statements = new List<string>();
         var aggregates = new List<string>();
@@ -287,6 +362,8 @@ public static class ImportMerge
         }
 
         statements.AddRange(missing.Select(x => CSharpModelWriter.SliceDeclaration(x, stubbed, chapter, domain, aggregate)));
+        statements.AddRange(reopens.Select(x => x.Statement));
+        if (statements.Count == 0) return Result.Unchanged(reported.ToArray());
 
         var text = existing;
         var newline = newlineOf(text);
@@ -307,15 +384,200 @@ public static class ImportMerge
         edits.AddRange(missingUsings(text, root, fresh, NamespaceOf(fresh), newline));
 
         var callouts = missing.Select(x => callout(ImportCalloutCodes.MergedSliceDeclaration, path,
-                $"Declared slice {x.Name} in {Path.GetFileName(path)}: the board has it and no definition in the project declared it.") with { Slice = x.Name })
+                $"Declared slice {x.Name} in {file}: the board has it and no definition in the project declared it.") with { Slice = x.Name })
             .Concat(aggregates.Select(x => callout(ImportCalloutCodes.MergedAggregateDeclaration, path,
-                $"Declared aggregate {x} in {Path.GetFileName(path)}: a slice added there names it and no definition declared it.") with { Type = x }))
+                $"Declared aggregate {x} in {file}: a slice added there names it and no definition declared it.") with { Type = x }))
+            .Concat(reopens.Select(x => callout(ImportCalloutCodes.MergedSliceRoles, path,
+                    $"Added {displays(x.Roles)} to slice {x.Slice.Name} in {file}: the board gives it {(x.Roles.Count == 1 ? "that role" : "those roles")} and no declaration said {(x.Roles.Count == 1 ? "it" : "them")}. "
+                    + $"A statement at the end of Configure reopens the slice by name; its declaration is unchanged.")
+                with { Slice = x.Slice.Name, Roles = x.Roles.Select(r => r.Display).ToList() }))
+            .ToList();
+        callouts.AddRange(reported);
+
+        var parts = new List<string>();
+        if (missing.Count > 0) parts.Add(counted(missing.Select(x => x.Name).ToList(), "slice declaration"));
+        if (aggregates.Count > 0) parts.Add(counted(aggregates, "aggregate declaration"));
+        if (reopens.Count > 0)
+        {
+            var roles = reopens.Sum(x => x.Roles.Count);
+            parts.Add($"{roles} role{(roles == 1 ? "" : "s")} ({string.Join("; ", reopens.Select(x => $"{x.Slice.Name}: {displays(x.Roles)}"))})");
+        }
+
+        var added = missing.Select(x => x.Name).Concat(aggregates)
+            .Concat(reopens.SelectMany(x => x.Roles.Select(r => $"{x.Slice.Name}.{r.Display}")))
+            .ToList();
+        return new Result(apply(text, edits), added, callouts) { Description = string.Join(" and ", parts) };
+    }
+
+    /// <summary>
+    /// The statement that reopens an existing slice by name to add <paramref name="roles"/> to it — JasperFx folds
+    /// every statement naming a slice into one slice, unioning the roles. It repeats the declaration's chapter or
+    /// domain when the default in force at the end of <c>Configure</c> is another, or the two would disagree.
+    /// </summary>
+    private static string reopen(string name, IReadOnlyList<DeclaredRole> roles, IReadOnlyList<StatementSyntax> own, string parameter,
+        Func<string, int, string?> saidBefore, int end)
+    {
+        var declared = FactsOf(own);
+        var calls = new List<string>();
+
+        var chapter = declared.Chapter ?? saidBefore("InChapter", own[0].SpanStart);
+        if (chapter is not null && chapter != saidBefore("InChapter", end)) calls.Add($".InChapter({literal(chapter)})");
+
+        var domain = declared.Domain ?? saidBefore("InDomain", own[0].SpanStart);
+        if (domain is not null && domain != saidBefore("InDomain", end)) calls.Add($".InDomain({literal(domain)})");
+
+        calls.AddRange(roles.Select(x => x.Call));
+
+        var opener = $"{parameter}.Slice({literal(name)})";
+        if (calls.Count == 1) return $"{opener}{calls[0]};";
+
+        // One call per line under the opener, the shape the import writes a declaration in
+        return opener + "\n" + string.Join("\n", calls.Select((x, i) => "    " + x + (i == calls.Count - 1 ? ";" : "")));
+    }
+
+    private static string literal(string value) => SymbolDisplay.FormatLiteral(value, quote: true);
+
+    private static string displays(IEnumerable<DeclaredRole> roles) => string.Join(", ", roles.Select(x => x.Display));
+
+    private static ImportCallout? patternDiffers(CuratedSlice slice, string name, SliceFacts board, SliceFacts code, string path)
+    {
+        if (board.Pattern is not { } pattern || pattern == code.Pattern) return null;
+
+        var file = Path.GetFileName(path);
+        var opener = pattern is "Command" or "View" or "Automation" or "Translation"
+            ? $"open it with model.{pattern}({literal(name)})"
+            : $"add .Pattern(SlicePattern.{pattern})";
+        return callout(ImportCalloutCodes.SlicePatternDiffers, path,
+                $"The board says slice {slice.Name} is a {pattern} slice; its declaration in {file} says {(code.Pattern is null ? "no pattern" : $"{code.Pattern}")}. "
+                + "The declaration was left as it is.")
+            with
+            {
+                Slice = slice.Name,
+                Fix = $"In {file}, {opener} in place of {code.Opener ?? "its opener"}" + (code.Pattern is null ? "." : $", or keep {code.Pattern} if the code is right.")
+            };
+    }
+
+    private static ImportCallout? triggerDiffers(CuratedSlice slice, string name, SliceFacts board, SliceFacts code, string path)
+    {
+        var label = board.TriggerLabel is not null && board.TriggerLabel != code.TriggerLabel;
+        var kind = board.TriggerKind is not null && board.TriggerKind != code.TriggerKind;
+        if (!label && !kind) return null;
+
+        var file = Path.GetFileName(path);
+        return callout(ImportCalloutCodes.SliceTriggerDiffers, path,
+                $"The board says slice {slice.Name} is triggered by {describeTrigger(board)}; its declaration in {file} says {describeTrigger(code)}. "
+                + "The declaration was left as it is.")
+            with
+            {
+                Slice = slice.Name,
+                Fix = code.TriggerCall is null
+                    ? $"Add {board.TriggerCall} to the declaration of slice {name} in {file}."
+                    : $"Replace {code.TriggerCall} with {board.TriggerCall} in the declaration of slice {name} in {file}."
+            };
+    }
+
+    private static string describeTrigger(SliceFacts facts)
+        => (facts.TriggerLabel, facts.TriggerKind) switch
+        {
+            (null, null) => "nothing",
+            ({ } label, null) => $"'{label}'",
+            (null, { } kind) => kind,
+            ({ } label, { } kind) => $"'{label}' ({kind})"
+        };
+
+    /// <summary>
+    /// <c>slice-aggregate-differs</c> when the board claims an aggregate for the slice (a stream it starts, one
+    /// it decides against) and the declaration says another. A board that claims none is no disagreement (the
+    /// <c>missing-aggregate</c> callout asked for the declaration), nor is a declared DCB decider, which is what
+    /// the import recommends for a slice on several streams.
+    /// </summary>
+    private static ImportCallout? aggregateDiffers(CuratedSlice slice, string name, SliceFacts board, string? boardDefault, SliceFacts code,
+        string? codeDefault, string path)
+    {
+        var (boardStarts, boardAgainst) = board.Effective(boardDefault);
+        if (boardStarts is null && boardAgainst.Count == 0) return null;
+        if (code.Decider is not null) return null;
+
+        var (codeStarts, codeAgainst) = code.Effective(codeDefault);
+        if (!code.NoAggregate && boardStarts == codeStarts && boardAgainst.ToHashSet(StringComparer.Ordinal).SetEquals(codeAgainst)) return null;
+
+        var file = Path.GetFileName(path);
+        string calls(SliceFacts facts, string? fallback) => facts.AggregateCalls.Count > 0
+            ? string.Join("", facts.AggregateCalls)
+            : fallback is not null && facts.Pattern == "Command" ? $"nothing (the chapter's ForAggregate default, {fallback}, applies)" : "nothing";
+
+        var inferred = slice.Inferred.Count > 0 ? " The board's aggregate is the import's inference, not something the board states." : "";
+
+        // The flags that make the board say what the code says, so the callout goes away with the code kept
+        var flags = code.NoAggregate
+            ? []
+            : (codeStarts is null ? [] : new[] { $"--starts-stream {slice.Name}={codeStarts}" })
+            .Concat(codeAgainst.Select(x => $"--aggregate {slice.Name}={x}"))
             .ToList();
 
-        callouts.AddRange(differing);
-        var description = counted(missing.Select(x => x.Name).ToList(), "slice declaration")
-                          + (aggregates.Count > 0 ? " and " + counted(aggregates, "aggregate declaration") : "");
-        return new Result(apply(text, edits), missing.Select(x => x.Name).Concat(aggregates).ToList(), callouts) { Description = description };
+        return callout(ImportCalloutCodes.SliceAggregateDiffers, path,
+                $"The board says slice {slice.Name} {describeAggregate(boardStarts, boardAgainst, false)}; its declaration in {file} says it {describeAggregate(codeStarts, codeAgainst, code.NoAggregate)}. "
+                + "The declaration was left as it is." + inferred)
+            with
+            {
+                Slice = slice.Name,
+                Aggregates = new[] { boardStarts }.Concat(boardAgainst).OfType<string>().Distinct(StringComparer.Ordinal).ToList(),
+                Fix = $"In {file}, give slice {name} {calls(board, boardDefault)} in place of {calls(code, codeDefault)}.",
+                Override = flags.Count > 0 && slice.Inferred.Count > 0 ? string.Join(" ", flags) : null
+            };
+    }
+
+    private static string describeAggregate(string? starts, IReadOnlyList<string> against, bool noAggregate)
+    {
+        if (noAggregate) return "has none (NoAggregate())";
+
+        var parts = new List<string>();
+        if (starts is not null) parts.Add($"starts the {starts} stream");
+        if (against.Count > 0) parts.Add($"decides against {string.Join(", ", against)}");
+        return parts.Count == 0 ? "has no aggregate" : string.Join(" and ", parts);
+    }
+
+    /// <summary>
+    /// A <c>slice-removed-on-board</c> callout for each slice the definitions in <paramref name="bodies"/> declare
+    /// and the board does not have. Report only: the slice may have been declared by hand.
+    /// </summary>
+    private static IEnumerable<ImportCallout> removedSlices(IEnumerable<BlockSyntax> bodies, string path, IReadOnlyCollection<string> boardSlices)
+    {
+        var file = Path.GetFileName(path);
+        var board = boardSlices as IReadOnlySet<string> ?? boardSlices.ToHashSet(StringComparer.Ordinal);
+        foreach (var group in bodies.SelectMany(x => x.Statements)
+                     .Select(x => (Statement: x, Slice: openerName(x)))
+                     .Where(x => x.Slice is not null && !board.Contains(x.Slice))
+                     .GroupBy(x => x.Slice!, StringComparer.Ordinal))
+        {
+            var lines = group.Select(x => x.Statement.GetLocation().GetLineSpan().StartLinePosition.Line + 1).ToList();
+            yield return callout(ImportCalloutCodes.SliceRemovedOnBoard, path,
+                    $"{file} declares slice {group.Key}, which the board does not have. Nothing was removed: if the board removed it, delete the declaration; "
+                    + "if you declared it by hand, leave it.")
+                with
+                {
+                    Slice = group.Key,
+                    Fix = $"Delete the statement{(lines.Count == 1 ? "" : "s")} declaring slice {group.Key} from {file} (line{(lines.Count == 1 ? "" : "s")} {string.Join(", ", lines)})."
+                };
+        }
+    }
+
+    /// <summary>
+    /// <c>slice-removed-on-board</c> callouts for a definition file the import did not write to this time, such
+    /// as one for a chapter the board no longer has. Only files carrying the import's own header are compared.
+    /// </summary>
+    /// <param name="existing">The definition file as it is.</param>
+    /// <param name="path">Its full path.</param>
+    /// <param name="boardSlices">Every slice name on the board.</param>
+    public static IReadOnlyList<ImportCallout> SlicesRemovedOnBoard(string existing, string path, IReadOnlyCollection<string> boardSlices)
+    {
+        var tree = TryParse(existing, out _);
+        if (tree is null) return [];
+
+        var bodies = DefinitionClasses(tree.GetCompilationUnitRoot())
+            .SelectMany(x => x.Members.OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == "Configure"))
+            .Select(x => x.Body).OfType<BlockSyntax>();
+        return removedSlices(bodies, path, boardSlices).ToList();
     }
 
     /// <summary>
@@ -343,45 +605,184 @@ public static class ImportMerge
     }
 
     /// <summary>
-    /// The roles a slice declaration is compared on: what the board says the slice does, not how it is wired.
-    /// <c>LinksToSpecification</c> is left out: a generated specification binds itself with <c>[BobcatSlice]</c>,
-    /// and the spec project publishes its own links, so a missing one in the definition changes nothing.
+    /// The roles a slice is compared on and a re-import adds: what the board says the slice does, not how it is
+    /// wired. <c>LinksToSpecification</c> is left out: a generated specification binds itself with
+    /// <c>[BobcatSlice]</c>, and the spec project publishes its own links, so a missing one changes nothing.
+    /// <c>From</c> is <c>On</c>'s other name.
     /// </summary>
-    private static readonly HashSet<string> ComparedRoles = new(StringComparer.Ordinal)
-        { "Emits", "Publishes", "On", "Reads", "Produces" };
-
-    /// <summary>
-    /// A <c>slice-differs-from-board</c> callout when the board gives a slice declared in this definition a
-    /// role (an event it emits, a message it publishes, …) its declaration does not say; null otherwise.
-    /// The declaration is never changed: the aggregate, trigger and pattern a person corrected stay theirs.
-    /// </summary>
-    private static ImportCallout? sliceDiffers(CuratedSlice slice, BlockSyntax body, string boardDeclaration, string path)
+    private static readonly Dictionary<string, string> ComparedRoles = new(StringComparer.Ordinal)
     {
-        var name = SliceName(slice);
-        var existing = body.Statements.FirstOrDefault(x => openerName(x) == name);
-        if (existing is null) return null;
+        ["Emits"] = "Emits", ["Publishes"] = "Publishes", ["On"] = "On", ["From"] = "On", ["Reads"] = "Reads",
+        ["Produces"] = "Produces", ["Projects"] = "Projects"
+    };
 
-        var board = rolesOf(SyntaxFactory.ParseStatement(boardDeclaration, options: Parse));
-        var code = rolesOf(existing).ToHashSet(StringComparer.Ordinal);
-        var missing = board.Where(x => !code.Contains(x)).Distinct(StringComparer.Ordinal).ToList();
-        if (missing.Count == 0) return null;
+    /// <summary>One role a slice statement declares.</summary>
+    /// <param name="Verb">The role's verb, aliases folded: <c>Emits</c>, <c>On</c>, …</param>
+    /// <param name="Name">The type it names: the generic argument's simple name, or the string.</param>
+    /// <param name="Call">The call as written, e.g. <c>.Emits&lt;Booked&gt;()</c>.</param>
+    /// <param name="Implied">Said by the opener (<c>View&lt;T&gt;()</c> produces T), so it cannot be deleted on its own.</param>
+    public readonly record struct DeclaredRole(string Verb, string Name, string Call, bool Implied = false)
+    {
+        /// <summary>The identity roles are compared by.</summary>
+        public string Key => $"{Verb}:{Name}";
 
-        return callout(ImportCalloutCodes.SliceDiffersFromBoard, path,
-                $"The board gives slice {slice.Name} {string.Join(", ", missing.Select(x => x.Replace(":", "(") + ")"))}, which its declaration in {Path.GetFileName(path)} does not say. "
-                + "The declaration was left as it is; add the call by hand if the board is right.")
-            with { Slice = slice.Name };
+        /// <summary>How a callout says it: <c>Emits(Booked)</c>.</summary>
+        public string Display => $"{Verb}({Name})";
     }
 
-    private static string? openerName(StatementSyntax statement)
+    /// <summary>The roles a slice statement declares, in the order written, including any its opener implies.</summary>
+    internal static IEnumerable<DeclaredRole> RolesOf(StatementSyntax statement)
+    {
+        var calls = statement.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Reverse().ToList();
+
+        // View<T>() produces T and Query<T>() reads it, as JasperFx's verbs do
+        if (calls.FirstOrDefault(IsOpener) is { } opener && Named(opener) is { } named)
+        {
+            var access = (MemberAccessExpressionSyntax)opener.Expression;
+            var generic = access.Name is GenericNameSyntax;
+            switch (memberName(access))
+            {
+                case "View":
+                    yield return new DeclaredRole("Produces", named, generic ? $".Produces<{named}>()" : $".Produces({literal(named)})", Implied: true);
+                    break;
+                case "Query" when generic:
+                    yield return new DeclaredRole("Reads", named, $".Reads<{named}>()", Implied: true);
+                    break;
+            }
+        }
+
+        foreach (var call in calls)
+        {
+            if (call.Expression is not MemberAccessExpressionSyntax access || IsOpener(call)) continue;
+            if (!ComparedRoles.TryGetValue(memberName(access), out var verb) || Named(call) is not { } name) continue;
+
+            var written = access.Name.ToString() + call.ArgumentList;
+            yield return new DeclaredRole(verb, name, "." + (verb == memberName(access) ? written : verb + written[memberName(access).Length..]));
+        }
+    }
+
+    /// <summary>What a slice's statements say about it beyond its roles: its pattern, trigger, aggregate, chapter and domain.</summary>
+    internal sealed record SliceFacts
+    {
+        public string? Opener { get; init; }
+        public string? Pattern { get; init; }
+        public string? TriggerLabel { get; init; }
+        public string? TriggerKind { get; init; }
+        public string? TriggerCall { get; init; }
+        public string? StartsStream { get; init; }
+        public IReadOnlyList<string> Against { get; init; } = [];
+        public bool NoAggregate { get; init; }
+        public string? Decider { get; init; }
+        public IReadOnlyList<string> AggregateCalls { get; init; } = [];
+        public string? Chapter { get; init; }
+        public string? Domain { get; init; }
+
+        /// <summary>
+        /// The stream the slice starts and the aggregates it decides against, as JasperFx resolves them: a command
+        /// slice that names none, and says neither <c>NoAggregate()</c> nor a decider, takes the chapter default.
+        /// </summary>
+        public (string? Starts, IReadOnlyList<string> Against) Effective(string? chapterDefault)
+        {
+            var against = Against.Where(x => x != StartsStream).Distinct(StringComparer.Ordinal).ToList();
+            if (against.Count == 0 && StartsStream is null && !NoAggregate && Decider is null && Pattern == "Command" && chapterDefault is not null)
+                against.Add(chapterDefault);
+
+            return (StartsStream, against);
+        }
+    }
+
+    internal static SliceFacts FactsOf(IReadOnlyList<StatementSyntax> statements)
+    {
+        string? opener = null, pattern = null, label = null, kind = null, triggerCall = null, starts = null, decider = null, chapter = null, domain = null;
+        var against = new List<string>();
+        var aggregateCalls = new List<string>();
+        var noAggregate = false;
+
+        foreach (var call in statements.SelectMany(x => x.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Reverse()))
+        {
+            if (call.Expression is not MemberAccessExpressionSyntax access) continue;
+            var verb = memberName(access);
+            var written = "." + access.Name + call.ArgumentList;
+
+            if (IsOpener(call))
+            {
+                opener ??= call.ToString();
+                pattern ??= verb switch
+                {
+                    "Command" or "View" or "Automation" or "Translation" or "Query" => verb,
+                    _ => null
+                };
+
+                if (verb == "Automation" && access.Name is GenericNameSyntax) kind ??= "JobScheduler";
+                continue;
+            }
+
+            switch (verb)
+            {
+                case "Pattern" when call.ArgumentList.Arguments.FirstOrDefault()?.Expression is MemberAccessExpressionSyntax member:
+                    pattern ??= member.Name.Identifier.ValueText;
+                    break;
+
+                case "TriggeredBy":
+                    triggerCall ??= written;
+                    foreach (var argument in call.ArgumentList.Arguments.Select(x => x.Expression))
+                    {
+                        if (argument is LiteralExpressionSyntax literalLabel && literalLabel.IsKind(SyntaxKind.StringLiteralExpression)) label ??= literalLabel.Token.ValueText;
+                        else if (argument is MemberAccessExpressionSyntax member) kind ??= member.Name.Identifier.ValueText;
+                    }
+
+                    break;
+
+                case "StartsStream":
+                    starts ??= Named(call);
+                    aggregateCalls.Add(written);
+                    break;
+
+                case "Against" or "UsesAggregate":
+                    if (Named(call) is { } aggregate) against.Add(aggregate);
+                    aggregateCalls.Add(written);
+                    break;
+
+                case "NoAggregate":
+                    noAggregate = true;
+                    aggregateCalls.Add(written);
+                    break;
+
+                case "DeciderModel" or "DcbModel":
+                    decider ??= Named(call);
+                    aggregateCalls.Add(written);
+                    break;
+
+                case "InChapter":
+                    chapter ??= Named(call);
+                    break;
+
+                case "InDomain":
+                    domain ??= Named(call);
+                    break;
+            }
+        }
+
+        return new SliceFacts
+        {
+            Opener = opener, Pattern = pattern, TriggerLabel = label, TriggerKind = kind, TriggerCall = triggerCall, StartsStream = starts,
+            Against = against, NoAggregate = noAggregate, Decider = decider, AggregateCalls = aggregateCalls, Chapter = chapter, Domain = domain
+        };
+    }
+
+    internal static string? openerName(StatementSyntax statement)
         => statement.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>()
             .Where(IsOpener)
             .Select(Named).FirstOrDefault(n => n is not null);
 
-    private static IEnumerable<string> rolesOf(StatementSyntax statement)
-        => statement.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>()
-            .Where(c => c.Expression is MemberAccessExpressionSyntax access && ComparedRoles.Contains(memberName(access)))
-            .Select(c => $"{memberName((MemberAccessExpressionSyntax)c.Expression)}:{Named(c)}")
-            .Reverse(); // outermost call first in the tree, so reversed it reads in the order it was written
+    /// <summary>Every statement in a file's definition classes' <c>Configure</c> that opens a slice, with the slice's name.</summary>
+    internal static IEnumerable<(StatementSyntax Statement, string Slice)> SliceStatements(CompilationUnitSyntax root)
+        => DefinitionClasses(root)
+            .SelectMany(x => x.Members.OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == "Configure"))
+            .SelectMany(x => x.Body?.Statements ?? [])
+            .Select(x => (Statement: x, Slice: openerName(x)))
+            .Where(x => x.Slice is not null)
+            .Select(x => (x.Statement, x.Slice!));
 
     /// <summary>The name a slice is declared under: the merge key.</summary>
     public static string SliceName(CuratedSlice slice)
@@ -678,7 +1079,12 @@ public sealed class SourceIndex
         IReadOnlyList<string> Slices,
         IReadOnlyList<string> Aggregates,
         IReadOnlyList<(string Feature, string Method)> Specs,
-        IReadOnlyList<string> Features);
+        IReadOnlyList<string> Features,
+        IReadOnlyList<(string Slice, ImportMerge.DeclaredRole Role)> Roles,
+        bool ImportedDefinition);
+
+    /// <summary>The header the import writes atop a definition, which marks it as the import's own.</summary>
+    internal const string ImportHeader = "by `bobcat import-event-model`";
 
     /// <summary>Index every <c>.cs</c> file under <paramref name="directory"/>.</summary>
     public static SourceIndex Scan(string directory)
@@ -708,8 +1114,13 @@ public sealed class SourceIndex
             .SelectMany(x => x.Class.Members.OfType<MethodDeclarationSyntax>().Select(m => (x.Feature!, m.Identifier.ValueText)))
             .ToList();
 
+        var roles = ImportMerge.SliceStatements(root)
+            .SelectMany(x => ImportMerge.RolesOf(x.Statement).Select(r => (x.Slice, r)))
+            .ToList();
+        var imported = content.Contains(ImportHeader, StringComparison.Ordinal) && ImportMerge.DefinitionClasses(root).Any();
+
         _files[Path.GetFullPath(path)] = new FileFacts(ImportMerge.TopLevelTypes(root).ToList(), ImportMerge.DeclaredSlices(root).ToList(),
-            ImportMerge.DeclaredAggregates(root).ToList(), specs, features.Select(x => x.Feature!).ToList());
+            ImportMerge.DeclaredAggregates(root).ToList(), specs, features.Select(x => x.Feature!).ToList(), roles, imported);
     }
 
     /// <summary>Every declaration of a type of this simple name, and the file it is in.</summary>
@@ -722,6 +1133,17 @@ public sealed class SourceIndex
 
     /// <summary>Whether a definition already declares a slice of this name.</summary>
     public bool DeclaresSlice(string name) => _files.Values.Any(x => x.Slices.Contains(name, StringComparer.Ordinal));
+
+    /// <summary>The files whose definitions declare a slice of this name.</summary>
+    public IReadOnlyList<string> FilesDeclaringSlice(string name)
+        => _files.Where(x => x.Value.Slices.Contains(name, StringComparer.Ordinal)).Select(x => x.Key).ToList();
+
+    /// <summary>Every role any statement naming this slice declares, in any definition, and the file it is in.</summary>
+    public IReadOnlyList<(ImportMerge.DeclaredRole Role, string Path)> RolesOf(string slice)
+        => _files.SelectMany(f => f.Value.Roles.Where(r => r.Slice == slice).Select(r => (r.Role, f.Key))).ToList();
+
+    /// <summary>The definition files carrying the import's header: the ones a re-import compares against the board.</summary>
+    public IReadOnlyList<string> ImportedDefinitionFiles => _files.Where(x => x.Value.ImportedDefinition).Select(x => x.Key).ToList();
 
     /// <summary>Whether a definition already names this aggregate (Aggregate, ForAggregate, Against, StartsStream).</summary>
     public bool DeclaresAggregate(string name) => _files.Values.Any(x => x.Aggregates.Contains(name, StringComparer.Ordinal));

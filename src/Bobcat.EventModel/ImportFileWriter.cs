@@ -63,13 +63,28 @@ public sealed class ImportFileWriter(bool force)
 
     /// <summary>
     /// The <c>EventModelDefinition</c> files: a slice the board has and no definition in the project
-    /// declares is added to the end of its chapter's <c>Configure</c>.
+    /// declares is added to the end of its chapter's <c>Configure</c>, and so is a statement reopening a slice
+    /// that is declared, with the roles the board gives it and no declaration says.
     /// </summary>
     public ImportWriteCounts WriteDefinitions(string directory, IEnumerable<GeneratedFile> files, ImportedEventModel model)
+        => WriteDefinitions(directory, files, model, null);
+
+    /// <inheritdoc cref="WriteDefinitions(string, IEnumerable{GeneratedFile}, ImportedEventModel)"/>
+    /// <param name="boardSlices">
+    /// Every slice name on the whole board, which an import of only some chapters must supply so that a slice
+    /// the board moved to a chapter left out is not reported as removed; null means <paramref name="model"/>'s.
+    /// </param>
+    public ImportWriteCounts WriteDefinitions(string directory, IEnumerable<GeneratedFile> files, ImportedEventModel model,
+        IReadOnlyCollection<string>? boardSlices)
     {
         var index = IndexOf(directory);
-        return writeEach(directory, files, (file, path, relative) =>
+        var board = (boardSlices ?? model.Slices.Select(ImportMerge.SliceName).ToList()).ToHashSet(StringComparer.Ordinal);
+        var targets = new HashSet<string>(StringComparer.Ordinal);
+
+        var counts = writeEach(directory, files, (file, path, relative) =>
         {
+            targets.Add(Path.GetFullPath(path));
+
             if (!File.Exists(path))
             {
                 var content = ImportMerge.WithoutDeclaredSlices(file.Content, index, out var skipped);
@@ -81,9 +96,21 @@ public sealed class ImportFileWriter(bool force)
                 .ToHashSet(StringComparer.Ordinal);
             var slices = model.Slices.Where(x => declared.Contains(ImportMerge.SliceName(x))).ToList();
 
-            var result = ImportMerge.MergeDefinition(File.ReadAllText(path), file.Content, slices, path, index);
+            var result = ImportMerge.MergeDefinition(File.ReadAllText(path), file.Content, slices, path, index, board);
             return merged(path, relative, result, index, "declaration", "declarations");
         });
+
+        // A definition the import wrote once and did not write to now, such as one for a chapter the board no
+        // longer has: its slices are compared against the board too. Report only, and never with --force.
+        if (!force)
+        {
+            foreach (var other in index.ImportedDefinitionFiles.Where(x => !targets.Contains(x)).Order(StringComparer.Ordinal))
+            {
+                Callouts.AddRange(ImportMerge.SlicesRemovedOnBoard(File.ReadAllText(other), other, board));
+            }
+        }
+
+        return counts;
     }
 
     /// <summary>
