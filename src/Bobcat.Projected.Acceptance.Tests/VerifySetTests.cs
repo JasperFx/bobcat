@@ -190,9 +190,8 @@ public class VerifySetTests
                 """);
         });
 
-        // Not green. Which red is the open question below: an extra-row cell is `invalid`, and a
-        // recorded step reads that as `error` where the Gherkin lane reads it as `failed`.
-        recording.Step("the inventory should be").Status.ShouldNotBe(ResultStatus.success);
+        // A row the document doesn't describe is a wrong, not an exception (bobcat#471).
+        recording.Step("the inventory should be").Status.ShouldBe(ResultStatus.failed);
         recording.GatheredFailures().ShouldNotBeNull().ShouldContain("the inventory should be");
 
         var grid = gridOf(render, "the inventory should be");
@@ -203,10 +202,12 @@ public class VerifySetTests
         extra.Cells.Select(c => c.DisplayText).ShouldBe(["SKU-001", "Widget", "90"]);
     }
 
-    [Fact(Skip = "Projected-lane divergence (bobcat#471 phase 2): an extra-row cell is `invalid`, and " +
-                 "RecordedStep.Status reads invalid/error cells as `error`, so a set with one row too many is an " +
-                 "exception in the projected lane and a wrong (`failed`) in the Gherkin lane, whose RecordCells " +
-                 "marks the step failed for any bad cell. Same decision as a throwing table row.")]
+    /// <summary>
+    /// An extra row is a disagreement with the document, so it's <c>failed</c>, the same verdict a
+    /// missing row or a wrong value gets. Only a row whose code threw is <c>error</c>
+    /// (<see cref="DecisionTableTests.a_throwing_row_errors_the_step"/>).
+    /// </summary>
+    [Fact]
     public void an_extra_row_alone_fails_the_step()
     {
         var (recording, _) = Projected.Run("extra alone", () =>

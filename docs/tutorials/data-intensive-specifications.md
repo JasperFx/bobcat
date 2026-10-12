@@ -379,6 +379,11 @@ row and **the rest of the table still runs** — Storyteller's behaviour. Before
 row erased the whole grid: the cells were gathered and applied only after the last row, so anything
 that threw discarded every cell, including the rows that had already passed.
 
+From a C# test the step's verdict keeps the difference between a wrong and an exception. A row whose
+code threw makes the step `error`. A wrong value, a missing row or an extra row makes it `failed`,
+because each of those is the system disagreeing with the document, not the code falling over. The
+Gherkin lane marks both `failed`.
+
 The escape hatch is Bobcat's existing failure vocabulary rather than a new one. A
 `SpecCriticalException` still aborts the scenario and a `SpecCatastrophicException` still stops the
 suite, so a fixture that means "stop here" can still say so, and cancellation propagates untouched.

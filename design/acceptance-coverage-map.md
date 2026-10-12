@@ -72,7 +72,7 @@ no parameter names makes a decision table, which is the same rule the generator 
 | C2 | A wrong row reports its cell with expected/actual | b | `DecisionTableTests.a_return_value_column_reports_its_failing_cell` |
 | C3 | A throwing row is a `row-error` cell on that row; the other rows are still judged and the scenario carries on | b | `DecisionTableTests.a_throwing_row_is_a_row_error_and_the_rest_of_the_table_still_runs` |
 | C4 | A throwing row renders as an `Errored` row with its reason and inputs | b | `DecisionTableTests.a_throwing_row_renders_as_its_own_row_with_the_reason` |
-| C5 | ...and the step's verdict for it is `failed` (an assertion-level wrong) | b | **SKIPPED** `DecisionTableTests.a_throwing_row_fails_the_step_rather_than_erroring_it` (gap 2) |
+| C5 | ...and the step's verdict for it is `error` in the projected lane (the Gherkin lane says `failed`) | b | `DecisionTableTests.a_throwing_row_errors_the_step` (gap 2, decided: a throw is `error`) |
 | C6 | ...and the column it never produced renders `error`, not as an input | b | **SKIPPED** `DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error` (gap 3) |
 | C7 | `out`-parameter output columns are compared per row | b | **SKIPPED** `DecisionTableTests.out_param_columns_are_compared_per_row` (gap 4) |
 | C8 | `[DecisionTable]` binding by the generator | c | The projected form is C1 |
@@ -126,7 +126,7 @@ calling the static forms those methods always delegated to.
 | F6 | A header with no rows still names the columns | a | as E7 + `VerifySetTests.a_header_with_no_rows_under_it_still_names_the_columns` |
 | F7 | A disagreeing set costs the projected spec its verdict without throwing | b | `VerifySetTests.a_disagreeing_set_costs_the_spec_its_verdict_without_throwing` |
 | F8 | A missing row alone still costs the scenario its verdict | b | `VerifySetTests.a_missing_row_alone_still_costs_the_scenario_its_verdict` |
-| F9 | An extra row alone fails the step (`failed`) | b | **SKIPPED** `VerifySetTests.an_extra_row_alone_fails_the_step` (gap 2) |
+| F9 | An extra row alone fails the step (`failed`) | b | `VerifySetTests.an_extra_row_alone_fails_the_step` (gap 2); the empty-set tests `VerifySetTests.a_header_with_no_rows_under_it_still_names_the_columns` and `SetVerificationTests.a_header_with_no_rows_under_it_still_names_the_columns` now assert `failed` too |
 
 ## G. `[TableGrammar]` -- `TableGrammar.feature`, `TableGrammarScoped.feature`, `TableGrammarTests`
 
@@ -246,14 +246,14 @@ The projected lane doesn't do these yet. Each has a skipped test that states wha
    polls a value, a condition or an action and records one cell for the whole poll, and **BOBCAT035**
    (warning) reports `[WaitFor]` or `[Approx]` on a helper a C# test calls or on a projected spec
    method. `WaitForTests` (5) run against the helper now.
-2. **Bad cells are a different verdict.** `RecordedStep.Status` reads an `error` or `invalid` cell as
-   `error`. The Gherkin lane's `IStepContext.RecordCells` marks the step `failed` for any bad cell. So a
-   throwing table row (`row-error`, `error`) and an extra row in a set (`extra-row`, `invalid`) are
-   exceptions in the projected lane and wrongs in the Gherkin lane. The step is red either way, but
-   counts and the wrong/exception distinction differ. Skipped:
-   `DecisionTableTests.a_throwing_row_fails_the_step_rather_than_erroring_it`,
-   `VerifySetTests.an_extra_row_alone_fails_the_step`. The passing tests assert "not success" so they
-   hold under either answer. **This needs a maintainer decision.**
+2. **Bad cells are a different verdict.** FIXED. `RecordedStep.Status` read an `error` or `invalid`
+   cell as `error`, so a throwing table row and an extra row in a set were both exceptions, where the
+   Gherkin lane's `IStepContext.RecordCells` marks the step `failed` for any bad cell. Decided
+   2026-10-11: **a wrong value, a missing row or an extra row is `failed`, and a row whose code threw is
+   `error`.** `invalid` (the extra-row marker, and an expected cell or property path that can't be
+   read) now joins `failed` and `missing`; `row-error` stays `error`. The projected lane keeps the
+   wrong/exception distinction the Gherkin lane loses. `Counts` is unchanged: an `invalid` cell still
+   counts as an error there, as a `missing` one always has.
 3. **Every table step is recorded twice.** The interceptor records any `StepTable` argument as plain
    cells (`Recording.RecordTable`), and `TableRun.Report` then adds its own cells beside them. The
    render merges them, but two symptoms get through. `StepFinished` carries each input cell twice

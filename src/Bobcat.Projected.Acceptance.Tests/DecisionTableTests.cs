@@ -150,15 +150,18 @@ public class DecisionTableTests
             .ShouldBe(ResultStatus.error);
     }
 
-    [Fact(Skip = "Projected-lane divergence (bobcat#471 phase 2): a row-error cell makes a recorded step " +
-                 "`error`, where the Gherkin lane's RecordCells marks the step `failed` (an assertion-level " +
-                 "wrong the scenario carries on from). RecordedStep.Status maps error/invalid cells to error. " +
-                 "Needs a maintainer decision on which verdict a throwing table row earns.")]
-    public async Task a_throwing_row_fails_the_step_rather_than_erroring_it()
+    /// <summary>
+    /// A row whose code threw is an exception, not a wrong, so the step is <c>error</c> (bobcat#471).
+    /// A wrong value, a missing row or an extra row is <c>failed</c>
+    /// (<see cref="VerifySetTests.an_extra_row_alone_fails_the_step"/>). The Gherkin lane marked both
+    /// <c>failed</c>; the projected lane keeps the distinction.
+    /// </summary>
+    [Fact]
+    public async Task a_throwing_row_errors_the_step()
     {
         var (recording, _) = await lineTotals("throwing row verdict", throwingRow);
 
-        recording.Step("the line totals are calculated").Status.ShouldBe(ResultStatus.failed);
+        recording.Step("the line totals are calculated").Status.ShouldBe(ResultStatus.error);
     }
 
     [Fact(Skip = "Projected-lane gap (bobcat#471 phase 2): TableRunner.Run cannot bind an `out` parameter, " +

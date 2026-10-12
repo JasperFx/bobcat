@@ -221,9 +221,8 @@ public class SetVerificationTests
                 """);
         });
 
-        // Not green. Which red is the open question below: an extra-row cell is `invalid`, and a
-        // recorded step reads that as `error` where the Gherkin lane reads it as `failed`.
-        recording.Step("the details should be").Status.ShouldNotBe(ResultStatus.success);
+        // A row the document doesn't describe is a wrong, not an exception (bobcat#471).
+        recording.Step("the details should be").Status.ShouldBe(ResultStatus.failed);
         recording.GatheredFailures().ShouldNotBeNull().ShouldContain("the details should be");
 
         // "The set should be empty" is a real expectation, and the header says what the columns are.

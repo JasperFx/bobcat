@@ -821,9 +821,10 @@ public static class ScenarioRecorder
 
         /// <summary>
         /// The step's verdict, on the same four-way vocabulary the Gherkin lane reports:
-        /// a failed cell or an assertion exception is <c>failed</c> (a Storyteller <i>wrong</i>),
-        /// any other exception is <c>error</c>, and a step that finished with nothing to say is
-        /// <c>success</c>.
+        /// a failed, missing or invalid cell (a wrong value, a missing row, an extra row) or an
+        /// assertion exception is <c>failed</c> (a Storyteller <i>wrong</i>), any other exception
+        /// or a table row whose code threw is <c>error</c>, and a step that finished with nothing
+        /// to say is <c>success</c>.
         /// </summary>
         /// <remarks>
         /// Derived rather than stored so a cell reported late — a helper that checks several
@@ -839,9 +840,14 @@ public static class ScenarioRecorder
                 // out, it was the one bad cell a projected step could carry while reporting success —
                 // a red grid under a green test, which is the failure mode this lane exists to avoid.
                 // The Gherkin lane's IStepContext.RecordCells has always counted it.
-                if (Cells.Any(x => x.Status is ResultStatus.failed or ResultStatus.missing))
+                //
+                // `invalid` is here for the same reason (bobcat#471): it's what an extra-row marker
+                // carries, and a row the document doesn't describe is a wrong, not an exception. It
+                // used to read as `error`, which made one row too many in a set count as a crash.
+                // Only a cell that says the CODE threw -- a table row's `row-error` -- is `error`.
+                if (Cells.Any(x => x.Status is ResultStatus.failed or ResultStatus.missing or ResultStatus.invalid))
                     return ResultStatus.failed;
-                if (Cells.Any(x => x.Status is ResultStatus.error or ResultStatus.invalid)) return ResultStatus.error;
+                if (Cells.Any(x => x.Status is ResultStatus.error)) return ResultStatus.error;
 
                 // A step whose inner step failed has failed. The outer sentence is the claim the
                 // specification made, so reporting it green over a red child would be the one
