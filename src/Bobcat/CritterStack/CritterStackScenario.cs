@@ -52,6 +52,11 @@ public class CritterStackScenario
     private CritterStackActOutcome _lastAct = CritterStackActOutcome.None;
     private bool _acted;
 
+    // bobcat#503: the streams this specification owns — arranged, addressed, or written by one of its acts — and
+    // the tags it arranged events with. A store-only act attributes what it read back by these
+    private readonly HashSet<object> _ownStreams = new();
+    private readonly HashSet<object> _arrangedTags = new();
+
     /// <param name="host">The application under test.</param>
     /// <param name="storeName">Which event store to use, when the application has several. Null takes the only one.</param>
     public CritterStackScenario(IHost host, string? storeName = null)
@@ -136,6 +141,8 @@ public class CritterStackScenario
     {
         if (Services.EventStores().Count > 0) await Services.ResetEventStoresAsync(token);
         _stream = null;
+        _ownStreams.Clear();
+        _arrangedTags.Clear();
         LastAct = CritterStackActOutcome.None;
     }
 
@@ -200,6 +207,8 @@ public class CritterStackScenario
             // wolverine#4865: a strong-typed id is the Guid or string it wraps, to the store
             var identity = StrongTypedIds.StreamIdentity(id);
             if (!isContext || _stream is null) _stream = identity;
+            claimStream(identity);
+            claimTags(events);
             if (aggregate is not null) recordTouched(aggregate);
             recordTouchedExpectations(events);
             if (!inline) recordValues("event", events);
@@ -298,6 +307,8 @@ public class CritterStackScenario
             recordTouched(aggregate);
             recordTouchedExpectations(events);
             if (!inline) recordValues("event", events);
+            claimStream(id);
+            claimTags(events);
             if (events.Length > 0)
                 await EventStoreAuthoring.AppendAsync(Store, aggregate, StrongTypedIds.StreamIdentity(id), build(events, text));
         });
@@ -451,17 +462,34 @@ public class CritterStackScenario
 
     /// <summary>
     /// Run <paramref name="act" /> and capture what it did. The seam every store-only act goes through:
-    /// this one takes the store's high-water mark, runs the act in a new service scope, and reads back every
-    /// event appended since — so <see cref="CritterStackActOutcome.NewEvents" /> and
-    /// <see cref="CritterStackActOutcome.AllNewEvents" /> are the same list and nothing is told apart as a
-    /// cascade. A derived scenario that can see more of the act, such as one that runs it inside a message
-    /// bus's tracked session, overrides this. Never throws what the act threw.
+    /// this one takes the store's high-water mark, runs the act in a new service scope, reads back every
+    /// event appended since, and attributes each one to this specification or not
+    /// (<see cref="attributeToSpecification" />, bobcat#503) — so <see cref="CritterStackActOutcome.NewEvents" />
+    /// and <see cref="CritterStackActOutcome.AllNewEvents" /> are the same list, nothing is told apart as a
+    /// cascade, and what concurrent work appended elsewhere is <see cref="CritterStackActOutcome.ForeignEvents" />.
+    /// A derived scenario that can see more of the act, such as one that runs it inside a message bus's tracked
+    /// session, overrides this. Never throws what the act threw.
     /// </summary>
     /// <remarks>
-    /// Whole-store and by sequence: anything concurrent work appends while the act runs is counted as the
-    /// act's, and an event appended to another tenant's database is not seen. No store reads an event's tags
-    /// back, so the outcome says <see cref="CritterStackActOutcome.EventTagsKnown" /> is false, and a step
-    /// that judges tags refuses with that reason rather than reporting every tagged event missing.
+    /// <para>
+    /// <b>Read by sequence, attributed by stream.</b> An event counts as the act's when it is on a stream this
+    /// specification arranged (any Given, <c>GivenContext</c> included), addressed (<c>WhenActingOn</c>), or that one
+    /// of its acts wrote to — this one's started streams included. An event on any other stream that already
+    /// existed is foreign: kept aside on <see cref="CritterStackActOutcome.ForeignEvents" />, never judged.
+    /// </para>
+    /// <para>
+    /// <b>The residual.</b> A stream another test <em>starts</em> while this act runs looks exactly like one the
+    /// act started, and still counts. Whole-store assertions on a store-only act therefore still want serial
+    /// execution on a shared store, or a store or tenant per test; a tracked session (WolverineFx.Bobcat's
+    /// <c>WolverineScenario</c>) is what makes real parallelism safe. An event appended to another tenant's
+    /// database is not seen at all.
+    /// </para>
+    /// <para>
+    /// <b>Tags.</b> No store reads an event's tags back, so the outcome says
+    /// <see cref="CritterStackActOutcome.EventTagsKnown" /> is false, a step that judges tags refuses with that
+    /// reason, and a tagged (DCB) append is attributed by its stream like any other. Where a store does return
+    /// tags, an event carrying a tag value this specification arranged events with counts as well.
+    /// </para>
     /// </remarks>
     protected virtual async Task<CritterStackActOutcome> runActAsync(Func<IServiceProvider, Task> act)
     {
@@ -484,14 +512,71 @@ public class CritterStackScenario
             ? (IReadOnlyList<IEvent>)Array.Empty<IEvent>()
             : (await EventStores.QueryEventsSinceAsync(store, floor + 1)).OrderBy(x => x.Sequence).ToList();
 
-        return new CritterStackActOutcome(appended, error)
+        var started = store is null ? Array.Empty<StreamAction>() : await startedStreamsOf(store, appended);
+        var (own, foreign) = attributeToSpecification(appended, started);
+
+        return new CritterStackActOutcome(own, error)
         {
-            AllNewEvents = appended,
-            StartedStreams = store is null ? Array.Empty<StreamAction>() : await startedStreamsOf(store, appended),
+            AllNewEvents = own,
+            ForeignEvents = foreign,
+            StartedStreams = started,
             // Read back from the store, which returns no tags
             EventTagsKnown = false
         };
     }
+
+    /// <summary>
+    /// bobcat#503. Mark a stream — a Guid, a string key or a strong-typed id around one — as this specification's,
+    /// so a store-only act attributes the events appended to it. Every Given, <c>WhenActingOn</c> and act already
+    /// does; a derived scenario's own arrange calls this for a stream it lays down some other way.
+    /// </summary>
+    protected void claimStream(object id) => _ownStreams.Add(StrongTypedIds.StreamIdentity(id));
+
+    // The tag values arranged events were appended with, so a store that returns tags can attribute by them
+    private void claimTags(IEnumerable<object> events)
+    {
+        foreach (var tag in events.SelectMany(Tagging.ExpectedTagsOf)) _arrangedTags.Add(tag);
+    }
+
+    /// <summary>
+    /// bobcat#503. Split what a store-only act read back into this specification's events and foreign ones: an
+    /// event is the specification's when its stream was arranged, addressed or written by one of its acts, when
+    /// the act started that stream (<paramref name="started" />), or when it carries a tag value the
+    /// specification arranged events with. The specification's streams then include every stream this act wrote
+    /// to, so a second act on a stream the first one started is still attributed.
+    /// </summary>
+    protected (IReadOnlyList<IEvent> Own, IReadOnlyList<IEvent> Foreign) attributeToSpecification(
+        IReadOnlyList<IEvent> appended, IReadOnlyList<StreamAction> started)
+    {
+        foreach (var stream in started) _ownStreams.Add(stream.Key ?? (object)stream.Id);
+
+        var own = new List<IEvent>();
+        var foreign = new List<IEvent>();
+        foreach (var e in appended)
+        {
+            var isOwn = _ownStreams.Contains(streamOf(e))
+                        || (e.Tags is { Count: > 0 } tags && tags.Any(tag => _arrangedTags.Contains(tag.Value)));
+            (isOwn ? own : foreign).Add(e);
+        }
+
+        foreach (var e in own) _ownStreams.Add(streamOf(e));
+        return (own, foreign);
+    }
+
+    private static object streamOf(IEvent e) => e.StreamKey ?? (object)e.StreamId;
+
+    /// <summary>
+    /// bobcat#503. The line a failing <em>whole-store</em> assertion adds when the last act saw events on streams
+    /// this specification never arranged or started: the likeliest reason the assertion saw something it did
+    /// not expect, or missed something, is another test writing to the same store. Nothing when there were none,
+    /// and a passing assertion never shows it.
+    /// </summary>
+    protected string crossTalkSuffix()
+        => LastAct.ForeignEvents.Count == 0
+            ? ""
+            : Environment.NewLine
+              + $"cross-talk suspected: {LastAct.ForeignEvents.Count} event(s) on streams this specification never arranged "
+              + "or started were appended during the act. Is another test writing to this store concurrently?";
 
     // A stream whose first event is among those appended was started by the act. Its aggregate type comes from
     // the store's stream state: an event read back carries none (IEvent.AggregateTypeName is only filled inside
@@ -640,6 +725,8 @@ public class CritterStackScenario
         ArgumentNullException.ThrowIfNull(act);
         recordTouched(aggregate);
         ScenarioValues.Learn(id, aggregate.Name);
+        // bobcat#503: the stream the act is addressed to is the specification's, whoever arranged it
+        claimStream(id);
 
         var paragraph = new Paragraph("Given");
         var version = await streamVersion(id);
@@ -814,7 +901,7 @@ public class CritterStackScenario
         }
 
         fact(actual.SequenceEqual(events),
-            $"Expected {describeTypes(events)} but the act appended {describeTypes(actual)}");
+            $"Expected {describeTypes(events)} but the act appended {describeTypes(actual)}{crossTalkSuffix()}");
     }
 
     /// <summary>
@@ -872,7 +959,11 @@ public class CritterStackScenario
         using var step = ScenarioRecorder.Step("Then", text);
         if (!actSucceeded() || !tagsCanBeJudged(expected)) return;
 
-        verifySet("event", LastAct.NewEvents.Select(x => x.Data).ToArray(), expected, mode, tagsOf(LastAct.NewEvents));
+        var run = ObjectSetVerification.Verify(LastAct.NewEvents.Select(x => x.Data).ToArray(), expected, "event", mode,
+            tagsOf(LastAct.NewEvents));
+        if (recording) run.Report();
+
+        fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")) + crossTalkSuffix());
     }
 
     private void verifyAbsent(object[] forbidden)
@@ -885,7 +976,7 @@ public class CritterStackScenario
             tagsOf(LastAct.NewEvents));
         if (recording) run.Report();
 
-        fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")));
+        fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")) + crossTalkSuffix());
     }
 
     /// <summary>
@@ -928,7 +1019,9 @@ public class CritterStackScenario
         if (!actSucceeded() || !tagsCanBeJudged(expected)) return;
 
         var stream = StrongTypedIds.StreamIdentity(id);
-        var onStream = LastAct.AllNewEvents.Where(x => isOn(x, stream)).Select(x => x.Data).ToArray();
+        // The step names the stream, so whatever the act appended there is in scope, attributed or not (bobcat#503)
+        var addressed = addressable();
+        var onStream = addressed.Where(x => isOn(x, stream)).Select(x => x.Data).ToArray();
         if (expected.Length == 0)
         {
             fact(onStream.Length == 0,
@@ -949,8 +1042,15 @@ public class CritterStackScenario
             return;
         }
 
-        verifySet("event", onStream, expected, SetMode.Ordered, tagsOf(LastAct.AllNewEvents));
+        verifySet("event", onStream, expected, SetMode.Ordered, tagsOf(addressed));
     }
+
+    // Every event the act appended that a stream- or tag-addressed step may look at: the specification's own and,
+    // for a store-only act, the foreign ones too, in commit order. Naming the stream is what scopes these steps
+    private IReadOnlyList<IEvent> addressable()
+        => LastAct.ForeignEvents.Count == 0
+            ? LastAct.AllNewEvents
+            : LastAct.AllNewEvents.Concat(LastAct.ForeignEvents).OrderBy(x => x.Sequence).ToList();
 
     /// <summary>
     /// wolverine#4865. The act appended exactly these events, in order, among those <paramref name="query" />
@@ -969,7 +1069,7 @@ public class CritterStackScenario
         using var step = ScenarioRecorder.Step("Then", text);
         if (!actSucceeded() || !tagsCanBeJudged(expected, queryByTags: true)) return;
 
-        var selected = LastAct.AllNewEvents.Where(x => selects(query, x)).ToList();
+        var selected = addressable().Where(x => selects(query, x)).ToList();
         if (expected.Length == 0)
         {
             fact(selected.Count == 0,
@@ -1011,7 +1111,7 @@ public class CritterStackScenario
         }
 
         fact(LastAct.NewEvents.Count == 0,
-            $"Expected no events but the act appended {ScenarioValues.DescribeAll(LastAct.NewEvents.Select(x => x.Data))}");
+            $"Expected no events but the act appended {ScenarioValues.DescribeAll(LastAct.NewEvents.Select(x => x.Data))}{crossTalkSuffix()}");
     }
 
     /// <summary>
@@ -1025,7 +1125,7 @@ public class CritterStackScenario
         var matching = LastAct.NewEvents.Select(x => x.Data).OfType<T>().ToArray();
         if (matching.Length == 1) return matching[0];
 
-        throw failureOf($"Expected exactly one {typeof(T).Name} but the act appended {matching.Length}{failureSuffix()}");
+        throw failureOf($"Expected exactly one {typeof(T).Name} but the act appended {matching.Length}{failureSuffix()}{crossTalkSuffix()}");
     }
 
     /// <summary>Every event the act appended, for a test that wants to look for itself.</summary>
@@ -1108,9 +1208,10 @@ public class CritterStackScenario
         var started = LastAct.StartedStreams.Where(x => x.AggregateType is null || x.AggregateType == aggregate).ToList();
         if (started.Count == 1) return started[0].Key ?? (object)started[0].Id;
 
-        fail(started.Count == 0
+        fail((started.Count == 0
             ? $"The act started no {aggregate.Name} stream{(LastAct.StartedStreams.Count == 0 ? "; it started no stream at all" : "")}."
-            : $"The act started {started.Count} {aggregate.Name} streams; name the one you mean with ThenStreamIsStartedWithEvents<{aggregate.Name}>(id, ...).");
+            : $"The act started {started.Count} {aggregate.Name} streams; name the one you mean with ThenStreamIsStartedWithEvents<{aggregate.Name}>(id, ...)."
+              + startedByAnotherNote(started.Count)) + crossTalkSuffix());
         return null;
     }
 
@@ -1165,12 +1266,20 @@ public class CritterStackScenario
         return started.Count switch
         {
             1 => started[0],
-            0 => throw new SpecCriticalException(LastAct.StartedStreams.Count == 0
+            0 => throw new SpecCriticalException((LastAct.StartedStreams.Count == 0
                 ? $"The act started no {aggregate.Name} stream; it started no stream at all."
-                : $"The act started no {aggregate.Name} stream. It started: {string.Join(", ", LastAct.StartedStreams.Select(x => x.AggregateType?.Name ?? "(no aggregate type)"))}."),
-            _ => throw new SpecCriticalException($"The act started {started.Count} {aggregate.Name} streams, so there is no one id to name.")
+                : $"The act started no {aggregate.Name} stream. It started: {string.Join(", ", LastAct.StartedStreams.Select(x => x.AggregateType?.Name ?? "(no aggregate type)"))}.")
+                + crossTalkSuffix()),
+            _ => throw new SpecCriticalException($"The act started {started.Count} {aggregate.Name} streams, so there is no one id to name."
+                                                 + startedByAnotherNote(started.Count) + crossTalkSuffix())
         };
     }
+
+    // bobcat#503's residual: a stream another test starts during the act is indistinguishable from the act's own
+    private static string startedByAnotherNote(int started)
+        => started > 1
+            ? " If the specification expected one, another test writing to this store may have started the others while the act ran."
+            : "";
 
     // ---- assert: refusals --------------------------------------------------------------------
 
@@ -1326,7 +1435,7 @@ public class CritterStackScenario
 
         fact(LastAct.NewEvents.Count == 0,
             $"Expected the command to be refused, but it emitted {LastAct.NewEvents.Count} event(s): " +
-            ScenarioValues.DescribeAll(LastAct.NewEvents.Select(e => e.Data)));
+            ScenarioValues.DescribeAll(LastAct.NewEvents.Select(e => e.Data)) + crossTalkSuffix());
     }
 
     private void assertRefusal(string text, string reason)

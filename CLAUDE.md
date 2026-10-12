@@ -1406,14 +1406,26 @@ the DCB boundary steps and correlation.
   takes over the scenario's own stream `_stream` from a `GivenEvents`), the event assertions over the last act, the refusals, aggregates/documents/read models,
   DCB models, `Verify`/`ThenMatches`, `ResetAsync`, `storeName`.
 - **The seams a derived scenario overrides:** `runActAsync(Func<IServiceProvider, Task>)` (the
-  store-only act: high-water mark, run in a new scope, read back every event since — so
-  `NewEvents == AllNewEvents`, `StartedStreams` from version-1 events, `MessagesSent` empty,
-  `EventTagsKnown = false`), `failureOf(message)` (the exception a wrong is thrown as outside a
+  store-only act: high-water mark, run in a new scope, read back every event since, attributed by
+  stream (#503, `attributeToSpecification`) — so `NewEvents == AllNewEvents`, `ForeignEvents` the
+  rest, `StartedStreams` from version-1 events, `MessagesSent` empty, `EventTagsKnown = false`), `failureOf(message)` (the exception a wrong is thrown as outside a
   recording — `SpecAssertionException` here, Wolverine's `SpecificationFailedException` there), the
   protected `LastAct` setter, `ResetAsync` (virtual), and the protected helpers its own steps reuse
   (`actSucceeded`, `failureSuffix`, `verifySet`, `flatten`, `describe`, `recordValues`, `anyOf`,
   `tagsOf`, `isOn`, `unwrap`, `describeTypes`, `exceptionsIn`, `hasStore`, `recordTouched`,
-  `tagsCanBeJudged`, `fail`/`fact`).
+  `tagsCanBeJudged`, `fail`/`fact`, and #503's `claimStream`, `attributeToSpecification`,
+  `crossTalkSuffix`).
+- **Store-only attribution (#503).** The scenario's own streams are every stream a Given arranged
+  (`GivenContext` included), `WhenActingOn` addressed, or an act wrote to or started; an event on any
+  other pre-existing stream is `ForeignEvents`. Whole-store steps (`ThenEvents*`, `ThenEmitted`,
+  `ThenNotEmitted`, `ThenNoEvents`, `TheEvent`, `ThenCommandRefused`, the started-stream steps) judge
+  only the own events and, **when they fail** with `ForeignEvents` non-empty, append "cross-talk
+  suspected: N event(s) …"; a passing one stays quiet. Stream- and tag-addressed steps
+  (`ThenEventsOn`) look at own + foreign (`addressable()`), since naming the stream already scopes them.
+  Residual, documented: a stream another test *starts* during the act still counts, so whole-store
+  assertions on a shared store still need serial execution (BankAccountES keeps
+  `DisableTestParallelization`). DCB: no store reads tags back, so a tagged append is attributed by its
+  stream; where tags are returned, a tag value the spec arranged events with also counts.
 - **No store reads an event's tags back** (checked on Marten and Fisher), so after a store-only act
   a step that judges tags fails saying so (`tagsCanBeJudged`) instead of reporting every tagged
   event MISSING. Name the stream, or read the boundary's model with `TheDcbModel<T>`.

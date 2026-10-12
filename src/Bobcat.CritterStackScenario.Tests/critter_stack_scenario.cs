@@ -178,6 +178,121 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         wrong.Steps.Select(x => x.Status).ShouldBe([ResultStatus.failed, ResultStatus.failed]);
     }
 
+    // ---- attribution by stream (bobcat#503) --------------------------------------------------
+
+    // Another test's append to a stream it arranged itself, landing while this scenario's act runs
+    private static async Task anotherTestAppends(IServiceProvider services, Guid stream, params object[] events)
+        => await EventStoreAuthoring.AppendAsync(services.EventStore(), typeof(Wallet), stream, events);
+
+    [Fact]
+    public async Task a_concurrent_append_to_a_stream_the_spec_never_arranged_is_foreign()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var elsewhere = Guid.NewGuid();
+        await new CritterStackScenario(store.Host).GivenEvents<Wallet>(elsewhere, new WalletOpened(elsewhere, "Other"));
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"));
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("the wallet is credited while another test writes", async services =>
+            {
+                await EventStoreAuthoring.AppendAsync(services.EventStore(), typeof(Wallet), id, [new WalletCredited(id, 5)]);
+                await anotherTestAppends(services, elsewhere, new WalletDebited(elsewhere, 1));
+            });
+
+            // Whole-store steps judge only the specification's own streams
+            scenario.ThenEvents(new WalletCredited(id, 5));
+            scenario.ThenNotEmitted<WalletDebited>();
+
+            // A step that names the stream still sees what was appended there
+            scenario.ThenEventsOn<Wallet>(elsewhere, new WalletDebited(elsewhere, 1));
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        scenario.LastAct.NewEvents.Select(x => x.Data).ShouldBe([new WalletCredited(id, 5)]);
+        scenario.LastAct.AllNewEvents.Select(x => x.Data).ShouldBe([new WalletCredited(id, 5)]);
+        scenario.LastAct.ForeignEvents.Select(x => x.Data).ShouldBe([new WalletDebited(elsewhere, 1)]);
+        scenario.TheEvents.ShouldBe([new WalletCredited(id, 5)]);
+    }
+
+    [Fact]
+    public async Task a_failing_whole_store_assertion_suspects_cross_talk_and_a_passing_one_stays_quiet()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var elsewhere = Guid.NewGuid();
+        await new CritterStackScenario(store.Host).GivenEvents<Wallet>(elsewhere, new WalletOpened(elsewhere, "Other"));
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"));
+
+        await scenario.WhenActing("the wallet is credited while another test writes", async services =>
+        {
+            await EventStoreAuthoring.AppendAsync(services.EventStore(), typeof(Wallet), id, [new WalletCredited(id, 5)]);
+            await anotherTestAppends(services, elsewhere, new WalletDebited(elsewhere, 1), new WalletDebited(elsewhere, 2));
+        });
+
+        var passing = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenEvents(typeof(WalletCredited));
+            return Task.CompletedTask;
+        });
+        passing.GatheredFailures().ShouldBeNull();
+
+        var failing = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenEvents(typeof(WalletDebited));
+            scenario.ThenEvents(new WalletCredited(id, 6));
+            scenario.ThenNoEvents();
+            return Task.CompletedTask;
+        });
+
+        var failures = failing.GatheredFailures().ShouldNotBeNull();
+        failing.Steps.Select(x => x.Status).ShouldAllBe(x => x == ResultStatus.failed);
+        failures.ShouldContain("cross-talk suspected: 2 event(s) on streams this specification never arranged or started were appended during the act. Is another test writing to this store concurrently?");
+
+        // Outside a recording the wrong is thrown, with the same line
+        Should.Throw<SpecAssertionException>(() => scenario.TheEvent<WalletDebited>()).Message.ShouldContain("cross-talk suspected");
+    }
+
+    [Fact]
+    public async Task a_failing_assertion_with_nothing_foreign_suspects_nothing()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"));
+        await scenario.WhenActing("the wallet is credited", appending(id, new WalletCredited(id, 5)));
+
+        var failing = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenEvents(typeof(WalletDebited));
+            return Task.CompletedTask;
+        });
+
+        scenario.LastAct.ForeignEvents.ShouldBeEmpty();
+        failing.GatheredFailures().ShouldNotBeNull().ShouldNotContain("cross-talk");
+    }
+
+    [Fact]
+    public async Task a_stream_an_earlier_act_started_or_an_act_addressed_is_the_specifications_own()
+    {
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var addressed = Guid.NewGuid();
+        await new CritterStackScenario(store.Host).GivenEvents<Wallet>(addressed, new WalletOpened(addressed, "Bea"));
+
+        // The first act starts the stream; the second appends to it, and nothing arranged it
+        await scenario.WhenActing("a wallet is opened", appending(id, new WalletOpened(id, "Ann")));
+        await scenario.WhenActing("the wallet is credited", appending(id, new WalletCredited(id, 5)));
+        scenario.LastAct.NewEvents.Select(x => x.Data).ShouldBe([new WalletCredited(id, 5)]);
+        scenario.LastAct.ForeignEvents.ShouldBeEmpty();
+
+        // A stream arranged by someone else, but addressed by the act, is the specification's too
+        await scenario.WhenActingOn<Wallet>(addressed, appending(addressed, new WalletCredited(addressed, 2)),
+            new WalletCredited(addressed, 2));
+        scenario.LastAct.NewEvents.Select(x => x.Data).ShouldBe([new WalletCredited(addressed, 2)]);
+        scenario.LastAct.ForeignEvents.ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task an_act_that_starts_a_stream_names_it()
     {
