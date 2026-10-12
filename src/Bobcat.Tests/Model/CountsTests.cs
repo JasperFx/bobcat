@@ -43,7 +43,8 @@ public class CountsTests
     {
         var theCounts = new Counts();
         theCounts.Read(ResultStatus.missing);
-        theCounts.ShouldBe(new Counts{Errors = 1});
+        // A MISSING set row is a wrong, not an error: nothing threw
+        theCounts.ShouldBe(new Counts{Wrongs = 1});
     }
     
     [Fact]
@@ -51,7 +52,8 @@ public class CountsTests
     {
         var theCounts = new Counts();
         theCounts.Read(ResultStatus.invalid);
-        theCounts.ShouldBe(new Counts{Errors = 1});
+        // An EXTRA set row carries invalid: a wrong as well
+        theCounts.ShouldBe(new Counts{Wrongs = 1});
     }
 
     [Fact]

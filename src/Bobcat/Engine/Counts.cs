@@ -25,7 +25,12 @@ public record Counts
                 Rights++;
                 break;
             
+            // A MISSING or EXTRA set-verification row, or an expected cell naming nothing on the subject, is
+            // a disagreement with the specification -- a wrong, as the step's own status already says
+            // (ScenarioRecorder: failed/missing/invalid => failed). Only a thrown exception is an error.
             case ResultStatus.failed:
+            case ResultStatus.missing:
+            case ResultStatus.invalid:
                 Wrongs++;
                 break;
             
@@ -33,8 +38,6 @@ public record Counts
                 return;
 
             case ResultStatus.error:
-            case ResultStatus.missing:
-            case ResultStatus.invalid:
             default:
                 Errors++;
                 break;
