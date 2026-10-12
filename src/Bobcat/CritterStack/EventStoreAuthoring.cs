@@ -22,14 +22,12 @@ namespace Bobcat.CritterStack;
 /// <b>Public because a spec outside a Bobcat run needs it</b> (issue #324's projected lane). Both
 /// methods take an <see cref="IEventStore"/> and nothing else — no <c>IStepContext</c>, no fixture,
 /// no run — so they are exactly what a plain xUnit or TUnit test can use to arrange a stream and
-/// assert a read model. They were <c>internal</c> while the Gherkin fixture was the only caller, and
-/// that left the projected lane unable to reach the one piece of the store vocabulary that was
-/// already free of the run: <see cref="CritterStackStepContextExtensions"/> is public but every
-/// member hangs off an <c>IStepContext</c>, which a plain test does not have.
+/// assert a read model. They were <c>internal</c> while the (since removed) Gherkin fixture was the only
+/// caller.
 /// </para>
 /// <para>
-/// It sits in the same tier as <see cref="EventStores"/>, <see cref="DocumentStores"/> and
-/// <see cref="TrackedActs"/>, all of which were already public.
+/// It sits in the same tier as <see cref="EventStores"/>, and <see cref="DocumentStores"/>, both of
+/// which were already public.
 /// </para>
 /// </remarks>
 public static class EventStoreAuthoring

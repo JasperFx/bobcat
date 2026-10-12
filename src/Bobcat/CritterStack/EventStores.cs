@@ -12,9 +12,9 @@ namespace Bobcat.CritterStack;
 /// The store-agnostic binding: every event-store operation Bobcat's Critter Stack helpers need,
 /// expressed against the <c>JasperFx.Events</c> abstractions an <see cref="IEventStore"/> exposes
 /// rather than against Marten, Polecat or Fisher. Marten, Polecat and Fisher all register their
-/// store as <see cref="IEventStore"/> in the host container, which is how the
-/// <see cref="CritterStackStepContextExtensions"/> find one without a compile-time reference to any
-/// of them.
+/// store as <see cref="IEventStore"/> in the host container, which is how
+/// <see cref="CritterStackHostExtensions"/> finds one without a compile-time reference to any of
+/// them.
 /// </summary>
 /// <remarks>
 /// <para>
