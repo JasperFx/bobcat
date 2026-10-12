@@ -106,6 +106,12 @@ internal static class EventModelEmitter
         /// </summary>
         public string? TriggerRoute;
 
+        /// <summary>
+        /// True while <see cref="TriggerRoute"/> is a template rebuilt from an interpolated route (bobcat#500) —
+        /// its parameter names are the test's guesses, so a read or resolved route replaces it.
+        /// </summary>
+        public bool TriggerRouteReconstructed;
+
         /// <summary>The HTTP act's verb, when its vocabulary declares one; POST otherwise.</summary>
         public string? TriggerHttpMethod;
         public readonly List<string> Events = new();
@@ -197,7 +203,7 @@ internal static class EventModelEmitter
             if (roles.TriggerKind != null)
             {
                 slice.TriggerKind ??= roles.TriggerKind;
-                adoptRoute(slice, roles.TriggerRoute, roles.HttpMethod);
+                adoptRoute(slice, roles.TriggerRoute, roles.TriggerRouteReconstructed, roles.HttpMethod);
             }
 
             foreach (var (role, type) in roles.Roles)
@@ -231,13 +237,17 @@ internal static class EventModelEmitter
     /// <summary>
     /// A known route replaces an unknown one — null or "" — whatever order the scenarios fold in, and brings
     /// its verb with it; a known route is never replaced. One scenario posting to a computed route and
-    /// another to "/deposits" put "/deposits" on the slice either way round.
+    /// another to "/deposits" put "/deposits" on the slice either way round. bobcat#500 adds a middle rank: a
+    /// route <em>reconstructed</em> from an interpolation beats an unknown one and loses to a read or resolved
+    /// one, again whatever the order.
     /// </summary>
-    private static void adoptRoute(SliceModel slice, string? route, string? httpMethod)
+    private static void adoptRoute(SliceModel slice, string? route, bool reconstructed, string? httpMethod)
     {
-        if (string.IsNullOrEmpty(route) || !string.IsNullOrEmpty(slice.TriggerRoute)) return;
+        if (string.IsNullOrEmpty(route)) return;
+        if (!string.IsNullOrEmpty(slice.TriggerRoute) && (reconstructed || !slice.TriggerRouteReconstructed)) return;
 
         slice.TriggerRoute = route;
+        slice.TriggerRouteReconstructed = reconstructed;
         slice.TriggerHttpMethod = httpMethod;
     }
 

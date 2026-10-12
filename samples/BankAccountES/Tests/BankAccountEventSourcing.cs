@@ -37,7 +37,8 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
         await GivenEvents<Client>(clientId, new ClientEnrolled(clientId, "Jane Doe", "jane@example.com"));
 
         // The command carries the email as well as the name, so the update replays the enrolled address
-        await WhenPut(new UpdateClient(clientId, "Jane Smith", "jane@example.com"), "/api/clients/{clientId}", clientId);
+        // By route name rather than URL (bobcat#500): the slice still reaches the model as PUT /api/clients/{clientId}
+        await WhenPutTo(new UpdateClient(clientId, "Jane Smith", "jane@example.com"), "UpdateClient", clientId);
 
         ThenTheResponseStatusIs(204);
         ThenEvents(new ClientUpdated(clientId, "Jane Smith", "jane@example.com"));

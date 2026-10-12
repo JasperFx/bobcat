@@ -221,8 +221,10 @@ public class ProjectedEventModelRoleTests
                 public async Task posted_to_a_computed_route()
                 {
                     var id = Guid.NewGuid();
-                    await WhenPosted(new OpenAccount(id, "Ann"), $"/accounts/{id}");
+                    await WhenPosted(new OpenAccount(id, "Ann"), routeFor(id));
                 }
+
+                private static string routeFor(Guid id) => "/accounts/" + id;
             }
             """);
 
@@ -231,7 +233,8 @@ public class ProjectedEventModelRoleTests
         deposit.TriggerOrigin!.HttpRoute.ShouldBe("/accounts/deposit");
         deposit.TriggerOrigin.HttpMethod.ShouldBe("POST");
 
-        // The kind is certain; a route the generator cannot know is left off rather than guessed
+        // The kind is certain; a route the generator cannot know is left off rather than guessed (an
+        // interpolated route is TriggerRouteTests' business, bobcat#500)
         var open = slices.Single(x => x.Name == "OpenAccount");
         open.TriggerKind.ShouldBe(TriggerKind.Http);
         open.TriggerOrigin.ShouldBeNull();

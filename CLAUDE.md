@@ -312,7 +312,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
 - **A projected spec's Event Model ROLES come off its vocabulary (bobcat#462, #463).** Scenario
   vocabulary methods carry `[EventModelRole(SliceRole.X, nameof(param or TParam))]` (and the act
-  `[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]`), both in core
+  `[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]`, or `RouteName = nameof(routeName)`), both in core
   (`src/Bobcat/EventModel/EventModelRoleAttribute.cs`). `ProjectedRoles.Read` walks a test method's
   invocations through `IInvocationOperation` and reads them off the resolved symbol — **from
   metadata, never by method name**, because the vocabulary (`WolverineScenario`) lives in another
@@ -336,9 +336,32 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     attribute that sets only `TriggeredBy` keeps the class's slice (and the manifest agrees,
     `onlyTriggeredBy`). `TriggerKind` is deliberately NOT declarable there — upstream says it is
     derived, never declared.
-  - **BOBCAT034** (error): a `From`/`Route` naming no parameter, reported where the vocabulary is
+  - **BOBCAT034** (error): a `From`/`Route`/`RouteName` naming no parameter, reported where the vocabulary is
     compiled. `ProjectedEventModelRoleTests` pins all of it, including a vocabulary compiled into a
     separate assembly (metadata path).
+  - **The act's route (bobcat#500, `TriggerRoutes`).** A constant `Route` is stamped as written. A constant
+    `RouteName` (the second trigger argument, `RouteName = nameof(routeName)`) resolves to the template of
+    the one endpoint attribute declaring it. An interpolated (or `+`-concatenated) `Route` takes the template
+    of the **one** endpoint whose literal segments match, with a parameter at every hole and a verb that
+    agrees when both are known. With no single match it is rebuilt from the interpolation (identifier → its
+    name, member access → last member, else `{value}`, repeats numbered) and marked reconstructed;
+    `adoptRoute` ranks read/resolved > reconstructed > unknown, order-independent. Endpoints are matched
+    **by attribute shape and metadata name, never a package reference**: anything deriving from
+    `Wolverine.Http.WolverineHttpMethodAttribute` (`RouteName`, class `[RoutePrefix]` applied as Wolverine's
+    `RoutePrefixPolicy` does) and MVC's `Microsoft.AspNetCore.Mvc.Routing.HttpMethodAttribute` /
+    `Microsoft.AspNetCore.Mvc.RouteAttribute` (`Name`, controller `[Route]` + `[controller]`/`[action]`).
+    The index is built once per `Compilation` (a `ConditionalWeakTable`) from source plus only those
+    references that reference `Wolverine.Http` or `Microsoft.AspNetCore.Mvc.Core`. Minimal API
+    `.WithName` and Wolverine's namespace/global prefixes are run-time facts and are not resolved.
+    **The route name is not carried on the descriptor**: JasperFx's `PublisherOrigin` has no route-name
+    field, and `Label` takes part in the `TriggerOrigin` merge, so stuffing it there would mint a
+    `SourceDisagreement` against Wolverine's derived route. It needs a JasperFx field first.
+  - **BOBCAT038** (info): the act's `Route`/`RouteName` can't be turned into a route — a helper call or a
+    variable, an unknown or ambiguous route name, or none passed. Reported for the act only, at the
+    argument, through `MarkedProblem` ("UnresolvedRoute"). `TriggerRouteTests` pins every path, including a
+    route name resolved from a referenced assembly's metadata; `samples/BankAccountES`'s `update_a_client`
+    addresses its endpoint by route name and `EventModel.cs` checks the specs' own route agrees with
+    Wolverine's.
 - **`[BobcatSpec(…, Pending = true)]` is a pending specification (issue #404)** — a
   `HotspotDescriptor.PendingSpecification` (jasperfx#689) that `SpecIdentityAudit` reads as
   **joined, not drift**. Without it a scaffolded skeleton *threw* and a pending spec was

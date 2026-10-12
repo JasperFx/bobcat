@@ -219,6 +219,7 @@ public class BobcatGenerator : IIncrementalGenerator
                     {
                         "RecordsNothing" => Diagnostics.SpecRecordsNothing,
                         "ProseKeyword" => Diagnostics.ProseReadAsComment,
+                        "UnresolvedRoute" => Diagnostics.UnresolvedTriggerRoute,
                         _ => problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType
                     };
 
@@ -298,7 +299,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT038. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT039. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -400,9 +401,27 @@ internal static class Diagnostics
         true);
 
     /// <summary>
-    /// bobcat#462: an <c>[EventModelRole]</c>'s <c>From</c>, or an <c>[EventModelTrigger]</c>'s <c>Route</c>,
-    /// names no parameter of the method it is on. Reported where the vocabulary is DECLARED, because at a
-    /// call site in another assembly the mistake is only a role silently never stamped.
+    /// bobcat#500: a projected specification's HTTP act passes a <c>Route</c> / <c>RouteName</c> argument the
+    /// generator cannot turn into a route — a helper call or a variable, a route name no endpoint attribute
+    /// declares (a minimal API's <c>.WithName</c>), or no route at all.
+    /// </summary>
+    /// <remarks>
+    /// Info, because the slice is still right: its trigger kind is stamped and only the route is missing. It is
+    /// here so a missing route is never silent — before it, an interpolated route and a helper call both
+    /// quietly left the canvas without one.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnresolvedTriggerRoute = new(
+        "BOBCAT038",
+        "An HTTP act's route cannot be known at compile time",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Info,
+        true);
+
+    /// <summary>
+    /// bobcat#462: an <c>[EventModelRole]</c>'s <c>From</c>, or an <c>[EventModelTrigger]</c>'s <c>Route</c> or
+    /// <c>RouteName</c> (bobcat#500), names no parameter of the method it is on. Reported where the vocabulary is
+    /// DECLARED, because at a call site in another assembly the mistake is only a role silently never stamped.
     /// </summary>
     public static readonly DiagnosticDescriptor UnknownRoleSource = new(
         "BOBCAT034",

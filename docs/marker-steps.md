@@ -682,7 +682,7 @@ parameters.
 **Why an attribute, read from metadata, and not a list of method names.** The vocabulary lives in
 another package -- `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
 generator would let a rename there stop the roles being stamped with no error anywhere. The attribute
-travels into metadata with the method, so Wolverine declares its own roles. Write `From` and `Route` with `nameof` and a rename keeps them in step; a name
+travels into metadata with the method, so Wolverine declares its own roles. Write `From`, `Route` and `RouteName` with `nameof` and a rename keeps them in step; a name
 that matches nothing is **BOBCAT034** where the vocabulary is compiled.
 
 The command half also rides JasperFx's `SpecificationBindingDescriptor` (jasperfx#995): the act is its
@@ -710,6 +710,61 @@ vocabulary method -- because upstream's `TriggerKind` is a derived fact, never a
 the act is what knows how it dispatches. Only the act's own trigger counts: an HTTP call that merely
 arranges state does not make a message-driven slice an HTTP one. When several specifications of one slice
 are HTTP acts, a constant route beats a computed one whatever order they are read in.
+
+### The act's route -- a template, an interpolation or a route name (bobcat#500) {#act-route}
+
+<!-- JEREMY -->
+
+An HTTP act's route reaches the slice as `TriggerOrigin.HttpRoute`. The generator works it out from the
+argument the test passes:
+
+| The argument | The slice's route |
+|---|---|
+| A constant: `"/api/accounts/{accountId}/deposits"`, values after it | Stamped as written |
+| An interpolated string: `$"/api/accounts/{theAccount}/deposits"` (a `+` concatenation reads the same) | The template of the **one** endpoint whose literal segments match, with a parameter at every hole: `/api/accounts/{accountId}/deposits` |
+| An interpolated string no single endpoint matches | Rebuilt from the interpolation: `/api/accounts/{theAccount}/deposits` |
+| A route name, through `RouteName` | The template of the endpoint that declares that name |
+| Anything else: a helper call, a variable | Unknown, and **BOBCAT038** (info) says so |
+
+The endpoints are the attributes the compilation and its references declare. They're matched by attribute
+shape, so Bobcat takes no dependency on either package:
+
+- Wolverine: `[WolverinePost("/api/accounts/{accountId}/deposits", RouteName = "MakeDeposit")]` and the rest of
+  the family. A class-level `[RoutePrefix]` is applied the way Wolverine applies it.
+- MVC: `[HttpPost("{accountId}/deposits", Name = "MakeDeposit")]` and the rest of the family, and
+  `[Route("…", Name = "…")]`. These are combined with the controller's `[Route]` and its `[controller]` /
+  `[action]` tokens. A template starting with `/` stands alone.
+
+A minimal API's `.WithName("…")` is a call, not an attribute, so it can only be resolved once the host runs.
+Wolverine's namespace and global route prefixes are configuration, so they're the same. A route name declared
+only that way leaves the route unknown, and BOBCAT038 says so.
+
+**Matching an interpolation.** A hole matches any route parameter (`{id}`, `{id:guid}`, `{id?}`, `{*rest}`).
+Literal text compares case-insensitively, and a query string is dropped. When the act declares a verb, an
+endpoint with a different verb is not a candidate. If an act declares no verb and one endpoint matches, the
+act takes that endpoint's verb. When two templates fit, neither is chosen.
+
+**A rebuilt route names each hole after its expression.** A simple identifier gives its own name, a member
+access gives its last member (`theAccount.Id` → `{Id}`), and anything else gives `{value}`. A repeated name is
+numbered (`{value2}`). Those names are the test's, not the endpoint's. So a rebuilt route ranks below a
+constant or resolved route on the same slice, whatever order the specifications fold in, and above no route at
+all.
+
+A vocabulary method addresses an endpoint by name with `RouteName`. It's checked by **BOBCAT034** the same way
+`Route` is:
+
+```csharp
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
+public Task WhenPutTo(object command, string routeName, params object[] routeValues)
+```
+
+`samples/BankAccountES` uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
+`[WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]`. The slice gets
+`PUT /api/clients/{clientId}`, the same route Wolverine derives from the chain, so the two sources agree.
+
+The route name itself isn't carried on the descriptor. JasperFx's `PublisherOrigin` has `HttpRoute` and
+`HttpMethod` but no route-name field, so a route name the generator can't resolve doesn't reach the model.
 
 ### Two spellings, and why `SliceType` is preferred
 
@@ -882,7 +937,8 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
 | **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path. A stale column is always a broken spec |
 | **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
-| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
+| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route` or `RouteName`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
+| **BOBCAT038** (info) | A projected spec's HTTP act passes a `Route` or `RouteName` argument the generator can't turn into a route. This covers a helper call or a variable, a route name no endpoint attribute declares (a minimal API's `.WithName`), an ambiguous route name, or no route at all. The slice keeps its trigger kind with no route. Pass a constant template, an interpolated string, or a route name an endpoint attribute declares. See [The act's route](#act-route) |
 | **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
 | **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
 | **BOBCAT035** (warning) | `[WaitFor]` or `[Approx]` on a step helper a C# test calls, or on a method of a projected spec. No generated code wraps the call, so the poll or the tolerance silently never happens. Poll with [`SpecAssert.EventuallyAsync`](#waiting-for-an-answer-that-arrives-later) and pass `tolerance:` to `SpecAssert.Check` instead |

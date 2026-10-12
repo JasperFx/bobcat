@@ -3,6 +3,7 @@ using Alba;
 using Bobcat;
 using Bobcat.CritterStack;
 using JasperFx.Events.EventModeling;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Wolverine;
 
@@ -52,6 +53,16 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
     public Task WhenPut(object command, string route, params object[] routeValues)
         => send("PUT", command, route, routeValues);
 
+    /// <summary>
+    /// PUT <paramref name="command" /> to the endpoint whose ASP.NET Core route name is <paramref name="routeName" />,
+    /// with the template's values after it, in order (bobcat#500). The generator resolves a constant route name to
+    /// the endpoint's template at compile time, so the slice gets the same route a template would have given it.
+    /// </summary>
+    [EventModelRole(SliceRole.Command, nameof(command))]
+    [EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
+    public Task WhenPutTo(object command, string routeName, params object[] routeValues)
+        => send("PUT", command, templateNamed(routeName), routeValues);
+
     /// <summary>Hand <paramref name="message" /> to its Wolverine handler over the bus, and wait for it to finish.</summary>
     [EventModelRole(SliceRole.Command, nameof(message))]
     [EventModelTrigger(TriggerKind.MessageHandler)]
@@ -91,6 +102,22 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
 
             _lastStatusCode = _lastResponse.Context.Response.StatusCode;
         });
+    }
+
+    // The running host's answer to a route name: the template of the endpoint carrying that RouteNameMetadata
+    private string templateNamed(string routeName)
+    {
+        var templates = Alba.Services.GetServices<EndpointDataSource>()
+            .SelectMany(x => x.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(x => x.Metadata.GetMetadata<IRouteNameMetadata>()?.RouteName == routeName)
+            .Select(x => x.RoutePattern.RawText)
+            .Distinct()
+            .ToList();
+
+        return templates.Count == 1
+            ? templates[0]!
+            : throw new ArgumentException($"Expected one endpoint with the route name '{routeName}', found {templates.Count}.");
     }
 
     // "/api/accounts/{accountId}/deposits" + [id] => "/api/accounts/<id>/deposits"
