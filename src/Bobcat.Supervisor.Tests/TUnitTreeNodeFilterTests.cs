@@ -7,8 +7,10 @@ namespace Bobcat.Supervisor.Tests;
 /// bobcat#470's stretch, measured rather than assumed: the Microsoft.Testing.Platform filter that
 /// runs exactly ONE TUnit test addressed as <c>Namespace.Class.Method</c>. TUnit filters by tree-node
 /// path, <c>/assembly/namespace/class/method</c>, where the namespace is ONE segment with its dots
-/// intact and a nested class is its CLR name (<c>Outer+Inner</c>). SpecFilterArguments still refuses
-/// TUnit; this is the evidence a later change to it would build on.
+/// intact and a nested class is its CLR name (<c>Outer+Inner</c>). This is the evidence
+/// SpecFilterArguments' TUnit translation is built on; the per-segment OR cases below are why it
+/// refuses a selection that is not a cross product (the option is accepted once, and a whole-path
+/// alternative is a parse error).
 /// </summary>
 public class TUnitTreeNodeFilterTests
 {

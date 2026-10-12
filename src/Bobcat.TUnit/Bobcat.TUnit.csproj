@@ -28,19 +28,13 @@
          version collision is gone; the reason that remains is that a TUnit consumer's own
          TUnit.Engine should choose its platform, not this adapter.
 
-      2. There is nothing to serve yet. The per-request bracket exists for warm runs in the
-         resident runner, and the projected lane is cold-only — the remaining work there needs
-         decisions about package layering and a per-request command channel the protocol does not
-         offer (see docs/warm-projected-runs.md). A TUnit suite has no warm path to be the first
-         consumer of.
+      2. It does not need one. Since bobcat#470 the per-request bracket a warm resident command
+         needs comes from TUnit.Core itself: BobcatScenarioAttribute is also an
+         ILastTestInTestSessionEventReceiver and closes the run when the session's last scenario
+         has ended (TUnitResidentSuiteTests drives two warm commands through a real TUnit host).
 
-      3. Nothing regresses by not doing it. MarkerStepRun's ProcessExit backstop is still the
-         bracket for any host with no session hook, so a TUnit suite behaves exactly as it did:
-         one run per process, which for a one-shot `dotnet test` is the correct answer anyway.
-
-      Revisit when a TUnit suite actually wants warm residency — and then the question is whether
-      the platform reference belongs here or in a separate Bobcat.TUnit.Platform package, so that
-      this one keeps the property described in (1).
+      3. MarkerStepRun's ProcessExit backstop is still there for a session that never raises the
+         receiver, so a one-shot run is one run per process, as it always was.
     -->
   </ItemGroup>
 

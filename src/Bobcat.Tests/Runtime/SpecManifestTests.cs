@@ -138,18 +138,78 @@ public class SpecManifestTests : IDisposable
         refusal.Message.ShouldContain("DaemonTests");
     }
 
-    [Fact]
-    public void tunit_says_it_is_not_supported_rather_than_guessing_a_filter()
-    {
-        // TUnit filters by tree-node path, and nothing in this repository can run a TUnit host to
-        // verify the spelling (TUnit.Engine needs Microsoft.Testing.Platform 2.4.0; src is pinned
-        // to 1.9.1). An unverified filter would be the silent whole-suite run that
-        // GuardAgainstAnUnfilteredRun exists to prevent.
-        var manifest = projected() with { Framework = SpecManifest.TUnitFramework };
+    // --- TUnit (bobcat#470): one tree-node path, OR only within a segment. The spelling these
+    // strings follow is measured against a real TUnit host in Bobcat.Supervisor.Tests
+    // (TUnitTreeNodeFilterTests, TUnitResidentSuiteTests); these pin the translation.
 
-        Should.Throw<NotSupportedException>(
-                () => SpecFilterArguments.For(manifest, SpecSelection.Of("Booking appointments/a proposal is declined")))
-            .Message.ShouldContain("TUnit");
+    private static SpecManifest tunit() => new(
+        SpecManifest.ProjectedLane, SpecManifest.TUnitFramework, "LedgerTests",
+        [
+            new SpecManifestEntry("Ledger/opening", "Ledgers.Tests.LedgerSpecs", "opening"),
+            new SpecManifestEntry("Ledger/closing", "Ledgers.Tests.LedgerSpecs", "closing"),
+            new SpecManifestEntry("Audit/opening", "Ledgers.Tests.AuditSpecs", "opening"),
+            new SpecManifestEntry("Audit/closing", "Ledgers.Tests.AuditSpecs", "closing"),
+            new SpecManifestEntry("Audit trail/is kept", "Ledgers.Tests.AuditSpecs+Trail", "is_kept"),
+            new SpecManifestEntry("Elsewhere/opening", "Other.Tests.ElsewhereSpecs", "opening"),
+            new SpecManifestEntry("Global/opening", "GlobalSpecs", "opening")
+        ]);
+
+    [Fact]
+    public void a_tunit_identity_becomes_its_tree_node_path()
+    {
+        SpecFilterArguments.For(tunit(), SpecSelection.Of("Ledger/opening"))
+            .ShouldBe(["--treenode-filter", "/*/Ledgers.Tests/LedgerSpecs/opening"]);
+    }
+
+    [Fact]
+    public void a_nested_tunit_class_keeps_its_plus()
+    {
+        SpecFilterArguments.For(tunit(), SpecSelection.Of("Audit trail/is kept"))
+            .ShouldBe(["--treenode-filter", "/*/Ledgers.Tests/AuditSpecs+Trail/is_kept"]);
+    }
+
+    [Fact]
+    public void several_tunit_methods_in_one_class_are_alternatives_in_the_method_segment()
+    {
+        SpecFilterArguments.For(tunit(), SpecSelection.Of("Ledger/opening", "Ledger/closing"))
+            .ShouldBe(["--treenode-filter", "/*/Ledgers.Tests/LedgerSpecs/(opening)|(closing)"]);
+    }
+
+    [Fact]
+    public void one_tunit_method_name_across_classes_is_alternatives_in_the_class_segment()
+    {
+        SpecFilterArguments.For(tunit(), SpecSelection.Of("Ledger/opening", "Audit/opening"))
+            .ShouldBe(["--treenode-filter", "/*/Ledgers.Tests/(LedgerSpecs)|(AuditSpecs)/opening"]);
+    }
+
+    [Fact]
+    public void a_full_cross_product_of_tunit_classes_and_methods_is_one_path()
+    {
+        SpecFilterArguments
+            .For(tunit(), SpecSelection.Of("Ledger/opening", "Ledger/closing", "Audit/opening", "Audit/closing"))
+            .ShouldBe(["--treenode-filter", "/*/Ledgers.Tests/(LedgerSpecs)|(AuditSpecs)/(opening)|(closing)"]);
+    }
+
+    [Theory]
+    // Ledger.opening + Audit.closing as alternatives would also select Ledger.closing and Audit.opening.
+    [InlineData("Ledger/opening", "Audit/closing")]
+    // Two namespaces and two classes: the product names Other.Tests.LedgerSpecs and Ledgers.Tests.ElsewhereSpecs.
+    [InlineData("Ledger/opening", "Elsewhere/opening")]
+    // Three of a two-by-two product: the fourth would run unasked.
+    [InlineData("Ledger/opening", "Ledger/closing", "Audit/opening")]
+    public void a_tunit_selection_one_path_cannot_name_exactly_is_refused(params string[] identities)
+    {
+        // The platform takes --treenode-filter once and ORs only within a segment, so these would
+        // run tests nobody asked for. Refused, the same rule as every unverifiable filter.
+        Should.Throw<NotSupportedException>(() => SpecFilterArguments.For(tunit(), SpecSelection.Of(identities)))
+            .Message.ShouldContain("cannot be run together from one TUnit filter");
+    }
+
+    [Fact]
+    public void a_tunit_class_in_the_global_namespace_is_refused_rather_than_guessed()
+    {
+        Should.Throw<NotSupportedException>(() => SpecFilterArguments.For(tunit(), SpecSelection.Of("Global/opening")))
+            .Message.ShouldContain("global namespace");
     }
 
     [Theory]

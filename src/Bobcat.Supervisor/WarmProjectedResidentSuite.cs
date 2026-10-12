@@ -38,7 +38,8 @@ namespace Bobcat.Supervisor;
 /// <para>
 /// <b>Each command is still its own run on the wire</b>, which is #393's requirement and was the
 /// blocker #402 closed: <c>Bobcat.Xunit</c>'s session-lifetime handler opens and closes the run
-/// bracket per request, so a viewer cannot tell a warm run from a cold one except by its speed.
+/// bracket per request (on TUnit, <c>Bobcat.TUnit</c>'s last-test-in-session receiver closes it,
+/// bobcat#470), so a viewer cannot tell a warm run from a cold one except by its speed.
 /// Without that, two warm commands would have folded into one never-ending run.
 /// </para>
 /// </remarks>
@@ -49,7 +50,7 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
     private readonly string _commandFile;
 
     private IWorkerClient? _client;
-    private Dictionary<string, string>? _uids;
+    private Dictionary<string, IReadOnlyList<string>>? _uids;
     private string? _warmUnavailable;
 
     private WarmProjectedResidentSuite(OutOfProcessResidentSuite cold, string commandFile)
@@ -155,16 +156,17 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
                 // Refuses rather than guesses, the same rule SpecFilterArguments follows. An
                 // identity whose uid we cannot name would otherwise be dropped from the subset,
                 // and a request for three specs that ran two looks exactly like a pass.
-                if (!uids.TryGetValue(identity, out var uid))
+                if (!uids.TryGetValue(identity, out var uidsOfIdentity))
                 {
                     throw new InvalidOperationException(
                         $"'{identity}' is in this suite's manifest but the test host's discovery "
                         + "reported no test for it, so there is no platform uid to run. The join is "
-                        + "the discovery display name against the manifest's TestClass.TestMethod "
-                        + "— a mismatch means the two disagree about this test's name.");
+                        + "the discovery display name, or failing that the reported location, against "
+                        + "the manifest's TestClass.TestMethod — a mismatch means the two disagree about "
+                        + "this test's name.");
                 }
 
-                resolved.Add(uid);
+                resolved.AddRange(uidsOfIdentity);
             }
 
             // Written BEFORE the request, which is what makes it race-free: a resident runner runs
@@ -227,23 +229,40 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
     }
 
     /// <summary>
-    /// Map every specification identity to the platform uid that runs it.
+    /// Map every specification identity to the platform uids that run it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>The join is one lookup</b>, which issue #394 established: xUnit v3 reports a test's
     /// discovery display name as <c>Namespace.Class.method</c>, which is exactly what the
     /// manifest's <c>TestClass</c> + <c>TestMethod</c> spell. A uid is a better filter than the
     /// cold path's <c>--filter-method</c>, too — a uid cannot match more than one test, while a
     /// method name can.
+    /// </para>
+    /// <para>
+    /// <b>TUnit needs the location instead (bobcat#470).</b> Its display name is the bare method
+    /// name, so it joins nothing; its <c>location.type</c> / <c>location.method</c> are the
+    /// manifest's <c>TestClass</c> (nested as <c>Outer+Inner</c>) and <c>TestMethod</c> exactly,
+    /// measured against <c>Bobcat.TUnit.Tests</c>. A data-driven method is one identity and several
+    /// tests, so an identity maps to every uid at its location. This is also why warm can run any
+    /// set of TUnit identities while cold cannot: a uid list has no tree-node filter's
+    /// cross-product limit.
+    /// </para>
     /// </remarks>
-    private async Task<Dictionary<string, string>> discover(IWorkerClient client, CancellationToken token)
+    private async Task<Dictionary<string, IReadOnlyList<string>>> discover(IWorkerClient client, CancellationToken token)
     {
         var discovered = await client.Discover(token);
 
         var byDisplayName = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var test in discovered) byDisplayName[test.DisplayName] = test.Uid;
 
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var byLocation = discovered
+            .Where(test => test.TestClass is { Length: > 0 } && test.TestMethod is { Length: > 0 })
+            .GroupBy(test => $"{test.TestClass}.{test.TestMethod}", StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)group.Select(test => test.Uid).ToList(),
+                StringComparer.Ordinal);
+
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
         foreach (var entry in Manifest.Specs)
         {
@@ -251,14 +270,20 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
 
             if (byDisplayName.TryGetValue(qualified, out var uid))
             {
-                map[entry.Identity] = uid;
+                map[entry.Identity] = [uid];
                 continue;
             }
 
             // A nested class is `Ns.Outer+Inner` in the manifest, because that is what a
             // framework's class filter takes, while a display name may spell it with a dot.
             // Tried as a fallback rather than instead: the exact match is the one #394 verified.
-            if (byDisplayName.TryGetValue(qualified.Replace('+', '.'), out uid)) map[entry.Identity] = uid;
+            if (byDisplayName.TryGetValue(qualified.Replace('+', '.'), out uid))
+            {
+                map[entry.Identity] = [uid];
+                continue;
+            }
+
+            if (byLocation.TryGetValue(qualified, out var located)) map[entry.Identity] = located;
         }
 
         return map;
