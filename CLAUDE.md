@@ -1628,6 +1628,31 @@ and so cannot be handed a class to host.
   file is refused with a sentence pointing at `EventModelDefinition`, which is more use than the
   "unrecognized" it would otherwise fall through to.
 
+- **`--specs` also writes the spec project when the spec directory has none (`SpecProjectWriter`,
+  2026-10-12).** The `.csproj` (xunit.v3 4.x on MTP 2, `Bobcat`/`Bobcat.Xunit`/`Bobcat.Generators`
+  pinned to the tool's own `ToolVersion` via `$(BobcatVersion)`, `WolverineFx.Bobcat` via
+  `$(WolverineFxBobcatVersion)`, Alba, the IDE bridge, the `Bobcat.Generated` interceptor opt-in, a
+  `ProjectReference` to the app), `AssemblyAttributes.cs` (`EventModelName`, serial
+  `Parallelization`, `WebApplicationFactoryContentRoot`) and `global.json`. Rules that matter:
+  - **Never overwritten, not even with `--force`.** An existing `.csproj` means the project is the
+    user's: nothing is written and it is *checked* instead (missing references, no
+    `EventModelName`), each gap a callout.
+  - **The app is checked, never edited**: no public `Program`, no `RunJasperFxCommands`, no
+    `WolverineFx.RuntimeCompilation` (every spec then dies on `TypeLoadMode.Dynamic`). Each is an
+    `app-*` callout whose `Fix` is the exact line or `dotnet add` command. Project-level callouts
+    have an empty `Slice` and carry `File`/`Fix`, which `--json` writes as `file`/`fix`.
+  - **global.json: an existing one anywhere above is checked, never shadowed**; else it goes at the
+    solution root (nearest `.sln`/`.slnx`, else git root), else beside the spec project. The SDK
+    reads the one nearest the directory `dotnet test` runs in.
+  - **No `--` inside an XML comment** in the generated csproj (MSB4025). The first cut wrote
+    "`--specs`" in its header comment and no project would load; the tests `XDocument.Parse` it.
+  - **`DefaultWolverineFxBobcatVersion` is the newest *published* WolverineFx.Bobcat**
+    (6.49.0-alpha.3, built against Bobcat 0.38). Move it when a WolverineFx.Bobcat paired with this
+    Bobcat ships; until then pass `--wolverine-version`.
+  - `SpecProjectWriterTests.the_generated_spec_project_builds` imports a board and `dotnet build`s the
+    result; it skips unless `BOBCAT_IMPORT_BUILD_WOLVERINE` (and `BOBCAT_IMPORT_BUILD_FEED` for a
+    local feed) is set, because it needs NuGet and a WolverineFx.Bobcat that pairs with this Bobcat.
+
 - **The curated format is retired as an authoring surface (issue #406, 2026-10-06), and what
   survives says what it is.** `CuratedModelWriter`, `FileEventModelSource` and `AddEventModelFile`
   are **gone**: there is no way to write a curated file and no way to register one as a

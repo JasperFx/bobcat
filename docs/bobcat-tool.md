@@ -1,15 +1,18 @@
 # The `bobcat` Tool
 
-A global .NET tool with two commands, and they have almost nothing to do with each other:
+A global .NET tool with these commands:
 
 | | |
 |---|---|
-| **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#** -- stub records plus one `EventModelDefinition` |
+| **[`run`](#run-preview-pick-watch)** | build a spec project, run it, and show its specifications rather than its log. The default command |
+| **[`preview`](#run-preview-pick-watch)** | show a spec project's specifications without running them |
+| **[`pick`](#run-preview-pick-watch)** | choose specifications from a menu, then run them |
+| **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
+| **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records, an `EventModelDefinition` per chapter, and optionally a specification per example plus the spec project around them |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
 
-Neither one *runs your suite the way you would*: `import-event-model` never loads a test assembly at
-all, and `resident` launches the suite's own test host rather than hosting specs itself. Spec
-projects are still driven by `dotnet test`, or by running the test executable.
+`dotnet test`, or running the test executable, still runs a spec project; the run commands are a
+friendlier view of the same test host.
 
 ```bash
 dotnet tool install -g Bobcat.Console
@@ -26,6 +29,29 @@ something across a process and this repository holds nothing that gates on a lic
 format and the run. Runs still publish to that console exactly as before; see
 [What a Run Publishes](monitor-design.md).
 :::
+
+## `run`, `preview`, `pick`, `watch` {#run-preview-pick-watch}
+
+```bash
+bobcat                                  # run the spec project found from the current directory
+bobcat run src/CritterCrush.Specs --feature Booking
+bobcat preview
+bobcat pick
+bobcat watch --scenario "home check"
+```
+
+Each takes the spec project (a `.csproj`, or a directory holding one; found from the current
+directory when omitted), builds it, and drives its test host. The host's own output goes to a file
+and the terminal gets the Feature / scenario / step tree. `watch` reruns on every change to the spec
+project or anything it references: Enter reruns, `p` picks, `a` goes back to everything, `q` quits.
+
+| Flag | What it does |
+|---|---|
+| `-f, --framework <tfm>` | the target framework to run; the newest the project targets by default |
+| `-c, --configuration <name>` | the build configuration; `Debug` by default |
+| `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (not `pick`) |
+| `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (not `pick`) |
+| `--no-build` | use the last build as it is |
 
 ## `import-event-model` {#import-event-model}
 
@@ -188,6 +214,16 @@ that settles it:
 | `stream-start-unknown` | No example says whether it starts the stream, so it is assumed to append | `--starts-stream Slice=Type` |
 | `several-streams` | Draws on several streams: several `[WriteAggregate]` streams or a DCB decider | a design decision, no flag |
 | `missing-aggregate` | No aggregate could be declared or inferred | `--aggregate Slice=Type` |
+| `spec-project-file-kept` | A spec project file (`.csproj`, `AssemblyAttributes.cs`) already exists and was kept | nothing; it is yours |
+| `spec-project-missing-reference` | The existing spec project lacks a package the specs need | the `fix`: a `PackageReference` |
+| `spec-project-missing-event-model-name` | The existing spec project declares no `[assembly: EventModelName]` | the `fix`: the attribute |
+| `spec-project-not-in-solution` | The spec project is not in the solution beside it | the `fix`: `dotnet sln … add …` |
+| `global-json-missing-test-runner` | The governing `global.json` does not select Microsoft.Testing.Platform | the `fix`: its `test` section |
+| `central-package-versions` | Versions are managed centrally | the `fix`: the `<PackageVersion>` lines |
+| `app-program-not-public`, `app-missing-run-jasperfx-commands`, `app-missing-runtime-compilation`, `app-project-not-found` | What the application lacks (see [The spec project](#the-spec-project)) | the `fix` |
+
+Callouts about the project rather than a slice have an empty `slice`, a `file` naming what they are
+about, and a `fix` holding the exact line, package or command.
 
 The messages may be reworded; a code never is, and codes are only ever added (the same contract as
 `wolverine scaffold --json`).
@@ -322,7 +358,7 @@ assembled Event Model by command type (and domain, for a command several modules
 The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
 
 `TestSupport.cs` starts the application's own host through Alba, so `Program` must be public
-(`public partial class Program;`). Pass `--store marten`, `polecat` or `fisher` to have it run that
+(`public partial class Program;`; the import checks, see below). Pass `--store marten`, `polecat` or `fisher` to have it run that
 store's async daemon in solo mode; without it, the host names each store's way in a comment. The
 base spec class calls `ResetAsync()` before every test, which resets every event store the host registers,
 so the same specifications run on any of the three stores. They use the application's own database
@@ -330,41 +366,46 @@ and schema, so a failing spec's data is where you would look for it.
 
 ### The spec project
 
-The spec project is an xUnit v3 executable. It needs **all** of these, or Rider and Visual Studio
-show no tests at all ("NuGet package Microsoft.NET.Test.Sdk is not installed"):
+When the spec directory holds no `.csproj`, `--specs` writes the project around the specifications
+too, so the result builds and runs with `dotnet test` and nothing written by hand:
 
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <IsPackable>false</IsPackable>
-    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
-  </PropertyGroup>
+| File | What it holds |
+|---|---|
+| `{SpecsNamespace}.csproj` | an xUnit v3 (4.x) executable on Microsoft.Testing.Platform 2: `xunit.v3`, `Bobcat`, `Bobcat.Xunit`, `Bobcat.Generators` (as an analyzer, with the `Bobcat.Generated` interceptor opt-in, BOBCAT037), `WolverineFx.Bobcat`, `Alba`, `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` for IDE discovery, and a `ProjectReference` to the application. Its target framework is the application's (the newest, if it has several) |
+| `AssemblyAttributes.cs` | `[assembly: EventModelName("{Model}")]`, so the specs' slices join the application's model; `Parallelization(Mode = None)`, because every spec resets the store; and `WebApplicationFactoryContentRoot` pointing Alba at the application's directory |
+| `global.json` | `"test": { "runner": "Microsoft.Testing.Platform" }`, which `dotnet test` needs for xUnit v3 4.x on the .NET 10 SDK |
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
-    <PackageReference Include="xunit.v3" Version="4.0.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
-    <PackageReference Include="Bobcat.Xunit" Version="..." />
-    <PackageReference Include="Bobcat.Generators" Version="..." />
-    <PackageReference Include="WolverineFx.Bobcat" Version="..." />
-    <PackageReference Include="Alba" Version="..." />
-  </ItemGroup>
+**Versions.** The Bobcat packages are pinned to the tool's own version (`--bobcat-version` changes
+it). `WolverineFx.Bobcat` defaults to the newest one published; pass `--wolverine-version` for
+another, such as a local pack. Both are MSBuild properties in the csproj, `BobcatVersion` and
+`WolverineFxBobcatVersion`, so `-p:WolverineFxBobcatVersion=…` or a `Directory.Build.props`
+overrides them later. When the repository manages versions centrally (`Directory.Packages.props`),
+the references carry no versions and a `central-package-versions` callout lists the
+`<PackageVersion>` lines to add.
 
-  <ItemGroup>
-    <ProjectReference Include="..\CritterCrush\CritterCrush.csproj" />
-  </ItemGroup>
-</Project>
-```
+**Where `global.json` goes.** The SDK reads the `global.json` nearest the directory `dotnet test`
+runs in. If one already exists anywhere above the spec project, it is never shadowed. It is checked
+instead, and a `global-json-missing-test-runner` callout gives the section to add. If there is none,
+one is written at the solution root (the nearest directory above holding a `.sln` or `.slnx`, else
+the git root), so `dotnet test` works from the root and from the spec project alike. With neither,
+it goes beside the spec project.
 
-`Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are the bridge the IDEs discover tests
-through; the Microsoft Testing Platform properties are what `dotnet test` and running the
-executable use. Bobcat.Generators warns with **BOBCAT033** when a project references `xunit.v3`
-without `Microsoft.NET.Test.Sdk`.
+**Nothing here is ever overwritten, not even with `--force`.** An existing `.csproj` means the
+project is yours: nothing is written into it, and it is checked instead. A missing package
+reference, or no `[assembly: EventModelName]`, is a callout with the line to add.
+
+**The application is checked, never edited.** The application project is the one `.csproj` in
+`--out` (`--app-project` names it otherwise). Each thing the specs need from it is a callout carrying
+the exact fix:
+
+| Code | Missing | Fix |
+|---|---|---|
+| `app-program-not-public` | a public `Program`, which Alba needs | `public partial class Program;` at the end of `Program.cs` |
+| `app-missing-run-jasperfx-commands` | `RunJasperFxCommands`, which `wolverine scaffold` and codegen run through | `return await app.RunJasperFxCommands(args);` in place of `app.Run();` |
+| `app-missing-runtime-compilation` | `WolverineFx.RuntimeCompilation`; without it a `TypeLoadMode.Dynamic` host fails to start and every spec fails | `dotnet add <app.csproj> package WolverineFx.RuntimeCompilation --version <the app's WolverineFx version>` |
+| `app-project-not-found` | no single `.csproj` in `--out`; the spec project gets a TODO in place of the reference | `--app-project <path>` |
+
+<!-- JEREMY -->
 
 The links in the definition are the identities those specs report: the slice name, then the
 method name read back as a sentence. That's why the example `ALikeIsRecorded` is linked as
@@ -407,7 +448,20 @@ says so, and points at `EventModelDefinition`.
 |---|---|
 | `-m, --model <name>` | Model name; defaults to the file name. It is the **merge key**, so it must match what the code-derived sources call the model (`opts.ServiceName` / `[assembly: EventModelName]`) or the import floats off as a second diagram |
 | `-n, --namespace <ns>` | Namespace for the generated stubs and definition; defaults to the model name |
-| `-o, --out <dir>` | **Directory** the generated C# is written to; defaults beside the input. Created if it does not exist |
+| `-o, --out <dir>` | **Directory** the generated C# is written to, normally the application project's; defaults beside the input. Created if it does not exist |
+| `--specs` | also write a WolverineFx.Bobcat specification per example, and the spec project when there is none |
+| `--specs-out <dir>` | where the specifications go; defaults to a sibling of `--out` named for the spec namespace |
+| `--specs-namespace <ns>` | root namespace of the specifications, and the spec project's name; defaults to `{Namespace}.Specs` |
+| `--store <marten\|polecat\|fisher>` | how the generated test host runs the store's async daemon |
+| `--wolverine-version <v>` | `WolverineFx.Bobcat` version for a spec project the import writes; defaults to the newest published |
+| `--bobcat-version <v>` | Bobcat package version for a spec project the import writes; defaults to the tool's own |
+| `--app-project <csproj>` | the application project the spec project references and the checks read; defaults to the one `.csproj` in `--out` |
+| `--single-definition` | one `EventModelDefinition` for the whole model instead of one per chapter |
+| `--aggregate Slice=Type …` | the aggregate a slice decides against, over the inference |
+| `--starts-stream Slice=Type …` | the aggregate whose stream a slice starts, over the inference |
+| `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |
+| `--json` | stdout carries only JSON: callouts, report and files |
+| `--force` | overwrite generated stubs, definitions and specifications that exist. Never the spec project's `.csproj`, `global.json` or `AssemblyAttributes.cs` |
 | `-u, --url <base>` | Push the assembled model to a run console at this base URL |
 
 #### `--url` takes the **base**, not the endpoint
@@ -471,7 +525,8 @@ bobcat help import-event-model     # usage for one
 ```
 
 The tool registers its commands explicitly rather than scanning, so nothing an assembly happens to
-carry can join this surface. A bare `bobcat` prints usage and exits 1.
+carry can join this surface. A bare `bobcat` is `bobcat run`: it runs the spec project found from the
+current directory, and fails fast when there is none.
 
 ## Where this fits
 
