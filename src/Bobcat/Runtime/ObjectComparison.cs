@@ -300,11 +300,12 @@ public static class ObjectComparison
         ComparisonRules rules, List<Leaf> leaves)
     {
         var actualItems = ExpectedItems.ItemsOf(actual);
-        var expectedItems = ExpectedItems.ItemsOf(items, ExpectedItems.ElementTypeOf(actual?.GetType()));
 
         if (actualItems is null)
         {
-            // Not a collection at all — a null member, or a member of some other shape entirely
+            // Not a collection at all — a null member, or a member of some other shape entirely.
+            // Said before the items are materialised, so a table form with no element type in view
+            // reads as "expected a collection" rather than as its own missing-element-type defect.
             leaves.Add(new Leaf(name, isIgnored, isIgnored, ExpectedItems.Describe(items, null), actual,
                 isIgnored ? null : "Expected a collection"));
             return;
@@ -315,6 +316,8 @@ public static class ObjectComparison
             leaves.Add(new Leaf(name, true, true, null, actual));
             return;
         }
+
+        var expectedItems = ExpectedItems.ItemsOf(items, ExpectedItems.ElementTypeOf(actual.GetType()));
 
         if (items.Forbidden)
         {
