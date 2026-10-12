@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Bobcat.Partial;
+using Bobcat.Runtime;
 
 namespace Bobcat;
 
@@ -52,9 +53,62 @@ public sealed class ExpectedValue<T> : IExpectedValue where T : notnull
     }
 }
 
-/// <summary>Builds an <see cref="ExpectedValue{T}" />.</summary>
+/// <summary>
+/// Builds the expectations that are not a plain object: <see cref="Value{T}" /> for a whole one with
+/// members to ignore, and the collection forms for a member that holds several things (bobcat#456).
+/// </summary>
 public static class Expect
 {
     /// <summary>Expect <paramref name="value" />, to be refined with <c>.Ignoring(...)</c>.</summary>
     public static ExpectedValue<T> Value<T>(T value) where T : notnull => new(value);
+
+    /// <summary>
+    /// Exactly these items, <b>in this order</b> — the one collection form that says something a bare
+    /// collection does not, since a bare one is matched in any order.
+    /// </summary>
+    public static ExpectedItems Exactly(params object[] items) => new(SetMode.Ordered, false, items);
+
+    /// <summary>
+    /// Exactly these items, in any order — what a bare collection already means, written out for a
+    /// specification that would rather say so.
+    /// </summary>
+    public static ExpectedItems InAnyOrder(params object[] items) => new(SetMode.AnyOrder, false, items);
+
+    /// <summary>These items, among whatever else the collection holds: nothing is unexpected.</summary>
+    public static ExpectedItems Containing(params object[] items) => new(SetMode.Contains, false, items);
+
+    /// <summary>
+    /// None of these items — a <see cref="Type" /> for "nothing of that type at all", a partial object
+    /// for "none that agrees on the members it names". What else the collection holds is not judged.
+    /// </summary>
+    public static ExpectedItems NoneOf(params object[] items) => new(SetMode.Contains, true, items);
+
+    /// <summary>The collection is empty.</summary>
+    public static ExpectedItems NoItems() => new(SetMode.AnyOrder, false, Array.Empty<object>());
+
+    /// <summary>
+    /// The elements of a collection as a table, one row per element, read as
+    /// <c>Specify&lt;T&gt;(table)</c> reads one — the <c>VerifySet</c> shape for a child collection whose
+    /// rows read better as a grid than as a chain of items. The element type comes from the member.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// Specify&lt;Order&gt;().With(x =&gt; x.Lines, Expect.Rows("""
+    ///     | Sku | Quantity |
+    ///     | ABC | 2        |
+    ///     | DEF | 1        |
+    ///     """))
+    /// </code>
+    /// </example>
+    /// <remarks>
+    /// <b>Named apart from <see cref="InAnyOrder(object[])" /> and the rest on purpose.</b> A
+    /// <see cref="StepTable" /> converts implicitly from a string, so an overload taking one would win
+    /// against <c>params object[]</c> for a single string argument: <c>Expect.Containing("vip")</c>, over
+    /// a collection of strings, would silently have meant "a table that happens to have no rows" — an
+    /// expectation that asserts nothing and passes.
+    /// </remarks>
+    public static ExpectedItems Rows(StepTable rows, SetMode mode = SetMode.AnyOrder) => new(mode, false, rows);
+
+    /// <summary>No element like any row of <paramref name="rows" /> — <see cref="NoneOf" /> as a table.</summary>
+    public static ExpectedItems NoRowsLike(StepTable rows) => new(SetMode.Contains, true, rows);
 }

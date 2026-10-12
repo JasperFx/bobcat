@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using Bobcat.Engine;
@@ -13,9 +14,9 @@ namespace Bobcat.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A graph is flattened to its <b>leaves</b> — <c>Address.City</c>, <c>Lines[0].Sku</c>,
-/// <c>Lines.Count</c> — and each leaf is compared and rendered as its own cell, so a deep graph is
-/// still a cell table rather than one cell holding a document diff.
+/// A graph comes apart into its <b>leaves</b> — <c>Address.City</c>, <c>Lines[0].Sku</c> — and each
+/// leaf is compared and rendered as its own cell, so a deep graph is still a cell table rather than
+/// one cell holding a document diff.
 /// </para>
 /// <para>
 /// <b>Indexes appear in what this reports, never in what a spec writes.</b> A leaf path such as
@@ -24,9 +25,12 @@ namespace Bobcat.Runtime;
 /// belongs to a set verification. The two rules answer different questions and do not conflict.
 /// </para>
 /// <para>
-/// <b>A collection is positional and a dictionary is keyed</b> (bobcat#456). A list's leaves are
-/// <c>Lines[0].Sku</c>, so the comparison is ordered and exact — which is what a <c>List&lt;T&gt;</c>
-/// means in C#. A dictionary's are <c>Headers[accept]</c>, keyed by the entry, so two dictionaries
+/// <b>A collection is a set and a dictionary is keyed</b> (bobcat#456). A collection member is matched
+/// by <see cref="ObjectSetVerification" />'s rules — exactly these items, <em>in any order</em>, with
+/// an item nobody expected EXTRA and an expectation nothing satisfied MISSING; order is part of the
+/// claim only where a specification says so with <c>Expect.Exactly</c>. Comparing position by position
+/// read a reordered collection as every element being wrong, which is the failure that type exists to
+/// avoid. A dictionary's leaves are <c>Headers[accept]</c>, keyed by the entry, so two dictionaries
 /// holding the same entries agree whatever order they enumerate in and a key one side lacks reads as
 /// that one key.
 /// </para>
@@ -41,7 +45,9 @@ public static class ObjectComparison
     public const int MaxDepth = 8;
 
     /// <summary>One leaf of a compared graph.</summary>
-    public sealed record Leaf(string Path, bool Matched, bool Ignored, object? Expected, object? Actual);
+    /// <param name="Note">Why, where the two values alone do not say it — MISSING, EXTRA, out of order.</param>
+    public sealed record Leaf(string Path, bool Matched, bool Ignored, object? Expected, object? Actual,
+        string? Note = null);
 
     /// <summary>The leaves of <paramref name="value" />, in declaration order.</summary>
     public static IReadOnlyList<(string Path, object? Value)> Leaves(object? value)
@@ -52,40 +58,48 @@ public static class ObjectComparison
     }
 
     /// <summary>Compare <paramref name="actual" /> with <paramref name="expected" />, leaf by leaf.</summary>
-    public static IReadOnlyList<Leaf> Compare(object? actual, object? expected, IReadOnlyCollection<string>? ignored = null)
+    public static IReadOnlyList<Leaf> Compare(object? actual, object? expected,
+        IReadOnlyCollection<string>? ignored = null)
+        => CompareAt("", actual, expected, ignored);
+
+    /// <summary>
+    /// <see cref="Compare" />, with every path under <paramref name="path" /> — for comparing one
+    /// member of a larger object, so a difference reads <c>Lines[0].Quantity</c> and not <c>[0].Quantity</c>.
+    /// </summary>
+    public static IReadOnlyList<Leaf> CompareAt(string path, object? actual, object? expected,
+        IReadOnlyCollection<string>? ignored = null)
     {
-        ignored ??= Array.Empty<string>();
-        var expectedLeaves = Leaves(expected);
-        var actualLeaves = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var (path, value) in Leaves(actual)) actualLeaves.TryAdd(path, value);
+        var leaves = new List<Leaf>();
 
-        var results = new List<Leaf>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var (path, value) in expectedLeaves)
+        // One ancestor set for the whole comparison, however deep it re-enters — a collection's items
+        // are compared through PartialMatching, which comes back here, so a set the top call owned
+        // privately would be a fresh one per element and a cycle through a collection would not
+        // terminate.
+        var owned = _ancestors is null;
+        _ancestors ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
+        try
         {
-            seen.Add(path);
-            actualLeaves.TryGetValue(path, out var actualValue);
-            var isIgnored = ignored.Any(x => covers(x, path));
-            results.Add(new Leaf(path, isIgnored || LeafEquals(actualValue, value), isIgnored, value, actualValue));
+            compare(actual, expected, path, 0, ignored ?? Array.Empty<string>(), leaves);
+        }
+        finally
+        {
+            if (owned) _ancestors = null;
         }
 
-        // A leaf only the actual graph has: a longer collection, a non-null branch the expectation left null
-        foreach (var (path, value) in actualLeaves.Where(x => !seen.Contains(x.Key)))
-        {
-            var isIgnored = ignored.Any(x => covers(x, path));
-            results.Add(new Leaf(path, isIgnored, isIgnored, null, value));
-        }
-
-        return results;
+        return leaves;
     }
 
     /// <summary>The leaves where the two graphs disagree, as <see cref="ValueDifference"/>s.</summary>
     public static IReadOnlyList<ValueDifference> Differences(object? actual, object? expected,
         IReadOnlyCollection<string>? ignored = null)
-        => Compare(actual, expected, ignored)
+        => DifferencesAt("", actual, expected, ignored);
+
+    /// <inheritdoc cref="CompareAt" />
+    public static IReadOnlyList<ValueDifference> DifferencesAt(string path, object? actual, object? expected,
+        IReadOnlyCollection<string>? ignored = null)
+        => CompareAt(path, actual, expected, ignored)
             .Where(x => !x.Matched)
-            .Select(x => new ValueDifference(x.Path, x.Expected, x.Actual))
+            .Select(x => new ValueDifference(x.Path, x.Expected, x.Actual, x.Note))
             .ToList();
 
     /// <summary>How a leaf value renders in a cell.</summary>
@@ -95,14 +109,30 @@ public static class ObjectComparison
         string s => s,
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
 
-        // Not a leaf: a collection, or an object the depth cap stopped at. Its own ToString is the
-        // wrong renderer twice over — a list gives its type name, where a reader wants its items,
-        // and a record's generated ToString walks the graph, so a cycle recurses until the stack
-        // goes. Describe renders items, stops at its own depth and never calls a user ToString.
-        _ when !IsLeaf(value.GetType()) => ScenarioValues.Describe(value),
+        // Not a leaf, and nothing of its own to say: a collection, or an object the depth cap stopped
+        // at. Its own ToString is the wrong renderer twice over — a list gives its type name, where a
+        // reader wants its items, and a record's generated ToString walks the graph, so a cycle
+        // recurses until the stack goes. Describe renders items and stops at its own depth.
+        _ when !IsLeaf(value.GetType()) && !rendersItself(value.GetType()) => ScenarioValues.Describe(value),
 
         _ => value.ToString() ?? ""
     };
+
+    private static readonly ConcurrentDictionary<Type, bool> _rendersItself = new();
+
+    /// <summary>
+    /// Whether <paramref name="type"/> has a <c>ToString</c> somebody wrote for it, which is then how
+    /// it wants to be read. A <b>record's</b> does not count: that one is generated, walks the members
+    /// the graph walk is already covering, and recurses forever on a cycle — <c>PrintMembers</c> is how
+    /// it gives itself away.
+    /// </summary>
+    private static bool rendersItself(Type type) => _rendersItself.GetOrAdd(type, static t =>
+    {
+        var toString = t.GetMethod("ToString", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
+        if (toString is null || toString.DeclaringType == typeof(object)) return false;
+
+        return t.GetMethod("PrintMembers", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is null;
+    });
 
     /// <summary>Two leaves agree: same value, or same text where the types differ only in representation.</summary>
     public static bool LeafEquals(object? actual, object? expected)
@@ -140,7 +170,11 @@ public static class ObjectComparison
         return null;
     }
 
-    internal static bool IsLeaf(Type type)
+    /// <summary>
+    /// Whether <paramref name="type" /> is one value rather than a graph to walk — so it has no members
+    /// to disagree about, and nothing inside it to name.
+    /// </summary>
+    public static bool IsLeaf(Type type)
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
         return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) ||
@@ -156,6 +190,277 @@ public static class ObjectComparison
     private static bool covers(string ignored, string path)
         => path == ignored || path.StartsWith(ignored + ".", StringComparison.Ordinal) ||
            path.StartsWith(ignored + "[", StringComparison.Ordinal);
+
+    [ThreadStatic] private static HashSet<object>? _ancestors;
+
+    private static void compare(object? actual, object? expected, string path, int depth,
+        IReadOnlyCollection<string> ignored, List<Leaf> leaves)
+    {
+        actual = Unwrap(actual);
+        expected = Unwrap(expected);
+
+        var name = path.Length == 0 ? "value" : path;
+        var isIgnored = ignored.Any(x => covers(x, name));
+
+        // A collection the specification has an opinion about: order, "among others", or forbidden
+        if (expected is IExpectedItems items)
+        {
+            compareItems(actual, items, name, depth, isIgnored, leaves);
+            return;
+        }
+
+        // Either side a leaf, either side absent, or as deep as this goes: one judged value
+        if (expected is null || actual is null || IsLeaf(expected.GetType()) || IsLeaf(actual.GetType())
+            || depth >= MaxDepth)
+        {
+            leaves.Add(new Leaf(name, isIgnored || LeafEquals(actual, expected), isIgnored, expected, actual));
+            return;
+        }
+
+        if (!_ancestors!.Add(expected))
+        {
+            leaves.Add(new Leaf(name, true, isIgnored, cycleOf(expected), cycleOf(expected)));
+            return;
+        }
+
+        try
+        {
+            if (IsDictionary(expected) && IsDictionary(actual))
+            {
+                compareEntries(actual, expected, name, depth, ignored, leaves);
+                return;
+            }
+
+            // A collection with nothing said about it is "exactly these items, in any order"
+            // (bobcat#456): most collection members have an order the system happens to produce
+            // rather than one the specification is about.
+            if (ExpectedItems.ItemsOf(expected) is { } elements)
+            {
+                compareItems(actual, new ExpectedItems(SetMode.AnyOrder, false, elements), name, depth, isIgnored,
+                    leaves);
+                return;
+            }
+
+            // Two different types, which is one disagreement and not a disagreement about every
+            // member each type happens not to share. Checked AFTER the collection arms, where a
+            // List<T> and a T[] are the same claim; checked at all because the top level already
+            // requires the exact type, and a silent type claim at depth is the odd one out.
+            if (actual.GetType() != expected.GetType())
+            {
+                leaves.Add(new Leaf(name, isIgnored, isIgnored, expected, actual,
+                    isIgnored ? null : $"Expected a {expected.GetType().Name}, was a {actual.GetType().Name}"));
+                return;
+            }
+
+            var properties = expected.GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(x => x.CanRead && x.GetIndexParameters().Length == 0 && x.Name != "EqualityContract")
+                .ToArray();
+
+            if (properties.Length == 0)
+            {
+                // A field-less stub: the type is the whole of what it says, and the types agree
+                leaves.Add(new Leaf(name, true, isIgnored, expected.GetType().Name, actual.GetType().Name));
+                return;
+            }
+
+            foreach (var property in properties)
+            {
+                compare(read(property, actual), read(property, expected),
+                    path.Length == 0 ? property.Name : $"{path}.{property.Name}", depth + 1, ignored, leaves);
+            }
+        }
+        finally
+        {
+            _ancestors!.Remove(expected);
+        }
+    }
+
+    // A collection member, matched by ObjectSetVerification's rules rather than position by position
+    private static void compareItems(object? actual, IExpectedItems items, string name, int depth, bool isIgnored,
+        List<Leaf> leaves)
+    {
+        var actualItems = ExpectedItems.ItemsOf(actual);
+        var expectedItems = ExpectedItems.ItemsOf(items, ExpectedItems.ElementTypeOf(actual?.GetType()));
+
+        if (actualItems is null)
+        {
+            // Not a collection at all — a null member, or a member of some other shape entirely
+            leaves.Add(new Leaf(name, isIgnored, isIgnored, ExpectedItems.Describe(items, null), actual,
+                isIgnored ? null : "Expected a collection"));
+            return;
+        }
+
+        if (isIgnored)
+        {
+            leaves.Add(new Leaf(name, true, true, null, actual));
+            return;
+        }
+
+        if (items.Forbidden)
+        {
+            forbid(actualItems, expectedItems, name, leaves);
+            return;
+        }
+
+        if (expectedItems.Count == 0 && actualItems.Count == 0)
+        {
+            // Said once, so an empty collection still appears in the report rather than silently
+            leaves.Add(new Leaf(name, true, false, actual, actual));
+            return;
+        }
+
+        var pairing = ObjectSetVerification.Pair(actualItems, expectedItems,
+            (item, i) => elementDifferences(item, expectedItems[i], depth + 1), items.Mode);
+
+        for (var i = 0; i < expectedItems.Count; i++)
+        {
+            var item = expectedItems[i];
+            var type = PartialMatching.ExpectedType(item);
+            var typeName = type.Name;
+            var position = pairing.Pairs[i];
+
+            if (position < 0)
+            {
+                // Named by the member and not by an index: it was not found ANYWHERE, so no position
+                // is the one it should have been at
+                leaves.Add(new Leaf(name, false, false, PartialMatching.DescribeItem(item), null,
+                    IsLeaf(type) ? "MISSING: nothing like this" : $"MISSING: no {typeName} like this"));
+                continue;
+            }
+
+            if (pairing.OutOfOrder[i] >= 0)
+            {
+                leaves.Add(new Leaf($"{name}[{position}]", false, false, PartialMatching.DescribeItem(item),
+                    PartialMatching.DescribeItem(actualItems[position]),
+                    ObjectSetVerification.OutOfOrderNote(typeName, position, pairing.OutOfOrder[i])));
+                continue;
+            }
+
+            if (pairing.Differences[i] is { Count: > 0 } differences)
+            {
+                foreach (var difference in differences)
+                {
+                    leaves.Add(new Leaf(pathOf(name, position, difference.Path), false, false, difference.Expected,
+                        difference.Actual, difference.Note));
+                }
+
+                continue;
+            }
+
+            leaves.Add(new Leaf($"{name}[{position}]", true, false, PartialMatching.DescribeItem(item),
+                PartialMatching.DescribeActual(actualItems[position], item)));
+        }
+
+        // "Among others" allows what nobody expected, so it is neither judged nor shown
+        if (items.Mode == SetMode.Contains) return;
+
+        for (var j = 0; j < actualItems.Count; j++)
+        {
+            if (pairing.Owner[j] >= 0) continue;
+
+            leaves.Add(new Leaf($"{name}[{j}]", false, false, null, PartialMatching.DescribeItem(actualItems[j]),
+                IsLeaf(actualItems[j].GetType())
+                    ? "EXTRA: nothing expected this"
+                    : $"EXTRA: nothing expected a {actualItems[j].GetType().Name} here"));
+        }
+    }
+
+    // Expect.NoneOf: one leaf per forbidden item, and what else the collection holds is not judged
+    private static void forbid(IReadOnlyList<object> actualItems, IReadOnlyList<object> forbidden, string name,
+        List<Leaf> leaves)
+    {
+        foreach (var item in forbidden)
+        {
+            var type = PartialMatching.ExpectedType(item);
+            var position = -1;
+            for (var j = 0; j < actualItems.Count && position < 0; j++)
+            {
+                if (item is Type ? actualItems[j].GetType() == type : PartialMatching.Matches(actualItems[j], item))
+                    position = j;
+            }
+
+            var expected = $"no {PartialMatching.DescribeItem(item)}";
+            if (position < 0)
+            {
+                leaves.Add(new Leaf(name, true, false, expected, expected));
+                continue;
+            }
+
+            leaves.Add(new Leaf($"{name}[{position}]", false, false, expected,
+                PartialMatching.DescribeItem(actualItems[position]),
+                $"PRESENT: a {type.Name} like this was not expected"));
+        }
+    }
+
+    // A dictionary is keyed, so a key one side lacks is that key and nothing else
+    private static void compareEntries(object actual, object expected, string name, int depth,
+        IReadOnlyCollection<string> ignored, List<Leaf> leaves)
+    {
+        var actualEntries = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in asDictionary(actual)!) actualEntries.TryAdd(ScenarioValues.Format(key), value);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (key, value) in asDictionary(expected)!)
+        {
+            var text = ScenarioValues.Format(key);
+            seen.Add(text);
+
+            if (!actualEntries.TryGetValue(text, out var actualValue))
+            {
+                leaves.Add(new Leaf($"{name}[{text}]", false, false, value, null,
+                    $"MISSING: no entry under '{text}'"));
+                continue;
+            }
+
+            compare(actualValue, value, $"{name}[{text}]", depth + 1, ignored, leaves);
+        }
+
+        foreach (var (text, value) in actualEntries.Where(x => !seen.Contains(x.Key)))
+        {
+            leaves.Add(new Leaf($"{name}[{text}]", false, false, null, value,
+                $"EXTRA: no entry expected under '{text}'"));
+        }
+    }
+
+    /// <summary>Whether <paramref name="value" /> is a dictionary, and so compared by key.</summary>
+    public static bool IsDictionary(object? value) => value is not null && asDictionary(value) is not null;
+
+    // An element's own comparison: whatever kind of expectation it is, but sharing this comparison's
+    // depth so a graph that cycles through a collection terminates
+    private static IReadOnlyList<ValueDifference> elementDifferences(object actual, object expected, int depth)
+    {
+        if (expected is IPartialObject or Type or IExpectedItems) return PartialMatching.Differences(actual, expected);
+
+        var leaves = new List<Leaf>();
+        compare(actual, expected is IExpectedValue value ? value.Value : expected, "", depth,
+            (expected as IExpectedValue)?.IgnoredPaths ?? Array.Empty<string>(), leaves);
+
+        return leaves
+            .Where(x => !x.Matched)
+            .Select(x => new ValueDifference(x.Path, x.Expected, x.Actual, x.Note))
+            .ToList();
+    }
+
+    // "value" is what a comparison of two bare values calls its one leaf; inside a collection the
+    // element's own path is the member and the index, so there is nothing to append
+    private static string pathOf(string name, int position, string path)
+        => path is "value" or "" ? $"{name}[{position}]" : $"{name}[{position}].{path}";
+
+    private static string cycleOf(object value) => $"<cycle back to {value.GetType().Name}>";
+
+    private static object? read(PropertyInfo property, object owner)
+    {
+        try
+        {
+            return property.GetValue(owner);
+        }
+        catch (TargetInvocationException e)
+        {
+            return $"<{e.InnerException?.GetType().Name ?? "error"}>";
+        }
+    }
 
     private static void flatten(object? value, string path, int depth, List<(string, object?)> leaves,
         HashSet<object>? ancestors = null)

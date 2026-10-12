@@ -65,6 +65,21 @@ public sealed class Specified<T> : IPartialObject, ITaggedExpectation
         => with(MemberPaths.Of(member), value);
 
     /// <summary>
+    /// What a collection member must hold (bobcat#456): <c>.With(x =&gt; x.Lines, Expect.Exactly(a, b))</c>
+    /// for an order that is part of the claim, <c>Expect.Containing(...)</c>, <c>Expect.NoneOf(...)</c>,
+    /// <c>Expect.NoItems()</c>, or a table of one row per element. A bare collection is already
+    /// "exactly these, in any order", so it needs none of these.
+    /// </summary>
+    /// <remarks>
+    /// The element type comes from the member, so a table form never repeats it.
+    /// </remarks>
+    public Specified<T> With<TValue>(Expression<Func<T, TValue>> member, ExpectedItems items)
+    {
+        var elementType = ExpectedItems.ElementTypeOf(typeof(TValue));
+        return with(MemberPaths.Of(member), elementType is null ? items : items.ForElement(elementType));
+    }
+
+    /// <summary>
     /// Specify part of a nested object: <c>.With(x =&gt; x.Address, Specify&lt;Address&gt;().With(a =&gt; a.City, "Austin"))</c>
     /// is the same as <c>.With(x =&gt; x.Address.City, "Austin")</c>.
     /// </summary>

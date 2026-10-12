@@ -163,6 +163,18 @@ Expect.NoneOf(params object[] items)       // none of these are present
 Expect.NoItems()                           // empty
 ```
 
+A bare collection is `InAnyOrder` (call 1), so `Expect.Exactly` is the only one of these that says
+something a bare list does not. Each also takes a `StepTable` in place of the items (call 2), one
+row per element:
+
+```csharp
+.With(x => x.Lines, Expect.Exactly("""
+    | Sku | Quantity |
+    | ABC | 2        |
+    | DEF | 1        |
+    """))
+```
+
 An item is anything an expectation already is: a whole object, a `Specified<T>`, an
 `Expect.Value(…)`, or a bare `Type` (— "an item of this type, values unexamined", which
 `ObjectSetVerification` and `PartialMatching.ExpectedType` already read).
@@ -272,36 +284,65 @@ them — the same split as `TableReport`'s 200-row cap, which exists because a s
 
 ---
 
-## 3. Calls to settle before building
+## 3. Calls settled (Jeremy, 2026-10-12)
 
-1. **The default for a bare collection.** `.With(x => x.Lines, list)` and a whole-object
-   comparison keep **ordered and exact** — a `List<T>` is ordered in C#, and silently ignoring order
-   would hide a real bug — with `Expect.InAnyOrder` as the spelling for "order is not the claim".
-   Proposed refinement: **the member's declared type decides**, so `ISet<T>` and `IDictionary`
-   default to unordered, where ordered means nothing.
-2. **Polymorphic nested members** (§2.5): the runtime-type check, or leave it comparing whatever
-   members each side has.
-3. **Rendering** (§2.7): flat paths now, nested sub-grids as a follow-up.
-4. **Naming**: `Expect.Exactly/InAnyOrder/Containing/NoneOf` on the existing `Expect`, against a
-   separate `Items.`/`Collection.` entry point.
+1. **Unordered by default. Strict ordering is opt in, case by case.** A bare collection member — and
+   a collection inside a whole-object comparison — means *exactly these items, in any order*;
+   `Expect.Exactly(…)` is how a specification says order is part of the claim. This reverses §2's
+   first draft, which kept ordered-and-exact on the grounds that a `List<T>` is ordered in C#. The
+   answer to that: most collection members have an order the system happens to produce rather than
+   one the specification is about, and §1.1 is what asserting it by accident costs.
+2. **A child collection may be written as a table, inline** — the `VerifySet` shape, for the member
+   whose rows read better as a grid than as a `.With(…)` chain. §2.1 carries it:
+   `PartialObjects.FromTable(elementType, table)` already turns a table into one partial object per
+   row, and the element type comes from the member's declared type, so an author never repeats it.
+3. **Polymorphic nested member**: one difference at that path, do not descend (§2.5).
+4. **Rendering**: one flat grid with paths as names, plus the cap (§2.7).
+5. **The vocabulary lives on `Expect`** (§2.1). **And Shouldly's `ShouldBe` on a collection means an
+   ordered, member-by-member comparison** — §2.2a.
+
+### 2.2a `ShouldBe` on a collection
+
+`Specify<T>(x => x.Lines.ShouldBe(lines))` and `.Check(x => x.Lines.ShouldBe(lines))` read
+`ShouldBe` as **ordered**, compared member by member, with `ShouldBe(lines, ignoreOrder: true)` as
+unordered. That is not an inconsistency with call 1: `ShouldBe` is Shouldly's word, Shouldly's own
+`ShouldBe` over an `IEnumerable` is ordered, and `ignoreOrder` is Shouldly's own opt-out — so
+honouring the library's meaning is the honest reading of a spec that borrowed its spelling. What
+Bobcat adds is *member by member*: Shouldly compares elements with `Equals`, which is reference
+equality for a class and is "silently wrong" for exactly the reason `ObjectComparison` exists.
+
+Open, and deliberately left for later: a **bare** `order.Lines.ShouldBe(expected)` statement in a
+spec body goes through the projected-assertion interceptor, which gathers Shouldly's own verdict
+rather than replacing the comparison. Changing that reaches into the generator and
+`ShouldlyDialect`, and is a bigger piece than this issue.
 
 ## 4. Order of work
 
 Each row stands alone and lands on its own.
 
-| | change | risk |
-|---|---|---|
-| 1 | §2.6 — `Format` via `Describe`, cycle detection | none; fixes §1.3's identical-sides line and §1.5 outright |
-| 2 | §2.4 — dictionaries by key | behavioural: two dictionaries that disagreed now agree |
-| 3 | §2.1 — `IExpectedItems` + `Expect.*` + the `Specified<T>` overload, delegating to `ObjectSetVerification` | additive |
-| 4 | §2.3 — `ValueDifference.Note` and the nested verdict rows | additive |
-| 5 | §2.7 — the difference cap | rendering only |
-| 6 | §2.2 — `Approximately` / `Within` / `InAnyOrder` on `Expect.Value` | additive |
-| 7 | §2.5 — the runtime-type check | behavioural; depends on call 2 |
+| | change | risk | |
+|---|---|---|---|
+| 1 | §2.6 — `Format` via `Describe`, cycle detection | none; fixes §1.3's identical-sides line and §1.5 outright | done, `28be13b` |
+| 2 | §2.4 — dictionaries by key | behavioural: two dictionaries that disagreed now agree | done, `28be13b` |
+| 3 | §2.1 — `IExpectedItems` + `Expect.*` + the `Specified<T>` overload + the inline table, delegating to `ObjectSetVerification`; **a bare collection becomes unordered** | behavioural, per call 1 | |
+| 4 | §2.3 — `ValueDifference.Note` and the nested verdict rows | additive; 3 is not worth shipping without it | |
+| 5 | §2.7 — the difference cap | rendering only | |
+| 6 | §2.2a — `ShouldBe` on a collection is ordered | additive | |
+| 7 | §2.2 — `Approximately` / `Within` / `InAnyOrder` on `Expect.Value` | additive | |
+| 8 | §2.5 — the runtime-type check | behavioural | |
 
-Then: the ai-skills entry (`critterstack-sdd-bobcat-authoring`) for the new vocabulary, per this
-repo's rule that a capability ships with the write-up that teaches a later agent to use it, and
-#452's docs home for the expected-object forms.
+Then, and Jeremy's own reading of this issue is that it is most of the value: **documentation and
+worked samples** for the expected-object forms, which is also #452's homeless docs. Plus the
+ai-skills entry (`critterstack-sdd-bobcat-authoring`), per this repo's rule that a capability ships
+with the write-up that teaches a later agent to use it.
+
+Follow-ups this opens, not in scope here:
+
+- **BOBCAT032 for the new call shape.** The generator checks a constant table's columns against the
+  type it is about for a known set of call shapes; `Expect.Exactly(table)` under
+  `.With(x => x.Lines, …)` is a new one, and the element type is on the member rather than on the
+  call, so `TableCallChecks` needs teaching.
+- The bare-statement `ShouldBe` through the projected-assertion interceptor (§2.2a).
 
 [bobcat#456]: https://github.com/JasperFx/bobcat/issues/456
 [JasperFx/wolverine#4865]: https://github.com/JasperFx/wolverine/issues/4865
