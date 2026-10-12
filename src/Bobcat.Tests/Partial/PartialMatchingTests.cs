@@ -253,4 +253,40 @@ public class PartialMatchingTests
         ObjectSetVerification.Cells(Stream, expected, (a, i) => PartialMatching.Differences(a, expected[i]), "event", ordered: false)
             .Succeeded.ShouldBeTrue();
     }
+
+    // A Type is a type-only expectation, as ExpectedType and Absent already treat it: before this,
+    // typeof(Shipped) beside an actual Shipped was flattened as an object graph — RuntimeType's
+    // properties, eight levels deep — and the comparison never came back
+    [Fact(Timeout = 10_000)]
+    public async Task a_type_is_a_type_only_expectation_and_never_flattened_as_an_object()
+    {
+        await Task.Run(() =>
+        {
+            var actual = new Shipped(Order, "UPS", "1Z999", 2.5m);
+
+            PartialMatching.Differences(actual, typeof(Shipped)).ShouldBeEmpty();
+            PartialMatching.Matches(actual, typeof(Shipped)).ShouldBeTrue();
+            PartialMatching.Matches(actual, typeof(Delivered)).ShouldBeFalse();
+
+            object[] appended = [actual, new Delivered(Order, "Ann")];
+            ObjectSetVerification.Verify(appended, [typeof(Shipped), typeof(Delivered)], "event", SetMode.Ordered)
+                .Succeeded.ShouldBeTrue();
+            ObjectSetVerification.Verify(appended, [typeof(Delivered), typeof(Shipped)], "event", SetMode.Ordered)
+                .Succeeded.ShouldBeFalse();
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task reflection_objects_are_leaves_of_a_compared_graph()
+    {
+        await Task.Run(() =>
+        {
+            ObjectComparison.Leaves(typeof(Shipped)).ShouldHaveSingleItem().Value.ShouldBe(typeof(Shipped));
+            ObjectComparison.Differences(new Holder(typeof(Shipped)), new Holder(typeof(Shipped))).ShouldBeEmpty();
+            ObjectComparison.Differences(new Holder(typeof(Shipped)), new Holder(typeof(Delivered)))
+                .ShouldHaveSingleItem().Path.ShouldBe("Type");
+        }, TestContext.Current.CancellationToken);
+    }
+
+    public record Holder(Type Type);
 }

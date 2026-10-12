@@ -131,7 +131,11 @@ public static class ObjectComparison
         return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) ||
                type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) ||
                type == typeof(DateOnly) || type == typeof(TimeOnly) || type == typeof(TimeSpan) ||
-               type == typeof(Uri) || type == typeof(Type);
+               type == typeof(Uri) ||
+               // A Type's runtime type is RuntimeType, never typeof(Type): followed as a graph, its
+               // properties fan out past any depth limit, so every reflection object is a leaf
+               typeof(MemberInfo).IsAssignableFrom(type) || typeof(Assembly).IsAssignableFrom(type) ||
+               typeof(Module).IsAssignableFrom(type);
     }
 
     private static bool covers(string ignored, string path)

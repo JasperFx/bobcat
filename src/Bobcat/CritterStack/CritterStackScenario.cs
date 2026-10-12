@@ -151,14 +151,20 @@ public class CritterStackScenario
     /// <see cref="GivenEvents{TAggregate}(Guid, object[])" /> for a stream identified by a strong-typed id around a
     /// Guid or a string (wolverine#4865), which reads by its own name.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(object id, params object[] events) where TAggregate : class
         => GivenEvents(typeof(TAggregate), id, events);
 
     /// <summary>The stream the scenario acts against already holds exactly these events.</summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => GivenEvents(typeof(TAggregate), id, events);
 
     /// <inheritdoc cref="GivenEvents{TAggregate}(Guid, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents<TAggregate>(string key, params object[] events) where TAggregate : class
         => GivenEvents(typeof(TAggregate), key, events);
 
@@ -167,13 +173,17 @@ public class CritterStackScenario
     /// type. Marten, Polecat and Fisher all allow a stream without one; this is the arrange for an event
     /// model that names none (GH-4892). Starts the stream when it does not exist, appends when it does.
     /// </summary>
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(Guid id, params object[] events) => GivenEvents((Type?)null, id, events);
 
     /// <inheritdoc cref="GivenEvents(Guid, object[])" />
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEvents(string key, params object[] events) => GivenEvents((Type?)null, key, events);
 
     /// <inheritdoc cref="GivenEvents{TAggregate}(Guid, object[])" />
     /// <remarks>A null <paramref name="aggregate" /> arranges a stream with no aggregate type (GH-4892).</remarks>
+    [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public async Task GivenEvents(Type? aggregate, object id, params object[] events)
     {
         var stream = streamName(aggregate, id);
@@ -196,30 +206,41 @@ public class CritterStackScenario
     /// The stream the scenario acts against has no events yet. Appends nothing — it says so in the
     /// specification, and names the stream the act's events are read from.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(Guid id) where TAggregate : class => GivenEvents(typeof(TAggregate), id);
 
     /// <inheritdoc cref="GivenNoEventsFor{TAggregate}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(object id) where TAggregate : class => GivenEvents(typeof(TAggregate), id);
 
     /// <inheritdoc cref="GivenNoEventsFor{TAggregate}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task GivenNoEventsFor<TAggregate>(string key) where TAggregate : class => GivenEvents(typeof(TAggregate), key);
 
     /// <summary>
     /// Arrange events on a <em>different</em> stream from the one the act runs against — a second
     /// aggregate for a rule that spans two, or history a read model fans in from.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(object id, params object[] events) where TAggregate : class
         => GivenEventsOn(typeof(TAggregate), id, events);
 
     /// <inheritdoc cref="GivenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => GivenEventsOn(typeof(TAggregate), id, events);
 
     /// <inheritdoc cref="GivenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public Task GivenEventsOn<TAggregate>(string key, params object[] events) where TAggregate : class
         => GivenEventsOn(typeof(TAggregate), key, events);
 
     /// <inheritdoc cref="GivenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
+    [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
     public async Task GivenEventsOn(Type aggregate, object id, params object[] events)
     {
         events = flatten(events);
@@ -244,6 +265,7 @@ public class CritterStackScenario
     /// filled by <see cref="UnspecifiedValues" />. Storing it bypasses the projection, so a spec that
     /// is about how the view is built should arrange the events instead.
     /// </remarks>
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public async Task GivenReadModel<T>(object document) where T : class
     {
         var text = $"the {typeof(T).Name} read model is {describe([document]).Text}";
@@ -495,10 +517,14 @@ public class CritterStackScenario
     /// failure is reported instead of a missing event. A version past the stream's end is a
     /// <see cref="SpecCriticalException" />, never a vacuous pass.
     /// </remarks>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenEventsOn<T>(Guid id, long afterVersion, params object[] events) where T : class
         => thenEventsOn(typeof(T), id, afterVersion, flatten(events));
 
     /// <inheritdoc cref="ThenEventsOn{T}(Guid, long, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenEventsOn<T>(string key, long afterVersion, params object[] events) where T : class
         => thenEventsOn(typeof(T), key, afterVersion, flatten(events));
 
@@ -528,20 +554,28 @@ public class CritterStackScenario
     /// <see cref="ThenValidationFails" /> can assert on it.
     /// </para>
     /// </remarks>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => actingOn(typeof(T), id, null, act, flatten(events));
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => actingOn(typeof(T), key, null, act, flatten(events));
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
     /// <param name="description">The act, as the When sentence says it: "the wallet is credited by hand".</param>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, string description, Func<IServiceProvider, Task> act, params object[] events)
         where T : class
         => actingOn(typeof(T), id, description, act, flatten(events));
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, string description, Func<IServiceProvider, Task> act, params object[] events)
         where T : class
         => actingOn(typeof(T), key, description, act, flatten(events));
@@ -720,6 +754,7 @@ public class CritterStackScenario
     }
 
     /// <summary>The act appended exactly these event types, in this order.</summary>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEvents(params Type[] events)
     {
         using var step = ScenarioRecorder.Step("Then", $"{names(events)} {(events.Length == 1 ? "is" : "are")} emitted");
@@ -745,6 +780,7 @@ public class CritterStackScenario
     /// rows of <c>PartialObjects.FromTable</c> — judged and shown on only the members it names (wolverine#4870).
     /// Prefer a deterministic clock to <c>Ignoring(...)</c> for a timestamp.
     /// </remarks>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEvents(params object[] events)
         => verifyEvents(flatten(events), SetMode.Ordered, "{0} {1} emitted");
 
@@ -752,10 +788,12 @@ public class CritterStackScenario
     /// The act appended exactly these events, in <b>any</b> order — whole objects, <see cref="Expect.Value{T}" />s
     /// or partial objects, as for <see cref="ThenEvents(object[])" />.
     /// </summary>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsInAnyOrder(params object[] events)
         => verifyEvents(flatten(events), SetMode.AnyOrder, "{0} {1} emitted in any order");
 
     /// <summary>The act appended exactly these event types, in any order.</summary>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsInAnyOrder(params Type[] events)
         => verifyEvents(events.Select(anyOf).ToArray(), SetMode.AnyOrder, "{0} {1} emitted in any order");
 
@@ -763,10 +801,12 @@ public class CritterStackScenario
     /// The act appended these events among whatever else it appended — whole objects, <see cref="Expect.Value{T}" />s
     /// or partial objects. Nothing else is judged, or shown.
     /// </summary>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEmitted(params object[] events)
         => verifyEvents(flatten(events), SetMode.Contains, "{0} {1} emitted");
 
     /// <summary>The act appended a <typeparamref name="T" />, whatever its values, among whatever else it appended.</summary>
+    [EventModelRole(SliceRole.Event, nameof(T))]
     public void ThenEmitted<T>() => verifyEvents([anyOf(typeof(T))], SetMode.Contains, "{0} {1} emitted");
 
     /// <summary>The act appended no <typeparamref name="T" /> at all.</summary>
@@ -806,6 +846,8 @@ public class CritterStackScenario
     /// with this identity — for a command that decides against several streams, where <c>ThenEvents</c> can
     /// only speak for the one the act addresses. Only what the act added counts, never what was arranged.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(object id, params object[] events) where TAggregate : class
         => verifyEventsOn(typeof(TAggregate), id, flatten(events));
 
@@ -813,10 +855,14 @@ public class CritterStackScenario
     public void ThenNoEventsOn<TAggregate>(object id) where TAggregate : class => verifyEventsOn(typeof(TAggregate), id, []);
 
     /// <inheritdoc cref="ThenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(Guid id, params object[] events) where TAggregate : class
         => verifyEventsOn(typeof(TAggregate), id, flatten(events));
 
     /// <inheritdoc cref="ThenEventsOn{TAggregate}(object, object[])" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn<TAggregate>(string key, params object[] events) where TAggregate : class
         => verifyEventsOn(typeof(TAggregate), key, flatten(events));
 
@@ -865,6 +911,7 @@ public class CritterStackScenario
     /// for a decision whose consistency boundary is a tag query rather than one stream. Only what the act
     /// added counts, its cascades' included.
     /// </summary>
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public void ThenEventsOn(EventTagQuery query, params object[] events)
     {
         var expected = flatten(events);
@@ -925,6 +972,7 @@ public class CritterStackScenario
     /// step: it reads the capture, and the assertion that follows is the step. Throws unless exactly
     /// one was appended.
     /// </summary>
+    [EventModelRole(SliceRole.Event, nameof(T))]
     public T TheEvent<T>()
     {
         var matching = LastAct.NewEvents.Select(x => x.Data).OfType<T>().ToArray();
@@ -941,17 +989,21 @@ public class CritterStackScenario
     /// usually the decision — a redelivered trigger that reuses an id collides instead of starting a
     /// second stream — and <c>ThenEvents</c> cannot say where its events went.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(object id) where TAggregate : class => ThenStreamIsStarted(typeof(TAggregate), id);
 
     /// <inheritdoc cref="ThenStreamIsStarted{TAggregate}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(Guid id) where TAggregate : class
         => ThenStreamIsStarted(typeof(TAggregate), id);
 
     /// <inheritdoc cref="ThenStreamIsStarted{TAggregate}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Task ThenStreamIsStarted<TAggregate>(string key) where TAggregate : class
         => ThenStreamIsStarted(typeof(TAggregate), key);
 
     /// <inheritdoc cref="ThenStreamIsStarted{TAggregate}(object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
     public async Task ThenStreamIsStarted(Type aggregate, object id)
     {
         await inStep(ScenarioRecorder.Step("Then", $"a {aggregate.Name} stream is started with id \"{id}\""), async () =>
@@ -969,6 +1021,8 @@ public class CritterStackScenario
     /// "these events are emitted on it", for a command whose handler starts the stream with an id it assigns —
     /// read back from the act (<see cref="TheStartedStream{TAggregate}" />). Each sentence has its own verdict.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
+    [EventModelRole(SliceRole.Event, nameof(events))]
     public Task ThenStreamIsStartedWithEvents<TAggregate>(params object[] events) where TAggregate : class
         => streamIsStartedWithEvents(typeof(TAggregate), flatten(events));
 
@@ -1014,6 +1068,7 @@ public class CritterStackScenario
     }
 
     /// <summary>The write model, folded from its stream.</summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public async Task<T?> TheAggregate<T>(Guid id) where T : class
     {
         recordTouched(typeof(T));
@@ -1021,6 +1076,7 @@ public class CritterStackScenario
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public async Task<T?> TheAggregate<T>(string key) where T : class
     {
         recordTouched(typeof(T));
@@ -1028,6 +1084,7 @@ public class CritterStackScenario
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T?> TheAggregate<T>(object id) where T : class => StrongTypedIds.StreamIdentity(id) switch
     {
         Guid guid => TheAggregate<T>(guid),
@@ -1044,9 +1101,11 @@ public class CritterStackScenario
     /// <typeparamref name="TAggregate" />.
     /// </remarks>
     /// <exception cref="SpecCriticalException">The act started no such stream, or more than one.</exception>
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public Guid TheStartedStream<TAggregate>() where TAggregate : class => startedStream(typeof(TAggregate)).Id;
 
     /// <inheritdoc cref="TheStartedStream{TAggregate}()" />
+    [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public string TheStartedStreamKey<TAggregate>() where TAggregate : class
         => startedStream(typeof(TAggregate)).Key
            ?? throw new SpecCriticalException($"The {typeof(TAggregate).Name} stream the act started is identified by a Guid, not a string key. Use TheStartedStream<{typeof(TAggregate).Name}>().");
@@ -1273,6 +1332,7 @@ public class CritterStackScenario
     /// messages, so this needs a scenario whose act does, such as WolverineFx.Bobcat's.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="count" /> is less than 1, which any act satisfies.</exception>
+    [EventModelRole(SliceRole.Message, nameof(T))]
     public void ThenMessagesSent<T>(int count = 1)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
@@ -1299,12 +1359,15 @@ public class CritterStackScenario
     /// whatever the projection lifecycle. For state built from events. A plain or async-projected document
     /// is <see cref="ThenDocument{T}(object)" />. Throws when there is no such stream.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(Guid id) where T : class => thenAggregate<T>(id, null);
 
     /// <inheritdoc cref="ThenAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(object id) where T : class => thenAggregate<T>(id, null);
 
     /// <inheritdoc cref="ThenAggregate{T}(Guid)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(string key) where T : class => thenAggregate<T>(key, null);
 
     /// <summary>
@@ -1312,12 +1375,15 @@ public class CritterStackScenario
     /// <paramref name="expected" />: a partial object (<c>Specify&lt;T&gt;().With(...)</c>, a table, or
     /// assertions on its members), or a whole object or <see cref="Expect.Value{T}" /> structurally.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(Guid id, object expected) where T : class => thenAggregate<T>(id, expected);
 
     /// <inheritdoc cref="ThenAggregate{T}(Guid, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(object id, object expected) where T : class => thenAggregate<T>(id, expected);
 
     /// <inheritdoc cref="ThenAggregate{T}(Guid, object)" />
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public Task<T> ThenAggregate<T>(string key, object expected) where T : class => thenAggregate<T>(key, expected);
 
     private Task<T> thenAggregate<T>(object id, object? expected) where T : class
@@ -1347,9 +1413,11 @@ public class CritterStackScenario
     /// one. An aggregate built from events is <see cref="ThenAggregate{T}(Guid)" />. The same as
     /// <see cref="ThenReadModel{T}(object)" />.
     /// </summary>
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenDocument<T>(object id) where T : class => ThenReadModel<T>(id);
 
     /// <summary>GH-4921. The document, as <see cref="ThenDocument{T}(object)" />, judged against <paramref name="expected" />.</summary>
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenDocument<T>(object id, object expected) where T : class => ThenReadModel<T>(id, expected);
 
     /// <summary>
@@ -1359,6 +1427,7 @@ public class CritterStackScenario
     /// <see cref="ThenDocument{T}(object)" />; for an aggregate built from events, see
     /// <see cref="ThenAggregate{T}(Guid)" /> (GH-4921).
     /// </summary>
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task<T> ThenReadModel<T>(object id) where T : class => thenReadModel<T>(id, null);
 
     /// <summary>
@@ -1366,6 +1435,7 @@ public class CritterStackScenario
     /// <paramref name="expected" />: a partial object (<c>Specify&lt;T&gt;()</c>) on only the members it
     /// names, or a whole object or <see cref="Expect.Value{T}" /> structurally. Hands the document back.
     /// </summary>
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public Task<T> ThenReadModel<T>(object id, object expected) where T : class => thenReadModel<T>(id, expected);
 
     private async Task<T> thenReadModel<T>(object id, object? expected) where T : class
@@ -1410,6 +1480,7 @@ public class CritterStackScenario
     /// one stream to be fetched by, so it is refused (wolverine#4865). For a document stored any other way,
     /// <see cref="ThenSingleDocument{T}" />.
     /// </remarks>
+    [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public async Task<T> ThenSingleReadModel<T>(object? expected = null) where T : class
     {
         var kind = await EventStores.ProjectionKindAsync(Store, typeof(T));
@@ -1440,6 +1511,7 @@ public class CritterStackScenario
     /// <c>LoadAsync</c> once the async daemons have caught up — a projected document on Marten or Polecat — and
     /// judged against <paramref name="expected" /> when one is given.
     /// </summary>
+    [EventModelRole(SliceRole.Document, nameof(T))]
     public async Task<T> ThenSingleDocument<T>(object? expected = null) where T : class
     {
         await AfterAsyncDaemonsCatchUpAsync();
@@ -1522,6 +1594,7 @@ public class CritterStackScenario
     /// The projections that build <paramref name="readModel" /> have caught up: every async daemon is waited
     /// on, up to <see cref="ProjectionTimeout" />.
     /// </summary>
+    [EventModelRole(SliceRole.ReadModel, nameof(readModel))]
     public async Task ThenProjectionsAreCaughtUp(Type readModel)
     {
         await inStep(ScenarioRecorder.Step("Then", $"the {readModel.Name} read model has caught up"),
@@ -1533,6 +1606,7 @@ public class CritterStackScenario
     /// their tags — a Dynamic Consistency Boundary model, or a view built the same way. Null when nothing
     /// matches the query.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public async Task<T?> TheDcbModel<T>(EventTagQuery query) where T : class
     {
         recordTouched(typeof(T));
@@ -1544,6 +1618,7 @@ public class CritterStackScenario
     /// their tags, is <paramref name="expected" />: a whole object, an <see cref="Expect.Value{T}" /> or a partial
     /// one, judged as <see cref="ThenMatches" /> judges.
     /// </summary>
+    [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public async Task ThenDcbModel<T>(EventTagQuery query, object expected) where T : class
     {
         var text = $"the {typeof(T).Name} over {EventStores.Describe(query)} matches";

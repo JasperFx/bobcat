@@ -20,6 +20,8 @@ public static class PartialMatching
     {
         IPartialObject partial => partialDifferences(actual, partial),
         IExpectedValue value => ObjectComparison.Differences(actual, value.Value, value.IgnoredPaths),
+        // A type alone judges no member, as ExpectedType and DescribeExpected already read it
+        Type => [],
         _ => ObjectComparison.Differences(actual, expected)
     };
 
