@@ -61,7 +61,7 @@ public static class MarkerStepRun
     /// </param>
     public static ScenarioRecorder.Recording BeginScenario(MethodInfo method, string mode)
     {
-        var info = OpenRun(mode);
+        var info = openRun(mode, method.DeclaringType?.Assembly);
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
