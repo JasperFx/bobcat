@@ -76,3 +76,22 @@ cd Discount && dotnet run
 ```
 
 Each service has Swagger UI at `/swagger`.
+
+## Specifications
+
+`Tests/` holds Bobcat's projected (code-first) specs for the Catalog service: ordinary xUnit v3 tests
+that render as Given/When/Then specifications, driving the service through Alba. `ProductSpecs` covers
+create, list, read by id and by category, update and delete, and the 400s and 404s around them. Every
+step is a method on that class with a `[Given]`, `[When]` or `[Then]` attribute, so calling it records
+it.
+
+```bash
+dotnet test Tests/Tests.csproj                     # the specs (Postgres, catalog database)
+BOBCAT_SPEC_CONSOLE=1 dotnet run --project Tests   # ...and print every spec as it rendered
+```
+
+The specs found two things the build never could. None of the four services could start: Wolverine 6
+stopped shipping the runtime compiler in core, and each now references `WolverineFx.RuntimeCompilation`.
+And the old `.feature` file had never run against this API -- it expected a 201 from `POST /products`,
+which answers 200 with the stored product, and an update at `POST /products/{id}`, where the service
+takes `PUT /products` with the id in the body.

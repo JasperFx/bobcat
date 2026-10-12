@@ -58,6 +58,7 @@ partial class Build
         ("MeetingGroupMonolith", "meeting_groups"),
         ("OutboxDemo", "outbox_demo"),
         ("BankAccountES", "bank_account"),
+        ("EcommerceMicroservices", "ecommerce_catalog"),
     ];
 
     Target CompileSamples => _ => _
