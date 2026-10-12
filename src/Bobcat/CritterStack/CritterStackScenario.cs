@@ -72,12 +72,17 @@ public class CritterStackScenario
         // bobcat#504: the host's stores, read once, and the routing between them when there are several
         public IReadOnlyList<IEventStore>? Stores;
         public StoreRouter? Router;
+
+        // The stores this specification has touched: a step went to it, a view was pinned to it, or an act appended
+        // the specification's own events to it. With the default store, what AfterAsyncDaemonsCatchUpAsync waits on
+        public readonly HashSet<IEventStore> Touched = new(ReferenceEqualityComparer.Instance);
     }
 
     /// <param name="host">The application under test.</param>
     /// <param name="storeName">
     /// The default event store, when the application has several: what a step uses when no store's registrations
-    /// claim its types (bobcat#504). Null takes the only one.
+    /// claim its types (bobcat#504). Null takes the only one, or the one main store among several (an
+    /// application's <c>AddMarten</c> store beside its ancillary <c>AddMartenStore&lt;T&gt;</c> ones).
     /// </param>
     public CritterStackScenario(IHost host, string? storeName = null)
     {
@@ -95,7 +100,7 @@ public class CritterStackScenario
     /// <param name="services">The application's services. Its event store is resolved from them.</param>
     /// <param name="storeName">
     /// The default event store, when the application has several: what a step uses when no store's registrations
-    /// claim its types (bobcat#504). Null takes the only one.
+    /// claim its types (bobcat#504). Null takes the only one, or the one main store among several.
     /// </param>
     public CritterStackScenario(IServiceProvider services, string? storeName = null)
     {
@@ -167,9 +172,10 @@ public class CritterStackScenario
     }
 
     /// <summary>
-    /// The application's event store — the default one, when it has several (the constructor's <c>storeName</c>),
-    /// or the one a view from <see cref="In{TStore}" /> / <see cref="In(string)" /> is pinned to. Throws, saying
-    /// so, when it has none, or several and no default.
+    /// The application's event store — the default one, when it has several (the constructor's <c>storeName</c>,
+    /// else the one main store among them, see <see cref="CritterStackHostExtensions.MainEventStores" />), or the
+    /// one a view from <see cref="In{TStore}" /> / <see cref="In(string)" /> is pinned to. Throws, saying so, when
+    /// it has none, or several and no default.
     /// </summary>
     /// <remarks>
     /// Since bobcat#504 the steps do not all use it: on a host with several stores each step goes to the store
@@ -231,7 +237,11 @@ public class CritterStackScenario
     /// <paramref name="store" />. A derived scenario whose own steps should be on the view overrides this and
     /// returns its own type, built with the protected view constructor.
     /// </summary>
-    protected virtual CritterStackScenario createView(IEventStore store) => new(this, store);
+    protected virtual CritterStackScenario createView(IEventStore store)
+    {
+        _state.Touched.Add(store);
+        return new(this, store);
+    }
 
     private IEventStore resolveStore(Type marker)
     {
@@ -282,6 +292,12 @@ public class CritterStackScenario
         if (_pinned is not null) return Task.FromResult(_pinned);
         if (allStores().Count <= 1) return Task.FromResult(Store);
 
+        return routeAsync(step, model, values, tagTypes);
+    }
+
+    private async Task<IEventStore> routeAsync(string step, Type? model, IEnumerable<object>? values, IEnumerable<Type>? tagTypes)
+    {
+
         var events = new List<Type>();
         var tags = new List<Type>(tagTypes ?? []);
         foreach (var value in values ?? [])
@@ -296,11 +312,18 @@ public class CritterStackScenario
             tags.AddRange(Tagging.ExpectedTagsOf(value).Select(x => x.GetType()));
         }
 
-        return router().RouteAsync(step, model, events, tags);
+        var store = await router().RouteAsync(step, model, events, tags);
+        _state.Touched.Add(store);
+        return store;
     }
 
-    private StoreRouter router()
-        => _state.Router ??= new StoreRouter(allStores(), _storeName is null ? null : Services.EventStore(_storeName));
+    private StoreRouter router() => _state.Router ??= new StoreRouter(allStores(), defaultStore());
+
+    // The constructor's storeName, else the one main store among several, else none
+    private IEventStore? defaultStore()
+        => _storeName is not null
+            ? Services.EventStore(_storeName)
+            : CritterStackHostExtensions.DefaultEventStore(Services, allStores());
 
     /// <summary>
     /// bobcat#504. The stores an act is observed on: every store the host registers, or — on a host with one or
@@ -336,6 +359,7 @@ public class CritterStackScenario
         _state.ArrangedTags.Clear();
         // bobcat#504: what each store registers is read afresh for the next specification
         _state.Router = null;
+        _state.Touched.Clear();
         LastAct = CritterStackActOutcome.None;
     }
 
@@ -736,6 +760,7 @@ public class CritterStackScenario
 
             own.AddRange(ownHere);
             foreign.AddRange(foreignHere);
+            if (ownHere.Count > 0) _state.Touched.Add(mark.Store);
             started.AddRange(startedHere);
             if (byEvent is not null)
             {
@@ -1973,8 +1998,11 @@ public class CritterStackScenario
     /// <summary>
     /// Wait until every asynchronous projection on every database has caught up, so a read model reflects the
     /// act — what the <c>WaitForNonStaleResults</c>-style helpers need first. Waits up to
-    /// <see cref="ProjectionTimeout" />, on every event store the host registers (bobcat#504), or only on the
-    /// store a view from <see cref="In{TStore}" /> is pinned to.
+    /// <see cref="ProjectionTimeout" />. On a view from <see cref="In{TStore}" />, on the store it is pinned to.
+    /// On a host with several stores (bobcat#504), on the default store and every store this specification
+    /// touched — a step went to it, a view was pinned to it, or an act appended its events there — so a store the
+    /// specification never involves, such as an embedded CritterWatch console's, cannot hold it up. With no default
+    /// store, on every store.
     /// </summary>
     public async Task AfterAsyncDaemonsCatchUpAsync()
     {
@@ -1995,9 +2023,20 @@ public class CritterStackScenario
         });
     }
 
-    // bobcat#504: the view's store, or every store the host registers, or (one or none) the store as before
+    // bobcat#504: the view's store; or, with several, the default store and every store the specification touched
+    // (every store when there is no default); or (one or none) the store as before
     private IReadOnlyList<IEventStore> storesToWaitOn()
-        => _pinned is not null ? [_pinned] : allStores().Count > 1 ? allStores() : [Store];
+    {
+        if (_pinned is not null) return [_pinned];
+
+        var stores = allStores();
+        if (stores.Count <= 1) return [Store];
+
+        var fallback = defaultStore();
+        if (fallback is null) return stores;
+
+        return stores.Where(store => ReferenceEquals(store, fallback) || _state.Touched.Contains(store)).ToList();
+    }
 
     /// <summary>There is no <typeparamref name="T" /> at all once the projections have caught up.</summary>
     public async Task ThenNoReadModel<T>() where T : class

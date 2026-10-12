@@ -28,7 +28,7 @@ public abstract class ancillary_stores<THost, TMarker>(THost host) where THost :
     [Fact]
     public async Task givens_and_thens_go_to_the_store_that_registers_their_type()
     {
-        // Two stores and no default: only the types decide
+        // Every step here names a type exactly one store registers, so the types decide
         var scenario = newScenario();
         var wallet = Guid.NewGuid();
         var invoice = Guid.NewGuid();
@@ -60,24 +60,52 @@ public abstract class ancillary_stores<THost, TMarker>(THost host) where THost :
     }
 
     [Fact]
-    public async Task a_type_several_stores_register_fails_naming_them_and_how_to_choose()
+    public async Task with_no_store_name_the_main_store_is_the_default()
     {
+        // No storeName: of the two stores only one is the application's main store, so it is the default
         var scenario = newScenario();
+        scenario.Store.ShouldBeSameAs(main);
 
-        var ambiguous = await Should.ThrowAsync<SpecCriticalException>(
-            () => scenario.GivenReadModel<SharedNote>(new SharedNote { Id = Guid.NewGuid() }));
-        ambiguous.Message.ShouldContain("2 event stores register SharedNote");
-        ambiguous.Message.ShouldContain("'main'");
-        ambiguous.Message.ShouldContain($"'{host.AncillaryName}'");
-        ambiguous.Message.ShouldContain("scenario.In<IYourStore>()");
-        ambiguous.Message.ShouldContain("scenario.In(\"name\")");
-        ambiguous.Message.ShouldContain("names no default store");
+        var note = Guid.NewGuid();
+        var stray = Guid.NewGuid();
+        var invoice = Guid.NewGuid();
 
-        var unclaimed = await Should.ThrowAsync<SpecCriticalException>(() => scenario.ThenNoReadModel<Unclaimed>());
-        unclaimed.Message.ShouldContain("no event store registers Unclaimed");
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            // Both stores register SharedNote, no store registers Stray: the main store takes both
+            await scenario.GivenReadModel<SharedNote>(new SharedNote { Id = note, Text = "both register it" });
+            await scenario.GivenReadModel<Stray>(new Stray { Id = stray });
+            // ...while a type the ancillary store registers still goes there
+            await scenario.GivenEvents<Invoice>(invoice, new InvoiceRaised(invoice, 1m));
 
-        // A stream with no type has nothing to be routed by, and there is no default to fall back on
-        await Should.ThrowAsync<SpecCriticalException>(() => scenario.TheStreamVersion(Guid.NewGuid()));
+            await scenario.ThenDocument<SharedNote>(note, Specifications.Specify<SharedNote>().With(x => x.Text, "both register it"));
+            await scenario.ThenNoReadModel<Unclaimed>();
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        (await EventStoreAuthoring.LoadDocumentAsync<SharedNote>(main, note)).ShouldNotBeNull();
+        (await EventStoreAuthoring.LoadDocumentAsync<SharedNote>(invoicing, note)).ShouldBeNull();
+        (await EventStoreAuthoring.LoadDocumentAsync<Stray>(main, stray)).ShouldNotBeNull();
+        (await EventStores.FetchStreamAsync(invoicing, invoice)).Count.ShouldBe(1);
+
+        // A stream named by its id alone has no type to route by: it is read from the main store
+        (await scenario.TheStreamVersion(invoice)).ShouldBe(0);
+        (await scenario.In<TMarker>().TheStreamVersion(invoice)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task an_explicit_store_name_still_chooses_the_default_over_the_main_store()
+    {
+        // The ancillary store as the default: SharedNote is claimed by both, but the default can take it...
+        var scenario = newScenario(host.AncillaryName);
+        var note = Guid.NewGuid();
+        await scenario.GivenReadModel<SharedNote>(new SharedNote { Id = note });
+        (await EventStoreAuthoring.LoadDocumentAsync<SharedNote>(invoicing, note)).ShouldNotBeNull();
+
+        // ...and a type only the main store claims still goes to the main store
+        var wallet = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(wallet, new WalletOpened(wallet, "Ed"));
+        (await EventStores.FetchStreamAsync(main, wallet)).Count.ShouldBe(1);
     }
 
     [Fact]

@@ -39,7 +39,8 @@ public class crediting_a_wallet(AppFixture app) : CritterStackSpec(app.Host)
 
 The constructors take an `IHost`, or an `IServiceProvider` for a test that has a container and no
 host (then `Host` throws, and every step reads `Services`), plus an optional `storeName` naming the
-default store of an application with several ([Several event stores](#several-event-stores)). Don't want a base class? `new CritterStackScenario(host)` is
+default store of an application with several. An application with one main store and ancillary ones needs no
+`storeName`: the main store is the default ([Several event stores](#several-event-stores)). Don't want a base class? `new CritterStackScenario(host)` is
 the same vocabulary as an object, and `CritterStackSpec` only delegates to one.
 
 **Your application configures its store however it already does.** The spec project boots it -- in an
@@ -116,11 +117,22 @@ registers `Invoice` and `InvoiceSummary`; a Given with no aggregate type goes wh
 registered; `TheDcbModel<T>` goes by `T`, then by the query's event and tag types.
 
 - **One store claims the type:** that store.
-- **None, or several:** the default store -- the constructor's `storeName`, or the only store -- when it
-  can take it (it is among the claimants, or nobody claims the type).
+- **None, or several:** the default store -- the constructor's `storeName`, else the only store, else the
+  one main store -- when it can take it (it is among the claimants, or nobody claims the type).
 - **Otherwise** the step throws a `SpecCriticalException` listing the stores that claim the type and
   telling you to name one. A stream addressed by its id alone (`TheStreamVersion(id)`) has no type, so it
   is read from the default store.
+
+**The main store is the default.** With no `storeName`, a host whose stores include exactly one *main*
+store -- the one `AddMarten`, `AddPolecat` or `AddFisher` registered, beside any number of
+`AddMartenStore<T>()`-style ancillary ones -- uses that store as the default, for `Store`, for
+`services.EventStore()` and for every step that falls back to the default. That is what makes an application
+that embeds CritterWatch (`opts.AddCritterWatchEmbedded(...)`, which registers the console's own ancillary
+store) specifiable unchanged. Bobcat tells a main store from an ancillary one by its registration, not its
+name: a main store is the instance its product's `IDocumentStore` service resolves to, while an ancillary
+store is registered under its marker interface only. With no main store, or more than one (say `AddMarten`
+and `AddFisher` in one host), there is no default: name it with `storeName`, or address each step with
+`In<TStore>()` / `In("name")`.
 
 What a store registers is read once per scenario. Stores register some types lazily -- an event type the
 first time it is appended, a document type the first time it is stored or loaded -- so a type you only ever
@@ -148,8 +160,13 @@ await ThenAggregate<Invoice>(invoice, Specify<Invoice>().With(x => x.Paid, true)
 one gained, and attributes each store's events to the specification as a single-store act does.
 `LastAct` lists them store by store (sequences belong to a store, so there is no order across stores), and
 `LastAct.StoreOf(e)` says which store an event came from. A failing whole-store step adds an
-"Appended by store -- 'main': …; 'iinvoicingstore': …" line. `AfterAsyncDaemonsCatchUpAsync` waits on every
-store (a view waits on its own), and a read waits on the store it reads.
+"Appended by store -- 'main': …; 'iinvoicingstore': …" line.
+
+**Waits cover the stores the specification involves.** `AfterAsyncDaemonsCatchUpAsync` waits on the default
+store and on every store the specification touched -- a step went to it, a view was pinned to it, or an act
+appended the specification's events there -- so a store it never involves, such as CritterWatch's, whose
+daemon may never catch up in a test host, cannot hold it up or time it out. With no default store it waits on
+every store. A view waits on its own store, and a read waits on the store it reads.
 
 A host with one store behaves exactly as before. Nothing is read about what it registers.
 
@@ -159,7 +176,8 @@ The store helpers the vocabulary is built from are public, and all of them are s
 
 | | |
 |---|---|
-| `services.EventStore(storeName?)` / `services.EventStores()` | the registered store, by name when there is more than one |
+| `services.EventStore(storeName?)` / `services.EventStores()` | the registered store: the only one, the one named, or the one main store among several |
+| `services.MainEventStores()` / `services.IsMainEventStore(store)` | the stores registered as an application's main store (`AddMarten`, `AddPolecat`, `AddFisher`), not under a marker interface |
 | `host.ResetEventStoresAsync()` | empty **every** store the host registers -- documents *and* event streams. The snapshots are documents, the events that produced them are not, and deleting one half leaves the other |
 | `host.WaitForNonStaleProjectionsAsync(…)` | wait for the async daemon rather than sleeping |
 | `EventStores.FetchStreamAsync` / `AggregateStreamAsync<T>` / `FetchLatestAsync<T>` | a stream's events, the aggregate rebuilt from them, the latest projected snapshot |

@@ -96,7 +96,8 @@ internal sealed class StoreCatalog
 
 /// <summary>
 /// bobcat#504. Picks the event store a step reads or writes when the host registers several: the one store
-/// whose registrations claim the step's types, else the default store, else a
+/// whose registrations claim the step's types, else the default store (the scenario's <c>storeName</c>, else the
+/// host's one main store), else a
 /// <see cref="Engine.SpecCriticalException"/> that lists the candidates and says to address one with
 /// <c>In&lt;TStore&gt;()</c> or <c>In(name)</c>. Never used for a host with a single store.
 /// </summary>
@@ -182,7 +183,7 @@ internal sealed class StoreRouter
             : $"{candidates.Count} event stores register {subject} ({string.Join(", ", candidates.Select(EventStores.Describe))})";
 
         return $"'{step}': the host registers {_stores.Count} event stores and {claim}, so Bobcat cannot tell which "
-               + $"one it means{(_default is null ? " and the scenario names no default store" : "")}. Address the store explicitly: "
+               + $"one it means{(_default is null ? " and the scenario names no default store (pass storeName, or register exactly one main store)" : "")}. Address the store explicitly: "
                + "scenario.In<IYourStore>() for a store registered under a marker interface (AddMartenStore<T>, "
                + "AddPolecatStore<T>, AddFisherStore<T>), or scenario.In(\"name\") by its IEventStore.Identity name. "
                + $"Stores: {string.Join(", ", _stores.Select(EventStores.Describe))}.";

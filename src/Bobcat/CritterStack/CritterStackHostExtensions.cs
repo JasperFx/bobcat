@@ -24,10 +24,16 @@ public static class CritterStackHostExtensions
         => services.GetServices<IEventStore>().ToList();
 
     /// <summary>
-    /// The one event store registered in the container, or the one whose
-    /// <see cref="IEventStore.Identity"/> name matches <paramref name="storeName"/> when several are
-    /// (Marten's <c>AddMartenStore&lt;T&gt;</c>, Fisher's <c>AddFisherStore&lt;T&gt;</c>).
+    /// The host's default event store: the one registered in the container; or, when there are several, the
+    /// one whose <see cref="IEventStore.Identity"/> name matches <paramref name="storeName"/>; or, with no
+    /// <paramref name="storeName"/>, the one <b>main</b> store among them (<see cref="MainEventStores"/>), so an
+    /// application with one main store and any number of ancillary ones (Marten's <c>AddMartenStore&lt;T&gt;</c>,
+    /// Fisher's <c>AddFisherStore&lt;T&gt;</c>, an embedded CritterWatch console's own store) needs no name.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// No store is registered; or several are, <paramref name="storeName"/> is null and there is not exactly one
+    /// main store among them; or no store has that name. The message lists the stores and their roles.
+    /// </exception>
     public static IEventStore EventStore(this IServiceProvider services, string? storeName = null)
     {
         var stores = services.EventStores();
@@ -41,18 +47,96 @@ public static class CritterStackHostExtensions
 
         if (storeName == null)
         {
-            if (stores.Count == 1)
-                return stores[0];
-
-            var names = string.Join(", ", stores.Select(Bobcat.CritterStack.EventStores.Describe));
-            throw new InvalidOperationException(
-                $"The host registers {stores.Count} event stores ({names}). Pass storeName to choose one.");
+            return DefaultEventStore(services, stores) ?? throw new InvalidOperationException(noDefault(services, stores));
         }
 
         return stores.FirstOrDefault(s => matches(s, storeName))
                ?? throw new InvalidOperationException(
                    $"No event store named '{storeName}' is registered. Known: " +
                    string.Join(", ", stores.Select(Bobcat.CritterStack.EventStores.Describe)) + ".");
+    }
+
+    /// <summary>
+    /// The event stores registered as an application's <b>main</b> store — <c>AddMarten</c>, <c>AddPolecat</c>,
+    /// <c>AddFisher</c> — rather than as an ancillary store under a marker interface (<c>AddMartenStore&lt;T&gt;</c>,
+    /// <c>AddPolecatStore&lt;T&gt;</c>, <c>AddFisherStore&lt;T&gt;</c>), in registration order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from the container, store-agnostically: a main store is the one its own product's
+    /// <c>IDocumentStore</c> service resolves to. All three stores register their main store under their
+    /// <c>IDocumentStore</c> interface and an ancillary store under its marker interface only, so for an
+    /// ancillary store that service resolves to another instance (the main store) or to nothing. The interface
+    /// is found by name on the store's own type, so Bobcat references none of the stores.
+    /// </para>
+    /// <para>
+    /// Not the <see cref="IEventStore.Identity"/> name: <c>"main"</c> is only the default <c>StoreName</c>, which
+    /// an application may change on its main store or give to an ancillary one, while the registration is what
+    /// makes a store the one <c>IDocumentStore</c> means. A store with no <c>IDocumentStore</c> interface at all
+    /// (a hand-written or in-memory store) is never a main store, so a host made only of those keeps asking for a
+    /// <c>storeName</c>.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<IEventStore> MainEventStores(this IServiceProvider services)
+        => services.EventStores().Where(store => IsMainEventStore(services, store)).ToList();
+
+    /// <summary>
+    /// Whether <paramref name="store"/> is registered as the application's main store, rather than as an ancillary
+    /// one. See <see cref="MainEventStores"/>.
+    /// </summary>
+    public static bool IsMainEventStore(this IServiceProvider services, IEventStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+
+        foreach (var service in store.GetType().GetInterfaces())
+        {
+            if (service.IsGenericType || service.Name != MainStoreService) continue;
+
+            object? registered;
+            try
+            {
+                registered = services.GetService(service);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (ReferenceEquals(registered, store)) return true;
+        }
+
+        return false;
+    }
+
+    // The service every Critter Stack store registers its main store under: Marten.IDocumentStore,
+    // Polecat.IDocumentStore, Fisher.IDocumentStore
+    private const string MainStoreService = "IDocumentStore";
+
+    /// <summary>
+    /// The default store with no name to go by: the only store, else the only main store, else null.
+    /// </summary>
+    internal static IEventStore? DefaultEventStore(IServiceProvider services, IReadOnlyList<IEventStore> stores)
+    {
+        if (stores.Count == 1) return stores[0];
+
+        var mains = stores.Where(store => IsMainEventStore(services, store)).ToList();
+        return mains.Count == 1 ? mains[0] : null;
+    }
+
+    private static string noDefault(IServiceProvider services, IReadOnlyList<IEventStore> stores)
+    {
+        var mains = stores.Where(store => IsMainEventStore(services, store)).ToList();
+        var described = string.Join(", ", stores.Select(store =>
+            Bobcat.CritterStack.EventStores.Describe(store) + (mains.Contains(store) ? " [main]" : " [ancillary]")));
+
+        var why = mains.Count == 0
+            ? "none of them is registered as the application's main store (AddMarten, AddPolecat, AddFisher)"
+            : $"{mains.Count} of them are registered as a main store";
+
+        return $"The host registers {stores.Count} event stores ({described}) and {why}, so there is no default store. "
+               + "Pass storeName (the store's IEventStore.Identity name) to the scenario or spec to choose the default, "
+               + "or address a store per step with In<TStore>() for a store registered under a marker interface or "
+               + "In(\"name\") by its name.";
     }
 
     /// <summary>The coordinator driving the host's projection daemon, when the host runs one.</summary>

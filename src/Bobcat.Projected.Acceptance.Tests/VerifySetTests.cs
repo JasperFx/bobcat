@@ -222,6 +222,42 @@ public class VerifySetTests
         recording.Step("the inventory should be").Status.ShouldBe(ResultStatus.failed);
     }
 
+    /// <summary>
+    /// A MISSING row (<c>missing</c>) and an EXTRA row (<c>invalid</c>) are wrongs in the counts, not errors:
+    /// nothing threw. The run summary used to print "Errors: 1" for each.
+    /// </summary>
+    [Fact]
+    public void missing_and_extra_rows_count_as_wrongs_not_errors()
+    {
+        var (_, missing) = Projected.Run("missing counted", () =>
+        {
+            _grammar.TheInventoryIs("""
+                | Sku     | ProductName | Quantity |
+                | SKU-001 | Widget      | 90       |
+                """);
+            _grammar.TheInventoryShouldBe("""
+                | Sku     | ProductName | Quantity |
+                | SKU-001 | Widget      | 90       |
+                | SKU-002 | Gadget      | 12       |
+                """);
+        });
+
+        missing.Counts.Errors.ShouldBe(0);
+        missing.Counts.Wrongs.ShouldBeGreaterThan(0);
+
+        var (_, extra) = Projected.Run("extra counted", () =>
+        {
+            twoItems();
+            _grammar.TheInventoryShouldBe("""
+                | Sku     | ProductName | Quantity |
+                | SKU-001 | Widget      | 90       |
+                """);
+        });
+
+        extra.Counts.Errors.ShouldBe(0);
+        extra.Counts.Wrongs.ShouldBeGreaterThan(0);
+    }
+
     [Fact]
     public void a_disagreeing_set_costs_the_spec_its_verdict_without_throwing()
     {

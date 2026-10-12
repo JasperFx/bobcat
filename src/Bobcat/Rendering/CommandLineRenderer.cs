@@ -562,6 +562,19 @@ public class CommandLineRenderer
         => sv.Rows.Any(row => row.RowType != SetVerificationRowType.Matched
                               || row.Cells.Any(cell => cell.Status != ResultStatus.ok));
 
+    /// <summary>
+    /// The header of the verdict column: <c>Status</c>, unless the grid already has a column of that name — a
+    /// read model with its own <c>Status</c> property, say — when it is <c>Verdict</c> (then
+    /// <c>Bobcat verdict</c>), so the grid never shows two columns with the same header.
+    /// </summary>
+    public static string VerdictColumnHeader(SetVerificationRender sv)
+    {
+        string[] candidates = ["Status", "Verdict", "Bobcat verdict"];
+        return candidates.FirstOrDefault(candidate => !sv.Columns.Any(column =>
+                   string.Equals(column.Trim(), candidate, StringComparison.OrdinalIgnoreCase)))
+               ?? "Bobcat verdict";
+    }
+
     public void RenderSetVerification(SetVerificationRender sv)
     {
         if (sv.Columns.Count == 0) return;
@@ -576,7 +589,7 @@ public class CommandLineRenderer
             table.AddColumn(new TableColumn(Markup.Escape(col)));
         }
 
-        if (judged) table.AddColumn(new TableColumn("[dim]Status[/]").Centered());
+        if (judged) table.AddColumn(new TableColumn($"[dim]{Markup.Escape(VerdictColumnHeader(sv))}[/]").Centered());
 
         var rowNum = 0;
         foreach (var row in sv.Rows)

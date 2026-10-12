@@ -1353,7 +1353,8 @@ goes through `JasperFx.Events.Documents`.
   (`AddMarten`), Polecat (`AddPolecat`) and Fisher (`AddFisher`) all register their store as
   `JasperFx.Events.IEventStore`; `services.EventStore()` (`CritterStackHostExtensions`) resolves it
   from the host's services. `storeName` (matched on `IEventStore.Identity.Name`) disambiguates a
-  host with several stores.
+  host with several stores; with no `storeName`, the host's one **main** store is the default (see "Several event
+  stores" below).
 - **Everything the abstractions cover goes through them.** Streams are read via
   `IEventStore.OpenReadOnlyEventStore()`; projection waits via
   `IEventDatabase.WaitForNonStaleProjectionDataAsync` (the same wait JasperFx's
@@ -1517,14 +1518,37 @@ the DCB boundary steps and correlation.
   store by store, and fills `CritterStackActOutcome.StoreByEvent` / `StoreOf(e)` only when more than one store
   was observed. Whole-store failures append `storesSuffix()` ("Appended by store -- 'main': …"). Stream- and
   tag-addressed steps order the addressable events store by store, then by sequence.
-  `AfterAsyncDaemonsCatchUpAsync` waits on every store (a view, on its own). `waitBeforeReading` waits on the
-  store being read.
+  `AfterAsyncDaemonsCatchUpAsync` waits on the default store plus every store the specification **touched**
+  (`SpecificationState.Touched`: a routed step's store, a view's store from `createView`, a store an act appended
+  *own* events to in `readBackSinceAsync`; cleared by `ResetAsync`), or on every store when there is no default
+  (a view, on its own). `waitBeforeReading` waits on the store being read. Read-back still observes every store.
+- **The main store is the default (CritterWatch embedded).** `AddCritterWatchEmbedded` registers the
+  console's own ancillary Marten store (`AddMartenStore<ICritterWatchStore>`, identity `icritterwatchstore`), so a
+  spec host had two stores and every unqualified step was refused. Now, with no `storeName`,
+  `CritterStackHostExtensions.EventStore()` / `DefaultEventStore` take the only store, else the **one main
+  store**, else throw (message lists each store as `[main]`/`[ancillary]` and names `storeName`, `In<TStore>()`,
+  `In("name")`). The router's default and `Store` use the same rule. **The signal is the registration, not the
+  name:** `IsMainEventStore` finds the non-generic interface named `IDocumentStore` on the store's own type
+  (Marten's, Polecat's, Fisher's) and checks that the container resolves it to that very instance. All three
+  register their main store under `IDocumentStore` and an ancillary store under its marker only, so for an
+  ancillary store that service is another instance or nothing (Fisher's unwrapped ancillary store too; Polecat
+  does not put ancillary stores in `GetServices<IEventStore>()` at all). Rejected: `Identity.Name == "main"`
+  (only the default `StoreName`, user-settable), `Identity.Type` (the product, not the role), the
+  non-generic `IProjectionCoordinator` (exists only with a daemon). A store with no `IDocumentStore`
+  interface (fakes, in-memory) is never main, so such hosts keep the refusal. Waits ignore an untouched
+  ancillary store (above), so CritterWatch's store cannot stall a spec; its projections are all inline today
+  anyway, so Marten's wait returns at once for it.
 - **Not decided, so not built:** whether the Event Model records which store a slice's aggregate lives in
   (a JasperFx descriptor change); and an event type registered in more than one store, which is addressed
   with B only (routing by events then fails with the candidate list).
 - **Tested:** `store_routing` (fakes, no database: the routing rules, caching, the single-store no-read
-  guarantee, views, marker fallback) and `ancillary_stores_on_marten` / `ancillary_stores_on_fisher` (a real
-  main + ancillary store on each). Polecat has the same `AddPolecatStore<T>` / `IDocumentStoreUsageSource`
+  guarantee, views, marker fallback), `default_main_store` (fakes registered under a fake product's
+  `IDocumentStore` or a marker: main beside ancillary is the default, two mains or ancillary-only refuse, one store
+  is the default whatever its role, waits skip an untouched ancillary store), `ancillary_stores_on_marten` /
+  `ancillary_stores_on_fisher` (a real main + ancillary store on each, unqualified steps going to the main store),
+  and `main_store_default_on_marten` (an ancillary store whose async projection never runs: an unqualified spec
+  passes and its wait never touches that store, while `In<IConsoleStore>().AfterAsyncDaemonsCatchUpAsync()` times
+  out). Polecat has the same `AddPolecatStore<T>` / `IDocumentStoreUsageSource`
   surface but needs SQL Server, so it is a manual run, as elsewhere.
 - **WolverineFx.Bobcat follow-ups (wolverine#4977):** `WolverineScenario.runActAsync`'s high-water fallback
   still reads one store and should use `highWaterMarksAsync` / `readBackSinceAsync`. Its tracked-session
