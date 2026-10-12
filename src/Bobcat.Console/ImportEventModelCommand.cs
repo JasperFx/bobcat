@@ -238,6 +238,12 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             return null;
         }
 
+        // A slice the board moved to a chapter left out is still on the board, so an import of some chapters
+        // compares the definitions against the whole board's slice names (slice-removed-on-board)
+        var boardSlices = input.ChapterFlag.Count == 0
+            ? null
+            : EmlangImport.ToCurated(board, model, input.NamespaceFlag).Model.Slices.Select(ImportMerge.SliceName).ToList();
+
         // The spec writer reads the chapters imported, never the ones left out
         board = result.Board ?? board;
         run.Callouts = result.Callouts;
@@ -275,10 +281,10 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             : [new GeneratedFile($"{model}.cs", generated.Definition)];
 
         // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
-        var definitions = files.WriteDefinitions(outDirectory, definitionFiles, result.Model);
+        var definitions = files.WriteDefinitions(outDirectory, definitionFiles, result.Model, boardSlices);
         run.Out.WriteLine(
             $"Wrote {definitions.Written} event model definition(s)"
-            + (definitions.Merged > 0 ? $", merged new slices into {definitions.Merged}" : "")
+            + (definitions.Merged > 0 ? $", merged new slices or roles into {definitions.Merged}" : "")
             + (definitions.Kept > 0 ? $", kept {definitions.Kept}" : "")
             + ": " + string.Join(", ", definitionFiles.Select(x => x.Path))
             + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
@@ -313,6 +319,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         foreach (var callout in files.Callouts.Where(x => !x.Code.StartsWith("merged-", StringComparison.Ordinal)))
         {
             run.Out.WriteLine($"⚠ [{callout.Code}] {callout.Message}");
+            if (callout.Fix is not null) run.Out.WriteLine($"    {callout.Fix}");
         }
 
         run.Callouts = run.Callouts.Concat(files.Callouts).ToList();

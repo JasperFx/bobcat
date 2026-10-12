@@ -227,14 +227,21 @@ that settles it:
 | `merged-spec` | A re-import added a spec for a new example to the existing class bound to its feature | nothing; it is red until the behaviour exists |
 | `merged-using` | A re-import added a `global using` to the spec project's `GlobalUsings.cs` | nothing |
 | `type-differs-from-board` | A type lacks a member the board names, or types it differently. The type was not touched | edit the type, if the board is right |
-| `slice-differs-from-board` | The board gives an existing slice a role (`Emits`, `Publishes`, `On`, `Reads`, `Produces`) its declaration doesn't have. The declaration was not touched | add the call, if the board is right |
+| `merged-slice-roles` | The board gives an existing slice roles (`Emits`, `Publishes`, `On`, `Reads`, `Produces`, `Projects`) no declaration of it says, so a statement reopening the slice by name was added at the end of the definition's `Configure`. `roles` lists them | nothing; review it |
+| `slice-differs-from-board` | The board gives an existing slice roles no declaration says, and they could not be added: the slice is declared in a file other than its chapter's definition | the `fix`: the calls to add, and where |
+| `slice-aggregate-differs` | The board's aggregate for an existing slice (the stream it starts, what it decides against) isn't what its declaration says. Nothing was changed | the `fix`, if the board is right; the `override` flags, when the board's aggregate is inferred and the code is right |
+| `slice-trigger-differs` | The board's trigger for an existing slice (its label or kind) isn't what its declaration says. Nothing was changed | the `fix`, if the board is right |
+| `slice-pattern-differs` | The board's pattern for an existing slice isn't what its declaration says. Nothing was changed | the `fix`, if the board is right |
+| `slice-role-removed-on-board` | A declaration says a role the board doesn't give the slice. Nothing was removed | the `fix`, if the board is right; nothing, if you added the role by hand |
+| `slice-removed-on-board` | A definition declares a slice the board doesn't have. Nothing was removed | the `fix`, if the board is right; nothing, if you declared the slice by hand |
 | `merge-skipped-unparseable` | An existing file does not parse, so nothing was merged into it | fix the file and import again |
 | `merge-skipped-no-insertion-point` | The namespace, definition class, `Configure` method or feature class to insert into is not in the file | add it by hand |
 | `merge-skipped-ambiguous` | More than one place could take the addition, so none was chosen | add it by hand |
 
 Callouts about the project rather than a slice have an empty `slice`, a `file` naming what they are
-about, and a `fix` holding the exact line, package or command. The merge callouts carry a `file`, and a
-`type` when they are about one type.
+about, and a `fix` holding the exact line, package or command. The merge callouts carry a `file`, a
+`type` when they are about one type, `roles` (each as `Emits(AppointmentNoShowRecorded)`) when they are
+about a slice's roles, and a `fix` when there is an edit to make by hand.
 
 The messages may be reworded; a code never is, and codes are only ever added (the same contract as
 `wolverine scaffold --json`).
@@ -438,7 +445,7 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 
 | File | What is added | What is never touched |
 |---|---|---|
-| The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares | every existing declaration, even where the board now says something else (`slice-differs-from-board` says what) |
+| The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares; a statement reopening an existing slice by name with the roles the board now gives it (see below) | every existing declaration, even where the board now says something else (the `slice-*` callouts say what) |
 | A slice's stub file (`Features/{Chapter}/{Slice}.cs`) | each type the board names that no file in `--out` declares, at the end of the file's namespace, plus any `using` it needs | every existing type, even where its members differ from the board's (`type-differs-from-board`) |
 | A slice's specification file | a spec for each example that has none, at the end of the class bound to its `[BobcatFeature]`, wherever that class now lives | every existing spec method |
 | `GlobalUsings.cs` | the namespaces it lacks | the rest |
@@ -453,15 +460,56 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
   A board member missing from the type, or typed differently, is.
 - **It is idempotent.** Run it twice and the second run changes nothing.
 - Each merge prints a line, e.g. `Added 1 slice declaration (SubmitHomeCheckReport) to
-  Features/VolunteeringAndHomeChecks/VolunteeringAndHomeChecksModel.cs.`, and `--json` lists the
-  file with `"mode": "merge"`.
+  Features/VolunteeringAndHomeChecks/VolunteeringAndHomeChecksModel.cs.` or `Added 1 role
+  (RecordAppointmentNoShow: Emits(AppointmentNoShowRecorded)) to
+  Features/BookingAppointments/BookingAppointmentsModel.cs.`, and `--json` lists the file with
+  `"mode": "merge"`.
 - **`--force` still overwrites**, as before. The spec project's `.csproj`, `global.json` and
   `AssemblyAttributes.cs` are never touched, with or without it, and `TestSupport.cs` is written only
   when it is missing.
 
-**A new event on an existing slice gets its type, not its role.** The stub file gains the event,
-but the slice's declaration keeps the roles it had. `slice-differs-from-board` names the missing
-`.Emits<T>()`, and until you add it `wolverine scaffold` won't write an `Apply` for it.
+#### A new role on an existing slice
+
+When the board gives a slice the definition already declares a new event, message, consumed event,
+read, read model or projection, the stub file gains the type and the definition gains a statement at
+the end of `Configure` that **reopens the slice by name** with just the missing roles:
+
+```csharp
+        model.Command<RecordAppointmentNoShow>()
+            .TriggeredBy("Record Appointment No-Show", TriggerKind.Human);
+
+        model.Slice("RecordAppointmentNoShow").Emits<AppointmentNoShowRecorded>();
+```
+
+The declaration itself is never edited. JasperFx folds every statement naming a slice into one slice
+and unions their roles, in one definition or across several, so the model and `wolverine scaffold` see
+`RecordAppointmentNoShow` emitting both events, and `scaffold` writes the `Apply` for the new one.
+
+- **Several new roles for one slice are one statement**, a call per line.
+- **A role is already there if any statement says it**, the declaration, an earlier reopening statement,
+  or one you moved to another definition, so a re-run adds nothing. Fold it into the declaration and
+  delete the reopening statement if you prefer; the next import won't add it back.
+- **A declaration that names its own chapter or domain** (`.InChapter("Elsewhere")`) is reopened in that
+  chapter, or the two statements would disagree.
+- `merged-slice-roles` says what was added. A slice declared in another file than its chapter's
+  definition is not reopened; `slice-differs-from-board` gives the calls to add there.
+
+#### What a re-import reports and never changes
+
+Comparing the board's declaration with the file's, declared to declared, a re-import reports, and never
+applies:
+
+| Code | When |
+|---|---|
+| `slice-aggregate-differs` | the board's aggregate for a slice isn't the declaration's. A board that claims no aggregate is no disagreement, and neither is a declared DCB decider |
+| `slice-trigger-differs` | the board states a trigger label or kind the declaration doesn't say. A trigger you added where the board states none is not reported |
+| `slice-pattern-differs` | the board's pattern isn't the declaration's |
+| `slice-role-removed-on-board` | a declaration says a role the board doesn't give the slice |
+| `slice-removed-on-board` | a definition declares a slice the board doesn't have, including every slice of a chapter the board dropped (any definition in `--out` carrying the import's header comment is compared). With `--chapter`, the whole board counts, so a slice the board moved to a chapter left out isn't reported |
+
+Each one's `fix` is the edit to make by hand, e.g. `Delete .Emits<ReminderScheduled>() from the
+declaration of slice ConfirmAppointment in BookingModel.cs.` The board can't tell a removal from
+something you added yourself, so a role or slice you declared by hand is reported too; leave it.
 
 <!-- JEREMY: why additive -- the board keeps moving after the first import, and the files are where the
 corrections live. -->
