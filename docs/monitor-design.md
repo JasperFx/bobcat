@@ -443,6 +443,22 @@ its events are read cannot tell an additive change from a breaking one.
 - A consumer that ignores `Reports` entirely is exactly as correct as it was before the field
   existed. Nothing else on `scenario_finished` changed.
 
+## A scenario says what its steps cost (issue #466, built 2026-10-11)
+
+`ScenarioFinished` gained a **trailing, optional** `StepsMs`: what the scenario's top-level steps
+cost, added up. `DurationMs` was already the whole bracket, so the two together say how much of a
+scenario no step owns -- test-body code between helpers, an assertion in the test's own library, a
+wait that isn't a step.
+
+- **Projected lane only.** The Gherkin runner leaves it null; it reports that time through its
+  lifecycle points instead, and those do not travel on this wire.
+- **Null means not measured, never zero.** A consumer that sees null renders no step figure at all,
+  and one that ignores `StepsMs` is exactly as correct as it was before. Nothing else on
+  `scenario_finished` changed.
+- **No lifecycle points, on purpose.** In the projected lane fixture setup belongs to the test
+  runner and runs outside the bracket, so there is nothing for Bobcat to report. See
+  [marker steps](marker-steps.md#timing).
+
 ## The resident runner wire (issue #390, built 2026-10-02)
 
 A second wire on the same origin, and the only one that runs in the other direction. Everything so
