@@ -56,9 +56,44 @@ partial class Build : NukeBuild
             // SDK), and that mode rejects a positional solution or project. It also prints each
             // failing test's name, message and stack to the console itself, so there is no
             // TestResults/*.log to go and read any more.
+            //
+            // BOBCAT_SKIP_TUNIT_HOSTED=1 TEMPORARILY takes the TUnit-hosted tests out of CI
+            // (bobcat#521): they failed the 0.60.2 publish run deterministically while passing in
+            // tests.yml. It skips TUnitResidentSuiteTests and TUnitTreeNodeFilterTests
+            // ([TUnitHostedFact]/[TUnitHostedTheory]) and leaves Bobcat.TUnit.Tests out of the run
+            // (its csproj). Run them with the TUnitTests target. Revert by removing this variable.
             DotNetTest(s => s
                 .SetProcessAdditionalArguments("--solution", Solution)
                 .SetConfiguration(Configuration)
+                .SetProcessEnvironmentVariable(TUnitHostedVariable, "1")
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    const string TUnitHostedVariable = "BOBCAT_SKIP_TUNIT_HOSTED";
+
+    // The tests CI leaves out for now (bobcat#521), on demand: `./build.sh TUnitTests`. Not part
+    // of CI; delete it when they go back into Test.
+    Target TUnitTests => _ => _
+        .DependsOn(Compile)
+        .After(Docker)
+        .Executes(() =>
+        {
+            DotNetTest(s => s
+                .SetProcessAdditionalArguments(
+                    "--project", RootDirectory / "src" / "Bobcat.Supervisor.Tests" / "Bobcat.Supervisor.Tests.csproj",
+                    "--filter-class", "Bobcat.Supervisor.Tests.TUnitResidentSuiteTests",
+                    "--filter-class", "Bobcat.Supervisor.Tests.TUnitTreeNodeFilterTests")
+                .SetConfiguration(Configuration)
+                .SetProcessEnvironmentVariable(TUnitHostedVariable, "0")
+                .EnableNoBuild()
+                .EnableNoRestore());
+
+            DotNetTest(s => s
+                .SetProcessAdditionalArguments(
+                    "--project", RootDirectory / "src" / "Bobcat.TUnit.Tests" / "Bobcat.TUnit.Tests.csproj")
+                .SetConfiguration(Configuration)
+                .SetProcessEnvironmentVariable(TUnitHostedVariable, "0")
                 .EnableNoBuild()
                 .EnableNoRestore());
         });

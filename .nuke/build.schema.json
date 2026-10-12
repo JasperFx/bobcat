@@ -34,7 +34,8 @@
         "Samples",
         "Test",
         "TestSamples",
-        "TestSamplesOnFisher"
+        "TestSamplesOnFisher",
+        "TUnitTests"
       ]
     },
     "Verbosity": {

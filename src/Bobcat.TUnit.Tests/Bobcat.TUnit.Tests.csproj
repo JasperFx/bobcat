@@ -21,6 +21,17 @@
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
+  <!-- TEMPORARILY out of the Nuke CI target (bobcat#521). The Test target sets
+       BOBCAT_SKIP_TUNIT_HOSTED=1 on its dotnet test process only, and dotnet test in
+       Microsoft.Testing.Platform mode then sees no test project here: IsTestingPlatformApplication
+       (which TUnit.Engine's props set) AND IsTestProject both off, since one without the other reads
+       as a VSTest project and fails the run. Compile never sees the variable, so the build is
+       unchanged. Run it on demand with ./build.sh TUnitTests. -->
+  <PropertyGroup Condition="'$(BOBCAT_SKIP_TUNIT_HOSTED)' == '1'">
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="TUnit" />
   </ItemGroup>
