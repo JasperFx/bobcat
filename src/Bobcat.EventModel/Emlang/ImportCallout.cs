@@ -32,6 +32,39 @@ public static class ImportCalloutCodes
 
     /// <summary>No aggregate could be declared or inferred for the command.</summary>
     public const string MissingAggregate = "missing-aggregate";
+
+    // The spec project and the application it runs against (bobcat: import writes the spec project).
+    // These are about the project, not a slice, so their Slice is empty and File names what they are about.
+
+    /// <summary>A spec project file (.csproj, global.json, AssemblyAttributes.cs) already exists and was kept, never overwritten.</summary>
+    public const string SpecProjectFileKept = "spec-project-file-kept";
+
+    /// <summary>The existing spec project references nothing that provides a package the generated specifications need.</summary>
+    public const string SpecProjectMissingReference = "spec-project-missing-reference";
+
+    /// <summary>The existing spec project declares no <c>[assembly: EventModelName]</c>, so its slices cannot join the application's model.</summary>
+    public const string SpecProjectMissingEventModelName = "spec-project-missing-event-model-name";
+
+    /// <summary>The global.json that governs the spec project does not put <c>dotnet test</c> on Microsoft.Testing.Platform.</summary>
+    public const string GlobalJsonMissingTestRunner = "global-json-missing-test-runner";
+
+    /// <summary>The repository manages package versions centrally, so the versions the spec project needs go in Directory.Packages.props.</summary>
+    public const string CentralPackageVersions = "central-package-versions";
+
+    /// <summary>The spec project is not in the solution beside it.</summary>
+    public const string SpecProjectNotInSolution = "spec-project-not-in-solution";
+
+    /// <summary>No single application project was found, so the spec project has no ProjectReference to it.</summary>
+    public const string AppProjectNotFound = "app-project-not-found";
+
+    /// <summary>The application declares no public <c>Program</c>, which Alba needs to start it.</summary>
+    public const string AppProgramNotPublic = "app-program-not-public";
+
+    /// <summary>The application does not end with <c>RunJasperFxCommands(args)</c>, so <c>wolverine scaffold</c> and the codegen commands cannot run.</summary>
+    public const string AppMissingRunJasperFxCommands = "app-missing-run-jasperfx-commands";
+
+    /// <summary>The application references no WolverineFx.RuntimeCompilation, so a TypeLoadMode.Dynamic host fails to start.</summary>
+    public const string AppMissingRuntimeCompilation = "app-missing-runtime-compilation";
 }
 
 /// <summary>
@@ -58,6 +91,12 @@ public sealed record ImportCallout(string Slice, string Code, IReadOnlyList<stri
 
     /// <summary>The chapters the evidence came from that were not imported, for <see cref="ImportCalloutCodes.StreamStartFromUnimportedChapter"/>.</summary>
     public IReadOnlyList<string> Chapters { get; init; } = [];
+
+    /// <summary>The file a project-level callout is about (a .csproj, global.json or Program.cs); null for a slice's callout.</summary>
+    public string? File { get; init; }
+
+    /// <summary>The exact line, package or command that settles a project-level callout; null when the message says it all.</summary>
+    public string? Fix { get; init; }
 }
 
 /// <summary>A file <c>import-event-model</c> wrote, or kept because it already exists.</summary>
@@ -98,6 +137,8 @@ public static class ImportJson
                 json.WriteEndObject();
 
                 if (callout.Override is not null) json.WriteString("override", callout.Override);
+                if (callout.File is not null) json.WriteString("file", callout.File);
+                if (callout.Fix is not null) json.WriteString("fix", callout.Fix);
                 json.WriteEndObject();
             }
 

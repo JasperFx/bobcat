@@ -490,10 +490,6 @@ equality, so they all leave it unstated. See
 
 ## Gaps worth knowing about
 
-- **A decision table has one computed output.** Storyteller's decision tables took several, through
-  `out` parameters; `TableRunner.Run` compares only a return value
-  ([#483](https://github.com/JasperFx/bobcat/issues/483)). Report several outputs yourself, row by row,
-  with `SpecAssert.Check(column, actual, expected, rowIndex: i)`.
 - **No inline list capture.** Storyteller's `[FormatAs("The array of names should be {names}")]`
   compared a whole array from one cell. The closest thing here is a table, which is a set of plain
   values.

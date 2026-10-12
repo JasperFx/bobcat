@@ -33,6 +33,18 @@ public class ImportEventModelInput
     [FlagAlias("specs-namespace", true)]
     public string? SpecsNamespaceFlag { get; set; }
 
+    [Description("WolverineFx.Bobcat version for a spec project the import writes (one is written when the spec directory has no .csproj); defaults to the newest published. The csproj keeps it in the WolverineFxBobcatVersion property")]
+    [FlagAlias("wolverine-version", true)]
+    public string? WolverineVersionFlag { get; set; }
+
+    [Description("Bobcat package version for a spec project the import writes; defaults to this tool's own version")]
+    [FlagAlias("bobcat-version", true)]
+    public string? BobcatVersionFlag { get; set; }
+
+    [Description("The application's .csproj, which the spec project references and the checks on Program read; defaults to the one .csproj in --out")]
+    [FlagAlias("app-project", true)]
+    public string? AppProjectFlag { get; set; }
+
     [Description("The application's event store -- marten, polecat or fisher -- which decides how the generated test host runs its async daemon")]
     [FlagAlias("store", true)]
     public string? StoreFlag { get; set; }
@@ -72,7 +84,7 @@ public class ImportEventModelInput
 /// design out as <b>C#</b>: stub records with the fields the model names, one file per slice in a
 /// folder per chapter (bobcat#441), plus one <c>EventModelDefinition</c> (issues #202, #405, #422).
 /// With <c>--specs</c>, also one WolverineFx.Bobcat specification per example in the model
-/// (bobcat#423), as <c>TestSupport.cs</c> and one file per slice (bobcat#440). Nothing is overwritten
+/// (bobcat#423), as <c>TestSupport.cs</c> and one file per slice (bobcat#440). When the spec directory holds no project, the spec project too (<see cref="SpecProjectWriter"/>), and the checks on the application. Nothing is overwritten
 /// without <c>--force</c>; a second <c>--specs</c> run reports the examples with no specification. Optionally pushes the assembled model to a run
 /// console, which lives in Stoat since the 2026-09-18 fold; this side is only ever an HTTP client
 /// of it.
@@ -278,6 +290,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             var specsDirectory = Path.GetFullPath(input.SpecsOutFlag
                                                   ?? Path.Combine(Path.GetDirectoryName(outDirectory) ?? outDirectory, specsNamespace));
             writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag, run);
+            writeSpecProject(input, model, specsNamespace, outDirectory, specsDirectory, run);
         }
 
         return new Imported(result.Model, generated.Layout);
@@ -334,8 +347,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var (written, kept) = writeAll(directory, specs.Files, force, run.Files);
         run.Out.WriteLine(
             $"Wrote {written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
-            + $"{EmlangSpecWriter.TestSupportFile} starts the application's own host through Alba, so its Program must be public. The spec project needs "
-            + "xunit.v3, Microsoft.NET.Test.Sdk and xunit.runner.visualstudio (see the bobcat-tool docs), or Rider and Visual Studio find no tests.");
+            + $"{EmlangSpecWriter.TestSupportFile} starts the application's own host through Alba.");
         if (kept == 0) return;
 
         // One-shot: a file that already exists is kept, so say what the model has that the
@@ -348,6 +360,42 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             ? "Every example in the model has a specification."
             : $"{missing.Count} example(s) in the model have no specification:");
         foreach (var name in missing) run.Out.WriteLine($"  {name}");
+    }
+
+    /// <summary>
+    /// The spec project around the specifications, when the directory has none, and the checks on the
+    /// application. Every decision is <see cref="SpecProjectWriter.Plan"/>'s; nothing it names that already
+    /// exists is written, with or without --force.
+    /// </summary>
+    private static void writeSpecProject(ImportEventModelInput input, string model, string specsNamespace, string outDirectory,
+        string specsDirectory, ImportRun run)
+    {
+        var appProject = input.AppProjectFlag is { Length: > 0 } flag
+            ? Path.GetFullPath(flag)
+            : SpecProjectWriter.FindAppProject(outDirectory);
+
+        var plan = SpecProjectWriter.Plan(new SpecProjectRequest(specsDirectory, specsNamespace, model, appProject,
+            input.BobcatVersionFlag, input.WolverineVersionFlag));
+
+        foreach (var file in plan.Files)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file.Path)!);
+            File.WriteAllText(file.Path, file.Content); // UTF-8 without a BOM
+            run.Files.Add(new ImportedFile(file.Path, "write"));
+        }
+
+        foreach (var file in plan.Kept) run.Files.Add(new ImportedFile(file.Path, "kept"));
+
+        run.Report.AddRange(plan.Report);
+        foreach (var line in plan.Report) run.Out.WriteLine(line);
+
+        foreach (var callout in plan.Callouts)
+        {
+            run.Out.WriteLine($"⚠ [{callout.Code}] {callout.Message}");
+            if (callout.Fix is not null) run.Out.WriteLine($"    {callout.Fix.Replace("\n", "\n    ")}");
+        }
+
+        run.Callouts = run.Callouts.Concat(plan.Callouts).ToList();
     }
 
     private static async Task<bool> pushAsync(string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor, TextWriter output)
