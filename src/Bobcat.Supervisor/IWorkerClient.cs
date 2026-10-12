@@ -23,6 +23,20 @@ public enum WorkerTestState
 public sealed record WorkerTest(string Uid, string DisplayName)
 {
     /// <summary>
+    /// The class the test is declared on, namespace-qualified, when the worker said so — MTP's
+    /// <c>location.type</c>. Null for a front-end that reports no location.
+    /// </summary>
+    /// <remarks>
+    /// Carried so a declaration made in code can be joined to the uid the platform runs the test
+    /// by (issue #469): a recovery hint declared on a class arrives from the worker's manifest
+    /// naming the class, and on xUnit the uid is a hash that names nothing.
+    /// </remarks>
+    public string? TestClass { get; init; }
+
+    /// <summary>The test's method name, when the worker said so — MTP's <c>location.method</c>.</summary>
+    public string? TestMethod { get; init; }
+
+    /// <summary>
     /// Framework metadata — xUnit <c>[Trait]</c>, tUnit <c>[Property]</c>, Bobcat tags. The #43
     /// spike established this is the only metadata channel that survives every front-end intact,
     /// so retry policy keys off these rather than exception types.
@@ -34,6 +48,12 @@ public sealed record WorkerTest(string Uid, string DisplayName)
 /// <summary>One test's outcome from one attempt.</summary>
 public sealed record WorkerOutcome(string Uid, string DisplayName, WorkerTestState State)
 {
+    /// <summary>See <see cref="WorkerTest.TestClass"/>.</summary>
+    public string? TestClass { get; init; }
+
+    /// <summary>See <see cref="WorkerTest.TestMethod"/>.</summary>
+    public string? TestMethod { get; init; }
+
     public string? ErrorType { get; init; }
     public string? ErrorMessage { get; init; }
     public string? StackTrace { get; init; }

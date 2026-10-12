@@ -46,6 +46,15 @@ public static class JsonRenderer
     /// console renders a summary, this is the record. Null when nothing was measured and
     /// nothing is flagged, so an older artifact reads as absent rather than zero.
     /// </summary>
+    /// <summary>
+    /// The timing block on its own -- the same shape <see cref="RenderSuite"/> nests under
+    /// <c>timing</c> -- for a suite that produced no <see cref="SuiteResults"/>: a projected one,
+    /// read through <see cref="SuiteTiming.For(IEnumerable{ScenarioRecorder.Recording})"/> (issue
+    /// #466). <c>null</c> when nothing was measured and nothing is flagged.
+    /// </summary>
+    public static string RenderTiming(SuiteTiming timing)
+        => JsonSerializer.Serialize(timingToJson(timing), options);
+
     private static JsonTimingOutput? timingToJson(SuiteTiming timing)
     {
         if (!timing.IsMeasured && timing.WithoutAssertions.Count == 0 && timing.Unmeasured == 0) return null;
@@ -60,11 +69,13 @@ public static class JsonRenderer
                 Title = s.Title,
                 WallClockMs = (long)s.WallClock.TotalMilliseconds,
                 StepsMs = (long)s.Steps.TotalMilliseconds,
-                LifecycleMs = (long)s.Lifecycle.TotalMilliseconds,
+                LifecycleMs = s.Lifecycle is { } lifecycle ? (long)lifecycle.TotalMilliseconds : null,
                 UnownedMs = (long)s.Unowned.TotalMilliseconds
             }).ToList(),
             Steps = timing.Steps.Select(costToJson).ToList(),
-            Lifecycle = timing.Lifecycle.Select(costToJson).ToList(),
+            // Absent, not empty, when it was never measured: [] would read as "no lifecycle cost".
+            Lifecycle = timing.LifecycleMeasured ? timing.Lifecycle.Select(costToJson).ToList() : null,
+            LifecycleMeasured = timing.LifecycleMeasured ? null : false,
             Gaps = timing.Gaps.Count > 0
                 ? timing.Gaps.Select(g => new JsonGapOutput
                 {
@@ -115,6 +126,7 @@ public static class JsonRenderer
             Succeeded = spec.Succeeded,
             Counts = countsToJson(spec.Counts),
             DurationMs = spec.DurationMs,
+            StepsMs = spec.StepsMs,
             Lifecycle = spec.Timeline.Count > 0
                 ? spec.Timeline.Select(p => new JsonTimelinePointOutput
                 {
@@ -258,8 +270,18 @@ internal class JsonTimingOutput
     /// <summary>Per normalized step text across the suite, costliest first.</summary>
     public List<JsonStepCostOutput> Steps { get; set; } = new();
 
-    /// <summary>Per lifecycle point across the suite, costliest first.</summary>
-    public List<JsonStepCostOutput> Lifecycle { get; set; } = new();
+    /// <summary>
+    /// Per lifecycle point across the suite, costliest first. Absent when the lifecycle was not
+    /// measured -- see <see cref="LifecycleMeasured"/>.
+    /// </summary>
+    public List<JsonStepCostOutput>? Lifecycle { get; set; }
+
+    /// <summary>
+    /// <c>false</c> for projected input, whose lifecycle belongs to the test runner and is not
+    /// measured (issue #466); absent for a Gherkin run, which always measured it. Additive, so a
+    /// Gherkin artifact reads exactly as it did.
+    /// </summary>
+    public bool? LifecycleMeasured { get; set; }
 
     /// <summary>Time no stop point owns, largest first.</summary>
     public List<JsonGapOutput>? Gaps { get; set; }
@@ -274,7 +296,13 @@ internal class JsonScenarioTimingOutput
     public string Title { get; set; } = "";
     public long WallClockMs { get; set; }
     public long StepsMs { get; set; }
-    public long LifecycleMs { get; set; }
+    /// <summary>Absent when the lifecycle was not measured (projected input), never zero-filled.</summary>
+    public long? LifecycleMs { get; set; }
+
+    /// <summary>
+    /// Wall clock no step or lifecycle point owns. With the lifecycle unmeasured it is simply the
+    /// time outside the steps, unattributed.
+    /// </summary>
     public long UnownedMs { get; set; }
 }
 
@@ -323,6 +351,13 @@ internal class JsonScenarioOutput
 
     /// <summary>True bracket wall clock, not the last step's end (issue #141).</summary>
     public long DurationMs { get; set; }
+
+    /// <summary>
+    /// What the steps themselves cost, top-level steps summed (issue #466). With
+    /// <see cref="DurationMs"/> it says how much of the scenario no step owns. Projected lane only;
+    /// absent when not measured, never zero-filled.
+    /// </summary>
+    public long? StepsMs { get; set; }
 
     /// <summary>
     /// Named lifecycle stop points — BeforeEach, the reset/scope bracket, teardown — on the

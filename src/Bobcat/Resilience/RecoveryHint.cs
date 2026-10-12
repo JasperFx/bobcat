@@ -55,11 +55,24 @@ public sealed record RecoveryHint
     /// </remarks>
     public string? TestIdPrefix { get; init; }
 
+    /// <summary>
+    /// Limits the hint to exactly these test ids; null applies it to every test
+    /// <see cref="TestIdPrefix"/> lets through.
+    /// </summary>
+    /// <remarks>
+    /// Exists for hints that crossed a process boundary (issue #469). A supervisor's test id is the
+    /// platform's uid — an opaque hash on xUnit — so a class's tests share no prefix, and the only
+    /// way to scope a class or method hint to them is to name them. An empty set applies to nothing,
+    /// which is what a hint declared on a class discovery never reported should do.
+    /// </remarks>
+    public IReadOnlySet<string>? TestIds { get; init; }
+
     /// <summary>Where this came from — a fixture name, an assembly, or the ledger. For reporting.</summary>
     public string Source { get; init; } = "";
 
     public bool AppliesTo(string testId)
-        => TestIdPrefix is null || testId.StartsWith(TestIdPrefix, StringComparison.OrdinalIgnoreCase);
+        => (TestIdPrefix is null || testId.StartsWith(TestIdPrefix, StringComparison.OrdinalIgnoreCase))
+           && (TestIds is null || TestIds.Contains(testId));
 
     /// <summary>Reads as an explanation in the run report, because that is where it ends up.</summary>
     public override string ToString()
@@ -106,6 +119,23 @@ public sealed class RecoveryHintSet
     {
         foreach (var hint in hints) Add(hint);
         return this;
+    }
+
+    /// <summary>
+    /// Remove one hint, by reference. True when it was in the set.
+    /// </summary>
+    /// <remarks>
+    /// By reference rather than by value, so withdrawing the hints one source added — a supervisor
+    /// replacing what a previous run read from a worker's manifest — can never take out an equal
+    /// hint someone registered by hand.
+    /// </remarks>
+    public bool Remove(RecoveryHint hint)
+    {
+        var index = _hints.FindIndex(candidate => ReferenceEquals(candidate, hint));
+        if (index < 0) return false;
+
+        _hints.RemoveAt(index);
+        return true;
     }
 
     /// <summary>

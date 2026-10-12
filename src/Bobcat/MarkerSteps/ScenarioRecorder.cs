@@ -259,6 +259,37 @@ public static class ScenarioRecorder
 
         public IReadOnlyList<RecordedStep> Steps => _steps;
 
+        /// <summary>
+        /// The bracket's wall clock: from the adapter opening this scenario to closing it, in
+        /// milliseconds (issue #466). Null while the scenario is still open, and for a scenario
+        /// that was withdrawn rather than closed.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Separate from <see cref="StepsMs"/> on purpose.</b> A projected test spends time its
+        /// steps do not own -- the test body between two helpers, an assertion written with the
+        /// test's own library, a wait that is not a step. Reporting the step span as the duration
+        /// made a scenario whose cost sat outside its steps read as a fast one.
+        /// </para>
+        /// <para>
+        /// <b>What it does not cover.</b> The bracket opens in the adapter's before-test hook, so
+        /// the runner's own lifecycle -- the test class constructor, <c>IAsyncLifetime</c>, class
+        /// and assembly fixtures -- happens outside it. Bobcat does not own that lifecycle and does
+        /// not measure it; see <see cref="Runtime.SuiteTiming.LifecycleMeasured"/>.
+        /// </para>
+        /// </remarks>
+        public long? WallClockMs { get; private set; }
+
+        /// <summary>
+        /// What the scenario's steps themselves cost: the durations of the top-level steps that
+        /// finished, added up. A nested step is already inside its parent's duration, so counting
+        /// it again would claim more time than the clock saw. Notes are instantaneous and count
+        /// for nothing.
+        /// </summary>
+        public long StepsMs => _steps
+            .Where(x => x.Depth == 0 && x.EndedAtMs is not null)
+            .Sum(x => Math.Max(0, x.EndedAtMs!.Value - x.StartedAtMs));
+
         private readonly List<IScenarioReport> _reports = new();
         private IDisposable? _reportScope;
 
@@ -690,7 +721,11 @@ public static class ScenarioRecorder
             _reportScope?.Dispose();
             _reportScope = null;
 
+            // A withdrawn scenario made no claim, so it has no duration to report either.
             if (_cancelled) return;
+
+            // Stamped once: a second Dispose must not re-read a stopped clock as a later time.
+            WallClockMs ??= _clock.ElapsedMilliseconds;
 
             // A gathered wrong is a real failure even when nothing threw, so it decides the
             // scenario's outcome exactly as the runner's own verdict does.
@@ -700,11 +735,12 @@ public static class ScenarioRecorder
                 _runId, Uid,
                 failure is null ? "CleanPass" : "Failed",
                 Attempts: 1,
-                DurationMs: _clock.ElapsedMilliseconds,
+                DurationMs: WallClockMs.Value,
                 ErrorMessage: failure,
                 TouchedTypes: MonitorTouchedTypes.From(TouchedTypes),
                 At: DateTimeOffset.UtcNow,
-                Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null)));
+                Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null),
+                StepsMs: StepsMs));
 
             ScenarioCompleted?.Invoke(this);
         }
