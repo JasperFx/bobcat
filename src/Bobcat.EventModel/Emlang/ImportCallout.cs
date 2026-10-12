@@ -65,6 +65,43 @@ public static class ImportCalloutCodes
 
     /// <summary>The application references no WolverineFx.RuntimeCompilation, so a TypeLoadMode.Dynamic host fails to start.</summary>
     public const string AppMissingRuntimeCompilation = "app-missing-runtime-compilation";
+
+    // The additive re-import (import-additive-merge): what a run without --force added to a file that
+    // already existed, and what it could not place. These name the File they are about; a merged slice
+    // or specification also names its Slice, and a merged or differing type its Type.
+
+    /// <summary>A slice the board has and no definition declared was added to the end of an existing definition's <c>Configure</c>.</summary>
+    public const string MergedSliceDeclaration = "merged-slice-declaration";
+
+    /// <summary>An aggregate a merged slice names, and no definition declared, was declared beside it.</summary>
+    public const string MergedAggregateDeclaration = "merged-aggregate-declaration";
+
+    /// <summary>A stub type the board names and the project did not declare was added to an existing stub file.</summary>
+    public const string MergedType = "merged-type";
+
+    /// <summary>A specification for an example with none was added to the existing class bound to its feature.</summary>
+    public const string MergedSpec = "merged-spec";
+
+    /// <summary>A <c>global using</c> the specifications need was added to an existing GlobalUsings.cs.</summary>
+    public const string MergedUsing = "merged-using";
+
+    /// <summary>A type the project declares lacks a member the board names, or types it differently. The type was left alone.</summary>
+    public const string TypeDiffersFromBoard = "type-differs-from-board";
+
+    /// <summary>
+    /// The board gives a slice a role its existing declaration does not say: an event it emits, a message it
+    /// publishes, an event it is on, what it reads or produces. The declaration was left alone.
+    /// </summary>
+    public const string SliceDiffersFromBoard = "slice-differs-from-board";
+
+    /// <summary>An existing file does not parse, so nothing was merged into it.</summary>
+    public const string MergeSkippedUnparseable = "merge-skipped-unparseable";
+
+    /// <summary>The namespace, definition class, <c>Configure</c> method or feature class the merge inserts into is not in the file.</summary>
+    public const string MergeSkippedNoInsertionPoint = "merge-skipped-no-insertion-point";
+
+    /// <summary>More than one place in the file could take the addition, so none was chosen.</summary>
+    public const string MergeSkippedAmbiguous = "merge-skipped-ambiguous";
 }
 
 /// <summary>
@@ -97,11 +134,17 @@ public sealed record ImportCallout(string Slice, string Code, IReadOnlyList<stri
 
     /// <summary>The exact line, package or command that settles a project-level callout; null when the message says it all.</summary>
     public string? Fix { get; init; }
+
+    /// <summary>The type a merge callout is about (<c>merged-type</c>, <c>type-differs-from-board</c>); null otherwise.</summary>
+    public string? Type { get; init; }
 }
 
 /// <summary>A file <c>import-event-model</c> wrote, or kept because it already exists.</summary>
 /// <param name="Path">The full path.</param>
-/// <param name="Mode"><c>write</c>, or <c>kept</c> when it existed and <c>--force</c> was not given.</param>
+/// <param name="Mode">
+/// <c>write</c>; <c>merge</c> when it existed and the re-import added to it; or <c>kept</c> when it existed,
+/// <c>--force</c> was not given and there was nothing to add.
+/// </param>
 public sealed record ImportedFile(string Path, string Mode);
 
 /// <summary>bobcat#454: the machine-readable form of an import, which <c>import-event-model --json</c> writes.</summary>
@@ -139,6 +182,7 @@ public static class ImportJson
                 if (callout.Override is not null) json.WriteString("override", callout.Override);
                 if (callout.File is not null) json.WriteString("file", callout.File);
                 if (callout.Fix is not null) json.WriteString("fix", callout.Fix);
+                if (callout.Type is not null) json.WriteString("type", callout.Type);
                 json.WriteEndObject();
             }
 

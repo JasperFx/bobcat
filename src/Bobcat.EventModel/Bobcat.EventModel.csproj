@@ -15,6 +15,10 @@
          specifications / elements. -->
     <PackageReference Include="JasperFx.Events" />
     <PackageReference Include="YamlDotNet" />
+    <!-- The additive re-import (ImportMerge) parses the files an earlier import wrote, and the user
+         has since edited, to find where an addition goes: the end of a definition's Configure, of a
+         stub's namespace, of a spec class. A regex over C# breaks on the first reformat. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
 </Project>

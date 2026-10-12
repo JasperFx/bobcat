@@ -71,7 +71,7 @@ public class ImportEventModelInput
     [FlagAlias("json", true)]
     public bool JsonFlag { get; set; }
 
-    [Description("Overwrite files that already exist. Without it nothing is overwritten, and a second --specs run reports the examples that have no specification")]
+    [Description("Overwrite files that already exist. Without it an existing file is merged into: the board's new slices, types and specifications are added and nothing already there is changed")]
     public bool ForceFlag { get; set; }
 
     [Description("Base URL of a run console to push the assembled model to (e.g. http://localhost:5525)")]
@@ -85,7 +85,8 @@ public class ImportEventModelInput
 /// folder per chapter (bobcat#441), plus one <c>EventModelDefinition</c> (issues #202, #405, #422).
 /// With <c>--specs</c>, also one WolverineFx.Bobcat specification per example in the model
 /// (bobcat#423), as <c>TestSupport.cs</c> and one file per slice (bobcat#440). When the spec directory holds no project, the spec project too (<see cref="SpecProjectWriter"/>), and the checks on the application. Nothing is overwritten
-/// without <c>--force</c>; a second <c>--specs</c> run reports the examples with no specification. Optionally pushes the assembled model to a run
+/// without <c>--force</c>; a re-import merges into the existing files instead, adding the board's new slices, types and
+/// specifications (<see cref="ImportFileWriter"/>). Optionally pushes the assembled model to a run
 /// console, which lives in Stoat since the 2026-09-18 fold; this side is only ever an HTTP client
 /// of it.
 /// </summary>
@@ -165,7 +166,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         public TextWriter Out { get; } = output;
         public IReadOnlyList<ImportCallout> Callouts { get; set; } = [];
         public List<string> Report { get; } = [];
-        public List<ImportedFile> Files { get; } = [];
+        public List<ImportedFile> Files { get; set; } = [];
     }
 
     /// <summary>
@@ -257,41 +258,39 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         var outDirectory = Path.GetFullPath(input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!);
         Directory.CreateDirectory(outDirectory);
 
-        // Nothing is overwritten without --force (bobcat#423): these files are where the design
-        // is corrected, so a second run must not throw the corrections away
-        var (written, kept) = writeAll(outDirectory, generated.StubFiles, input.ForceFlag, run.Files);
+        // Nothing is overwritten without --force (bobcat#423): these files are where the design is
+        // corrected. An existing file is merged into instead -- the board's new slices, types and
+        // specifications are added, nothing already there is changed -- so a re-import is additive
+        var files = new ImportFileWriter(input.ForceFlag);
+        run.Files = files.Files;
+
+        var stubs = files.WriteStubs(outDirectory, generated.StubFiles);
         run.Out.WriteLine(
-            $"Wrote {generated.StubCount} stub type(s) in {written} file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
-            + (kept > 0 ? $"; kept {kept} that already exist (--force overwrites them)." : "."));
+            $"Wrote {stubs.Written} stub file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
+            + (stubs.Merged > 0 ? $"; merged new types into {stubs.Merged}" : "")
+            + (stubs.Kept > 0 ? $"; kept {stubs.Kept} that already have every type the board names (--force overwrites them)." : "."));
 
-        if (generated.DefinitionFiles.Count > 0)
-        {
-            // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
-            var (definitions, _) = writeAll(outDirectory, generated.DefinitionFiles, input.ForceFlag, run.Files);
-            run.Out.WriteLine(
-                $"Wrote {definitions} event model definition(s), one per chapter: "
-                + string.Join(", ", generated.DefinitionFiles.Select(x => x.Path))
-                + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
-                + "guesses, so correct one with an edit rather than a re-import.");
-        }
-        else
-        {
-            var definitionPath = Path.Combine(outDirectory, $"{model}.cs");
-            if (write(definitionPath, generated.Definition, input.ForceFlag, run))
-            {
-                run.Out.WriteLine(
-                    $"Wrote the event model to {definitionPath}. The segmentation above is a set of guesses, "
-                    + "so correct one with an edit rather than a re-import.");
-            }
-        }
+        var definitionFiles = generated.DefinitionFiles.Count > 0
+            ? generated.DefinitionFiles
+            : [new GeneratedFile($"{model}.cs", generated.Definition)];
 
-        if (specs is not null)
-        {
-            var specsDirectory = Path.GetFullPath(input.SpecsOutFlag
-                                                  ?? Path.Combine(Path.GetDirectoryName(outDirectory) ?? outDirectory, specsNamespace));
-            writeSpecs(result.Model, specs, specsDirectory, input.ForceFlag, run);
-            writeSpecProject(input, model, specsNamespace, outDirectory, specsDirectory, run);
-        }
+        // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
+        var definitions = files.WriteDefinitions(outDirectory, definitionFiles, result.Model);
+        run.Out.WriteLine(
+            $"Wrote {definitions.Written} event model definition(s)"
+            + (definitions.Merged > 0 ? $", merged new slices into {definitions.Merged}" : "")
+            + (definitions.Kept > 0 ? $", kept {definitions.Kept}" : "")
+            + ": " + string.Join(", ", definitionFiles.Select(x => x.Path))
+            + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
+            + "guesses, so correct one with an edit rather than a re-import.");
+
+        var specsDirectory = Path.GetFullPath(input.SpecsOutFlag
+                                              ?? Path.Combine(Path.GetDirectoryName(outDirectory) ?? outDirectory, specsNamespace));
+        if (specs is not null) writeSpecs(result.Model, specs, specsDirectory, files, run);
+
+        reportMerge(files, run);
+
+        if (specs is not null) writeSpecProject(input, model, specsNamespace, outDirectory, specsDirectory, run);
 
         return new Imported(result.Model, generated.Layout);
     }
@@ -299,63 +298,45 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     /// <summary>What an import produced: the model, and where its stubs put every type.</summary>
     private sealed record Imported(ImportedEventModel Model, ModelLayout Layout);
 
-    /// <returns>How many files were written and how many already existed and were kept.</returns>
-    private static (int Written, int Kept) writeAll(string directory, IEnumerable<GeneratedFile> files, bool force, List<ImportedFile> record)
+    /// <summary>
+    /// What the additive re-import did: a line per file merged into, and every callout it raised. The
+    /// merges are said plainly; what could not be placed, or differs from the board, is a ⚠ line.
+    /// </summary>
+    private static void reportMerge(ImportFileWriter files, ImportRun run)
     {
-        var written = 0;
-        var kept = 0;
-        foreach (var file in files)
+        foreach (var line in files.Lines)
         {
-            var path = Path.Combine(directory, file.Path.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(path) && !force)
-            {
-                kept++;
-                record.Add(new ImportedFile(path, "kept"));
-                continue;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, file.Content); // UTF-8 without a BOM
-            record.Add(new ImportedFile(path, "write"));
-            written++;
+            run.Out.WriteLine(line);
+            run.Report.Add(line);
         }
 
-        return (written, kept);
-    }
-
-    /// <returns>Whether the file was written; an existing one is kept, and said so, unless <paramref name="force"/>.</returns>
-    private static bool write(string path, string content, bool force, ImportRun run)
-    {
-        if (File.Exists(path) && !force)
+        foreach (var callout in files.Callouts.Where(x => !x.Code.StartsWith("merged-", StringComparison.Ordinal)))
         {
-            run.Out.WriteLine($"Kept {path}, which already exists (--force overwrites it).");
-            run.Files.Add(new ImportedFile(path, "kept"));
-            return false;
+            run.Out.WriteLine($"⚠ [{callout.Code}] {callout.Message}");
         }
 
-        File.WriteAllText(path, content); // UTF-8 without a BOM
-        run.Files.Add(new ImportedFile(path, "write"));
-        return true;
+        run.Callouts = run.Callouts.Concat(files.Callouts).ToList();
     }
 
-    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string directory, bool force, ImportRun run)
+    private static void writeSpecs(ImportedEventModel model, GeneratedSpecs specs, string directory, ImportFileWriter files, ImportRun run)
     {
         run.Report.AddRange(specs.Report);
         foreach (var line in specs.Report) run.Out.WriteLine(line);
 
         Directory.CreateDirectory(directory);
-        var (written, kept) = writeAll(directory, specs.Files, force, run.Files);
+        var counts = files.WriteSpecs(directory, specs.Files);
         run.Out.WriteLine(
-            $"Wrote {written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
+            $"Wrote {counts.Written} specification file(s) to {directory} ({specs.Specs} specification(s) in {specs.Features} feature(s) in all). "
             + $"{EmlangSpecWriter.TestSupportFile} starts the application's own host through Alba.");
-        if (kept == 0) return;
+        if (counts.Kept + counts.Merged == 0) return;
 
-        // One-shot: a file that already exists is kept, so say what the model has that the
-        // specifications there don't
+        // What the model has that the specifications there still don't, after the merge: an example
+        // whose specification could not be placed (each such file is a callout too)
         var sources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
         var missing = EmlangSpecWriter.MissingSpecs(model, sources);
 
-        run.Out.WriteLine($"Kept {kept} specification file(s) that already exist (--force overwrites them).");
+        if (counts.Merged > 0) run.Out.WriteLine($"Merged new specifications into {counts.Merged} file(s) that already exist.");
+        if (counts.Kept > 0) run.Out.WriteLine($"Kept {counts.Kept} specification file(s) that already exist (--force overwrites them).");
         run.Out.WriteLine(missing.Count == 0
             ? "Every example in the model has a specification."
             : $"{missing.Count} example(s) in the model have no specification:");

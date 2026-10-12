@@ -187,7 +187,7 @@ but the only HomeCheck events its examples give first, ApplicationReviewed, come
 The same question is asked, without a chapter name, when no slice on the board emits the event.
 
 **`--json` for tooling** (bobcat#454). With `--json`, the files are written as usual but stdout carries
-nothing but JSON: every callout, the text report, and every file, marked `write` or `kept`. Each
+nothing but JSON: every callout, the text report, and every file, marked `write`, `merge` or `kept`. Each
 callout has a stable `code`, the aggregates it is about, the evidence it was drawn from, and the flag
 that settles it:
 
@@ -221,9 +221,20 @@ that settles it:
 | `global-json-missing-test-runner` | The governing `global.json` does not select Microsoft.Testing.Platform | the `fix`: its `test` section |
 | `central-package-versions` | Versions are managed centrally | the `fix`: the `<PackageVersion>` lines |
 | `app-program-not-public`, `app-missing-run-jasperfx-commands`, `app-missing-runtime-compilation`, `app-project-not-found` | What the application lacks (see [The spec project](#the-spec-project)) | the `fix` |
+| `merged-slice-declaration` | A re-import declared a new slice at the end of its chapter's definition | nothing; review it |
+| `merged-aggregate-declaration` | A slice merged in names an aggregate no definition declared, so it was declared beside it | nothing; review it |
+| `merged-type` | A re-import added a type the board names to an existing stub file | nothing; review it |
+| `merged-spec` | A re-import added a spec for a new example to the existing class bound to its feature | nothing; it is red until the behaviour exists |
+| `merged-using` | A re-import added a `global using` to the spec project's `GlobalUsings.cs` | nothing |
+| `type-differs-from-board` | A type lacks a member the board names, or types it differently. The type was not touched | edit the type, if the board is right |
+| `slice-differs-from-board` | The board gives an existing slice a role (`Emits`, `Publishes`, `On`, `Reads`, `Produces`) its declaration doesn't have. The declaration was not touched | add the call, if the board is right |
+| `merge-skipped-unparseable` | An existing file does not parse, so nothing was merged into it | fix the file and import again |
+| `merge-skipped-no-insertion-point` | The namespace, definition class, `Configure` method or feature class to insert into is not in the file | add it by hand |
+| `merge-skipped-ambiguous` | More than one place could take the addition, so none was chosen | add it by hand |
 
 Callouts about the project rather than a slice have an empty `slice`, a `file` naming what they are
-about, and a `fix` holding the exact line, package or command.
+about, and a `fix` holding the exact line, package or command. The merge callouts carry a `file`, and a
+`type` when they are about one type.
 
 The messages may be reworded; a code never is, and codes are only ever added (the same contract as
 `wolverine scaffold --json`).
@@ -420,6 +431,41 @@ spec, under a feature named for its chapter, and the report flags that it binds 
 on what it inferred. A wrong guess is a one-line edit in the generated C#, not a re-import, and
 since the command never rewrites a file it has already written, your edits cannot be clobbered.
 
+### Re-running the import
+
+Without `--force`, a re-import is **additive**. A file that doesn't exist is written. A file that
+does exist gets what the board has and the file lacks, and nothing in it is changed or removed:
+
+| File | What is added | What is never touched |
+|---|---|---|
+| The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares | every existing declaration, even where the board now says something else (`slice-differs-from-board` says what) |
+| A slice's stub file (`Features/{Chapter}/{Slice}.cs`) | each type the board names that no file in `--out` declares, at the end of the file's namespace, plus any `using` it needs | every existing type, even where its members differ from the board's (`type-differs-from-board`) |
+| A slice's specification file | a spec for each example that has none, at the end of the class bound to its `[BobcatFeature]`, wherever that class now lives | every existing spec method |
+| `GlobalUsings.cs` | the namespaces it lacks | the rest |
+
+- **The whole directory is checked, not just the file.** A type, slice or spec class you moved to
+  another file is found there and never declared twice. A type a new stub file would declare is
+  left out of it when another file already declares it.
+- **Roslyn finds the insertion point; the edit is a text insertion.** Every byte you wrote stays
+  where it was, whatever your formatting. A file that doesn't parse, a missing class or namespace,
+  or more than one candidate is skipped with a `merge-skipped-*` callout. Nothing is forced.
+- **A type is compared on the members the board names.** Members you added are not a difference.
+  A board member missing from the type, or typed differently, is.
+- **It is idempotent.** Run it twice and the second run changes nothing.
+- Each merge prints a line, e.g. `Added 1 slice declaration (SubmitHomeCheckReport) to
+  Features/VolunteeringAndHomeChecks/VolunteeringAndHomeChecksModel.cs.`, and `--json` lists the
+  file with `"mode": "merge"`.
+- **`--force` still overwrites**, as before. The spec project's `.csproj`, `global.json` and
+  `AssemblyAttributes.cs` are never touched, with or without it, and `TestSupport.cs` is written only
+  when it is missing.
+
+**A new event on an existing slice gets its type, not its role.** The stub file gains the event,
+but the slice's declaration keeps the roles it had. `slice-differs-from-board` names the missing
+`.Emits<T>()`, and until you add it `wolverine scaffold` won't write an `Apply` for it.
+
+<!-- JEREMY: why additive -- the board keeps moving after the first import, and the files are where the
+corrections live. -->
+
 Two details the generated code is careful about, both of which failed loudly the first time:
 
 - **The definition class never shares its namespace's name.** The model name supplies both by
@@ -461,7 +507,7 @@ says so, and points at `EventModelDefinition`.
 | `--starts-stream Slice=Type …` | the aggregate whose stream a slice starts, over the inference |
 | `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |
 | `--json` | stdout carries only JSON: callouts, report and files |
-| `--force` | overwrite generated stubs, definitions and specifications that exist. Never the spec project's `.csproj`, `global.json` or `AssemblyAttributes.cs` |
+| `--force` | overwrite generated stubs, definitions and specifications that exist, instead of [merging into them](#re-running-the-import). Never the spec project's `.csproj`, `global.json` or `AssemblyAttributes.cs` |
 | `-u, --url <base>` | Push the assembled model to a run console at this base URL |
 
 #### `--url` takes the **base**, not the endpoint
