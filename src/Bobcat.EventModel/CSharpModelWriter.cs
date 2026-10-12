@@ -667,6 +667,33 @@ public static class CSharpModelWriter
     private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed)
         => writeSlice(writer, slice, stubbed, null);
 
+    /// <summary>
+    /// One slice's declaration, as the statement a definition's <c>Configure</c> holds, for the additive
+    /// re-import (<see cref="ImportMerge"/>): written against what the EXISTING definition already says at
+    /// its top, not what a fresh import would, so a slice added to a file the user corrected agrees with it.
+    /// </summary>
+    /// <param name="slice">The slice to declare.</param>
+    /// <param name="stubbed">The types that exist, so a role is generic only over a type that compiles.</param>
+    /// <param name="chapterSaid">The chapter the definition's <c>model.InChapter</c> names, if any.</param>
+    /// <param name="domainSaid">The domain its <c>model.InDomain</c> names, if any.</param>
+    /// <param name="aggregateDefault">The aggregate its <c>model.ForAggregate</c> names, if any.</param>
+    internal static string SliceDeclaration(CuratedSlice slice, IReadOnlyCollection<string> stubbed, string? chapterSaid, string? domainSaid,
+        string? aggregateDefault)
+    {
+        var defaults = new SliceDefaults(
+            Chapter: chapterSaid is not null && string.Equals(chapterSaid, slice.Chapter, StringComparison.Ordinal),
+            Domain: domainSaid is not null && string.Equals(domainSaid, slice.Domain, StringComparison.Ordinal),
+            Aggregate: aggregateDefault);
+
+        using var writer = new SourceWriter();
+        writeSlice(writer, slice, stubbed.ToHashSet(StringComparer.Ordinal), defaults);
+        return writer.Code();
+    }
+
+    /// <summary>The declaration of an aggregate, generic when its type exists.</summary>
+    internal static string AggregateDeclaration(string aggregate, IReadOnlyCollection<string> stubbed)
+        => declare("model.Aggregate", aggregate, stubbed.ToHashSet(StringComparer.Ordinal)).Replace('`', '"') + ";";
+
     private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed, SliceDefaults? defaults)
     {
         var name = Identifiers.Sanitize(slice.Name);

@@ -1677,6 +1677,29 @@ and so cannot be handed a class to host.
     result; it skips unless `BOBCAT_IMPORT_BUILD_WOLVERINE` (and `BOBCAT_IMPORT_BUILD_FEED` for a
     local feed) is set, because it needs NuGet and a WolverineFx.Bobcat that pairs with this Bobcat.
 
+- **A re-import without `--force` is additive (`ImportMerge` + `ImportFileWriter`, 2026-10-12).** The
+  command used to keep every existing file whole, so a new slice got stub and spec files but no
+  declaration (and `wolverine scaffold` never saw it), and a new type on an old slice was silently
+  dropped. Now an existing file is merged into: missing slice declarations at the end of the chapter
+  definition's `Configure` (written via `CSharpModelWriter.SliceDeclaration` against the file's own
+  `InChapter`/`InDomain`/`ForAggregate`, not a fresh import's), missing stub types at the end of the
+  namespace, missing specs at the end of the `[BobcatFeature]` class, missing `global using`s.
+  Rules that matter:
+  - **Never change or remove anything that exists.** A type whose board members it lacks or types
+    differently is `type-differs-from-board`; a slice the board gives a new `Emits`/`Publishes`/`On`/
+    `Reads`/`Produces` is `slice-differs-from-board`. Members the code ADDED are not a difference.
+  - **Roslyn locates, text inserts.** Parse the existing file (`LanguageVersion.Preview`; any syntax
+    error is `merge-skipped-unparseable`), find the offset, insert re-indented text. Never re-print a
+    tree: the "byte-identical except the insertion" guarantee is what the tests assert.
+  - **The whole output directory is indexed (`SourceIndex`), not just the target file**, so a type,
+    slice or spec class the user moved is never declared twice, and a new stub file leaves out a type
+    another file declares (the layout can move a type between files when the board grows).
+  - **A slice opener is a verb called on the builder itself** (`IsOpener`): `model.Command("X").Command<Y>()`
+    declares slice X; matching any `Command` call took Y.
+  - `--force` overwrites, as before; the spec project files are never touched; `TestSupport.cs` only
+    written when missing. Idempotent: `importing_twice_changes_nothing_the_second_time`.
+  - Bobcat.EventModel references `Microsoft.CodeAnalysis.CSharp` for this.
+
 - **The curated format is retired as an authoring surface (issue #406, 2026-10-06), and what
   survives says what it is.** `CuratedModelWriter`, `FileEventModelSource` and `AddEventModelFile`
   are **gone**: there is no way to write a curated file and no way to register one as a

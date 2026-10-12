@@ -360,7 +360,7 @@ public class CSharpModelWriterTests
         return builder.Build(definition.Name);
     }
 
-    private static ImmutableArray<MetadataReference> references()
+    internal static ImmutableArray<MetadataReference> references()
     {
         var trusted = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
 
