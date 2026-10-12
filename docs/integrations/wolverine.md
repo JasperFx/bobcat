@@ -406,4 +406,3 @@ someone else is watching is destructive.
 
 - [Bobcat with Marten, Polecat and Fisher](marten.md) -- the store-only half, with no message bus
 - [Writing Specifications](../marker-steps.md) -- step helpers, `SpecAssert`, tables, and slice binding
-- [Migrating from Gherkin](../migrating-from-gherkin.md) -- the retired `CritterStackFixture` grammar, step by step

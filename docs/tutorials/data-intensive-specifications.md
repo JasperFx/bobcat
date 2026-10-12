@@ -445,4 +445,3 @@ equality, so they all leave it unstated. See
 ## See also
 
 - [Writing Specifications](../marker-steps.md#tables-and-sets-from-a-c-test) -- step helpers, and `SpecAssert`
-- [Migrating from Gherkin](../migrating-from-gherkin.md) -- `[Table]`, `[SetVerification]`, `[DecisionTable]` and `[TableGrammar]`, mapped

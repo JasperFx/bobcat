@@ -154,7 +154,6 @@ debug it there.
 - [Writing Specifications](marker-steps.md) -- step helpers, marker comments, `SpecAssert`, tables, and binding a spec to an Event Model slice
 - [Bobcat with Marten, Polecat and Fisher](integrations/marten.md) -- the store-only vocabulary, with no message bus
 - [Bobcat with Wolverine](integrations/wolverine.md) -- the whole Critter Stack vocabulary, step by step
-- [Migrating from Gherkin](migrating-from-gherkin.md) -- for a suite written against Bobcat's retired `.feature` lane
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) -- the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) -- the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The Resident Runner](resident-runner.md) -- keeping a suite available to a run console, so specs run when somebody asks
