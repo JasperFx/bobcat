@@ -119,9 +119,12 @@ and only the first reaches the declared-steps registry. Keyed on that set, the f
 listed **8 of `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and published
 verdicts perfectly well. What makes a test a specification is that `[BobcatScenario]` records it.
 
-`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests` pins **both lanes from one class**, against the real
-hosts — one identity per lane, listed and then run. Deliberately not split across two test projects:
-that is how one lane gains a rule the other never hears about.
+Both lanes are pinned against the real hosts — one identity per lane, listed and then run — through
+**one set of assertions**, `SpecIdentityHarness` in `Bobcat.Xunit.Tests/SpecIdentity`. The projected
+half, `ProjectedSpecIdentityEndToEndTests`, lives beside it; the Gherkin half,
+`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests`, links the same file in until the Gherkin lane goes
+(bobcat#471). The rules stay in one place deliberately: written twice, one lane gains a rule the
+other never hears about.
 
 ### Who uses this
 
