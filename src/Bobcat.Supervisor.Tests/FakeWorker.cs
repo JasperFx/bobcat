@@ -1,3 +1,5 @@
+using Bobcat.Runtime;
+
 namespace Bobcat.Supervisor.Tests;
 
 /// <summary>
@@ -201,8 +203,20 @@ public sealed class FakeWorkerFactory : IWorkerFactory
         return WorkingSet(worker);
     }
 
+    /// <summary>
+    /// The spec manifest this fake suite writes when a launch asks for one through
+    /// <c>BOBCAT_LIST_SPECS</c> — what a projected suite's module initializer does at load.
+    /// </summary>
+    public SpecManifest? Manifest { get; init; }
+
     public Task<IWorkerClient> Launch(WorkerLaunchContext context, CancellationToken ct = default)
     {
+        if (Manifest is not null
+            && context.Environment?.TryGetValue(SpecManifest.PathVariable, out var path) == true)
+        {
+            File.WriteAllText(path, Manifest.ToJson());
+        }
+
         lock (_gate)
         {
             var worker = new FakeWorker(this)
