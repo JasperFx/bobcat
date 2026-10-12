@@ -38,7 +38,8 @@ Everything below was measured, not read from docs. The measurements are
 pin the broken behaviour on purpose**, so that whoever fixes the bracket is told the blocker is
 gone rather than finding this file stale.
 
-> Measured against **Microsoft.Testing.Platform 1.9.1**, the version `src` pins, driving
+> Measured against **Microsoft.Testing.Platform 1.9.1**, the version `src` pinned at the time
+> (it moved to 2.5.1 with xunit.v3 4.x in bobcat#470, and the warm tests still pass there), driving
 > `Bobcat.Xunit.Samples` (xUnit v3). Deliberately *not* the `spikes/mtp-orchestration` harness,
 > whose `Directory.Packages.props` is on MTP 2.x — the right harness for issue #43 and exactly the
 > wrong version for this question.
@@ -145,10 +146,10 @@ The three complications were real, and each resolved differently from the guess:
    **The dependency decision went as the finding predicted, and `Bobcat.TUnit` does not follow.**
    `Bobcat.Xunit` now references `Microsoft.Testing.Platform`, which costs its consumers nothing
    (a consumer is by definition an xUnit v3 MTP host and already resolves it through `xunit.v3`).
-   `TUnit.Core` depends on no test platform at all — that is what makes *that* package safe to ship
-   beside a pinned 1.9.1, since `TUnit.Engine` wants 2.4.0 — so it keeps that property and keeps
-   the per-process bracket. Nothing regresses: the backstop below is still its whole bracket. The
-   reasoning is written into `Bobcat.TUnit.csproj`, where someone changing it will read it.
+   `TUnit.Core` depends on no test platform at all, so it keeps that property. Since bobcat#470 it
+   closes the bracket per session through TUnit.Core's own `ILastTestInTestSessionEventReceiver`
+   instead, so a warm TUnit command is its own run too. The reasoning is written into
+   `Bobcat.TUnit.csproj`, where someone changing it will read it.
 2. **`ProcessExit` stays, and is now explicitly the backstop.** `CloseRun` is idempotent, so when
    the session hook already closed the bracket the backstop finds nothing to close. One thing had
    to change for that to be safe: it now **drains the publisher unconditionally**. The old code

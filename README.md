@@ -152,8 +152,9 @@ You can also work with the solution directly using the dotnet CLI:
 dotnet build
 dotnet test
 
-# Tests run on Microsoft.Testing.Platform, so filters go to the test host after `--`
-dotnet test src/Bobcat.Tests/ -- --filter-class "*PipelineTests"
+# Tests run on Microsoft.Testing.Platform; global.json puts `dotnet test` in its MTP mode, so the
+# project is `--project` and test-host options go straight on the command line (no `--`)
+dotnet test --project src/Bobcat.Tests/ --filter-class "*PipelineTests"
 ```
 
 > Note: have the Docker services running (`./build.sh docker`) before running the tests or the

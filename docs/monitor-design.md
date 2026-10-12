@@ -496,9 +496,10 @@ bracket opens with a live `MonitorPublisher`. In practice:
 - a warm xUnit host sends it once per run request, because `Bobcat.Xunit`'s session hook opens one
   bracket per request (#402) -- the old lane's per-command behaviour, and it also puts the half back
   on a console that was restarted between two commands;
-- TUnit, NUnit and MSTest suites have no session hook and open the bracket on their first scenario,
-  so they send it once per process. No platform reference was needed for that (#470): it is core
-  code, reached through `BeginScenario`;
+- TUnit, NUnit and MSTest suites open the bracket on their first scenario. NUnit and MSTest have no
+  session hook, so they send it once per process. A TUnit host closes the bracket when its session's
+  last scenario ends (#470), so a warm TUnit host sends it once per run request too. Neither needed
+  a platform reference: opening is core code, reached through `BeginScenario`;
 - discovery opens no bracket and sends nothing, and neither does a run with no console or with
   `BOBCAT_MONITOR=0`.
 

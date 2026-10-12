@@ -52,13 +52,11 @@ too -- a [rendered specification on the console](marker-steps.md#reading-the-spe
 [tables and sets from a table literal](marker-steps.md#tables-and-sets-from-a-c-test), and
 [projected Shouldly assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in).
 
-**One thing is TUnit-specific, and it is a gap rather than a decision.** A TUnit suite cannot be
-[run by spec identity](spec-identities.md#listing-and-running-by-identity) today, so it cannot be
-driven by [the resident runner](resident-runner.md) either. TUnit filters by tree-node path, and
-nothing in this repository can run a TUnit host to verify the spelling -- `TUnit.Engine` needs a newer
-testing platform than Bobcat is pinned to. An unverified filter is exactly the run that looks
-filtered and is not, so Bobcat refuses rather than guesses. Listing (`BOBCAT_LIST_SPECS`) works; only
-the translation to a filter does not.
+**One thing is TUnit-specific.** A TUnit suite is [run by spec identity](spec-identities.md#listing-and-running-by-identity)
+through the platform's tree-node filter, and that filter can only name several methods of one class,
+or one method name across several classes, in a single run. [The resident runner](resident-runner.md)
+refuses a cold command for any other set rather than run tests nobody asked for; a warm command runs
+any set.
 
 ## Use this package rather than writing your own
 

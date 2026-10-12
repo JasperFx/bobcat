@@ -2,8 +2,9 @@
 
   <!--
     Central Package Management for the MTP orchestration spike. Kept separate from
-    src/Directory.Packages.props on purpose: the spike measured Microsoft.Testing.Platform 2.x,
-    which src/ cannot move to while xunit.v3 3.2.2 builds against 1.9.1.
+    src/Directory.Packages.props on purpose: the spike measured Microsoft.Testing.Platform 2.x
+    while src/ was still on 1.9.1 under xunit.v3 3.2.2. src/ has since moved to 2.5.1 with
+    xunit.v3 4.0.2 (bobcat#470); these pins record what the spike measured and were not moved.
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

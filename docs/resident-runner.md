@@ -23,9 +23,10 @@ suite that lists no specifications (usually a spec project with no runner adapte
 framework whose filter spelling Bobcat will not guess at. A runner that registered and then refused
 every command would look broken rather than unsupported.
 
-**xUnit v3 only, for now.** TUnit filters by tree-node path, and an unverified filter is exactly the
-run that looks filtered and is not ([#470](https://github.com/JasperFx/bobcat/issues/470)); NUnit and
-MSTest are refused until their filter spelling is pinned against a real host. See
+**xUnit v3 and TUnit.** A TUnit suite is filtered by tree-node path, which can name several
+methods of one class or one method name across classes in a cold command, but not an arbitrary set;
+a warm command runs any set ([#470](https://github.com/JasperFx/bobcat/issues/470)). NUnit and MSTest
+are refused until their filter spelling is pinned against a real host. See
 [Spec Identities](spec-identities.md#the-translation-and-the-one-thing-it-refuses).
 
 ## The runner is a client, and that is the whole security model
