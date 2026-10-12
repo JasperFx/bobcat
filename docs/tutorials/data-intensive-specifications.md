@@ -379,6 +379,11 @@ row and **the rest of the table still runs** — Storyteller's behaviour. Before
 row erased the whole grid: the cells were gathered and applied only after the last row, so anything
 that threw discarded every cell, including the rows that had already passed.
 
+From a C# test the step's verdict keeps the difference between a wrong and an exception. A row whose
+code threw makes the step `error`. A wrong value, a missing row or an extra row makes it `failed`,
+because each of those is the system disagreeing with the document, not the code falling over. The
+Gherkin lane marks both `failed`.
+
 The escape hatch is Bobcat's existing failure vocabulary rather than a new one. A
 `SpecCriticalException` still aborts the scenario and a `SpecCatastrophicException` still stops the
 suite, so a fixture that means "stop here" can still say so, and cancellation propagates untouched.
@@ -492,6 +497,11 @@ is a value the step chooses.
 All three go on the method, a parameter or a property, so a tolerance can be stated once for a whole
 grammar or per column.
 
+These are Gherkin attributes, read by the generator when it binds a step. From a C# test the comparison
+is the step's own call, so the tolerance goes on the call too:
+`SpecAssert.Check("average", actual, expected, tolerance: 0.001)`, or a `CheckOptions` for the
+others. The generator warns (BOBCAT035) about an `[Approx]` it can see a C# test calling.
+
 ## What a written cell may say
 
 Beyond a plain literal, a cell may say any of these — and it means the **same thing on both sides of
@@ -562,6 +572,11 @@ A step's cells travel on `step_finished` (and, while a long table is still runni
 | `Expected` / `Actual` | a judged cell |
 | `Note` | a cell that says a sentence — the missing / extra / out-of-order markers |
 | `Value` | a cell that was **not judged** — a decision table's input column, an echoed value |
+
+A grid carries **one cell per row and column**. From a C# test the step is handed the table as written
+before it does anything, so the first `step_progress` shows those cells plain, and the grid the step
+reports (a table it ran, a set it verified) replaces them rather than arriving beside them. A column
+a throwing row never produced is absent from the wire and renders `error`.
 
 `Value` is a fourth field rather than a reuse of `Actual`, and the difference is load-bearing: a cell
 with neither an expected nor an actual is how the report decides an input column earns no Status

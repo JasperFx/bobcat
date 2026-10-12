@@ -272,6 +272,11 @@ public sealed class TableRun(List<string> columns)
         var step = ScenarioRecorder.CurrentStep;
         if (step is null) return;
 
+        // REPLACE the cells the interceptor echoed from the table the step was handed, rather than
+        // adding beside them (bobcat#471). This grid carries every input cell again, judged where
+        // it was judged, so keeping both put each input on the wire twice and, worse, let the
+        // document's own text stand in as `ok` for a column a throwing row never produced.
+        step.ReplaceTableInputCells();
         step.TableColumns = Columns;
         foreach (var cell in Cells) step.Cells.Add(cell);
 

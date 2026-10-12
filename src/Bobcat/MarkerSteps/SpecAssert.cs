@@ -32,7 +32,7 @@ namespace Bobcat;
 /// way.
 /// </para>
 /// </remarks>
-public static class SpecAssert
+public static partial class SpecAssert
 {
     /// <summary>
     /// Compare <paramref name="actual"/> against <paramref name="expected"/> and record the result
@@ -51,6 +51,17 @@ public static class SpecAssert
     public static bool Check<T>(string name, T actual, T expected, CheckOptions? options = null,
         int rowIndex = -1)
         => record(CellCheck.For(name, actual, CheckFormat.Of(expected), options, rowIndex));
+
+    /// <summary>
+    /// Compare two numbers within an absolute <paramref name="tolerance"/> rather than exactly -- the
+    /// projected lane's answer to <c>[Approx]</c>, which only the Gherkin generator reads.
+    /// </summary>
+    /// <remarks>
+    /// Shorthand for <c>new CheckOptions { Tolerance = tolerance }</c>, so it is the same comparison
+    /// and the cell carries the same <c>±0.1</c> note a Gherkin <c>[Approx(0.1)]</c> step shows.
+    /// </remarks>
+    public static bool Check<T>(string name, T actual, T expected, double tolerance, int rowIndex = -1)
+        => Check(name, actual, expected, new CheckOptions { Tolerance = tolerance }, rowIndex);
 
     /// <summary>
     /// The text-expected form: compare against the expected value <b>as a specification would

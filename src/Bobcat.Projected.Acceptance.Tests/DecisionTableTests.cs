@@ -137,28 +137,37 @@ public class DecisionTableTests
         errored.Cells.Single(c => c.Column == "LineTotal").Status.ShouldNotBe(ResultStatus.success);
     }
 
-    [Fact(Skip = "Projected-lane divergence (bobcat#471 phase 2): every table step is recorded twice, once " +
-                 "by the interceptor (Recording.RecordTable, all document cells as plain `ok`) and again by " +
-                 "TableRun.Report. So the column a throwing row never produced renders as the document's own " +
-                 "text with status `ok`, where the Gherkin lane renders it `error`. Fix is to have TableRun.Report " +
-                 "replace the interceptor's input cells rather than add beside them.")]
+    /// <summary>
+    /// The interceptor echoes a table step's cells as plain <c>ok</c> inputs, and the grid
+    /// <c>TableRun.Report</c> reports replaces them (bobcat#471). Before, the echo stayed beside the
+    /// grid and the document's own text stood in, as <c>ok</c>, for the column a throwing row never
+    /// produced.
+    /// </summary>
+    [Fact]
     public async Task the_column_a_throwing_row_never_produced_renders_as_an_error()
     {
-        var (_, render) = await lineTotals("throwing row column", throwingRow);
+        var (recording, render) = await lineTotals("throwing row column", throwingRow);
 
         gridOf(render, "the line totals are calculated").Rows[1].Cells.Single(c => c.Column == "LineTotal").Status
             .ShouldBe(ResultStatus.error);
+
+        // Nothing was invented for it either: the row has its error and its two inputs, no LineTotal.
+        recording.Step("the line totals are calculated").Cells.Where(c => c.RowIndex == 1).Select(c => c.Name)
+            .ShouldBe([DecisionTableComparer.RowErrorCell, "quantity", "price"], ignoreOrder: true);
     }
 
-    [Fact(Skip = "Projected-lane divergence (bobcat#471 phase 2): a row-error cell makes a recorded step " +
-                 "`error`, where the Gherkin lane's RecordCells marks the step `failed` (an assertion-level " +
-                 "wrong the scenario carries on from). RecordedStep.Status maps error/invalid cells to error. " +
-                 "Needs a maintainer decision on which verdict a throwing table row earns.")]
-    public async Task a_throwing_row_fails_the_step_rather_than_erroring_it()
+    /// <summary>
+    /// A row whose code threw is an exception, not a wrong, so the step is <c>error</c> (bobcat#471).
+    /// A wrong value, a missing row or an extra row is <c>failed</c>
+    /// (<see cref="VerifySetTests.an_extra_row_alone_fails_the_step"/>). The Gherkin lane marked both
+    /// <c>failed</c>; the projected lane keeps the distinction.
+    /// </summary>
+    [Fact]
+    public async Task a_throwing_row_errors_the_step()
     {
         var (recording, _) = await lineTotals("throwing row verdict", throwingRow);
 
-        recording.Step("the line totals are calculated").Status.ShouldBe(ResultStatus.failed);
+        recording.Step("the line totals are calculated").Status.ShouldBe(ResultStatus.error);
     }
 
     [Fact(Skip = "Projected-lane gap (bobcat#471 phase 2): TableRunner.Run cannot bind an `out` parameter, " +
