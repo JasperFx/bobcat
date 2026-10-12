@@ -1,3 +1,8 @@
+> **Historical.** This is the original vision document for Bobcat's Gherkin lane: `.feature` files,
+> fixtures and the shipped Gherkin grammar. That lane was removed in 0.50.0 (bobcat#471), and Bobcat
+> specifications are now ordinary xUnit / TUnit / NUnit / MSTest tests rendered as specifications
+> (the projected model). Nothing here describes current behavior; it is kept for history.
+
 # Spec-Driven Development for the Critter Stack — Design Document
 
 ## Vision

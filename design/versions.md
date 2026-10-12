@@ -168,7 +168,7 @@ Two wrinkles worth knowing:
 ## Samples: target set for wiring (issue #8)
 
 Each sample currently pins `WolverineFx.* 5.30.0` on `net9.0`. Wiring a sample to BobcatRunner
-(see [sample-wiring-playbook.md](sample-wiring-playbook.md)) requires moving it onto the canonical set above:
+(see [sample-wiring-playbook.md](history/sample-wiring-playbook.md), historical) requires moving it onto the canonical set above:
 
 1. Host `.csproj`: `TargetFramework` → `net10.0`.
 2. `WolverineFx.*` package references → `6.5.1` (this is a **major upgrade** from 5.30.x —

@@ -261,9 +261,8 @@ public static class MarkerStepRun
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why here.</b> The Gherkin runner published the half from the same place it attached to the
-    /// console, once per run, which for a resident runner meant once per command, cold or warm. The
-    /// projected lane's run is this bracket, so this is the same moment: a one-shot <c>dotnet test</c>
+    /// <b>Why here.</b> The half goes out once per run, which for a resident runner means once per
+    /// command, cold or warm. A projected run is this bracket, so this is the moment: a one-shot <c>dotnet test</c>
     /// sends it once, and a warm process sends it once per run request, because the session hook
     /// opens one bracket per request. It is a <c>PUT</c> under a stable source name, so a resend
     /// replaces the last one rather than piling up, and it puts the half back on a console that was
@@ -426,8 +425,7 @@ public static class MarkerStepRun
     /// <summary>
     /// Plain <c>Timer.Dispose()</c> does not wait for an in-flight callback, so a heartbeat could
     /// still post after <c>RunFinished</c>. The wait-handle overload is what makes "no heartbeats
-    /// after the run closed" true rather than merely likely — the same rule
-    /// <see cref="MonitorPublishingObserver"/> follows.
+    /// after the run closed" true rather than merely likely.
     /// </summary>
     private static void stopHeartbeat()
     {

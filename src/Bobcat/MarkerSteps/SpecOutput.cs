@@ -114,16 +114,13 @@ public static class SpecOutput
     /// <summary>
     /// Write one scenario as plain text — the same rendering as the exit-time console, through a
     /// colourless console: a test runner's output pane shows the text and none of the escape codes,
-    /// and the ✓/✗ glyphs survive on their own. <see cref="PlainSpecText"/> owns the rendering,
-    /// because <c>Bobcat.Mtp</c> sends the identical text to a Gherkin scenario's test node
-    /// (issue #445) and two copies of one rendering is how the two lanes come to disagree.
+    /// and the ✓/✗ glyphs survive on their own. <see cref="PlainSpecText"/> owns the rendering
+    /// (issue #445).
     /// </summary>
     public static void WriteScenario(SpecRender spec)
     {
         if (_sink.Value is null) return;
 
-        // One rendering for both lanes (issue #445): Bobcat.Mtp attaches the same text to a
-        // Gherkin scenario's test node, so a change here cannot reach one lane and skip the other.
         foreach (var line in PlainSpecText.Lines(spec)) Write(line);
     }
 

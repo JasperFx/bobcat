@@ -1526,7 +1526,7 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner |
 
-`design/acceptance-coverage-map.md` maps the retired acceptance suite onto
+`design/history/acceptance-coverage-map.md` maps the retired acceptance suite onto
 `Bobcat.Projected.Acceptance.Tests`; `Bobcat.CritterStackScenario.Tests` and
 `Bobcat.Supervisor.Tests` cover the rest.
 
@@ -1965,6 +1965,7 @@ Shouldly assertions.
   `agent-friendly-tests.md`, `event-modeling.md`, `continuous-integration.md`,
   `ide-integration.md`, `reliable-integration-testing.md`
 - `design/` — internal records: `ledger-design.md` (the committed ledger),
-  `acceptance-coverage-map.md`, `critter-stack-interop-notes.md`, `sample-wiring-playbook.md`,
-  `versions.md`, `wolverine-ci-rollout.md`
+  `critter-stack-interop-notes.md`, `versions.md`, `wolverine-ci-rollout.md`; `design/history/`
+  keeps the Gherkin-era records (`spec-driven-development-design.md`, `acceptance-coverage-map.md`,
+  `sample-wiring-playbook.md`)
 - JasperFx source at ~/code/jasperfx

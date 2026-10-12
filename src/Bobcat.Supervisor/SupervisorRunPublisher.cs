@@ -8,7 +8,7 @@ namespace Bobcat.Supervisor;
 /// heartbeats, RunFinished) for the whole supervised run, and hands every worker the
 /// environment pair that makes them participants — <c>BOBCAT_RUN_ID</c> so their scenario
 /// and step streams land on this run, and <c>BOBCAT_RUN_OWNER</c> so their own
-/// <see cref="MonitorPublishingObserver"/> suppresses its bracket. Without the split, every
+/// run bracket (<see cref="MarkerStepRun"/>) is suppressed. Without the split, every
 /// worker was its own dashboard card, and with a shared id alone the first worker to finish
 /// would have marked the whole run finished with its partial counts.
 /// </summary>
@@ -114,9 +114,8 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
     /// </para>
     /// <para>
     /// The load-bearing one is the <em>attempt number</em>. A worker counts its attempts from one
-    /// — <see cref="MonitorPublishingObserver"/>'s tracking is per <c>BobcatRunner</c>, and the
-    /// MTP host builds a fresh runner for every run request, so even a same-process retry
-    /// restarts at one. The supervisor holds the only true count, and a projection that folds
+    /// — its tracking is per run request, and the MTP host starts a fresh run for every request,
+    /// so even a same-process retry restarts at one. The supervisor holds the only true count, and a projection that folds
     /// this event knows the next <c>ScenarioStarted</c> is that attempt however the worker
     /// numbered it. Without it a supervised retry overwrote its own previous attempt and
     /// CTRF's <c>retryAttempts[]</c> worked for in-process retries only.
@@ -174,8 +173,8 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
 
     /// <summary>
     /// The live per-test stream, forwarded (issue #195). This is the ONLY per-test progress a
-    /// run whose workers are not themselves Bobcat runners ever produces: a plain xUnit worker
-    /// has no <see cref="MonitorPublishingObserver"/>, so without this a supervised suite of
+    /// run whose workers do not publish for themselves ever produces: a plain xUnit worker
+    /// publishes nothing, so without this a supervised suite of
     /// 1600 tests registered on the dashboard and then sat at 0 finished for its whole
     /// five-minute run — visually indistinguishable from a wedged one.
     /// </summary>

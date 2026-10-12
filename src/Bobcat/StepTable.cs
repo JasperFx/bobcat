@@ -1,17 +1,15 @@
 namespace Bobcat;
 
 /// <summary>
-/// A step's whole Gherkin data table, handed to a step method as one argument. Declare a
-/// parameter of this type (nullable when the table is optional) on a <c>[Given]</c>/<c>[When]</c>/
-/// <c>[Then]</c> method and the generator passes the table that trails the step — headers and
-/// rows as written — instead of calling the method once per row as <c>[Table]</c> does. The
-/// parameter never binds to a column and is never resolved from DI.
+/// A step's whole data table, handed to a step method as one argument. Declare a parameter of
+/// this type on a <c>[Given]</c>/<c>[When]</c>/<c>[Then]</c> helper and the caller passes the table —
+/// headers and rows as written, usually as a table literal (see <see cref="Parse"/>) — in one
+/// step rather than calling the helper once per row.
 /// </summary>
 /// <remarks>
-/// Built for grammars whose rows have no fixed shape at compile time — event records of several
-/// types in one table, a command bound by column name at runtime. A step whose columns are known
-/// up front is better served by <c>[Table]</c>, <c>[DecisionTable]</c> or <c>[SetVerification]</c>,
-/// which bind and compare at compile time.
+/// <see cref="Bobcat.Runtime.TableRunner"/> builds rows into objects or calls a row method per row,
+/// and <see cref="Bobcat.Runtime.SetVerificationComparer"/> compares a table of expected rows
+/// against an actual collection.
 /// </remarks>
 public sealed class StepTable
 {
@@ -68,17 +66,14 @@ public sealed class StepTable
         => string.Join("\n", new[] { Headers }.Concat(Rows).Select(r => "| " + string.Join(" | ", r) + " |"));
 
     /// <summary>
-    /// A table written as pipe-delimited text — the same table a <c>.feature</c> file writes, and
-    /// the exact inverse of <see cref="ToString"/>.
+    /// A table written as pipe-delimited text, the exact inverse of <see cref="ToString"/>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// This is how a <b>projected</b> test supplies a table. A C# test has no trailing
     /// <c>|...|</c> block, and the alternatives were worse: calling a row grammar N times renders as
-    /// N steps and loses the grid, and a collection-of-tuples argument needs a second grammar
-    /// written for the C# lane beside the one the feature file uses. A table literal means
-    /// <b>one grammar body serves both lanes</b> — the document supplies the table, or the caller
-    /// does:
+    /// N steps and loses the grid, and a collection-of-tuples argument fixes the columns in the
+    /// signature. A table literal keeps the grid and the step as one:
     /// </para>
     /// <code>
     /// TheUsersAre("""
@@ -91,8 +86,7 @@ public sealed class StepTable
     /// A markdown table pastes in unchanged: the alignment row (<c>|---|:--:|</c>) is recognised and
     /// dropped, leading and trailing pipes are optional, cells are trimmed, and blank lines are
     /// ignored. What is deliberately NOT supported is markdown's escaping and inline formatting — a
-    /// cell is the text between pipes, because that is what a Gherkin cell is, and two rules for
-    /// reading a cell is how the two lanes would drift.
+    /// cell is the text between pipes.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">The text has no rows at all, so there are no headers.</exception>

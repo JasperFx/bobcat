@@ -21,7 +21,7 @@
       NuGet will not take this and <PackageLicenseExpression> together (NU5033).
     -->
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <PackageTags>testing;integration-testing;bdd;gherkin;specification;critterstack</PackageTags>
+    <PackageTags>testing;integration-testing;bdd;specification;critterstack</PackageTags>
     <PackageIcon>icon.png</PackageIcon>
 
     <!-- Released libraries opt back in individually. -->

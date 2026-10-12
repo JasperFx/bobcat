@@ -4,7 +4,7 @@ namespace Bobcat.Xunit.Samples.Specs;
 
 /// <summary>
 /// Storyteller's table samples from the C# side: the tabular data written as a table literal in the
-/// test itself, against the same grammar body a <c>.feature</c> file would bind to.
+/// test itself.
 /// </summary>
 [BobcatFeature("Tables"), BobcatScenario]
 public class TableSpecs
@@ -13,7 +13,7 @@ public class TableSpecs
 
     /// <summary>
     /// Samples/Specs/Tables/Table_with_Options.md, with the `position` column present on two rows
-    /// and left out of the third — the same optional-column shape the Gherkin lane reads.
+    /// and left out of the third.
     /// </summary>
     [Fact]
     public void a_table_of_setup_data()

@@ -5,8 +5,8 @@ using Shouldly;
 namespace Bobcat.Tests.MarkerSteps;
 
 /// <summary>
-/// <see cref="SpecAssert"/>'s polling checks and the tolerance overload: the projected lane's
-/// replacements for <c>[WaitFor]</c> and <c>[Approx]</c>, which only the Gherkin generator reads.
+/// <see cref="SpecAssert"/>'s polling checks and the tolerance overload: what replaced the removed
+/// Gherkin lane's <c>[WaitFor]</c> and <c>[Approx]</c>.
 /// </summary>
 public class SpecAssertEventuallyTests
 {

@@ -3,8 +3,7 @@ using Xunit.v3;
 
 // One test at a time, in a known order. Two of the probes below ask "did anything else run in my
 // process before me?", and that question only has a reliable answer when nothing runs alongside
-// them and the order they run in is the order they are written in — the Gherkin worker this
-// replaces registered its features explicitly for the same reason.
+// them and the order they run in is the order they are written in.
 // xUnit 4 made CollectionBehavior.DisableTestParallelization an error; Parallelization.Mode replaces it.
 [assembly: Parallelization(Mode = ParallelMode.None)]
 [assembly: TestCollectionOrderer(typeof(Bobcat.Supervisor.ProjectedWorker.ByClassName))]

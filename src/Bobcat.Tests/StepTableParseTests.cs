@@ -4,8 +4,7 @@ using Shouldly;
 namespace Bobcat.Tests;
 
 /// <summary>
-/// A table written as pipe-delimited text — how a projected test supplies the table a
-/// <c>.feature</c> file would write in its trailing <c>|...|</c> block.
+/// A table written as pipe-delimited text — how a projected test supplies a table to a step.
 /// </summary>
 public class StepTableParseTests
 {

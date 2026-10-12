@@ -79,7 +79,7 @@ public static class EventStores
     /// queried after is what the store can answer instead.
     ///
     /// Whole-store rather than per-stream, so it is only ever used where the alternative is
-    /// nothing at all: <see cref="TrackedActs"/> reaches for it exactly when no stream was
+    /// nothing at all: <see cref="CritterStackScenario"/> reaches for it exactly when no stream was
     /// bracketed, which today yields an empty list and an assertion that cannot fail.
     /// </remarks>
     public static Task<IReadOnlyList<IEvent>> QueryEventsSinceAsync(

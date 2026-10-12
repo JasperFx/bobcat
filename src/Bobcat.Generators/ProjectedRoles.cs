@@ -431,7 +431,7 @@ internal static class ProjectedRoles
             return null;
         if (named.ContainingNamespace?.ToDisplayString() == "Bobcat") return null;
 
-        // global::-qualified, as a resolved Gherkin capture is: generated code lives in its own namespace
+        // global::-qualified: generated code lives in its own namespace
         return named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 

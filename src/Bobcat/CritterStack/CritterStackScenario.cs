@@ -136,7 +136,7 @@ public class CritterStackScenario
 
     /// <summary>
     /// How long a step that reads a projection waits for the async daemons to catch up. Twenty seconds by
-    /// default — what a cold daemon on a loaded CI runner needs, and what the Gherkin fixture always waited.
+    /// default — what a cold daemon on a loaded CI runner needs.
     /// </summary>
     public TimeSpan ProjectionTimeout
     {

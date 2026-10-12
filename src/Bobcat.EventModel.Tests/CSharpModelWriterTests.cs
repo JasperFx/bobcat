@@ -181,7 +181,7 @@ public class CSharpModelWriterTests
         slice(descriptor, "SwipeOnDog").Pattern.ShouldBe(SlicePattern.Command);
         slice(descriptor, "MatchList").Pattern.ShouldBe(SlicePattern.View);
 
-        // The one Gherkin cannot express, which is the board's whole contribution (issue #202).
+        // The one step text cannot express, which is the board's whole contribution (issue #202).
         slice(descriptor, "DetectMutualMatch").Pattern.ShouldBe(SlicePattern.Automation);
     }
 

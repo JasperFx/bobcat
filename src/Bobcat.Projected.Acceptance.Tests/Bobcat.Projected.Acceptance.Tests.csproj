@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    bobcat#471 phase 2: the lane-neutral engine behaviour Bobcat.Acceptance.Tests pins through
-    .feature files, pinned again from the projected lane, so phase 3 can delete that project whole.
-    design/acceptance-coverage-map.md says which test here stands in for which scenario there.
+    bobcat#471 phase 2: the lane-neutral engine behaviour the (since deleted) Bobcat.Acceptance.Tests
+    pinned through .feature files, pinned again from the projected lane.
+    design/history/acceptance-coverage-map.md says which test here stands in for which scenario there.
 
     Also the new home of the projected-lane tests that lived in Bobcat.Acceptance.Tests only because
     it was the one project where an interceptor actually intercepts (MarkerStepAttributionTests and

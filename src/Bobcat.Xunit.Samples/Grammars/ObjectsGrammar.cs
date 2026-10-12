@@ -16,10 +16,8 @@ public record Address(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>One grammar body, both lanes</b>, exactly as for tables and sets:
-/// <c>Bobcat.Gherkin.Samples/ObjectsFixture.cs</c> recreates these same documents declaratively, and
-/// the grids are identical because the comparison is — <see cref="PropertyCells"/> underneath, and
-/// <c>CellCheck</c> under that, so a property column and a set column disagree in the same words.
+/// The comparison is <see cref="PropertyCells"/> underneath, and <c>CellCheck</c> under that, so a
+/// property column and a set column disagree in the same words.
 /// </para>
 /// <para>
 /// The static form is used because this grammar is a plain class rather than a <c>Fixture</c>, the

@@ -32,8 +32,7 @@ public enum SliceRole
 
     /// <summary>
     /// A document the specification asserts on. It reaches the specification's resolved types only, never a
-    /// slot on the slice — a document is not an aggregate, event or read model, exactly as Gherkin's
-    /// <c>{document}</c> capture stamps no role.
+    /// slot on the slice — a document is not an aggregate, event or read model.
     /// </summary>
     Document,
 

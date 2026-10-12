@@ -58,8 +58,8 @@ public interface IExplicitScenarioName
 /// <para>
 /// <b>Binding, not roles.</b> This says WHICH slice the test is evidence for. What the slice's command,
 /// events, aggregates, read models and messages are comes off the scenario vocabulary the test calls —
-/// methods carrying <see cref="EventModelRoleAttribute"/> (bobcat#462) — the way a <c>.feature</c> file's
-/// type captures stamped them. Nothing on this attribute states a role.
+/// methods carrying <see cref="EventModelRoleAttribute"/> (bobcat#462). Nothing on this attribute
+/// states a role.
 /// </para>
 /// <para>
 /// <b>Prefer <see cref="SliceType"/>.</b> It means exactly <c>SliceName = type.Name</c> — no suffix
@@ -112,9 +112,8 @@ public sealed class BobcatSliceAttribute : Attribute
     public string? Pattern { get; set; }
 
     /// <summary>
-    /// Who or what triggers the slice — the label on the trigger at the head of the slice, as a
-    /// <c>.feature</c> scenario's <c>Triggered by …</c> line states it (bobcat#463): <c>"the volunteer"</c>,
-    /// <c>"the nightly sweep"</c>.
+    /// Who or what triggers the slice — the label on the trigger at the head of the slice
+    /// (bobcat#463): <c>"the volunteer"</c>, <c>"the nightly sweep"</c>.
     /// </summary>
     /// <remarks>
     /// <para>

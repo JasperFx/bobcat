@@ -8,11 +8,12 @@ namespace Bobcat.Residency;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The seam is here because only the lane knows how to run anything.</b> A Gherkin suite is a
-/// Bobcat host, so it runs a selection against its own <c>BobcatRunner</c> in process. A projected
-/// suite's test framework owns the process, so it runs one by launching a filtered child. The
-/// protocol above does not change between them, which is the point of issue #391 — the runner
-/// receives identities and nothing more.
+/// <b>The seam is here because only the suite knows how to run anything.</b> A projected suite's
+/// test framework owns the process, so <see cref="OutOfProcessResidentSuite"/> runs a selection by
+/// launching a filtered child, and the supervisor's <c>WarmProjectedResidentSuite</c> by sending it
+/// to a host held open in the testing platform's server mode. The protocol above does not change
+/// between them, which is the point of issue #391 — the runner receives identities and nothing
+/// more.
 /// </para>
 /// <para>
 /// It is the same shape of decision as <c>IWorkerClient</c> in the supervisor: everything the
@@ -25,7 +26,11 @@ public interface IResidentSuite
     /// <summary>The suite's name, the same string <c>run_started</c> reports.</summary>
     string Suite { get; }
 
-    /// <summary><c>gherkin</c> or <c>projected</c>.</summary>
+    /// <summary>
+    /// The suite's lane, read off its manifest. Always <see cref="SpecManifest.ProjectedLane"/>
+    /// (<c>projected</c>) since the Gherkin lane was removed (bobcat#471); the field stays on the
+    /// wire so an older reader keeps working.
+    /// </summary>
     string Lane { get; }
 
     /// <summary>

@@ -11,7 +11,7 @@ namespace Bobcat.Xunit.Samples.Grammars;
 /// <b>The mapping, grammar for grammar.</b> <c>[FormatAs("Start with {value}")]</c> becomes
 /// <c>[Given("Start with {value}")]</c> — the SAME named-template syntax, because Bobcat's step
 /// attributes now accept it alongside Cucumber expressions. The placeholder binds to the parameter of
-/// that name, at a C# call site and in a <c>.feature</c> file alike. The only thing added is the
+/// that name at the C# call site. The only thing added is the
 /// <b>keyword</b>, which is optional: <c>SentenceGrammar</c> next door spells none.
 /// </para>
 /// <para>
@@ -26,8 +26,7 @@ namespace Bobcat.Xunit.Samples.Grammars;
 /// A projected test has no specification file, so the expected value arrives the only way anything
 /// arrives in C#: as an argument. The helper therefore takes the expectation and reports the
 /// comparison itself through <see cref="SpecAssert"/>. One extra line per assertion grammar, and
-/// the cell it produces is the same structured expected/actual pair the Gherkin lane's
-/// return-value verification produces.
+/// the cell it produces is a structured expected/actual pair.
 /// </para>
 /// <para>
 /// <b>Why the methods are <c>internal</c>, not <c>private</c>.</b> The generated interceptor is an
@@ -84,8 +83,7 @@ public class CalculatorGrammar
     /// </summary>
     /// <remarks>
     /// C# <c>out</c> parameters are deliberately NOT used: the caller would have to declare two
-    /// locals it never reads, and in a projected test the expected values are the inputs. Bobcat's
-    /// Gherkin lane still binds real <c>out</c> parameters, which is where that shape belongs.
+    /// locals it never reads, and in a projected test the expected values are the inputs.
     /// </remarks>
     [Then("For X={x} and Y={y}, the Sum should be {sum} and the Product should be {product}")]
     internal void SumAndProduct(int x, int y, int sum, int product)

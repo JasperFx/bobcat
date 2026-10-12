@@ -16,18 +16,15 @@ public enum Position
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>One grammar body, both lanes.</b> This class is an ordinary fixture-style grammar — the same
-/// methods a <c>.feature</c> file would bind to, taking <see cref="StepTable"/>. In the Gherkin lane
-/// the document's trailing <c>|...|</c> block supplies the table; here the caller supplies it as
-/// pipe-delimited text, which <see cref="StepTable"/> reads by an implicit conversion. Nothing in
-/// the grammar knows or cares which lane called it.
+/// <b>One step, one table.</b> This class is an ordinary grammar whose methods take a
+/// <see cref="StepTable"/>; the caller supplies it as pipe-delimited text, which
+/// <see cref="StepTable"/> reads by an implicit conversion.
 /// </para>
 /// <para>
 /// The two alternatives were both worse. Calling a row helper once per row renders as N steps and
-/// the grid is gone — which is exactly the report the Gherkin lane just stopped producing. A
-/// collection-of-tuples argument (<c>void Sum((int x, int y, int sum)[] rows)</c>) grids up fine but
-/// is a second signature written for the C# lane beside the one the document binds to, so a change to
-/// the vocabulary has to be made twice.
+/// the grid is gone. A collection-of-tuples argument (<c>void Sum((int x, int y, int sum)[] rows)</c>)
+/// grids up fine but fixes the columns in the signature, so an optional column or a reordering
+/// needs a new overload.
 /// </para>
 /// <para>
 /// A markdown table pastes in unchanged, alignment row and all, which is the point of the syntax: the
@@ -66,7 +63,7 @@ public class RosterGrammar
 
     /// <summary>
     /// Storyteller's <c>CreateNewObject&lt;T&gt;</c> from the C# side: the rows ARE the input, built
-    /// through the same cell conversion the Gherkin lane uses — so <c>TODAY+2</c> is a date and a
+    /// through Bobcat's cell conversion (<c>CellValues</c>) — so <c>TODAY+2</c> is a date and a
     /// field the record defaults need not appear in the table at all.
     /// </summary>
     /// <remarks>

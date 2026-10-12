@@ -11,7 +11,7 @@ namespace Bobcat.Projected.Acceptance.Tests;
 /// The clock steps themselves (freeze, advance by, passes, advance to) are pinned by
 /// <c>Bobcat.CritterStackScenario.Tests</c>'s <c>clock_steps_render_and_move_the_ambient_clock</c>.
 /// What is pinned here is the expected-side resolution a step's cell goes through, which is
-/// <see cref="SpecAssert"/>'s text-expected form and the same <c>CellCheck</c> the Gherkin lane uses.
+/// <see cref="SpecAssert"/>'s text-expected form and <c>CellCheck</c>.
 /// </remarks>
 public class RelativeTimeTests : IDisposable
 {

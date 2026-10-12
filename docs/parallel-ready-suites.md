@@ -281,6 +281,53 @@ running" (which only means the entrypoint has not exited).
 `Recycle()` uses `--force-recreate` rather than `restart`, because recycling means throwing the thing
 away.
 
+## Environment checks: run under the supervisor
+
+<!-- JEREMY -->
+
+The supervisor checks the environment **once, before it launches any worker** -- not even the
+discovery worker starts until every check has run. The checks are JasperFx's, not a Bobcat
+interface, and the contract is the same everywhere: a check that throws has failed.
+
+```csharp
+var supervisor = new Supervisor(new MtpWorkerFactory(path));
+
+// An ad hoc check
+supervisor.Preflight.Add("Postgres is reachable", async token =>
+{
+    await using var connection = new NpgsqlConnection(connectionString);
+    await connection.OpenAsync(token);
+});
+
+// Everything a container knows about: ISystemPart.AssertEnvironmentAsync,
+// IStatefulResource.Check and registered IHealthChecks, through JasperFx's EnvironmentChecker
+supervisor.Preflight.AddContainerChecks("the application", host.Services);
+```
+
+A resource registered with `AddRecyclableResource` is checked too, through its own `Check`, without
+being added to `Preflight`. Every check runs, even after one fails, so one preflight reports
+everything that is wrong.
+
+A failed check aborts the run. No worker is launched, no test runs, and the result is one red
+outcome with the reason in it rather than a test failure:
+
+- `SupervisorResults.AbortReason` lists each failed check and its message:
+
+  ```
+  Environment preflight failed (1 of 2 checks):
+    ✗ Postgres is reachable: Connection refused
+  ```
+
+- `RunReport.ToText` starts with `RUN ABORTED:` and the JSON report carries `abortReason`.
+- The exit code is **2**, the code for an aborted run, not **1**, the code for test failures.
+
+**An in-process `dotnet test` run has no preflight.** Nothing runs before the test framework starts
+executing tests, so a missing broker or database shows up as every test that touches it failing
+with its own connection error -- hundreds of red tests and one cause.
+
+So run under the supervisor in CI and in fleets, where a red result should say what broke rather
+than how many tests it broke.
+
 ## When a parallel run hangs, bloats, or is cut short
 
 Everything here is off by default and reporting-first -- the same guardrail as the timing report.

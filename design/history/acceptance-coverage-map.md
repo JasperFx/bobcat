@@ -1,3 +1,9 @@
+> **Historical.** The phase-2 record of bobcat#471: how each scenario in the Gherkin-lane
+> acceptance suite (`src/Bobcat.Acceptance.Tests` and its `.feature` files) was re-pinned in
+> `src/Bobcat.Projected.Acceptance.Tests` before the Gherkin lane was removed in 0.50.0. The suite it
+> maps from no longer exists; the map is kept for history, and to explain where a test in
+> `Bobcat.Projected.Acceptance.Tests` came from.
+
 # Bobcat.Acceptance.Tests -> projected-lane coverage map
 
 bobcat#471 phase 2, 2026-10-11. Phase 3 deletes `src/Bobcat.Acceptance.Tests` whole, with its 21

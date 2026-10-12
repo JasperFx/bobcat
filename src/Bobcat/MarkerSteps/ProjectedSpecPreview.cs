@@ -10,16 +10,14 @@ namespace Bobcat;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why it could not exist before.</b> <see cref="PreviewRender.FromScenario"/> composes a plan
-/// from a <c>FeatureDefinition</c>, a <c>ScenarioDefinition</c> and a fresh <c>Fixture</c> instance.
-/// A projected test has none of the three: its steps are a test method's body. So the plan had to
-/// become a fact the build records — <see cref="PlannedSteps"/> — and this reads it back.
+/// <b>Why the plan is a build fact.</b> A projected test's steps are a test method's body, so there
+/// is nothing to compose a plan from at run time. The plan had to become a fact the build records —
+/// <see cref="PlannedSteps"/> — and this reads it back.
 /// </para>
 /// <para>
-/// <b>It renders through the same <see cref="PreviewRender"/> model as the Gherkin lane</b>, and for
-/// the same reason the results do: two preview formats would mean improving one and forgetting the
-/// other. The binding it shows is the <c>[BobcatStep]</c> helper each call resolves to, which is the
-/// same question the Gherkin lane's bindings answer — "why did my step match that grammar".
+/// <b>It renders through the <see cref="PreviewRender"/> model.</b> The binding it shows is the
+/// <c>[BobcatStep]</c> helper each call resolves to, which answers "why did my step match that
+/// grammar".
 /// </para>
 /// <para>
 /// <b>Templates, not sentences.</b> A preview shows <c>Start with {value}</c>, because at preview

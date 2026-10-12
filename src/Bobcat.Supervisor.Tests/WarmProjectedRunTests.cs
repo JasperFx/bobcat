@@ -8,7 +8,7 @@ namespace Bobcat.Supervisor.Tests;
 
 /// <summary>
 /// Issue #394's measurements, and issue #402's fix. Can a <b>projected</b> suite run monitor
-/// commands warm, the way a Gherkin suite can (issue #393)? The findings are written up in
+/// commands warm (issue #393)? The findings are written up in
 /// <c>docs/warm-projected-runs.md</c>; these are the measurements that back them.
 /// </summary>
 /// <remarks>

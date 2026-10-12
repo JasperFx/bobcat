@@ -53,7 +53,7 @@ public class BatchProcessGrammar
     /// </summary>
     /// <remarks>
     /// <b>There is no projected equivalent yet.</b> A recorded step carries cells and a failure, but
-    /// no logs and no diagnostics, although <c>StepRender</c> renders both for the Gherkin lane. This
+    /// no logs and no diagnostics, although <c>StepRender</c> has a place for both. This
     /// grammar exists to name the gap rather than to demonstrate a feature: the message goes to the
     /// test output, where the specification cannot see it.
     /// </remarks>

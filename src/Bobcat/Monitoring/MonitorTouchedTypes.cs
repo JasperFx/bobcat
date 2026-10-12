@@ -1,9 +1,8 @@
 namespace Bobcat.Monitoring;
 
 /// <summary>
-/// The touched types of a scenario as <c>scenario_finished</c> carries them (issues #107 and #465) — one
-/// mapping for both lanes, so the projected lane's <see cref="ScenarioRecorder.Recording.TouchedTypes"/> and
-/// the Gherkin lane's <c>ExecutionResults.TouchedTypes</c> reach the wire in exactly the same shape.
+/// The touched types of a scenario as <c>scenario_finished</c> carries them (issues #107 and #465): how
+/// <see cref="ScenarioRecorder.Recording.TouchedTypes"/> reaches the wire.
 /// </summary>
 internal static class MonitorTouchedTypes
 {

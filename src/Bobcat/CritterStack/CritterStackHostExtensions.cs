@@ -8,9 +8,9 @@ using Microsoft.Extensions.Hosting;
 namespace Bobcat.CritterStack;
 
 /// <summary>
-/// Host-level Critter Stack helpers — the same operations as the <c>IStepContext</c> extensions,
-/// but hanging off the <see cref="IHost"/> / <see cref="IServiceProvider"/> so a host resource's
-/// reset hook, a <c>BeforeAll</c>, or a global action can use them before any scenario scope exists.
+/// Host-level Critter Stack helpers, hanging off the <see cref="IHost"/> /
+/// <see cref="IServiceProvider"/> so a fixture's setup, a host resource's reset hook or a test's
+/// arrange can use them without any scenario scope.
 /// </summary>
 /// <remarks>
 /// Marten (<c>AddMarten</c>), Polecat (<c>AddPolecat</c>) and Fisher (<c>AddFisher</c>) all

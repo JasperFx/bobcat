@@ -117,7 +117,7 @@ public static class DocumentStores
 
         try
         {
-            return GherkinValue.Convert(id, identity)
+            return Runtime.CellValues.Read(id, identity)
                    ?? throw new Engine.SpecCriticalException(
                        $"'{id}' is not a usable {documentType.Name} identity — it converted to null.");
         }

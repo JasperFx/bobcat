@@ -4,9 +4,6 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Folder Name="/SolutionItems/">
-    <File Path="spec-driven-development-design.md" />
-  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
     <Project Path="src/Bobcat.CritterStackScenario.Tests/Bobcat.CritterStackScenario.Tests.csproj" />

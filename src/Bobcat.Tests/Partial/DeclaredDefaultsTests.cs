@@ -118,7 +118,7 @@ public class ProcessWideUnspecifiedValuesTests
         {
             Specify<DeclaredDefaultsTests.Order>().Build().Customer.ShouldBe("Everyone");
 
-            // The Gherkin lane builds through the same policy
+            // A table-built record goes through the same policy
             var row = (DeclaredDefaultsTests.Order)Bobcat.CritterStack.RecordBuilding.Build(
                 typeof(DeclaredDefaultsTests.Order), new Dictionary<string, string> { ["Total"] = "3.50" });
             row.Customer.ShouldBe("Everyone");

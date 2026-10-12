@@ -17,8 +17,8 @@ namespace Bobcat.Projected.Acceptance.Tests;
 /// own cell.
 /// </para>
 /// <para>
-/// <c>[Approx]</c> is read by the Gherkin generator only. In the projected lane the tolerance is a
-/// <see cref="CheckOptions"/> argument, which lands in the same note on the same cell.
+/// The tolerance the removed Gherkin lane's <c>[Approx]</c> carried is a <see cref="CheckOptions"/>
+/// argument, which lands as a note on the cell.
 /// </para>
 /// </remarks>
 public class ValueCheckTests

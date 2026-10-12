@@ -130,9 +130,9 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IEx
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why stub-first work needs this.</b> In the Gherkin lane a scenario with no steps is
-    /// already a pending-specification hotspot (jasperfx#689), and <c>SpecIdentityAudit</c> treats
-    /// it as joined rather than as drift. The projected lane had no equivalent, so a scaffolded
+    /// <b>Why stub-first work needs this.</b> In the (since removed) Gherkin lane a scenario with no
+    /// steps was a pending-specification hotspot (jasperfx#689), and <c>SpecIdentityAudit</c> treats
+    /// one as joined rather than as drift. The projected lane had no equivalent, so a scaffolded
     /// skeleton <em>threw</em> — and a pending spec was indistinguishable from a failing one, in the
     /// test report and on the canvas both.
     /// </para>

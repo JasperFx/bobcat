@@ -5,8 +5,7 @@ using Shouldly;
 namespace Bobcat.Projected.Acceptance.Tests;
 
 /// <summary>
-/// A grammar taking a <see cref="StepTable"/>, driven from C# with a table literal. The same body a
-/// <c>.feature</c> file binds to, so the two lanes cannot render one table two ways.
+/// A grammar taking a <see cref="StepTable"/>, driven from C# with a table literal.
 /// </summary>
 public class ProjectedTableGrammar
 {

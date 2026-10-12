@@ -5,7 +5,8 @@ using System.Threading.Channels;
 namespace Bobcat.Monitoring;
 
 /// <summary>
-/// Where <see cref="MonitorPublishingObserver"/> drops its events. The HTTP transport lives in
+/// Where a run's publishers — the projected run bracket (<see cref="MarkerStepRun"/>) and
+/// <see cref="ScenarioRecorder"/> — drop their events. The HTTP transport lives in
 /// <see cref="MonitorPublisher"/>; tests substitute a recording sink.
 /// </summary>
 public interface IMonitorEventSink

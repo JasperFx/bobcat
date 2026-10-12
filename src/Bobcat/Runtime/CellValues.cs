@@ -5,13 +5,13 @@ using Bobcat.Engine.Verification;
 namespace Bobcat.Runtime;
 
 /// <summary>
-/// Reads one written cell — a Gherkin table cell, a capture, a cell of a table literal — as a value
+/// Reads one written cell — a cell of a table literal, a text-expected value — as a value
 /// of a target type. The one runtime authority on what a cell means.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Why it is one place.</b> There were three: the generator's compile-time literal emission, a
-/// private <c>GherkinValue.Convert</c> behind the reflective grammars, and the
+/// private converter behind <see cref="Bobcat.CritterStack.RecordBuilding"/>, and the
 /// <see cref="IValueChecker{T}"/> family on the expected side. Each knew a slightly different set of
 /// types and none of them agreed about tokens: <c>TODAY+2</c> worked when a specification
 /// <i>asserted</i> a date and was a build error when it <i>supplied</i> one, which is the same word

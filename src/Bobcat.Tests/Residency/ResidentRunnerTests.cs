@@ -18,7 +18,7 @@ public class ResidentRunnerTests
         public readonly List<(string CommandId, string Mode, IReadOnlyList<string> Specs)> Runs = new();
 
         public string Suite => "Orders.Specs";
-        public string Lane => "gherkin";
+        public string Lane => "projected";
         public IReadOnlyList<string> Modes { get; init; } = [RunnerWire.ColdMode];
 
         public IReadOnlyList<string> SpecIdentities { get; init; } =
@@ -96,7 +96,7 @@ public class ResidentRunnerTests
         data.Repository.ShouldBe("/repo");
         data.Branch.ShouldBe("main");
         data.Suite.ShouldBe("Orders.Specs");
-        data.Lane.ShouldBe("gherkin");
+        data.Lane.ShouldBe("projected");
         data.Modes.ShouldBe(["cold"]);
         data.Specs.ShouldBe(["Orders/places an order", "Stock/counts"]);
     }

@@ -242,7 +242,7 @@ public static class SetVerificationComparer
     }
 
     /// <summary>
-    /// The runtime reading of the generator's <c>IsSimpleType</c>: a value a single Gherkin cell
+    /// The runtime reading of the generator's <c>IsSimpleType</c>: a value a single cell
     /// stands for on its own, rather than an object whose properties are the row.
     /// </summary>
     private static bool isScalar(Type type)

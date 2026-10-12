@@ -62,9 +62,8 @@ public class SentenceGrammar
     [Step("{x} + {y} should be {sum}")]
     internal bool XplusYShouldBe(int x, int y, int sum) => x + y == sum;
 
-    // A tuple-returning multi-assertion sentence lives in the GHERKIN lane — see
-    // Bobcat.Acceptance.Tests/NamedTemplatesFixture. Written here it earns two BOBCAT027 warnings and
-    // deserves them: {sum} and {product} are the EXPECTED cells, a feature file supplies them, and a
-    // C# call site cannot. The step would render with its placeholders unresolved and pass regardless
+    // No tuple-returning multi-assertion sentence here. Written as one it earns two BOBCAT027
+    // warnings and deserves them: {sum} and {product} would be EXPECTED cells, and a C# call site
+    // cannot supply an expected cell to a return value. The step would render with its placeholders unresolved and pass regardless
     // — a specification that cannot fail.
 }

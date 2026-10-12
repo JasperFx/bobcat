@@ -4,27 +4,17 @@ using System.Collections.Generic;
 namespace Bobcat.Generators;
 
 /// <summary>
-/// The generator's copy of <c>Bobcat.Runtime.SliceTags</c> — the feature-level vocabulary that
-/// declares an Event Modeling slice (<c>@slice:</c>, <c>@domain:</c>, <c>@chapter:</c>,
-/// <c>@pattern:</c>, <c>Triggered by …</c>).
+/// The tag vocabulary the generator reads an Event Modeling slice binding from:
+/// <c>slice:</c>, <c>domain:</c>, <c>chapter:</c> and <c>pattern:</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Duplicated, not shared, because this project is netstandard2.0 and references neither Bobcat
-/// core nor anything else — it only ever recognizes things by name. That is the same constraint
-/// that keeps it from referencing Marten or EF for the persistence recipes.
-/// </para>
-/// <para>
-/// A silent divergence here would be expensive: the runtime would report one slice name on
-/// <c>FeatureDefinition.Slice</c> and the generated descriptor another, so run evidence would
-/// fail to join to the design-time model with nothing anywhere reporting an error.
-/// <c>SliceTagParsingAgreementTests</c> pins the two implementations together, exactly as
-/// <c>ResourceParsingAgreementTests</c> does for the recovery-hint resource lists that JasperFx
-/// and Bobcat each parse.
-/// </para>
-/// <para>
-/// Note tags arrive here with the leading <c>@</c> already stripped by
-/// <c>SimpleGherkinParser</c>, so the stored tag is <c>slice:WithdrawFunds</c>.
+/// The tags are produced inside the generator, never written by an author:
+/// <see cref="MarkerCommentSpecs"/> renders a projected test's <c>[BobcatSlice]</c> /
+/// <c>[BobcatSpec]</c> settings as tag strings (<c>slice:WithdrawFunds</c>,
+/// <c>domain:BankAccount</c>), and <see cref="EventModelEmitter"/> reads them back here. Keeping
+/// the attribute a typed front end over one small vocabulary means the emitter has a single place
+/// to read a slice binding from. <c>TriggeredBy</c> is read separately, as prose (bobcat#463).
 /// </para>
 /// </remarks>
 internal static class GeneratorSliceTags
@@ -33,15 +23,13 @@ internal static class GeneratorSliceTags
     public const string DomainPrefix = "domain:";
     public const string ChapterPrefix = "chapter:";
     /// <summary>
-    /// The slice's Event Modeling pattern, when the model states it (issue #323). Gherkin cannot
-    /// derive Automation or Translation from step text — a bus command and an automation's trigger
-    /// event are the same sentence, `When X is received` — so without this tag the spec source
-    /// guessed Command for every automation and disagreed with the curated model that knew better,
-    /// permanently and unresolvably. A tag can say what a sentence cannot.
+    /// The slice's Event Modeling pattern, when the model states it (issue #323). Step text cannot
+    /// tell Automation or Translation apart from Command — a bus command and an automation's
+    /// trigger event read as the same sentence — so without this the spec source guessed Command
+    /// for every automation and disagreed with the curated model that knew better. A declared
+    /// pattern says what a sentence cannot.
     /// </summary>
     public const string PatternPrefix = "pattern:";
-
-    public const string TriggeredByPrefix = "Triggered by";
 
     public static string? Slice(IEnumerable<string> tags) => valueOf(tags, SlicePrefix);
 
@@ -50,22 +38,6 @@ internal static class GeneratorSliceTags
     public static string? Chapter(IEnumerable<string> tags) => valueOf(tags, ChapterPrefix);
 
     public static string? Pattern(IEnumerable<string> tags) => valueOf(tags, PatternPrefix);
-
-    public static string? TriggeredBy(string? description)
-    {
-        if (string.IsNullOrWhiteSpace(description)) return null;
-
-        foreach (var raw in description!.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (!line.StartsWith(TriggeredByPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-            var rest = line.Substring(TriggeredByPrefix.Length).Trim().TrimStart(':').Trim();
-            return rest.Length > 0 ? rest : null;
-        }
-
-        return null;
-    }
 
     private static string? valueOf(IEnumerable<string> tags, string prefix)
     {

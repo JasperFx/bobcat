@@ -211,8 +211,7 @@ public class CommandLineRenderer
 
     /// <summary>
     /// Renders a scenario preview (issue #208): the planned steps, each annotated with the
-    /// fixture method it bound to and where every parameter's value comes from — the one thing
-    /// reading the <c>.feature</c> file cannot show.
+    /// helper method it bound to and where every parameter's value comes from.
     /// </summary>
     public void RenderPreview(PreviewRender preview)
     {
@@ -273,10 +272,9 @@ public class CommandLineRenderer
 
             var binding = step.Binding;
 
-            // The expression only earns a line when it differs from the step text. In the Gherkin
-            // lane it always does — the text is the author's sentence and the expression is the
-            // pattern it matched. In the projected lane the step text IS the template, and printing
-            // it twice is the kind of noise that makes a tool look like it has nothing to say.
+            // The expression only earns a line when it differs from the step text. In a projected
+            // preview the step text IS the template, and printing it twice is the kind of noise that
+            // makes a tool look like it has nothing to say.
             var expression = binding.Expression == step.StepText
                 ? ""
                 : $" [dim]— \"{Markup.Escape(binding.Expression)}\"[/]";

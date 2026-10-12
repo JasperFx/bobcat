@@ -48,8 +48,8 @@ public class SpecAssertTests
         cell.Expected.ShouldBe("7");
         cell.Actual.ShouldBe("6");
 
-        // The same wording the Gherkin lane's return-value verification produces, because it is the
-        // same comparison — CellCheck — and not a second opinion about the same values.
+        // The same wording every cell check produces, because it is the same comparison —
+        // CellCheck — and not a second opinion about the same values.
         cell.DisplayText.ShouldBe("expected '7', got '6'");
     }
 
@@ -259,8 +259,8 @@ public class SpecAssertTests
         using var recording = begin();
         using (ScenarioRecorder.Step("Then", "the note is empty"))
         {
-            // The token vocabulary a Gherkin cell uses, so a projected check and a .feature check
-            // mean the same thing by EMPTY.
+            // The token vocabulary a table cell uses, so a check and a table mean the same thing
+            // by EMPTY.
             SpecAssert.Check("note", "", "EMPTY").ShouldBeTrue();
         }
 

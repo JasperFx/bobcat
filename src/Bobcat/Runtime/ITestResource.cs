@@ -4,8 +4,6 @@ namespace Bobcat.Runtime;
 
 /// <summary>
 /// A named test resource — database, IHost, Docker container, message broker, etc.
-/// Resources are managed by TestResources: started once at suite start, reset between
-/// scenarios, stopped at suite end.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,12 +13,21 @@ namespace Bobcat.Runtime;
 /// no notion of: <see cref="ResetBetweenScenarios"/> and <see cref="Check"/>.
 /// </para>
 /// <para>
+/// <strong>Bobcat does not own a resource's lifecycle in a test process.</strong> Specs are
+/// ordinary xUnit / TUnit / NUnit / MSTest tests, so whatever fixture holds the resource (a class
+/// or assembly fixture, a TUnit hook) starts it, resets it and stops it. Bobcat drives a resource
+/// in two places only, both in the supervisor: a resource registered with
+/// <c>Supervisor.AddRecyclableResource</c> has its <see cref="Check"/> run during preflight, before
+/// any worker launches, and is recycled between attempts when a failure policy asks for it.
+/// </para>
+/// <para>
 /// <strong>Teardown is <c>StopAsync</c>, not <c>DisposeAsync</c>.</strong> The default
 /// <see cref="IAsyncDisposable.DisposeAsync"/> here delegates to it, so a resource that owns
 /// nothing beyond what <c>StopAsync</c> releases need not write one at all, and
 /// <c>await using</c> over such a resource still tears it down. Write your own
 /// <c>DisposeAsync</c> only for handles <c>StopAsync</c> leaves open — and call
-/// <c>StopAsync</c> from it, because <c>TestResources</c> disposes.
+/// <c>StopAsync</c> from it, because an <c>await using</c> or a fixture's disposal calls
+/// <c>DisposeAsync</c>, not <c>StopAsync</c>.
 /// </para>
 /// </remarks>
 public interface ITestResource : IHostedService, IAsyncDisposable
@@ -32,14 +39,15 @@ public interface ITestResource : IHostedService, IAsyncDisposable
     string Name { get; }
 
     /// <summary>
-    /// Called between each scenario. Use to reset state (truncate tables,
-    /// purge queues, clear tracked sessions, etc).
+    /// Reset state between scenarios (truncate tables, purge queues, clear tracked sessions,
+    /// etc). Bobcat does not call this itself; the fixture holding the resource does.
     /// </summary>
     Task ResetBetweenScenarios();
 
     /// <summary>
     /// Validate that this resource is usable, throwing with a diagnostic message if not.
-    /// Runs during preflight, before any test executes.
+    /// The supervisor runs this during preflight for every resource registered with it, before
+    /// any worker launches.
     /// </summary>
     /// <remarks>
     /// Default is a no-op so existing resources are unaffected. Deliberately mirrors
@@ -82,7 +90,7 @@ public interface IRecyclableResource : ITestResource
 /// <summary>
 /// A resource that can stop and start again <em>inside</em> a scenario, on purpose, as part of
 /// what the scenario is testing — "the application restarts and forgets nothing", "a queued
-/// message survives a bounce". Hosts, mostly: <c>HostResource</c> implements it.
+/// message survives a bounce". Hosts, mostly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -93,11 +101,11 @@ public interface IRecyclableResource : ITestResource
 /// host it cannot see, and would make a spec's restart step read as a recovery action.
 /// </para>
 /// <para>
-/// The resource stays registered under the same name across a restart, and the scenario's DI
-/// scope follows the new container: if a scenario scope was open on the old host, the resource
-/// closes it, restarts, and opens a fresh scope on the new host, so a step after the restart
-/// resolving <c>IHostResource.CurrentServices</c> gets the new application's services. Anything
-/// a step captured from the old scope is dead after a restart — re-resolve, don't hoard.
+/// The resource keeps its name and identity across a restart, so a test holding it keeps working,
+/// but the services behind it are new. If the resource keeps a per-scenario DI scope, it should
+/// close that scope before the restart and open a fresh one on the new host afterward. Anything a
+/// test captured from the old host (a scope, a session, a client) is dead after a restart —
+/// re-resolve, don't hoard.
 /// </para>
 /// <para>
 /// A restart is not a reset: <see cref="ITestResource.ResetBetweenScenarios"/> does not run,
@@ -107,8 +115,8 @@ public interface IRecyclableResource : ITestResource
 public interface IRestartableResource : ITestResource
 {
     /// <summary>
-    /// Stop the underlying host and start a fresh one, re-entering the scenario scope if one was
-    /// open. Throws if the resource has not been started.
+    /// Stop the underlying host and start a fresh one. Throws if the resource has not been
+    /// started.
     /// </summary>
     Task Restart(CancellationToken token = default);
 }
