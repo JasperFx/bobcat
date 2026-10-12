@@ -136,7 +136,12 @@ public record ScenarioFinished(
     // one step's claim. Already filtered by visibility, so a passing scenario carries none unless
     // the run asked for verbose. Null from an older publisher or a scenario that reported nothing.
     // Optional and additive.
-    IReadOnlyList<ScenarioReportInfo>? Reports = null) : MonitorEvent(RunId);
+    IReadOnlyList<ScenarioReportInfo>? Reports = null,
+    // What the scenario's steps cost, top-level steps summed (issue #466), next to DurationMs,
+    // which is the whole bracket. The difference is time no step owns. Sent by the projected lane;
+    // null from the Gherkin runner and from an older publisher, which means "not measured", never
+    // zero. Optional and additive.
+    long? StepsMs = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// One scenario report on the wire (issue #408): a titled grid of cells describing what the

@@ -61,6 +61,11 @@ Each lane answers at the moment it can:
 manifest, because the lane does not settle the filter spelling: a projected suite is filtered by
 *its framework's*.
 
+A projected suite's manifest also carries `recoveryHints` when the suite declares any
+(`[ClearsOnRetry]` and friends, issue #469), so a supervisor that never loads the assembly can still
+honour them. The field is left out when there are none, and a reader that predates it ignores it.
+See [parallel-ready suites](parallel-ready-suites.md#recovery-hints-ride-along-in-the-spec-manifest).
+
 ### The identity, and why it is exact
 
 `SpecIdentity` finally names the string that was already being built in eight places — the platform

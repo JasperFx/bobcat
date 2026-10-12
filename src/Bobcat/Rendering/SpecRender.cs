@@ -24,6 +24,14 @@ public class SpecRender
     public long DurationMs { get; init; }
 
     /// <summary>
+    /// What the steps themselves cost, next to <see cref="DurationMs"/>, which is the whole
+    /// bracket (issue #466). The difference is time no step owns. Null when it was not measured,
+    /// never zero-filled. Set by <see cref="FromRecording"/>; a Gherkin result reports its
+    /// lifecycle through <see cref="Timeline"/> instead.
+    /// </summary>
+    public long? StepsMs { get; init; }
+
+    /// <summary>
     /// The named non-step stop points — BeforeEach, the ResetAll/BeginScenarioAll bracket,
     /// EndScenarioAll — on the same clock the steps' <see cref="StepRender.StartedAtMs"/> uses.
     /// </summary>
@@ -149,9 +157,12 @@ public class SpecRender
             Counts = counts,
             ScenarioFailure = unexplained?.Message,
             ScenarioFailureCells = unexplained?.Cells.Select(CellRender.From).ToList() ?? [],
-            DurationMs = recorded.Count > 0
-                ? recorded.Max(x => x.EndedAtMs ?? x.StartedAtMs)
-                : 0
+            // The bracket, not the step span (issue #466): a scenario whose cost sat outside its
+            // steps used to read as a fast one. The step span is only the fallback for a recording
+            // rendered before it closed, which under-reports by exactly the time no step owns.
+            DurationMs = recording.WallClockMs
+                         ?? (recorded.Count > 0 ? recorded.Max(x => x.EndedAtMs ?? x.StartedAtMs) : 0),
+            StepsMs = recording.WallClockMs is null ? null : recording.StepsMs
         };
     }
 

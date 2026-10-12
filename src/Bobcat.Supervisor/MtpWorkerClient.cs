@@ -196,7 +196,12 @@ public sealed class MtpWorkerClient : IWorkerClient
         await _rpc.Request("testing/discoverTests", new { runId = Guid.NewGuid() }, ct);
 
         return snapshot()
-            .Select(o => new WorkerTest(o.Uid, o.DisplayName) { Traits = o.Traits })
+            .Select(o => new WorkerTest(o.Uid, o.DisplayName)
+            {
+                Traits = o.Traits,
+                TestClass = o.TestClass,
+                TestMethod = o.TestMethod
+            })
             .ToList();
     }
 
@@ -449,8 +454,23 @@ public sealed class MtpWorkerClient : IWorkerClient
             Duration = node["time.duration-ms"] is { } ms && double.TryParse(ms.ToString(), out var value)
                 ? TimeSpan.FromMilliseconds(value)
                 : null,
-            Traits = traits
+            Traits = traits,
+            TestClass = node["location.type"]?.ToString() is { Length: > 0 } type ? type : null,
+            TestMethod = methodNameFrom(node["location.method"]?.ToString())
         };
+    }
+
+    /// <summary>
+    /// <c>location.method</c> may carry the parameter list after the name; a declaration is
+    /// joined on the name alone, so everything from the first parenthesis is dropped.
+    /// </summary>
+    private static string? methodNameFrom(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method)) return null;
+
+        var openParen = method.IndexOf('(');
+        var name = (openParen > 0 ? method[..openParen] : method).Trim();
+        return name.Length > 0 ? name : null;
     }
 
     private static WorkerTestState stateFrom(string? state) => state switch

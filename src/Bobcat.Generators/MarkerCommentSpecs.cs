@@ -698,7 +698,11 @@ internal static class MarkerCommentSpecs
         sb.AppendLine("                () => global::Bobcat.DeclaredSteps.Manifest(");
         sb.AppendLine($"                    {Quote(framework)},");
         sb.AppendLine("                    global::System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name");
-        sb.AppendLine("                        ?? \"bobcat\"));");
+        sb.AppendLine("                        ?? \"bobcat\",");
+
+        // Issue #469: the recovery hints this assembly declares ride along. Its OWN assembly, not
+        // the entry assembly — the attributes are on the classes compiled beside this initializer.
+        sb.AppendLine("                    typeof(BobcatDeclaredStepRegistration).Assembly));");
 
         sb.AppendLine("        }");
         sb.AppendLine("    }");

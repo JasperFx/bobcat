@@ -104,7 +104,10 @@ public class CommandLineRenderer
 
         if (spec.DurationMs > 0)
         {
-            output.MarkupLine($"  [dim]Duration: {spec.DurationMs}ms[/]");
+            // The step figure beside the bracket (issue #466), only where it was measured: a
+            // projected scenario whose cost sits outside its steps should read that way here.
+            var steps = spec.StepsMs is { } stepsMs ? $" (steps {stepsMs}ms)" : "";
+            output.MarkupLine($"  [dim]Duration: {spec.DurationMs}ms{steps}[/]");
         }
 
         output.WriteLine();
@@ -802,10 +805,16 @@ public class CommandLineRenderer
         {
             var share = timing.Share(scenario.WallClock);
             var shareText = share is { } s ? $" ({SuiteTiming.Percent(s)} of measured time)" : "";
+
+            // Unmeasured lifecycle (a projected scenario, issue #466) reads as what is outside the
+            // steps, never as "lifecycle 0ms".
+            var rest = scenario.Lifecycle is { } lifecycle
+                ? $"lifecycle {SuiteTiming.Humanize(lifecycle)}"
+                : $"outside steps {SuiteTiming.Humanize(scenario.Unowned)}";
             output.MarkupLine(
                 $"    [grey]•[/] {Markup.Escape(scenario.Title)} " +
                 $"[grey]{SuiteTiming.Humanize(scenario.WallClock)}{shareText} — " +
-                $"steps {SuiteTiming.Humanize(scenario.Steps)}, lifecycle {SuiteTiming.Humanize(scenario.Lifecycle)}[/]");
+                $"steps {SuiteTiming.Humanize(scenario.Steps)}, {rest}[/]");
         }
 
         foreach (var step in timing.Steps.Take(3))
@@ -822,13 +831,22 @@ public class CommandLineRenderer
                 $"[grey]cost {SuiteTiming.Humanize(point.Total)} across {point.Occurrences} scenario(s)[/]");
         }
 
+        if (!timing.LifecycleMeasured && timing.IsMeasured)
+        {
+            output.MarkupLine(
+                "    [grey]lifecycle not measured -- fixture setup belongs to the test runner in the projected lane[/]");
+        }
+
         // A 100ms console floor keeps micro-gaps (observer callbacks, loop overhead) from
         // burying the real ones; the JSON carries them all, so nothing is silently dropped.
         var notable = timing.Gaps.Where(g => g.Duration >= TimeSpan.FromMilliseconds(100)).ToList();
+        // With no lifecycle points the only stop points are steps, so a gap is time outside any
+        // step and nothing more is known about it.
+        var gapLabel = timing.LifecycleMeasured ? "unowned" : "outside any step (unattributed)";
         foreach (var gap in notable.Take(3))
         {
             output.MarkupLine(
-                $"    [yellow]⏳ {SuiteTiming.Humanize(gap.Duration)} unowned[/] [grey]in {Markup.Escape(gap.Scenario)} " +
+                $"    [yellow]⏳ {SuiteTiming.Humanize(gap.Duration)} {gapLabel}[/] [grey]in {Markup.Escape(gap.Scenario)} " +
                 $"between '{Markup.Escape(gap.After)}' and '{Markup.Escape(gap.Before)}'[/]");
         }
 

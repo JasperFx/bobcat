@@ -211,7 +211,10 @@ public class SupervisorMonitorPublishingTests : IDisposable
         await supervisor.Run();
 
         sink.Events.ShouldBeEmpty();
-        factory.Launched.ShouldAllBe(w => w.Launch.Environment == null);
+        // The only environment any launch carries is discovery's manifest request (issue #469) —
+        // never the monitor grouping pair.
+        factory.Launched.ShouldAllBe(w => w.Launch.Environment == null
+                                          || !w.Launch.Environment.ContainsKey(MonitorRunInfo.RunIdVariable));
     }
 
     [Fact]

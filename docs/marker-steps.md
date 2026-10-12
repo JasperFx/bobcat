@@ -318,6 +318,62 @@ would be better still, and is a compile-time fact the generator does not current
 scenario that declares no steps renders as `OK` with a dim "declares no steps" line, where Bobcat
 treats a zero-step scenario as a pending-specification hotspot everywhere else.
 
+### Where the time went (issue #466) {#timing}
+
+Every projected scenario carries two clocks, and they are not the same number:
+
+- **`Recording.WallClockMs`** is the whole bracket, from the adapter opening the scenario to
+  closing it. That is the `Duration` the report prints, the `durationMs` in the scenario JSON, and
+  `DurationMs` on `scenario_finished`.
+- **`Recording.StepsMs`** is what the top-level steps cost, added up. It shows up beside the
+  duration as `Duration: 900ms (steps 40ms)`, as `stepsMs` in the JSON, and as `StepsMs` on
+  `scenario_finished` (optional and additive, so an older reader just ignores it).
+
+The difference is time no step owns: test-body code between two helpers, an assertion written with
+your own library, a wait that isn't a step. Before this, a projected scenario reported its step
+span as its duration, so a test that spent nine seconds outside its steps read as a fast one.
+
+The exit-time report then ends with the same timing summary a Gherkin run gets, built by
+`SuiteTiming.For(recordings)`:
+
+```
+  Timing -- 1.1s measured across 3 scenario(s)
+    • slow outside its steps 1.0s (93% of measured time) -- steps 50ms, outside steps 950ms
+    step the total is {number} cost 80ms across 2 occurrence(s)
+    lifecycle not measured -- fixture setup belongs to the test runner in the projected lane
+    ⏳ 880ms outside any step (unattributed) in slow outside its steps between 'a quick arrange' and 'a quick check'
+  ⚠ 1 scenario(s) ran steps but asserted nothing
+    • Wallet/a command is sent
+```
+
+That is three facts. **Per-step cost** across the suite, grouped by step text with the argument
+values folded out, so "the total is 7" and "the total is 9" are one line. **Gaps** between the
+steps, largest first. And **scenarios that assert nothing** -- recorded steps, but no `Then` step
+(an `And` after a `Then` counts), no comparison cell, no failed assertion, and no `// Then` marker
+comment. The comment counts because `// Then the total is 7` over a Shouldly line really is an
+assertion; Bobcat just can't see it as a step. An assertion in the test body with no `Then`
+anywhere is the case it *will* flag, because Bobcat sees steps and comments and not your assertion
+library. `JsonRenderer.RenderTiming(timing)` gives you the same figures as JSON.
+
+**What we gave up, on purpose: the lifecycle points.** A Gherkin run stamps `ResetAll`,
+`BeginScenarioAll`, `BeforeEach`, `AfterEach` and `EndScenarioAll` on its scenario clock, and in a
+database-backed suite the `ResetAll` line is usually the headline of the whole report. The projected
+lane has no equivalent and won't grow one. There, the lifecycle is your test runner's -- the class
+constructor, `IAsyncLifetime`, class and assembly fixtures, TUnit's hooks -- and it runs *outside*
+the adapter's bracket. Bobcat doesn't own that lifecycle, so it doesn't measure it. The report says
+so instead of guessing:
+
+- `SuiteTiming.LifecycleMeasured` is `false`, the suite's `Lifecycle` list is empty, and each
+  scenario's `Lifecycle` is `null`.
+- The console prints "lifecycle not measured", never "lifecycle 0ms".
+- The JSON carries `"lifecycleMeasured": false` and leaves out `lifecycle` and `lifecycleMs`
+  altogether. A Gherkin artifact is unchanged.
+- A gap is time outside any step and nothing more is known about it, so it's labelled
+  *unattributed*. The neighbouring steps tell you where it sat, not what it was.
+
+If your suite's cost really is in fixture setup, this report can't see it -- look at the runner's
+own per-test timings, or the supervisor's `RunTiming` for a run split across processes.
+
 ## Checks that gather instead of throwing
 
 An assertion library throws, and a throw ends the test method — so a projected specification could
@@ -926,6 +982,9 @@ identities rather than lanes.
   durations — and a region containing none of them says nothing at all. Timing needs somewhere to
   intercept and a comment does not give one; what changed is that the work underneath it is now
   attributed to it, exactly, from the call site's line.
+- **No lifecycle timing.** Fixture setup belongs to the test runner and runs outside the scenario
+  bracket, so the timing summary reports it as not measured rather than as zero. See
+  [Where the time went](#timing).
 - **A step outside a scenario is silent.** Decorated helpers get called from plenty of places that
   are not specifications, and reporting from them would be noise.
 - **An exception ends the test, so the steps after it are never judged.** This is the one
