@@ -407,6 +407,22 @@ failed CalculatorSpecs.asserting_values
     And For X=4 and Y=4, the Sum should be 6 and the Product should be 8 => Sum: expected '6', got '8'
 ```
 
+**A wrong with no step open still fails the scenario.** A `SpecAssert` only has a step to report to
+when it runs inside an intercepted helper. Call one from a helper that was *not* intercepted -- the
+project never opted into Bobcat's interceptors, or never referenced the generator -- and there is no
+step, and that wrong used to vanish, so the spec passed. Now it's kept on the scenario and fails it,
+with a hint about why:
+
+```
+failed AccountSpecs.a_deposit_is_credited
+  SpecAssertionException : 1 SpecAssert wrong was reported with no step open:
+    balance: expected '150', got '100'
+    If these came from a [Given]/[When]/[Then] helper, it was not intercepted: ...
+```
+
+A *passing* check outside a step still records nothing, the way it always did. A helper gets called
+from setup code too, and a check that holds there has nothing worth saying.
+
 A `bool`-returning step is the other shape, unchanged from Storyteller: the answer *is* the verdict,
 with no `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real
 duration.
@@ -868,6 +884,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
 | **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
 | **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
+| **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
 | **BOBCAT035** (warning) | `[WaitFor]` or `[Approx]` on a step helper a C# test calls, or on a method of a projected spec. No generated code wraps the call, so the poll or the tolerance silently never happens. Poll with [`SpecAssert.EventuallyAsync`](#waiting-for-an-answer-that-arrives-later) and pass `tolerance:` to `SpecAssert.Check` instead |
 
 The honest limit on BOBCAT029, pinned by

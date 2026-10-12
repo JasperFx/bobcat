@@ -67,6 +67,20 @@ public static class GeneratorHarness
         string source,
         IReadOnlyDictionary<string, string>? options,
         IEnumerable<MetadataReference> extraReferences)
+        => run(source, options, extraReferences, parseOptions);
+
+    /// <summary>
+    /// The same, for a project that never opted <c>Bobcat.Generated</c> into interceptors -- what an
+    /// in-repo <c>ProjectReference</c> to the generator gets without the package's props (bobcat#484).
+    /// </summary>
+    public static RunOutcome RunWithoutInterceptors(string source, IReadOnlyDictionary<string, string>? options = null)
+        => run(source, options, [], CSharpParseOptions.Default);
+
+    private static RunOutcome run(
+        string source,
+        IReadOnlyDictionary<string, string>? options,
+        IEnumerable<MetadataReference> extraReferences,
+        CSharpParseOptions parseOptions)
     {
         var references = referenceSet().AddRange(extraReferences);
         var compilation = CSharpCompilation.Create(

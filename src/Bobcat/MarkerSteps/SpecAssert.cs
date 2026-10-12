@@ -30,6 +30,12 @@ namespace Bobcat;
 /// still return the comparison's answer, so a helper that branches on it behaves the same either
 /// way.
 /// </para>
+/// <para>
+/// <b>Never silent about a wrong inside one (bobcat#484).</b> With a scenario open and no step, a
+/// passing check still records nothing, but a wrong is kept on the scenario
+/// (<see cref="ScenarioRecorder.Recording.SteplessWrongs"/>) and fails it. That is the shape of a step
+/// helper that was never intercepted, and before this such a spec passed with every wrong dropped.
+/// </para>
 /// </remarks>
 public static partial class SpecAssert
 {
@@ -102,9 +108,15 @@ public static partial class SpecAssert
     {
         message ??= "";
 
-        if (ScenarioRecorder.CurrentStep is { } step && step.Failure is null)
+        if (ScenarioRecorder.CurrentStep is { } step)
         {
-            step.Failure = new SpecAssertionException(message);
+            if (step.Failure is null) step.Failure = new SpecAssertionException(message);
+        }
+        else
+        {
+            // bobcat#484: a scenario is open but no step is, which is what an un-intercepted step
+            // helper looks like from in here. The wrong fails the scenario rather than vanishing.
+            ScenarioRecorder.Current?.RecordSteplessWrong(message);
         }
     }
 

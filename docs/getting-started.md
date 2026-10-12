@@ -36,8 +36,9 @@ Three of those lines do work that is easy to miss:
 
 - **`Bobcat.Generators`** is what turns a call to a decorated step helper into a recorded step. Its
   package carries the interceptor opt-in, so there is no csproj line to remember. Without it every
-  step is an ordinary method call, a `SpecAssert` inside one reports to nothing, and the suite passes
-  having produced no specification at all.
+  step is an ordinary method call and the suite produces no specification at all. A `SpecAssert`
+  wrong inside one of those calls still fails the test -- with no step to report to, it's kept on the
+  scenario instead -- but a spec whose checks all hold passes with nothing to show for it.
 - **`Bobcat.Xunit`** is the runner adapter. It opens a scenario around each test in a
   `[BobcatFeature]` class and closes it with the verdict xUnit reported. Its package also registers
   the per-run bracket with the test platform, so there is no code to write. TUnit, NUnit and MSTest
@@ -46,6 +47,26 @@ Three of those lines do work that is easy to miss:
 - **`Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio`** are what Rider and Visual Studio
   discover tests through. Leave them out and the suite still runs from the command line and shows
   *no tests* in the IDE -- which is why the generator warns with **BOBCAT033** when they are missing.
+
+### Referencing Bobcat by ProjectReference
+
+Working inside the Bobcat repository, or anywhere you reference Bobcat's projects rather than its
+packages, you lose two settings the packages carry in their `buildTransitive` props. A
+`ProjectReference` takes no build assets, so the generator arrives as an analyzer without its
+interceptor opt-in, and `Bobcat.Xunit` arrives without its test-platform registration.
+
+Don't restate them by hand. Import the packages' own props, which is what `samples/Directory.Build.props`
+does for every sample:
+
+```xml
+<Import Project="path/to/src/Bobcat.Generators/buildTransitive/Bobcat.Generators.props" />
+<Import Project="path/to/src/Bobcat.Xunit/buildTransitive/Bobcat.Xunit.props" />
+```
+
+Forget the first one and the build stops with **BOBCAT037**, once, at your first step call. It used to
+be a `CS9137` per call site in a generated file, and before that the danger was a project that built
+anyway and passed without recording a thing. Forget the second and the run bracket falls back to one
+per process (see [Warm Projected Runs](warm-projected-runs.md)).
 
 ## 2. Host the application once
 

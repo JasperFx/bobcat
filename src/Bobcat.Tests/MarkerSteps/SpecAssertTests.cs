@@ -160,17 +160,52 @@ public class SpecAssertTests
     }
 
     [Fact]
-    public void a_check_outside_a_step_records_nothing_and_still_answers()
+    public void a_passing_check_outside_a_step_records_nothing_and_still_answers()
     {
         using var recording = begin();
 
         // A grammar helper gets called from setup code and from other helpers. Reporting from
         // outside a step would attach a cell to whatever step happened to be open next.
         SpecAssert.Check("value", 6, 6).ShouldBeTrue();
-        SpecAssert.Check("value", 6, 7).ShouldBeFalse();
 
         recording.Steps.ShouldBeEmpty();
+        recording.SteplessWrongs.ShouldBeEmpty();
         recording.GatheredFailures().ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_wrong_outside_a_step_still_fails_the_scenario()
+    {
+        using var recording = begin();
+
+        // bobcat#484: this is what a [Then] helper that was never intercepted looks like from inside
+        // SpecAssert -- a scenario open, no step. Dropping the wrong is how such a spec passed.
+        SpecAssert.Check("balance", 100, 150).ShouldBeFalse();
+        SpecAssert.Fact(false, "the account is frozen").ShouldBeFalse();
+        SpecAssert.Gather(() => 6.ShouldBe(7)).ShouldBeFalse();
+
+        recording.Steps.ShouldBeEmpty();
+        recording.SteplessWrongs.Count.ShouldBe(3);
+        recording.SteplessWrongs[0].ShouldBe("balance: expected '150', got '100'");
+        recording.SteplessWrongs[1].ShouldBe("the account is frozen");
+
+        var failure = recording.GatheredFailures().ShouldNotBeNull();
+        failure.ShouldContain("3 SpecAssert wrongs were reported with no step open");
+        failure.ShouldContain("BOBCAT037");
+    }
+
+    [Fact]
+    public void a_stepless_wrong_is_reported_beside_the_failed_steps()
+    {
+        using var recording = begin();
+
+        using (ScenarioRecorder.Step("Then", "the value should be 7")) SpecAssert.Check("value", 6, 7);
+        SpecAssert.Fail("reported from setup code");
+
+        var failure = recording.GatheredFailures().ShouldNotBeNull();
+        failure.ShouldContain("1 specification step failed:");
+        failure.ShouldContain("1 SpecAssert wrong was reported with no step open:");
+        failure.ShouldContain("  reported from setup code");
     }
 
     [Fact]

@@ -14,22 +14,7 @@
     <!-- Match the InternalsVisibleTo declared in the host project. -->
     <AssemblyName>MeetingGroupMonolith.Tests</AssemblyName>
     <RootNamespace>MeetingGroupMonolith.Tests</RootNamespace>
-
-    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; a
-         ProjectReference analyzer brings the generator but not its props. Without it a [Given] /
-         [When] / [Then] helper is an ordinary method call and records nothing, and a SpecAssert
-         inside it reports to no step, so the spec would pass vacuously. -->
-    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- The platform-extension registration the Bobcat.Xunit PACKAGE carries in buildTransitive; a
-         ProjectReference does not consume another project's build assets, so it is stated here. -->
-    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
-      <DisplayName>Bobcat.Xunit</DisplayName>
-      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
-    </TestingPlatformBuilderHook>
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
