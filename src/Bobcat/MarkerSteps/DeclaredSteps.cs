@@ -84,6 +84,21 @@ public static class DeclaredSteps
             _bindings.Values.OrderBy(entry => entry.Identity, SpecIdentity.Comparer).ToList());
 
     /// <summary>
+    /// The manifest, plus the recovery hints <paramref name="assembly"/> declares on itself
+    /// (issue #469). What the generated module initializer calls, passing its own assembly.
+    /// </summary>
+    /// <remarks>
+    /// The hints are read here, in the suite's process, because this is the only side of the
+    /// boundary that has the attributes: a supervisor never loads the test assembly. Read lazily —
+    /// only when a listing was asked for — so a suite pays for the reflection only then.
+    /// </remarks>
+    public static SpecManifest Manifest(string framework, string suite, System.Reflection.Assembly assembly)
+        => Manifest(framework, suite) with
+        {
+            RecoveryHints = SpecManifestHint.ReadFrom(assembly) is { Count: > 0 } hints ? hints : null
+        };
+
+    /// <summary>
     /// Forget one scenario's declared steps and binding. Test-only, and deliberately per scenario: this registry is
     /// process-wide, test classes run in parallel, and a wholesale clear from one class wiped the
     /// registrations another class had just made — the intermittent empty renders in the

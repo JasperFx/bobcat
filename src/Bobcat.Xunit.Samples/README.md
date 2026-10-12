@@ -32,6 +32,10 @@ BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 **Twenty-eight of the forty-seven specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
+`Specs/RecoveryHintProbes.cs` is not a Storyteller sample. It's three specifications that
+`Bobcat.Supervisor.Tests` drives to prove a supervisor honours the recovery hints a projected suite
+declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set.
+
 ## What is covered
 
 | Storyteller sample | Recreated as | Outcome |

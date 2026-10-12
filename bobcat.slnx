@@ -31,6 +31,7 @@
     <Project Path="src/Bobcat.NUnit.Tests/Bobcat.NUnit.Tests.csproj" />
     <Project Path="src/Bobcat.NUnit/Bobcat.NUnit.csproj" />
     <Project Path="src/Bobcat.Projected.Acceptance.Tests/Bobcat.Projected.Acceptance.Tests.csproj" />
+    <Project Path="src/Bobcat.Supervisor.ProjectedWorker/Bobcat.Supervisor.ProjectedWorker.csproj" />
     <Project Path="src/Bobcat.Supervisor.SampleWorker/Bobcat.Supervisor.SampleWorker.csproj" />
     <Project Path="src/Bobcat.Supervisor.Tests/Bobcat.Supervisor.Tests.csproj" />
     <Project Path="src/Bobcat.Supervisor/Bobcat.Supervisor.csproj" />

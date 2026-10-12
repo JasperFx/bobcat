@@ -61,6 +61,11 @@ Each lane answers at the moment it can:
 manifest, because the lane does not settle the filter spelling: a projected suite is filtered by
 *its framework's*.
 
+A projected suite's manifest also carries `recoveryHints` when the suite declares any
+(`[ClearsOnRetry]` and friends, issue #469), so a supervisor that never loads the assembly can still
+honour them. The field is left out when there are none, and a reader that predates it ignores it.
+See [parallel-ready suites](parallel-ready-suites.md#recovery-hints-ride-along-in-the-spec-manifest).
+
 ### The identity, and why it is exact
 
 `SpecIdentity` finally names the string that was already being built in eight places — the platform
@@ -119,9 +124,12 @@ and only the first reaches the declared-steps registry. Keyed on that set, the f
 listed **8 of `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and published
 verdicts perfectly well. What makes a test a specification is that `[BobcatScenario]` records it.
 
-`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests` pins **both lanes from one class**, against the real
-hosts — one identity per lane, listed and then run. Deliberately not split across two test projects:
-that is how one lane gains a rule the other never hears about.
+Both lanes are pinned against the real hosts — one identity per lane, listed and then run — through
+**one set of assertions**, `SpecIdentityHarness` in `Bobcat.Xunit.Tests/SpecIdentity`. The projected
+half, `ProjectedSpecIdentityEndToEndTests`, lives beside it; the Gherkin half,
+`Bobcat.Mtp.Tests/SpecIdentityEndToEndTests`, links the same file in until the Gherkin lane goes
+(bobcat#471). The rules stay in one place deliberately: written twice, one lane gains a rule the
+other never hears about.
 
 ### Who uses this
 

@@ -48,6 +48,47 @@ MTP host rather than an xUnit native runner:
 Check with `./YourTests --list-tests`. If that errors with `unknown option`, you have the xUnit
 native runner and the supervisor cannot drive it.
 
+### Recovery hints ride along in the spec manifest
+
+A suite can say which failures recover and how, with `JasperFx.Testing`'s `[ClearsOnRetry]`,
+`[ClearsOnRecycle]`, `[ClearsInFreshProcess]` and `[NeverRecovers]` -- on the assembly, a test class
+or a single test method. The attributes live in JasperFx, not Bobcat, so anything already referencing
+JasperFx (directly, or through Marten, Wolverine or Polecat) can write them down.
+
+The supervisor still never loads your assembly, so it can't read them itself. The suite reads them,
+in its own process, and writes them into its spec manifest -- the file a Bobcat-projected suite
+writes when `BOBCAT_LIST_SPECS` asks for one. The supervisor asks during discovery and adds what
+comes back to `Supervisor.RecoveryHints` before anything runs:
+
+```json
+"recoveryHints": [
+  { "failureType": "Orders.BrokerUnavailableException", "kind": "RetryInFreshProcess",
+    "scope": "Global", "source": "Orders.Tests" },
+  { "failureType": "Orders.BrokerUnavailableException", "kind": "RetryInProcess",
+    "scope": "Group", "source": "PlacingOrders", "testClass": "Orders.Tests.PlacingOrders" }
+]
+```
+
+The scope rule survives the trip: assembly < class < method, and the narrowest declaration wins
+even when it names a less specific type, so a class can override a run-wide default without knowing
+what that default names. Hints you register on `Supervisor.RecoveryHints` by hand still work and
+merge with the suite's; at equal scope and an equally close match, yours win. Turn the reading off
+with `ReadWorkerRecoveryHints = false`.
+
+Two things to know:
+
+- **This is where "no reference to Bobcat" stops being true.** The manifest is written by code
+  Bobcat generates into a projected suite, so a suite with no Bobcat reference -- or one that
+  references Bobcat but has no projected specifications yet -- writes no manifest, and its hint
+  attributes are read by nobody. It still runs, and traits still drive retries. Hand the hints to
+  `Supervisor.RecoveryHints` instead.
+- **Over the wire a hint has to name the exact exception type.** A failure reported over MTP
+  carries one type name, not its inheritance chain, so a hint naming a base class abstains there
+  -- and a class hint naming `SystemException` won't override an assembly hint naming
+  `TimeoutException` the way it would in process. That degrades to a retry that didn't happen,
+  never to one that shouldn't have. tUnit reports no exception type at all, so on tUnit hints
+  never match.
+
 `UseMicrosoftTestingPlatformRunner` changes only the executable's entry point — the VSTest adapter
 path is untouched, so `dotnet test`, `--filter`, TRX and coverlet keep working. Verified on Wolverine,
 which runs xUnit v3 in VSTest compatibility mode: `dotnet test --filter "Category!=Flaky"` still

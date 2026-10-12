@@ -97,6 +97,10 @@ public static class ProjectedSpecConsole
 
     private static readonly object _gate = new();
     private static readonly List<SpecRender> _specs = new();
+
+    // The timing snapshot of each captured scenario (issue #466), not the recording itself: a
+    // recording holds exceptions and reports, and this list lives until process exit.
+    private static readonly List<Runtime.ProjectedScenarioSample> _timings = new();
     private static bool _enabled;
     private static bool _atExitRegistered;
     private static bool _previewAtExit;
@@ -146,6 +150,7 @@ public static class ProjectedSpecConsole
             _enabled = false;
             ScenarioRecorder.ScenarioCompleted -= capture;
             _specs.Clear();
+            _timings.Clear();
         }
     }
 
@@ -248,11 +253,14 @@ public static class ProjectedSpecConsole
     public static void Render()
     {
         List<SpecRender> specs;
+        List<Runtime.ProjectedScenarioSample> timings;
         lock (_gate)
         {
             if (_specs.Count == 0) return;
             specs = _specs.ToList();
             _specs.Clear();
+            timings = _timings.ToList();
+            _timings.Clear();
         }
 
         var (console, owner) = target();
@@ -288,12 +296,21 @@ public static class ProjectedSpecConsole
         console.MarkupLine(
             $"[bold]{specs.Count} specification(s)[/] — {(green ? "[green]all green[/]" : "[red]not green[/]")}");
         renderer.RenderCounts(total, green);
+
+        // Where the time went (issues #142, #466) -- the summary a Gherkin run ends with, from the
+        // projected recordings, with the lifecycle reported as not measured rather than as zero.
+        renderer.RenderTimingSummary(Runtime.SuiteTiming.ForProjected(timings));
         console.WriteLine();
     }
 
     private static void capture(ScenarioRecorder.Recording recording)
     {
         var spec = SpecRender.FromRecording(recording);
-        lock (_gate) _specs.Add(spec);
+        var timing = Runtime.ProjectedScenarioSample.From(recording);
+        lock (_gate)
+        {
+            _specs.Add(spec);
+            _timings.Add(timing);
+        }
     }
 }

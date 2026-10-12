@@ -13,15 +13,23 @@ public sealed record ScenarioTiming(string Feature, string Title)
     /// <summary>What the steps themselves cost.</summary>
     public required TimeSpan Steps { get; init; }
 
-    /// <summary>What the named lifecycle points cost — reset, scope, hooks, teardown.</summary>
-    public required TimeSpan Lifecycle { get; init; }
+    /// <summary>
+    /// What the named lifecycle points cost -- reset, scope, hooks, teardown. Null when the
+    /// lifecycle was not measured, which is always the case for a projected scenario (issue #466):
+    /// the test runner owns that lifecycle there, and a zero would claim it was free.
+    /// </summary>
+    public required TimeSpan? Lifecycle { get; init; }
 
-    /// <summary>Wall clock that no step and no lifecycle point owns.</summary>
+    /// <summary>
+    /// Wall clock that no step and no lifecycle point owns. When <see cref="Lifecycle"/> was not
+    /// measured this is simply everything outside the steps, and it is unattributed: it may be
+    /// test-body code between two steps as easily as anything else.
+    /// </summary>
     public TimeSpan Unowned
     {
         get
         {
-            var unowned = WallClock - Steps - Lifecycle;
+            var unowned = WallClock - Steps - (Lifecycle ?? TimeSpan.Zero);
             return unowned > TimeSpan.Zero ? unowned : TimeSpan.Zero;
         }
     }
@@ -68,6 +76,13 @@ public sealed record TimelineGap(string Feature, string Scenario, string After, 
 /// <c>Task.Delay</c> and no assertions), because that arrives as a bare duration on the wire.
 /// </para>
 /// <para>
+/// <strong>Two inputs, one report.</strong> <see cref="For(SuiteResults)"/> reads a Gherkin run;
+/// <see cref="For(IEnumerable{ScenarioRecorder.Recording})"/> reads projected recordings (issue
+/// #466), the lane Bobcat is moving to. The projected half keeps the bracket's wall clock, the step
+/// figures, the gaps between steps and the assertion-free check, and gives up the lifecycle points
+/// on purpose: see <see cref="LifecycleMeasured"/>.
+/// </para>
+/// <para>
 /// Figures describe each scenario's <em>final</em> attempt — <see cref="ScenarioResult.Results"/>
 /// is the only attempt whose <see cref="ExecutionResults"/> survives in-process. What retries
 /// cost is <c>RunTiming.RetryCost</c>'s question.
@@ -92,10 +107,27 @@ public sealed partial class SuiteTiming
     /// <summary>
     /// What each lifecycle point cost across the suite, costliest first. In a database-backed
     /// suite the ResetAll line is plausibly the largest single finding in the whole report.
+    /// Always empty when <see cref="LifecycleMeasured"/> is false -- read that first, because an
+    /// empty list there means "not measured", not "nothing to report".
     /// </summary>
     public IReadOnlyList<StepCost> Lifecycle { get; private init; } = [];
 
-    /// <summary>Time no stop point owns, largest first — a subtraction, zero false positives.</summary>
+    /// <summary>
+    /// Whether the input carried lifecycle points at all. True for a Gherkin suite, whose runner
+    /// owns the bracket and stamps ResetAll, BeforeEach and the rest on it. False for projected
+    /// recordings (issue #466): in that lane the lifecycle is the test runner's -- xUnit's
+    /// <c>IAsyncLifetime</c>, class and assembly fixtures, TUnit's hooks -- and Bobcat neither owns
+    /// it nor sees it. That loss is accepted, not pending; a consumer renders "not measured" and
+    /// never a zero (#141's rule).
+    /// </summary>
+    public bool LifecycleMeasured { get; private init; } = true;
+
+    /// <summary>
+    /// Time no stop point owns, largest first -- a subtraction, zero false positives. When
+    /// <see cref="LifecycleMeasured"/> is false the only stop points are the steps, so a gap is
+    /// time outside any step and nothing more is known about it: it is unattributed, and its
+    /// neighbours say only where it sat.
+    /// </summary>
     public IReadOnlyList<TimelineGap> Gaps { get; private init; } = [];
 
     /// <summary>
@@ -164,7 +196,10 @@ public sealed partial class SuiteTiming
                     continue;
                 }
 
-                collectGaps(feature.Title, scenario.Title, r, gaps);
+                collectGaps(feature.Title, scenario.Title,
+                    r.Timeline.Select(p => (p.Name, Start: p.StartMs, End: p.EndMs))
+                        .Concat(r.Steps.Select(s => (Name: s.StepText ?? s.StepId, s.Start, s.End))),
+                    r.WallClockMs, gaps);
 
                 scenarios.Add(new ScenarioTiming(feature.Title, scenario.Title)
                 {
@@ -196,12 +231,11 @@ public sealed partial class SuiteTiming
     /// neighbours: "3.1s between 'the events are committed' and 'the read model contains'" is
     /// actionable where "3.1s unaccounted" is a mystery.
     /// </summary>
-    private static void collectGaps(string feature, string scenario, ExecutionResults r, List<TimelineGap> gaps)
+    private static void collectGaps(
+        string feature, string scenario, IEnumerable<(string Name, long Start, long End)> known,
+        long wallClockMs, List<TimelineGap> gaps)
     {
-        var intervals = r.Timeline.Select(p => (p.Name, Start: p.StartMs, End: p.EndMs))
-            .Concat(r.Steps.Select(s => (Name: s.StepText ?? s.StepId, s.Start, s.End)))
-            .OrderBy(i => i.Start)
-            .ToList();
+        var intervals = known.OrderBy(i => i.Start).ToList();
 
         var cursor = 0L;
         var lastName = "scenario start";
@@ -221,10 +255,10 @@ public sealed partial class SuiteTiming
             }
         }
 
-        if (r.WallClockMs > cursor)
+        if (wallClockMs > cursor)
         {
             gaps.Add(new TimelineGap(feature, scenario, lastName, "scenario end",
-                TimeSpan.FromMilliseconds(r.WallClockMs - cursor)));
+                TimeSpan.FromMilliseconds(wallClockMs - cursor)));
         }
     }
 

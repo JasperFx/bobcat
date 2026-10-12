@@ -1733,9 +1733,12 @@ ones on upgrade. Same reasoning as retries being opt-in.
     the cross-run variance it needs exists now, but its false-positive question is open and
     `[SlowByDesign]` belongs in `JasperFx.Testing` per the #63 precedent.
 
-`Bobcat.Supervisor.SampleWorker`'s scenarios can *detect* whether they were isolated (a static
-per-process counter), so the isolation tests prove isolation happened rather than merely proving
-a process was launched. There is a control test showing the same scenario fails when batched.
+`Bobcat.Supervisor.ProjectedWorker`'s specifications can *detect* whether they were isolated (a
+static per-process counter), so the isolation tests prove isolation happened rather than merely
+proving a process was launched. There is a control test showing the same test fails when batched.
+It is an ordinary projected xUnit v3 suite (serial, declaration-ordered, traits as plain
+`[Trait]`s) and replaced the Gherkin-lane `Bobcat.Supervisor.SampleWorker` for bobcat#471; only
+`SampleWorkerEndToEndTests` still drives the old one, and goes with it in Phase 3.
 
 #### Environment checks reuse JasperFx — there is no Bobcat `IEnvironmentCheck`
 
@@ -2096,7 +2099,7 @@ package depends on Wolverine. `src/Bobcat.Testing.Wolverine` keeps the fixture, 
 and `HandlerWarmUp` as NON-packable test support for the Gherkin grammar suite and BankAccountES.
 
 Not packed: `Bobcat.Testing.Wolverine`, `Bobcat.Alba.SampleWeb`, `Bobcat.Mtp.SampleHost`, `Bobcat.Mtp.GeneratedHost`,
-`Bobcat.Supervisor.SampleWorker` and `ConsolePreview` are hosts the tests and demos drive.
+`Bobcat.Supervisor.SampleWorker`, `Bobcat.Supervisor.ProjectedWorker` and `ConsolePreview` are hosts the tests and demos drive.
 
 **The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
 console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over

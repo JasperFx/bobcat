@@ -63,7 +63,7 @@ public class SuiteTimingTests
         var s = timing.Scenarios.Single();
         s.WallClock.TotalMilliseconds.ShouldBe(700);
         s.Steps.TotalMilliseconds.ShouldBe(200);
-        s.Lifecycle.TotalMilliseconds.ShouldBe(40);
+        s.Lifecycle!.Value.TotalMilliseconds.ShouldBe(40);
         s.Unowned.TotalMilliseconds.ShouldBe(460);
     }
 

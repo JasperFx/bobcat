@@ -119,47 +119,26 @@ public class TestUpdateTapTests
     [Fact]
     public async Task a_real_mtp_host_reports_a_test_in_progress_before_its_verdict()
     {
-        var workerPath = SampleWorker.Path;
-        File.Exists(workerPath).ShouldBeTrue($"The sample worker was not built at {workerPath}");
+        var workerPath = WorkerHosts.ProjectedWorker;
+        File.Exists(workerPath).ShouldBeTrue($"The projected worker was not built at {workerPath}");
 
         await using var worker = await MtpWorkerClient.Launch(workerPath);
+        var passes = await WorkerHosts.UidsOf(worker, "Basics.passes");
 
         var updates = new List<WorkerTestUpdate>();
         worker.OnTestUpdate(update => { lock (updates) updates.Add(update); });
 
-        var result = await worker.Run(["Basics/passes"]);
+        var result = await worker.Run(passes);
         result.Outcomes.ShouldHaveSingleItem().State.ShouldBe(WorkerTestState.Passed);
 
         WorkerTestUpdate[] seen;
         lock (updates) seen = updates.ToArray();
 
-        // The in-progress node Bobcat's MTP host publishes at ScenarioStarted, then the verdict.
-        seen.Select(u => u.Uid).Distinct().ShouldBe(["Basics/passes"]);
+        // The in-progress node the host publishes as the test starts, then the verdict.
+        seen.Select(u => u.Uid).Distinct().ShouldBe(passes);
         seen.First().InProgress.ShouldBeTrue();
         seen.First().State.ShouldBeNull();
         seen.Last().InProgress.ShouldBeFalse();
         seen.Last().State.ShouldBe(WorkerTestState.Passed);
-    }
-
-    private static class SampleWorker
-    {
-        public static readonly string Path = locate();
-
-        private static string locate()
-        {
-            var configuration = System.IO.Path.GetFileName(
-                System.IO.Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar))!);
-
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory is not null && directory.Name != "src") directory = directory.Parent;
-
-            if (directory is null) throw new InvalidOperationException("Could not locate the src directory.");
-
-            return System.IO.Path.Combine(
-                directory.FullName, "Bobcat.Supervisor.SampleWorker", "bin", configuration, "net10.0",
-                OperatingSystem.IsWindows()
-                    ? "Bobcat.Supervisor.SampleWorker.exe"
-                    : "Bobcat.Supervisor.SampleWorker");
-        }
     }
 }
