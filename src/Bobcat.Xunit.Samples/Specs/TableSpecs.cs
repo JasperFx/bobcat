@@ -71,4 +71,19 @@ public class TableSpecs
             | 2 | 2 | 5   |
             """);
     }
+
+    /// <summary>
+    /// A decision table whose outputs are out parameters plus a returned value: a judged column for
+    /// each of <c>average</c>, <c>On Base</c> and <c>Verdict</c>.
+    /// </summary>
+    [Fact]
+    public async Task a_decision_table_with_out_parameters()
+    {
+        await _roster.TheBattingLinesAre("""
+            | At Bats | hits | walks | average | On Base | Verdict  |
+            | 500     | 150  | 50    | 0.300   | 0.364   | All-Star |
+            | 400     | 100  | 40    | 0.250   | 0.318   | Bench    |
+            | 600     | 198  | 0     | 0.330   | 0.330   | All-Star |
+            """);
+    }
 }

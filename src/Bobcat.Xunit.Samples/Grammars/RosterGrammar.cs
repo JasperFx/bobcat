@@ -94,6 +94,24 @@ public class RosterGrammar
     }
 
     /// <summary>
+    /// A decision table whose outputs are <c>out</c> parameters, the way Storyteller built one
+    /// (bobcat#483). The ordinary parameters bind from their columns; each out parameter and the
+    /// returned value is an output column, judged per row.
+    /// </summary>
+    [Then("the batting lines are")]
+    internal async Task TheBattingLinesAre(StepTable table) => await TableRunner.Run(this, nameof(battingLine), table);
+
+    private string battingLine([Header("At Bats")] int atBats, int hits, int walks,
+        out decimal average, [Header("On Base")] out decimal onBase)
+    {
+        average = Math.Round((decimal)hits / atBats, 3);
+        onBase = Math.Round((decimal)(hits + walks) / (atBats + walks), 3);
+
+        // The returned value is compared against the one column no parameter names: Verdict.
+        return average >= 0.300m ? "All-Star" : "Bench";
+    }
+
+    /// <summary>
     /// A decision table from the C# side: the expected value is a column like any other, and the
     /// grammar reports one cell per row so the grid carries a verdict per row.
     /// </summary>

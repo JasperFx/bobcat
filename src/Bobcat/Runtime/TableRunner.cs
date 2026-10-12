@@ -21,6 +21,14 @@ namespace Bobcat.Runtime;
 /// may be left out, cells convert through <see cref="CellValues"/>, a row that throws is a
 /// <c>row-error</c> cell and the remaining rows still run, and the whole thing renders as one grid.
 /// </para>
+/// <para>
+/// <b>Outputs</b> (bobcat#483). Each <c>out</c> parameter is an output column, named the same way an
+/// input is (its <see cref="Bobcat.HeaderAttribute"/> title, else its name, case-insensitive): after
+/// the call its value is compared with that row's cell exactly as a returned value is. An out
+/// parameter the table has no column for is not checked. A returned value is compared against the one
+/// column that names no parameter, in or out; with no such column, or more than one, it is not
+/// checked. A method may have both, and gets a judged column per output.
+/// </para>
 /// </remarks>
 public static class TableRunner
 {
@@ -35,8 +43,10 @@ public static class TableRunner
         var run = new TableRun(table.Headers.ToList());
         var rows = table.AsDictionaries();
 
-        // A returned value with exactly one column no parameter claims is a decision table, the same
-        // rule the generator applies: that column is the expected output.
+        // An out parameter is always an output (bobcat#483): its column, when the table has one, is
+        // the expected value, never an argument. A returned value with exactly one column no
+        // parameter claims -- in or out -- is a decision table, the same rule the generator applies:
+        // that column is the expected output.
         var bound = new HashSet<string>(
             parameters.Select(columnNameOf), StringComparer.OrdinalIgnoreCase);
         var leftover = table.Headers.Where(h => !bound.Contains(h)).ToList();
@@ -45,6 +55,8 @@ public static class TableRunner
                              && leftover.Count == 1
             ? leftover[0]
             : null;
+
+        var outputColumns = outputColumnsOf(parameters, table, expectedColumn);
 
         for (var r = 0; r < rows.Count; r++)
         {
@@ -55,10 +67,15 @@ public static class TableRunner
                 var arguments = bind(parameters, row, method);
                 var returned = await invoke(target, method, arguments);
 
-                if (expectedColumn != null)
+                foreach (var header in table.Headers)
                 {
-                    run.Cells.Add(CellCheck.ForValue(expectedColumn, returned,
-                        row.TryGetValue(expectedColumn, out var expected) ? expected : "", null, r));
+                    if (!outputColumns.TryGetValue(header, out var source)) continue;
+
+                    // The return value is the -1 slot; every other output is its out argument,
+                    // which the call wrote back into the argument array.
+                    var actual = source < 0 ? returned : arguments[source];
+                    run.Cells.Add(CellCheck.ForValue(header, actual,
+                        row.TryGetValue(header, out var expected) ? expected : "", null, r));
                 }
             }
             catch (Exception e) when (DecisionTableComparer.IsRowFailure(e))
@@ -66,12 +83,36 @@ public static class TableRunner
                 run.Cells.Add(DecisionTableComparer.RowError(r, e));
             }
 
-            addInputCells(run, table, row, r, expectedColumn);
+            addInputCells(run, table, row, r, outputColumns);
         }
 
         run.Report();
         return run;
     }
+
+    /// <summary>
+    /// The table's output columns, each mapped to where its actual value comes from: the index of
+    /// the out parameter it names, or -1 for the returned value. An out parameter whose column the
+    /// table leaves out is simply not checked.
+    /// </summary>
+    private static Dictionary<string, int> outputColumnsOf(ParameterInfo[] parameters, StepTable table,
+        string? expectedColumn)
+    {
+        var outputs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (expectedColumn != null) outputs[expectedColumn] = -1;
+
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            if (!isOut(parameters[i])) continue;
+
+            var column = columnNameOf(parameters[i]);
+            if (table.Headers.Contains(column, StringComparer.OrdinalIgnoreCase)) outputs[column] = i;
+        }
+
+        return outputs;
+    }
+
+    private static bool isOut(ParameterInfo parameter) => parameter.IsOut && parameter.ParameterType.IsByRef;
 
     /// <summary>
     /// Build one <paramref name="type"/> per row and report the grid. A row that cannot be built is a
@@ -143,12 +184,11 @@ public static class TableRunner
     }
 
     private static void addInputCells(TableRun run, StepTable table,
-        IReadOnlyDictionary<string, string> row, int rowIndex, string? expectedColumn)
+        IReadOnlyDictionary<string, string> row, int rowIndex, IReadOnlyDictionary<string, int>? outputColumns)
     {
         foreach (var header in table.Headers)
         {
-            if (expectedColumn != null
-                && string.Equals(header, expectedColumn, StringComparison.OrdinalIgnoreCase)) continue;
+            if (outputColumns != null && outputColumns.ContainsKey(header)) continue;
 
             // The plain-value constructor: an input column was not judged, which is what the
             // report reads to decide it earns no Status. Its text travels as StepCell.Value
@@ -166,11 +206,18 @@ public static class TableRunner
         for (var i = 0; i < parameters.Length; i++)
         {
             var parameter = parameters[i];
+
+            // An out argument is the method's to write, never the table's to supply.
+            if (isOut(parameter)) continue;
+
             var column = columnNameOf(parameter);
+            var type = parameter.ParameterType.IsByRef
+                ? parameter.ParameterType.GetElementType()!
+                : parameter.ParameterType;
 
             if (row.TryGetValue(column, out var cell))
             {
-                arguments[i] = CellValues.Read(cell, parameter.ParameterType);
+                arguments[i] = CellValues.Read(cell, type);
                 continue;
             }
 
