@@ -1,8 +1,8 @@
 # Making a test suite safe to run in parallel worker processes
 
 What a .NET integration suite has to satisfy before Bobcat's supervisor can split it across worker
-processes, and the failure modes to expect on the way. Written from four real suites — Wolverine's
-`PersistenceTests` and `Redis.Tests`, Polecat's `Polecat.Tests`, and Bobcat's own — so the list is
+processes, and the failure modes to expect on the way. Written from four real suites -- Wolverine's
+`PersistenceTests` and `Redis.Tests`, Polecat's `Polecat.Tests`, and Bobcat's own -- so the list is
 what actually broke, not what might.
 
 ## Measured so far
@@ -13,7 +13,7 @@ what actually broke, not what might.
 | Wolverine PersistenceTests | 78 | 164s | **73s (2.2x)** | 78/78, no source changes |
 | Wolverine Redis.Tests | 144 | 452s | **206s (2.2x)** | 144/144, no source changes |
 
-All three plateau quickly — 8 workers bought 4% over 4 on Polecat and 3% on Redis — but **for two
+All three plateau quickly -- 8 workers bought 4% over 4 on Polecat and 3% on Redis -- but **for two
 different reasons, and the difference decides whether the plateau is worth attacking.**
 
 On Polecat it is contention: beyond a handful of lanes the database container is the bottleneck
@@ -28,13 +28,13 @@ ceiling = sum(all test durations) / largest class's total duration
 
 Redis is 599s of test time with a 188s compliance class in it, so the ceiling is 3.19x and the floor
 is ~188s. Measured: 199s at 8 workers. **The prediction cost one run; the curve that confirmed it
-cost four.** Worth computing before provisioning a fleet — if the ceiling is 3x, asking for 8 workers
+cost four.** Worth computing before provisioning a fleet -- if the ceiling is 3x, asking for 8 workers
 buys nothing but containers.
 
 When the floor is what binds, the fix is not more workers. It is splitting that class, or making the
 tests in it faster: two compliance classes were 61% of the Redis suite's total test time.
 
-## Step 0 — be an MTP host
+## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never
 loads the test assembly, so **a test project needs no reference to Bobcat**. It does need to be an
@@ -89,7 +89,7 @@ Two things to know:
   never to one that shouldn't have. tUnit reports no exception type at all, so on tUnit hints
   never match.
 
-`UseMicrosoftTestingPlatformRunner` changes only the executable's entry point — the VSTest adapter
+`UseMicrosoftTestingPlatformRunner` changes only the executable's entry point -- the VSTest adapter
 path is untouched, so `dotnet test`, `--filter`, TRX and coverlet keep working. Verified on Wolverine,
 which runs xUnit v3 in VSTest compatibility mode: `dotnet test --filter "Category!=Flaky"` still
 reported 160 passed with the property set.
@@ -99,7 +99,7 @@ reported 160 passed with the property set.
 
 > **Hazard (found on CritterWatch):** a test project with
 > `<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>` breaks the xUnit v3
-> VSTest adapter — the assembly reports `UnknownTargetFramework`, the adapter's process launcher
+> VSTest adapter -- the assembly reports `UnknownTargetFramework`, the adapter's process launcher
 > cannot decide how to start the (now-executable) project, and every `dotnet test` run dies with
 > `Catastrophic failure: … Could not launch test process`. The exe itself still answers
 > `--list-tests` and `-automated`, which makes the symptom look like an adapter bug rather than a
@@ -109,17 +109,17 @@ reported 160 passed with the property set.
 > **Hazard (found on CritterWatch): pathological test output breaks the MTP wire.** MTP server
 > mode is JSON-RPC, and `Microsoft.Testing.Platform`'s serializer throws
 > `ArgumentException: The JSON value of length N is too large` on any single string past
-> ~½GB — at which point the worker faults and every unreported test goes Indeterminate. A
+> ~½GB -- at which point the worker faults and every unreported test goes Indeterminate. A
 > CritterWatch test was dumping a 698MB tracked-session log into `ITestOutputHelper`; `dotnet
 > test` had been silently absorbing it into an 868MB TRX nobody read, so the supervisor was the
 > first consumer to *notice*. The fix is fixing the test (the giant output traced to a real
-> message loop), not widening the wire — but recognize the signature: worker fault carrying
+> message loop), not widening the wire -- but recognize the signature: worker fault carrying
 > `Json.SerializeAsync` + `ValueTooLarge`, with a pass/indeterminate split at the choke point.
 > Sister symptom for triage: on Bobcat before 0.7.0 those indeterminates printed as uid
-> hashes, not display names — fixed by issue #82, which carries the discovery display name onto
+> hashes, not display names -- fixed by issue #82, which carries the discovery display name onto
 > synthesized never-reported outcomes.
 
-## Step 1 — the partitioning contract
+## Step 1 -- the partitioning contract
 
 The supervisor splits work **by test class**, never by individual test. That is a correctness rule,
 not a tuning choice: every framework's isolation contract is per class or collection, so a class's
@@ -137,7 +137,7 @@ visible in the test list**, which is why the rule has to be conservative.
 
 You inherit this for free. The thing you must supply is what follows.
 
-## Step 2 — per-worker resource isolation
+## Step 2 -- per-worker resource isolation
 
 Class-level partitioning keeps a class together. It cannot stop two *different* classes that share a
 database landing in different workers. So each worker needs its own database:
@@ -183,12 +183,12 @@ Rules the convention depends on (issue #414):
 
 **A suite that starts its own container per process already has this, for free.** Wolverine's Redis
 tests spin up a Testcontainers Redis from a `[ModuleInitializer]`, so every worker gets its own
-broker with its own port and there is nothing to wire — which is why that suite parallelised with no
+broker with its own port and there is nothing to wire -- which is why that suite parallelised with no
 source changes at all. Check for this before building per-worker plumbing.
 
 Two things it costs, both worth knowing rather than discovering:
 
-- **Every process pays the container start**, before `Main`, on the critical path — ~0.85s for
+- **Every process pays the container start**, before `Main`, on the critical path -- ~0.85s for
   `redis:7-alpine` including discovery, and far more for heavier images. Irrelevant at four workers;
   it dominates any mode that starts one process per test.
 - **Nothing reaps those containers if the reaper is off.** A `[ModuleInitializer]` that never
@@ -196,7 +196,7 @@ Two things it costs, both worth knowing rather than discovering:
   orphans on one machine. Not Bobcat's bug, but Bobcat's process multiplication is what makes it
   visible.
 
-## Step 3 — the three bugs this exposes
+## Step 3 -- the three bugs this exposes
 
 All were found in real suites, all silent, and all are the reason a first parallel run goes red.
 
@@ -218,7 +218,7 @@ The same shape appears as assertions that bake the environment into an expected 
 var expected = new Uri("wolverinedb://postgresql/localhost/postgres/wolverine");
 ```
 
-That one is honest about what it is — it just cannot survive a renamed database.
+That one is honest about what it is -- it just cannot survive a renamed database.
 
 ### Server-scoped names
 
@@ -234,7 +234,7 @@ private static readonly string DbA = ConnectionSource.Scoped("tenant_a");
 ```
 
 Under four workers this surfaced as *"User does not have permission to alter database
-'polecat_tenant_a'"* — non-deterministically, which is the signature of contention rather than a
+'polecat_tenant_a'"* -- non-deterministically, which is the signature of contention rather than a
 deterministic bug.
 
 Applies to anything at server scope: databases, logins, linked servers, Agent jobs, and any fixed
@@ -264,14 +264,14 @@ public async Task build_each_agent_smoke_test(string uriString)
 The supervisor discovers in one process and executes in another with a different per-worker
 environment, so the uid the plan asks for does not exist in the worker that receives it. Found on
 Wolverine's `MartenTests`: the symptom is *"the worker finished without reporting a result for
-this test"* — reported as indeterminate, and a retry appears to "fix" it whenever the retry
+this test"* -- reported as indeterminate, and a retry appears to "fix" it whenever the retry
 process happens to compute the same environment discovery did, which makes it masquerade as an
 ordinary flake. Test identity must be a function of the code alone, never of the environment.
 
-## Step 4 — containers
+## Step 4 -- containers
 
 `DockerComposeResource` starts the containers and knows when they are usable. Readiness comes from
-the compose file's own `healthcheck`, not from a Bobcat package per image — the healthcheck lives
+the compose file's own `healthcheck`, not from a Bobcat package per image -- the healthcheck lives
 where the credentials and ports already are.
 
 Four descending tiers, and the one used is reported in `ReadinessSource` so a weak check is never
@@ -283,17 +283,17 @@ away.
 
 ## When a parallel run hangs, bloats, or is cut short
 
-Everything here is off by default and reporting-first — the same guardrail as the timing report.
+Everything here is off by default and reporting-first -- the same guardrail as the timing report.
 
 - **`HeartbeatInterval`** emits one log line however many lanes are running, leading with the
-  longest-running test — a stuck run shows as that figure climbing before any threshold fires.
+  longest-running test -- a stuck run shows as that figure climbing before any threshold fires.
 - **`StallThreshold`** (and per-test `StallThresholdFor`) fires a `TestStalled` observer callback
   and a `STALLED:` log line once per attempt, collected on `SupervisorResults.StalledTests`.
   Whether the supervisor then *acts* is the separate, opt-in `StallAction`: `Report` (default),
   `KillAndRetry` (kill the wedged worker, give the stalled test one fresh-process retry, resume
   its innocent batch-mates in their lane), or `AbortRun`. Stall-managed outcomes never spend the
-  `RetryBudget` and never count as flaky — a wedge is not a flake.
-- **`MtpWorkerFactory.OnBeforeKill`** hands you the live process (with its pid — the supervisor
+  `RetryBudget` and never count as flaky -- a wedge is not a flake.
+- **`MtpWorkerFactory.OnBeforeKill`** hands you the live process (with its pid -- the supervisor
   surfaces it, never guesses) before a forced kill, which is where a `dotnet-dump collect` belongs.
 - **`ResourceSampleInterval`** brackets every attempt with worker RSS samples; per-test retained
   deltas are attributed only when the attempt had the process to itself, and unmeasured is never
@@ -304,19 +304,19 @@ Everything here is off by default and reporting-first — the same guardrail as 
 
 ## Triage order for a red first run
 
-1. **Deterministic and database-name-shaped** — text-rewritten connection strings, or assertions
+1. **Deterministic and database-name-shaped** -- text-rewritten connection strings, or assertions
    naming the database. Fix the suite; these are latent bugs regardless of parallelism.
-2. **Non-deterministic, moves between runs** — server-scoped name collisions. Scope the names.
-3. **Non-deterministic, same class every time** — a class split across workers. Report it: the
+2. **Non-deterministic, moves between runs** -- server-scoped name collisions. Scope the names.
+3. **Non-deterministic, same class every time** -- a class split across workers. Report it: the
    partitioner should have prevented this.
 
 A fourth shape is worth ruling out *before* the first parallel run rather than triaging after it:
-a test that only ever passed because something else ran first. That sweep is built —
+a test that only ever passed because something else ran first. That sweep is built  -- 
 `IsolationSweep` (in `Bobcat.Supervisor`) runs every partition alone, diffs against a baseline
-full-suite run, and classifies what moved: `OrderDependent` (passed with the suite, failed alone —
+full-suite run, and classifies what moved: `OrderDependent` (passed with the suite, failed alone  -- 
 the bug this exists to find), `InterferenceVictim` (the same defect seen from the other end),
 `FailedInBoth` (ordinary red), and `EnvironmentSensitive` (failed in the concurrent sweep but
-passed a serial confirmation run — the sweep's own contention, deliberately reported rather than
+passed a serial confirmation run -- the sweep's own contention, deliberately reported rather than
 counted). Granularity defaults to per-class, matching what the supervisor actually guarantees;
 per-test is strictly finer and catches ordering *within* a class at the cost of one process per
 test. It is the one class of failure that parallelism exposes without having caused.
@@ -324,14 +324,14 @@ test. It is the one class of failure that parallelism exposes without having cau
 ## What this does not buy you
 
 Parallelism speeds up a suite; it does not make a flaky one reliable. If stability is the problem,
-that is the retry/quarantine half of the supervisor (`RetryBudget`, `@retry`, `@isolated`,
-`RecoveryHint`), and it is a separate decision — Polecat needed none of it.
+that is the retry/quarantine half of the supervisor (`RetryBudget`, the `Retry`, `Isolated` and
+`RecycleOnRetry` traits -- `[Trait("Isolated", "true")]` on xUnit -- and `RecoveryHint`), and it is a separate decision -- Polecat needed none of it.
 
 Nor does it fix a suite dominated by one slow test. Wall clock is the slowest lane, so the largest
 partition sets the floor: Wolverine's run bottomed out at ~67s because one test slept for 61 of them.
 The evidence for attacking that is in the run itself: `RunReport`'s `Timing` section ranks the
 slowest tests by **share of wall clock**, reports parallel efficiency, and prices retries and
-isolation — report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
+isolation -- report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
 Across runs, the committed ledger (`TestLedger`, see `design/ledger-design.md`) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
 durations instead of test counts.

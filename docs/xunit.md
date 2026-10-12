@@ -1,24 +1,23 @@
 # Bobcat with xUnit.net
 
-`Bobcat.Xunit` lets an **xUnit v3** suite you already have publish itself as Bobcat specifications —
+`Bobcat.Xunit` lets an **xUnit v3** suite you already have publish itself as Bobcat specifications  -- 
 the tests keep running on xUnit, and Bobcat renders, reports and tracks them as scenarios.
 
 ```bash
 dotnet add package Bobcat.Xunit
 ```
 
-This is the projected lane. Nothing is rewritten, nothing moves, and the tests keep their own
-runner. For writing new specifications on Bobcat's own engine instead, see
-[Specifications with Code](tutorials/specifications-with-code.md).
+Nothing is rewritten, nothing moves, and the tests keep their own runner. For writing new
+specifications, see [Writing Specifications](marker-steps.md).
 
 ## Wire it up
 
-Put `[BobcatScenario]` on the test class, and name the feature it belongs to:
+Name the feature the test class belongs to:
 
 ```csharp
-using Bobcat.Xunit;
+using Bobcat;
 
-[BobcatFeature("Async daemon"), BobcatScenario]
+[BobcatFeature("Async daemon")]
 public class DaemonSpecs
 {
     [Fact]
@@ -36,37 +35,40 @@ public class DaemonSpecs
 }
 ```
 
-`[BobcatScenario]` works on a single method too, when only part of a class should project.
+That is all it takes. The package applies an assembly-level xUnit hook,
+`[assembly: RecordBobcatFeatures]`, that opens a scenario around every test in a `[BobcatFeature]`
+class and closes it with **the verdict xUnit reported** -- a failing test is published as a failure,
+and a skipped one is withdrawn rather than reported as anything at all. Opt out with
+`<BobcatRecordFeatures>false</BobcatRecordFeatures>`. An in-repo `ProjectReference` to `Bobcat.Xunit`
+doesn't consume the package's build assets, so such a project writes the assembly attribute itself.
+
+`[BobcatScenario]` on a class or a single method still works, for a suite that would rather opt in
+test by test, and `[BobcatSpec(typeof(SomeCommand))]` is a `[Fact]` that also binds the test to an
+Event Model slice and opens its recording -- see [Writing Specifications](marker-steps.md#bobcatspec).
 
 The scenario's title is the method name, so the method name is user-facing text here in a way it is
 not in an ordinary test.
 
-## What the attribute does
-
-It derives from xUnit v3's `BeforeAfterTestAttribute`, opening a scenario around each test and
-closing it with **the verdict xUnit reported** — a failing test is published as a failure, and a
-skipped one is withdrawn rather than reported as anything at all.
-
-## What the lane renders now
+## What it renders
 
 With the adapter in place, a projected suite does rather more than publish a verdict. All of it is
-covered in [Specs From Existing Tests](marker-steps.md); the short list, so you know what to look
+covered in [Writing Specifications](marker-steps.md); the short list, so you know what to look
 for:
 
 | | |
 |---|---|
 | [A rendered specification on the console](marker-steps.md#reading-the-specification-the-run-produced) | on by default in a terminal with no console listening; `BOBCAT_SPEC_CONSOLE` overrides in both directions, and `BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests` previews without running |
 | [Expected/actual cells](marker-steps.md#checks-that-gather-instead-of-throwing) | `SpecAssert.Check(name, actual, expected)` records instead of throwing, so a specification shows *every* disagreement rather than only its first. The adapter turns the gathered wrongs into the test's verdict at the end |
-| [Tables and sets](marker-steps.md#tables-and-sets-from-a-c-test) | a table literal in the test — pipe-delimited text that `StepTable` reads by an implicit conversion — so one grammar body serves a `.feature` file and a test, and both lanes render the same grid |
+| [Tables and sets](marker-steps.md#tables-and-sets-from-a-c-test) | a table literal in the test -- pipe-delimited text that `StepTable` reads by an implicit conversion -- rendered as one grid |
 | [Projected assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in) | with `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, ordinary statement-level Shouldly calls render as steps and a *run* of them is all evaluated before the next action |
 | [Listing and running one specification](spec-identities.md#listing-and-running-by-identity) | `BOBCAT_LIST_SPECS` writes what the suite specifies; an identity is translated to `--filter-method Ns.Class.method`, which is what [the resident runner](resident-runner.md) drives |
 
-One step-attribute family covers both lanes: `[Given]`, `[When]`, `[Then]`, `[Check]` and the
-keywordless `[Step]` are matched against a `.feature` file on a fixture *and* intercepted at the call
-site when a test calls the method directly. `[BobcatStep]` is the legacy spelling of the same thing.
+One step-attribute family -- `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` --
+is intercepted at the call site when a test calls the method. `[BobcatStep]` is an older spelling of
+the same thing.
 
 ::: tip The sample corpus
-`src/Bobcat.Xunit.Samples` recreates Storyteller 5's own sample suites as ordinary xUnit v3 tests —
+`src/Bobcat.Xunit.Samples` recreates Storyteller 5's own sample suites as ordinary xUnit v3 tests  -- 
 sentences, facts, output parameters, tables, sets, decision tables and narrated tests. Twenty-four of
 its forty-one specifications **fail on purpose**, because the samples exist to show what each outcome
 looks like.
@@ -81,18 +83,18 @@ leaves a green suite looking exactly like a correct one.
 
 Marten's hand-rolled copy got all four wrong:
 
-- It never set the verdict, so **every scenario it ever published was a clean pass** — including
+- It never set the verdict, so **every scenario it ever published was a clean pass** -- including
   the failing ones.
 - It minted its own run id and dropped `BOBCAT_RUN_TAG`, so its evidence could not be attributed to
   whatever asked for the run.
 - It published a `RunStarted` it might not own, and never a `RunFinished`.
-- Its interceptor opt-in was a csproj line a sibling project also needed — where forgetting it is a
+- Its interceptor opt-in was a csproj line a sibling project also needed -- where forgetting it is a
   `CS9137` build failure rather than a missing feature.
 
 ## xUnit v2 is not supported, and is not waiting for an adapter
 
 This is a structural limit rather than a backlog item. v2's `BeforeAfterTestAttribute` is
-`Before(MethodInfo)` / `After(MethodInfo)` with no test context anywhere — **there is no verdict to
+`Before(MethodInfo)` / `After(MethodInfo)` with no test context anywhere -- **there is no verdict to
 read at that point at all**. Reporting one would mean replacing the test framework rather than
 hooking it.
 
@@ -102,12 +104,12 @@ adapters small.
 ## Turning the test into a readable specification
 
 The attribute publishes the test. Marker comments and decorated step helpers are what make it
-*read* as a specification — a `// Given …` comment becomes a step, and a decorated shared helper
+*read* as a specification -- a `// Given …` comment becomes a step, and a decorated shared helper
 declares its step once for every test that calls it.
 
-That is the larger subject: [Specs From Existing Tests](marker-steps.md).
+That is the larger subject: [Writing Specifications](marker-steps.md).
 
 ## See also
 
-- [Bobcat with TUnit](tunit.md) — the same lane, other runner
-- [Specifications with Code](tutorials/specifications-with-code.md) — choosing between the two code lanes
+- [Bobcat with TUnit](tunit.md) -- the same thing, other runner
+- [Writing Specifications](marker-steps.md) -- step helpers, marker comments, `SpecAssert` and the scenario vocabularies

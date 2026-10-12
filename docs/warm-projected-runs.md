@@ -6,6 +6,13 @@ and warm mode for Gherkin suites ([#393](https://github.com/JasperFx/bobcat/issu
 
 **Date:** 2026-10-02.
 
+::: info Comparisons with the Gherkin lane
+This investigation was written while Bobcat also ran Gherkin suites in process, and it measures the
+projected lane against that one. The Gherkin lane was removed in 0.50
+([bobcat#471](https://github.com/JasperFx/bobcat/issues/471)); the findings about projected suites
+stand. For the current behaviour, see [The Resident Runner](resident-runner.md#cold-and-warm).
+:::
+
 **Verdict: usable with caveats — and the caveat is Bobcat's, not the platform's.**
 
 Microsoft.Testing.Platform's server mode does everything the question needed it to do, on the

@@ -1,20 +1,49 @@
 # Specifications with Code
 
-**What you will build:** specifications with no `.feature` files — your existing tests, rendered
-and reported exactly like Gherkin ones.
+**What you will build:** specifications written as ordinary tests -- your xUnit v3, TUnit, NUnit or
+MSTest tests, rendered and reported as Given/When/Then specifications.
 
-Gherkin earns its keep when a non-developer reads the specs. When nobody does, its cost is a second
-file, a binding layer, and a grammar to maintain.
+<!-- JEREMY -->
+Bobcat specifications are code. There is no second file and no binding layer between the
+specification and the test that executes it: the test *is* the specification, it keeps running on its
+own runner, and Bobcat renders it as readable steps with their own verdicts.
 
-Bobcat skips it by *projecting* the tests you already have: your xUnit v3, TUnit, NUnit or MSTest tests stay where
-they are, keep running on their own runner, and are rendered as specifications through selective
-attributes and marker comments. There is no fluent Given/When/Then API to learn, and nothing to
-rewrite.
+## Three ways a step arrives
 
-## Specs from tests you already have
+**A scenario vocabulary**, when your application is event sourced on the Critter Stack. Derive from
+`CritterStackSpec` (or WolverineFx.Bobcat's `WolverineSpec`) and every member is a step:
 
-Your xUnit v3, TUnit, NUnit or MSTest tests stay where they are, keep running on their own runner, and are
-*projected* as specifications — through marker comments and decorated helpers:
+```csharp
+[BobcatFeature("Freeze Account")]
+public class FreezeAccountSpecs(BankAccountHost app) : BankAccountSpec(app)
+{
+    [BobcatSpec(typeof(FreezeAccount), Domain = "Banking", TriggeredBy = "The fraud desk")]
+    public async Task freezing_an_account_records_the_freeze()
+    {
+        var accountId = Guid.NewGuid();
+        await GivenEvents<Account>(accountId, new AccountOpened(accountId, Guid.NewGuid(), "USD"));
+
+        await WhenReceived(new FreezeAccount(accountId, "Suspected fraud"));
+
+        ThenEmitted<AccountFrozen>();
+        await ThenReadModel<Account>(accountId, Specify<Account>().With(x => x.IsFrozen, true));
+    }
+}
+```
+
+That one is from `samples/BankAccountES`, whose `BankAccountSpec` base derives from `CritterStackSpec`
+and adds the application's own HTTP and message acts. `[BobcatSpec]` is the test, its slice binding
+and its recording in one attribute.
+
+**Decorated step helpers**, for any application. A step attribute on a shared helper declares it once,
+so every test that calls it reads as that step:
+
+```csharp
+[Then("the response status is {status}")]
+public void ThenTheResponseStatusIs(int status) => SpecAssert.Check("status", _lastStatusCode, status);
+```
+
+**Marker comments**, for a test you'd rather not touch:
 
 ```csharp
 [Fact]
@@ -31,32 +60,27 @@ public async Task deposit_increases_the_balance()
 }
 ```
 
-A step attribute on a shared helper declares it once, so every test that calls it reads as that
-step — `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` all work here and in
-the Gherkin lane alike. (`[BobcatStep]` is the legacy spelling of the same thing.)
-
 What that buys you beyond a verdict: the run
 [prints the specification it produced](../marker-steps.md#reading-the-specification-the-run-produced),
 a step can report an [expected/actual cell](../marker-steps.md#checks-that-gather-instead-of-throwing)
-without ending the test, and
-[tables and sets](../marker-steps.md#tables-and-sets-from-a-c-test) grid up from a table literal in
-the test exactly as they do from a `.feature` file's trailing `|...|` block.
+without ending the test, and [tables and sets](../marker-steps.md#tables-and-sets-from-a-c-test)
+grid up from a table literal in the test.
 
 Three things to know before you start:
 
 - **xUnit v3, TUnit, NUnit or MSTest (3.10+).** xUnit v2 has no adapter and is not waiting for
-  one — its `BeforeAfterTestAttribute` cannot hand over a test result, which is the seam the adapter
+  one -- its `BeforeAfterTestAttribute` cannot hand over a test result, which is the seam the adapter
   needs.
-- **Use the shipped runner adapter** — `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` or
-  `Bobcat.MSTest`. A hand-rolled one reports
-  a clean pass for red tests.
-- **Declared is not executed.** A projected step describes what the test does; it does not make the
+- **Use the shipped runner adapter** -- `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` or
+  `Bobcat.MSTest`. A hand-rolled one reports a clean pass for red tests.
+- **Declared is not executed.** A marker comment describes what the test does; it does not make the
   test do it. The two can drift, and the docs are explicit about that limit.
 
-The full treatment — including binding a projected test to an Event Model slice with `[BobcatSlice]`
-and the spec-ownership manifest — is [Specs from tests you already have](../marker-steps.md).
+The full treatment -- including binding a specification to an Event Model slice with `[BobcatSpec]` or
+`[BobcatSlice]` -- is [Writing Specifications](../marker-steps.md).
 
 ## Where to go next
 
-- Bulk data setup and set verification — [Data Intensive Specifications](data-intensive-specifications.md)
-- Putting either style in a pipeline — [Integrating Bobcat with CI](continuous-integration.md)
+- The whole Critter Stack vocabulary -- [Bobcat with Wolverine](../integrations/wolverine.md)
+- Bulk data setup and set verification -- [Data Intensive Specifications](data-intensive-specifications.md)
+- Putting a suite in a pipeline -- [Integrating Bobcat with CI](continuous-integration.md)

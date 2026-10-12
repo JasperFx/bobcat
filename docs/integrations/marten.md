@@ -1,70 +1,122 @@
-# Bobcat with Marten
+# Bobcat with Marten, Polecat and Fisher
 
-**There is no `Bobcat.Marten` package, and you do not need one.** Bobcat reaches an event or
-document store through the **JasperFx.Events** abstractions, which Marten, Polecat and Fisher all
-register — so the same spec code runs against any of them, and nothing in your test project has to
-name Marten at all.
+**There is no `Bobcat.Marten` package, and you do not need one.** Bobcat reaches an event or document
+store through the **JasperFx.Events** abstractions, which Marten, Polecat and Fisher all register --
+so the same specification runs against any of them, and nothing in your test project has to name
+Marten at all.
 
-Your application configures Marten however it already does. Your spec project registers the host
-and resets between scenarios:
+`CritterStackScenario` and `CritterStackSpec`, in `Bobcat.CritterStack` (shipped inside the `Bobcat`
+package), are the store-only Given/When/Then vocabulary: arrange events and read models, act through
+your application's own services, and assert what the act appended, what the aggregates and read
+models became, and how the act was refused. **No message bus is involved.** Plenty of applications use
+Marten without Wolverine, and this is the vocabulary for them. WolverineFx.Bobcat's `WolverineSpec`
+derives from it and adds acts through Wolverine's tracked session.
+
+## A specification
 
 ```csharp
-[BobcatConfiguration]
-public static void Configure(BobcatRunner runner)
-    => runner.Resources.Add(new AlbaResource<Program>(reset: host => host.ResetEventStoresAsync()));
+using Bobcat;
+using Bobcat.CritterStack;
+using Microsoft.Extensions.DependencyInjection;
+
+[BobcatFeature("Wallets")]
+public class crediting_a_wallet(AppFixture app) : CritterStackSpec(app.Host)
+{
+    [Fact]
+    public async Task a_credit_is_recorded()
+    {
+        var id = Guid.NewGuid();
+        await GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"));
+
+        await WhenActing("the wallet is credited",
+            services => services.GetRequiredService<Wallets>().Credit(id, 10));
+
+        ThenEvents(Specify<WalletCredited>().With(x => x.Amount, 10m));
+        await ThenAggregate<Wallet>(id, Specify<Wallet>().With(x => x.Balance, 10m));
+    }
+}
 ```
 
-`ResetEventStoresAsync` empties **every** store the host registers — documents *and* event streams,
-which is what it takes: the snapshots are documents, the events that produced them are not, and
-deleting one half leaves the other.
+The constructors take an `IHost`, or an `IServiceProvider` for a test that has a container and no
+host (then `Host` throws, and every step reads `Services`), plus an optional `storeName` for an
+application with several event stores. Don't want a base class? `new CritterStackScenario(host)` is
+the same vocabulary as an object, and `CritterStackSpec` only delegates to one.
 
-## What you get from a step
+**Your application configures its store however it already does.** The spec project boots it -- in an
+xUnit assembly or collection fixture, say -- and Bobcat finds the store in the container. Changing
+`Program.cs` from Marten to Fisher is the only change it takes to run the same specifications against
+the other store; `samples/BankAccountES` runs its specifications on both.
 
-All of it store-agnostic, in `Bobcat.CritterStack` (shipped inside `Bobcat`):
+## The store-only act
+
+`WhenActing(description, act)` runs any act an application performs -- a domain service, an endpoint
+called in-process, a background job run by hand -- handed a fresh service scope. What it appended is
+read back from the store afterwards: the act takes the store's high-water mark before it runs, and
+every event appended since is the act's. An exception it throws is captured, not rethrown, so a
+refusal can be asserted with `ThenValidationFails` or `ThenRefusedWith`.
+
+Two consequences of reading by sequence, worth designing around:
+
+- **Anything concurrent work appends while the act runs is counted as the act's.** A suite on the
+  store-only act runs its tests one at a time against a shared store --
+  `[assembly: CollectionBehavior(DisableTestParallelization = true)]` in xUnit -- or gives each test
+  its own store. `samples/BankAccountES` does the first.
+- **No store reads an event's tags back**, so a step that judges Dynamic Consistency Boundary tags
+  after a store-only act fails and says why, rather than reporting every tagged event missing.
+
+When an act's events can't be attributed that way at all -- several writers, or a stream someone else
+also appends to -- name the stream and the version instead, with `TheStreamVersion` and
+`ThenEventsOn<T>(id, afterVersion, …)`, or `WhenActingOn<T>` for the whole paragraph in one call. See
+[A named stream from a named version](wolverine.md#a-named-stream-from-a-named-version).
+
+A Wolverine application usually wants to act through the bus or over HTTP instead. Derive from
+`WolverineSpec`, or write your own act on a base spec class the way BankAccountES does; see
+[Your own acts](wolverine.md#your-own-acts).
+
+## The vocabulary
+
+The whole vocabulary -- every Given, When and Then, the values each one takes, and the settings -- is
+documented once, on [Bobcat with Wolverine](wolverine.md). Everything there that isn't marked as a
+Wolverine or HTTP act, a message step, a boundary step or `ThenEventuallyCaused` is `CritterStackSpec`'s:
 
 | | |
 |---|---|
-| `Context.EventStore()` | the registered store, by name when there is more than one |
-| `Context.FetchEventStreamAsync(id)` | the events on a stream |
-| `Context.AggregateEventStreamAsync<T>(id)` | the aggregate rebuilt from them |
-| `Context.QueryEventsSinceAsync(sequence)` / `HighWaterSequenceAsync()` | the store's tail |
-| `Context.WaitForNonStaleProjectionsAsync()` / `WaitForProjectionAsync<T>()` | wait for the async daemon rather than sleeping |
-| `Context.ProjectionProgressAsync()` | per-shard progress, for when a wait times out |
-| `Context.ResetCritterStackAsync()` | the reset above, from inside a step |
+| [Arrange](wolverine.md#arrange) | `GivenEvents`, `GivenNoEventsFor`, `GivenEventsOn`, `GivenReadModel`, the clock steps |
+| [Act](wolverine.md#act) | `WhenActing`, `WhenActingOn` |
+| [Events](wolverine.md#assert-events) | `ThenEvents`, `ThenEventsInAnyOrder`, `ThenEmitted`, `ThenNotEmitted`, `ThenNoEvents`, `ThenEventsOn`, `ThenStreamIsStarted`, `ThenStreamIsStartedWithEvents` |
+| [Aggregates, documents and read models](wolverine.md#assert-aggregates-documents-and-read-models) | `ThenAggregate`, `ThenDocument`, `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`, `ThenSingleDocument`, `Verify`, `ThenMatches` |
+| [Refusals](wolverine.md#assert-refusals) | `ThenValidationFails`, `ThenRefusedWith`, `ThenCommandRefused` |
+| [DCB models](wolverine.md#dynamic-consistency-boundaries) | `ThenEventsOn(EventTagQuery, …)`, `TheDcbModel`, `ThenDcbModel` |
 
-`DocumentStores.LoadAsync` / `StoreAllAsync` cover documents by type, and `EventStoreAuthoring`
-appends arranged history.
+Every step that reads a projection waits for the async daemons first, up to `ProjectionTimeout` --
+**20 seconds** by default, which is what a cold daemon on a loaded CI runner needs.
+
+## Below the vocabulary
+
+The store helpers the vocabulary is built from are public, and all of them are store-agnostic:
+
+| | |
+|---|---|
+| `services.EventStore(storeName?)` / `services.EventStores()` | the registered store, by name when there is more than one |
+| `host.ResetEventStoresAsync()` | empty **every** store the host registers -- documents *and* event streams. The snapshots are documents, the events that produced them are not, and deleting one half leaves the other |
+| `host.WaitForNonStaleProjectionsAsync(…)` | wait for the async daemon rather than sleeping |
+| `EventStores.FetchStreamAsync` / `AggregateStreamAsync<T>` / `FetchLatestAsync<T>` | a stream's events, the aggregate rebuilt from them, the latest projected snapshot |
+| `EventStores.QueryEventsSinceAsync` / `HighWaterSequenceAsync` | the store's tail |
+| `EventStores.ProjectionProgressAsync` | per-shard progress, for when a wait times out |
+| `DocumentStores.LoadAsync` / `StoreAllAsync` | documents by type |
+| `EventStoreAuthoring.AppendAsync` | append arranged history |
 
 ## Why there is no package
 
-`Bobcat.Marten` existed and was deleted, along with `Bobcat.Alba` and `Bobcat.Wolverine`, so that
-the support could be rebuilt from what applications turn out to need rather than from what an
-abstraction seemed like it should offer. `Bobcat.Alba` came back, because nine sample suites each
-wrote the same file. Marten did not, and the evidence is what decided it.
-
-Seven of the nine samples had hand-written this in their spec project:
-
-```csharp
-var store = host.Services.GetRequiredService<IDocumentStore>();
-await store.Advanced.Clean.DeleteAllDocumentsAsync();
-await store.Advanced.Clean.DeleteAllEventDataAsync();
-```
-
-That is a Marten-specific spelling of something Bobcat already shipped store-agnostically. Swapping
-it for `host.ResetEventStoresAsync()` left all 88 sample scenarios passing, and took `using Marten`
-and `IDocumentStore` out of every spec project — so those suites would now run against Polecat or
-Fisher by changing only the application's own `Program.cs`.
-
-The old package also carried a `MartenResource` that owned an `IDocumentStore` with no host around
-it. Nothing needed it: every sample has an application, and the store comes from the application's
-container. It stays deleted until something asks.
-
-**One thing did not come back and has no home.** `[MartenEntities]` was a persistence recipe that
-bound Gherkin table columns to documents at compile time. Its sibling `[EfCoreEntities]` still
-ships in `Bobcat.EntityFrameworkCore`, so the asymmetry is real — but no sample used either, and
-writing a recipe nobody has asked for is the habit this exercise exists to break.
+<!-- JEREMY -->
+`Bobcat.Marten` existed and was deleted, so that support could be rebuilt from what applications turn
+out to need rather than from what an abstraction seemed like it should offer. It never came back.
+Seven of nine sample suites had hand-written a Marten-specific reset --
+`DeleteAllDocumentsAsync` plus `DeleteAllEventDataAsync` -- that Bobcat already shipped
+store-agnostically. Swapping it for `host.ResetEventStoresAsync()` left every sample scenario passing
+and took `using Marten` out of every spec project.
 
 ## See also
 
-- [Resources](../resources.md) · [Bobcat with Alba](alba.md)
-- [Composing Grammar Modules](../composing-grammars.md) — the document and event-store grammars
+- [Bobcat with Wolverine](wolverine.md) -- the vocabulary reference
+- [Writing Specifications](../marker-steps.md) -- step helpers, `SpecAssert`, tables, and slice binding

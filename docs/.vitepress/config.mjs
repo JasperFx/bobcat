@@ -30,7 +30,6 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Overview', link: '/tutorials/' },
-          { text: 'BDD with Gherkin', link: '/tutorials/bdd-with-gherkin' },
           { text: 'Specifications with Code', link: '/tutorials/specifications-with-code' },
           { text: 'Data Intensive Specifications', link: '/tutorials/data-intensive-specifications' },
           { text: 'Integrating with CI', link: '/tutorials/continuous-integration' },
@@ -45,11 +44,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Getting Started', link: '/getting-started' },
-          { text: 'Integrating Bobcat Gherkin', link: '/integrating-gherkin' },
-          { text: 'The Run Lifecycle', link: '/run-lifecycle' },
-          { text: 'Resources', link: '/resources' },
-          { text: 'Composing Grammar Modules', link: '/composing-grammars' },
-          { text: 'Specs From Existing Tests', link: '/marker-steps' },
+          { text: 'Writing Specifications', link: '/marker-steps' },
           { text: 'Bobcat with xUnit.net', link: '/xunit' },
           { text: 'Bobcat with TUnit', link: '/tunit' },
           { text: 'Bobcat with NUnit', link: '/nunit' },
@@ -57,7 +52,7 @@ export default defineConfig({
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
           { text: 'Spec Identities', link: '/spec-identities' },
           { text: 'The Resident Runner', link: '/resident-runner' },
-          { text: 'Editor Integration', link: '/editor-integration' }
+          { text: 'Migrating from Gherkin', link: '/migrating-from-gherkin' }
         ]
       },
       {
@@ -65,8 +60,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Overview', link: '/integrations/' },
-          { text: 'Bobcat with Alba', link: '/integrations/alba' },
-          { text: 'Bobcat with Marten', link: '/integrations/marten' },
+          { text: 'Marten, Polecat and Fisher', link: '/integrations/marten' },
           { text: 'Bobcat with Wolverine', link: '/integrations/wolverine' }
         ]
       },
