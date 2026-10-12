@@ -82,6 +82,21 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
+            // BOBCAT035: [WaitFor] / [Approx] on a helper a C# test calls. Once per (method,
+            // attribute), for the same reason as BOBCAT027 above.
+            foreach (var call in calls)
+            {
+                foreach (var attribute in call.IgnoredGherkinAttributes)
+                {
+                    if (!reported.Add(call.DeclaringType + "." + call.MethodName + "/[" + attribute + "]")) continue;
+
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.GherkinOnlyAttributeIgnored,
+                        call.Location ?? Microsoft.CodeAnalysis.Location.None,
+                        attribute, call.MethodName, GherkinOnlyAttributes.ReplacementFor(attribute)));
+                }
+            }
+
             // Numbered before either output: the interceptor writes each call's ordinal into the
             // recorder, and the plan is the list that ordinal indexes into. They have to agree.
             StepInterceptors.Number(calls);
@@ -143,6 +158,22 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             foreach (var finding in findings)
                 spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownRoleSource, finding.Location, finding.Message));
+        });
+
+        // 3g. BOBCAT035: [WaitFor] / [Approx] on a method of a projected spec itself, where nothing
+        //     reads them (the helper-call half is reported with the step interceptors above)
+        var ignoredOnSpecs = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => GherkinOnlyAttributes.IsDeclarationCandidate(node),
+                transform: GherkinOnlyAttributes.CheckDeclaration)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(ignoredOnSpecs, (spc, findings) =>
+        {
+            foreach (var finding in findings)
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.GherkinOnlyAttributeIgnored, finding.Location,
+                    finding.Attribute, finding.Member, GherkinOnlyAttributes.ReplacementFor(finding.Attribute)));
         });
 
         // 3e. bobcat#449: each [BobcatFeature] test and the command or slice it exercises, as JasperFx
@@ -2281,6 +2312,21 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// <c>[WaitFor]</c> or <c>[Approx]</c> in projected code: on a step helper a C# test calls, or on
+    /// a method of a projected spec. Only the Gherkin generator reads either one, so here the poll or
+    /// the tolerance silently never happens (see <see cref="GherkinOnlyAttributes"/>). A warning, not
+    /// an error, because the same helper may also be bound from a <c>.feature</c> file, where the
+    /// attribute still works.
+    /// </summary>
+    public static readonly DiagnosticDescriptor GherkinOnlyAttributeIgnored = new(
+        "BOBCAT035",
+        "[WaitFor] and [Approx] are ignored in projected code",
+        "[{0}] on '{1}' is ignored in projected code, because only the Gherkin generator reads it: {2}",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor InvalidArrangement = new(

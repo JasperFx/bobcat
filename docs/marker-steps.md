@@ -393,6 +393,8 @@ internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calcu
 | `SpecAssert.Check(name, actual, expected)` | one expected/actual cell, named for the placeholder it belongs to — so the verdict renders *in* the sentence where the value sits. Takes `rowIndex:` for a table row |
 | `SpecAssert.Fact(condition, because)` | a boolean verdict with no pair of values |
 | `SpecAssert.Fail(message)` | a failure the step describes itself |
+| `SpecAssert.Check(name, actual, expected, tolerance: 0.1)` | the same cell, compared within an absolute tolerance. This is the projected `[Approx]`, and the cell carries the same `±0.1` note |
+| `await SpecAssert.EventuallyAsync(...)` | poll until a value matches, a condition comes true, or an action stops throwing. The projected `[WaitFor]`, see [below](#waiting-for-an-answer-that-arrives-later) |
 | `SpecAssert.Gather(action)` | run an assertion that *does* throw — Shouldly, xUnit, NUnit — and record it as this step's failure instead of ending the test. **Only an assertion** is gathered; anything else is rethrown unchanged, because swallowing a `NullReferenceException` would turn a broken test into a merely red one |
 
 `Check` runs the same `CellCheck` comparison the Gherkin lane's return-value verification runs, so a
@@ -411,6 +413,42 @@ failed CalculatorSpecs.asserting_values
 A `bool`-returning step is the other shape, unchanged from Storyteller: the answer *is* the verdict,
 with no `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real
 duration.
+
+### Waiting for an answer that arrives later
+
+`[WaitFor]` and `[Approx]` don't work in this lane. Both are read by the Gherkin generator, which
+wraps the step it binds in a poll loop or puts the tolerance on the comparison of what the step
+returned. A C# test calls the helper itself, so there's no generated code around the call and the
+attribute does nothing at all. That was the dangerous part: a helper with `[WaitFor(5000)]` ran once
+and reported its first answer, which looks exactly like a poll that happened to succeed straight
+away. The generator now says so with **BOBCAT035**.
+
+The poll goes inside the helper instead:
+
+```csharp
+[Then("the outstanding count becomes {count}")]
+internal Task OutstandingBecomes(int count)
+    => SpecAssert.EventuallyAsync("count", () => _queue.Outstanding, count,
+        timeout: TimeSpan.FromSeconds(5), interval: TimeSpan.FromMilliseconds(50));
+```
+
+| | |
+|---|---|
+| `EventuallyAsync(name, () => actual, expected, ...)` | ask for the value until it matches. Takes `options:` (a tolerance among them) and `rowIndex:` like `Check`, and there's a `Func<Task<T>>` form for a value that has to be fetched |
+| `EventuallyAsync(() => condition, ..., because:)` | a `Fact` that's allowed to take a while |
+| `EventuallyAsync(() => { ... }, ...)` | run an action until it stops throwing |
+
+The timeout defaults to 5 seconds and the interval to 100ms, `[WaitFor]`'s own default. Every form
+returns whether it got there, so a helper can branch on it.
+
+**One cell, not one per attempt.** The step gets a single cell when the poll is over: the passing
+comparison with a `converged after 120ms (3 polls)` note, or the last disagreement with a
+`timed out after 5000ms @50ms (100 attempts)` note, so the reader sees the value the system was
+actually stuck on. A timeout is a wrong, gathered like any other, not an exception.
+
+An exception inside the window is "not ready yet", as it is under `[WaitFor]`, and the last one is
+named in the timeout note. Cancellation, `SpecCriticalException` and `SpecCatastrophicException`
+aren't retried, because all three mean stop.
 
 ## Tables and sets from a C# test
 
@@ -1012,6 +1050,7 @@ identities rather than lanes.
 | **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
 | **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
 | **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
+| **BOBCAT035** (warning) | `[WaitFor]` or `[Approx]` on a step helper a C# test calls, or on a method of a projected spec. Only the Gherkin generator reads either one, so here the poll or the tolerance silently never happens. Poll with [`SpecAssert.EventuallyAsync`](#waiting-for-an-answer-that-arrives-later) and pass `tolerance:` to `SpecAssert.Check` instead. A warning rather than an error, because the same helper can also be bound from a `.feature` file, where the attribute still works |
 
 The honest limit on BOBCAT029, pinned by
 `Bobcat.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,

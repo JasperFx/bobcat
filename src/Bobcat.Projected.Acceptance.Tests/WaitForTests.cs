@@ -1,91 +1,117 @@
 using Bobcat.Engine;
+using Bobcat.Engine.Verification;
 
 namespace Bobcat.Projected.Acceptance.Tests;
 
 /// <summary>
-/// <c>WaitFor.feature</c> from the projected lane, and the gap it found: nothing in the projected
-/// lane polls. <c>[WaitFor]</c> is read only by the Gherkin generator, whose emitted code hands the
-/// step to <c>WaitForRunner.Poll</c>, and that takes a Gherkin <c>StepResult</c>. A projected helper
-/// carrying the attribute compiles, runs once, and reports its first answer.
+/// <c>WaitFor.feature</c> from the projected lane. <c>[WaitFor]</c> is read only by the Gherkin
+/// generator, so a projected helper polls by calling <see cref="SpecAssert"/>'s
+/// <c>EventuallyAsync</c> instead, and the generator warns (BOBCAT035) about the attribute on a
+/// helper a C# test calls.
 /// </summary>
 /// <remarks>
-/// The tests are written against the shape the Gherkin lane gives a reader (one step, a
-/// "converged after" or "timed out after" note, the last value seen) so whichever form a projected
-/// poll takes, they say what it has to report. Each one is skipped until it exists.
+/// The assertions are the shape the Gherkin lane gives a reader: one step, one cell, a
+/// "converged after" or "timed out after" note, and the last value seen.
 /// </remarks>
 public class WaitForTests
 {
-    private const string gap =
-        "Projected-lane gap (bobcat#471 phase 2): [WaitFor] is honoured only by the Gherkin generator, and " +
-        "WaitForRunner.Poll takes a Gherkin StepResult, so a projected step never polls. Needs a projected " +
-        "entry point (interceptor support for [WaitFor], or a SpecAssert-style poll helper) and a maintainer " +
-        "decision on which.";
-
     public class PollingGrammar
     {
         private int _outstandingCalls;
         private int _checkCalls;
         private int _drainCalls;
 
+        private static readonly TimeSpan every = TimeSpan.FromMilliseconds(10);
+
         /// <summary>Answers 5 on the first two polls, then 0.</summary>
-        [WaitFor(2000, PollAt = 10)]
         [Then("the outstanding count becomes {count}")]
-        internal void OutstandingBecomes(int count)
-            => SpecAssert.Check("count", ++_outstandingCalls >= 3 ? 0 : 5, count);
+        internal Task OutstandingBecomes(int count)
+            => SpecAssert.EventuallyAsync("count", () => ++_outstandingCalls >= 3 ? 0 : 5, count,
+                TimeSpan.FromSeconds(2), every);
 
-        [WaitFor(60, PollAt = 10)]
         [Then("the never-ready count becomes {count}")]
-        internal void NeverReadyBecomes(int count) => SpecAssert.Check("count", 9, count);
+        internal Task NeverReadyBecomes(int count)
+            => SpecAssert.EventuallyAsync("count", () => 9, count, TimeSpan.FromMilliseconds(60), every);
 
-        [WaitFor(2000, PollAt = 10)]
         [Check("the system is eventually ready")]
-        internal bool IsReady() => ++_checkCalls >= 2;
+        internal Task<bool> IsReady()
+            => SpecAssert.EventuallyAsync(() => ++_checkCalls >= 2, TimeSpan.FromSeconds(2), every);
 
-        [WaitFor(2000, PollAt = 10)]
         [When("the queue eventually drains")]
-        internal void Drain()
+        internal Task Drain() => SpecAssert.EventuallyAsync(() =>
         {
             if (++_drainCalls < 2) throw new InvalidOperationException("not drained yet");
-        }
+        }, TimeSpan.FromSeconds(2), every);
+
+        [Then("the average settles on {average}")]
+        internal Task AverageSettlesOn(double average)
+            => SpecAssert.EventuallyAsync("average", () => 2.46, average, TimeSpan.FromSeconds(2), every,
+                new CheckOptions { Tolerance = 0.1 });
     }
 
     private readonly PollingGrammar _grammar = new();
 
-    [Fact(Skip = gap)]
-    public void a_value_check_converges_and_says_so()
+    [Fact]
+    public async Task a_value_check_converges_and_says_so()
     {
-        var (recording, _) = Projected.Run("converges", () => _grammar.OutstandingBecomes(0));
+        var (recording, _) = await Projected.RunAsync("converges", () => _grammar.OutstandingBecomes(0));
 
         var step = recording.Step("the outstanding count becomes 0");
         step.Status.ShouldBe(ResultStatus.success);
-        step.Cells.Single().Note.ShouldNotBeNull().ShouldContain("converged after");
+
+        // One cell for the whole poll, not one per attempt.
+        var cell = step.Cells.ShouldHaveSingleItem();
+        cell.Actual.ShouldBe("0");
+        cell.Note.ShouldNotBeNull().ShouldContain("converged after");
+        cell.Note.ShouldContain("(3 polls)");
     }
 
-    [Fact(Skip = gap)]
-    public void a_timeout_fails_reporting_the_last_actual_value()
+    [Fact]
+    public async Task a_timeout_fails_reporting_the_last_actual_value()
     {
-        var (recording, _) = Projected.Run("times out", () => _grammar.NeverReadyBecomes(0));
+        var (recording, _) = await Projected.RunAsync("times out", () => _grammar.NeverReadyBecomes(0));
 
-        var cell = recording.Step("the never-ready count becomes 0").Cells.Single();
+        var step = recording.Step("the never-ready count becomes 0");
+        step.Status.ShouldBe(ResultStatus.failed);
+
+        var cell = step.Cells.ShouldHaveSingleItem();
         cell.Status.ShouldBe(ResultStatus.failed);
         cell.Expected.ShouldBe("0");
         cell.Actual.ShouldBe("9");
         cell.Note.ShouldNotBeNull().ShouldContain("timed out after 60ms @10ms");
+
+        // A wrong, gathered rather than thrown: the scenario carries on and settles its verdict at the end.
+        recording.GatheredFailures().ShouldNotBeNull().ShouldContain("the never-ready count becomes 0");
     }
 
-    [Fact(Skip = gap)]
-    public void a_fact_converges()
+    [Fact]
+    public async Task a_fact_converges()
     {
-        var (recording, _) = Projected.Run("fact converges", () => _grammar.IsReady());
+        var (recording, _) = await Projected.RunAsync("fact converges", () => _grammar.IsReady());
 
-        recording.Step("the system is eventually ready").Status.ShouldBe(ResultStatus.success);
+        var step = recording.Step("the system is eventually ready");
+        step.Status.ShouldBe(ResultStatus.success);
+        step.Cells.ShouldHaveSingleItem().Note.ShouldNotBeNull().ShouldContain("converged after");
     }
 
-    [Fact(Skip = gap)]
-    public void an_action_is_retried_until_it_stops_throwing()
+    [Fact]
+    public async Task an_action_is_retried_until_it_stops_throwing()
     {
-        var (recording, _) = Projected.Run("action converges", () => _grammar.Drain());
+        var (recording, _) = await Projected.RunAsync("action converges", () => _grammar.Drain());
 
-        recording.Step("the queue eventually drains").Status.ShouldBe(ResultStatus.success);
+        var step = recording.Step("the queue eventually drains");
+        step.Status.ShouldBe(ResultStatus.success);
+        step.Failure.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task a_tolerance_rides_along_with_the_poll()
+    {
+        var (recording, _) = await Projected.RunAsync("approximately", () => _grammar.AverageSettlesOn(2.5));
+
+        var cell = recording.Step("the average settles on 2.5").Cells.ShouldHaveSingleItem();
+        cell.Status.ShouldBe(ResultStatus.success);
+        cell.Note.ShouldNotBeNull().ShouldContain("±0.1");
+        cell.Note.ShouldContain("converged after");
     }
 }

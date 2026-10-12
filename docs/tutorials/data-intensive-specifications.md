@@ -492,6 +492,11 @@ is a value the step chooses.
 All three go on the method, a parameter or a property, so a tolerance can be stated once for a whole
 grammar or per column.
 
+These are Gherkin attributes, read by the generator when it binds a step. From a C# test the comparison
+is the step's own call, so the tolerance goes on the call too:
+`SpecAssert.Check("average", actual, expected, tolerance: 0.001)`, or a `CheckOptions` for the
+others. The generator warns (BOBCAT035) about an `[Approx]` it can see a C# test calling.
+
 ## What a written cell may say
 
 Beyond a plain literal, a cell may say any of these — and it means the **same thing on both sides of

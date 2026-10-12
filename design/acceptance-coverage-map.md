@@ -51,7 +51,7 @@ It doesn't return the actual value for a generator to compare.
 | A3 | A numeric tolerance flows into the comparison and the cell's `±0.1` note | b | `ValueCheckTests.a_tolerance_flows_into_the_comparison_and_its_note`. The tolerance is a `CheckOptions` argument. |
 | A4 | A string value passes and fails with its own expected/actual | b | `ValueCheckTests.a_string_value_passes`, `a_string_value_fails` |
 | A5 | Several outputs of one sentence are one cell each, and one wrong output doesn't hide a right one | a | `SpecAssertTests.several_checks_in_one_step_are_judged_separately` + `ValueCheckTests.several_outputs_of_one_sentence_are_one_cell_each`, `one_wrong_output_fails_the_step_and_names_its_cell` |
-| A6 | A return value or `out` parameter is bound by the generator and compared against a document cell; `[Approx]` read off the method | c | A C# call site has no expected cell to compare against. The projected form is A1-A5. `[Approx]` is read by the Gherkin generator only. |
+| A6 | A return value or `out` parameter is bound by the generator and compared against a document cell; `[Approx]` read off the method | c | A C# call site has no expected cell to compare against. The projected form is A1-A5. `[Approx]` is read by the Gherkin generator only: the projected tolerance is `SpecAssert.Check(..., tolerance:)` (`Bobcat.Tests` `SpecAssertEventuallyTests.a_tolerance_is_an_approximate_comparison_with_its_note`), and BOBCAT035 warns about the attribute in projected code (`Bobcat.Generators.Tests` `GherkinOnlyAttributeTests`). |
 
 ## B. Clock -- `Clock.feature`, `ClockTests`
 
@@ -148,14 +148,14 @@ and D through `TableRunner`, which is the runtime twin of the generated envelope
 | # | Behaviour pinned | Class | Projected coverage |
 |---|---|---|---|
 | H1 | A `[TableGrammar]` / decision table ticks "row n of N", and a throwing `Before` ticks nothing | c | Row ticks come from the generated envelope (#468). The projected form of "a long table shows progress" is H3. |
-| H2 | A `[WaitFor]` step narrates its poll loop | b | **SKIPPED**, folded into I1 (gap 1) |
+| H2 | A `[WaitFor]` step narrates its poll loop | c | `SpecAssert.EventuallyAsync` records one cell when the poll is over and doesn't narrate the attempts. What a reader needs from the loop (how long, how many polls, the last value) is on that cell's note: I1. |
 | H3 | (projected form) A table step's cells reach a watcher before it finishes, and `StepFinished` carries the judged cells and column order | b | `TableProgressTests.a_table_step_shows_its_cells_before_it_finishes`, `the_finished_step_carries_the_judged_cells_and_the_column_order`; **SKIPPED** `the_finished_step_carries_one_cell_per_row_and_column` (gap 3) |
 
 ## I. WaitFor -- `WaitFor.feature`, `WaitForTests`
 
 | # | Behaviour pinned | Class | Projected coverage |
 |---|---|---|---|
-| I1 | A value check converges and says so; a timeout reports the last actual value; a fact converges; an action is retried until it stops throwing | b | **SKIPPED** `WaitForTests` (4 tests, gap 1) |
+| I1 | A value check converges and says so; a timeout reports the last actual value; a fact converges; an action is retried until it stops throwing | b | `WaitForTests` (5 tests, through `SpecAssert.EventuallyAsync`, the 5th a tolerance riding along with the poll). The engine half is `Bobcat.Tests` `SpecAssertEventuallyTests`; BOBCAT035 is `Bobcat.Generators.Tests` `GherkinOnlyAttributeTests`. |
 
 ## J. Named templates -- `NamedTemplates.feature`, `NamedTemplateTests`
 
@@ -240,13 +240,12 @@ aside) into `Bobcat.Projected.Acceptance.Tests`. The originals stay put until ph
 
 The projected lane doesn't do these yet. Each has a skipped test that states what it should do.
 
-1. **No projected WaitFor.** `[WaitFor]` is read only by the Gherkin generator, and the code it emits
-   hands the step to `WaitForRunner.Poll`, which takes a Gherkin `StepResult`. A projected helper that
-   carries `[WaitFor]` compiles, runs once, and reports its first answer, with no diagnostic. That's
-   the dangerous part: it looks supported. `WaitForRunner` is on the phase 3 deletion list
-   (`design/gherkin-removal-analysis.md` section 1). Skipped: `WaitForTests` (4). This needs a decision
-   between interceptor support for `[WaitFor]` and a `SpecAssert`-style poll helper, or a documented
-   drop and a diagnostic for the attribute on a projected step.
+1. **No projected WaitFor.** FIXED. `[WaitFor]` is read only by the Gherkin generator, so a projected
+   helper carrying it compiled, ran once, and reported its first answer, with no diagnostic. Decided
+   2026-10-11: a `SpecAssert` poll helper plus a generator diagnostic. `SpecAssert.EventuallyAsync`
+   polls a value, a condition or an action and records one cell for the whole poll, and **BOBCAT035**
+   (warning) reports `[WaitFor]` or `[Approx]` on a helper a C# test calls or on a projected spec
+   method. `WaitForTests` (5) run against the helper now.
 2. **Bad cells are a different verdict.** `RecordedStep.Status` reads an `error` or `invalid` cell as
    `error`. The Gherkin lane's `IStepContext.RecordCells` marks the step `failed` for any bad cell. So a
    throwing table row (`row-error`, `error`) and an extra row in a set (`extra-row`, `invalid`) are
@@ -271,8 +270,8 @@ The projected lane doesn't do these yet. Each has a skipped test that states wha
 ## Smaller notes
 
 - `[Approx]` on a projected helper is ignored in the same way `[WaitFor]` is: only the Gherkin
-  generator reads it. The projected tolerance is a `CheckOptions` argument, which A3 pins. Worth a line
-  in the docs, or a diagnostic, when phase 3 rewrites them.
+  generator reads it. The projected tolerance is a `CheckOptions` argument (A3) or the
+  `SpecAssert.Check(..., tolerance:)` shorthand, and BOBCAT035 covers the attribute too (gap 1).
 - Watch for engine tests that only look lane-neutral. About half of `Bobcat.Tests`
   `SetVerificationComparerTests` drives the comparison through a Gherkin `StepResult` and
   `SetVerificationRender.FromStepResult`, both on the phase 3 deletion list. Only the half after its
