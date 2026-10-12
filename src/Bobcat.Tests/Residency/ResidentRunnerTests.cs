@@ -216,12 +216,21 @@ public class ResidentRunnerTests
         using var host = new FakeMonitorHost { RefuseCommandStream = true };
 
         await using var runner = new ResidentRunner(new RecordingSuite(), optionsFor(host));
-        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        using var stop = new CancellationTokenSource();
 
-        await runner.Run(stop.Token);
+        var loop = runner.Run(stop.Token);
 
-        // It kept asking: a monitor that does not know this runner yet may learn.
+        // It kept asking: a monitor that does not know this runner yet may learn. Waited on with a
+        // deadline rather than read once after a fixed 500ms budget, which a loaded box can spend
+        // on a single registration (bobcat#479).
+        await eventually(() => host.RunnerEvents.Count > 1 || loop.IsCompleted,
+            "the runner never asked a second time");
+
+        loop.IsCompleted.ShouldBeFalse("a refused stream is retried, not fatal");
         host.RunnerEvents.Count.ShouldBeGreaterThan(1);
+
+        await stop.CancelAsync();
+        await loop;
     }
 
     [Fact]

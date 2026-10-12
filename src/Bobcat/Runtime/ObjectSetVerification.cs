@@ -84,6 +84,8 @@ public static class ObjectSetVerification
     /// the carrier — and pairing greedily would then report a MISSING row that a different pairing
     /// avoids. Exact pairs are chosen by augmenting paths (Kuhn's algorithm), trying actual items in the
     /// order they happened, so the result never depends on the order the expectations were written in.
+    /// An ordered comparison seeds that matching with the longest pairing that keeps the specification's
+    /// order, so a row is only ORDER when no pairing avoids it (bobcat#476).
     /// </remarks>
     public static TableRun Cells(
         IReadOnlyList<object> actual,
@@ -116,10 +118,18 @@ public static class ObjectSetVerification
         var owner = new int[actual.Count];
         Array.Fill(owner, -1);
 
-        // Pass 1: exact matches, as many as any pairing can make
+        var ordered = mode == SetMode.Ordered;
+
+        // Pass 1: exact matches, as many as any pairing can make. An ordered comparison starts from
+        // the longest pairing that keeps the specification's order (bobcat#476), so ORDER is only
+        // reported when no pairing of that size avoids it: two identical expectations can each match
+        // the other's actual, and Kuhn's algorithm alone happily pairs them crosswise.
+        if (ordered) seedInOrder(exact, pairs, owner);
+
         for (var i = 0; i < expected.Count; i++)
         {
-            augment(i, exact, pairs, owner, new bool[actual.Count]);
+            if (pairs[i] >= 0) continue;
+            augment(i, exact, pairs, owner, new bool[actual.Count], ordered);
         }
 
         var differences = new IReadOnlyList<ValueDifference>?[expected.Count];
@@ -129,14 +139,29 @@ public static class ObjectSetVerification
         {
             if (pairs[i] >= 0) continue;
             var type = PartialMatching.ExpectedType(expected[i]);
+            var candidate = -1;
+            var (after, before) = ordered ? gap(pairs, i, actual.Count) : (-1, actual.Count);
             for (var j = 0; j < actual.Count; j++)
             {
                 if (owner[j] >= 0 || actual[j].GetType() != type) continue;
 
-                pairs[i] = j;
-                owner[j] = i;
-                differences[i] = compare(actual[j], i);
-                break;
+                // In an ordered comparison, an item that sits where this row belongs beats the first
+                // one found, which could be behind a row written earlier: a spurious ORDER beside the FAIL
+                if (j > after && j < before)
+                {
+                    candidate = j;
+                    break;
+                }
+
+                if (candidate < 0) candidate = j;
+                if (!ordered) break;
+            }
+
+            if (candidate >= 0)
+            {
+                pairs[i] = candidate;
+                owner[candidate] = i;
+                differences[i] = compare(actual[candidate], i);
             }
         }
 
@@ -286,15 +311,28 @@ public static class ObjectSetVerification
     }
 
     // Kuhn's augmenting path: give expectation i an actual item, moving an earlier pairing to another
-    // item it also matches when that frees one up.
-    private static bool augment(int i, bool[,] exact, int[] pairs, int[] owner, bool[] visited)
+    // item it also matches when that frees one up. With preferFree, an unpaired item it matches is
+    // taken before any pairing is disturbed, so an ordered seed is only rearranged when that grows it.
+    private static bool augment(int i, bool[,] exact, int[] pairs, int[] owner, bool[] visited, bool preferFree)
     {
+        if (preferFree)
+        {
+            for (var j = 0; j < owner.Length; j++)
+            {
+                if (!exact[i, j] || visited[j] || owner[j] >= 0) continue;
+
+                pairs[i] = j;
+                owner[j] = i;
+                return true;
+            }
+        }
+
         for (var j = 0; j < owner.Length; j++)
         {
             if (!exact[i, j] || visited[j]) continue;
             visited[j] = true;
 
-            if (owner[j] < 0 || augment(owner[j], exact, pairs, owner, visited))
+            if (owner[j] < 0 || augment(owner[j], exact, pairs, owner, visited, preferFree))
             {
                 pairs[i] = j;
                 owner[j] = i;
@@ -303,6 +341,69 @@ public static class ObjectSetVerification
         }
 
         return false;
+    }
+
+    // The longest pairing that keeps both sides in order — a longest common subsequence over the exact
+    // matches. The walk back takes a diagonal whenever it is as long as skipping, so expected[i] keeps
+    // actual[i] whenever the two sequences agree position by position.
+    private static void seedInOrder(bool[,] exact, int[] pairs, int[] owner)
+    {
+        var expectedCount = pairs.Length;
+        var actualCount = owner.Length;
+        var longest = new int[expectedCount + 1, actualCount + 1];
+
+        for (var i = expectedCount - 1; i >= 0; i--)
+        {
+            for (var j = actualCount - 1; j >= 0; j--)
+            {
+                longest[i, j] = exact[i, j]
+                    ? Math.Max(1 + longest[i + 1, j + 1], Math.Max(longest[i + 1, j], longest[i, j + 1]))
+                    : Math.Max(longest[i + 1, j], longest[i, j + 1]);
+            }
+        }
+
+        int x = 0, y = 0;
+        while (x < expectedCount && y < actualCount)
+        {
+            if (exact[x, y] && longest[x, y] == 1 + longest[x + 1, y + 1])
+            {
+                pairs[x] = y;
+                owner[y] = x;
+                x++;
+                y++;
+            }
+            else if (longest[x + 1, y] >= longest[x, y + 1])
+            {
+                x++;
+            }
+            else
+            {
+                y++;
+            }
+        }
+    }
+
+    // The positions an item for expectation i must fall strictly between to stay in order with the
+    // nearest paired expectations either side of it.
+    private static (int after, int before) gap(int[] pairs, int i, int actualCount)
+    {
+        var after = -1;
+        for (var k = i - 1; k >= 0; k--)
+        {
+            if (pairs[k] < 0) continue;
+            after = pairs[k];
+            break;
+        }
+
+        var before = actualCount;
+        for (var k = i + 1; k < pairs.Length; k++)
+        {
+            if (pairs[k] < 0) continue;
+            before = pairs[k];
+            break;
+        }
+
+        return (after, before);
     }
 
     /// <summary>

@@ -169,7 +169,17 @@ public class ProjectedEventModelPublishingEndToEndTests
 
         await client.Run(slices.Select(t => t.Uid).ToArray());
         await client.Run([slices[0].Uid]);
-        await Task.Delay(500);
+
+        // Waited on with a deadline rather than read once after a fixed 500ms (bobcat#479): the
+        // batches reach the console on the publisher's own pump after Run returns. Waiting for at
+        // least what is expected and then settling keeps the exact assertion below strict.
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while ((host.Batches.Count == 0 || host.EventModelPushes.Count < 2) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+
+        await Task.Delay(300);
 
         // The probe runs once per process, so a warm host that lost the 250ms race (see
         // runAttached) stays unattached, and the assertion below would be about nothing.
