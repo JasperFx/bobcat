@@ -1424,7 +1424,7 @@ the DCB boundary steps and correlation.
   (`ThenEventsOn`) look at own + foreign (`addressable()`), since naming the stream already scopes them.
   Residual, documented: a stream another test *starts* during the act still counts, so whole-store
   assertions on a shared store still need serial execution (BankAccountES keeps
-  `DisableTestParallelization`). DCB: no store reads tags back, so a tagged append is attributed by its
+  `Parallelization(Mode = ParallelMode.None)`). DCB: no store reads tags back, so a tagged append is attributed by its
   stream; where tags are returned, a tag value the spec arranged events with also counts.
 - **No store reads an event's tags back** (checked on Marten and Fisher), so after a store-only act
   a step that judges tags fails saying so (`tagsCanBeJudged`) instead of reporting every tagged
