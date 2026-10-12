@@ -25,6 +25,33 @@ public class TUnitResidentSuiteTests : IDisposable
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(), "bobcat-tunit-resident", Guid.NewGuid().ToString("n"));
 
+    /// <summary>
+    /// What the suite said about each child it launched — its exit code and everything it wrote
+    /// (<see cref="OutOfProcessResidentSuite.Log"/>). Carried into every timeout message, because
+    /// bobcat#521 was a deterministic publish-job failure whose only evidence was "the child never
+    /// closed its run": the child's exit code and output existed all along and were dropped on the
+    /// floor. A test that waits on another process has to say what that process did.
+    /// </summary>
+    private readonly List<string> _childLog = [];
+
+    private void log(string line)
+    {
+        lock (_childLog) _childLog.Add(line);
+    }
+
+    private string childSaid
+    {
+        get
+        {
+            lock (_childLog)
+            {
+                return _childLog.Count == 0
+                    ? " The suite launched no child, or it said nothing."
+                    : Environment.NewLine + string.Join(Environment.NewLine, _childLog);
+            }
+        }
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
@@ -32,10 +59,10 @@ public class TUnitResidentSuiteTests : IDisposable
     }
 
     private Task<OutOfProcessResidentSuite> coldSuiteFor(FakeMonitorHost monitor)
-        => OutOfProcessResidentSuite.For(host, monitorUrl: monitor.Url, listingDirectory: _directory);
+        => OutOfProcessResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
 
     private Task<WarmProjectedResidentSuite> warmSuiteFor(FakeMonitorHost monitor)
-        => WarmProjectedResidentSuite.For(host, monitorUrl: monitor.Url, listingDirectory: _directory);
+        => WarmProjectedResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
 
     [TUnitHostedFact]
     public async Task a_tunit_suite_lists_its_identities_and_is_no_longer_refused_at_launch()
@@ -69,7 +96,7 @@ public class TUnitResidentSuiteTests : IDisposable
 
         await suite.Run("c-tunit", SpecSelection.Of(identities), RunnerWire.ColdMode, default);
 
-        await eventually(() => eventsNamed(monitor, "run_finished").Count >= 1, "the child never closed its run");
+        await eventuallyWithEvidence(() => eventsNamed(monitor, "run_finished").Count >= 1, "the child never closed its run");
 
         var started = eventsNamed(monitor, "run_started");
         started.Count.ShouldBe(1);
@@ -103,10 +130,10 @@ public class TUnitResidentSuiteTests : IDisposable
         await using var suite = await warmSuiteFor(monitor);
 
         await suite.Run("c-warm-1", SpecSelection.Of(ledgerOpening, auditClosing), RunnerWire.WarmMode, default);
-        await eventually(() => eventsNamed(monitor, "run_finished").Count >= 1, "the first warm command never closed its run");
+        await eventuallyWithEvidence(() => eventsNamed(monitor, "run_finished").Count >= 1, "the first warm command never closed its run");
 
         await suite.Run("c-warm-2", SpecSelection.Of(auditTrail), RunnerWire.WarmMode, default);
-        await eventually(() => eventsNamed(monitor, "run_finished").Count >= 2, "the second warm command never closed its run");
+        await eventuallyWithEvidence(() => eventsNamed(monitor, "run_finished").Count >= 2, "the second warm command never closed its run");
 
         suite.WarmUnavailable.ShouldBeNull();
 
@@ -138,7 +165,7 @@ public class TUnitResidentSuiteTests : IDisposable
         await runner.Handle(CloudEvent.From(
             "stoat", RunnerWire.RunCommandType, new RunCommand("c-runner", [auditTrail], RunnerWire.WarmMode)));
 
-        await eventually(() => eventsNamed(monitor, "run_finished").Count >= 1, "the warm command never closed its run");
+        await eventuallyWithEvidence(() => eventsNamed(monitor, "run_finished").Count >= 1, "the warm command never closed its run");
 
         eventsNamed(monitor, "run_started").Single().GetProperty("command").GetString().ShouldBe("c-runner");
         scenariosOf(monitor).ShouldBe([auditTrail]);
@@ -147,7 +174,17 @@ public class TUnitResidentSuiteTests : IDisposable
     private static IReadOnlyList<string?> scenariosOf(FakeMonitorHost monitor)
         => eventsNamed(monitor, "scenario_finished").Select(e => e.GetProperty("uid").GetString()).ToList();
 
-    private static async Task eventually(Func<bool> condition, string because)
+    /// <summary>
+    /// <see cref="eventually"/> with the child's exit code and output appended to the failure.
+    /// A cold command's child has ALREADY exited by the time Run returns, so a wait that expires
+    /// means the child published nothing — and then its own words are the whole diagnosis.
+    /// </summary>
+    private Task eventuallyWithEvidence(Func<bool> condition, string because)
+        => eventually(condition, () => because + childSaid);
+
+    private static Task eventually(Func<bool> condition, string because) => eventually(condition, () => because);
+
+    private static async Task eventually(Func<bool> condition, Func<string> because)
     {
         var deadline = DateTime.UtcNow.AddSeconds(60);
         while (DateTime.UtcNow < deadline)
@@ -156,7 +193,7 @@ public class TUnitResidentSuiteTests : IDisposable
             await Task.Delay(50);
         }
 
-        throw new Xunit.Sdk.XunitException(because);
+        throw new Xunit.Sdk.XunitException(because());
     }
 
     private static IReadOnlyList<JsonElement> eventsNamed(FakeMonitorHost monitor, string name)

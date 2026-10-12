@@ -57,23 +57,25 @@ partial class Build : NukeBuild
             // failing test's name, message and stack to the console itself, so there is no
             // TestResults/*.log to go and read any more.
             //
-            // BOBCAT_SKIP_TUNIT_HOSTED=1 TEMPORARILY takes the TUnit-hosted tests out of CI
-            // (bobcat#521): they failed the 0.60.2 publish run deterministically while passing in
-            // tests.yml. It skips TUnitResidentSuiteTests and TUnitTreeNodeFilterTests
-            // ([TUnitHostedFact]/[TUnitHostedTheory]) and leaves Bobcat.TUnit.Tests out of the run
-            // (its csproj). Run them with the TUnitTests target. Revert by removing this variable.
+            // The TUnit-hosted tests are back in (bobcat#521): they were taken out for 0.60.3 after
+            // failing the publish job deterministically while passing tests.yml, and the one
+            // difference the issue named was Nuke running Pack BETWEEN Compile and Test — Pack's
+            // second `dotnet pack` has no --no-build, so it rebuilt core, the supervisor and the
+            // tool just before the tests ran. Pack is now ordered After(Test), so `CI Pack` runs
+            // exactly what tests.yml runs and then packs. BOBCAT_SKIP_TUNIT_HOSTED=1 still skips
+            // them for anyone who needs it (and the TUnitTests target still runs only them).
             DotNetTest(s => s
                 .SetProcessAdditionalArguments("--solution", Solution)
                 .SetConfiguration(Configuration)
-                .SetProcessEnvironmentVariable(TUnitHostedVariable, "1")
                 .EnableNoBuild()
                 .EnableNoRestore());
         });
 
     const string TUnitHostedVariable = "BOBCAT_SKIP_TUNIT_HOSTED";
 
-    // The tests CI leaves out for now (bobcat#521), on demand: `./build.sh TUnitTests`. Not part
-    // of CI; delete it when they go back into Test.
+    // Only the TUnit-hosted tests, on demand: `./build.sh TUnitTests`. They are part of Test again
+    // (bobcat#521); this stays because running the two child-host suites alone, without the other
+    // two thousand tests, is how they get debugged.
     Target TUnitTests => _ => _
         .DependsOn(Compile)
         .After(Docker)
@@ -103,8 +105,16 @@ partial class Build : NukeBuild
         .DependsOn(Test);
 
     // What publish.yml packs: every packable project in the solution, plus the bobcat tool.
+    //
+    // After(Test), so `./build.sh CI Pack` runs Compile, Test, Pack — the order tests.yml already
+    // proves, with the pack at the end. Nuke was free to put Pack in the middle, and then the
+    // second `dotnet pack` below (no --no-build, deliberately: the tool's pack builds its own
+    // publish output) rebuilt core, the supervisor and the tool between Compile and Test. A pack
+    // must never change what the tests ran against; packing what has just been tested is also the
+    // order a release wants.
     Target Pack => _ => _
         .DependsOn(Clean, Compile)
+        .After(Test)
         .Executes(() =>
         {
             DotNetPack(s => s
