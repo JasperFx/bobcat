@@ -1,0 +1,147 @@
+using Bobcat.Xunit;
+using JasperFx.Events.EventModeling;
+
+namespace BankAccountES.Tests;
+
+/// <summary>
+/// bobcat#172, the Bobcat-side half of the multi-source event-model vehicle. Four producers feed one
+/// descriptor here -- this assembly's projected specs (Declared), the C# overlay in Program.cs (Declared),
+/// the host's Wolverine + HTTP chains (Derived), and since bobcat#300 the host's STORE (Derived): one View
+/// slice per registered projection, read from the projection registry by jasperfx#825 and registered by
+/// AddMarten / AddFisher with no wiring here. These specs assert the fold: every role names its source,
+/// declarations survive where nothing outranks them, and the deliberately planted disagreement
+/// (FreezeAccount.cs emits AccountFlagged, which no spec mentions) surfaces as a hotspot instead of
+/// vanishing. The fifth source -- runtime observation -- is CritterWatch's.
+/// </summary>
+/// <remarks>
+/// These specs bind no slice and call nothing that carries an Event Model role, so they contribute nothing
+/// to the model they assert on.
+/// </remarks>
+[BobcatFeature("Event Model")]
+public class EventModel(BankAccountHost app)
+{
+    private readonly EventModelSteps _model = new(app);
+
+    [BobcatSpec]
+    public async Task four_sources_fold_into_one_provenance_stamped_model()
+    {
+        await _model.AssembleEventModel();
+
+        _model.ThereIsExactlyOneModelNamed("BankAccount");
+        _model.EveryClaimedRoleNamesItsSource();
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.EmittedEvents, EventModelProvenance.Derived);
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.HandlerType, EventModelProvenance.Derived);
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.Domain, EventModelProvenance.Declared);
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.TriggerLabel, EventModelProvenance.Declared);
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.ReadModelTypes, EventModelProvenance.Declared);
+        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.Specifications, EventModelProvenance.Declared);
+    }
+
+    [BobcatSpec]
+    public async Task the_planted_disagreement_surfaces_as_a_hotspot_instead_of_vanishing()
+    {
+        await _model.AssembleEventModel();
+
+        _model.TheSliceReportsADisagreementOn("FreezeAccount", EventModelRole.EmittedEvents);
+        _model.ThatDisagreementKept(EventModelProvenance.Derived, "AccountFlagged");
+        _model.ThatDisagreementDropped(EventModelProvenance.Declared, "AccountFrozen");
+        _model.TheSliceReportsNoDisagreement("DepositFunds");
+        _model.TheSliceReportsNoDisagreement("WithdrawFunds");
+    }
+
+    [BobcatSpec]
+    public async Task declared_names_domains_and_spec_bindings_survive_the_merge()
+    {
+        await _model.AssembleEventModel();
+
+        _model.TheSliceIsInDomain("FreezeAccount", "Banking");
+        _model.TheSliceIsTriggeredBy("FreezeAccount", "The fraud desk");
+        _model.TheSliceBindsTheSpecification("FreezeAccount", "Freeze Account/freezing an account records the freeze");
+        _model.TheSliceBindsTheSpecification("DepositFunds", "Bank Account Event Sourcing/deposit funds");
+        _model.TheSliceBindsTheSpecification("WithdrawFunds",
+            "Bank Account Event Sourcing/withdrawing more than the balance leaves the account untouched");
+    }
+
+    /// <summary>
+    /// wolverine#4181, FIXED at 6.31.0 -- the flipped tripwire: the HTTP-derived source no longer claims
+    /// TriggerLabel, so the overlay's human label wins the role by being its only claimant.
+    /// </summary>
+    [BobcatSpec]
+    public async Task an_http_slices_trigger_label_belongs_to_the_overlay_again()
+    {
+        await _model.AssembleEventModel();
+
+        _model.TheRoleIsClaimedBy("WithdrawFunds", EventModelRole.TriggerLabel, EventModelProvenance.Declared);
+        _model.TheSliceIsTriggeredBy("WithdrawFunds", "Customer at the ATM");
+    }
+
+    /// <summary>
+    /// bobcat#175: read models asserted as an identity, not only as a provenance claim -- which is how
+    /// wolverine#4182 came to be caught by eye on the canvas rather than by a spec.
+    /// </summary>
+    [BobcatSpec]
+    public async Task a_query_slice_reads_the_document_type_it_returns()
+    {
+        await _model.AssembleEventModel();
+
+        _model.TheSliceReadsTheReadModel("GET /api/accounts/{id}", "Account");
+        _model.TheSliceReadsTheReadModel("GET /api/clients/{id}", "Client");
+        _model.TheSliceReadsTheReadModel("GET /api/accounts/{accountId}/transactions", "AccountTransactions");
+    }
+
+    /// <summary>
+    /// wolverine#4182, FIXED at 6.31.0 (via #4185): the collection query unwraps to its element type and
+    /// shares the Account node with its single-document sibling instead of minting a raw-generic one.
+    /// </summary>
+    [BobcatSpec]
+    public async Task a_collection_query_reads_the_element_type_it_returns()
+    {
+        await _model.AssembleEventModel();
+
+        _model.TheSliceReadsTheReadModel("GET /api/clients/{clientId}/accounts", "Account");
+    }
+
+    /// <summary>
+    /// bobcat#300 -- the store rung. Slices merge BY NAME, and the store names its View slice after the
+    /// document type, which is how <see cref="AccountView"/> already binds it. That agreement is entirely
+    /// conventional; this spec is what enforces it.
+    /// </summary>
+    [BobcatSpec]
+    public async Task the_store_rung_and_the_spec_rung_describe_one_account_slice_not_two()
+    {
+        await _model.AssembleEventModel();
+
+        _model.ThereIsExactlyOneSliceNamed("Account");
+        _model.TheSliceHasPattern("Account", SlicePattern.View);
+        _model.TheSliceReadsTheReadModel("Account", "Account");
+        _model.TheRoleIsClaimedBy("Account", EventModelRole.ReadModelTypes, EventModelProvenance.Derived);
+        _model.TheRoleIsClaimedBy("Account", EventModelRole.ConsumedEvents, EventModelProvenance.Derived);
+        _model.TheSliceConsumes("Account", "AccountOpened");
+        _model.TheSliceConsumes("Account", "FundsDeposited");
+        _model.TheSliceConsumes("Account", "FundsWithdrawn");
+        _model.TheSliceConsumes("Account", "AccountFrozen");
+        _model.TheSpecsAloneSayTheSliceConsumes("Account", "AccountOpened");
+        _model.TheSpecsAloneSayTheSliceConsumes("Account", "FundsDeposited");
+        _model.TheSpecsAloneSayTheSliceConsumes("Account", "FundsWithdrawn");
+        _model.TheSpecsAloneSayTheSliceConsumes("Account", "AccountFrozen");
+        _model.TheRoleIsClaimedBy("Account", EventModelRole.Specifications, EventModelProvenance.Declared);
+        _model.TheRoleIsClaimedBy("Account", EventModelRole.Domain, EventModelProvenance.Declared);
+        _model.TheSliceBindsTheSpecification("Account", "Account View/the account read model folds the streams history");
+        _model.TheSliceReportsNoDisagreement("Account");
+    }
+
+    /// <summary>
+    /// The payoff of jasperfx#823 + #824 + #825 landing together: the store supplies ConsumedEvents, the roles
+    /// give them an element, and Links turns the pair into a cross-slice edge nobody drew.
+    /// </summary>
+    [BobcatSpec]
+    public async Task the_events_the_command_slices_emit_reach_the_account_view_as_links_nobody_drew()
+    {
+        await _model.AssembleEventModel();
+
+        _model.ThereIsALink(EventModelLinkKind.EventConsumed, "DepositFunds", "Account", "FundsDeposited");
+        _model.ThereIsALink(EventModelLinkKind.EventConsumed, "WithdrawFunds", "Account", "FundsWithdrawn");
+        _model.ThereIsALink(EventModelLinkKind.EventConsumed, "FreezeAccount", "Account", "AccountFrozen");
+        _model.ThereIsALink(EventModelLinkKind.EventConsumed, "OpenAccount", "Account", "AccountOpened");
+    }
+}

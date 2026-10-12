@@ -57,6 +57,9 @@ Each sample has its own `.slnx` file and `Tests/` subfolder. Requires PostgreSQL
 
 ```bash
 cd BankAccountES
-dotnet run --project Tests -- run                      # Marten, Postgres on 5433
-EventStore=Fisher dotnet run --project Tests -- run    # Fisher, a SQLite file, no docker
+dotnet test Tests/Tests.csproj                         # Marten, Postgres on 5433
+EventStore=Fisher dotnet test Tests/Tests.csproj       # Fisher, a SQLite file, no docker
 ```
+
+BankAccountES is the one sample whose specs are projected (code-first) xUnit v3 tests rather than
+`.feature` files -- see [its README](BankAccountES/README.md#specifications).

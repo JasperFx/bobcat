@@ -16,6 +16,10 @@
     generator emits one, and the collision cannot arise.
 
     Applied only to the spec projects. The sample web apps beside them are ordinary executables.
+
+    BankAccountES/Tests is the exception to the Bobcat.Mtp half of this: its specs are projected
+    xUnit v3 tests (bobcat#471), and xUnit v3 generates its own entry point, so turning the
+    platform's off below costs it nothing.
   -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Tests'">
     <IsTestProject>true</IsTestProject>
