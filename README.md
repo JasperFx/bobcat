@@ -20,22 +20,19 @@ Bobcat is a spec-driven integration testing framework for .NET and the successor
 [Storyteller](https://storyteller.github.io). It is built for the hardest integration testing jobs:
 systems with databases, message brokers, background processing, and many moving parts.
 
-- **Author** specifications in Gherkin, bound to your own test code. A Roslyn source generator
-  compiles each `.feature` file into direct method calls, so there is no runtime reflection and a
-  step that matches nothing is a compile error, not a runtime surprise. Or keep writing tests in
-  xUnit.net, TUnit, NUnit or MSTest, and let Bobcat render them as readable specifications.
+- **Author** specifications as ordinary xUnit.net, TUnit, NUnit or MSTest tests, and let Bobcat
+  render them as readable specifications. A Roslyn source generator turns your step helpers and
+  marker comments into recorded steps at compile time, with no runtime reflection.
 - **Supervise** a large suite so its results can be trusted. It can split the suite across worker
   processes, isolate resources per lane, retry within budgets, and report flakiness honestly
   instead of burying it. A suite can also stay *resident*, running the specifications a run console
-  asks for — in either authoring lane.
+  asks for.
 - **Specify** end to end. Executable specifications still read as requirements, and they can be
   scaffolded slice by slice from an Event Model. Bobcat has first-class support for the Critter
-  Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher)
-  and for [Alba](https://jasperfx.github.io/alba/).
+  Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher).
 
-Bobcat runs as a [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro)
-test host, so scenarios show up in `dotnet test`, your IDE's Test Explorer, and CI like any other
-test.
+Your specifications are your test framework's own tests, so they show up in `dotnet test`, your
+IDE's Test Explorer, and CI like any other test.
 
 Access the docs [here](https://bobcat.jasperfx.net). For any of your questions, including about
 the rest of the Critter Stack, join our [Discord channel](https://discord.gg/WMxrvegf8H). It is the
@@ -58,13 +55,10 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 
 | Package | What it is for |
 |---------|----------------|
-| [`Bobcat`](https://www.nuget.org/packages/Bobcat/) | The runtime: spec engine, resources, rendering, the runner, and the store-agnostic Critter Stack grammar |
-| [`Bobcat.Generators`](https://www.nuget.org/packages/Bobcat.Generators/) | The source generator that compiles `.feature` files into direct fixture method calls |
-| [`Bobcat.Mtp`](https://www.nuget.org/packages/Bobcat.Mtp/) | Runs Bobcat specs as a Microsoft.Testing.Platform test host (`dotnet test`, Test Explorer) |
+| [`Bobcat`](https://www.nuget.org/packages/Bobcat/) | The runtime: the projected specification engine, verification, rendering, the monitor wire, and the store-agnostic Critter Stack vocabulary (`CritterStackScenario`) |
+| [`Bobcat.Generators`](https://www.nuget.org/packages/Bobcat.Generators/) | The source generator: step interceptors, marker-comment steps, the Event Model fold and compile-time table checks |
 | [`Bobcat.Supervisor`](https://www.nuget.org/packages/Bobcat.Supervisor/) | Drives any MTP test host as worker processes, with retry, isolation, and parallel lanes |
-| [`Bobcat.Alba`](https://www.nuget.org/packages/Bobcat.Alba/) | An ASP.NET Core application hosted in memory as a test resource |
 | [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices. Replaces the retired `Bobcat.Wolverine` |
-| [`Bobcat.EntityFrameworkCore`](https://www.nuget.org/packages/Bobcat.EntityFrameworkCore/) | The `[EfCoreEntities]` persistence recipe for data-setup tables |
 | [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) / [`Bobcat.NUnit`](https://www.nuget.org/packages/Bobcat.NUnit/) / [`Bobcat.MSTest`](https://www.nuget.org/packages/Bobcat.MSTest/) | Renders an existing xUnit.net v3, TUnit, NUnit or MSTest suite as specifications, without changing how it runs |
 | [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) | Imports the Event Modeling platform's own format and writes it as C# stub types plus an `EventModelDefinition` |
 | [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files, and keeps a suite Bobcat does not own available to a run console |
@@ -111,7 +105,8 @@ locally. See [Documentation](#documentation).
 `bobcat.slnx` at the repository root is the solution for everything under `src/`. It is the only
 solution file at the root, so `dotnet build` and `dotnet test` pick it up without being told.
 
-- **`src/`** contains the packages, their test projects, and a few sample hosts the tests drive.
+- **`src/`** contains the packages, their test projects, and the sample hosts the tests drive
+  (`Bobcat.Xunit.Samples`, `Bobcat.Supervisor.ProjectedWorker`).
 - **`samples/`** contains complete sample applications, each with its own `.slnx` and a `Tests/`
   spec project. They are deliberately **not** in `bobcat.slnx`. They reference Bobcat by project
   reference, so they always build against the code in your checkout.
