@@ -303,13 +303,45 @@ public sealed class Supervisor
     /// Author-declared knowledge about which failures recover how — issue #44 layer 1.
     /// </summary>
     /// <remarks>
-    /// Registered as <see cref="RecoveryHint"/>s rather than read from
-    /// <see cref="RecoveryHintAttribute"/>s, because the supervisor drives the worker as a
-    /// <em>process</em> and never loads the assembly the attributes are compiled into. Projecting
-    /// a worker's own hints across the wire is the follow-on; until then a supervised run states
-    /// its hints here, in the same place it states its budget.
+    /// <para>
+    /// The supervisor drives the worker as a <em>process</em> and never loads the assembly the
+    /// <see cref="RecoveryHintAttribute"/>s are compiled into, so it cannot read them itself. The
+    /// worker can: a suite writes its <see cref="SpecManifest"/> when asked, and since issue #469
+    /// that manifest carries the hints the suite declares on its assembly, classes and methods.
+    /// Discovery asks for it, and the hints it carries are added here before anything runs — see
+    /// <see cref="ReadWorkerRecoveryHints"/>.
+    /// </para>
+    /// <para>
+    /// Hints registered here by hand still work and merge with the worker's. They come first, so
+    /// where a hand-registered hint and a declared one tie on scope and on how closely they name
+    /// the failure, the hand-registered one wins. Otherwise the ordinary rule holds: the narrowest
+    /// declaration wins, whoever declared it.
+    /// </para>
+    /// <para>
+    /// <b>From the wire a failure carries one type name</b>, so a declared hint naming a base class
+    /// abstains rather than matching a derived failure the way it would in process. That
+    /// degradation is <see cref="FailureSignature"/>'s, documented there, and it never produces a
+    /// wrong retry — only a missing one.
+    /// </para>
     /// </remarks>
     public RecoveryHintSet RecoveryHints { get; } = new();
+
+    /// <summary>
+    /// Read the recovery hints the worker declares on itself from its spec manifest, during
+    /// discovery (issue #469). On by default: a hint an author wrote down and nothing honoured is
+    /// the bug this exists to fix.
+    /// </summary>
+    /// <remarks>
+    /// Costs one environment variable on the discovery worker and one small file. A worker that
+    /// writes no manifest — one that does not reference Bobcat, or a front-end that does not
+    /// write one — simply contributes no hints, and the run proceeds on whatever
+    /// <see cref="RecoveryHints"/> holds.
+    /// </remarks>
+    public bool ReadWorkerRecoveryHints { get; set; } = true;
+
+    // The hints the last discovery read from the worker's manifest, so a second Run on the same
+    // supervisor replaces them instead of stacking a duplicate set behind the first.
+    private readonly List<RecoveryHint> _declaredHints = [];
 
     private IFailurePolicy policy => new FailurePolicyChain(
         [.. _policies, new HintedFailurePolicy(RecoveryHints), new DefaultFailurePolicy()]);
@@ -505,7 +537,11 @@ public sealed class Supervisor
                 };
             }
 
-            var tests = await discover(ct);
+            var (tests, manifest) = await discover(ct);
+
+            // Before the filter, so a hint's reach is decided against everything the worker has —
+            // a filter narrows what runs, not what was declared.
+            applyDeclaredHints(manifest, tests);
 
             if (TestFilter is not null)
             {
@@ -603,12 +639,121 @@ public sealed class Supervisor
         return description;
     }
 
-    private async Task<IReadOnlyList<WorkerTest>> discover(CancellationToken ct)
+    private async Task<(IReadOnlyList<WorkerTest> Tests, SpecManifest? Manifest)> discover(CancellationToken ct)
+    {
+        if (!ReadWorkerRecoveryHints)
+        {
+            return (await discoverWith(WorkerLaunchContext.Discovery, ct), null);
+        }
+
+        // Discovery is when the worker loads its assembly and enumerates without running, which
+        // is exactly when a suite answers BOBCAT_LIST_SPECS. Only the discovery worker is asked:
+        // a lane is running tests, and a run is not a listing.
+        var path = Path.Combine(Path.GetTempPath(), $"bobcat-supervisor-{Guid.NewGuid():N}.specs.json");
+        var context = WorkerLaunchContext.Discovery with
+        {
+            Environment = new Dictionary<string, string> { [SpecManifest.PathVariable] = path }
+        };
+
+        try
+        {
+            var tests = await discoverWith(context, ct);
+            return (tests, readManifest(path));
+        }
+        finally
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* a leftover listing in a temp directory is not worth a failure */ }
+        }
+    }
+
+    private async Task<IReadOnlyList<WorkerTest>> discoverWith(WorkerLaunchContext context, CancellationToken ct)
     {
         // Discovery gets its own short-lived worker: it must not inherit state from, or leave
         // state in, a process that will go on to run tests.
-        await using var worker = await launchWorker(WorkerLaunchContext.Discovery, ct);
+        await using var worker = await launchWorker(context, ct);
         return await worker.Discover(ct);
+    }
+
+    private SpecManifest? readManifest(string path)
+    {
+        if (!File.Exists(path)) return null;
+
+        try
+        {
+            return SpecManifest.Read(path);
+        }
+        catch (Exception e)
+        {
+            // The manifest is a courtesy from the worker, and so are the hints in it. One that
+            // cannot be read costs the run its declared hints, never the run itself.
+            Log?.Invoke($"The worker's spec manifest could not be read, so its recovery hints are not in force: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Turn the hints a worker's manifest declares into <see cref="RecoveryHint"/>s scoped to the
+    /// uids discovery reported, and add them to <see cref="RecoveryHints"/> (issue #469).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The join is the one place this can be lossy. A manifest names the class and method a hint
+    /// was declared on; the supervisor runs uids. Discovery's <c>location.type</c> and
+    /// <c>location.method</c> make the join exact on a front-end that reports them, and the display
+    /// name — <c>Namespace.Class.Method</c> on xUnit v3 — is the fallback. A test that neither
+    /// places is reached by assembly-wide hints only, which is the rule's own fallback: with
+    /// nothing narrower known, the widest declaration speaks.
+    /// </para>
+    /// <para>
+    /// One <see cref="RecoveryHint"/> per declaration, carrying the set of uids it reaches, rather
+    /// than one per test — so the report's "declared on" names the declaration once.
+    /// </para>
+    /// </remarks>
+    private void applyDeclaredHints(SpecManifest? manifest, IReadOnlyList<WorkerTest> tests)
+    {
+        foreach (var previous in _declaredHints) RecoveryHints.Remove(previous);
+        _declaredHints.Clear();
+
+        if (manifest?.RecoveryHints is not { Count: > 0 } declared) return;
+
+        var placed = tests.Select(test => (test.Uid, Place: PlaceOf(test))).ToList();
+
+        foreach (var entry in declared)
+        {
+            var uids = entry.Scope == HintScope.Global
+                ? null
+                : placed.Where(t => entry.Covers(t.Place.TestClass, t.Place.TestMethod)).Select(t => t.Uid).ToList();
+
+            var hint = entry.ToRecoveryHint(uids);
+            RecoveryHints.Add(hint);
+            _declaredHints.Add(hint);
+        }
+
+        Log?.Invoke($"{_declaredHints.Count} recovery hint(s) declared by the worker are in force");
+    }
+
+    /// <summary>The class and method a discovered test is declared as, as best discovery says.</summary>
+    internal static (string? TestClass, string? TestMethod) PlaceOf(WorkerTest test)
+    {
+        if (test.TestClass is { Length: > 0 } && test.TestMethod is { Length: > 0 })
+        {
+            return (test.TestClass, test.TestMethod);
+        }
+
+        // xUnit v3's default display name is Namespace.Class.Method, with any theory arguments in
+        // parentheses after it. A custom display name will not split this way, and then the test
+        // is reached only by assembly-wide hints — never by the wrong class's.
+        var name = test.DisplayName;
+        if (string.IsNullOrWhiteSpace(name)) return (null, null);
+
+        var openParen = name.IndexOf('(');
+        var withoutArguments = (openParen > 0 ? name[..openParen] : name).Trim();
+        var dot = withoutArguments.LastIndexOf('.');
+
+        return dot > 0 && dot < withoutArguments.Length - 1
+            ? (withoutArguments[..dot], withoutArguments[(dot + 1)..])
+            : (null, null);
     }
 
     private async Task<string?> firstPass(
@@ -1346,7 +1491,15 @@ public sealed class Supervisor
 
         if (_monitorEnvironment is not null)
         {
-            context = context with { Environment = _monitorEnvironment };
+            // Merged rather than replaced: the discovery worker also carries the manifest request,
+            // and the monitor grouping must not wipe it out (or the other way round).
+            var merged = new Dictionary<string, string>(_monitorEnvironment, StringComparer.Ordinal);
+            if (context.Environment is not null)
+            {
+                foreach (var (name, value) in context.Environment) merged[name] = value;
+            }
+
+            context = context with { Environment = merged };
         }
 
         // Timed because it is the harness's own cost, and the harness is what decides how many

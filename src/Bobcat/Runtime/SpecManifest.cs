@@ -47,11 +47,21 @@ namespace Bobcat.Runtime;
 /// is a set — what a runner registers and checks membership against — and a listing that reshuffled
 /// between two discoveries of the same suite would read as a change.
 /// </param>
+/// <param name="RecoveryHints">
+/// The recovery hints the suite declares on itself through <c>JasperFx.Testing</c>'s
+/// <c>[ClearsOnRetry]</c>, <c>[ClearsOnRecycle]</c>, <c>[ClearsInFreshProcess]</c> and
+/// <c>[NeverRecovers]</c> (issue #469), at assembly, class and method scope. Null — and so absent
+/// from the document — when it declares none, or when the lane does not report them. Carried here
+/// because a supervisor drives the suite as a process and never loads its assembly, and this is
+/// already the document a suite writes about itself when asked. Additive on purpose: a reader
+/// that predates the field ignores it, and a manifest without it reads as "no hints".
+/// </param>
 public sealed record SpecManifest(
     string Lane,
     string Framework,
     string Suite,
-    IReadOnlyList<SpecManifestEntry> Specs)
+    IReadOnlyList<SpecManifestEntry> Specs,
+    IReadOnlyList<SpecManifestHint>? RecoveryHints = null)
 {
     /// <summary>
     /// Set this to a file path and the suite writes its manifest there instead of keeping the
@@ -72,7 +82,11 @@ public sealed record SpecManifest(
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true
+        WriteIndented = true,
+
+        // By name, not by number: a hint's kind and scope are read by people triaging a run as
+        // often as by a supervisor, and an enum's ordinal is not a contract anyone promised.
+        Converters = { new JsonStringEnumConverter() }
     };
 
     /// <summary>Every identity in the manifest — what a resident runner registers as its specs.</summary>
