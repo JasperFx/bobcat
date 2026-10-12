@@ -56,9 +56,10 @@ dotnet test
 docker compose up -d
 
 # Run a specific test class. Tests run on Microsoft.Testing.Platform, not VSTest, so the
-# old `--filter "FullyQualifiedName~X"` is gone. Arguments after `--` go to the test host.
-dotnet test src/Bobcat.Tests/ -- --filter-class "*PipelineTests"
-dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
+# old `--filter "FullyQualifiedName~X"` is gone. global.json puts `dotnet test` in MTP mode, so
+# test-host options go straight on the command line (no `--`) and the project is `--project`.
+dotnet test --project src/Bobcat.Tests/ --filter-class "*SpecAssert*"
+dotnet test --project src/Bobcat.Tests/ --filter-method "*passes_on_retry*"
 
 # A test project is a self-executing MTP application, so it can also be run directly:
 ./src/Bobcat.Tests/bin/Debug/net10.0/Bobcat.Tests --list-tests
@@ -115,10 +116,14 @@ its own equivalents.
     database is reused) and passes it as `ConnectionStrings__Marten`; `SamplesPostgres` overrides
     the server. `TestSamplesOnFisher` runs BankAccountES on a SQLite file in `.nuke/temp`.
 
-**Version pin that matters:** `Microsoft.Testing.Platform` is held at **1.9.1** because that is
-what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mtp-v1`). Moving it
-to 2.x loads a platform assembly whose types have moved and xUnit's auto-registered MSBuild
-extension dies with a `TypeLoadException` on `IDataConsumer`.
+**Version pin that matters:** `Microsoft.Testing.Platform` is held at **2.5.1** because that is
+what `xunit.v3` 4.0.2 builds against (its runner package is `xunit.v3.core.mtp-v2`), and
+`TUnit.Engine` 1.74.0 wants the same. It was 1.9.1 under `xunit.v3` 3.2.2 (`xunit.v3.core.mtp-v1`)
+until bobcat#470; the platform and xUnit move together. MTP 2.x refuses the VSTest bridge on the
+.NET 10 SDK, so the root `global.json` opts `dotnet test` into its MTP mode: pass `--solution` /
+`--project` (never a positional path), give test-host options directly (no `--` separator), and
+note that mode collects every project with `IsTestingPlatformApplication=true` — `IsTestProject=false`
+no longer opts a host out (see `Bobcat.Xunit.Samples.csproj`).
 
 **Database-backed tests:** `Bobcat.CritterStackScenario.Tests` exercises the store plumbing against a
 real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to

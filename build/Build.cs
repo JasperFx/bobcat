@@ -55,8 +55,11 @@ partial class Build : NukeBuild
         {
             try
             {
+                // `--solution`, not the positional path: global.json opts `dotnet test` into its
+                // Microsoft.Testing.Platform mode (MTP 2.x refuses the VSTest bridge on the .NET 10
+                // SDK), and that mode rejects a positional solution or project.
                 DotNetTest(s => s
-                    .SetProjectFile(Solution)
+                    .SetProcessAdditionalArguments("--solution", Solution)
                     .SetConfiguration(Configuration)
                     .EnableNoBuild()
                     .EnableNoRestore());

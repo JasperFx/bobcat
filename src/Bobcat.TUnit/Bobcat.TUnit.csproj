@@ -23,10 +23,10 @@
       1. TUnit.Core depends on NO test platform at all — checked in its nuspec: Microsoft.CSharp,
          System.Collections.Immutable, System.Text.Json, System.Threading.Tasks.Extensions. That is
          exactly what makes this package safe to ship beside a pinned platform, and it is the
-         property a platform reference here would spend. TUnit.Engine needs Microsoft.Testing
-         .Platform 2.4.0 while src pins 1.9.1 (because that is what xunit.v3 3.2.2 builds against),
-         so pulling the platform in here walks straight at the version collision that pin exists to
-         avoid.
+         property a platform reference here would spend. Since bobcat#470 src pins Microsoft.Testing
+         .Platform 2.5.1 (xunit.v3 4.0.2), which is also what TUnit.Engine 1.74.0 needs, so the old
+         version collision is gone; the reason that remains is that a TUnit consumer's own
+         TUnit.Engine should choose its platform, not this adapter.
 
       2. There is nothing to serve yet. The per-request bracket exists for warm runs in the
          resident runner, and the projected lane is cold-only — the remaining work there needs

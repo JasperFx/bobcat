@@ -230,13 +230,22 @@
     <!--
       Microsoft.Testing.Platform (Bobcat.Xunit's platform extension, and the MTP orchestration spike).
 
-      Pinned to 1.9.1 to match what xunit.v3 3.2.2 builds against (its package is literally named
-      xunit.v3.core.mtp-v1). Forcing 2.x here loads a platform assembly whose types have moved,
-      and xUnit's auto-registered MSBuild extension dies with a TypeLoadException on
-      IDataConsumer. Aligning on the version the xUnit v3 ecosystem uses is also what lets a
-      consumer mix Bobcat specs and xUnit v3 tests in one solution — the point of issue #41.
+      2.5.1 because that is exactly what xunit.v3 4.0.2 builds against (its runner package is
+      xunit.v3.core.mtp-v2, which requires Microsoft.Testing.Platform 2.5.1), and TUnit.Engine 1.74.0
+      requires the same 2.5.1, so an xUnit suite and a TUnit suite can share one platform. This pin
+      was 1.9.1 until bobcat#470: xunit.v3 3.x ships against MTP 1.x (xunit.v3.core.mtp-v1), and
+      forcing 2.x under it dies with a TypeLoadException on IDataConsumer. The platform and xUnit
+      therefore move TOGETHER — never bump this alone, and never put a 3.x xunit.v3 beside it.
+
+      Two consequences of 2.x worth knowing before touching anything here:
+      * MTP 2.x refuses the VSTest bridge on the .NET 10 SDK, so the root global.json opts
+        `dotnet test` into its MTP mode. That mode takes the solution or project as an option rather than a
+        positional path, and collects every project whose IsTestingPlatformApplication is true —
+        IsTestProject=false no longer opts a host out (see Bobcat.Xunit.Samples).
+      * Bobcat.NUnit.Tests and Bobcat.MSTest.Tests still run on MTP 1.9.x through their adapters
+        (below); they reference no Bobcat.Xunit, so nothing forces this 2.5.1 onto them.
     -->
-    <PackageVersion Include="Microsoft.Testing.Platform" Version="1.9.1" />
+    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.5.1" />
 
     <!-- Roslyn (source generator only) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
@@ -251,7 +260,7 @@
       This also lets Bobcat's own specs run beside these projects under one runner, which is the
       point of the MTP work in issue #41.
     -->
-    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <!--
       Runner adapters (Bobcat.Xunit, Bobcat.TUnit — issue #110). Each takes the smallest piece of
       its runner that an adapter can be written against: xunit.v3.extensibility.core is what
@@ -261,17 +270,19 @@
 
       xunit.v3.extensibility.core moves in lockstep with xunit.v3 above and must stay equal to it.
     -->
-    <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
-    <PackageVersion Include="TUnit.Core" Version="1.66.27" />
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.2" />
+    <PackageVersion Include="TUnit.Core" Version="1.74.0" />
     <!--
       Bobcat.NUnit (issue #385) takes the NUnit framework package only, which depends on no test
-      platform, so it is safe to ship beside the 1.9.1 pin above. Bobcat.MSTest (issue #386) takes
+      platform, so it is safe to ship beside whatever platform the pin above names. Bobcat.MSTest (issue #386) takes
       no MSTest package at all — its csproj says why — so MSTest.* here is for its test project.
 
       Their RUNNERS are another matter, and only the test projects take them. Each is held at its
       last release built against Microsoft.Testing.Platform 1.9.x: NUnit3TestAdapter 5.2.0 (6.0
-      moves to MTP 2.x) and MSTest.TestAdapter 3.11.1 (4.0 moves to MTP 2.x). Moving either past
-      that walks into the same TypeLoadException the pin above records. The framework and its
+      moves to MTP 2.x) and MSTest.TestAdapter 3.11.1 (4.0 moves to MTP 2.x). They were held there
+      to match the old 1.9.1 platform pin. Each test project resolves its own platform through its
+      adapter, so they still run on 1.9.x beside src's 2.5.1; moving them to NUnit3TestAdapter 6.x /
+      MSTest 4.x is now possible but untried (bobcat#470 left them alone). The framework and its
       adapter move together, so MSTest.TestFramework stays equal to MSTest.TestAdapter.
     -->
     <PackageVersion Include="NUnit" Version="4.3.2" />

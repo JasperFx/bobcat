@@ -123,7 +123,7 @@ partial class Build
             {
                 Log.Information("Running the {Sample} specs", sample);
                 var passed = tryRun(() => DotNetTest(s => s
-                    .SetProjectFile(SamplesDirectory / sample / "Tests")
+                    .SetProcessAdditionalArguments("--project", SamplesDirectory / sample / "Tests")
                     .SetConfiguration(Configuration)
                     .SetProcessEnvironmentVariable("ConnectionStrings__Marten", $"{SamplesPostgres};Database={database}")));
 
@@ -145,7 +145,7 @@ partial class Build
             database.DeleteFile();
 
             DotNetTest(s => s
-                .SetProjectFile(SamplesDirectory / "BankAccountES" / "Tests")
+                .SetProcessAdditionalArguments("--project", SamplesDirectory / "BankAccountES" / "Tests")
                 .SetConfiguration(Configuration)
                 .SetProcessEnvironmentVariable("EventStore", "Fisher")
                 .SetProcessEnvironmentVariable("ConnectionStrings__Fisher", $"Data Source={database}"));

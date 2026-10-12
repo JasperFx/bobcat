@@ -57,7 +57,7 @@
   <ItemGroup>
     <!-- Projected (code-first) specs: every sample's Tests project runs on xUnit v3 through
          Bobcat.Xunit (bobcat#471). Same versions as src/Directory.Packages.props. -->
-    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 
   <ItemGroup>

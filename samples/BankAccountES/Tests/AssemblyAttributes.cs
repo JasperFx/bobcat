@@ -15,7 +15,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 // Not optional. CritterStackScenario's store-only act reads back everything appended to the store
 // while it ran, by sequence, so a second test acting at the same moment would have its events
 // counted as this one's.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]
 
 // Tells ASP.NET Core's WebApplicationFactory (which Alba uses) where the host's content root
 // is. Without it, discovery walks up from the test assembly's bin directory and synthesizes

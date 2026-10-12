@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 // Every spec empties the store before it runs (see PaymentsMonolithSpec), so two specs running at once would
 // wipe each other's data.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]
 
 // Tells ASP.NET Core's WebApplicationFactory (which Alba uses) where the host's content root
 // is. Without it, discovery walks up from the test assembly's bin directory and synthesizes

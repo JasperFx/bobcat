@@ -1,5 +1,6 @@
 using Microsoft.Testing.Platform.Builder;
 using Microsoft.Testing.Platform.Extensions.TestHost;
+using Microsoft.Testing.Platform.Services;
 using Microsoft.Testing.Platform.TestHost;
 
 namespace Bobcat.Xunit;
@@ -19,7 +20,7 @@ namespace Bobcat.Xunit;
 /// </para>
 /// <para>
 /// <b>A session really is a request, and that was measured.</b> On Microsoft.Testing.Platform
-/// 1.9.1 — the version this repository pins — three <c>testing/runTests</c> requests into one live
+/// 1.9.1 three <c>testing/runTests</c> requests into one live
 /// process fired this handler three times, each with its own <see cref="SessionUid"/> and each
 /// properly bracketed. A one-shot direct run fired it exactly once. And <b>discovery opens no
 /// session</b>, which is what keeps <c>--list-tests</c> from putting an empty card on the board.
@@ -52,13 +53,13 @@ public sealed class BobcatSessionLifetime : ITestSessionLifetimeHandler
 
     public Task<bool> IsEnabledAsync() => Task.FromResult(true);
 
-    public Task OnTestSessionStartingAsync(SessionUid sessionUid, CancellationToken cancellationToken)
+    public Task OnTestSessionStartingAsync(ITestSessionContext testSessionContext)
     {
         MarkerStepRun.OpenRun(XunitScenarioBracket.Mode);
         return Task.CompletedTask;
     }
 
-    public Task OnTestSessionFinishingAsync(SessionUid sessionUid, CancellationToken cancellationToken)
+    public Task OnTestSessionFinishingAsync(ITestSessionContext testSessionContext)
     {
         MarkerStepRun.CloseRun();
         return Task.CompletedTask;
@@ -94,5 +95,5 @@ public sealed class BobcatSessionLifetime : ITestSessionLifetimeHandler
 public static class TestingPlatformBuilderHook
 {
     public static void AddExtensions(ITestApplicationBuilder builder, string[] arguments)
-        => builder.TestHost.AddTestSessionLifetimeHandle(_ => new BobcatSessionLifetime());
+        => builder.TestHost.AddTestSessionLifetimeHandler(_ => new BobcatSessionLifetime());
 }

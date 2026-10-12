@@ -122,7 +122,13 @@ public class TestUpdateTapTests
         var workerPath = WorkerHosts.ProjectedWorker;
         File.Exists(workerPath).ShouldBeTrue($"The projected worker was not built at {workerPath}");
 
-        await using var worker = await MtpWorkerClient.Launch(workerPath);
+        // Armed slow on purpose. Microsoft.Testing.Platform 2.x batches testUpdates in server mode
+        // and keeps only the latest state of a node within a batch, so a test that finishes inside
+        // the window (measured: 50 ms always collapsed, 200 ms never did) reports its verdict alone.
+        // On MTP 1.9 every test reported in-progress first; on 2.x only a test slower than the batch
+        // does, which is the only kind a live dashboard could have shown as running anyway.
+        await using var worker = await MtpWorkerClient.Launch(
+            workerPath, new Dictionary<string, string> { ["BOBCAT_SLOW"] = "true" });
         var passes = await WorkerHosts.UidsOf(worker, "Basics.passes");
 
         var updates = new List<WorkerTestUpdate>();

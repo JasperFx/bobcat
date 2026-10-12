@@ -5,8 +5,13 @@ using Xunit.v3;
 // process before me?", and that question only has a reliable answer when nothing runs alongside
 // them and the order they run in is the order they are written in — the Gherkin worker this
 // replaces registered its features explicitly for the same reason.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+// xUnit 4 made CollectionBehavior.DisableTestParallelization an error; Parallelization.Mode replaces it.
+[assembly: Parallelization(Mode = ParallelMode.None)]
 [assembly: TestCollectionOrderer(typeof(Bobcat.Supervisor.ProjectedWorker.ByClassName))]
+// xUnit 4 orders collection -> class -> METHOD -> case, and a test case orderer now only orders the
+// cases WITHIN one method (a theory's rows). Declaration order across a class's methods needs the
+// method orderer; the case orderer stays for theories.
+[assembly: TestMethodOrderer(typeof(Bobcat.Supervisor.ProjectedWorker.InDeclarationOrder))]
 [assembly: TestCaseOrderer(typeof(Bobcat.Supervisor.ProjectedWorker.InDeclarationOrder))]
 
 namespace Bobcat.Supervisor.ProjectedWorker;
@@ -27,8 +32,12 @@ public sealed class ByClassName : ITestCollectionOrderer
 /// Runs a class's tests in the order they are declared in source. xUnit's default orders by a
 /// hash of the test's id, which is stable but says nothing a reader of this file could predict.
 /// </summary>
-public sealed class InDeclarationOrder : ITestCaseOrderer
+public sealed class InDeclarationOrder : ITestMethodOrderer, ITestCaseOrderer
 {
+    public IReadOnlyCollection<TTestMethod> OrderTestMethods<TTestMethod>(IReadOnlyCollection<TTestMethod> testMethods)
+        where TTestMethod : notnull, ITestMethod
+        => [.. testMethods.OrderBy(m => m is IXunitTestMethod xunit ? xunit.Method.MetadataToken : int.MaxValue)];
+
     public IReadOnlyCollection<TTestCase> OrderTestCases<TTestCase>(IReadOnlyCollection<TTestCase> testCases)
         where TTestCase : notnull, ITestCase
         => [.. testCases.OrderBy(declarationOrder)];
