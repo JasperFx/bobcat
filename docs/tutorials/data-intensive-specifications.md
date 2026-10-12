@@ -1,71 +1,29 @@
 # Data Intensive Specifications
 
-Some specifications are about one value. Others are about *a lot of data* — dozens of rows set up
+Some specifications are about one value. Others are about *a lot of data* -- dozens of rows set up
 before anything happens, and a whole collection verified afterwards instead of a scalar. Written as
-one `Given` line per row, those specifications stop being readable long before they stop being
-useful.
+one step per row, those specifications stop being readable long before they stop being useful.
 
 Bobcat inherited these mechanisms from Storyteller for exactly this, and they all render as **one
 grid per step**:
 
 | | |
 |---|---|
-| **[A table as input](#a-table-as-input)** | bulk setup — one step, many rows |
-| **[A table the step runs itself](#a-table-the-step-runs-itself)** | the same, with the before/after envelope written in the step's own body |
-| **[A set verification](#set-verification)** | a collection compared against expected rows, matched by key rather than by position |
+| **[A table as input](#a-table-as-input)** | bulk setup -- one step, many rows |
+| **[A table the step runs itself](#a-table-the-step-runs-itself)** | objects built from rows, or a method run once per row, with the before/after envelope written in the step's own body |
 | **[A decision table](#decision-tables)** | one row per case, inputs and expected outputs in the same table |
+| **[A set verification](#set-verification)** | a collection compared against expected rows, matched by key rather than by position |
 | **[One object against one row](#one-object-against-one-row)** | a single object's properties checked against the columns a row names |
 
-Everything on this page works in **both lanes**. The Gherkin examples come from
-`src/Bobcat.Gherkin.Samples`, the C# ones from `src/Bobcat.Xunit.Samples`, and the two projects are
-deliberately the same Storyteller documents written twice — which is what keeps the two renderings
-honest about each other.
+Every example on this page is a step helper -- a method carrying `[Given]`, `[When]` or `[Then]` --
+taking a `StepTable`, called from an ordinary test. They come from `src/Bobcat.Projected.Acceptance.Tests`
+and `src/Bobcat.Xunit.Samples`, the second being Storyteller 5's own sample documents recreated as
+xUnit v3 tests.
 
 ## A table as input
 
-`[Table]` on a step method makes the step take the trailing data table and binds each row's cells to
-the method's parameters by **header name**:
-
-```csharp
-[Table]
-[Given("the roster is")]
-public void TheRosterIs([Header("Player Name")] string player, Position position = Position.Outfield)
-    => Roster.Add($"{player} ({position})");
-```
-
-```gherkin
-Given the roster is
-  | Player Name  | position |
-  | Nolan Ryan   | Pitcher  |
-  | Willy Mays   | Outfield |
-  | Johnny Bench | Catcher  |
-```
-
-Two of the three options Storyteller spelled out are here, and one of them needs no attribute at
-all:
-
-- **`[Header("Player Name")]`** titles a column for the document. A heading is prose and a parameter
-  name is code, so they need not be the same word.
-- **An optional column is a plain C# optional parameter.** `Position position = Position.Outfield`
-  means the `position` column may be left out of the table entirely, and the declaration already
-  says what happens then — in the one place a reader of the fixture looks. (This also fixed a silent
-  bug: a parameter no column named used to be passed `default(T)`, so a declared default was ignored
-  and the fixture saw `null` or an enum's zero value.)
-- **A selection list is declined, not deferred.** `[SelectionValues(...)]` existed for Storyteller's
-  editor, and where it genuinely constrained a value an **enum parameter** now does the job better:
-  a cell outside the list becomes a build error naming the alternatives, which a runtime selection
-  list never could.
-
-A `[Table]` step renders as **one grid, not one step per row**. It used to emit a step per row, so
-an arrange table read `✓ Given the invoice details are (row 1)` three times and the values it set up
-appeared nowhere — the specification could not be read back from its own report. The cost, paid
-knowingly: a failing row gets its own grid row rather than its own `✗` line, and a 20-row table is
-one step rather than twenty in every step count and preview.
-
-### From a C# test
-
-A C# test has no trailing `|...|` block, so a table arrives as **pipe-delimited text** that
-`StepTable` reads by an implicit conversion. The step takes the whole table as one argument:
+A table arrives as **pipe-delimited text** that `StepTable` reads by an implicit conversion. The step
+takes the whole table as one argument:
 
 ```csharp
 [Given("the roster is")]
@@ -84,98 +42,144 @@ _roster.TheRosterIs("""
     """);
 ```
 
-A markdown table pastes in unchanged — the alignment row is recognised and dropped, outer pipes are
-optional, cells are trimmed — so the table in the specification, the table in the pull request and
+A markdown table pastes in unchanged -- the alignment row is recognised and dropped, outer pipes are
+optional, cells are trimmed -- so the table in the specification, the table in the pull request and
 the table in the test are the same text. Markdown's escaping and inline formatting are deliberately
-*not* supported: a cell is the text between pipes, because that is what a Gherkin cell is, and two
-rules for reading a cell is how the lanes would drift.
+*not* supported: a cell is the text between pipes.
 
-`StepTable` is the shape a step receives either way: `Headers`, `Rows`, `AsDictionaries()`,
-`Cell(row, header)`, `HasColumn(header)`, `Count`.
+`StepTable` is the shape a step receives: `Headers`, `Rows`, `AsDictionaries()` (case-insensitive
+keys), `Cell(row, header)`, `HasColumn(header)`, `Count`.
+
+The step renders as **one grid, not one step per row**: the table's cells are recorded on the step as
+it starts, so a watcher sees the rows while the step is still running, and the grid the step then
+reports -- a table it ran, a set it verified -- replaces them rather than arriving beside them.
 
 ## A table the step runs itself
 
 Storyteller's batched-setup envelope was
-`this["BuildUser"].AsTable("The Users are").Before(…).After(…)` — a table *declared* around another
-grammar. Bobcat's equivalents are two methods on `Fixture`, and the hooks are the lines either side
-of the call:
+`this["BuildUser"].AsTable("The Users are").Before(…).After(…)` -- a table *declared* around another
+grammar. Bobcat's equivalent is `TableRunner`, and the hooks are the lines either side of the call:
 
 ```csharp
-[Given("the team is")]
-public async Task TheTeamIs(StepTable table)
+[Given("the members are")]
+internal async Task TheMembersAre(StepTable table)
 {
-    _team.Clear();                            // before all rows
-    await RunTable(nameof(addToTeam), table);
-    TeamSaved = string.Join("; ", _team);     // after all rows, once
+    Log.Clear();                                   // before all rows
+    await TableRunner.Run(this, nameof(addMember), table);
+    Flushed = string.Join("|", Log);               // after all rows, once
 }
 
-private void addToTeam([Header("Player Name")] string player, Position position = Position.Outfield)
-    => _team.Add($"{player}:{position}");
+private void addMember([Header("Member Name")] string member, Tier tier = Tier.Free)
+    => Log.Add($"{member}:{tier}");
 ```
 
 ```csharp
-[Given("the invoices are")]
-public void TheInvoicesAre(StepTable table) => Invoices = BuildRows<Invoice>(table);
+[Given("the subscriptions are")]
+internal void TheSubscriptionsAre(StepTable table) => Built = TableRunner.BuildRows<Subscription>(table);
 
-public record Invoice(string Id, decimal Amount, DateOnly DueOn, string Currency = "USD");
+public record Subscription(string Customer, Tier Tier, DateOnly RenewsOn, string Currency = "USD");
 ```
 
-```gherkin
-Given the invoices are
-  | Id    | Amount | DueOn   |
-  | INV-1 | 100.50 | TODAY   |
-  | INV-2 | 200.00 | TODAY+2 |
+```csharp
+_grammar.TheSubscriptionsAre("""
+    | Customer | Tier | RenewsOn |
+    | Ada      | Pro  | TODAY+30 |
+    | Grace    | Free | TODAY    |
+    """);
 ```
 
-`BuildRows<T>` is Storyteller's `CreateNewObject<T>`: columns bind to the record's constructor
-first and then to settable properties, `TODAY+2` is read as a real `DateOnly`, and `Currency` can be
-left out of the table entirely because the record declares a default for it.
+`TableRunner.BuildRows<T>` is Storyteller's `CreateNewObject<T>`: columns bind to the record's
+constructor first and then to settable properties, `TODAY+30` is read as a real `DateOnly`, and
+`Currency` can be left out of the table entirely because the record declares a default for it.
+
+`TableRunner.Run(target, nameof(rowMethod), table)` calls a method once per row, binding each column to
+a parameter **by name**:
+
+- **`[Header("Member Name")]`** titles a column for the table. A heading is prose and a parameter name
+  is code, so they need not be the same word.
+- **An optional column is a plain C# optional parameter.** `Tier tier = Tier.Free` means the `tier`
+  column may be left out of the table entirely, and the declaration already says what happens then.
+- **An enum parameter is a selection list.** A cell outside its values fails that row, naming the
+  alternatives.
+- The row method may be private, and may be async; each row is awaited before the next.
 
 **The before/after hooks are the method body**, and that is the whole design. Storyteller needed
 `.Before(...)` and `.After(...)` because the table was declared rather than called; here "before all
-rows" is the line above and "after all rows" is the line below — which is also where a `DbContext`
-or a document session gets its single `SaveChangesAsync`. That is the same observation as an
-optional column being an optional C# parameter: the language already has the feature.
+rows" is the line above and "after all rows" is the line below -- which is also where a `DbContext` or
+a document session gets its single `SaveChangesAsync`. The language already has the feature.
 
-Everything else matches the generated `[Table]` envelope on purpose — columns bind by name,
-`[Header]` renames one, an optional parameter's column may be left out, cells convert the same way,
-a row that throws is a failed row with the rest still run, a returned value plus one unclaimed
-column is a decision table, and the whole thing renders as one grid. **A table run this way and a
-table bound by the generator report the same way over the same document.**
+`TableRunner` is one of Bobcat's bounded softenings of "no reflection": a method named by a `string`
+cannot be bound at compile time, and naming one is the point -- the row method stays a private detail
+of the class instead of a step of its own. `TableRunner.MethodNamed` throws a `SpecCriticalException`
+for a name that matches nothing.
 
-`TableRunner` is the engine, and it is public so a grammar that is not a `Fixture` can use it —
-`TableRunner.BuildRows<Signing>(table)` is how the projected lane's plain-class grammars do it. It
-is one of Bobcat's bounded softenings of "no reflection": a method named by a `string` cannot be
-bound at compile time, and naming one is the point — the row method stays a private detail of the
-fixture instead of a step in the document.
+## Decision tables
 
-### `[TableGrammar]` — the declared form
-
-The envelope can also be a class, which is the right shape when the grammar is shared across
-features:
+One row per case, with the input columns and the expected-output column in the same table. Hand
+`TableRunner.Run` a row method that **returns** a value, and the one column no parameter claims is the
+expected output:
 
 ```csharp
-[TableGrammar("the users are")]
-public class UserTableGrammar
-{
-    private readonly List<User> _users = new();
+[Then("doubling gives")]
+internal async Task DoublingGives(StepTable table) => await TableRunner.Run(this, nameof(doubled), table);
 
-    public void Before() => _users.Clear();
-    public void Row(string first, string last) => _users.Add(new User(first, last));
-    public void After() => saveUsersToTheDatabase(_users);   // once, however many rows
+private int doubled(int input) => input * 2;
+```
+
+```csharp
+_grammar.DoublingGives("""
+    | input | doubled |
+    | 2     | 4       |
+    | 3     | 7       |
+    """);
+```
+
+The second row fails in the `doubled` column -- `expected '7', got '6'` -- and the first passes. A
+`bool` return is compared like any other value, so a table of yes/no answers needs no special grammar.
+
+Or report each row yourself, which is the shape for a computation that isn't one method call:
+
+```csharp
+[Then("adding numbers together")]
+internal void AddingNumbersTogether(StepTable sums)
+{
+    var rows = sums.AsDictionaries();
+
+    for (var i = 0; i < rows.Count; i++)
+        SpecAssert.Check("sum", int.Parse(rows[i]["x"]) + int.Parse(rows[i]["y"]),
+            int.Parse(rows[i]["sum"]), rowIndex: i);
 }
 ```
 
-A fresh instance per execution, so `Before`'s session and `After`'s save share fields. `[Before]`,
-`[Row]` and `[After]` override the naming convention; `[ScopePerRow]` gives each row its own DI
-scope. Failure tiers are deliberate: a `Before` that throws skips the rows and **still runs
-`After`** — the half-finished `Before` is the one that leaves something to clean up — while per-row
-failures gather and render the full table.
+The comparison supersedes the value the table wrote for that column, which is why a wrong row reads
+`expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
 
-Note that `[TableGrammar]` steps are invisible to the VS Code Cucumber extension; see
-[Integrating Bobcat with Your IDE](ide-integration.md).
+### A row that throws is that row's failure
 
-See also [Composing Grammar Modules](../composing-grammars.md#building-an-object-from-a-table-row).
+```
+╭───┬────┬───┬──────────┬────────╮
+│ # │ x  │ y │ quotient │ Status │
+├───┼────┼───┼──────────┼────────┤
+│ 1 │ 10 │ 5 │ 2        │   OK   │
+│ 2 │ 3  │ 0 │ !        │ ERROR  │
+│ 3 │ 9  │ 3 │ 3        │   OK   │
+╰───┴────┴───┴──────────┴────────╯
+  row 2: DivideByZeroException: cannot divide by zero
+```
+
+A row of a table is an independent case, not a step in a sequence, so a row that throws fails that
+row and **the rest of the table still runs** -- Storyteller's behaviour. Before this, one throwing
+row erased the whole grid: the cells were gathered and applied only after the last row, so anything
+that threw discarded every cell, including the rows that had already passed.
+
+The step's verdict keeps the difference between a wrong and an exception. A row whose code threw
+makes the step `error`. A wrong value, a missing row or an extra row makes it `failed`, because each
+of those is the system disagreeing with the table, not the code falling over.
+
+The escape hatch is Bobcat's existing failure vocabulary rather than a new one. A
+`SpecCriticalException` still aborts the scenario and a `SpecCatastrophicException` still stops the
+suite, so a step that means "stop here" can still say so, and cancellation propagates untouched.
+The rows already reached stay on the grid even then.
 
 ## Set verification
 
@@ -184,21 +188,21 @@ that identify them, every other column the table names is compared once a row is
 is not part of the claim unless you say so:
 
 ```csharp
-[Then("the unordered details should be")]
-[SetVerification(KeyColumns = "Name")]
-public IEnumerable<InvoiceDetail> TheUnorderedDetailsShouldBe() => _details;
+[Then("the inventory should be")]
+internal void TheInventoryShouldBe(StepTable expected)
+    => SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku");
 ```
 
-```gherkin
-Then the unordered details should be
-  | Amount | Date    | Name       |
-  | 10     | TODAY-2 | Socks      |
-  | 200    | TODAY-1 | The Pants  |
-  | 100    | TODAY   | The Shirts |
+```csharp
+_grammar.TheInventoryShouldBe("""
+    | Sku     | ProductName | Quantity |
+    | SKU-001 | Widget      | 90       |
+    | SKU-002 | Gadget      | 12       |
+    """);
 ```
 
-The method returns the **actual** collection and the generator supplies the **expected** rows from
-the document. `KeyColumns` is Storyteller's `MatchOn` under another name.
+`keyColumns` is Storyteller's `MatchOn` under another name, comma-separated; leave it empty to match on
+every column the table names.
 
 ### The four row markers
 
@@ -217,201 +221,85 @@ the document. `KeyColumns` is Storyteller's `MatchOn` under another name.
 | | |
 |---|---|
 | `FAIL` | the row matched and a cell disagrees |
-| `MISSING` | the specification describes a row the system never produced — **shown with the values it expected**, not a row of dashes |
+| `MISSING` | the specification describes a row the system never produced -- **shown with the values it expected**, not a row of dashes |
 | `EXTRA` | the system produced a row the specification does not describe. This fails the step: a set verification says the set is *exactly* this |
 | `ORDER` | with `Ordered = true`, a row that turned up behind one written before it, and where it actually was |
 
 **A mismatch reads as one missing row beside one extra**, not as a row with a wrong cell, whenever
-the disagreeing column is a key column — rows 3 and 4 above are the single `Sweatpants`/`The Shirts`
-disagreement. That is `KeyColumns` doing its job, and naming fewer of them is what turns a mismatch
+the disagreeing column is a key column -- rows 3 and 4 above are the single `Sweatpants`/`The Shirts`
+disagreement. That is `keyColumns` doing its job, and naming fewer of them is what turns a mismatch
 back into a cell-level difference.
 
 ### Ordered sets, and sets of plain values
 
 ```csharp
-[SetVerification(KeyColumns = "Name", Ordered = true)]
-public IEnumerable<InvoiceDetail> TheOrderedDetailsShouldBe() => _details;
+SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku", ordered: true);
 
-[SetVerification(Column = "Name", Ordered = true)]
-public IEnumerable<string> TheNamesShouldBe() => _names;
+// A one-column table over plain values needs no column named
+SetVerificationComparer.Verify(_tags, expected);
 ```
 
-`Ordered = true` is one word on the assertion that already exists, because whether order is part of
-the claim is a property of the assertion rather than a different kind of assertion. **Order is
-checked after matching, not instead of it:** rows are matched by `KeyColumns` as before and the
-order of the matches is then verified, so an inserted row is *one extra row* rather than every row
-after it disagreeing — which is the difference between a useful report and a useless one for an
-event stream with one unexpected event.
+`ordered: true` is one argument on the assertion that already exists, because whether order is part of
+the claim is a property of the assertion rather than a different kind of assertion. **Order is checked
+after matching, not instead of it:** rows are matched by key as before and the order of the matches is
+then verified, so an inserted row is *one extra row* rather than every row after it disagreeing --
+which is the difference between a useful report and a useless one for an event stream with one
+unexpected event.
 
-`Column` names the single column for a collection of plain values — Storyteller's
-`VerifyStringList(...).Titled(title, "Name")` with the same second argument doing the same job, no
-wrapper record and no second grammar. Left unsaid it is **BOBCAT031** at build time, because the old
-behaviour was to compare each string against the *properties* of `string` and report every row as
-missing *and* extra: a report that describes nothing.
+For a collection of plain values, the single column is inferred from a one-column table, because there
+is only one thing it could be. `column: "Name"` names it explicitly -- Storyteller's
+`VerifyStringList(...).Titled(title, "Name")`, with no wrapper record and no second grammar.
 
 ### Titling a set's columns
 
-A set's columns are the result type's **properties**, so the property is where `[Header]` goes —
+A set's columns are the result type's **properties**, so the property is where `[Header]` goes  -- 
 Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`:
 
 ```csharp
 public record Ledger([property: Header("The Amount")] decimal Amount, string Name);
 ```
 
-```gherkin
-Then the ledger should be
-  | The Amount | Name   |
-  | 100.50     | Widget |
+```csharp
+_ledger.TheLedgerShouldBe("""
+    | The Amount | Name   |
+    | 100.50     | Widget |
+    """);
 ```
 
 **The title replaces the name rather than aliasing it**, and that is deliberate: one column with two
-spellings is how a grid ends up with two columns for one property. So `KeyColumns` names columns as
-the *document* writes them — a titled property is named there by its title. Both readings of "what is
+spellings is how a grid ends up with two columns for one property. So `keyColumns` names columns as
+the *table* writes them -- a titled property is named there by its title. Both readings of "what is
 this column called" go through one authority (`Runtime.ColumnNames`), because a column titled one
 thing on the way in and another on the way out would be two columns.
 
 ### An empty expected set still has headings
 
-A header-only table — "the set should be empty" — is a legitimate expectation, and the grid takes its
+A header-only table -- "the set should be empty" -- is a legitimate expectation, and the grid takes its
 column order from the table's headers rather than from the first expected row. Before that, such a
 step produced a grid with no headings and rendered its extra rows under nothing.
 
-### From a C# test
-
-`[SetVerification]` is declarative — the generator supplies the expected rows — so a C# test has no
-way to hand it an expectation. `VerifySet` is the other half, for a step that takes its table as an
-argument:
-
-```csharp
-[Then("the inventory should be")]
-public void TheInventoryShouldBe(StepTable expected)
-    => VerifySet(_inventory.Values, expected, keyColumns: "Sku");
-```
-
-```csharp
-_sets.TheInventoryShouldBe("""
-    | Sku     | ProductName | Quantity |
-    | SKU-001 | Widget      | 90       |
-    """);
-```
-
-The comparison is identical: the same `SetVerificationComparer`, the same key matching, the same
-order-after-matching rule, the same four markers, the same grid. Only where the expected rows come
-from differs. On a grammar that is not a `Fixture`, call `SetVerificationComparer.Verify(...)`
-directly.
-
-**Prefer `[SetVerification]` where it reaches.** `KeyColumns`, `Ordered` and `Column` are
-compile-time facts there, which is what lets the preview and the editor read them and what makes
-BOBCAT014 (a set verification with no table) and BOBCAT031 compile errors. As arguments, nothing can
-see them before the step runs. One thing the argument form does better: a set of plain values needs
-no `Column` at all, because the table is in view and has exactly one.
-
-## Decision tables
-
-One row per case, with the input columns and the expected-output columns in the same table.
-`[DecisionTable]` plus a return value, and `[Expected]` names the output column:
-
-```csharp
-[DecisionTable]
-[Then("adding numbers together")]
-[Expected("sum")]
-public int Sum(int x, int y) => x + y;
-```
-
-```gherkin
-Then adding numbers together
-  | x | y | sum |
-  | 1 | 1 | 2   |
-  | 3 | 4 | 7   |
-  | 4 | 9 | 13  |
-```
-
-Two or more computed outputs need `out` parameters, because a return value cannot express them —
-and each one is a column compared in its own right:
-
-```csharp
-[DecisionTable]
-[Then("what's my name?")]
-public void WhatsMyName(string firstName, string lastName,
-    out string fullName, out string lastNameFirst)
-{
-    fullName = $"{firstName} {lastName}";
-    lastNameFirst = $"{lastName}, {firstName}";
-}
-```
-
-A `bool` return is compared like any other value, so a table of yes/no answers needs no special
-grammar. `preview` names the expected-output cell each parameter came from, which is the fastest way
-to see that a column bound where you thought it did.
-
-From a C# test, the grammar reports one cell per row itself:
-
-```csharp
-[Then("adding numbers together")]
-internal void AddingNumbersTogether(StepTable sums)
-{
-    var rows = sums.AsDictionaries();
-
-    for (var i = 0; i < rows.Count; i++)
-        SpecAssert.Check("sum", int.Parse(rows[i]["x"]) + int.Parse(rows[i]["y"]),
-            int.Parse(rows[i]["sum"]), rowIndex: i);
-}
-```
-
-The comparison supersedes the value the literal wrote for that column, which is why a wrong row
-reads `expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
-
-### A row that throws is that row's failure
-
-```
-╭───┬────┬───┬──────────┬────────╮
-│ # │ x  │ y │ quotient │ Status │
-├───┼────┼───┼──────────┼────────┤
-│ 1 │ 10 │ 5 │ 2        │   OK   │
-│ 2 │ 3  │ 0 │ !        │ ERROR  │
-│ 3 │ 9  │ 3 │ 3        │   OK   │
-╰───┴────┴───┴──────────┴────────╯
-  row 2: DivideByZeroException: cannot divide by zero
-```
-
-A row of a table is an independent case, not a step in a sequence, so a row that throws fails that
-row and **the rest of the table still runs** — Storyteller's behaviour. Before this, one throwing
-row erased the whole grid: the cells were gathered and applied only after the last row, so anything
-that threw discarded every cell, including the rows that had already passed.
-
-From a C# test the step's verdict keeps the difference between a wrong and an exception. A row whose
-code threw makes the step `error`. A wrong value, a missing row or an extra row makes it `failed`,
-because each of those is the system disagreeing with the document, not the code falling over. The
-Gherkin lane marks both `failed`.
-
-The escape hatch is Bobcat's existing failure vocabulary rather than a new one. A
-`SpecCriticalException` still aborts the scenario and a `SpecCatastrophicException` still stops the
-suite, so a fixture that means "stop here" can still say so, and cancellation propagates untouched.
-The rows already reached stay on the grid even then.
-
 ## One object against one row
 
-The three mechanisms above are about *many* rows. This one is about a single object, and the columns
-the row names are compared against the properties of those names — Storyteller's `VerifyObject`:
+The mechanisms above are about *many* rows. This one is about a single object, and the columns the
+row names are compared against the properties of those names -- Storyteller's `VerifyObject`:
 
 ```csharp
 [Then("the address should be")]
-public void TheAddressShouldBe(StepTable expected) => VerifyObject(_address, expected);
+internal void TheAddressShouldBe(StepTable expected) => PropertyCells.Verify(_address, expected);
 ```
 
-```gherkin
-Then the address should be
-  | Address1     | Address2 | City   |
-  | 3 1st Street | EMPTY    | Dallas |
+```csharp
+_objects.TheAddressShouldBe("""
+    | Address1     | Address2 | City   |
+    | 3 1st Street | EMPTY    | Dallas |
+    """);
 ```
 
 **Only the columns the row names are compared.** An address has six fields and a specification that
 names three means nothing by the other three, which is the same partial rule set verification and the
-event-store grammars follow rather than a second convention. Cell tokens read as they do anywhere
-else, so `EMPTY` above is the empty string.
-
-From a C# test, where the grammar is a plain class rather than a `Fixture`, the static is
-`PropertyCells.Verify(subject, expected)` — the same split `VerifySet` and `RunTable` have.
+Critter Stack vocabulary follow rather than a second convention. Cell tokens read as they do anywhere
+else, so `EMPTY` above is the empty string. On a `CritterStackSpec`, `Verify(subject, table)` is the
+same check.
 
 It renders as a one-row grid with a verdict per column:
 
@@ -425,16 +313,6 @@ It renders as a one-row grid with a verdict per column:
 │   │ Lane'               │                     │                     │        │
 ╰───┴─────────────────────┴─────────────────────┴─────────────────────┴────────╯
 ```
-
-That grid is also what the two shipped event-store assertions now render —
-`Then the {readmodel} read model contains` and `Then the {document} with id {string} has`. They used
-to flatten the whole comparison into one exception message:
-
-```
-AppointmentsQueue read model did not match: AwaitingConfirmation: expected 0, was 1; Confirmed: expected 0, was -1
-```
-
-Three cells green, two red, rendered as a sentence a reader has to parse.
 
 ### A column may reach into a nested object
 
@@ -450,19 +328,19 @@ addressable nested as well as at the top.
 
 Two failures that look similar and are not:
 
-- **A segment that names no property is `invalid`** — the specification asked about something that
+- **A segment that names no property is `invalid`** -- the specification asked about something that
   does not exist, which is decidable without running anything. The message names what is there *at
-  the depth that failed*: `no 'Town' on Address — it has City, Line1, zip`. The subject's own
+  the depth that failed*: `no 'Town' on Address -- it has City, Line1, zip`. The subject's own
   top-level properties would be the least useful half of the sentence, because the typo is in the
   last segment.
-- **A segment that is null partway along is `failed`** — the path is legal and the graph was empty,
+- **A segment that is null partway along is `failed`** -- the path is legal and the graph was empty,
   which only run time can tell. The cell reads `expected 'Austin', got 'NULL' (Customer.Address was
   null)`. A null at the *end* of a path is just a value, and `NULL` is a cell expression a
   specification may legitimately assert.
 
 **Collection indexers are not supported**, deliberately: `Items[0].Sku` is a question a set
 verification answers properly, matching rows by key columns. A path into a collection would make one
-wrong value read as a missing row beside an extra one — the confusion the next section is about. The
+wrong value read as a missing row beside an extra one -- the confusion the next section is about. The
 cell says so rather than failing silently. Depth is capped at 8, so a cyclic graph cannot hang a
 comparison.
 
@@ -470,43 +348,27 @@ comparison.
 
 A set matches rows by key columns, so a single wrong value there becomes a missing row beside an
 extra one. Here the subject is known and the columns *are* the claim, so a wrong value is one failed
-cell. Different question, different comparison — but the same `CellCheck` underneath, so a property
+cell. Different question, different comparison -- but the same `CellCheck` underneath, so a property
 column and a set column disagree in the same words, and the same `ColumnNames`, so a property titled
 by `[Header]` is titled here too.
 
-### The one family with no declarative twin
-
-Everywhere else the declarative form is canonical where it reaches — `[SetVerification]` over
-`VerifySet`, `[Table]` over `RunTable` — because those carry settings that are compile-time facts the
-preview and the editor can read. This one has **nothing to configure**: the columns come from the
-table and the subject from the method, so an attribute would carry no information and buy nothing.
-
-One consequence follows from that rather than being a separate decision: a column naming no property
-is an `invalid` cell **at run time**, listing what the type does have. It cannot be a compile-time
-diagnostic, because the generator would need the subject's type in view and in this form the subject
-is a value the step chooses.
+A column naming no property is an `invalid` cell **at run time**, listing what the type does have,
+because the subject is a value the step chooses. Where the type and the table are both constant at the
+call site, **BOBCAT032** catches the stale column at build time instead.
 
 ## Comparison options
 
+A comparison's options are arguments, on the call that makes it:
+
 | | |
 |---|---|
-| `[Expected("column")]` | names the expected-output column for a return value or an `out` parameter |
-| `[Approx(0.001)]` | compares numerically with an absolute tolerance instead of exact equality. Floating-point set verification is where people otherwise give up |
-| `[Comparison(typeof(MyChecker))]` | a comparison of your own, for a type whose equality is domain-specific |
-
-All three go on the method, a parameter or a property, so a tolerance can be stated once for a whole
-grammar or per column.
-
-These are Gherkin attributes, read by the generator when it binds a step. From a C# test the comparison
-is the step's own call, so the tolerance goes on the call too:
-`SpecAssert.Check("average", actual, expected, tolerance: 0.001)`, or a `CheckOptions` for the
-others. The generator warns (BOBCAT035) about an `[Approx]` it can see a C# test calling.
+| `SpecAssert.Check(name, actual, expected, tolerance: 0.001)` | compare numerically within an absolute tolerance instead of exact equality. Floating-point verification is where people otherwise give up |
+| `CheckOptions { Tolerance, CaseSensitive, Trim, ComparisonType }` | passed as `options:` to `SpecAssert.Check` or `SpecAssert.EventuallyAsync`. `ComparisonType` names an `IValueChecker<T>` of your own, for a type whose equality is domain-specific |
 
 ## What a written cell may say
 
-Beyond a plain literal, a cell may say any of these — and it means the **same thing on both sides of
-a table**, in a `[Table]` step's input column, a set verification's expected column, a `RunTable`
-row, and a table literal in a C# test:
+Beyond a plain literal, a cell may say any of these -- and it means the **same thing on both sides of
+a table** -- in a row `TableRunner` builds or runs, and in a set verification's expected column:
 
 | | |
 |---|---|
@@ -514,17 +376,12 @@ row, and a table literal in a C# test:
 | `EMPTY` | the empty string, or null for a reference type |
 | `TODAY`, `TODAY+2`, `TODAY-1` | a date relative to the run |
 | `NOW - 30 minutes`, `TODAY - 1 week` | a relative time. Minutes, hours, days and weeks resolve; **months and years deliberately do not**, because their length depends on which month, and a spec asserting the offset would drift |
-| `"NULL"` | the *word* — a quoted cell is its literal text |
+| `"NULL"` | the *word* -- a quoted cell is its literal text |
 
-This used to be true on the expected side only: `TODAY+2` worked where a specification *asserted* a
-date and was a build error where it *supplied* one — the same word meaning two things in one
-document. `Bobcat.Runtime.CellValues` is now the single runtime authority on what a written cell
-means.
+`Bobcat.Runtime.CellValues` is the single authority on what a written cell means.
 
-**A relative time resolves at run time, never at build time.** The generator emits a call rather than
-a computed date: "today" is a fact about the run, and a build cached overnight would hand every later
-run yesterday's date with nothing in the report to say so. A relative token against a `string` is the
-*word* — a table entitled to keep its dates as text says `TODAY` and means it — and against a number
+**A relative time resolves at run time**, because "today" is a fact about the run. A relative token against a `string` is the
+*word* -- a table entitled to keep its dates as text says `TODAY` and means it -- and against a number
 it is refused as a number, which is the better message.
 
 The grid shows the resolved value with the token as its note:
@@ -535,32 +392,17 @@ The grid shows the resolved value with the token as its note:
 
 ### A cell that cannot be read
 
-A cell that will not convert to the type of the parameter it binds to is **BOBCAT030**, an error, at
-build time:
-
-```
-error BOBCAT030: Feature 'Tables', step 'adding numbers together': the value for 'x'
-                 cannot be read — 'a' is not an int
-```
-
-Storyteller reported this as a yellow cell at run time and carried on with the rest of the row,
-because it bound values by reflection as the specification ran. Bobcat binds at compile time, so the
-row cannot run at all — and the compile-time answer is the better one: the value is wrong in the
-document whether or not anybody runs the suite.
-
-Before BOBCAT030 existed, the generator emitted the cell's text and the **consumer's** build failed
-with `CS0103: the name 'a' does not exist in the current context` at a line inside a generated file
-the author cannot open, over a step that matched its method perfectly.
-
-Where the binding happens at run time instead — a `RunTable` row, a table literal, `BuildRows<T>` —
-the same bad cell is a `BadCellException`, which sits deliberately *outside* the `Spec*` tier so it
-fails its own row and lets the others run:
+A cell that won't convert to the type it binds to is a `BadCellException`, which sits deliberately
+*outside* the `Spec*` tier so it fails its own row and lets the others run:
 
 ```
 │ 2 │ Nobody      │ Shortstop │ ERROR  │
   row 2: BadCellException: The cell 'Shortstop' could not be read as Position:
           'Shortstop' is not one of Position's values (Pitcher, Outfield, Catcher)
 ```
+
+A value written in a step helper's *call* -- a literal argument -- is checked at build time instead:
+**BOBCAT030** reports one that can't be read as the parameter's type.
 
 ## What a grid says on the wire
 
@@ -570,10 +412,10 @@ A step's cells travel on `step_finished` (and, while a long table is still runni
 | | |
 |---|---|
 | `Expected` / `Actual` | a judged cell |
-| `Note` | a cell that says a sentence — the missing / extra / out-of-order markers |
-| `Value` | a cell that was **not judged** — a decision table's input column, an echoed value |
+| `Note` | a cell that says a sentence -- the missing / extra / out-of-order markers |
+| `Value` | a cell that was **not judged** -- a decision table's input column, an echoed value |
 
-A grid carries **one cell per row and column**. From a C# test the step is handed the table as written
+A grid carries **one cell per row and column**. The step is handed the table as written
 before it does anything, so the first `step_progress` shows those cells plain, and the grid the step
 reports (a table it ran, a set it verified) replaces them rather than arriving beside them. A column
 a throwing row never produced is absent from the wire and renders `error`.
@@ -582,7 +424,7 @@ a throwing row never produced is absent from the wire and renders `error`.
 with neither an expected nor an actual is how the report decides an input column earns no Status
 column at all, so writing an input value into `Actual` would make every input cell look judged.
 
-A cell also carries **what it compared** — `equals` by default, and one of a closed set otherwise, so
+A cell also carries **what it compared** -- `equals` by default, and one of a closed set otherwise, so
 a non-equality assertion cannot state an equality it never checked. Every comparison on this page is
 equality, so they all leave it unstated. See
 [What a Run Publishes](../monitor-design.md#a-cell-says-exactly-one-thing-issue-396-2026-10-02) and
@@ -590,16 +432,17 @@ equality, so they all leave it unstated. See
 
 ## Gaps worth knowing about
 
+- **A decision table has one computed output.** Storyteller's decision tables took several, through
+  `out` parameters; `TableRunner.Run` compares only a return value
+  ([#483](https://github.com/JasperFx/bobcat/issues/483)). Report several outputs yourself, row by row,
+  with `SpecAssert.Check(column, actual, expected, rowIndex: i)`.
 - **No inline list capture.** Storyteller's `[FormatAs("The array of names should be {names}")]`
-  compared a whole array from one cell. The closest thing here is a table, which is now a set of
-  plain values.
+  compared a whole array from one cell. The closest thing here is a table, which is a set of plain
+  values.
 - **No paragraphs.** Storyteller's `Paragraph("Divide numbers", …).AsTable(…)` composed a table row
   out of several grammars. Deliberately out of scope.
-- **No per-table value override.** Storyteller's `-> b = False` fixed a value for every row of one
-  table. It has no Gherkin spelling and is not built.
 
 ## See also
 
-- [Specs from tests you already have](../marker-steps.md#tables-and-sets-from-a-c-test) — the same four mechanisms from the C# side
-- [Composing Grammar Modules](../composing-grammars.md) — sharing a table grammar across features
-- [Integrating Bobcat with Your IDE](ide-integration.md) — which of these the editor can and cannot see
+- [Writing Specifications](../marker-steps.md#tables-and-sets-from-a-c-test) -- step helpers, and `SpecAssert`
+- [Migrating from Gherkin](../migrating-from-gherkin.md) -- `[Table]`, `[SetVerification]`, `[DecisionTable]` and `[TableGrammar]`, mapped

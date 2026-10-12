@@ -7,6 +7,15 @@ that steer or silence the whole thing.
 Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09) and by the
 console's move to Stoat (2026-09-18).
 
+::: info A record written while there were two lanes
+Much of this page dates from when Bobcat also ran Gherkin `.feature` files on its own engine, through
+`BobcatRunner`. That lane was removed in 0.50 ([bobcat#471](https://github.com/JasperFx/bobcat/issues/471)).
+The wire contract is unchanged: projected specifications publish every event described here, through
+the runner adapters and the supervisor. Where a passage names `BobcatRunner`, the Gherkin lane or
+`[TableGrammar]`, it is describing how the retired lane published, kept as the record of why the wire
+is shaped the way it is.
+:::
+
 ## The receiver is not in this repository
 
 The console that receives these events — the run board, the archive, the exports, the MCP tools
