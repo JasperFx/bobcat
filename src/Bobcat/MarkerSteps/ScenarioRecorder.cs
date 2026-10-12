@@ -422,8 +422,10 @@ public static class ScenarioRecorder
                     // it has no expected/actual pair, and the JSON report keys off exactly that to
                     // decide whether a column earns a Status (issue #384). Its text reaches the
                     // wire as StepCell.Value — issue #396, where it reached it as nothing at all.
-                    step.Cells.Add(new CellResult(table.Headers[c], ResultStatus.ok,
-                        c < row.Count ? row[c] : "") { RowIndex = r });
+                    var cell = new CellResult(table.Headers[c], ResultStatus.ok,
+                        c < row.Count ? row[c] : "") { RowIndex = r };
+                    step.Cells.Add(cell);
+                    step.TableInputCells.Add(cell);
                 }
             }
 
@@ -865,6 +867,27 @@ public static class ScenarioRecorder
         /// column ORDER themselves, and without it a viewer cannot reassemble the grid.
         /// </summary>
         public IReadOnlyList<string> TableColumns { get; internal set; } = [];
+
+        /// <summary>
+        /// The plain cells <see cref="Recording.RecordTable"/> echoed from the table this step was
+        /// handed, so a grid the step reports itself (<c>TableRun.Report</c>) can take their place
+        /// rather than sit beside them (bobcat#471). Empty once replaced, and for a step handed no
+        /// table.
+        /// </summary>
+        internal List<CellResult> TableInputCells { get; } = new();
+
+        /// <summary>
+        /// Take the echoed input cells off this step, because the step is about to report its own
+        /// grid over the same table, which carries every input cell again plus the verdicts.
+        /// </summary>
+        internal void ReplaceTableInputCells()
+        {
+            if (TableInputCells.Count == 0) return;
+
+            var echoed = new HashSet<CellResult>(TableInputCells, ReferenceEqualityComparer.Instance);
+            Cells.RemoveAll(echoed.Contains);
+            TableInputCells.Clear();
+        }
 
         /// <summary>Unique within the scenario; the id the wire events key on.</summary>
         public string StepId { get; internal set; } = "";

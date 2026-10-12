@@ -710,11 +710,11 @@ public class SetVerificationRender
 
                 foreach (var col in columns)
                 {
-                    // LAST wins. One cell per column per row is the Gherkin lane's shape, so this
-                    // is the same cell either way; in the projected lane a step is handed the table
-                    // as written AND then reports its own comparisons, and the comparison is the
-                    // thing worth showing — an expected/actual pair rather than the text the test
-                    // wrote two lines above.
+                    // LAST wins. One cell per column per row is the shape both lanes produce now
+                    // that TableRun.Report replaces the projected lane's echoed input cells
+                    // (bobcat#471). It stays LAST rather than single so a producer that reports a
+                    // column twice still shows its comparison, the thing worth showing, rather
+                    // than the text the test wrote two lines above.
                     var cell = cells.LastOrDefault(c => c.Name == col);
 
                     // A compared column whose row threw produced nothing to compare — the cell is
@@ -753,10 +753,9 @@ public class SetVerificationRender
             Description = marker.DisplayText
         };
 
-        // LAST wins, for the reason the matched branch gives: in the projected lane the step was
-        // handed the table as written BEFORE it compared anything, so each column has an input cell
-        // carrying the text and then the comparer's cell carrying the value to show in place. Taking
-        // the first left every absent row rendering as a row of blanks in the projected lane only.
+        // LAST wins, for the reason the matched branch gives. Before TableRun.Report replaced the
+        // projected lane's echoed input cells (bobcat#471), each column had the echo first and the
+        // comparer's cell second, and taking the first left every absent row a row of blanks.
         var byColumn = columns
             .Select(col => (col, cell: cells.LastOrDefault(c => c.Name == col)))
             .ToList();

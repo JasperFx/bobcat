@@ -72,15 +72,32 @@ public class TableProgressTests
         wrong.Actual.ShouldBe("8.00");
     }
 
-    [Fact(Skip = "Projected-lane divergence (bobcat#471 phase 2): every table step is recorded twice, once " +
-                 "by the interceptor (Recording.RecordTable) and again by TableRun.Report, so StepFinished " +
-                 "carries 12 cells for a 2x3 table, each input cell twice. Same root cause as " +
-                 "DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error.")]
+    /// <summary>
+    /// <c>TableRun.Report</c> replaces the cells the interceptor echoed from the table rather than
+    /// adding beside them (bobcat#471), so the wire carries each cell once: 6 for a 2x3 table, where it
+    /// used to carry 12.
+    /// </summary>
+    [Fact]
     public async Task the_finished_step_carries_one_cell_per_row_and_column()
     {
         var finished = (await run()).OfType<StepFinished>().Single();
 
         // 2 rows x 3 columns, the expected column judged and the inputs plain.
-        finished.Cells.ShouldNotBeNull().Count.ShouldBe(6);
+        var cells = finished.Cells.ShouldNotBeNull();
+        cells.Count.ShouldBe(6);
+        cells.GroupBy(c => (c.RowIndex, c.Name)).ShouldAllBe(g => g.Count() == 1);
+    }
+
+    [Fact]
+    public async Task the_table_shows_before_the_step_reports_its_grid()
+    {
+        // The echo is what a watcher sees while the step is still working on it (issue #387); the
+        // replacement only happens when the grid arrives.
+        var events = await run();
+        var finished = events.OfType<StepFinished>().Single();
+
+        var first = events.OfType<StepProgress>().First(p => p.StepId == finished.StepId);
+        first.Cells.ShouldNotBeNull().Count.ShouldBe(6);
+        first.Cells.ShouldAllBe(c => c.Status == "ok");
     }
 }

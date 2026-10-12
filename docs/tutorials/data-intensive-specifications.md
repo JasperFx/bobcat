@@ -573,6 +573,11 @@ A step's cells travel on `step_finished` (and, while a long table is still runni
 | `Note` | a cell that says a sentence — the missing / extra / out-of-order markers |
 | `Value` | a cell that was **not judged** — a decision table's input column, an echoed value |
 
+A grid carries **one cell per row and column**. From a C# test the step is handed the table as written
+before it does anything, so the first `step_progress` shows those cells plain, and the grid the step
+reports (a table it ran, a set it verified) replaces them rather than arriving beside them. A column
+a throwing row never produced is absent from the wire and renders `error`.
+
 `Value` is a fourth field rather than a reuse of `Actual`, and the difference is load-bearing: a cell
 with neither an expected nor an actual is how the report decides an input column earns no Status
 column at all, so writing an input value into `Actual` would make every input cell look judged.

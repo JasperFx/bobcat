@@ -31,11 +31,13 @@ Test names are `Class.method`. Unqualified classes are in `Bobcat.Projected.Acce
 | class | rows |
 |---|---|
 | a | 9 |
-| b | 52 (7 of these rows carry a SKIPPED test, and 7 are projected classes copied over) |
-| c | 28 |
+| b | 51 (1 of these rows carries a SKIPPED test, and 7 are projected classes copied over) |
+| c | 29 |
 
-**93 tests** in the new project: 83 pass and 10 are skipped. 9 of the skipped tests are gaps, and 1 is
-a `[BobcatSpec(Pending = true)]` that's skipped by design.
+**95 tests** in the new project: 93 pass and 2 are skipped. One skipped test is gap 4 (bobcat#483), and
+the other is a `[BobcatSpec(Pending = true)]` that's skipped by design. Gaps 1-3 unskipped 8 tests and
+added 2 (`WaitForTests.a_tolerance_rides_along_with_the_poll`,
+`TableProgressTests.the_table_shows_before_the_step_reports_its_grid`).
 
 ---
 
@@ -73,7 +75,7 @@ no parameter names makes a decision table, which is the same rule the generator 
 | C3 | A throwing row is a `row-error` cell on that row; the other rows are still judged and the scenario carries on | b | `DecisionTableTests.a_throwing_row_is_a_row_error_and_the_rest_of_the_table_still_runs` |
 | C4 | A throwing row renders as an `Errored` row with its reason and inputs | b | `DecisionTableTests.a_throwing_row_renders_as_its_own_row_with_the_reason` |
 | C5 | ...and the step's verdict for it is `error` in the projected lane (the Gherkin lane says `failed`) | b | `DecisionTableTests.a_throwing_row_errors_the_step` (gap 2, decided: a throw is `error`) |
-| C6 | ...and the column it never produced renders `error`, not as an input | b | **SKIPPED** `DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error` (gap 3) |
+| C6 | ...and the column it never produced renders `error`, not as an input | b | `DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error` (gap 3) |
 | C7 | `out`-parameter output columns are compared per row | b | **SKIPPED** `DecisionTableTests.out_param_columns_are_compared_per_row` (gap 4) |
 | C8 | `[DecisionTable]` binding by the generator | c | The projected form is C1 |
 
@@ -149,7 +151,7 @@ and D through `TableRunner`, which is the runtime twin of the generated envelope
 |---|---|---|---|
 | H1 | A `[TableGrammar]` / decision table ticks "row n of N", and a throwing `Before` ticks nothing | c | Row ticks come from the generated envelope (#468). The projected form of "a long table shows progress" is H3. |
 | H2 | A `[WaitFor]` step narrates its poll loop | c | `SpecAssert.EventuallyAsync` records one cell when the poll is over and doesn't narrate the attempts. What a reader needs from the loop (how long, how many polls, the last value) is on that cell's note: I1. |
-| H3 | (projected form) A table step's cells reach a watcher before it finishes, and `StepFinished` carries the judged cells and column order | b | `TableProgressTests.a_table_step_shows_its_cells_before_it_finishes`, `the_finished_step_carries_the_judged_cells_and_the_column_order`; **SKIPPED** `the_finished_step_carries_one_cell_per_row_and_column` (gap 3) |
+| H3 | (projected form) A table step's cells reach a watcher before it finishes, and `StepFinished` carries the judged cells and column order | b | `TableProgressTests.a_table_step_shows_its_cells_before_it_finishes`, `the_finished_step_carries_the_judged_cells_and_the_column_order`, `the_finished_step_carries_one_cell_per_row_and_column` (gap 3), `the_table_shows_before_the_step_reports_its_grid` |
 
 ## I. WaitFor -- `WaitFor.feature`, `WaitForTests`
 
@@ -238,7 +240,8 @@ aside) into `Bobcat.Projected.Acceptance.Tests`. The originals stay put until ph
 
 ## Gaps found
 
-The projected lane doesn't do these yet. Each has a skipped test that states what it should do.
+Gaps 1-3 were decided and fixed on 2026-10-11 (branch `projected-lane-gaps`). Gap 4 is still open
+(bobcat#483), and its skipped test states what it should do.
 
 1. **No projected WaitFor.** FIXED. `[WaitFor]` is read only by the Gherkin generator, so a projected
    helper carrying it compiled, ran once, and reported its first answer, with no diagnostic. Decided
@@ -254,14 +257,16 @@ The projected lane doesn't do these yet. Each has a skipped test that states wha
    read) now joins `failed` and `missing`; `row-error` stays `error`. The projected lane keeps the
    wrong/exception distinction the Gherkin lane loses. `Counts` is unchanged: an `invalid` cell still
    counts as an error there, as a `missing` one always has.
-3. **Every table step is recorded twice.** The interceptor records any `StepTable` argument as plain
-   cells (`Recording.RecordTable`), and `TableRun.Report` then adds its own cells beside them. The
-   render merges them, but two symptoms get through. `StepFinished` carries each input cell twice
-   (12 cells for a 2x3 table). And the column a throwing row never produced renders the document's
-   text as `ok`, where the Gherkin lane renders it `error`. Skipped:
-   `TableProgressTests.the_finished_step_carries_one_cell_per_row_and_column`,
-   `DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error`. The likely fix is
-   for `TableRun.Report` to replace the step's input cells rather than add to them.
+3. **Every table step is recorded twice.** FIXED. The interceptor records any `StepTable` argument
+   as plain cells (`Recording.RecordTable`), and `TableRun.Report` used to add its own cells beside
+   them. So `StepFinished` carried each input cell twice (12 cells for a 2x3 table), and the column a
+   throwing row never produced rendered the document's text as `ok` where the Gherkin lane renders it
+   `error`. Decided 2026-10-11: fix now. `TableRun.Report` replaces the echoed input cells (tracked by
+   reference on `RecordedStep.TableInputCells`) rather than adding to them. The echo still reaches a
+   watcher on the first `step_progress`, before the grid exists. Nothing on the wire or in the JSON
+   output relied on the duplicates; the render's "last wins" fold had been hiding them.
+   `TableProgressTests.the_finished_step_carries_one_cell_per_row_and_column` and
+   `DecisionTableTests.the_column_a_throwing_row_never_produced_renders_as_an_error` unskipped.
 4. **`TableRunner.Run` can't bind an `out` parameter.** A row method shaped like a Gherkin
    `[DecisionTable]` with `out` outputs gets a `BadCellException` (`Int32&`) on every row. The projected
    idiom is one `SpecAssert.Check(..., rowIndex: i)` per output, so this might be a documentation
