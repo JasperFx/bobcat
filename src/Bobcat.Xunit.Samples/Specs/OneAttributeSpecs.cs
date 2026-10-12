@@ -16,7 +16,7 @@ namespace Bobcat.Xunit.Samples.Specs;
 /// </para>
 /// <para>
 /// <b>Why this class is in the sample corpus and not only in a unit test.</b>
-/// <c>SpecIdentityEndToEndTests.a_projected_listing_covers_every_specification_however_its_steps_are_declared</c>
+/// <c>ProjectedSpecIdentityEndToEndTests.a_projected_listing_covers_every_specification_however_its_steps_are_declared</c>
 /// reads the test count from the platform and asserts the spec manifest matches it. The generator
 /// recognises <c>[BobcatSpec]</c> by simple name and xUnit recognises it by base class, which are
 /// two independent mechanisms — so if either stopped seeing it, that test goes red with the two

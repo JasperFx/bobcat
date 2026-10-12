@@ -40,4 +40,11 @@
     <ProjectReference Include="..\Bobcat.TUnit\Bobcat.TUnit.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Build ordering only: the projected host the issue #391 identity tests launch as a real
+         process (SpecIdentity/). Its samples fail on purpose; only named specifications are run. -->
+    <ProjectReference Include="..\Bobcat.Xunit.Samples\Bobcat.Xunit.Samples.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

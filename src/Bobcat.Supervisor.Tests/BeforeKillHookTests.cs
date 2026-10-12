@@ -65,7 +65,7 @@ public class BeforeKillHookTests
 
     // ---- against the real worker process ----
 
-    private static readonly string workerPath = SampleWorker.Path;
+    private static readonly string workerPath = WorkerHosts.ProjectedWorker;
 
     [Fact]
     public async Task a_healthy_worker_is_disposed_without_the_hook_ever_firing()
@@ -82,7 +82,7 @@ public class BeforeKillHookTests
                              return Task.CompletedTask;
                          }))
         {
-            await worker.Run(["Basics/passes"]);
+            await worker.Run(await WorkerHosts.UidsOf(worker, "Basics.passes"));
         }
 
         fired.ShouldBe(0);
@@ -114,7 +114,7 @@ public class BeforeKillHookTests
             if (update.InProgress) started.TrySetResult();
         });
 
-        var run = worker.Run(["Basics/hangs when armed"]);
+        var run = worker.Run(await WorkerHosts.UidsOf(worker, "Basics.hangs_when_armed"));
         await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         await worker.DisposeAsync();
@@ -126,28 +126,5 @@ public class BeforeKillHookTests
 
         // The abandoned run collapses once its worker is gone; observe it so nothing leaks.
         try { await run; } catch { /* either a fault result or a dispose-time exception — both fine */ }
-    }
-
-    /// <summary>Same locator the other end-to-end suites use.</summary>
-    private static class SampleWorker
-    {
-        public static string Path { get; } = locate();
-
-        private static string locate()
-        {
-            var configuration = System.IO.Path.GetFileName(
-                System.IO.Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar))!);
-
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory is not null && directory.Name != "src") directory = directory.Parent;
-
-            if (directory is null) throw new InvalidOperationException("Could not locate the src directory.");
-
-            return System.IO.Path.Combine(
-                directory.FullName, "Bobcat.Supervisor.SampleWorker", "bin", configuration, "net10.0",
-                OperatingSystem.IsWindows()
-                    ? "Bobcat.Supervisor.SampleWorker.exe"
-                    : "Bobcat.Supervisor.SampleWorker");
-        }
     }
 }

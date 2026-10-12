@@ -82,7 +82,7 @@ public static class SpecFilterArguments
             // Both run on Microsoft.Testing.Platform 1.9 here, so unlike TUnit their filter spelling
             // CAN be verified in this repository — it just has not been yet (issues #385/#386 shipped
             // the adapters, not run-by-identity). Refused until a test pins the spelling against a
-            // real host, as SpecIdentityEndToEndTests does for xUnit.
+            // real host, as ProjectedSpecIdentityEndToEndTests does for xUnit.
             case SpecManifest.NUnitFramework:
             case SpecManifest.MSTestFramework:
                 throw new NotSupportedException(
