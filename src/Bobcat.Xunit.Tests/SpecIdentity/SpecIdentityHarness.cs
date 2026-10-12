@@ -5,25 +5,15 @@ using Shouldly;
 namespace Bobcat.SpecIdentityChecks;
 
 /// <summary>
-/// Issue #391's rules for "run this specification", written once and asserted against a real host
-/// of either lane: list a suite's identities without running anything, translate an identity into
-/// that lane's own filter, and run exactly what was named.
+/// Issue #391's rules for "run this specification", asserted against a real host: list a suite's
+/// identities without running anything, translate an identity into the framework's own filter, and
+/// run exactly what was named.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Why this file is shared.</b> The identity tests used to pin both lanes from one class in
-/// <c>Bobcat.Mtp.Tests</c>, on the reasoning of <c>MarkerSpecNamingAgreementTests</c>: split across
-/// two test projects, one lane gains a rule the other never hears about and nothing says so. Phase 2
-/// of bobcat#471 moved the projected half to <c>Bobcat.Xunit.Tests</c>
-/// (<c>ProjectedSpecIdentityEndToEndTests</c>) so it survives the Gherkin lane's deletion. These
-/// rules stay in ONE place anyway: this file lives here and is linked into <c>Bobcat.Mtp.Tests</c>,
-/// whose <c>SpecIdentityEndToEndTests</c> drives the Gherkin host through the same assertions.
-/// A rule added here reaches both lanes at once, for as long as both exist.
-/// </para>
-/// <para>
-/// Phase 3: when <c>Bobcat.Mtp.Tests</c> goes, remove the link from its csproj; nothing here
-/// changes.
-/// </para>
+/// These rules used to pin two lanes from one place: this file was also linked into
+/// <c>Bobcat.Mtp.Tests</c>, which drove the Gherkin host through the same assertions. That project
+/// went with the Gherkin lane (bobcat#471), and the harness stays separate from its one remaining
+/// user so a second host can be added without touching the rules.
 /// </remarks>
 internal sealed class SpecIdentityHarness : IDisposable
 {

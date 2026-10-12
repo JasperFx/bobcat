@@ -6,8 +6,9 @@
     absent and never on CI) and Fisher on a temp SQLite file (never skipped). There is deliberately no
     Wolverine reference anywhere in this project: a pass proves the vocabulary needs none.
 
-    A new project rather than a home in Bobcat.CritterStack.Tests, which goes with the Gherkin lane in
-    phase 3 of bobcat#471.
+    Also the home of the store-binding tests that need no store at all (EventStores, RecordBuilding,
+    EventStoreAuthoring against fakes), which moved here from Bobcat.CritterStack.Tests when that
+    project went with the Gherkin lane (bobcat#471 phase 3).
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,12 +20,12 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
     <PackageReference Include="Marten" />
     <PackageReference Include="Fisher" />
     <!-- Marten and Fisher each bundle JasperFx.Events.SourceGenerator in their own nupkg, so referencing
          both loads the generator twice (CS0433 — jasperfx#462). Compile with the explicit, centrally pinned
-         generator instead; the target below drops every store-bundled copy. Same as
-         Bobcat.CritterStack.Tests. -->
+         generator instead; the target below drops every store-bundled copy. -->
     <PackageReference Include="JasperFx.Events.SourceGenerator"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>

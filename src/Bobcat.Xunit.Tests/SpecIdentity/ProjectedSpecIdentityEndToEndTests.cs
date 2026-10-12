@@ -11,13 +11,8 @@ namespace Bobcat.Xunit.Tests.SpecIdentity;
 /// <c>Bobcat.Xunit.Samples</c>, listed and then run.
 /// </summary>
 /// <remarks>
-/// <para>
 /// The projected half of what was one class in <c>Bobcat.Mtp.Tests</c>, moved here in Phase 2 of
-/// bobcat#471 so it outlives the Gherkin lane. The Gherkin half, <c>SpecIdentityEndToEndTests</c>,
-/// stays there until Phase 3, and both halves assert through the one
-/// <see cref="SpecIdentityHarness"/> — this project's file, linked into that one — which is what
-/// keeps the two lanes agreeing from one place while both exist.
-/// </para>
+/// bobcat#471 so it outlived the Gherkin lane. Its rules live in <see cref="SpecIdentityHarness"/>.
 /// </remarks>
 public class ProjectedSpecIdentityEndToEndTests : IDisposable
 {

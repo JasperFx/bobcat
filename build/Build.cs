@@ -111,28 +111,9 @@ partial class Build : NukeBuild
         }
     }
 
-    // Bobcat specs running THROUGH `dotnet test` is a supported path that the root run covers
-    // only implicitly. Same guard as tests.yml: a run that collected zero tests is a failure,
-    // because `dotnet test` does not reliably treat it as one.
-    Target SpecsThroughDotnetTest => _ => _
-        .DependsOn(Compile)
-        .After(Docker)
-        .After(Test)
-        .Executes(() =>
-        {
-            var output = DotNetTest(s => s
-                .SetProjectFile(RootDirectory / "src" / "Bobcat.Mtp.GeneratedHost")
-                .SetConfiguration(Configuration)
-                .EnableNoBuild()
-                .EnableNoRestore());
-
-            var collected = output.Any(o => Regex.IsMatch(o.Text, @"Total: [1-9][0-9]*"));
-            Assert.True(collected, "Bobcat.Mtp.GeneratedHost ran through dotnet test but collected no tests");
-        });
-
     // What tests.yml runs on every push.
     Target CI => _ => _
-        .DependsOn(Test, SpecsThroughDotnetTest);
+        .DependsOn(Test);
 
     // What publish.yml packs: every packable project in the solution, plus the bobcat tool.
     Target Pack => _ => _

@@ -20,11 +20,6 @@
     <ProjectReference Include="..\Bobcat.Supervisor.ProjectedWorker\Bobcat.Supervisor.ProjectedWorker.csproj"
                       ReferenceOutputAssembly="false" />
 
-    <!-- Build ordering only, for SampleWorkerEndToEndTests: the Gherkin-lane worker the projected
-         one replaced. Phase 3: delete with SampleWorker. -->
-    <ProjectReference Include="..\Bobcat.Supervisor.SampleWorker\Bobcat.Supervisor.SampleWorker.csproj"
-                      ReferenceOutputAssembly="false" />
-
     <!-- Also build ordering only: Bobcat.Tests is an xUnit v3 MTP host, and driving it proves
          the supervisor works against a framework that is not Bobcat. -->
     <ProjectReference Include="..\Bobcat.Tests\Bobcat.Tests.csproj"
@@ -35,6 +30,19 @@
          scenarios to the monitor wire. -->
     <ProjectReference Include="..\Bobcat.Xunit.Samples\Bobcat.Xunit.Samples.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- The `bobcat` tool, which is how issue #399's projected resident runner ships. Build
+         ordering only; ProjectedResidentRunnerTests launches it as an executable. -->
+    <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ProjectedResidentRunnerTests (moved here from Bobcat.Mtp.Tests, bobcat#471) drives the
+         resident runner against the real HTTP stand-in for a console. One source, two
+         compilations, so the stand-in's port-binding and double-dispose notes stay in one place. -->
+    <Compile Include="..\Bobcat.Tests\Monitoring\FakeMonitorHost.cs"
+             Link="Monitoring\FakeMonitorHost.cs" />
   </ItemGroup>
 
 </Project>
