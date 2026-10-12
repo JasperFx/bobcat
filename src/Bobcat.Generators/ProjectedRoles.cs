@@ -401,11 +401,14 @@ internal static class ProjectedRoles
     /// <summary>
     /// Whether code the generator emits — top-level classes in its own namespace of this assembly — can
     /// write <c>typeof(…)</c> of this type. Every type along the way must be public, internal or protected
-    /// internal (the rule <see cref="EntryPointEmitter"/> holds a configuration method's declaring types
-    /// to), not file-local, accessible from this assembly as a whole (an internal type of another assembly
+    /// internal, not file-local, accessible from this assembly as a whole (an internal type of another assembly
     /// is not), and so must every type argument. A private record nested in the test class fails: the
     /// test can name it, generated code cannot, and <c>typeof</c> of it is CS0122.
     /// </summary>
+    private static bool isReachable(Accessibility accessibility)
+        => accessibility is Accessibility.Public or Accessibility.Internal
+            or Accessibility.ProtectedOrInternal;
+
     internal static bool IsNameable(ITypeSymbol type, Compilation compilation)
     {
         switch (type)
@@ -416,7 +419,7 @@ internal static class ProjectedRoles
             case INamedTypeSymbol named when named.TypeKind != TypeKind.Error:
                 for (var current = named; current is not null; current = current.ContainingType)
                 {
-                    if (current.IsFileLocal || !EntryPointEmitter.IsReachable(current.DeclaredAccessibility)) return false;
+                    if (current.IsFileLocal || !isReachable(current.DeclaredAccessibility)) return false;
                     if (current.TypeArguments.Any(x => !IsNameable(x, compilation))) return false;
                 }
 

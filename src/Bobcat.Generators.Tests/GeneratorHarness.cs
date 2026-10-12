@@ -44,8 +44,8 @@ public static class GeneratorHarness
                    string.Join(", ", Result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.HintName)));
     }
 
-    public static RunOutcome Run(string source, params (string Path, string Content)[] featureFiles)
-        => Run(source, options: null, featureFiles);
+    public static RunOutcome Run(string source)
+        => Run(source, options: null);
 
     /// <summary>
     /// The same, with MSBuild properties the generator reads through its
@@ -55,9 +55,8 @@ public static class GeneratorHarness
     /// </summary>
     public static RunOutcome Run(
         string source,
-        IReadOnlyDictionary<string, string>? options,
-        params (string Path, string Content)[] featureFiles)
-        => Run(source, options, [], featureFiles);
+        IReadOnlyDictionary<string, string>? options)
+        => Run(source, options, []);
 
     /// <summary>
     /// The same, with <paramref name="extraReferences"/> added — a vocabulary compiled into an assembly
@@ -67,8 +66,7 @@ public static class GeneratorHarness
     public static RunOutcome Run(
         string source,
         IReadOnlyDictionary<string, string>? options,
-        IEnumerable<MetadataReference> extraReferences,
-        params (string Path, string Content)[] featureFiles)
+        IEnumerable<MetadataReference> extraReferences)
     {
         var references = referenceSet().AddRange(extraReferences);
         var compilation = CSharpCompilation.Create(
@@ -80,7 +78,6 @@ public static class GeneratorHarness
 
         var driver = CSharpGeneratorDriver.Create(
             [new BobcatGenerator().AsSourceGenerator()],
-            additionalTexts: featureFiles.Select(f => (AdditionalText)new FeatureText(f.Path, f.Content)),
             parseOptions: parseOptions,
             optionsProvider: options is null ? null : new MsBuildProperties(options));
 
@@ -162,21 +159,5 @@ public static class GeneratorHarness
                 return false;
             }
         }
-    }
-
-    private sealed class FeatureText : AdditionalText
-    {
-        private readonly string _content;
-
-        public FeatureText(string path, string content)
-        {
-            Path = path;
-            _content = content;
-        }
-
-        public override string Path { get; }
-
-        public override SourceText GetText(CancellationToken cancellationToken = default)
-            => SourceText.From(_content, Encoding.UTF8);
     }
 }

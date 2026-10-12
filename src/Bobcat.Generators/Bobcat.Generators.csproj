@@ -8,7 +8,7 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
     <IsPackable>true</IsPackable>
-    <Description>Bobcat source generator — compiles .feature files into direct fixture method calls at build time (no runtime reflection). Reference as an analyzer.</Description>
+    <Description>Bobcat source generator — projects xUnit, TUnit, NUnit and MSTest tests as specifications: step interceptors, marker-comment steps, declared values, the Event Model fold and compile-time table checks. Reference as an analyzer.</Description>
     <DevelopmentDependency>true</DevelopmentDependency>
     <!-- Source generators ship the analyzer assembly only, with no lib/ output or deps. -->
     <IncludeBuildOutput>false</IncludeBuildOutput>

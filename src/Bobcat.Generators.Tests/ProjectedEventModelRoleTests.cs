@@ -104,7 +104,7 @@ public class ProjectedEventModelRoleTests
     // ---------------------------------------------------------------- the roles each shape stamps
 
     [Fact]
-    public void a_command_slice_states_every_role_the_gherkin_lane_would()
+    public void a_command_slice_states_every_role()
     {
         var slice = describe(
             """
@@ -259,7 +259,7 @@ public class ProjectedEventModelRoleTests
     }
 
     [Fact]
-    public void an_unbound_test_with_roles_falls_back_to_the_feature_title_as_gherkin_does()
+    public void an_unbound_test_with_roles_falls_back_to_the_feature_title()
     {
         var slices = describe(
             """
@@ -367,54 +367,10 @@ public class ProjectedEventModelRoleTests
         slices.Single(x => x.Name == "OpenAccount").TriggerLabel.ShouldBeNull();
     }
 
-    // ---------------------------------------------------------------- the two arms agree
+    // ---------------------------------------------------------------- the whole reading
 
-    private const string GherkinFixture =
-        """
-        [FixtureTitle("Accounts")]
-        public class AccountsFixture : Fixture
-        {
-            [Given("no events for {aggregate} {string}")]
-            public void GivenNoEvents(Type aggregate, string id) { }
-
-            [Given("{event} occurred")]
-            public void GivenEventOccurred(Type @event) { }
-
-            [When("{command} is received")]
-            public void WhenReceived(Type command) { }
-
-            [Then("{event} is emitted")]
-            public void ThenEmitted(Type @event) { }
-
-            [Then("the {readmodel} read model exists")]
-            public void ThenReadModel(Type readModel) { }
-
-            [Then("{message} is sent")]
-            public void ThenSent(Type message) { }
-        }
-        """;
-
-    private const string GherkinFeature =
-        """
-        Feature: Accounts
-
-          @slice:Deposit @domain:Banking
-          Scenario: A deposit after opening
-            Given no events for Account "11111111-1111-1111-1111-111111111111"
-            And AccountOpened occurred
-            When OpenAccount is received
-            And Deposit is received
-            Then FundsDeposited is emitted
-            And DepositReceipt is sent
-
-          @slice:AccountSummary @domain:Banking
-          Scenario: The summary shows the balance
-            Given no events for Account "11111111-1111-1111-1111-111111111111"
-            And AccountOpened occurred
-            And FundsDeposited occurred
-            Then the AccountSummary read model exists
-        """;
-
+    // These two scenarios were once pinned against their Gherkin twins (the arms had to agree). With
+    // the Gherkin lane gone (bobcat#471) the expected reading is stated outright instead.
     private const string ProjectedEquivalent =
         """
         [BobcatFeature("Accounts")]
@@ -442,40 +398,30 @@ public class ProjectedEventModelRoleTests
         """;
 
     [Fact]
-    public void the_projected_arm_produces_what_the_gherkin_arm_does_for_the_same_scenarios()
+    public void a_command_slice_and_a_view_slice_read_in_full()
     {
-        var gherkinOutcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + GherkinFixture,
-            ("Accounts.feature", GherkinFeature));
-        gherkinOutcome.CompilationErrors.ShouldBeEmpty();
-        var gherkin = GeneratedEventModel.For(load(gherkinOutcome))!.Slices;
-
         var projected = describe(ProjectedEquivalent);
 
-        gherkin.Select(x => x.Name).OrderBy(x => x).ShouldBe(["AccountSummary", "Deposit"]);
         projected.Select(x => x.Name).OrderBy(x => x).ShouldBe(["AccountSummary", "Deposit"]);
 
-        foreach (var name in new[] { "Deposit", "AccountSummary" })
-        {
-            var g = gherkin.Single(x => x.Name == name);
-            var p = projected.Single(x => x.Name == name);
-
-            p.CommandType?.FullName.ShouldBe(g.CommandType?.FullName, $"{name}: command");
-            p.Pattern.ShouldBe(g.Pattern, $"{name}: pattern");
-            p.Domain.ShouldBe(g.Domain, $"{name}: domain");
-            names(p.AggregateTypes).ShouldBe(names(g.AggregateTypes), $"{name}: aggregates");
-            names(p.EmittedEvents).ShouldBe(names(g.EmittedEvents), $"{name}: emitted events");
-            names(p.ConsumedEvents).ShouldBe(names(g.ConsumedEvents), $"{name}: consumed events");
-            names(p.ReadModelTypes).ShouldBe(names(g.ReadModelTypes), $"{name}: read models");
-            names(p.PublishedMessages).ShouldBe(names(g.PublishedMessages), $"{name}: messages");
-            names(p.Specifications.Single().ResolvedTypes)
-                .ShouldBe(names(g.Specifications.Single().ResolvedTypes), $"{name}: resolved types");
-        }
-
-        // And what they agree ON is the right reading, not two arms agreeing on nothing
         var deposit = projected.Single(x => x.Name == "Deposit");
         deposit.CommandType!.Name.ShouldBe("Deposit");
+        deposit.Pattern.ShouldBe(SlicePattern.Command);
+        deposit.Domain.ShouldBe("Banking");
+        names(deposit.AggregateTypes).ShouldBe(["Account"]);
+        names(deposit.EmittedEvents).ShouldBe(["FundsDeposited"]);
+        names(deposit.PublishedMessages).ShouldBe(["DepositReceipt"]);
+        names(deposit.ReadModelTypes).ShouldBeEmpty();
+
+        // An arranged event is the aggregate's own stream on a Command slice, so it is not consumed (#297)
         deposit.ConsumedEvents.ShouldBeEmpty();
-        names(projected.Single(x => x.Name == "AccountSummary").ConsumedEvents).ShouldBe(["AccountOpened", "FundsDeposited"]);
+
+        var summary = projected.Single(x => x.Name == "AccountSummary");
+        summary.CommandType.ShouldBeNull();
+        summary.Pattern.ShouldBe(SlicePattern.View);
+        summary.Domain.ShouldBe("Banking");
+        names(summary.ReadModelTypes).ShouldBe(["AccountSummary"]);
+        names(summary.ConsumedEvents).ShouldBe(["AccountOpened", "FundsDeposited"]);
     }
 
     // ---------------------------------------------------------------- the binding descriptor

@@ -200,7 +200,6 @@ internal static class SpecificationManifest
     // The LAST When…(Specify<T>()…) or When…(new T(…)) in the test names the command it sends (bobcat#464).
     // A spec may arrange state by sending earlier commands -- an HTTP slice that has to WhenPosted a create
     // before the act it is about has no GivenEvents shortcut -- so "first wins" would bind it to the arrange.
-    // The Gherkin arm's EventModelEmitter.actCommandOf takes the last one for the same reason.
     private static string? inferCommand(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
     {
         string? command = null;
