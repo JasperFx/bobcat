@@ -83,3 +83,60 @@ public class WalletFrozen(Guid walletId) : Exception($"The wallet {walletId} is 
 {
     public Guid WalletId { get; } = walletId;
 }
+
+// ---- an ancillary store's side of the domain (bobcat#504) ---------------------------------------
+
+public record InvoiceRaised(Guid InvoiceId, decimal Amount);
+
+public record InvoicePaid(Guid InvoiceId);
+
+/// <summary>The ancillary store's write model: an inline snapshot there, registered nowhere else.</summary>
+public class Invoice
+{
+    public Guid Id { get; set; }
+    public decimal Amount { get; set; }
+    public bool Paid { get; set; }
+
+    public void Apply(InvoiceRaised e)
+    {
+        Id = e.InvoiceId;
+        Amount = e.Amount;
+    }
+
+    public void Apply(InvoicePaid e) => Paid = true;
+}
+
+/// <summary>The ancillary store's async read model, so a wait has a second daemon to cover.</summary>
+public class InvoiceSummary
+{
+    public Guid Id { get; set; }
+    public decimal Raised { get; set; }
+    public bool Paid { get; set; }
+
+    public void Apply(InvoiceRaised e)
+    {
+        Id = e.InvoiceId;
+        Raised += e.Amount;
+    }
+
+    public void Apply(InvoicePaid e) => Paid = true;
+}
+
+/// <summary>A document both stores register, so a step about it cannot be routed by type.</summary>
+public class SharedNote
+{
+    public Guid Id { get; set; }
+    public string Text { get; set; } = "";
+}
+
+/// <summary>A document no store registers, and nothing ever stores.</summary>
+public class Unclaimed
+{
+    public Guid Id { get; set; }
+}
+
+/// <summary>A document no store registers until the default store is handed one.</summary>
+public class Stray
+{
+    public Guid Id { get; set; }
+}

@@ -165,6 +165,8 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         scenario.LastAct.NewEvents.Count.ShouldBe(2);
         scenario.LastAct.AllNewEvents.Count.ShouldBe(2);
         scenario.LastAct.MessagesSent.ShouldBeEmpty();
+        // bobcat#504: one store, nothing to tell apart
+        scenario.LastAct.StoreByEvent.ShouldBeEmpty();
         scenario.TheEvents.ShouldBe([new WalletCredited(id, 5), new WalletCredited(id, 6)]);
         Should.Throw<SpecAssertionException>(() => scenario.TheEvent<WalletCredited>()).Message.ShouldContain("exactly one");
 

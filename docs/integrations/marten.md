@@ -38,8 +38,8 @@ public class crediting_a_wallet(AppFixture app) : CritterStackSpec(app.Host)
 ```
 
 The constructors take an `IHost`, or an `IServiceProvider` for a test that has a container and no
-host (then `Host` throws, and every step reads `Services`), plus an optional `storeName` for an
-application with several event stores. Don't want a base class? `new CritterStackScenario(host)` is
+host (then `Host` throws, and every step reads `Services`), plus an optional `storeName` naming the
+default store of an application with several ([Several event stores](#several-event-stores)). Don't want a base class? `new CritterStackScenario(host)` is
 the same vocabulary as an object, and `CritterStackSpec` only delegates to one.
 
 **Your application configures its store however it already does.** The spec project boots it -- in an
@@ -98,6 +98,60 @@ Every step that reads a projection waits for the async daemons first, up to `Pro
 **20 seconds** by default, which is what a cold daemon on a loaded CI runner needs. A wait that runs out
 is an error, a `ProjectionCatchUpTimeoutException` naming the projections that were behind and what was
 being read, never a failed spec ([details](wolverine.md#assert-aggregates-documents-and-read-models)).
+
+## Several event stores
+
+An application with an ancillary store -- Marten's `AddMartenStore<IInvoicingStore>()`, Polecat's
+`AddPolecatStore<T>()`, Fisher's `AddFisherStore<T>()` -- is specified in one scenario, whichever store a
+step is about (bobcat#504).
+
+<!-- JEREMY -->
+
+**Each step goes to the store that owns its types.** Bobcat reads what each store registers through the
+same JasperFx abstractions it reads everything else through: the aggregate and document types of its
+projections, the events they apply and the event types it has registered, its DCB tag types
+(`IEventStore.TryCreateUsage`), and its document mappings (`IDocumentStoreUsageSource.TryCreateUsage`).
+`GivenEvents<Invoice>`, `ThenAggregate<Invoice>` and `ThenDocument<InvoiceSummary>` go to the store that
+registers `Invoice` and `InvoiceSummary`; a Given with no aggregate type goes where its events are
+registered; `TheDcbModel<T>` goes by `T`, then by the query's event and tag types.
+
+- **One store claims the type:** that store.
+- **None, or several:** the default store -- the constructor's `storeName`, or the only store -- when it
+  can take it (it is among the claimants, or nobody claims the type).
+- **Otherwise** the step throws a `SpecCriticalException` listing the stores that claim the type and
+  telling you to name one. A stream addressed by its id alone (`TheStreamVersion(id)`) has no type, so it
+  is read from the default store.
+
+What a store registers is read once per scenario. Stores register some types lazily -- an event type the
+first time it is appended, a document type the first time it is stored or loaded -- so a type you only ever
+store by hand is claimed by nobody until something has stored it.
+
+**Name a store when the type doesn't say.** `In<TStore>()` addresses the store registered under a marker
+interface, and `In("name")` the store whose `IEventStore.Identity` name matches, ignoring case (`"main"`
+for Marten's primary store; an ancillary store is named after its marker type, `"iinvoicingstore"`). Each
+returns a view with the same Given and Then steps, pinned to that store. The view shares the scenario's
+specification: what it arranges is the scenario's, an act through it is the scenario's act, and its steps
+render in the same specification. `CritterStackSpec` has `In` too.
+
+```csharp
+await GivenEvents<Wallet>(wallet, new WalletOpened(wallet, "Ann"));          // the main store registers Wallet
+await GivenEventsOn<Invoice>(invoice, new InvoiceRaised(invoice, 40m));      // IInvoicingStore registers Invoice
+await In<IInvoicingStore>().GivenReadModel<SharedNote>(note);                // both register SharedNote
+
+await WhenActing("the invoice is paid from the wallet", services => /* ... */);
+
+ThenEventsInAnyOrder(new WalletDebited(wallet, 40m), new InvoicePaid(invoice));
+await ThenAggregate<Invoice>(invoice, Specify<Invoice>().With(x => x.Paid, true));
+```
+
+**An act is observed on every store.** The act takes a high-water mark on each store, reads back what each
+one gained, and attributes each store's events to the specification as a single-store act does.
+`LastAct` lists them store by store (sequences belong to a store, so there is no order across stores), and
+`LastAct.StoreOf(e)` says which store an event came from. A failing whole-store step adds an
+"Appended by store -- 'main': …; 'iinvoicingstore': …" line. `AfterAsyncDaemonsCatchUpAsync` waits on every
+store (a view waits on its own), and a read waits on the store it reads.
+
+A host with one store behaves exactly as before. Nothing is read about what it registers.
 
 ## Below the vocabulary
 

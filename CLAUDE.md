@@ -1464,6 +1464,51 @@ the DCB boundary steps and correlation.
 - **Tested in `Bobcat.CritterStackScenario.Tests`**: every member on Marten (Postgres 5445, a schema
   per host) and on Fisher (temp SQLite), with no Wolverine anywhere in the project.
 
+#### Several event stores in one specification (bobcat#504, decided A + B + C)
+
+- **A, route by type.** On a host with several `IEventStore`s every Given and Then goes through the protected
+  `storeForAsync(step, model, values, tagTypes)`: the one store whose registrations claim the model type (an
+  aggregate, projected or document type), else its events' or tags' types, else the default store (the
+  constructor's `storeName`) when it is among the claimants or nobody claims it, else a `SpecCriticalException`
+  listing the candidates and naming `In<TStore>()` / `In("name")`. Ownership is read store-agnostically by
+  `StoreCatalog` (`StoreRouting.cs`) from `IEventStore.TryCreateUsage` (subscriptions' `AggregateType` and
+  `AppliedEvents`, `Events`, `RegisteredEventTypes`, `TagTypes` and their aggregates) and
+  `IDocumentStoreUsageSource.TryCreateUsage` (`Documents`); a store that returns null or throws owns nothing.
+  Catalogs and decisions are cached per specification (`StoreRouter`). Stores register some types lazily (an
+  event type on first append, a document mapping on first store or load), so ownership can grow during a run.
+  **A single-store host never reaches the router**: `storeForAsync` returns `Store` before anything is read.
+  A raw stream addressed by id alone (`TheStreamVersion(id)`) has no type and goes to the default store.
+- **B, explicit addressing.** `In<TStore>()` resolves the marker from DI. If that is not itself an `IEventStore`
+  (Fisher registers a `DispatchProxy` under the marker and the unwrapped store as `IEventStore`), it falls back to
+  the store whose `Identity.Name` equals the marker's type name. That is the default name all three stores give
+  an ancillary store: Marten and Polecat set `StoreName = typeof(T).Name`, and Marten and Fisher lower-case it in
+  the identity. `In(name)` matches `Identity.Name`, ignoring case. Both return a **view**: a `CritterStackScenario`
+  built by the protected `CritterStackScenario(root, store)` constructor, pinned to that store and sharing the
+  root's private `SpecificationState` (own streams, arranged tags, last act, `ProjectionTimeout`,
+  `UnspecifiedValues`, the router). A view's `runActAsync` and `failureOf` delegate to the root's, so an act
+  through a view is not split and is not recorded twice. `createView(store)` is virtual, so a derived scenario can
+  hand out its own view type. `CritterStackSpec.In` forwards.
+- **C, every store observed.** `runActAsync` is `highWaterMarksAsync()` (one `StoreHighWaterMark` per store
+  from `storesToObserve()`), then the act, then `readBackSinceAsync(marks, error)`. That reads each store since
+  its mark, applies #503 attribution per store (one shared own-stream set, keyed by stream id), lists events
+  store by store, and fills `CritterStackActOutcome.StoreByEvent` / `StoreOf(e)` only when more than one store
+  was observed. Whole-store failures append `storesSuffix()` ("Appended by store -- 'main': …"). Stream- and
+  tag-addressed steps order the addressable events store by store, then by sequence.
+  `AfterAsyncDaemonsCatchUpAsync` waits on every store (a view, on its own). `waitBeforeReading` waits on the
+  store being read.
+- **Not decided, so not built:** whether the Event Model records which store a slice's aggregate lives in
+  (a JasperFx descriptor change); and an event type registered in more than one store, which is addressed
+  with B only (routing by events then fails with the candidate list).
+- **Tested:** `store_routing` (fakes, no database: the routing rules, caching, the single-store no-read
+  guarantee, views, marker fallback) and `ancillary_stores_on_marten` / `ancillary_stores_on_fisher` (a real
+  main + ancillary store on each). Polecat has the same `AddPolecatStore<T>` / `IDocumentStoreUsageSource`
+  surface but needs SQL Server, so it is a manual run, as elsewhere.
+- **WolverineFx.Bobcat follow-ups (wolverine#4977):** `WolverineScenario.runActAsync`'s high-water fallback
+  still reads one store and should use `highWaterMarksAsync` / `readBackSinceAsync`. Its tracked-session
+  outcome cannot fill `StoreByEvent`. `ThenEventuallyCaused` and its other own steps still read `Store`. Views
+  are plain `CritterStackScenario`s, so its message and boundary steps are not on them until it overrides
+  `createView`. `WolverineSpec` needs `In`.
+
 ## Package Structure
 
 Every shipped package is `<IsPackable>true</IsPackable>` in its own csproj (src/ defaults to false)

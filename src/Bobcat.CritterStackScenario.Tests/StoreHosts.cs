@@ -64,10 +64,6 @@ public sealed class MartenStoreHost : StoreHost
 {
     private static int _hosts;
 
-    // And one host building its schema at a time: Postgres races on its own catalog (pg_type) when two
-    // schemas' DDL runs at once
-    private static readonly SemaphoreSlim _ddl = new(1, 1);
-
     // A schema per host: the test classes' hosts start in parallel, and Marten's DDL races on one schema.
     // Dropped before (a previous run's leftovers) and after.
     private readonly string _schema = $"bobcat_cs_scenario_{Interlocked.Increment(ref _hosts)}";
@@ -101,11 +97,13 @@ public sealed class MartenStoreHost : StoreHost
 
     protected override async Task BeforeStartAsync()
     {
-        await _ddl.WaitAsync();
+        // One host building its schema at a time: Postgres races on its own catalog (pg_type) when two
+        // schemas' DDL runs at once (shared with the two-store host, bobcat#504)
+        await MartenDdl.Gate.WaitAsync();
         await dropSchemaAsync();
     }
 
-    protected override void AfterStartAttempt() => _ddl.Release();
+    protected override void AfterStartAttempt() => MartenDdl.Gate.Release();
 
     public override async ValueTask DisposeAsync()
     {

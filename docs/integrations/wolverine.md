@@ -345,8 +345,10 @@ None of these is a step: each reads the capture, and the assertion that follows 
 | `UnspecifiedValues` | Bobcat's | what fills the members a partial object leaves unspecified when it is built for a Given or a When |
 
 `Timeout`, `IncludeExternalTransports` and `EventuallyTimeout` live on `Scenario`. A
-`WolverineScenario` and a `CritterStackScenario` take a `storeName` for an application with several
-event stores, and `ResetAsync()` clears every store and forgets the last act.
+`WolverineScenario` and a `CritterStackScenario` take a `storeName` naming the default store of an
+application with several event stores -- steps go to the store that owns their types, and `In<TStore>()` /
+`In("name")` address one explicitly ([Several event stores](marten.md#several-event-stores)) -- and
+`ResetAsync()` clears every store and forgets the last act.
 
 ## The Event Model, from the vocabulary
 

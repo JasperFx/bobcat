@@ -28,6 +28,10 @@ public record CritterStackActOutcome(
     Exception? Error,
     string? Refusal = null)
 {
+    /// <summary>An empty <see cref="StoreByEvent" />: nothing to tell apart. Declared before <see cref="None" />, which reads it.</summary>
+    public static readonly IReadOnlyDictionary<IEvent, IEventStore> NoStores =
+        new Dictionary<IEvent, IEventStore>(ReferenceEqualityComparer.Instance);
+
     /// <summary>Nothing has acted yet.</summary>
     public static readonly CritterStackActOutcome None = new(Array.Empty<IEvent>(), null);
 
@@ -65,4 +69,14 @@ public record CritterStackActOutcome(
     /// step that judges tags says so rather than reporting every tagged event missing.
     /// </summary>
     public bool EventTagsKnown { get; init; } = true;
+
+    /// <summary>
+    /// bobcat#504. Which event store each event came from, when the act was observed on more than one — every
+    /// event in <see cref="AllNewEvents" /> and <see cref="ForeignEvents" />, by reference. Empty when there was
+    /// only one store to observe, and for a scenario that cannot tell (a tracked session that heard the commit).
+    /// </summary>
+    public IReadOnlyDictionary<IEvent, IEventStore> StoreByEvent { get; init; } = NoStores;
+
+    /// <summary>bobcat#504. The store <paramref name="event" /> came from, or null when <see cref="StoreByEvent" /> does not say.</summary>
+    public IEventStore? StoreOf(IEvent @event) => StoreByEvent.TryGetValue(@event, out var store) ? store : null;
 }

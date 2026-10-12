@@ -104,6 +104,12 @@ public abstract class CritterStackSpec
     /// </summary>
     public static TaggedValue Tagged(object value, params object[] tags) => Specifications.Tagged(value, tags);
 
+    /// <inheritdoc cref="CritterStackScenario.In{TStore}" />
+    public CritterStackScenario In<TStore>() where TStore : class => Scenario.In<TStore>();
+
+    /// <inheritdoc cref="CritterStackScenario.In(string)" />
+    public CritterStackScenario In(string storeName) => Scenario.In(storeName);
+
     /// <inheritdoc cref="CritterStackScenario.LastAct" />
     public CritterStackActOutcome LastAct => Scenario.LastAct;
 

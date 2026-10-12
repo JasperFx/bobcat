@@ -30,6 +30,22 @@ public abstract class a_spec_class<THost>(THost store) : CritterStackSpec(store.
         ProjectionTimeout.ShouldBe(TimeSpan.FromSeconds(20));
     }
 
+    [Fact]
+    public async Task a_spec_class_addresses_a_store_by_name()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var id = Guid.NewGuid();
+
+        // bobcat#504: the view shares the spec's specification, so the act sees the stream it arranged
+        await In("main").GivenEvents<Wallet>(id, new WalletOpened(id, "Jo"));
+        await WhenActing("the wallet is credited",
+            services => EventStoreAuthoring.AppendAsync(services.EventStore(), typeof(Wallet), id, [new WalletCredited(id, 2)]));
+
+        In("main").Store.ShouldBeSameAs(Store);
+        LastAct.NewEvents.ShouldHaveSingleItem();
+        LastAct.ForeignEvents.ShouldBeEmpty();
+    }
+
     // Stands in for a host when the store is not available here, so the class constructs and the test skips
     private sealed class NoHost : Microsoft.Extensions.Hosting.IHost
     {
