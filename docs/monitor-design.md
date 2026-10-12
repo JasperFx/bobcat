@@ -468,6 +468,51 @@ wait that isn't a step.
   runner and runs outside the bracket, so there is nothing for Bobcat to report. See
   [marker steps](marker-steps.md#timing).
 
+## A run sends its spec half of the Event Model (issue #294; projected since #488)
+
+A run that has a console to talk to also sends that console the spec assembly's half of the Event
+Model -- the generated `BobcatEventModelSource`, which carries the slices the specs declare and the
+`{Feature}/{Scenario}` identities bound to them. The host half comes from Wolverine's `event-model`
+export; the spec half has no other producer, because the reference points the wrong way for the
+host to see it. Without it a console merges a model where every slice reads "no specification bound".
+
+**The wire is two existing routes and nothing new.** `GET /api/event-model` reads the name of the
+model the console serves now, and `PUT /api/event-model/{source}` sends the half under a source named
+for the spec assembly, sanitized for a file name (`Bobcat.Xunit.Samples` goes as
+`Bobcat-Xunit-Samples`). A second send under the same source replaces the first one.
+
+**A half naming a different model is withheld, never sent.** The console merges only the sources
+naming its current model, so sending `BankAccountES.Tests` to a console serving `BankAccountES`
+would not join the host half, it would hide it. The run prints why and names the fix --
+`[assembly: EventModelName("BankAccountES")]` on the spec assembly -- on standard error, since the
+test platform owns standard output.
+
+**When it goes.** The Gherkin runner sent it from the same place it attached to the console, once per
+run, and a resident runner ran one run per command, cold or warm. That lane is gone (#471), and since
+#488 the projected run bracket in `MarkerStepRun` does the same thing at the same moment: when a
+bracket opens with a live `MonitorPublisher`. In practice:
+
+- a one-shot `dotnet test` sends it once, however many specifications run;
+- a warm xUnit host sends it once per run request, because `Bobcat.Xunit`'s session hook opens one
+  bracket per request (#402) -- the old lane's per-command behaviour, and it also puts the half back
+  on a console that was restarted between two commands;
+- TUnit, NUnit and MSTest suites have no session hook and open the bracket on their first scenario,
+  so they send it once per process. No platform reference was needed for that (#470): it is core
+  code, reached through `BeginScenario`;
+- discovery opens no bracket and sends nothing, and neither does a run with no console or with
+  `BOBCAT_MONITOR=0`.
+
+Where the half comes from: the entry assembly, which is the spec assembly in every
+Microsoft.Testing.Platform host because the test project is the executable, plus the assembly of the
+scenario that opened the bracket, for a host where it is not. An assembly whose specs declare no
+slices has no generated source and sends nothing.
+
+It lives under the same rule as the rest of this page: one `GET` and one `PUT`, held to a two-second
+ceiling, only after the console already answered the ping, and nothing in it can fail a run.
+`ProjectedEventModelPublishingTests` (Bobcat.Tests) pins the policy, and
+`ProjectedEventModelPublishingEndToEndTests` (Bobcat.Supervisor.Tests) runs `Bobcat.Xunit.Samples`
+against a capturing console to prove it with a real generated half.
+
 ## The resident runner wire (issue #390, built 2026-10-02)
 
 A second wire on the same origin, and the only one that runs in the other direction. Everything so
