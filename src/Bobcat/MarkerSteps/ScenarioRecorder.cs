@@ -169,6 +169,30 @@ public static class ScenarioRecorder
     public static IDisposable Step(string text) => Step("", text);
 
     /// <summary>
+    /// Record that the scenario in progress observably touched <paramref name="type"/> — an aggregate it
+    /// arranged, an event an act appended, a command it dispatched, a read model it loaded (issue #465).
+    /// The types travel on <c>scenario_finished.TouchedTypes</c>, in first-touch order, deduplicated. No-op
+    /// when no scenario is recording.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Ambient and static for the reason <see cref="Bobcat.Engine.SpecReport"/> is (issue #408):</b> the
+    /// producer — <c>CritterStackScenario</c>, or a vocabulary in another package that derives from it — has
+    /// no context to be handed, and must compile once against one static surface.
+    /// </para>
+    /// <para>
+    /// <b>Observed, never asserted</b> (issue #107): record what the scenario actually did, not what a Then
+    /// step expected — an expected event that was never appended is exactly the type that must not appear.
+    /// Not on the scenario blackboard either: this has to reach the wire.
+    /// </para>
+    /// </remarks>
+    public static void RecordTouchedType(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        _current.Value?.Touch(type);
+    }
+
+    /// <summary>
     /// The keyword a <see cref="Note"/> is recorded under. Not a step keyword: a note is never
     /// promoted to <c>And</c>, never closes the block it sits in, and renders with no verdict.
     /// </summary>
@@ -265,6 +289,29 @@ public static class ScenarioRecorder
             var at = _reports.FindIndex(r => r.GetType() == report.GetType());
             if (at >= 0) _reports[at] = report;
             else _reports.Add(report);
+        }
+
+        private readonly List<Type> _touchedTypes = new();
+
+        /// <summary>
+        /// The CLR types this scenario observably touched (issue #465), in first-touch order, deduplicated —
+        /// the projected twin of the Gherkin lane's <c>ExecutionResults.TouchedTypes</c>, and published the
+        /// same way on <c>scenario_finished</c>.
+        /// </summary>
+        public IReadOnlyList<Type> TouchedTypes
+        {
+            get
+            {
+                lock (_touchedTypes) return _touchedTypes.ToList();
+            }
+        }
+
+        internal void Touch(Type type)
+        {
+            lock (_touchedTypes)
+            {
+                if (!_touchedTypes.Contains(type)) _touchedTypes.Add(type);
+            }
         }
 
         /// <summary>Set by the adapter when the test fails, so the verdict is the runner's.</summary>
@@ -655,6 +702,7 @@ public static class ScenarioRecorder
                 Attempts: 1,
                 DurationMs: _clock.ElapsedMilliseconds,
                 ErrorMessage: failure,
+                TouchedTypes: MonitorTouchedTypes.From(TouchedTypes),
                 At: DateTimeOffset.UtcNow,
                 Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null)));
 

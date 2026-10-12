@@ -223,11 +223,7 @@ public sealed class MonitorPublishingObserver : IExecutionObserver, IAsyncDispos
         // The final attempt's observations — the attempt whose outcome is being reported.
         // An empty ledger travels as null: nothing recorded is absence of evidence, not
         // evidence of nothing.
-        var touched = result.Results.TouchedTypes.Count == 0
-            ? null
-            : result.Results.TouchedTypes
-                .Select(t => new TouchedType(t.Name, t.FullName ?? t.Name, t.Assembly.GetName().Name ?? string.Empty))
-                .ToArray();
+        var touched = MonitorTouchedTypes.From(result.Results.TouchedTypes);
 
         _sink.Post(new ScenarioFinished(
             _info.RunId,

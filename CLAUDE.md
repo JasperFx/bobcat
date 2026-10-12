@@ -2010,6 +2010,52 @@ the 2026-09-21 deletion.
   subclasses, compile through the generator, run on Marten (Postgres 5445), and render. The Fisher
   proof is the BankAccountES sample (see above).
 
+#### `CritterStackScenario` — the store-only projected vocabulary (bobcat#471, phase 1)
+
+The projected lane's replacement for `CritterStackFixture`, decided as **Option A** on #471: a
+code-first scenario in core (`src/Bobcat/CritterStack/CritterStackScenario.cs`, with
+`CritterStackSpec` as the xUnit/TUnit base class and `CritterStackActOutcome` as the act's capture)
+that needs **no Wolverine** — plenty of applications use Marten, Polecat or Fisher without it.
+WolverineFx.Bobcat's `WolverineScenario` derives from it (step 2, after the release that ships it)
+and keeps only the acts that go through the tracked session, the message assertions, the DCB
+boundary steps and correlation.
+
+- **Public signatures and step text are `WolverineScenario`'s, verbatim**, so step 2 is "derive and
+  delete duplicates" with no API break: Givens (tagged, strong-typed-id, aggregate-less, read
+  model), the event assertions over the last act, the refusals, aggregates/documents/read models,
+  DCB models, `Verify`/`ThenMatches`, `ResetAsync`, `storeName`.
+- **The seams a derived scenario overrides:** `runActAsync(Func<IServiceProvider, Task>)` (the
+  store-only act: high-water mark, run in a new scope, read back every event since — so
+  `NewEvents == AllNewEvents`, `StartedStreams` from version-1 events, `MessagesSent` empty,
+  `EventTagsKnown = false`), `failureOf(message)` (the exception a wrong is thrown as outside a
+  recording — `SpecAssertionException` here, Wolverine's `SpecificationFailedException` there), the
+  protected `LastAct` setter, `ResetAsync` (virtual), and the protected helpers its own steps reuse
+  (`actSucceeded`, `failureSuffix`, `verifySet`, `flatten`, `describe`, `recordValues`, `anyOf`,
+  `tagsOf`, `isOn`, `unwrap`, `describeTypes`, `exceptionsIn`, `hasStore`, `recordTouched`,
+  `tagsCanBeJudged`, `fail`/`fact`).
+- **No store reads an event's tags back** (checked on Marten and Fisher), so after a store-only act
+  a step that judges tags fails saying so (`tagsCanBeJudged`) instead of reporting every tagged
+  event MISSING. Name the stream, or read the boundary's model with `TheDcbModel<T>`.
+- **Recovered from the Gherkin fixture:** the stream-version steps (`TheStreamVersion`,
+  `ThenEventsOn<T>(id, afterVersion, …)`, `ThenNoEventsOn<T>(id, afterVersion)`,
+  `WhenActingOn<T>` as one `Paragraph`); the reason-less `ThenCommandRefused()`; a configurable
+  `ProjectionTimeout` (**20 s**, the fixture's value — `WolverineScenario` was fixed at 5 s);
+  refusal-reason matching across inner and aggregate exceptions, compared in **one** place
+  (`ReasonComparison`, Ordinal until exact-vs-ignore-case is decided); `ThenMessagesSent<T>(count)`
+  over `CritterStackActOutcome.MessagesSent` (always empty for a store-only act, filled by a bus);
+  and `ClockGrammars` as recorded steps over `BobcatClock` (`GivenTheDateIs`, `GivenTheTimeIs`,
+  `WhenTheClockAdvancesBy`, `WhenTimePasses`, `WhenTheClockAdvancesTo` — synchronous on purpose,
+  because the clock is `AsyncLocal` and a value set inside an async method never flows back).
+- **Run evidence (#465, decided REPLACE):** `ScenarioRecorder.RecordTouchedType(Type)` is an ambient
+  accumulator on the recording, static and `AsyncLocal`-backed for the reason `SpecReport` is (#408);
+  `Recording.TouchedTypes` reaches `scenario_finished.TouchedTypes` through `MonitorTouchedTypes`,
+  the one mapping both lanes share, so Stoat's MCP/API field keeps its shape. Observed, never asserted:
+  arranged aggregates and events, the events an act appended, the models and documents loaded — never
+  a type a Then step only expected.
+- **Tested in `Bobcat.CritterStackScenario.Tests`**, a new project (Bobcat.CritterStack.Tests goes in
+  phase 3): every member on Marten (Postgres 5445, a schema per host) and on Fisher (temp SQLite),
+  with no Wolverine anywhere in the project.
+
 ### Model (`src/Bobcat/Model/`) — Legacy
 AST-based model from Phase 0-1 (Step tree, IGrammar, Sentence, etc). Being superseded by the source generator approach. Still used by some existing tests.
 

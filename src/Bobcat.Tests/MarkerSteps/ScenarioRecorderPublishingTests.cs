@@ -191,6 +191,43 @@ public class ScenarioRecorderPublishingTests : IDisposable
         _sink.Events.OfType<StepStarted>().ShouldHaveSingleItem().DeclaredStepNumber.ShouldBeNull();
     }
 
+    [Fact]
+    public void touched_types_travel_on_scenario_finished_in_first_touch_order_deduplicated()
+    {
+        // Issue #465: the projected lane's run evidence, in the shape the Gherkin lane always sent it --
+        // Stoat reads scenario_finished.TouchedTypes over MCP and its API, so the wire must not change
+        var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        ScenarioRecorder.RecordTouchedType(typeof(StepTable));
+        ScenarioRecorder.RecordTouchedType(typeof(SpecAssert));
+        ScenarioRecorder.RecordTouchedType(typeof(StepTable)); // a repeat is ignored
+
+        recording.TouchedTypes.ShouldBe([typeof(StepTable), typeof(SpecAssert)]);
+        recording.Dispose();
+
+        var touched = _sink.Events.OfType<ScenarioFinished>().ShouldHaveSingleItem().TouchedTypes.ShouldNotBeNull();
+        touched.Select(x => x.Name).ShouldBe(["StepTable", "SpecAssert"]);
+        touched[0].FullName.ShouldBe(typeof(StepTable).FullName);
+        touched[0].AssemblyName.ShouldBe("Bobcat");
+    }
+
+    [Fact]
+    public void a_scenario_that_touched_nothing_sends_no_touched_types()
+    {
+        // Nothing recorded is absence of evidence, not evidence of nothing: null, never an empty list
+        ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId).Dispose();
+
+        _sink.Events.OfType<ScenarioFinished>().ShouldHaveSingleItem().TouchedTypes.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_touched_type_outside_a_scenario_goes_nowhere()
+    {
+        // A store helper called from an ordinary test has no scenario to report to, and must not throw
+        Should.NotThrow(() => ScenarioRecorder.RecordTouchedType(typeof(StepTable)));
+        _sink.Events.ShouldBeEmpty();
+    }
+
     private sealed class RecordingSink : IMonitorEventSink
     {
         private readonly List<MonitorEvent> _events = new();
