@@ -1,105 +1,57 @@
 # Integrating Bobcat with Your IDE
 
-**What you will get:** scenarios as individual entries in your IDE's test explorer, runnable and
-debuggable one at a time — plus step completion and go-to-definition in `.feature` files where the
-editor supports it.
+**What you will get:** your specifications as individual entries in your IDE's test explorer,
+runnable and debuggable one at a time -- because they are ordinary tests.
 
-These are two separate mechanisms with different answers per editor, so they are worth taking in
-turn.
+## Specifications in the test explorer
 
-## Part 1 — scenarios in the test explorer
+A Bobcat specification is a test in your own runner, so Visual Studio, Rider and VS Code's C# Dev Kit
+see it the way they see any other test: the green arrow in the gutter, run-one-test, and the debugger.
+There is no Bobcat-specific explorer integration to install.
 
-This works everywhere, in any IDE that can run .NET tests, and it costs one package.
-
-`Bobcat.Mtp` exposes the spec project as a Microsoft.Testing.Platform test host, and **one scenario
-is one test node**. `dotnet test`, Visual Studio, Rider and VS Code's C# Dev Kit all see scenarios
-as ordinary tests — so you get the green arrow in the gutter, run-one-test, and the debugger.
+What *is* needed is what any xUnit v3 project needs for an IDE to find its tests:
 
 ```xml
-<PropertyGroup>
-  <OutputType>Exe</OutputType>
-</PropertyGroup>
-
 <ItemGroup>
-  <PackageReference Include="Bobcat" />
-  <PackageReference Include="Bobcat.Mtp" />
-  <PackageReference Include="Bobcat.Generators" />
-  <AdditionalFiles Include="Features/**/*.feature" />
+  <PackageReference Include="xunit.v3" />
+  <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  <PackageReference Include="xunit.runner.visualstudio" />
 </ItemGroup>
 ```
 
-No hand-written `Main` is needed — the generator detects `Bobcat.Mtp` and emits the entry point.
+Leave out `Microsoft.NET.Test.Sdk` and the project builds, runs and passes from the command line and
+shows **no tests** in Rider or Visual Studio, which discover tests through the VSTest bridge those two
+packages provide. Nothing about the build says so on its own -- which is how a real spec project
+shipped without it -- so Bobcat warns with **BOBCAT033**. Set
+`<BobcatSuppressTestSdkWarning>true</BobcatSuppressTestSdkWarning>` if the suite only ever runs from
+the command line.
 
-**One cost to know about:** resources start per run. An IDE that runs one test at a time pays host
-and database startup each time, which is fine for a single scenario and painful for a loop. When
-you are iterating, the `interactive` command keeps resources warm between runs instead — see
-[Integrating Bobcat Gherkin](../integrating-gherkin.md#command-line-runner).
+**Your fixtures start per run.** An IDE that runs one test at a time pays for whatever your assembly
+and collection fixtures stand up -- the host, the database -- each time. That's the same cost any
+integration test pays, and keeping fixture setup fast (reusing running containers, `docker compose up
+-d` out of band) is the lever that matters.
 
-Details, including configuring the suite with `[BobcatConfiguration]` and the case where the entry
-point is *not* generated: [Integrating Bobcat Gherkin](../integrating-gherkin.md#dotnet-test).
+## Reading the specification while you work
 
-## Part 2 — editing `.feature` files
+Run a single specification from the IDE with a terminal attached and nothing listening on the run
+wire, and the run prints the specification it produced -- see
+[Reading the specification the run produced](../marker-steps.md#reading-the-specification-the-run-produced).
+An IDE usually captures the output stream, so set `BOBCAT_SPEC_CONSOLE=1` in your run configuration to
+print it anyway.
 
-Here the editors diverge sharply.
+## Navigation
 
-| Editor | Step completion & go-to-definition | Cost |
-|---|---|---|
-| **VS Code** | Works today | Install the Cucumber extension, commit three settings |
-| **Rider** | Not yet — a Bobcat plugin of our own, unscheduled | Nothing available today |
+Step helpers, marker comments and the scenario vocabulary are all plain C#, so go-to-definition, find
+usages and rename work on them with no plugin. A step's text lives in the attribute on the method it
+describes, one keystroke away from every call.
 
-### VS Code
-
-1. Install **Cucumber** by CucumberOpen (`CucumberOpen.cucumber-official`).
-2. Point it at your features and your step definitions. The extension's defaults look for
-   `*specs*/**/*.cs`, which almost certainly matches nothing in your layout:
-
-```jsonc
-{
-  "cucumber.features": ["**/*.feature"],
-  "cucumber.glue": ["**/*Fixture.cs", "**/*Grammars.cs"]
-}
-```
-
-The setting is `cucumber.glue`, not `glob`. It must cover **every** file that declares steps —
-your fixtures, and any grammar module you compose in with `[IncludeGrammars]`.
-
-You then get completion from every visible `[Given]`/`[When]`/`[Then]`, go-to-definition from a
-step to its method, undefined-step underlines, and a generate-step-definition quick fix whose
-emitted C# is valid Bobcat as written.
-
-**The extension parses source, not assemblies.** A step defined in a referenced package is
-undefined as far as the editor is concerned, which is why Bobcat ships its grammars as source
-inside the packages — add those paths to `cucumber.glue` to pick them up.
-
-Two kinds of step are invisible to it, because the extension's attribute list is a constant in the
-library and cannot be configured:
-
-- **`[Check]` steps.** The fix is to stack a `[Then]` with the same expression beside the
-  `[Check]` — a supported idiom, pinned by tests in both orders:
-
-  ```csharp
-  [Then("the result is not negative")]     // what the editor sees
-  [Check("the result is not negative")]    // what runs
-  public bool TheResultIsNotNegative() => Result >= 0;
-  ```
-
-  Do **not** "fix" it by writing the check as a plain `[Then]` returning `bool` — a sentence step
-  discards the bool, turning a failing check into a silent pass.
-
-- **`[TableGrammar]` steps.** No zero-cost fix exists; the editor is simply blind to them, while
-  the build is not.
-
-### Rider
-
-Rider needs a Bobcat plugin of our own, and it is not scheduled. There is an open upstream change
-against Reqnroll's Rider plugin that would make Rider work for Bobcat users sooner if it lands.
-
-In the meantime, Part 1 still applies in full: scenarios show up in Rider's test explorer through
-`Bobcat.Mtp` and run and debug normally. It is only `.feature` *editing* support that is missing.
-
-The complete investigation — what the VS Code extension matches, verified rather than assumed, and
-exactly what blocks Rider — is [Editor Integration](../editor-integration.md).
+<!-- JEREMY -->
+That is most of the reason editor support stopped being a project of its own. Step completion and
+go-to-definition used to matter for `.feature` files, which an IDE can't follow into C#; the Cucumber
+extension covered VS Code, and Rider needed a plugin of its own
+([reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) is the upstream
+change that was proposed). With no `.feature` files, there's nothing left for an editor to bridge.
 
 ## Where to go next
 
-- Running the same suite in a pipeline — [Integrating Bobcat with CI](continuous-integration.md)
+- Running the same suite in a pipeline -- [Integrating Bobcat with CI](continuous-integration.md)

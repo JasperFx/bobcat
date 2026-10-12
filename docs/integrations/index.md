@@ -1,53 +1,26 @@
 # Integrations
 
-Bobcat's core knows about specifications, steps and runs. It knows nothing about HTTP, databases or
-message brokers — those arrive as separate packages, each one adding a **resource** (something with
-a lifecycle the suite starts, resets and disposes) and a set of `IStepContext` extension methods so
-your steps can reach it without holding a reference.
+Bobcat's core knows about specifications, steps and runs. What it knows about your application comes
+from a scenario vocabulary -- a class whose members are the steps -- and those are store- and
+framework-specific.
 
-warning Wolverine support is still being rebuilt
-`Bobcat.Wolverine` was removed on 2026-09-21 along with the Wolverine half of
-`Bobcat.CritterStack`, and is being rebuilt from what real applications turn out to need.
-`Bobcat.Alba` already has been. `Bobcat.Marten` turned out not to need rebuilding at all — see
-its page for why.
-:::
+| | Package | |
+|---|---|---|
+| [Marten, Polecat and Fisher](marten.md) | `Bobcat` | `CritterStackScenario` / `CritterStackSpec`: the store-only vocabulary, through the JasperFx.Events abstractions. No message bus, and no `Bobcat.Marten` package to add |
+| [Wolverine](wolverine.md) | `WolverineFx.Bobcat`, `WolverineFx.Bobcat.Http` | `WolverineSpec` and `WolverineHttpSpec`: acts through Wolverine's tracked session and Wolverine.HTTP, message assertions, Dynamic Consistency Boundary steps. Published from the Wolverine repository |
 
-| Package | Status |
-|---|---|
-| [Bobcat.Alba](alba.md) | **Rebuilt** from what nine sample suites needed |
-| [Bobcat.Marten](marten.md) | **Not needed.** Core already reaches the store through JasperFx.Events |
-| [WolverineFx.Bobcat](wolverine.md) | **Moved to the Wolverine repository** (#407). `Bobcat.Wolverine` was rebuilt as the act only — 11 of 895 lines needed a bus, so the grammar went to core — and then retired in favour of WolverineFx.Bobcat |
+Everything else -- hosting the application, a database per test class, a container -- is your test
+runner's job now, done the way you'd do it in any integration test: an xUnit assembly, collection or
+class fixture, `IAsyncLifetime`, TUnit's hooks. Alba is a good way to host an ASP.NET Core
+application in-process, and `WolverineHttpSpec` takes an `IAlbaHost` directly.
 
-The store-agnostic half — `EventStores`, `DocumentStores`, `EventStoreAuthoring`,
-`RecordBuilding` — **moved into `Bobcat` core** and still binds only to the JasperFx.Events
-abstractions, so it serves Marten, Polecat and Fisher alike. The `Bobcat.CritterStack` package is
-gone; the namespace is unchanged, so a `using Bobcat.CritterStack;` still resolves. Its Gherkin
-grammar and `CritterStackFixture` went with `Bobcat.Wolverine`.
-`Bobcat.EntityFrameworkCore` covers EF Core and is unaffected.
-
-The runner adapters — `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` and `Bobcat.MSTest` — are a
+The runner adapters -- `Bobcat.Xunit`, `Bobcat.TUnit`, `Bobcat.NUnit` and `Bobcat.MSTest` -- are a
 different kind of package and live under Guides: [Bobcat with xUnit.net](../xunit.md),
 [Bobcat with TUnit](../tunit.md), [Bobcat with NUnit](../nunit.md) and
 [Bobcat with MSTest](../mstest.md).
 
-## The shape every integration shares
-
-```csharp
-[BobcatConfiguration]
-public static void Configure(BobcatRunner runner)
-{
-    runner.Resources.Add(new WebApp());
-}
-```
-
-A resource is started once for the suite, reset between scenarios if you give it a reset hook, and
-stopped at the end. Give a resource an optional `name`, and a lookup an optional `resourceName` —
-that pair is how a suite drives more than one host or more than one store at once.
-
-`WebApp` there is a resource the **sample** writes, not one Bobcat ships; every sample under
-`samples/` has one, and they are worth reading as the current answer to "what does hosting an
-application actually take". See [Resources](../resources.md) for the four members.
-
-**Give the resource a reset hook if the thing behind it has persistent state.** A suite that passes
-once per database and then reports conflicts for records it believes are new is worse than no suite,
-and it is the default outcome for anything with a unique index.
+**Reset what has persistent state.** A suite that passes once per database and then reports conflicts
+for records it believes are new is worse than no suite. Mint new ids in every specification, and where
+that isn't enough, call `ResetAsync()` on the spec or `host.ResetEventStoresAsync()` from your
+fixture -- plus `host.DrainTransportsAsync()` for a real broker (see
+[Cold hosts and brokers](wolverine.md#cold-hosts-and-brokers)).

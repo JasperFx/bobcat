@@ -1,87 +1,409 @@
 # Bobcat with Wolverine
 
-`WolverineFx.Bobcat`, published from the Wolverine repository, supplies **the act** (it replaced
-`Bobcat.Wolverine`, retired in #407): it sends a message into your application through
-Wolverine's tracked session, and returns when everything that message *caused* has settled —
-cascades, forwarded events, local queues drained. Your assertions then run against a system that
-has finished reacting.
+`WolverineFx.Bobcat`, published from the [Wolverine repository](https://github.com/JasperFx/wolverine),
+is the Given/When/Then vocabulary for a Wolverine application: arrange events, act through
+Wolverine's tracked session, and assert what the act appended, what it cascaded, and what the
+aggregates and read models became. Every call is a step, and every step renders.
+
+```bash
+dotnet add package WolverineFx.Bobcat
+dotnet add package WolverineFx.Bobcat.Http   # only for Wolverine.HTTP acts
+```
+
+It is built in layers, and this page is the reference for all of them:
+
+| | Package | Adds |
+|---|---|---|
+| `CritterStackScenario` / `CritterStackSpec` | `Bobcat` | everything a store can answer: arranging events and read models, store-only acts, event, aggregate, document and read model assertions, refusals, clocks. No message bus. See [Bobcat with Marten, Polecat and Fisher](marten.md) |
+| `WolverineScenario` / `WolverineSpec` | `WolverineFx.Bobcat` | acts through Wolverine's tracked session, message assertions, Dynamic Consistency Boundary steps, and `ThenEventuallyCaused` |
+| `WolverineHttpScenario` / `WolverineHttpSpec` | `WolverineFx.Bobcat.Http` | `WhenPosted` through Alba, with the route resolved from the request type |
+
+The `*Scenario` class holds the steps. The `*Spec` class is an abstract base for an xUnit or TUnit test
+class that exposes every step of its scenario as its own member, so a test reads `await
+WhenReceived(...)` rather than `await Scenario.WhenReceived(...)`. Every member is public, so your own
+helpers in another class can drive a spec too, and `Scenario` is there when you need the object
+itself.
+
+## A first specification
 
 ```csharp
-public class FreezeAccountFixture : WolverineCritterStackFixture;
+using Bobcat;
+using Wolverine.Bobcat;
+
+[BobcatFeature("Appointments")]
+public class confirming_an_appointment(AppFixture app) : WolverineSpec(app.Host)
+{
+    [Fact]
+    public async Task a_scheduled_appointment_is_confirmed()
+    {
+        var id = Guid.NewGuid();
+        await GivenEvents<Appointment>(id, new AppointmentScheduled(id));
+
+        await WhenReceived(new ConfirmAppointment(id));
+
+        ThenEvents(typeof(AppointmentConfirmed));
+        ThenMessageSent<SendConfirmationEmail>();
+    }
+}
 ```
 
-That one line is a whole fixture. Everything a scenario says comes from the shipped Critter Stack
-grammar:
+`AppFixture` is your own -- an xUnit assembly, collection or class fixture that boots the
+application's `IHost` once. See [Getting Started](../getting-started.md#_2-host-the-application-once).
+`[BobcatFeature]` is what makes the test a specification; on TUnit, NUnit and MSTest put
+`[BobcatScenario]` beside it (see [Writing Specifications](../marker-steps.md#what-you-have-to-add)).
 
-```gherkin
-Scenario: Freezing an account records the freeze
-  Given no events for Account "77777777-7777-7777-7777-777777777777"
-  And events for Account
-    | Event         | AccountId                            | Currency |
-    | AccountOpened | 77777777-7777-7777-7777-777777777777 | USD      |
-  When FreezeAccount is received
-    | AccountId                            | Reason          |
-    | 77777777-7777-7777-7777-777777777777 | Suspected fraud |
-  Then AccountFrozen is emitted
-  And the Account read model contains
-    | IsFrozen |
-    | true     |
-```
+**A wrong is gathered, not thrown.** Inside a recording scenario a failed `Then…` reports on its own
+step and the test carries on, so a specification shows every disagreement, and the adapter fails the
+test once at the end. Outside one -- the same test with no adapter -- the wrong is thrown
+(`SpecificationFailedException` from a Wolverine scenario, `SpecAssertionException` from a
+`CritterStackScenario`), so a plain test cannot pass by accident.
 
-## What this package is, and is not
+## Values a step takes
 
-**Only the `When` needs Wolverine.** Arranging events, asserting what was emitted, asserting a read
-model — all of that is store work, lives in [`CritterStackFixture`](../composing-grammars.md) in
-Bobcat core, and runs against the JasperFx.Events abstractions. This package adds one member:
+Most steps take events, commands or documents as `object`, and accept any of these:
+
+| | |
+|---|---|
+| a whole object | compared **structurally** -- property by property, nested properties and collections included, never through `Equals` |
+| `Expect.Value(x).Ignoring(e => e.OccurredAt)` | a whole object with members nobody controls shown but not judged |
+| `Specify<T>().With(x => x.Prop, value)` | a **partial object**: judged and shown on only the members it names. Handed to a Given or a When, it is *built*, with every unspecified member filled by `UnspecifiedValues` |
+| `Specify<T>(table)` | a partial object written as a table: `Property \| Value` rows, or the members as headers over one row |
+| `Specify<T>(x => x.Age.ShouldBe(4), …)` | a partial object to check against, written as assertions on its members |
+| `typeof(T)` | the type alone, whatever its values (`ThenEvents(params Type[])`) |
+| `Tagged(value, tags…)` / `Specify<T>().Tagged(tags…)` | an event expected (or arranged) with exactly these Dynamic Consistency Boundary tags |
+
+`Specify`, `Tagged` and `Expect.Value` are static, so a `*Spec` class reaches them unqualified.
+Prefer a deterministic clock to `Ignoring(...)` for a timestamp.
+
+## Arrange
+
+| Step | |
+|---|---|
+| `GivenEvents<TAggregate>(id, params events)` | the stream the scenario acts against already holds exactly these events. `id` is a `Guid`, a `string` key, or a strong-typed id around either |
+| `GivenEvents(Type? aggregate, id, params events)` | the same with the type as a value. A null aggregate arranges a stream with no aggregate type |
+| `GivenEvents(id, params events)` | a stream with no aggregate type, for an event model that names none |
+| `GivenNoEventsFor<TAggregate>(id)` | the stream has no events yet. Appends nothing, says so, and names the stream the act's events are read from |
+| `GivenEventsOn<TAggregate>(id, params events)` | events on a *different* stream from the one the act runs against -- a second aggregate for a rule that spans two, or history a read model fans in from |
+| `GivenReadModel<T>(document)` | a read model already exists, stored directly. It bypasses the projection, so a spec about how the view is built should arrange the events instead |
+| `GivenTheDateIs(date)` / `GivenTheTimeIs(now)` | freeze the ambient clock (`BobcatClock.Current`, also `Clock`) |
+| `WhenTheClockAdvancesBy(duration)` / `WhenTimePasses(duration)` / `WhenTheClockAdvancesTo(instant)` | move it forward. Each renders as its own step |
+
+## Act
+
+The **last** act a test runs is what every `Then…` judges. Nothing an act throws is rethrown: the
+exception is captured on `LastAct`, so a refusal can be asserted afterwards.
+
+| Step | |
+|---|---|
+| `WhenReceived(message, configureTracking?)` | `message` arrives at the application through Wolverine, and the scenario waits for everything it caused to settle -- cascades, forwarded events, local queues |
+| `WhenPublished(message, configureTracking?)` | published to every subscriber, and the scenario waits for what it caused |
+| `WhenTracked(description, act, configureTracking?)` | any act that reaches the application from outside -- an HTTP call, a client SDK, a hosted service poke -- run inside the tracked session |
+| `WhenActing(description, services => …)` | any act at all, handed a fresh service scope. In a `WolverineScenario` it runs inside the tracked session too, so it waits for what it caused and carries the messages it sent |
+| `WhenActingOn<T>(id, description?, act, params events)` | one paragraph of three sentences: capture the stream's version, run the act, and check the stream gained exactly `events` past that version |
+| `WhenPosted(command, configure?)` (`WolverineHttpSpec`) | POST `command` to the one Wolverine.HTTP endpoint that accepts its type, filling route parameters from its properties. Several candidates are refused rather than guessed |
+| `WhenPosted(command, route, configure?)` / `WhenPosted<TResponse>(…)` | POST to a named route; the generic form hands back the response body |
+
+`configureTracking` adjusts the `TrackedSessionConfiguration` for one act. Over HTTP, any 2xx is
+success, a 4xx is a *refusal* -- an answer, captured for `ThenRefusedWith` and `ThenResponseIs` --
+and a 5xx is the act failing. The `Action<Scenario>` overloads apply Alba overrides (headers,
+authentication) on top.
+
+`WhenActing` in a `WolverineScenario` reads the act's events from what the tracked session heard
+committed. When it heard no commit at all -- the act appended through a session Wolverine didn't
+open -- it falls back to the store's high-water read, as the store-only act does.
+
+## Assert: events
+
+| Step | |
+|---|---|
+| `ThenEvents(params events)` | the act appended exactly these events, in order |
+| `ThenEvents(params Type[] events)` | exactly these event types, in order |
+| `ThenEventsInAnyOrder(params events)` / `(params Type[])` | exactly these, in any order |
+| `ThenEmitted(params events)` / `ThenEmitted<T>()` | these among whatever else it appended; nothing else is judged, or shown |
+| `ThenNotEmitted<T>()` / `ThenNotEmitted(params events)` | none of these. A partial object forbids only the events that agree on the members it names |
+| `ThenNoEvents()` | the act appended nothing -- the refusal half of a guard |
+| `ThenEventsOn<TAggregate>(id, params events)` / `ThenNoEventsOn<TAggregate>(id)` | exactly these on that stream, for a command that decides against several. Only what the act added counts |
+| `ThenStreamIsStarted<TAggregate>(id)` | the act started that stream |
+| `ThenStreamIsStartedWithEvents<TAggregate>(params events)` | one paragraph: a stream was started, with an id the handler assigned, and these events are on it |
+
+**"The act's events" in a `WolverineScenario` are its own**: what the sessions handling the act's
+message (or its HTTP request) committed. A cascade's events are in `LastAct.AllNewEvents`, not
+`LastAct.NewEvents`. A store-only act can't tell the two apart, so there they are the same list.
+
+### A named stream from a named version
+
+For an act whose events nothing can attribute -- a domain service, a background job run by hand, an
+application with no message bus -- the spec names **which stream, and past which version**:
 
 ```csharp
-protected override async Task<IActOutcome> DispatchAsync(object command, int timeoutInMilliseconds)
-    => new WolverineActOutcome(await Ctx.InvokeMessageAndWaitAsync(command, HostResource, timeoutInMilliseconds));
+await GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"), new WalletCredited(id, 10));
+var before = await TheStreamVersion(id);                       // 2
+
+await WhenActing("the wallet is credited by hand",
+    services => services.GetRequiredService<WalletService>().Credit(id, 25));
+
+await ThenEventsOn<Wallet>(id, before, new WalletCredited(id, 25));
+await ThenNoEventsOn<Wallet>(id, before + 1);
 ```
 
-It also gives you `WhenTracked`, for an act that reaches the application from *outside* — an Alba
-HTTP call, a SignalR client, a gRPC call — run inside the same tracked session so the assertion
-vocabulary works unchanged afterwards:
+| Step | |
+|---|---|
+| `TheStreamVersion(id)` | the version the stream stands at now; 0 with no events. Not a step |
+| `ThenEventsOn<T>(id, afterVersion, params events)` | the stream gained exactly these, in order, past that version, whoever appended them |
+| `ThenNoEventsOn<T>(id, afterVersion)` | it gained nothing |
+
+A version past the stream's end is refused as a broken spec rather than passing vacuously.
+`WhenActingOn<T>` does all three in one call and reads as one paragraph:
+
+```
+Given the Wallet stream Wallet is at version 2
+When the wallet is credited by hand
+Then WalletCredited is emitted on it
+```
+
+## Assert: aggregates, documents and read models
+
+Every step that reads a projection first waits for the async daemons to catch up, up to
+`ProjectionTimeout` (20 seconds by default). An async projection read straight after the act would
+read a stale document.
+
+| Step | |
+|---|---|
+| `ThenAggregate<T>(id, expected?)` | the aggregate as the store serves it through `FetchLatest<T>`: a projected snapshot where there is one, else built from the stream. Throws when there is no such stream |
+| `ThenReadModel<T>(id, expected?)` | the read model with this identity, loaded with `LoadAsync` once projections have caught up. Throws when there is none |
+| `ThenDocument<T>(id, expected?)` | the same load, for a plain document or a projection stored as one |
+| `ThenNoReadModel<T>(id)` / `ThenNoReadModel<T>()` | no such read model -- with that id, or at all |
+| `ThenSingleReadModel<T>(expected?)` | the `T` of the stream this scenario is about -- the one the act started, else the one the givens arranged. Single-stream projections only |
+| `ThenSingleDocument<T>(expected?)` | the `T` document stored under that stream's id |
+| `ThenProjectionsAreCaughtUp(Type readModel)` | the projections that build it have caught up |
+| `AfterAsyncDaemonsCatchUpAsync(tenantId?)` | wait for every async daemon, on every database or one tenant's. Not a step |
+| `Verify(subject, table)` | selected properties of anything, as a one-row table: `"\| Name \| Address.City \|\n\| Ann \| Austin \|"` |
+| `ThenMatches(subject, expected)` | anything, structurally, by the same rules as `ThenEvents` |
+
+`expected` is a partial object, a whole object or an `Expect.Value`, and each of these hands the loaded
+object back for further checks.
+
+## Assert: refusals
+
+| Step | |
+|---|---|
+| `ThenValidationFails(reason)` | the act failed with `reason` |
+| `ThenRefusedWith(reason)` | the same check, worded for any refusal |
+| `ThenRefusedWith(reason, params mentioning)` | and the refusal names each of these values |
+| `ThenRefusedWith<TException>(expected?)` | the act threw a `TException`, matching a partial object when one is given. Hands it back |
+| `ThenCommandRefused()` | a *clean* refusal: the act ran, nothing threw, and it appended nothing -- a handler that stops without throwing, or an HTTP 4xx |
+| `ThenRefusedWithProblem(expected?)` (`WolverineHttpSpec`) | the last HTTP act answered with a ProblemDetails body matching `Specify<ProblemDetails>()…` |
+| `ThenResponseIs(status)` (`WolverineHttpSpec`) | the last HTTP act answered `status` |
+
+A reason is found in an HTTP refusal's body, or in the exception the act raised **and every inner
+exception** (each of an `AggregateException`'s too), so a refusal wrapped by the act's plumbing is
+still found. The match is a substring, **case-sensitive** (`StringComparison.Ordinal`). An empty
+reason is refused, since every refusal contains one.
+
+## Assert: messages
+
+| Step | |
+|---|---|
+| `ThenMessageSent<T>(destination?)` | the act sent or published a `T` -- to `destination` when given, matched as a prefix of the URI (`"rabbitmq://queue/billing"`, `"local://"`) |
+| `ThenMessageSent(expected)` | a message structurally equal to `expected` |
+| `ThenMessageSentLocally<T>()` / `ThenMessageSentExternally<T>()` | to a local queue / to anything but one |
+| `ThenMessagesSent<T>(count = 1)` | at least `count` of them |
+| `ThenMessageScheduled<T>(delay?)` | scheduled for later, due no sooner than `delay` after the act. A scheduled message isn't sent within the act, so `ThenMessageSent` doesn't see it |
+| `ThenNoMessageSent<T>()` / `ThenNoMessageScheduled<T>()` | none |
+
+A `T` matches its subtypes too.
+
+## Dynamic Consistency Boundaries
+
+For a decision whose consistency boundary is a tag query rather than one stream (wolverine#4865):
 
 ```csharp
-await WhenTracked(() => Context!.PostJsonAsync<FreezeAccount, Account>("/accounts/freeze", command));
+await GivenEvents<SeatAvailability>(theScreeningId.Value,
+    Tagged(new ScreeningScheduled(theScreeningId, 10), theScreeningId));
+
+await WhenReceived(new ReserveSeat(theScreeningId, theCustomerId, "4C"));
+
+ThenEvents(Specify<SeatReserved>().With(x => x.Seat, "4C").Tagged(theCustomerId, theScreeningId));
+ThenEventsOn(EventTagQuery.For(theCustomerId), Specify<SeatReserved>().With(x => x.Seat, "4C"));
+await ThenDcbModel<SeatAvailability>(EventTagQuery.For(theScreeningId),
+    Specify<SeatAvailability>().With(x => x.Seats, 9));
 ```
 
-A bare HTTP call returns when the response does, while the downstream work is still in flight.
-This one returns when the work has landed.
+| Step | |
+|---|---|
+| `Tagged(event, tags…)` / `.Tagged(tags…)` | an event arranged or expected with exactly these tags, in any order. A tag left out is as wrong as a wrong one |
+| `ThenEventsOn(EventTagQuery, params events)` / `ThenNoEventsOn(EventTagQuery)` | exactly these, in order, among the act's events the query selects. Arranged history never counts |
+| `TheDcbModel<T>(query)` | `T` projected over the events the query selects; null when nothing matches. Not a step |
+| `ThenDcbModel<T>(query, expected)` | and it matches `expected` |
 
-Plus `WarmUpWolverineHandlers`, a hosted service that compiles every handler before the first
-scenario so no act — and no scenario's timing — pays for code generation. Register it *after* the
-resource whose host it warms; one registration order spans resources and services.
+Tag-judging steps need the tags the act appended, which the tracked session sees. **No store reads an
+event's tags back**, so after a store-only act a tag-judging step fails and says why, rather than
+reporting every tagged event missing.
 
-## Why the split
+### The boundary the decision loaded
 
-The package was deleted, along with `Bobcat.Alba` and `Bobcat.Marten`, so the support could be
-rebuilt from what applications turn out to need. What the deletion exposed was a measurement:
+The boundary steps (wolverine#4964) judge what the act's own `[DcbModel]` handler *loaded* -- the tag
+query a concurrent append is checked against when the boundary is saved. They are deterministic:
+nothing is appended and nothing races, because a hypothetical event is matched against the recorded
+query.
 
-**`CritterStackFixture` was 895 lines, and 11 of them mentioned a Wolverine type.** All eleven were
-reading two things off a tracked session — the messages it sent, typed or untyped. So ~1,850 lines
-had been coupled to a message bus for the sake of eleven, and a Marten or Polecat application with
-no bus at all could not use the arrange-and-assert vocabulary.
+```csharp
+await WhenReceived(new ClaimBadge(theConference, theAttendee));
 
-Those two readings are now
-[`IActOutcome`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat/CritterStack/ActOutcome.cs),
-a two-member interface in core. The grammar went back to core behind it; this package implements
-it. `samples/BankAccountES` — quarantined while the grammar was gone — runs 20 scenarios again on
-**both** Marten and Fisher, unchanged.
+// Exactly the tag query the handler's Load() returned
+ThenTheConsistencyBoundaryIs(EventTagQuery.For(theConference).AndEventsOfType<BadgeClaimed, BadgeRevoked>());
 
-<!-- JEREMY -->
-Since then BankAccountES has moved on from the grammar altogether. With bobcat#471 its specs are
-projected xUnit v3 tests on `CritterStackSpec` -- the store-only vocabulary, no Wolverine needed to
-arrange or assert -- with the sample's own HTTP and message acts on top. Same 20 specs, same two
-stores, and the same Event Model, roles and all. See the sample's
-[README](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES/README.md#specifications).
+// Another badge claimed or revoked for the same conference would have conflicted...
+ThenAConcurrentEventWouldConflict<BadgeClaimed>(theConference, new AttendeeId("ATT-99"));
+ThenAConcurrentEventWouldConflict(Specify<BadgeRevoked>().Tagged(theConference));
 
-What has **not** come back: the saga grammar (`Then the {saga} saga is …`) and the HTTP grammar
-(`When {command} is posted to …`). Both were deleted with the package, nothing has needed them
-since, and they return when a spec asks.
+// ...but not one for another conference, nor an event type the decision never read
+ThenAConcurrentEventWouldNotConflict<BadgeClaimed>(new ConferenceId(Guid.NewGuid()), theAttendee);
+ThenAConcurrentEventWouldNotConflict<SessionProposed>(theConference);
+```
+
+| Step | |
+|---|---|
+| `ThenTheConsistencyBoundaryIs(query)` | the act loaded exactly one boundary, and its query is exactly this: the same conditions, in any order, none missing and none extra |
+| `ThenTheConsistencyBoundaryIs<TModel>(query)` | the boundary loaded for `TModel`, for an act that loads several |
+| `ThenAConcurrentEventWouldConflict(event)` / `<TEvent>(params tags)` | another writer appending this between the act's read and its write would have made it fail with a concurrency conflict |
+| `ThenAConcurrentEventWouldNotConflict(event)` / `<TEvent>(params tags)` | it falls outside every boundary the act loaded |
+
+They're judged whether the act succeeded or was refused, because a refusal is decided over the same
+boundary. `LastAct.Boundaries` holds what was loaded, in load order; a cascade's loads are not there.
+
+## What the act eventually caused
+
+The tracked session sees what happens inside the act. `ThenEventuallyCaused` (wolverine#4965) reaches
+past it, to events appended across an asynchronous boundary -- a message an event subscription
+published, an async projection's side effect:
+
+```csharp
+await WhenReceived(new ShipParcel(theParcel));
+
+await ThenEventuallyCaused(new ParcelShipped(), new LabelPrinted(theParcel));
+await ThenEventuallyCaused<LabelPrinted>();
+```
+
+Every act runs under a correlation id of its own (`ActCorrelationId`, `LastAct.CorrelationId`). Once
+the async daemons have caught up, the step queries the event store for every event recorded with that
+id, judged as `ThenEmitted` judges, and keeps looking for up to `EventuallyTimeout` (10 seconds by
+default) for work that lands after the daemons.
+
+Three things it needs from you:
+
+- **The store has to record correlation ids**, which Marten, Polecat and Fisher all leave off by
+  default -- on Marten, `Events.MetadataConfig.CorrelationIdEnabled = true`. When it doesn't, the step
+  fails and says how to turn them on.
+- **Every hop has to carry the id.** Wolverine's handlers do. An event subscription or a projection's
+  side effect that publishes a message has to pass the event's `CorrelationId` on itself, as in
+  `bus.PublishAsync(message, new DeliveryOptions { CorrelationId = e.CorrelationId })`.
+- **An HTTP act sends the id as the `X-Correlation-ID` header.** For Wolverine.HTTP to apply it,
+  turn on `WolverineHttpOptions.ApplyCorrelationIdHeaderToAllEndpoints`.
+
+One database only, for now: a store that spreads its tenants across several databases is refused.
+
+## Reading what happened
+
+None of these is a step: each reads the capture, and the assertion that follows is the step.
+
+| | |
+|---|---|
+| `LastAct` | what the last act did: `Session` (the tracked session), `NewEvents`, `AllNewEvents`, `Error`, `Refusal`, `Appended` (each committing session with the message it handled), `Boundaries`, `CorrelationId` |
+| `TheEvent<T>()` | the one `T` the act appended; throws unless exactly one was |
+| `TheEvents` | every event the act appended |
+| `TheMessagesSent` | every message the act sent or published |
+| `TheAggregate<T>(id)` | the write model, folded from its stream |
+| `TheStartedStream<TAggregate>()` / `TheStartedStreamKey<TAggregate>()` | the id the last act assigned to the stream it started |
+| `TheStreamVersion(id)` | the stream's version now |
+| `LastResponse` (`WolverineHttpSpec`) | the last HTTP act's Alba result |
+
+## Settings
+
+| | Default | |
+|---|---|---|
+| `ProjectionTimeout` | 20 s | how long a step that reads a projection waits for the async daemons |
+| `Timeout` | 5 s | how long an act's tracked session waits for everything it caused to settle |
+| `IncludeExternalTransports` | `true` | whether the tracked session also waits on external transports |
+| `EventuallyTimeout` | 10 s | how long `ThenEventuallyCaused` keeps looking once the daemons have caught up |
+| `UnspecifiedValues` | Bobcat's | what fills the members a partial object leaves unspecified when it is built for a Given or a When |
+
+`Timeout`, `IncludeExternalTransports` and `EventuallyTimeout` live on `Scenario`. A
+`WolverineScenario` and a `CritterStackScenario` take a `storeName` for an application with several
+event stores, and `ResetAsync()` clears every store and forgets the last act.
+
+## The Event Model, from the vocabulary
+
+Every step above that names a command, an aggregate, an event, a read model, a document or a message
+carries `[EventModelRole]`, and the HTTP act carries `[EventModelTrigger(TriggerKind.Http, Route =
+nameof(route))]`. So a specification bound to a slice with `[BobcatSpec]` or `[BobcatSlice]` hands the
+generator the slice's whole shape with nothing authored for the model:
+
+```csharp
+[BobcatFeature("Confirming appointments over HTTP")]
+public class projected_http_slice(AppHost app) : WolverineHttpSpec(app.Host)
+{
+    [Fact]
+    public async Task a_scheduled_appointment_is_confirmed_over_http()
+    {
+        var id = Guid.NewGuid();
+        await GivenEvents<Appointment>(id, new AppointmentScheduled(id, "Ann"));
+
+        await WhenPosted(new ConfirmAppointmentRequest(id), "/api/appointments/confirm");
+
+        ThenEvents(typeof(AppointmentConfirmed));
+        ThenMessageSent<SendConfirmationEmail>();
+    }
+}
+```
+
+That slice reaches the model as an HTTP slice with its route, its command
+`ConfirmAppointmentRequest` and the message it publishes. Negative steps (`ThenNoMessageSent<T>`,
+`ThenNotEmitted<T>`, …), refusals, waits and `WhenTracked` stamp nothing. The DCB model steps stamp
+an aggregate. See [Binding, not roles](../marker-steps.md#event-model-roles) for how the generator
+reads them.
+
+### Your own acts
+
+A store-only scenario has no HTTP or message act of its own, and an application often wants its own
+spelling of one. Write it on your base spec class, run it through `WhenActing`, and **re-declare the
+attributes** -- the generator reads them off the method a test calls, never off what that method's
+body calls. From `samples/BankAccountES`:
+
+```csharp
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
+public Task WhenPosted(object command, string route, params object[] routeValues)
+    => send("POST", command, route, routeValues);
+
+[EventModelRole(SliceRole.Command, nameof(message))]
+[EventModelTrigger(TriggerKind.MessageHandler)]
+public Task WhenReceived(object message)
+    => WhenActing($"{message.GetType().Name} is received",
+        services => services.GetRequiredService<IMessageBus>().InvokeAsync(message));
+```
+
+## Cold hosts and brokers
+
+**Handler warm-up is automatic.** Under Wolverine's default `TypeLoadMode.Dynamic` a handler compiles
+the first time a message reaches it, which on a cold host lands *inside* the first act's tracked
+window. Every act warms the host first: by default (`HandlerWarmUp.Automatic =
+AutomaticWarmUp.PrimeCompiler`) it compiles one chain, which pays the one-time cost of starting the
+compiler. `AutomaticWarmUp.AllHandlers` compiles every chain, and `host.WarmUpHandlers()` does that
+up front, before any specification, so no scenario's timing includes codegen. A chain that can't
+compile is reported in one `HandlerWarmUpException`.
+
+Wolverine.HTTP routes are not covered by that. Wolverine owns that switch:
+`app.MapWolverineEndpoints(opts => opts.WarmUpRoutes = RouteWarmup.Eager)`.
+
+**A broker is not reset with the store.** Messages a scenario cascaded to a real broker survive a
+store reset and arrive inside the *next* scenario, failing it with an id that belongs to one that
+already passed. `host.DrainTransportsAsync()` purges every broker queue the application declares;
+call it wherever your suite already resets the store. It isn't automatic, because purging a broker
+someone else is watching is destructive.
 
 ## See also
 
-- [Composing Grammar Modules](../composing-grammars.md) — the store half of the vocabulary
-- [Bobcat with Alba](alba.md) · [Bobcat with Marten](marten.md) · [Resources](../resources.md)
+- [Bobcat with Marten, Polecat and Fisher](marten.md) -- the store-only half, with no message bus
+- [Writing Specifications](../marker-steps.md) -- step helpers, `SpecAssert`, tables, and slice binding
+- [Migrating from Gherkin](../migrating-from-gherkin.md) -- the retired `CritterStackFixture` grammar, step by step
