@@ -17,18 +17,34 @@ namespace Bobcat.Runtime;
 /// looks filtered and is not — the same failure <c>GuardAgainstAnUnfilteredRun</c> was written for.
 /// </para>
 /// <para>
-/// <b>TUnit is deliberately unsupported for now.</b> Its filter is a tree-node path rather than a
-/// method name, and this repository cannot run a TUnit host to verify the spelling against:
-/// <c>TUnit.Engine</c> needs Microsoft.Testing.Platform 2.4.0 and src is pinned to 1.9.1 (see
-/// <c>Bobcat.Xunit.Tests.csproj</c>, where the TUnit adapter is tested without a TUnit runner for
-/// that reason). An unverified filter string would be exactly the silent whole-suite run above, so
-/// it says so instead.
+/// <b>TUnit is filtered by tree-node path (bobcat#470), and only where one path is exact.</b>
+/// Its filter is <c>--treenode-filter "/*/&lt;Namespace&gt;/&lt;Class&gt;/&lt;Method&gt;"</c>, measured
+/// against a real TUnit host (<c>TUnitTreeNodeFilterTests</c>): the namespace is one segment with
+/// its dots kept, a nested class is <c>Outer+Inner</c>, segments match whole words, and a
+/// data-driven method's path selects every case. The platform accepts the option <b>once</b>, and
+/// its OR works <b>within a segment only</b> — <c>/*/Ns/(A)|(B)/(x)|(y)</c> is legal, a whole-path
+/// alternative is a parse error, and an unparenthesised <c>|</c> between two paths silently selects
+/// something else. So several identities become one filter only when they are exactly the cross
+/// product of their namespaces, classes and methods (one class, or one method name across several
+/// classes); any other selection would run tests nobody asked for, and is refused.
 /// </para>
 /// </remarks>
 public static class SpecFilterArguments
 {
     /// <summary>xUnit v3's option: one or more fully qualified method names, ORed.</summary>
     public const string MethodOption = "--filter-method";
+
+    /// <summary>
+    /// Microsoft.Testing.Platform's tree-node filter, which TUnit uses: one path, accepted once.
+    /// </summary>
+    public const string TreeNodeOption = "--treenode-filter";
+
+    /// <summary>
+    /// Characters with a meaning in a tree-node filter. None can appear in a C# namespace, type or
+    /// method name, so an entry carrying one was not written by the generator, and is refused
+    /// rather than escaped into a spelling nobody has verified.
+    /// </summary>
+    private static readonly char[] treeNodeOperators = ['/', '(', ')', '|', '&', '!', '*', '[', ']', '=', '\\', ' '];
 
     /// <summary>
     /// The arguments that narrow <paramref name="manifest"/>'s suite to
@@ -77,16 +93,12 @@ public static class SpecFilterArguments
                 return [MethodOption, .. selection.Identities.Select(identity => qualifiedMethod(manifest, identity))];
 
             case SpecManifest.TUnitFramework:
-                throw new NotSupportedException(
-                    "Running a TUnit suite by specification identity is not supported yet: TUnit filters by "
-                    + "tree-node path rather than by method name, and the spelling is not verified anywhere in "
-                    + "this repository (TUnit.Engine needs Microsoft.Testing.Platform 2.4.0, and src is pinned "
-                    + "to 1.9.1). An unverified filter would run the whole suite while looking filtered.");
+                return [TreeNodeOption, treeNodeFilter(manifest, selection)];
 
-            // Both run on Microsoft.Testing.Platform 1.9 here, so unlike TUnit their filter spelling
-            // CAN be verified in this repository — it just has not been yet (issues #385/#386 shipped
-            // the adapters, not run-by-identity). Refused until a test pins the spelling against a
-            // real host, as ProjectedSpecIdentityEndToEndTests does for xUnit.
+            // Their filter spelling CAN be verified in this repository — it just has not been yet
+            // (issues #385/#386 shipped the adapters, not run-by-identity). Refused until a test pins
+            // the spelling against a real host, as ProjectedSpecIdentityEndToEndTests does for xUnit
+            // and TUnitResidentSuiteTests does for TUnit.
             case SpecManifest.NUnitFramework:
             case SpecManifest.MSTestFramework:
                 throw new NotSupportedException(
@@ -101,6 +113,79 @@ public static class SpecFilterArguments
                     + $"identity. Expected one of '{SpecManifest.XunitFramework}', "
                     + $"'{SpecManifest.TUnitFramework}', '{SpecManifest.NUnitFramework}' or '{SpecManifest.MSTestFramework}'.");
         }
+    }
+
+    /// <summary>
+    /// The one tree-node path that runs exactly the selection, or a refusal saying why there is none.
+    /// </summary>
+    private static string treeNodeFilter(SpecManifest manifest, SpecSelection selection)
+    {
+        var tests = selection.Identities
+            .Select(identity => (Identity: identity, Place: treeNodePlace(manifest, identity)))
+            .ToList();
+
+        var namespaces = tests.Select(x => x.Place.Namespace).Distinct(StringComparer.Ordinal).ToList();
+        var classes = tests.Select(x => x.Place.Class).Distinct(StringComparer.Ordinal).ToList();
+        var methods = tests.Select(x => x.Place.Method).Distinct(StringComparer.Ordinal).ToList();
+        var distinct = tests.Select(x => x.Place).Distinct().Count();
+
+        // The platform ORs within a segment and never across a whole path, so a filter of
+        // per-segment alternatives selects their CROSS PRODUCT. That is exactly the selection only
+        // when the selection already is that product; otherwise the extra combinations may be real
+        // tests outside the request, and a run that quietly includes them is the run this class
+        // exists to stop.
+        if ((long)namespaces.Count * classes.Count * methods.Count != distinct)
+        {
+            throw new NotSupportedException(
+                $"These specifications cannot be run together from one TUnit filter: "
+                + $"{string.Join(", ", tests.Select(x => $"'{x.Identity}'"))}. TUnit is filtered by "
+                + "Microsoft.Testing.Platform's --treenode-filter, which takes one path and ORs only within "
+                + "a segment, so it can name several methods in one class or one method name across several "
+                + "classes, but not an arbitrary set. Run them one class at a time, or as a warm command, "
+                + "which runs by test id instead of by filter.");
+        }
+
+        return $"/*/{alternatives(namespaces)}/{alternatives(classes)}/{alternatives(methods)}";
+    }
+
+    private static string alternatives(IReadOnlyList<string> segment)
+        => segment.Count == 1 ? segment[0] : string.Join("|", segment.Select(x => $"({x})"));
+
+    private static (string Namespace, string Class, string Method) treeNodePlace(SpecManifest manifest, string identity)
+    {
+        // qualifiedMethod refuses an entry with no binding, in the words the xUnit path uses.
+        var qualified = qualifiedMethod(manifest, identity);
+        var entry = manifest.For(identity)!;
+        var type = entry.TestClass!;
+        var method = entry.TestMethod!;
+
+        // The class is the last dotted part ("Ns.Outer+Inner" -> "Outer+Inner"): a CLR type name
+        // carries no dots, and a nested class keeps its '+', which is how TUnit names the segment.
+        var lastDot = type.LastIndexOf('.');
+
+        // A class in the global namespace has no namespace segment to name, and how TUnit spells
+        // that is not measured. Refused rather than guessed.
+        if (lastDot <= 0)
+        {
+            throw new NotSupportedException(
+                $"'{identity}' is declared on '{type}', which is in the global namespace. TUnit's tree-node "
+                + "path has a namespace segment, and its spelling for the global namespace is not verified, "
+                + "so there is no filter Bobcat can build for it. Put the test class in a namespace.");
+        }
+
+        var place = (type[..lastDot], type[(lastDot + 1)..], method);
+
+        if (place.Item1.IndexOfAny(treeNodeOperators) >= 0
+            || place.Item2.IndexOfAny(treeNodeOperators) >= 0
+            || method.IndexOfAny(treeNodeOperators) >= 0)
+        {
+            throw new NotSupportedException(
+                $"'{identity}' is bound to '{qualified}', which contains a character with a "
+                + "meaning in a tree-node filter. No C# name can, so this manifest was not written by "
+                + "Bobcat's generator, and no filter is built for it.");
+        }
+
+        return place;
     }
 
     private static string qualifiedMethod(SpecManifest manifest, string identity)

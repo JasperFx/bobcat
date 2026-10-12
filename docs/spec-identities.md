@@ -136,19 +136,22 @@ takes:
 | Framework | Argument |
 |---|---|
 | xUnit v3 | `--filter-method Ns.Class.method` -- the platform uid is the framework's own (assembly + class + method + arguments), so the manifest's recorded binding is what makes the translation possible |
-| TUnit, NUnit, MSTest | refused, see below |
+| TUnit | `--treenode-filter "/*/Ns/Class/method"` -- the namespace is one segment with its dots kept, a nested class is `Outer+Inner` |
+| NUnit, MSTest | refused, see below |
 
 It **refuses rather than guesses**: an unknown framework, an unbound entry, or an identity the
 manifest lacks all throw.
 
-**TUnit is deliberately unsupported** (issue #470). It filters by tree-node path, and nothing here can
-run a TUnit host to verify the spelling -- `TUnit.Engine` needs a newer testing platform than this
-repository is pinned to. An unverified filter is exactly the run that looks filtered and is not. A
-TUnit suite still records, renders and publishes its specifications; what it can't do yet is be run
-*by identity*, so neither the resident runner nor a console's run button can drive it.
+**TUnit takes one tree-node path** ([#470](https://github.com/JasperFx/bobcat/issues/470)). The
+platform accepts `--treenode-filter` once and only ORs alternatives *within* a segment, so several
+identities fit in one filter only when they are several methods of one class, or one method name
+across several classes (more generally, an exact cross product of namespaces, classes and methods).
+Any other selection is refused rather than widened, since the extra combinations could be real tests
+nobody asked for. A warm resident command runs by test id instead, so it has no such limit. A test
+class in the global namespace is refused too.
 
-**NUnit and MSTest are refused for now, too.** Both run on the pinned platform, so their spelling
-*can* be verified here -- it just hasn't been yet.
+**NUnit and MSTest are refused for now.** Their spelling *can* be verified here -- it just hasn't
+been yet.
 
 ### The binding is recorded, not re-derived
 
@@ -164,7 +167,8 @@ listed **8 of `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 ren
 verdicts perfectly well. What makes a test a specification is that a scenario is recorded around it.
 
 It is pinned against a real host -- an identity listed and then run -- by
-`ProjectedSpecIdentityEndToEndTests` in `Bobcat.Xunit.Tests/SpecIdentity`.
+`ProjectedSpecIdentityEndToEndTests` in `Bobcat.Xunit.Tests/SpecIdentity`, and for TUnit by
+`TUnitTreeNodeFilterTests` and `TUnitResidentSuiteTests` in `Bobcat.Supervisor.Tests`.
 
 ### Who uses this
 

@@ -35,6 +35,11 @@
          ordering only; ProjectedResidentRunnerTests launches it as an executable. -->
     <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- Build ordering only (bobcat#470): a real TUnit host, launched by TUnitTreeNodeFilterTests
+         to pin the tree-node filter spelling that runs one TUnit test by Namespace.Class.Method. -->
+    <ProjectReference Include="..\Bobcat.TUnit.Tests\Bobcat.TUnit.Tests.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

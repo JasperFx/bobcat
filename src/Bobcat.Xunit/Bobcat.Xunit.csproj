@@ -5,6 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <!--
+      Microsoft.Testing.Platform's own buildTransitive targets default IsTestingPlatformApplication
+      to true in ANY project that references the platform package. This is a library, not a test
+      host, and on MTP 2.x `dotnet test` (in its MTP mode, see global.json) refuses a solution
+      containing a Library-typed test application.
+    -->
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
     <Description>Bobcat + xUnit v3 — projects ordinary [Fact] and [Theory] tests into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
   </PropertyGroup>
 
@@ -22,7 +29,8 @@
 
       It costs a consumer nothing: a consumer of this package is by definition an xUnit v3 MTP test
       host, so it already resolves Microsoft.Testing.Platform through xunit.v3 — and at the same
-      1.9.1 the root header pins, because that is what xunit.v3 3.2.2 builds against.
+      2.5.1 the root header pins, because that is what xunit.v3 4.0.2 builds against. The flip side
+      (bobcat#470): this package now REQUIRES an MTP 2.x host, so a consumer must be on xunit.v3 4.x.
 
       Bobcat.TUnit deliberately does NOT follow. See the note in its csproj.
     -->

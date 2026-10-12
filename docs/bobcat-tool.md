@@ -347,7 +347,7 @@ show no tests at all ("NuGet package Microsoft.NET.Test.Sdk is not installed"):
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
     <PackageReference Include="Bobcat.Xunit" Version="..." />
     <PackageReference Include="Bobcat.Generators" Version="..." />

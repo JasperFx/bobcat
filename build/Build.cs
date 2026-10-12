@@ -1,13 +1,11 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
-using Serilog;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 // The one definition of the build. tests.yml runs `./build.sh CI` and publish.yml runs
@@ -53,63 +51,17 @@ partial class Build : NukeBuild
         .After(Docker)
         .Executes(() =>
         {
-            try
-            {
-                DotNetTest(s => s
-                    .SetProjectFile(Solution)
-                    .SetConfiguration(Configuration)
-                    .EnableNoBuild()
-                    .EnableNoRestore());
-            }
-            catch
-            {
-                // A failed run through the solution prints only a per-assembly count — "Failed: 1,
-                // Passed: 56" — and nothing about WHICH test or why. On a laptop that is fine,
-                // because the run is repeatable; on CI it is the whole diagnosis, and chasing a
-                // failure that only happens there meant instrumenting a test and pushing a tag to
-                // find out. Microsoft.Testing.Platform writes the detail to a log beside each
-                // assembly, so print it rather than leave a reader to guess.
-                reportFailedTestLogs();
-                throw;
-            }
+            // `--solution`, not the positional path: global.json opts `dotnet test` into its
+            // Microsoft.Testing.Platform mode (MTP 2.x refuses the VSTest bridge on the .NET 10
+            // SDK), and that mode rejects a positional solution or project. It also prints each
+            // failing test's name, message and stack to the console itself, so there is no
+            // TestResults/*.log to go and read any more.
+            DotNetTest(s => s
+                .SetProcessAdditionalArguments("--solution", Solution)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
         });
-
-    /// <summary>
-    /// Prints the tail of every MTP test log that recorded a failure. Best effort by design: this
-    /// runs while a build is already failing, and a problem reading a log must not replace the
-    /// real failure with its own.
-    /// </summary>
-    private void reportFailedTestLogs()
-    {
-        try
-        {
-            // This configuration's logs only. The other one's are left over from an earlier run and
-            // reporting them would name tests that are not failing now.
-            var logs = (RootDirectory / "src")
-                .GlobFiles($"**/bin/{Configuration}/**/TestResults/*.log")
-                .ToList();
-
-            foreach (var log in logs)
-            {
-                var lines = File.ReadAllLines(log);
-
-                // The summary count, not the word: every log says "failed: 0" when it passed.
-                if (!lines.Any(line => Regex.IsMatch(line, @"failed:\s*[1-9]"))) continue;
-
-                // From the first failing test's own line, which is where the message and the stack
-                // are. Capped, because a wedged suite can log a great deal after it.
-                var first = Array.FindIndex(
-                    lines, line => Regex.IsMatch(line, @"^\s*failed\s+\S"));
-
-                Log.Error("───── {Log} ─────", log);
-                foreach (var line in lines.Skip(Math.Max(0, first)).Take(150)) Log.Error("{Line}", line);
-            }
-        }
-        catch (Exception e)
-        {
-            Log.Warning("Could not read the test logs: {Message}", e.Message);
-        }
-    }
 
     // What tests.yml runs on every push.
     Target CI => _ => _

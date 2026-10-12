@@ -91,6 +91,38 @@ Marten's hand-rolled copy got all four wrong:
 - Its interceptor opt-in was a csproj line a sibling project also needed -- where forgetting it is a
   `CS9137` build failure rather than a missing feature.
 
+## Moving to xUnit v3 4.x
+
+<!-- JEREMY: an intro sentence or two on why Bobcat moved (bobcat#470), in your voice. -->
+
+`Bobcat.Xunit` now builds against xunit.v3 4.0.2 and Microsoft.Testing.Platform 2.5.1 (TUnit.Engine
+1.74.0 runs on the same platform). What changes in a consuming test project:
+
+- **Move `xunit.v3` to 4.x.** The platform and xUnit move together; a 3.x `xunit.v3` beside
+  Microsoft.Testing.Platform 2.x fails at run time.
+- **Opt `dotnet test` into the platform's own mode in `global.json`.** Microsoft.Testing.Platform 2.x
+  refuses the VSTest bridge on the .NET 10 SDK:
+
+  ```json
+  {
+    "test": {
+      "runner": "Microsoft.Testing.Platform"
+    }
+  }
+  ```
+
+- **Name the project or solution with an option, and pass test-host options directly.**
+  `dotnet test MySpecs -- --filter-class "*Wallet*"` becomes
+  `dotnet test --project MySpecs --filter-class "*Wallet*"` (`--solution` for a solution).
+- **`[assembly: CollectionBehavior(DisableTestParallelization = true)]` is now a compile error.**
+  Use `[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]`.
+- **A `TestCaseOrderer` now only orders the cases within one method.** xUnit 4 orders collection,
+  then class, then method, then case; to order the methods of a class, implement
+  `ITestMethodOrderer` and use `[TestMethodOrderer]`.
+- **Set `IsTestingPlatformApplication=false` on a helper project that references the platform but
+  is not a test host.** The platform's `dotnet test` mode collects every project where it is true
+  and ignores `IsTestProject=false`.
+
 ## xUnit v2 is not supported, and is not waiting for an adapter
 
 This is a structural limit rather than a backlog item. v2's `BeforeAfterTestAttribute` is

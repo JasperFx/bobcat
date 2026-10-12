@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    bobcat#470: a real TUnit host in this repository, now that src is on Microsoft.Testing.Platform
+    2.5.1 (the platform TUnit.Engine 1.74.0 needs). Two jobs, both driven from Bobcat.Supervisor.Tests
+    as a child process:
+
+    - Filtering/ pins the MTP tree-node filter spelling that runs exactly one TUnit test by
+      Namespace.Class.Method (TUnitTreeNodeFilterTests).
+    - Specs/ is a projected Bobcat suite on TUnit, so it writes a spec manifest and can be run by
+      identity, cold and warm, through the resident runner (TUnitResidentSuiteTests).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; a
+         ProjectReference analyzer brings the generator but not its props. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.TUnit\Bobcat.TUnit.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

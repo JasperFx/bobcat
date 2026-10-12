@@ -56,9 +56,10 @@ dotnet test
 docker compose up -d
 
 # Run a specific test class. Tests run on Microsoft.Testing.Platform, not VSTest, so the
-# old `--filter "FullyQualifiedName~X"` is gone. Arguments after `--` go to the test host.
-dotnet test src/Bobcat.Tests/ -- --filter-class "*PipelineTests"
-dotnet test src/Bobcat.Tests/ -- --filter-method "*passes_on_retry*"
+# old `--filter "FullyQualifiedName~X"` is gone. global.json puts `dotnet test` in MTP mode, so
+# test-host options go straight on the command line (no `--`) and the project is `--project`.
+dotnet test --project src/Bobcat.Tests/ --filter-class "*SpecAssert*"
+dotnet test --project src/Bobcat.Tests/ --filter-method "*passes_on_retry*"
 
 # A test project is a self-executing MTP application, so it can also be run directly:
 ./src/Bobcat.Tests/bin/Debug/net10.0/Bobcat.Tests --list-tests
@@ -115,10 +116,14 @@ its own equivalents.
     database is reused) and passes it as `ConnectionStrings__Marten`; `SamplesPostgres` overrides
     the server. `TestSamplesOnFisher` runs BankAccountES on a SQLite file in `.nuke/temp`.
 
-**Version pin that matters:** `Microsoft.Testing.Platform` is held at **1.9.1** because that is
-what `xunit.v3` 3.2.2 builds against (its package is literally `xunit.v3.core.mtp-v1`). Moving it
-to 2.x loads a platform assembly whose types have moved and xUnit's auto-registered MSBuild
-extension dies with a `TypeLoadException` on `IDataConsumer`.
+**Version pin that matters:** `Microsoft.Testing.Platform` is held at **2.5.1** because that is
+what `xunit.v3` 4.0.2 builds against (its runner package is `xunit.v3.core.mtp-v2`), and
+`TUnit.Engine` 1.74.0 wants the same. It was 1.9.1 under `xunit.v3` 3.2.2 (`xunit.v3.core.mtp-v1`)
+until bobcat#470; the platform and xUnit move together. MTP 2.x refuses the VSTest bridge on the
+.NET 10 SDK, so the root `global.json` opts `dotnet test` into its MTP mode: pass `--solution` /
+`--project` (never a positional path), give test-host options directly (no `--` separator), and
+note that mode collects every project with `IsTestingPlatformApplication=true` — `IsTestProject=false`
+no longer opts a host out (see `Bobcat.Xunit.Samples.csproj`).
 
 **Database-backed tests:** `Bobcat.CritterStackScenario.Tests` exercises the store plumbing against a
 real Postgres via `[PostgresFact]`. Connection string comes from `BOBCAT_POSTGRES`, defaulting to
@@ -457,11 +462,18 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   - **`Bobcat.Xunit` takes a `Microsoft.Testing.Platform` reference; `Bobcat.TUnit` deliberately
     does NOT.** `xunit.v3.extensibility.core` depends only on `xunit.v3.common`, so this is the
     first platform reference either adapter has had — and it costs an xUnit consumer nothing, since
-    such a consumer already resolves the platform through `xunit.v3` at the same pinned 1.9.1.
-    `TUnit.Core` depends on no test platform at all, which is exactly what makes that package safe
-    to ship beside the 1.9.1 pin (`TUnit.Engine` wants 2.4.0), and there is no warm path for it to
-    serve yet. Nothing regresses, because the backstop below is still its whole bracket.
-    The reasoning lives in `Bobcat.TUnit.csproj`, where whoever changes it will read it.
+    such a consumer already resolves the platform through `xunit.v3` at the same pinned 2.5.1.
+    `TUnit.Core` depends on no test platform at all, which keeps that package free of a platform
+    choice that belongs to the consumer's own `TUnit.Engine`. **It gets its per-request bracket
+    from TUnit.Core instead (bobcat#470):** `BobcatScenarioAttribute` is also an
+    `ILastTestInTestSessionEventReceiver` and closes the run once the session's last scenario has
+    ended (an open-scenario count, because parallel tests give no ordering promise), so two warm
+    commands into one live TUnit host are two runs. The reasoning lives in `Bobcat.TUnit.csproj`.
+  - **`Bobcat.TUnit` calls `context.AddAsyncLocalValues()` in `OnTestStart` (bobcat#470).** TUnit
+    1.74.0 does not flow AsyncLocal values set in a receiver into the test or the end receiver
+    unless asked. Without it the scenario opened, `OnTestEnd` found no `ScenarioRecorder.Current`,
+    and **no verdict was ever published** (only `scenario_started`). Nothing in this repository could
+    run a real TUnit host before #470, so it went unseen; `TUnitResidentSuiteTests` now would catch it.
   - **`Bobcat.NUnit` and `Bobcat.MSTest` (issues #385/#386) follow `Bobcat.TUnit`: no platform
     reference.** Their *test projects* run on NUnit3TestAdapter 5.2.0 and MSTest.TestAdapter 3.11.1,
     the last releases built on MTP 1.9.x (6.0 / 4.0 move to 2.x) — `src/Directory.Packages.props`
@@ -976,11 +988,19 @@ own filter. Three pure pieces in core plus one artifact:
 - **`SpecFilterArguments.For(manifest, selection)`** is the translation: a projected suite's
   platform uid is its framework's own (assembly + class + method + arguments), so the identity
   becomes `--filter-method Ns.Class.method`. It **refuses rather than guesses** — an unknown
-  framework, an unbound entry, or an identity the manifest lacks all throw. **TUnit, NUnit and
-  MSTest are refused**: TUnit filters by tree-node path and nothing here can run a TUnit host to
-  verify the spelling (`TUnit.Engine` needs MTP 2.4.0, src is pinned to 1.9.1); NUnit and MSTest
-  run on MTP 1.9 here, so verifying theirs is the follow-up. An unverified filter is exactly the run
-  that looks filtered and is not.
+  framework, an unbound entry, or an identity the manifest lacks all throw. **NUnit and MSTest are
+  refused**: they run on MTP 1.9 here, so verifying theirs is the follow-up. An unverified filter is
+  exactly the run that looks filtered and is not.
+  - **TUnit is `--treenode-filter "/*/<Namespace>/<Class>/<Method>"` (bobcat#470)**, measured
+    against the real `Bobcat.TUnit.Tests` host (`TUnitTreeNodeFilterTests`): the namespace is one
+    segment with its dots kept, a nested class is `Outer+Inner`, segments match whole words, a
+    data-driven method's path selects every case, and a filter matching nothing exits 8. **The
+    option is accepted once and ORs only within a segment** (`/*/Ns/(A)|(B)/(x)|(y)`): a whole-path
+    alternative is a parse error, and an unparenthesised `|` between two paths silently selected
+    the wrong tests. So several identities become one filter only when they are exactly the cross
+    product of their namespaces × classes × methods (one class, or one method name across classes);
+    anything else is **refused** rather than over-selected. A class in the global namespace is
+    refused too (that spelling is unmeasured). Warm runs by uid and has neither limit.
 
 **The manifest is written from the generated module initializer**, which calls
 `DeclaredSteps.Bind(uid, class, method)` and then `SpecManifest.WriteIfRequested`, because that
@@ -1689,7 +1709,7 @@ below).
     types changed.
   - **A wiring mistake is refused at launch, not at the first button press**: a host that is not
     built, a suite that lists no specifications (usually a spec project with no runner adapter
-    referenced), or a framework whose filter spelling Bobcat will not guess at (TUnit). A runner
+    referenced), or a framework whose filter spelling Bobcat will not guess at (NUnit, MSTest). A runner
     that registered and then refused every command would look broken rather than unsupported.
   - **What the child does *not* inherit is the substance of it** (`EnvironmentFor`). Four variables
     a parent routinely sets break a commanded run silently: `BOBCAT_RUN_ID` collapses every command
@@ -1731,6 +1751,12 @@ below).
     against the discovery display name, with `Ns.Outer+Inner` → dotted tried as a *fallback* after
     the exact match #394 verified. An identity whose uid cannot be named is **refused**, not dropped
     from the subset — a request for three specs that silently ran two looks exactly like a pass.
+    **TUnit joins on the location instead (bobcat#470):** its display name is the bare method name,
+    while `location.type` / `location.method` are the manifest's `TestClass` (`Outer+Inner`) and
+    `TestMethod` exactly, and a data-driven method maps one identity to several uids. That is why a
+    warm TUnit command can run any set of identities while a cold one is limited to what one
+    tree-node path can name. `Bobcat.Supervisor.Tests/TUnitResidentSuiteTests` drives both against
+    the real `Bobcat.TUnit.Tests` host.
   - **What warmth buys is the CLR, not the boot**, and the Q2 caveat stands word for word: xUnit's
     assembly and collection fixtures are created and disposed *within* a run request, so a second
     request pays for them again. A suite whose cost is a collection fixture standing up a database

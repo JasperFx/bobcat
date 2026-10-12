@@ -15,6 +15,17 @@
          its specifications fail, hang and crash on purpose. -->
     <IsTestProject>false</IsTestProject>
 
+    <!--
+      IsTestProject=false is no longer enough on MTP 2.x: `dotnet test` in its MTP mode (global.json)
+      collects every project whose IsTestingPlatformApplication is true and ignores IsTestProject.
+      Turning that off also turns off the defaults it drives, so the three this host still needs —
+      the platform config file and the self-registered extensions (Bobcat's session hook) — are
+      restated. xUnit generates its own entry point either way.
+    -->
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformConfigurationFile>true</GenerateTestingPlatformConfigurationFile>
+    <GenerateSelfRegisteredExtensions>true</GenerateSelfRegisteredExtensions>
+
     <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive. -->
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
   </PropertyGroup>

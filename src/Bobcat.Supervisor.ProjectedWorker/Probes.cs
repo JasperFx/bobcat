@@ -40,7 +40,12 @@ public class Basics
     public void passes()
     {
         // Then it passes
-        Probe.Run(() => { });
+        // (Slow only when BOBCAT_SLOW is set: MTP 2.x's server coalesces node updates inside a
+        // ~100 ms batch, so a test faster than that reports only its verdict, never in-progress.)
+        Probe.Run(() =>
+        {
+            if (Probe.IsArmed("BOBCAT_SLOW")) Thread.Sleep(500);
+        });
 
         // And the worker writes its connection strings if BOBCAT_CONNECTION_PROBE is set
         writeConnectionStrings();

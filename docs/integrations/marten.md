@@ -59,7 +59,7 @@ Two consequences of reading by sequence, worth designing around:
 
 - **Anything concurrent work appends while the act runs is counted as the act's.** A suite on the
   store-only act runs its tests one at a time against a shared store --
-  `[assembly: CollectionBehavior(DisableTestParallelization = true)]` in xUnit -- or gives each test
+  `[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]` in xUnit -- or gives each test
   its own store. `samples/BankAccountES` does the first.
 - **No store reads an event's tags back**, so a step that judges Dynamic Consistency Boundary tags
   after a store-only act fails and says why, rather than reporting every tagged event missing.
