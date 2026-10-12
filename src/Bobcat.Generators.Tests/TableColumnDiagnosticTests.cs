@@ -32,6 +32,9 @@ public class TableColumnDiagnosticTests
 
         public class Leaf { public string Name { get; set; } = ""; }
 
+        public record Line(string Sku, int Quantity);
+        public record Basket(string Id, List<Line> Lines, List<string> Tags);
+
         // The call shapes a grammar wraps: (object subject, StepTable expected) and
         // (IEnumerable actual, StepTable expected). BOBCAT032 recognises them by shape, so any
         // grammar's own wrappers are checked, not just Bobcat's.
@@ -230,5 +233,41 @@ public class TableColumnDiagnosticTests
     public void an_expression_path_is_left_to_the_compiler()
     {
         messages(run("""Specify<Order>().With(x => x.Customer, "Ann");""")).ShouldBeEmpty();
+    }
+
+    // bobcat#456: a child collection written as a table, whose element type is on the MEMBER rather
+    // than on the Expect.Rows call
+
+    [Fact]
+    public void a_child_collection_table_is_checked_against_the_member_s_element_type()
+    {
+        messages(run("""Specify<Basket>().With(x => x.Lines, Expect.Rows("| Sku | Quantity |\n| A | 1 |"));"""))
+            .ShouldBeEmpty();
+
+        messages(run("""Specify<Basket>().With(x => x.Lines, Expect.Rows("| Sku | Qty |\n| A | 1 |"));"""))
+            .ShouldHaveSingleItem()
+            .ShouldContain("column 'Qty' does not match Line");
+    }
+
+    [Fact]
+    public void the_forbidden_form_of_a_child_collection_table_is_checked_too()
+    {
+        messages(run("""Specify<Basket>().With(x => x.Lines, Expect.NoRowsLike("| Skuu |\n| A |"));"""))
+            .ShouldHaveSingleItem()
+            .ShouldContain("column 'Skuu' does not match Line");
+    }
+
+    [Fact]
+    public void a_child_collection_table_nobody_bound_to_a_member_is_skipped()
+    {
+        // Nothing in view says what the elements are, so this is the run-time check's job
+        messages(run("""var rows = Expect.Rows("| Qty |\n| 1 |");""")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_collection_of_scalars_is_skipped()
+    {
+        messages(run("""Specify<Basket>().With(x => x.Tags, Expect.Rows("| Anything |\n| A |"));"""))
+            .ShouldBeEmpty();
     }
 }

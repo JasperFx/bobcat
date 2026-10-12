@@ -640,9 +640,80 @@ unions compare by what they hold (`ObjectComparison.Unwrap`). `ObjectSetVerifica
 expected, noun, SetMode)`: `Ordered` (exact + ORDER), `AnyOrder` (exact), `Contains` (no EXTRA rows,
 others allowed); `Absent(actual, forbidden, noun)` for "not emitted" (a `Type`, or a partial = only
 matching ones). **Exact pairs are a maximum matching (Kuhn), not greedy** — a broad expectation
-written first must not steal the event a narrow one needs. A matched partial row shows only the
-specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)` gives a one-row
-grid of just the specified columns.
+written first must not steal the event a narrow one needs, and an ordered comparison seeds that
+matching with the longest pairing that keeps the specification's order (#476), so ORDER is reported
+only when no pairing avoids it. **Pass 2 — the same type with different values, a FAIL rather than a
+MISSING beside an EXTRA — only pairs items that HAVE members to disagree about**: pairing two scalars
+says "expected rush, was vip" about two items with nothing to do with each other. A matched partial
+row shows only the specified members of the actual. `PropertyCells.Verify(subject, IPartialObject)`
+gives a one-row grid of just the specified columns, and a collection member's cell carries every
+difference *inside* it (`PartialMatching.Owns`) — keyed on the member path alone, a nested difference
+reached no cell and a failed comparison rendered green.
+
+### A collection member is a set, a dictionary member is keyed (bobcat#456)
+
+**`ObjectComparison.Compare` is recursive**, not flatten-both-graphs-and-match-leaf-paths, and when it
+meets a collection it delegates the matching to `ObjectSetVerification.Pair` — extracted from that
+type's own grid so there is **one matching and two renderings**. Before this, a collection member was
+compared position by position, so a reordered one reported every element as wrong: the exact failure
+`ObjectSetVerification` exists to avoid, unreachable from inside an object. `Leaves` stays as the
+flattener for rendering one graph; the comparison no longer uses it.
+
+- **Unordered by default; strict ordering is opt in, case by case** (Jeremy, 2026-10-12). A bare
+  collection member is `AnyOrder`. Most collection members have an order the system happens to produce
+  rather than one the specification is about. `Expect.Exactly(…)` claims the order at the member level,
+  `Expect.Value(x).InOrder(e => e.Lines)` for one member of a whole object.
+- **`Expect`** carries the vocabulary beside `Expect.Value`: `Exactly` / `InAnyOrder` / `Containing` /
+  `NoneOf` / `NoItems`, plus **`Rows(table, mode)`** and **`NoRowsLike(table)`** for a child collection
+  written as a grid. The table forms are **named apart deliberately**: `StepTable` converts implicitly
+  from a string, so an `Expect.Containing(StepTable)` overload beats `params object[]` for a single
+  string argument and `Expect.Containing("vip")` over a collection of strings silently became a table
+  with no rows — an expectation that asserts nothing and passes. A test caught it.
+- An item is **any expectation** — a whole object, a `Specified<T>`, an `Expect.Value`, a bare `Type`.
+  A null element becomes `NullItem` so a set verification (which reads an item's runtime type) can pair
+  it. `ExpectedItems.ItemsFor(elementType)` materialises a table form; the element type comes from the
+  member via `With<TValue>`, falling back to the actual collection's at compare time.
+- **A nested disagreement names the item that disagreed** — `Lines[1].Quantity`, at the position the
+  actual item is at — and an expectation nothing satisfied names the **member**, with no index, because
+  it was not found anywhere. `ValueDifference` and `ObjectComparison.Leaf` carry a **trailing optional
+  `Note`** (MISSING / EXTRA / out of order / present-when-forbidden / wrong type), the same move as
+  `StepCell`'s trailing comparison word. `ValueDifferences` renders a list of them in one place, capped
+  at **ten** with "…and N more" — a reordered fifty-element collection is a hundred disagreements — and
+  the cap is at the rendering, so a programmatic caller still gets every one.
+- **A dictionary member is keyed** (`Headers[accept]`), so two dictionaries holding the same entries
+  agree whatever order they enumerate in and a key one side lacks reads as that key. Only a real
+  dictionary: a `List<KeyValuePair<,>>` is ordered and may hold one key twice, so reading it by key
+  would lose its order and silently drop a duplicate's leaves.
+- **A member whose runtime type is not the expected one is one difference** naming both types, and the
+  walk stops there — it was a cascade of leaves the actual has and the expectation does not, with the
+  type claim never stated. The top level already requires the exact type, so the silent one at depth
+  was the odd case out. Checked **after** the collection arms, where a `List<T>` and a `T[]` are the
+  same claim. Naming members is unaffected: a dotted path asks about a member, not about which type
+  carries it.
+- **`ComparisonRules`** carries ignored paths, per-path `Tolerance` and the claimed-order paths, so the
+  comparison's parameter does not grow a sibling per refinement; `IExpectedValue.Rules` is a defaulted
+  member over `IgnoredPaths`. `Expect.Value(x).Approximately(m, 0.01m)` / `.Within(m, 2.Seconds())`
+  render the `±` note a table cell already shows for `CheckOptions.Tolerance`. Slack on a member that
+  cannot have any is a `SpecCriticalException` naming it — a specification asking for slack on a value
+  that has none is a spec defect, and comparing exactly instead would hide it. **A rule names a path
+  from the object compared and does not reach inside a collection's elements** (an element has no path
+  a specification writes); an element that needs its own slack is its own `Expect.Value`.
+- **The ancestor set is `[ThreadStatic]`, owned by the outermost call.** A collection's items are
+  compared through `PartialMatching`, which re-enters `ObjectComparison`, so a set each call owned
+  privately would be a fresh one per element and a cycle **through a collection** would not terminate.
+  `MaxDepth = 8` stays as the backstop.
+- **`ObjectComparison.Format` overrides a type's own `ToString` only where it has nothing of its own
+  to say.** A collection's gives its type name where a reader wants its items, and a record's
+  generated one walks the graph and recurses forever on a cycle (`PrintMembers` gives it away) — but a
+  hand-written `ToString` is how the type wants to be read, which the first cut broke for the tag list.
+- **Shouldly's `ShouldBe` over a collection stays ordered** (`MemberChecks.Read`), with
+  `ignoreOrder: true` as the unordered form: `ShouldBe` is Shouldly's word and its own meaning over an
+  `IEnumerable` is ordered. What Bobcat adds is member by member. `ShouldBe(x, tolerance)` still falls
+  through to a `MemberCheck`. A collection expectation **cannot be built**, the same refusal a member
+  check already gets.
+- User docs: `docs/expected-objects.md`, which is also #452's home for the member-check C# 14
+  requirement. Worked corpus: `Bobcat.Projected.Acceptance.Tests/ExpectedObjectTests`, asserting on the
+  **grid** rather than the difference list, because #456 was about what a reader could tell.
 
 **`RecordBuilding.Build`** (`src/Bobcat/CritterStack/`, public) is a thin call into this engine, and
 every build is partial (#419). It fills with `DefaultValues` (`default(T)`, the #241 rule) — *not*
@@ -662,8 +733,12 @@ attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is cover
 | `(IEnumerable actual, StepTable expected)` — `SetVerificationComparer.Verify`, any such pair | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
 | `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
 | `Specified<T>.With("path", value)` | `T` | `Partial` |
+| `Expect.Rows(table)` / `Expect.NoRowsLike(table)` (bobcat#456) | the **member's** element type, from the enclosing `With<TValue>`'s inferred `TValue` | `Partial`; scalar elements skipped |
 
 Vertical `| field | value |` tables check the first-column values. Indexers are refused, depth is 8.
+`Expect.Rows` is the one shape whose type is **not on the call** — the whole point of the table form is
+that the author never repeats the element type — so it reads the enclosing `With`; anywhere else it is
+skipped, the same degradation as a non-constant table.
 
 **Skipped (left to the run-time `invalid` cell):** a non-constant table; a subject typed `object`,
 an interface, abstract, or a type parameter; and — for the two RUNTIME-type readers (property

@@ -32,7 +32,7 @@ internal static class TableCallChecks
 {
     private static readonly HashSet<string> MethodNames = new(StringComparer.Ordinal)
     {
-        "Verify", "VerifyObject", "VerifySet", "FromTable", "With"
+        "Verify", "VerifyObject", "VerifySet", "FromTable", "With", "Rows", "NoRowsLike"
     };
 
     public sealed class Finding
@@ -58,7 +58,11 @@ internal static class TableCallChecks
 
         var findings = new List<Finding>();
 
-        if (method.Name == "With" && isBobcatType(method.ContainingType, "Specified"))
+        if (method.Name is "Rows" or "NoRowsLike" && isBobcatType(method.ContainingType, "Expect"))
+        {
+            checkItemRows(invocation, method, model, findings, ct);
+        }
+        else if (method.Name == "With" && isBobcatType(method.ContainingType, "Specified"))
         {
             checkSpecifiedPath(invocation, method, model, findings, ct);
         }
@@ -141,6 +145,47 @@ internal static class TableCallChecks
 
         checkColumns(text, type, TableColumns.ColumnRule.Partial, requireClosed: false,
             tableArgument.Expression.GetLocation(), model.Compilation, findings);
+    }
+
+    /// <summary>
+    /// <c>Expect.Rows(table)</c> and <c>Expect.NoRowsLike(table)</c> (bobcat#456): a child collection
+    /// written as a table, one row per element.
+    /// </summary>
+    /// <remarks>
+    /// The element type is on the MEMBER rather than on this call — <c>.With(x =&gt; x.Lines,
+    /// Expect.Rows(…))</c>, which is the whole point of the table form, since an author never repeats
+    /// it. So the type comes from the enclosing <c>With</c>'s inferred <c>TValue</c>; anywhere else, no
+    /// type is in view and the check is skipped, the same honest degradation as a non-constant table.
+    /// </remarks>
+    private static void checkItemRows(InvocationExpressionSyntax invocation, IMethodSymbol method,
+        SemanticModel model, List<Finding> findings, CancellationToken ct)
+    {
+        var tableArgument = argumentFor(invocation, method, 0);
+        if (tableArgument is null || constantString(tableArgument.Expression, model, ct) is not { } text) return;
+
+        if (enclosingMemberType(invocation, model, ct) is not { } memberType) return;
+
+        var element = elementType(memberType);
+        if (element is null || TableColumns.IsScalar(element)) return;
+
+        // A partial object builds exactly the element type, so this is checked whether or not the
+        // type is open — the same reasoning as PartialObjects.FromTable
+        checkColumns(text, element, TableColumns.ColumnRule.Partial, requireClosed: false,
+            tableArgument.Expression.GetLocation(), model.Compilation, findings);
+    }
+
+    // The member type of the Specified<T>.With(...) this expression is an argument to
+    private static ITypeSymbol? enclosingMemberType(InvocationExpressionSyntax invocation, SemanticModel model,
+        CancellationToken ct)
+    {
+        if (invocation.Parent is not ArgumentSyntax { Parent: ArgumentListSyntax { Parent: InvocationExpressionSyntax outer } })
+            return null;
+
+        return model.GetSymbolInfo(outer, ct).Symbol is IMethodSymbol { Name: "With" } with_
+               && isBobcatType(with_.ContainingType, "Specified")
+               && with_.TypeArguments.Length == 1
+            ? with_.TypeArguments[0]
+            : null;
     }
 
     private static void checkSpecifiedPath(InvocationExpressionSyntax invocation, IMethodSymbol method,

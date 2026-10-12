@@ -328,8 +328,15 @@ Each row stands alone and lands on its own.
 | 4 | §2.3 — `ValueDifference.Note` and the nested verdict rows | additive; 3 is not worth shipping without it | done, `a52b748` |
 | 5 | §2.7 — the difference cap | rendering only | done, `a52b748` |
 | 8 | §2.5 — the runtime-type check | behavioural | done, `a52b748` |
-| 6 | §2.2a — `ShouldBe` on a collection is ordered | additive | done |
-| 7 | §2.2 — `Approximately` / `Within` / `InAnyOrder` on `Expect.Value` | additive | |
+| 6 | §2.2a — `ShouldBe` on a collection is ordered | additive | done, `102b604` |
+| 7 | §2.2 — `Approximately` / `Within` / `InOrder` on `Expect.Value` | additive | done, `ac19946` |
+| 9 | docs + worked samples (#452's home too) | — | done, `94a2645` |
+| 10 | the ai-skills entry | — | staged, `d550215` — see `ai-skills-456.md` |
+| 11 | BOBCAT032 for `Expect.Rows(table)` | additive | done |
+
+`.InAnyOrder(member)` from §2.2's first draft was **not built, and should not be**: call 1 made a bare
+collection unordered, so it would have been a no-op. `.InOrder(member)` is the method that earns its
+place now — `Expect.Exactly` for one member of a whole object.
 
 ### What building it taught
 
@@ -362,13 +369,17 @@ worked samples** for the expected-object forms, which is also #452's homeless do
 ai-skills entry (`critterstack-sdd-bobcat-authoring`), per this repo's rule that a capability ships
 with the write-up that teaches a later agent to use it.
 
-Follow-ups this opens, not in scope here:
+Follow-ups this opens, **not** in scope here:
 
-- **BOBCAT032 for the new call shape.** The generator checks a constant table's columns against the
-  type it is about for a known set of call shapes; `Expect.Exactly(table)` under
-  `.With(x => x.Lines, …)` is a new one, and the element type is on the member rather than on the
-  call, so `TableCallChecks` needs teaching.
-- The bare-statement `ShouldBe` through the projected-assertion interceptor (§2.2a).
+- The bare-statement `ShouldBe` through the projected-assertion interceptor (§2.2a) — a statement in a
+  spec body still gathers Shouldly's own verdict rather than Bobcat's comparison. Reaches into the
+  generator and `ShouldlyDialect`.
+- **Multi-case F# unions** are still unsupported by the comparison, unchanged by this work.
+
+Done rather than deferred: **BOBCAT032 now covers `Expect.Rows(table)`**, which was listed here as a
+follow-up. It is the one checked shape whose type is *not on the call* — the whole point of the table
+form is that the author never repeats the element type — so `TableCallChecks` reads the enclosing
+`With<TValue>`'s inferred member type, and skips where no member is in view.
 
 [bobcat#456]: https://github.com/JasperFx/bobcat/issues/456
 [JasperFx/wolverine#4865]: https://github.com/JasperFx/wolverine/issues/4865
