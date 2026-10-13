@@ -415,10 +415,20 @@ Each generated spec class carries `[BobcatSlice(SliceType = typeof(ReviewVolunte
 or `SliceName = "…"` where no type bears the slice's name, so the IDE navigates from the spec to its
 slice. Bobcat.Generators also writes a manifest of every `[BobcatFeature]` test as a JasperFx
 `SpecificationBindingDescriptor`: its `{Feature}/{Scenario}` identity, and the command its first
-`When…(Specify<T>()…)` or `When…(new T(…))` sends, or the slice `[BobcatSlice]` names. Read it with
-`SpecificationBindings.In(assembly)`. JasperFx's `EventModelSpecifications.Link` joins those onto an
-assembled Event Model by command type (and domain, for a command several modules handle), so an
-`EventModelDefinition` needs no `LinksToSpecification` once something runs that join.
+`When…(Specify<T>()…)` or `When…(new T(…))` sends, or the slice `[BobcatSlice]` names. The manifest is
+marked with JasperFx's `[assembly: SpecificationManifest(…)]`, so it can be read without referencing
+Bobcat: `JasperFx.Events.EventModeling.SpecificationManifest.In(assembly)`, or `.Load(path)` for an
+assembly on disk (`SpecificationBindings.In(assembly)` forwards to it). JasperFx's
+`EventModelSpecifications.Link` joins those onto an assembled Event Model by command type (and domain,
+for a command several modules handle), so an `EventModelDefinition` needs no `LinksToSpecification`.
+
+Wolverine's `describe-event-model` (and the `event-model` export) runs that join: pass `--specs` the
+built spec assembly, once per spec project, and the model it describes carries each slice's
+specifications. A command several slices could own shows up as an `UnresolvedSpecification` hotspot.
+
+```bash
+dotnet run -- describe-event-model --specs ../Shelter.Specs/bin/Debug/net10.0/Shelter.Specs.dll
+```
 
 The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
 

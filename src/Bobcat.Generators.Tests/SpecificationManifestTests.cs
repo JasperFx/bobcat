@@ -81,7 +81,7 @@ public class SpecificationManifestTests
         }
         """;
 
-    private static IReadOnlyList<SpecificationBindingDescriptor> bindings()
+    private static Assembly specAssembly()
     {
         var outcome = GeneratorHarness.Run(Specs);
         outcome.CompilationErrors.ShouldBeEmpty();
@@ -90,7 +90,20 @@ public class SpecificationManifestTests
         var emitted = outcome.Compilation.Emit(stream);
         emitted.Success.ShouldBeTrue(string.Join("\n", emitted.Diagnostics));
 
-        return SpecificationBindings.In(Assembly.Load(stream.ToArray()));
+        return Assembly.Load(stream.ToArray());
+    }
+
+    private static IReadOnlyList<SpecificationBindingDescriptor> bindings() => SpecificationBindings.In(specAssembly());
+
+    [Fact]
+    public void the_manifest_is_marked_with_jasperfxs_attribute()
+    {
+        // bobcat#528: JasperFx's attribute, so describe-event-model --specs reads it without Bobcat
+        var assembly = specAssembly();
+
+        assembly.GetCustomAttribute<JasperFx.Events.EventModeling.SpecificationManifestAttribute>().ShouldNotBeNull();
+        assembly.GetCustomAttributesData().ShouldNotContain(x => x.AttributeType.FullName == "Bobcat.SpecificationManifestAttribute");
+        JasperFx.Events.EventModeling.SpecificationManifest.In(assembly).Count.ShouldBe(5);
     }
 
     [Fact]

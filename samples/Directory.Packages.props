@@ -22,10 +22,10 @@
     as the Bobcat it references, and the only safe signal is that each store was BUILT against
     that JasperFx.
 
-    ⚠️ JasperFx.Events is at 2.85.0 while the stores here are built against older JasperFx. That is
+    ⚠️ JasperFx.Events is at 2.87.0 while the stores here are built against older JasperFx. That is
     the same deliberate, documented exception src/Directory.Packages.props carries, not drift. Read
-    "THE 2.81.0 EXCEPTION" there (moved to 2.85.0 on 2026-10-12) before changing either number. The
-    samples project-reference Bobcat, which compiles against 2.85.0, so a lower pin here is a
+    "THE 2.81.0 EXCEPTION" there (moved to 2.87.0 on 2026-10-13) before changing either number. The
+    samples project-reference Bobcat, which compiles against 2.87.0, so a lower pin here is a
     downgrade the moment a sample references it.
   -->
   <PropertyGroup>
@@ -45,8 +45,8 @@
     <PackageVersion Include="Marten" Version="9.46.0" />
     <PackageVersion Include="Marten.AspNetCore" Version="9.46.0" />
     <PackageVersion Include="Fisher" Version="1.19.0" />
-    <PackageVersion Include="JasperFx.Events" Version="2.85.0" />
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.85.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.87.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.87.0" />
   </ItemGroup>
 
   <ItemGroup>
