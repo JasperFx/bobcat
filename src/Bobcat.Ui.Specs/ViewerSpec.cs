@@ -592,6 +592,34 @@ public abstract class ViewerSpec(MonitorHost host) : IAsyncLifetime
         => fact(File.Exists(host.EjectedFileFor(current)) && !File.Exists(host.ArchiveFileFor(current)),
             $"Expected the archive at {host.EjectedFileFor(current)} and none at {host.ArchiveFileFor(current)}");
 
+    // ---------------------------------------------------------------- agent queries (bobcat#524)
+
+    /// <summary>What the <c>bobcat</c> CLI's query commands GET: <c>/api/agent/{query}</c>.</summary>
+    [When("an agent asks for \"{query}\"")]
+    internal Task WhenAnAgentAsksFor(string query) => fetchRaw($"/api/agent/{query}");
+
+    [Then("the agent's answer responds with status {status}")]
+    internal void ThenTheAgentsAnswerRespondsWith(int status) => check("status", _lastStatus, status);
+
+    [Then("the agent's answer names \"{uid}\" as failing")]
+    internal void ThenTheAgentsAnswerNamesAsFailing(string uid)
+    {
+        var failing = JsonDocument.Parse(_lastBody).RootElement.GetProperty("failing").EnumerateArray()
+            .Select(x => x.GetProperty("uid").GetString()).ToArray();
+        check("failing", string.Join(", ", failing), uid);
+    }
+
+    [Then("the agent's answer is the scenario \"{uid}\" with status {status}")]
+    internal void ThenTheAgentsAnswerIsTheScenario(string uid, string status)
+    {
+        var root = JsonDocument.Parse(_lastBody).RootElement;
+        check("scenario", $"{root.GetProperty("uid").GetString()} {root.GetProperty("status").GetString()}", $"{uid} {status}");
+    }
+
+    [Then("the agent's answer is the error \"{message}\"")]
+    internal void ThenTheAgentsAnswerIsTheError(string message)
+        => check("error", JsonDocument.Parse(_lastBody).RootElement.GetProperty("error").GetString() ?? "", message);
+
     // ---------------------------------------------------------------- responses and exports (Then)
 
     [Then("the eject responds with status {status}")]

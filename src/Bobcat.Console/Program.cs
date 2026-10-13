@@ -24,6 +24,17 @@ var executor = CommandExecutor.For(factory =>
     factory.RegisterCommand<Bobcat.Ui.EventModel.WatchEventModelCommand>();
     factory.RegisterCommand<Bobcat.Ui.GenerateCommand>();
 
+    // The agent-facing reads over a running `bobcat ui` (bobcat#524): JSON on stdout.
+    factory.RegisterCommand<ListRunsCommand>();
+    factory.RegisterCommand<RunStatusCommand>();
+    factory.RegisterCommand<FailingTestsCommand>();
+    factory.RegisterCommand<FailingSpecCommand>();
+    factory.RegisterCommand<FlakyLedgerCommand>();
+    factory.RegisterCommand<EventModelQueryCommand>();
+    factory.RegisterCommand<SliceCoverageCommand>();
+    factory.RegisterCommand<ExportRunCommand>();
+    factory.RegisterCommand<AwaitRunCommand>();
+
     // Running a spec project and reading its specifications: run, preview, pick, watch
     factory.RegisterCommand<Bobcat.Console.Specs.SpecRunCommand>();
     factory.RegisterCommand<Bobcat.Console.Specs.SpecPreviewCommand>();

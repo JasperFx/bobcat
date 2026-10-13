@@ -10,6 +10,10 @@ A global .NET tool with these commands:
 | **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
 | **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records, an `EventModelDefinition` per chapter, and optionally a specification per example plus the spec project around them |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
+| **`ui`** | serve the Bobcat UI — live test runs and the Event Model — on 5525 and open it in the browser, until Ctrl+C (`--port`, `--no-browser`) |
+| **`watch-event-model`** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
+| **`list-runs`**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON (`--url`, `--run`) |
+| **`event-model`**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
 
 `dotnet test`, or running the test executable, still runs a spec project; the run commands are a
 friendlier view of the same test host.
