@@ -4,8 +4,9 @@ Bobcat runs announce themselves. This is the publisher's side of that: the event
 the transport it emits them over, the seams that produce them, and the environment variables
 that steer or silence the whole thing.
 
-Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09) and by the
-console's move to Stoat (2026-09-18).
+Decisions of record (2026-07-31), amended by the Bobcat/Stoat split (2026-08-09), by the
+console's move to Stoat (2026-09-18), and by its return to Bobcat as `bobcat ui` (2026-10-13,
+[#524](https://github.com/JasperFx/bobcat/issues/524)).
 
 ::: info A record written while there were two lanes
 Much of this page dates from when Bobcat also ran Gherkin `.feature` files on its own engine, through
@@ -16,14 +17,16 @@ the runner adapters and the supervisor. Where a passage names `BobcatRunner`, th
 is shaped the way it is.
 :::
 
-## The receiver is not in this repository
+## The receiver is `bobcat ui`
 
-The console that receives these events — the run board, the archive, the exports, the MCP tools
-over them, the Event Model canvas — **moved to [Stoat](https://github.com/JasperFx/stoat)**. Everything
-in Bobcat that remembered across a process went with it; what stays here is the format and the
-run. Bobcat has no web server, no store, no MCP surface and no frontend.
+The console that receives these events -- the run board, the archive, the exports, the agent
+queries over them, the Event Model canvas -- is [the Bobcat UI](bobcat-ui.md), `src/Bobcat.Ui`,
+served by `bobcat ui`. It lived in [Stoat](https://github.com/JasperFx/stoat) from 2026-09-18 and came
+back on 2026-10-13 ([#524](https://github.com/JasperFx/bobcat/issues/524)). The agent queries that
+were Stoat MCP tools are `bobcat` commands now; see
+[Querying Runs from the Command Line](agent-queries.md).
 
-What did *not* move is the vocabulary a publisher speaks, and none of it is obsolete:
+The move changed no part of the wire. What a publisher speaks is what it always spoke:
 
 - **`Bobcat.Monitoring`**, `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, the
   `Monitor:*` config keys, and the mirror records in `src/Bobcat/Monitoring/MonitorEvents.cs`.
@@ -32,21 +35,25 @@ What did *not* move is the vocabulary a publisher speaks, and none of it is obso
   user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
   (issue #389) and is deliberately *not* a `BOBCAT_*` variable: Bobcat does not ask for it, it reads
   what an agent session already put in the environment.
-- **Port 5525**, the address a publisher probes. It was deliberately kept rather than collapsed
-  into Stoat's coordination port, because every publisher already probes it; Stoat's single host
-  binds both.
+- **Port 5525**, the address a publisher probes and the one `bobcat ui` binds by default. A Stoat
+  host binds it too today, so the two cannot run side by side on one box.
+- **The resident runner's `stoat.runner.*` message names** (below), which every runner already sends
+  and expects.
 - **`docs/monitor-design.md` keeps its filename.** Issues, handoffs and the CLAUDE.md seams all
   link to it by this name, and it documents the protocol at least as much as it ever documented
   the viewer.
 
 Here "monitor" means *the thing a run publishes to*. Renaming any of it would be a breaking
-change for consumers that have nothing to do with the split.
+change for consumers that have nothing to do with where the viewer lives.
+
+<!-- JEREMY: drop the Stoat sentence under "Port 5525" once step 5 of #524 ships. -->
 
 > [!NOTE]
 > Sections below describe how the receiving side folds these events — `RunProjection`, the Pinia
-> runs-store, `GET /api/runs/{id}`, the MCP `run_status` tool, the CTRF export. Those are Stoat's
-> now. They are kept because **the fold is half of the contract**: a publisher that does not know
-> how its events are read cannot tell an additive change from a breaking one.
+> runs-store, `GET /api/runs/{id}`, `run-status`, the CTRF export. Some of that history was written
+> while the receiver lived in Stoat and still names Stoat issues. It is kept because **the fold is
+> half of the contract**: a publisher that does not know how its events are read cannot tell an
+> additive change from a breaking one.
 
 ## Transport: HTTP, fire-and-forget, never slows a run
 
@@ -95,13 +102,12 @@ that travels. All three are trailing optionals on the record, so a publisher tha
 older publisher and not a broken one.
 
 **There are two copies of these records and that is a decision, not drift** (issue #65). The
-publisher's copy is the one above, in `Bobcat.Monitoring`; the receiver's lives in Stoat as
-`src/Stoat.Console/Contracts/MonitorEvents.cs`. They stay unshared deliberately — Bobcat must
+publisher's copy is the one above, in `Bobcat.Monitoring`; the receiver's is
+`src/Bobcat.Ui/Contracts/MonitorEvents.cs`. They stay unshared deliberately — a publisher must
 not depend on the console's Wolverine stack, and **the wire shape, not an assembly, is the
-contract**. That is also what let a BSL console absorb an MIT viewer without either side
-acquiring a reference to the other. Stoat's `ContractRoundTripTests` and
-`ProgressContractRoundTripTests` are what keep the two copies honest, so a change made here
-alone fails there; `Bobcat.Tests/Monitoring/FakeMonitorHost` is how this side is tested against
+contract**. `Bobcat.Ui` references nothing else in this repository for the same reason.
+`Bobcat.Ui.Tests`' `ContractRoundTripTests` and `ProgressContractRoundTripTests` are what keep the
+two copies honest, so a change made to one alone fails; `Bobcat.Tests/Monitoring/FakeMonitorHost` is how this side is tested against
 real HTTP without one.
 
 
@@ -619,7 +625,7 @@ the rule every run it made for a button press was attributed to the session that
 **A second lane, out of process** (issue #399). A projected suite's entry point belongs to its test
 framework, so its runner lives outside the suite and runs a command by launching the suite's own test
 host, narrowed by #391's filter translation. It ships as `bobcat resident <host>` because the console
-at the other end references nothing in this repository and so cannot be handed a class to host.
+at the other end references nothing else in this repository and so cannot be handed a class to host.
 Cold-only, for the measured reason above. The child's environment is **pruned on purpose**:
 `BOBCAT_RUN_ID` would collapse every command into one run card, `BOBCAT_RUN_OWNER` would stop the
 child publishing a bracket at all, `BOBCAT_LIST_SPECS` would turn the run into a listing, and

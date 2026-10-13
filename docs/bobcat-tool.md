@@ -10,10 +10,10 @@ A global .NET tool with these commands:
 | **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
 | **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records, an `EventModelDefinition` per chapter, and optionally a specification per example plus the spec project around them |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
-| **`ui`** | serve the Bobcat UI — live test runs and the Event Model — on 5525 and open it in the browser, until Ctrl+C (`--port`, `--no-browser`) |
-| **`watch-event-model`** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
-| **`list-runs`**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON (`--url`, `--run`) |
-| **`event-model`**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
+| **[`ui`](bobcat-ui.md)** | serve the [Bobcat UI](bobcat-ui.md) -- the live run board and the Event Model canvas -- on 5525 and open it in the browser, until Ctrl+C |
+| **[`watch-event-model`](bobcat-ui.md#getting-a-model-onto-it)** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
+| **[`list-runs`](agent-queries.md)**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON -- see [Querying Runs from the Command Line](agent-queries.md) |
+| **[`event-model`](agent-queries.md)**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
 
 `dotnet test`, or running the test executable, still runs a spec project; the run commands are a
 friendlier view of the same test host.
@@ -22,16 +22,14 @@ friendlier view of the same test host.
 dotnet tool install -g Bobcat.Console
 ```
 
-`Bobcat.Console` is a plain command host: no web server, no store, nothing persisted between runs.
-It carries the free, no-server half of the toolset.
+`Bobcat.Console` carries the whole free toolset. Most of its commands start, do their job and exit;
+`ui` is the one that stays up, serving the [Bobcat UI](bobcat-ui.md) until you stop it.
 
-::: tip The run console moved
-The `bobcat` tool used to host the live run console. It does not any more -- the board, the archive,
-the model store and the design-time canvas all moved to
-[Stoat](https://github.com/JasperFx/stoat) on 2026-09-18, because every one of them remembers
-something across a process and this repository holds nothing that gates on a licence. Bobcat is the
-format and the run. Runs still publish to that console exactly as before; see
-[What a Run Publishes](monitor-design.md).
+::: tip The UI came back
+The run board and the Event Model canvas lived in [Stoat](https://github.com/JasperFx/stoat) from
+2026-09-18 and returned to Bobcat as `bobcat ui` in October 2026
+([#524](https://github.com/JasperFx/bobcat/issues/524)). Runs publish to it exactly as they always
+have; see [What a Run Publishes](monitor-design.md).
 :::
 
 ## `run`, `preview`, `pick`, `watch` {#run-preview-pick-watch}
@@ -606,7 +604,7 @@ says so, and points at `EventModelDefinition`.
 | `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |
 | `--json` | stdout carries only JSON: callouts, report and files |
 | `--force` | overwrite generated stubs, definitions and specifications that exist, instead of [merging into them](#re-running-the-import). Never the spec project's `.csproj`, `global.json` or `AssemblyAttributes.cs` |
-| `-u, --url <base>` | Push the assembled model to a run console at this base URL |
+| `-u, --url <base>` | Push the assembled model to a [Bobcat UI](bobcat-ui.md) at this base URL |
 
 #### `--url` takes the **base**, not the endpoint
 
@@ -652,7 +650,7 @@ Bobcat.Xunit.Samples (projected/xunit), 41 specification(s):
   …
 ```
 
-**It ships here because the console at the other end references nothing in this repository**, and so
+**It ships here because the console at the other end references nothing else in this repository**, and so
 cannot be handed a class to host. A wiring mistake is refused at launch rather than at the first
 button press -- a host that is not built, a suite that lists no specifications (usually a spec project
 with no runner adapter referenced), or a framework whose filter spelling Bobcat will not guess at.
