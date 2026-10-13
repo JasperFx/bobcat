@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bobcat.Ui.Specs: the console's end-to-end suite (issue #86). The whole wire is verifiable
+    without a browser: POST /api/ingest in, GET /api/runs, /api/runs/{id} and the export endpoints
+    out, all driven in-process over Alba's TestServer. Projected xUnit v3 specs on Bobcat.Xunit —
+    the console tested in the framework whose runs it shows.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- An xUnit v3 host on Microsoft.Testing.Platform, collected by `dotnet test` at the solution
+         root. src/Directory.Build.props applies these only to projects named *.Tests. -->
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+    <AssemblyAttribute Include="Bobcat.Xunit.RecordBobcatFeaturesAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Alba" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\Bobcat.Ui\Bobcat.Ui.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

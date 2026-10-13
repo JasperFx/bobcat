@@ -5,9 +5,8 @@
     eventmodelers.ai board export into C# (stub records plus an EventModelDefinition), and keeping
     a suite whose process Bobcat does not own available to a run console.
 
-    It deliberately does NOT host a web console. The run board, the model store and the design-time
-    canvas moved to Stoat, because every one of them remembers something across a process and this
-    repository holds nothing that gates on a licence. What stays here is the FORMAT and the RUN.
+    `bobcat ui` (bobcat#524) hosts the web console from src/Bobcat.Ui: the run board and the Event
+    Model canvas, on 5525, until Ctrl+C. They came back from Stoat, where they lived from 2026-09-17.
   -->
 
   <PropertyGroup>
@@ -30,8 +29,13 @@
     <!-- src/Directory.Build.props defaults IsPackable to false and every shipping package opts
          in. Without this the tool packs NOTHING and the release ships without `bobcat`, silently
          — the pack succeeds and simply produces no nupkg. -->
-    <IsPackable>true</IsPackable>
-    <Description>The bobcat command line tool: read, validate and convert Event Model files, and keep a spec suite available to a run console.</Description>
+    <!--
+      Gated on EmbedFrontend (src/Bobcat.Ui): the tool must never ship without its UI baked in, so
+      the solution-level pack skips it and the Pack target packs it with -p:EmbedFrontend=true.
+    -->
+    <EmbedFrontend Condition="'$(EmbedFrontend)' == ''">false</EmbedFrontend>
+    <IsPackable>$(EmbedFrontend)</IsPackable>
+    <Description>The bobcat command line tool: run and preview specifications, watch live test runs and the Event Model in the browser (bobcat ui), and read, validate and convert Event Model files.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,6 +45,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
+
+    <!-- `bobcat ui` and the agent query commands (bobcat#524). -->
+    <ProjectReference Include="..\Bobcat.Ui\Bobcat.Ui.csproj" />
 
     <!-- The resident runner for the out-of-process lane (issue #399) lives in core. The tool is
          where it ships from, because the console at the other end references nothing in this
