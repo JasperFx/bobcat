@@ -178,4 +178,5 @@ debug it there.
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) -- the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) -- the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The Resident Runner](resident-runner.md) -- keeping a suite available to a run console, so specs run when somebody asks
-- [The `bobcat` Tool](bobcat-tool.md) -- importing Event Model boards, and the resident runner
+- [The Bobcat UI](bobcat-ui.md) -- `bobcat ui`: the live run board and the Event Model canvas, in your browser
+- [The `bobcat` Tool](bobcat-tool.md) -- importing Event Model boards, the UI, and the resident runner

@@ -58,8 +58,11 @@ A CI job's output is captured, so the rendered specification isn't printed by de
 
 A run can announce itself over a documented wire -- every scenario's start, verdict and timing --
 which is how a build becomes something you can watch rather than something you read afterwards. The
-receiving console lives in [Stoat](https://github.com/JasperFx/stoat); Bobcat publishes to it and holds
-nothing itself.
+receiving console is the [Bobcat UI](../bobcat-ui.md), `bobcat ui`; a run publishes to it when one
+answers and skips publishing when none does, so a CI job with no UI running pays nothing for it.
+
+<!-- JEREMY: a CI job could also start `bobcat ui --no-browser` itself and use `bobcat export-run`
+or `bobcat failing-tests` at the end. I left that out rather than invent a recipe nobody has run. -->
 
 Set `BOBCAT_RUN_TAG` in the pipeline so the evidence a run produces can be attributed back to the
 commit or job that asked for it. Agents override this variable, so set it explicitly rather than

@@ -22,5 +22,6 @@ drift.
 | The Given/When/Then vocabulary the specifications are written in | [Bobcat with Wolverine](../integrations/wolverine.md) |
 | What a specification claims about an event, an aggregate or a read model -- partial objects, collection expectations, tolerances, member checks and the C# version they need | [Expected Objects](../expected-objects.md) |
 | The gate that keeps the model and the specifications honest | [Checking Spec Identities Against the Model](../spec-identities.md#checking-identities-against-the-model) |
+| Seeing the model, which slices have specifications, and how those specifications last ran | [The Bobcat UI](../bobcat-ui.md#the-event-model-canvas) and [`bobcat slice-coverage`](../agent-queries.md) |
 
 Skeleton generation for declared-only slices is Wolverine's `scaffold` command, not Bobcat's.
