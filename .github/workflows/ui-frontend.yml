@@ -1,0 +1,36 @@
+name: ui frontend
+
+# Typecheck + Vitest gate for the Bobcat UI's Vue SPA (bobcat ui, bobcat#524), mirroring
+# CritterWatch's frontend-unit workflow. Runs only when the frontend changed; the wire behind it
+# is covered by Bobcat.Ui.Specs in the main test job.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'src/Bobcat.Ui.FrontEnd/**'
+      - '.github/workflows/ui-frontend.yml'
+
+env:
+  CI: true
+
+jobs:
+  frontend-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Bobcat.Ui.FrontEnd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (vue-tsc)
+        run: npx vue-tsc -b
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run

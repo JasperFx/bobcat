@@ -104,7 +104,10 @@ partial class Build : NukeBuild
     Target CI => _ => _
         .DependsOn(Test);
 
-    // What publish.yml packs: every packable project in the solution, plus the bobcat tool.
+    // What publish.yml packs: every packable project in the solution, plus the bobcat tool — which
+    // only this second pack produces, because its IsPackable is gated on EmbedFrontend so it can
+    // never ship without the Bobcat UI's SPA baked in (bobcat#524). EmbedFrontend runs npm ci and
+    // the Vite build inside the pack, so the machine needs Node; publish.yml sets it up.
     //
     // After(Test), so `./build.sh CI Pack` runs Compile, Test, Pack — the order tests.yml already
     // proves, with the pack at the end. Nuke was free to put Pack in the middle, and then the
@@ -127,6 +130,7 @@ partial class Build : NukeBuild
             DotNetPack(s => s
                 .SetProject(RootDirectory / "src" / "Bobcat.Console" / "Bobcat.Console.csproj")
                 .SetConfiguration(Configuration)
+                .SetProperty("EmbedFrontend", "true")
                 .SetOutputDirectory(PackagesDirectory));
         });
 }

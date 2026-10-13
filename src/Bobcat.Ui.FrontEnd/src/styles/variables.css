@@ -1,0 +1,156 @@
+/* Bobcat UI — "Ember on Ink" over Element Plus (dark-only), the palette of the Bobcat docs site
+   (docs/.vitepress/theme/style.css). Vendored rather than imported: the console and the docs
+   should look like siblings, and a divergence should be a decision.
+
+   Accent discipline: ember is a line, a border and a glow — never a large fill. */
+:root {
+  /* Brand */
+  --bc-accent: #f0a23b;
+  --bc-section: #1e3350;
+
+  --bc-ground: #0b1421;
+  --bc-surface: #101b2d;
+  --bc-surface-soft: #0e1827;
+  --bc-coat: #f5f1e8;
+
+  /* Neutral ramp: the docs' blue-grey text and line colours, extended */
+  --bc-neutral-100: #f5f1e8;
+  --bc-neutral-200: #dfe6f0;
+  --bc-neutral-300: #c3d0e0;
+  --bc-neutral-400: #9fb2cc;
+  --bc-neutral-500: #8296b2;
+  --bc-neutral-600: #6e829e;
+  --bc-neutral-700: #4a5f7c;
+  --bc-neutral-800: #1e3350;
+  --bc-neutral-900: #152438;
+
+  /* Accent ramp: ember */
+  --bc-accent-100: #fff6e8;
+  --bc-accent-200: #ffe6c2;
+  --bc-accent-300: #ffcf8a;
+  --bc-accent-400: #ffb65a;
+  --bc-accent-500: #f0a23b;
+  --bc-accent-600: #c98227;
+  --bc-accent-700: #9a6119;
+  --bc-accent-800: #5e3d14;
+  --bc-accent-900: #2e2210;
+
+  /* App roles */
+  --bm-primary: var(--bc-accent);
+  --bm-link: var(--bc-accent-300);
+  --bm-divider: rgba(233, 233, 237, 0.16);
+  --bm-menu-bg: var(--bc-ground);
+  --bm-menu-hover: rgba(159, 178, 204, 0.08);
+  --bm-menu-text: var(--bc-neutral-400);
+  --bm-menu-active-text: var(--bc-accent-300);
+
+  /* Test-state color grammar, re-tuned for the dark ground: the hues keep the
+     Event Modeling meaning (running = command blue, passed = read-model green,
+     failed = failure red, retrying = event orange); fills become tints. */
+  --bm-state-running: #7da2f5;
+  --bm-state-running-bg: rgba(47, 111, 237, 0.18);
+  --bm-state-passed: #57c98b;
+  --bm-state-passed-bg: rgba(46, 158, 91, 0.16);
+  --bm-state-failed: #ef7b74;
+  --bm-state-failed-bg: rgba(214, 69, 65, 0.16);
+  --bm-state-retrying: #f2a63c;
+  --bm-state-retrying-bg: rgba(232, 147, 12, 0.16);
+  /* An exception, as distinct from a disagreement (stoat#60): Storyteller's yellow panel. A
+     thrown step is not "more failed" than a wrong cell, it is a different kind of fact. */
+  --bm-state-errored: #e8c547;
+  --bm-state-errored-bg: rgba(232, 197, 71, 0.12);
+  /* A planned step the run never reached (stoat#59): present, and visibly not evidence. */
+  --bm-state-unreached: var(--bc-neutral-600);
+}
+
+/* Element Plus rides the same tokens. The dark css-vars sheet declares these on
+   html.dark; index.html sets the class, and this block (loaded after it) wins.
+   In dark mode the light-N ramp runs TOWARD the ground, dark-2 toward the coat. */
+html.dark {
+  --el-color-primary: var(--bc-accent);
+  --el-color-primary-light-3: var(--bc-accent-600);
+  --el-color-primary-light-5: var(--bc-accent-700);
+  --el-color-primary-light-7: var(--bc-accent-800);
+  --el-color-primary-light-8: #46300f;
+  --el-color-primary-light-9: var(--bc-accent-900);
+  --el-color-primary-dark-2: var(--bc-accent-400);
+
+  --el-bg-color: var(--bc-surface);
+  --el-bg-color-overlay: var(--bc-surface);
+  --el-bg-color-page: var(--bc-ground);
+  --el-text-color-primary: var(--bc-coat);
+  --el-text-color-regular: var(--bc-neutral-300);
+  --el-text-color-secondary: var(--bc-neutral-500);
+  --el-border-color: var(--bc-neutral-800);
+  --el-border-color-light: var(--bc-neutral-800);
+  --el-border-color-lighter: var(--bm-divider);
+  --el-border-color-extra-light: var(--bm-divider);
+}
+
+body {
+  margin: 0;
+  background: var(--bc-ground);
+  color: var(--bc-coat);
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Hierarchy is size and space — never weight past 500 */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Themed focus — never the browser default */
+:focus-visible {
+  outline: 2px solid var(--bc-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(240, 162, 59, 0.3);
+}
+
+/* Primary actions are outlined — an accent border on transparent, never a fill */
+.el-button--primary {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--bc-accent);
+  --el-button-text-color: var(--bc-accent-300);
+  --el-button-hover-bg-color: rgba(240, 162, 59, 0.16);
+  --el-button-hover-border-color: var(--bc-accent-400);
+  --el-button-hover-text-color: var(--bc-accent-200);
+  --el-button-active-bg-color: rgba(240, 162, 59, 0.24);
+  --el-button-active-border-color: var(--bc-accent-400);
+}
+
+/* Elevation on the dark ground is a hairline edge plus ambient darkness —
+   no stacked shadows. */
+.el-card {
+  border: 1px solid var(--bc-neutral-800);
+  box-shadow: none !important;
+}
+
+/* Secondary actions: neutral outline on transparent — the docs' alt button. */
+.el-button:not(.el-button--primary) {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--bc-neutral-800);
+  --el-button-text-color: var(--bc-neutral-300);
+  --el-button-hover-bg-color: rgba(147, 151, 171, 0.08);
+  --el-button-hover-border-color: var(--bc-neutral-700);
+  --el-button-hover-text-color: var(--bc-coat);
+  --el-button-active-bg-color: rgba(147, 151, 171, 0.12);
+  --el-button-active-border-color: var(--bc-neutral-700);
+}
+
+/* Destructive actions: the same outline, in the failure colour, so an archive never reads as
+   just another button. Two classes, to outrank the neutral rule above. */
+.el-button.el-button--danger {
+  --el-button-border-color: rgba(239, 123, 116, 0.55);
+  --el-button-text-color: var(--bm-state-failed);
+  --el-button-hover-bg-color: var(--bm-state-failed-bg);
+  --el-button-hover-border-color: var(--bm-state-failed);
+  --el-button-hover-text-color: var(--bm-state-failed);
+  --el-button-active-bg-color: rgba(214, 69, 65, 0.24);
+  --el-button-active-border-color: var(--bm-state-failed);
+  --el-button-disabled-text-color: rgba(239, 123, 116, 0.4);
+  --el-button-disabled-border-color: rgba(239, 123, 116, 0.25);
+}
