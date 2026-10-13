@@ -169,10 +169,12 @@ CI is GitHub Actions only, and each workflow is a thin wrapper around the Nuke b
 |----------|------|------|
 | `tests.yml` | `./build.sh CI`, with a Postgres service | every push |
 | `samples.yml` | `./build.sh Samples`, with a Postgres service | pushes touching `src/`, `samples/`, or `build/` |
+| `ui-smoke.yml` | `./build.sh UiSmoke`: packs the `bobcat` tool with its UI, starts `bobcat ui` and checks it, Chromium included | pushes touching `src/` or `build/` |
+| `ui-frontend.yml` | typecheck, Vitest and the Vite build of the `bobcat ui` page | pushes touching `src/Bobcat.Ui.FrontEnd/` |
 | `publish.yml` | `./build.sh CI Pack`, then pushes to nuget.org | `v*` tags, or manually |
 | `docs.yml` | builds and deploys the documentation site | manually |
 
-To change what CI does, change `build/Build.cs` or `build/Samples.cs`, not the workflows.
+To change what CI does, change `build/Build.cs`, `build/Samples.cs` or `build/UiSmoke.cs`, not the workflows.
 
 ## Documentation
 

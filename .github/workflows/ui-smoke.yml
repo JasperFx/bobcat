@@ -1,0 +1,49 @@
+name: ui smoke
+
+# The packed `bobcat ui`, driven from the outside (bobcat#524): `./build.sh UiSmoke` packs the tool
+# exactly as publish.yml does (EmbedFrontend=true), installs it into a tool path, starts it and runs
+# build/ui-smoke/smoke.sh against it — the embedded page and its assets, deep links, the publisher
+# wire, the CLI queries, a second UI refusing the same port, and a Chromium pass over the run board
+# and the Event Model canvas. build/UiSmoke.cs and the script say why each check is there.
+#
+# Every src/** change, like samples.yml: the tool bundles core, the supervisor and the Event Model
+# library as well as the UI, so a narrower filter would miss a break that only shows in the pack.
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'src/**'
+      - 'build/**'
+      - 'global.json'
+      - '.github/workflows/ui-smoke.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # For EmbedFrontend's npm ci + Vite build inside the pack, and the Playwright leg.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pack, install and smoke the bobcat tool
+        run: ./build.sh UiSmoke
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-playwright
+          path: build/ui-smoke/e2e/test-results/
+          if-no-files-found: ignore

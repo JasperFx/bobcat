@@ -1,0 +1,19 @@
+{
+  "name": "Wallets",
+  "slices": [
+    {
+      "name": "CreditWallet",
+      "pattern": "Command",
+      "commandType": { "name": "CreditWallet", "fullName": "Wallets.CreditWallet", "assemblyName": "Wallets" },
+      "aggregateTypes": [ { "name": "Wallet", "fullName": "Wallets.Wallet", "assemblyName": "Wallets" } ],
+      "emittedEvents": [ { "name": "WalletCredited", "fullName": "Wallets.WalletCredited", "assemblyName": "Wallets" } ],
+      "specifications": [ { "identity": "Wallet/Crediting a wallet", "resolvedTypes": [] } ]
+    },
+    {
+      "name": "WalletBalance",
+      "pattern": "View",
+      "consumedEvents": [ { "name": "WalletCredited", "fullName": "Wallets.WalletCredited", "assemblyName": "Wallets" } ],
+      "readModelTypes": [ { "name": "WalletBalance", "fullName": "Wallets.WalletBalance", "assemblyName": "Wallets" } ]
+    }
+  ]
+}
