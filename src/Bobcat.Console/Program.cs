@@ -1,8 +1,8 @@
 using Bobcat.Console;
 using JasperFx.CommandLine;
 
-// The `bobcat` tool is a plain command host — no web server, no store, nothing that outlives the
-// process.
+// The `bobcat` tool is a command host. One command, `ui` (bobcat#524), serves a web console until
+// Ctrl+C; nothing else starts a server.
 //
 // Registration is EXPLICIT rather than a scan, which is the whole point (issue #369).
 // `RunJasperFxCommands(args)` handed this tool the entire JasperFx command family — `projections`,
@@ -17,6 +17,12 @@ var executor = CommandExecutor.For(factory =>
 {
     factory.RegisterCommand<ImportEventModelCommand>();
     factory.RegisterCommand<ResidentCommand>();
+
+    // The console (bobcat#524): the run board and the Event Model canvas in the browser, and the
+    // design-time loop that keeps the canvas live as an application is edited.
+    factory.RegisterCommand<UiCommand>();
+    factory.RegisterCommand<Bobcat.Ui.EventModel.WatchEventModelCommand>();
+    factory.RegisterCommand<Bobcat.Ui.GenerateCommand>();
 
     // Running a spec project and reading its specifications: run, preview, pick, watch
     factory.RegisterCommand<Bobcat.Console.Specs.SpecRunCommand>();

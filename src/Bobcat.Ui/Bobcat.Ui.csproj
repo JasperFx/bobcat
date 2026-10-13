@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bobcat.Ui — the host behind `bobcat ui` (bobcat#524): the run board and the Event Model canvas,
+    served on 5525 for as long as somebody keeps the command running.
+
+    It came back from Stoat's Stoat.Console, which took it out of this repository on 2026-09-17
+    (3ee3db9). The wire is unchanged: publishers (BobcatRunner, the supervisor, worker processes,
+    a Wolverine application's event-model export) talk to it over plain HTTP, and no Bobcat.*
+    library references this project. Only the `bobcat` tool does.
+
+    Wolverine + Wolverine.SignalR, as it was in both earlier homes: the HTTP endpoints, the SignalR
+    relay to the SPA, and the Event Model change notice all ride them. That makes the tool depend
+    on WolverineFx; no Bobcat library does, so the WolverineFx.Bobcat -> Bobcat direction is
+    untouched.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Bobcat.Ui</RootNamespace>
+
+    <!--
+      CritterWatch's EmbedFrontend pattern: opt-in because the frontend build needs npm, which a
+      plain `dotnet build` of the solution (CI's tests job, a contributor without node) must not
+      require. The tool's packing is gated on the same property, so `bobcat` never ships without
+      its UI baked in.
+    -->
+    <EmbedFrontend Condition="'$(EmbedFrontend)' == ''">false</EmbedFrontend>
+  </PropertyGroup>
+
+  <!--
+    The EmbeddedResource items are added INSIDE the target, not in a static ItemGroup: a static
+    glob evaluates before any target runs, so on a clean build (no dist/ yet) it matches nothing
+    and the "embedded" tool ships hollow. SkipFrontendBuild reuses an existing dist/.
+  -->
+  <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Condition="'$(EmbedFrontend)' == 'true'">
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd" />
+    <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
+          WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd" />
+
+    <ItemGroup>
+      <_FrontendDistFile Include="../Bobcat.Ui.FrontEnd/dist/**/*" />
+      <EmbeddedResource Include="@(_FrontendDistFile)"
+                        Link="wwwroot/%(_FrontendDistFile.RecursiveDir)%(_FrontendDistFile.Filename)%(_FrontendDistFile.Extension)" />
+    </ItemGroup>
+
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/dist/index.html')"
+           Text="EmbedFrontend=true but the frontend build produced no dist/index.html" />
+  </Target>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Direct: MonitorEvents uses JasperFx.Testing.DispositionKind, and CPM pins only what a
+         project references. -->
+    <PackageReference Include="JasperFx" />
+    <!-- Direct: EventModelStore round-trips the typed EventModelDescriptor. -->
+    <PackageReference Include="JasperFx.Events" />
+    <PackageReference Include="WolverineFx.Http" />
+    <PackageReference Include="WolverineFx.SignalR" />
+    <!-- Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
+         host dies at startup in TypeLoadMode.Dynamic. -->
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+    <!-- GenerateCommand: the SPA's TypeScript contract mirrors, from Contracts/MonitorEvents.cs. -->
+    <PackageReference Include="NJsonSchema" />
+    <PackageReference Include="NJsonSchema.CodeGeneration.TypeScript" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bobcat.Ui.Tests" />
+  </ItemGroup>
+
+</Project>

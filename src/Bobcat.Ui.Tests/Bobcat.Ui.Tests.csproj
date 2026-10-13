@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; a
+         ProjectReference analyzer brings the generator but not its props. WalletSpecs is a real
+         projected spec, so it needs them. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The platform-extension registration and [BobcatFeature] hook the Bobcat.Xunit PACKAGE
+         carries in buildTransitive; a ProjectReference does not consume another project's build
+         assets, so in-repo they are stated here. -->
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+    <AssemblyAttribute Include="Bobcat.Xunit.RecordBobcatFeaturesAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <!-- Real monitor payloads captured from a running console, replayed by the tests that pin what a
+       publisher actually sends rather than what a hand-written event says it sends. -->
+  <ItemGroup>
+    <None Update="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The one place both sides of the monitor wire meet: Bobcat's dependency-free publisher
+      mirrors and Bobcat.Ui's Wolverine-marked ingestion contracts. The round-trip tests here are
+      what let the two record sets stay deliberately unshared.
+    -->
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\Bobcat.Ui\Bobcat.Ui.csproj" />
+    <!-- Issue #294: a real generated BobcatEventModelSource from the projected WalletSpecs. -->
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
