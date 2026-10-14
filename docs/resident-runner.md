@@ -9,6 +9,9 @@ an ordinary run.
 bobcat resident ./artifacts/MySpecs
 bobcat resident ./artifacts/MySpecs --list        # what it specifies, registering with nothing
 bobcat resident ./artifacts/MySpecs --url http://localhost:5525 --id my-checkout
+
+# Commands from the first console; a commanded run published to both
+bobcat resident ./artifacts/MySpecs --url http://localhost:5525,http://localhost:5050
 ```
 
 A spec suite's entry point belongs to its test framework, which will never learn what "go resident"
@@ -31,8 +34,8 @@ are refused until their filter spelling is pinned against a real host. See
 
 ## The runner is a client, and that is the whole security model
 
-It connects **out** to the same origin every publisher already probes (port 5525 by default) and
-*asks* for work. A monitor can only answer a runner that asked, and can never make a runner do
+It connects **out** to one origin -- `--url`'s first entry, else `BOBCAT_MONITOR_URL`'s first, else
+port 5525 -- and *asks* for work. A monitor can only answer a runner that asked, and can never make a runner do
 anything. Nothing listens on a port, so there is nothing to secure.
 
 A command names **specification identities and nothing else** -- no arguments, no paths, no flags  -- 
@@ -175,6 +178,12 @@ And two are forced on: `BOBCAT_MONITOR=1`, because a resident runner exists to s
 `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole box; and `BOBCAT_MONITOR_URL` from
 the runner's own `--url`, because a runner pointed at a second console would otherwise take that
 console's commands and publish the runs to the default one.
+
+**The URL travels as a list, and taking commands does not.** `--url` accepts the same comma- or
+semicolon-separated list `BOBCAT_MONITOR_URL` takes ([bobcat#530](https://github.com/JasperFx/bobcat/issues/530)),
+and the whole list reaches the child -- so a commanded run shows up on every console watching. The
+runner itself registers with and reads its command stream from **one** console, the first entry:
+commands come from somewhere in particular, while a run may be watched from anywhere.
 
 ## Attribution: a commanded run has no session
 

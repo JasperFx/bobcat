@@ -636,7 +636,7 @@ command (`cold`), or one host held open between commands (`warm`), as the consol
 
 | Flag | What it does |
 |---|---|
-| `-u, --url <base>` | the console to register with; defaults to the one every publisher probes. It travels down to the child run, so a runner pointed at a second console does not publish to the default one |
+| `-u, --url <base>` | the console to register with; defaults to `BOBCAT_MONITOR_URL`, then to the port every publisher probes. It travels down to the child run, so a runner pointed at a second console does not publish to the default one. **Several, comma- or semicolon-separated:** the runner reads its commands from the first and a commanded run publishes to all of them ([bobcat#530](https://github.com/JasperFx/bobcat/issues/530)) |
 | `-i, --id <id>` | a stable runner id. Defaults to `BOBCAT_RUNNER_ID`, then to a fresh GUID |
 | `--list` | print what the host specifies and exit, registering with nothing |
 

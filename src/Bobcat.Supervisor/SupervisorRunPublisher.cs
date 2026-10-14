@@ -60,7 +60,9 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
         IAsyncDisposable? owned = null;
         if (sink is null)
         {
-            var publisher = await MonitorPublisher.TryConnect();
+            // Every target BOBCAT_MONITOR_URL names (bobcat#530). The workers inherit the variable
+            // unchanged through WorkerLaunchContext.Environment, so their own streams fan out too.
+            var publisher = await MonitorTargets.TryConnect();
             if (publisher is null) return null;
 
             sink = publisher;

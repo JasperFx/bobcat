@@ -251,7 +251,8 @@ public sealed class Supervisor
     /// <c>Indeterminate</c> — and every worker inherits <c>BOBCAT_RUN_ID</c> +
     /// <c>BOBCAT_RUN_OWNER</c>, so worker scenario/step streams land on this run instead of
     /// each worker being its own card. When the monitor is absent, the run proceeds exactly
-    /// as before; the probe costs one refused local connection.
+    /// as before; the probe costs one refused local connection — one per target, probed
+    /// concurrently, when <c>BOBCAT_MONITOR_URL</c> names more than one (bobcat#530).
     /// </remarks>
     public bool PublishToMonitor { get; set; }
 

@@ -2,10 +2,12 @@ namespace Bobcat.Tests.Monitoring;
 
 /// <summary>
 /// <c>BOBCAT_MONITOR</c> is an environment variable, so it is one value for the whole test
-/// process — and both <see cref="MonitorPublisherTests"/> and
-/// <see cref="SpecEventModelPublishingTests"/> take ownership of it per test, clearing it in
+/// process — and <see cref="MonitorPublisherTests"/>, <see cref="SpecEventModelPublishingTests"/>
+/// and <see cref="MonitorTargetsTests"/> all take ownership of it per test, clearing it in
 /// their constructors and restoring it in <c>Dispose</c>. In separate collections xUnit runs
-/// those two classes side by side, and each one's writes land in the other's run.
+/// those classes side by side, and each one's writes land in the others' runs.
+/// <see cref="MonitorTargetsTests"/> owns <c>BOBCAT_MONITOR_URL</c> on the same terms
+/// (bobcat#530), which is the second reason to serialize them.
 /// </summary>
 /// <remarks>
 /// The race is real in both directions, and both were reproduced by widening the window:

@@ -190,4 +190,78 @@ public class SpecEventModelPublishingTests : IDisposable
     [Fact]
     public void an_assembly_with_no_generated_source_contributes_no_half()
         => SpecEventModelPublisher.Discover([typeof(SpecEventModelPublishingTests).Assembly]).ShouldBeEmpty();
+
+    // --- Several monitor targets (bobcat#530).
+
+    [Fact]
+    public async Task the_half_goes_to_every_target_the_run_is_attached_to()
+    {
+        using var first = new FakeMonitorHost();
+        using var second = new FakeMonitorHost();
+
+        await using var targets = await MonitorTargets.TryConnect([first.Url, second.Url]);
+        targets.ShouldNotBeNull();
+
+        var published = await SpecEventModelPublisher.PublishAll(targets, [half()]);
+
+        // One source name, published — not one per target. The sources a run contributed is a
+        // question about the model, not about how many consoles are watching.
+        published.ShouldBe(["BankAccountES-Tests"]);
+
+        first.EventModelPushes.ShouldHaveSingleItem().Source.ShouldBe("BankAccountES-Tests");
+        second.EventModelPushes.ShouldHaveSingleItem().Source.ShouldBe("BankAccountES-Tests");
+    }
+
+    /// <summary>
+    /// The model-name rule is a question about a PARTICULAR console — <c>GET /api/event-model</c>
+    /// merges only the sources naming the name <i>that</i> console serves — so each target is asked
+    /// its own and gets its own decision. One console serving another model does not cost the other
+    /// console its half, and the notice names which one refused it.
+    /// </summary>
+    [Fact]
+    public async Task a_target_serving_another_model_is_refused_without_costing_the_other_target()
+    {
+        using var agreeing = new FakeMonitorHost { CurrentEventModelName = "BankAccountES" };
+        using var disagreeing = new FakeMonitorHost { CurrentEventModelName = "SomethingElse" };
+
+        await using var targets = await MonitorTargets.TryConnect([agreeing.Url, disagreeing.Url]);
+        targets.ShouldNotBeNull();
+
+        var notices = new List<string>();
+        var published = await SpecEventModelPublisher.PublishAll(targets, [half()], notices.Add);
+
+        published.ShouldBe(["BankAccountES-Tests"]);
+        agreeing.EventModelPushes.ShouldHaveSingleItem();
+        disagreeing.EventModelPushes.ShouldBeEmpty();
+
+        var notice = notices.ShouldHaveSingleItem();
+        notice.ShouldContain(disagreeing.Url);
+        notice.ShouldContain("'SomethingElse'");
+    }
+
+    /// <summary>
+    /// The invariant per target, and the reason the targets are published to concurrently: a
+    /// console that died between the ping and the push is a dropped push on its own target, and
+    /// two of them must not cost a run two ceilings.
+    /// </summary>
+    [Fact]
+    public async Task targets_that_died_before_the_push_cost_one_ceiling_between_them()
+    {
+        var firstDead = new FakeMonitorHost();
+        var secondDead = new FakeMonitorHost();
+        using var live = new FakeMonitorHost();
+
+        await using var targets = await MonitorTargets.TryConnect([firstDead.Url, secondDead.Url, live.Url]);
+        targets.ShouldNotBeNull();
+
+        firstDead.Dispose();
+        secondDead.Dispose();
+
+        var started = DateTime.UtcNow;
+        var published = await SpecEventModelPublisher.PublishAll(targets, [half()]);
+
+        published.ShouldBe(["BankAccountES-Tests"]);
+        live.EventModelPushes.ShouldHaveSingleItem();
+        (DateTime.UtcNow - started).ShouldBeLessThan(SpecEventModelPublisher.Ceiling * 2);
+    }
 }

@@ -112,6 +112,54 @@ internal static class SpecEventModelPublisher
         => PublishAll(publisher, Discover(assemblies), notify);
 
     /// <summary>
+    /// The same publish to every monitor target the run is attached to (bobcat#530). Returns the
+    /// source names published to at least one target, deduplicated.
+    /// </summary>
+    /// <remarks>
+    /// <b>Per target, deliberately, and not a broadcast of one answer.</b> The model-name rule is a
+    /// question about a particular console — <c>GET /api/event-model</c> merges only the sources
+    /// naming the name <i>that</i> console currently serves — so each target is asked its own
+    /// question and gets its own decision. A console serving the right model still receives the half
+    /// when a second console is serving another one, and the notice names which console refused it.
+    /// The invariant is unchanged and now holds per target: nothing here can slow or fail a run, and
+    /// a target that has gone away is a dropped push.
+    /// </remarks>
+    internal static async Task<IReadOnlyList<string>> PublishAll(
+        MonitorTargets targets, IReadOnlyList<Half> halves, Action<string>? notify = null)
+    {
+        if (halves.Count == 0) return [];
+
+        // Concurrently, so the whole exchange stays inside ONE Ceiling however many targets there
+        // are: sequentially, two wedged consoles would have cost a run two of them. Each target
+        // collects its own notices and they are replayed below, which keeps `notify` a
+        // single-threaded callback — it is a caller's delegate writing to standard error.
+        var runs = targets.Publishers
+            .Select(async publisher =>
+            {
+                var notices = new List<string>();
+                var published = await PublishAll(publisher, halves, notices.Add);
+                return (published, notices);
+            })
+            .ToArray();
+
+        var results = await Task.WhenAll(runs);
+
+        var sources = new List<string>();
+
+        foreach (var (published, notices) in results)
+        {
+            foreach (var source in published)
+            {
+                if (!sources.Contains(source)) sources.Add(source);
+            }
+
+            foreach (var notice in notices) notify?.Invoke(notice);
+        }
+
+        return sources;
+    }
+
+    /// <summary>
     /// The same publish over halves already discovered — the seam the policy tests drive, so the
     /// model-name rule and the rejection path can be exercised without a spec assembly whose
     /// generated source happens to say the right thing.
@@ -135,8 +183,9 @@ internal static class SpecEventModelPublisher
             if (current is not null && !string.Equals(current, half.Descriptor.Name, StringComparison.Ordinal))
             {
                 notify?.Invoke(
-                    $"Bobcat did not publish the Event Model half of '{half.Assembly}': this console is "
-                    + $"serving a model named '{current}' and the half is named '{half.Descriptor.Name}'. "
+                    $"Bobcat did not publish the Event Model half of '{half.Assembly}': the console "
+                    + $"at {publisher.Url} is serving a model named '{current}' and the half is "
+                    + $"named '{half.Descriptor.Name}'. "
                     + $"{Route} merges only the sources naming the CURRENT model, so publishing this one "
                     + "would hide the other half rather than join it. Name them alike with "
                     + $"[assembly: EventModelName(\"{current}\")] on {half.Assembly}.");

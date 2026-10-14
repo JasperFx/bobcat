@@ -32,9 +32,9 @@ What did *not* move is the vocabulary a publisher speaks, and none of it is obso
   user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
   (issue #389) and is deliberately *not* a `BOBCAT_*` variable: Bobcat does not ask for it, it reads
   what an agent session already put in the environment.
-- **Port 5525**, the address a publisher probes. It was deliberately kept rather than collapsed
-  into Stoat's coordination port, because every publisher already probes it; Stoat's single host
-  binds both.
+- **Port 5525**, the default address a publisher probes. It was deliberately kept rather than
+  collapsed into Stoat's coordination port, because every publisher already probes it. It is a
+  *default*, not the only target — see "Several monitors" below.
 - **`docs/monitor-design.md` keeps its filename.** Issues, handoffs and the CLAUDE.md seams all
   link to it by this name, and it documents the protocol at least as much as it ever documented
   the viewer.
@@ -57,6 +57,46 @@ thousands. The invariant that outranks all others: **a test run is never slowed 
 the monitor.** Probe `GET /api/ping` once at startup with a tight timeout → publisher goes
 no-op for the run if nothing answers; bounded channel, drop on backpressure; discovery via
 `BOBCAT_MONITOR_URL` (default `http://localhost:5525`).
+
+## Several monitors: `BOBCAT_MONITOR_URL` is a list
+
+`BOBCAT_MONITOR_URL` takes **more than one** origin, comma- or semicolon-separated, and a run
+publishes everything to every one of them (bobcat#530):
+
+```bash
+export BOBCAT_MONITOR_URL="http://localhost:5525,http://localhost:5050"
+dotnet test
+```
+
+Two consumers now want the same events and only one of them can hold 5525: the run console keeps
+that port -- `bobcat ui`, once [#524](https://github.com/JasperFx/bobcat/issues/524) lands it in
+this tool -- and Stoat listens on its own so it can show a gate's live progress while the suite
+runs: `run_progress`, `lane_started`/`lane_finished`, `test_stalled`, `worker_faulted` and the step
+progress inside a scenario. Forwarding from one console to the other was the alternative and was
+decided against: it would make Stoat's live view depend on the run console running.
+
+What the list means in practice:
+
+- **Each target is probed on its own**, concurrently, so N absent consoles cost one probe timeout
+  rather than N. A target that does not answer is simply left out; nobody answering is the same "no
+  publisher at all" a single absent console has always been, and `BOBCAT_MONITOR=0` still suppresses
+  every probe.
+- **The invariant holds per target, structurally.** `MonitorTargets` holds one `MonitorPublisher`
+  per URL, and a publisher already owns its HTTP client, its bounded channel, its
+  drop-on-backpressure policy and its give-up counter — so an unreachable, slow, wedged or hostile
+  target cannot cost any other target one event.
+- **The run bracket and the Event Model `PUT` go to every target.** The model-name rule (below) is
+  asked of each console separately, because it is a question about what *that* console currently
+  serves: one console serving another model gets the half withheld, with a notice naming it, while
+  the others still receive it.
+- **Duplicates are dropped** — `http://localhost:5525` and `http://localhost:5525/` are one target,
+  and a doubled target would double every event on the console reading it.
+- **Workers inherit the variable** through `WorkerLaunchContext.Environment`, so a supervised run's
+  per-scenario streams fan out exactly as its bracket does.
+- **Taking commands is the other direction and stays singular.** A resident runner reads its
+  commands from exactly one console — the first entry of the list, or `bobcat resident --url`'s
+  first entry — while the run it then performs publishes to all of them. Commands come from
+  somewhere in particular; a run may be watched from anywhere.
 
 ## Event model
 
@@ -114,7 +154,8 @@ real HTTP without one.
    observer callbacks (plus the new `RunStarted`/`RunFinished` run bracket on
    `IExecutionObserver`) onto the wire events; fire-and-forget HTTP with a bounded
    drop-on-backpressure channel; probes `/api/ping` once and no-ops when absent.
-   `BOBCAT_MONITOR_URL` overrides the target, `BOBCAT_MONITOR=0` is the kill switch.
+   `BOBCAT_MONITOR_URL` overrides the target — a *list* of them since bobcat#530, fanned out by
+   `MonitorTargets`, one publisher per URL — and `BOBCAT_MONITOR=0` is the kill switch.
    Publishing is **opt-in** (`BobcatRunner.PublishToMonitor`) and turned on only by the real
    entry points — `BobcatRunner.Run` and the MTP host's execution path (never discovery) — so
    unit tests driving the runner never probe. `BOBCAT_RUN_ID` seeds the run identity so a
@@ -509,7 +550,7 @@ test platform owns standard output.
 **When it goes.** The Gherkin runner sent it from the same place it attached to the console, once per
 run, and a resident runner ran one run per command, cold or warm. That lane is gone (#471), and since
 #488 the projected run bracket in `MarkerStepRun` does the same thing at the same moment: when a
-bracket opens with a live `MonitorPublisher`. In practice:
+bracket opens with live monitor targets. In practice:
 
 - a one-shot `dotnet test` sends it once, however many specifications run;
 - a warm xUnit host sends it once per run request, because `Bobcat.Xunit`'s session hook opens one
@@ -538,7 +579,8 @@ against a capturing console to prove it with a real generated half.
 A second wire on the same origin, and the only one that runs in the other direction. Everything so
 far is a run **telling** a monitor what happened; this is a suite **asking** a monitor for work.
 
-**The runner is a client.** It connects out to the same 5525 origin and asks; a monitor can only
+**The runner is a client.** It connects out to one origin -- `--url`'s first entry, else
+`BOBCAT_MONITOR_URL`'s first, else 5525 -- and asks; a monitor can only
 answer a runner that asked, and can never make one do anything. Nothing listens on a port. Every
 message is a CloudEvent in structured mode (`application/cloudevents+json`, `specversion` 1.0,
 **GUID ids**), written and read by hand on this side for the same reason the monitor events are:
@@ -624,7 +666,9 @@ Cold-only, for the measured reason above. The child's environment is **pruned on
 `BOBCAT_RUN_ID` would collapse every command into one run card, `BOBCAT_RUN_OWNER` would stop the
 child publishing a bracket at all, `BOBCAT_LIST_SPECS` would turn the run into a listing, and
 `BOBCAT_RESIDENT` would have the child register itself instead of running; `BOBCAT_MONITOR=1` is
-forced on and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`.
+forced on and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL` -- **whole**, list and all, so a
+commanded run reaches every console watching (bobcat#530) while the runner still reads its commands
+from the one origin it registered with.
 
 **The never-slow-never-fail invariant covers this wire too.** No monitor → an idle process that
 keeps asking on a capped backoff. A dropped stream → reconnect with `Last-Event-ID`. Anything

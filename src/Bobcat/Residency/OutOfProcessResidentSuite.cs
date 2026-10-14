@@ -198,15 +198,25 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     public Action<string>? Log { get; init; }
 
     /// <summary>
-    /// The monitor origin a commanded child publishes to. Null leaves the child to resolve its own,
-    /// which is right when nobody pointed the runner anywhere either.
+    /// The monitor origin a commanded child publishes to, as <c>BOBCAT_MONITOR_URL</c> is written —
+    /// so a <b>list</b> (comma- or semicolon-separated) when the run should reach several consoles
+    /// (bobcat#530). Null leaves the child to resolve its own, which is right when nobody pointed
+    /// the runner anywhere either.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>It has to travel, and leaving it out was a real bug.</b> The runner registers with
     /// whatever <c>ResidentRunnerOptions.Url</c> names, while the child resolves
     /// <c>BOBCAT_MONITOR_URL</c> for itself — so a runner pointed at a second console with
     /// <c>--url</c> would take that console's commands and publish the runs to the default one.
     /// A commanded run has to land on the console that asked for it.
+    /// </para>
+    /// <para>
+    /// <b>The list travels whole, and is not the same question as where commands come from.</b> A
+    /// runner takes its commands from exactly one console; the run it then performs may be watched
+    /// by several. So this carries the whole list and <c>ResidentRunnerOptions.Url</c> carries one
+    /// origin — <c>bobcat resident</c> hands it the first entry.
+    /// </para>
     /// </remarks>
     public string? MonitorUrl { get; init; }
 
