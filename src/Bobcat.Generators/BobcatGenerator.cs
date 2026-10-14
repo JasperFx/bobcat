@@ -161,7 +161,7 @@ public class BobcatGenerator : IIncrementalGenerator
         {
             var descriptor = compilation.GetTypeByMetadataName(SpecificationManifest.GateTypeName);
             var visible = descriptor != null
-                          && compilation.GetTypeByMetadataName("Bobcat.SpecificationManifestAttribute") != null;
+                          && compilation.GetTypeByMetadataName(SpecificationManifest.ManifestAttributeName) != null;
             return (Visible: visible, CarriesResolvedTypes: visible && descriptor!.GetMembers("ResolvedTypes").Length > 0);
         });
 
