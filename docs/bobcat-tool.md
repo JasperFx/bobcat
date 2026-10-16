@@ -152,9 +152,10 @@ The coordinates come from the suite's [spec manifest](spec-identities.md#what-a-
 Each entry carries the slice the generator folded the specification into, and that slice's chapter,
 domain and pattern. These are the values the Event Model descriptor gets: the slice from
 `[BobcatSpec]`/`[BobcatSlice]` (or the feature title for a spec with vocabulary roles and no
-binding), the chapter and domain the slice's first specification declared, and the pattern as
-declared or **as derived**. A spec whose act sends a command is `Command` even though nothing says
-so. The selection becomes a method filter, the same as `--feature`.
+binding, or its command's name when the feature's unbound specs make different acts), the chapter and
+domain the slice's first specification declared, and the pattern as declared or **as derived**. A spec
+whose act sends a command is `Command` even though nothing says so; one whose act names no command has
+no pattern. A spec on no slice (BOBCAT041) has no coordinates. The selection becomes a method filter, the same as `--feature`.
 
 Values match **whole, ignoring case**, and never as a substring: `--slice Deposit` does not also run
 "Deposit refund". A value no specification has is **refused by name**, and the message lists the

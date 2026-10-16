@@ -889,6 +889,37 @@ The command half also rides JasperFx's `SpecificationBindingDescriptor` (jasperf
 A test with roles and **no** binding lands on a slice named after its feature. A test with neither
 contributes nothing.
 
+### An act that names no command (bobcat#615) {#unstamped-act}
+
+Not every act names its command. `WhenPosted(new { }, route)` and `WhenDeleted(new { product.Id }, route)` pass
+an anonymous body, `WhenReceived(someObject)` passes an `object`, and `WhenActing("the sweep runs", …)` runs a
+lambda. The test still has an act; the generator just can't tell which command it sends. A call is an act when
+its vocabulary method declares a `Command` role (whether or not the argument names a type), an
+`[EventModelTrigger]`, or **`[EventModelAct]`** -- the marker for an act with neither, which
+`CritterStackSpec.WhenActing` and `WhenActingOn<T>` carry.
+
+When a test's last act names no command:
+
+- **its slice is never inferred a View.** An asserted read model is not what a delete or an accept is about, so
+  the pattern is left **null** -- a null pattern doesn't miscolour the canvas, a wrong one does. A declared
+  `Pattern` still wins;
+- **an earlier command is not taken for the act.** A `WhenReceived(new OpenAccount(…))` that arranged state is
+  not the slice's `CommandType`, and the spec manifest doesn't infer one either;
+- **its trigger is kept.** A body-less `DELETE` to `/products/{id}` is still an HTTP slice with that route.
+
+The fix is to name the command: send a typed command, or bind the spec with `[BobcatSpec(typeof(TheCommand))]`.
+
+**Unbound specs with different acts are not folded into one slice.** The feature-named slice is a fallback for a
+feature whose unbound specs all make the same act, or none. When they make different ones, a spec whose act is a
+command lands on the slice named for that command -- where `[BobcatSpec(typeof(TheCommand))]` would put it -- and
+a spec whose act is a query or names no command is left off the model, with **BOBCAT041** saying so. Before, a
+`ReturnBook` spec and an on-loan list query both landed on a slice named after their feature, which came out a
+View that existed nowhere in the code.
+
+**A spec that reaches no slice says so.** In a suite whose specs model at least one slice, a `[BobcatSpec]` /
+`[BobcatTheory]` with no binding and no role-stamped vocabulary, or whose only stated types are documents (no slice
+carries a document), gets **BOBCAT041** (info) at the test. A slice holding only documents is no longer invented.
+
 ### Who triggers the slice -- `TriggeredBy` (bobcat#463)
 
 The trigger's *label* is the one Event Modeling fact a test body cannot state, so `[BobcatSlice]` and
@@ -1213,6 +1244,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
 | **BOBCAT039** (error) | A step helper the generated interceptor cannot call: `protected`, `private`, `private protected`, or declared on a type the assembly cannot reach (a private nested class). Reported once, at the helper, and its calls get no interceptor -- before this it was a CS0122 per call site in `BobcatStepInterceptors.g.cs`. Make the helper `public` or `internal` (`protected internal` works too) |
 | **BOBCAT040** (error) | An `override` of a test that inherits `[BobcatSpec]`/`[BobcatTheory]` carries another test attribute, usually `[Fact(Skip = "…")]` to skip one subclass's copy. xUnit inherits the base's attribute, so the override has two Fact-derived attributes and fails at run time ("has multiple [Fact]-derived attributes") instead of being skipped. Write `[BobcatSpec(Skip = "…")]` on the override. See [Spec Identities](spec-identities.md#inherited-specs) |
+| **BOBCAT041** (info) | A projected spec in a suite that models slices reaches no Event Model slice: a `[BobcatSpec]` with no binding and no role-stamped vocabulary, one whose only stated types are documents, or an unbound spec whose act is a query or names no command in a feature whose unbound specs make different acts. The test runs as before; only the model is missing it. Bind it with `[BobcatSpec(typeof(TheCommandOrReadModel))]` or `[BobcatSpec(SliceName = "…")]`. See [An act that names no command](#unstamped-act) |
 
 BOBCAT001–022, 030, 031 and 035 were retired with the Gherkin lane in 0.50.0 (bobcat#471). Nothing
 emits them, and the ids are never reused.

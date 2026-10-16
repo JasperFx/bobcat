@@ -215,3 +215,24 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// </remarks>
     public string? HttpMethod { get; set; }
 }
+
+/// <summary>
+/// Declares that a scenario vocabulary method is an <b>act</b> even though nothing on it names the command it
+/// sends (bobcat#615) — <c>WhenActing(description, services =&gt; …)</c> runs a lambda, so the type it dispatches
+/// is not on the call.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A method with a <see cref="SliceRole.Command"/> role or an <see cref="EventModelTriggerAttribute"/> is already an
+/// act; this is for one with neither. When a test's last act names no command, its slice is never inferred a View
+/// (an asserted read model is not what such a test is about) and no earlier, arranging command is taken for the
+/// slice's: the pattern is left null rather than guessed. Bind the test to its slice with
+/// <c>[BobcatSpec(typeof(TheCommand))]</c> to put it on the model by name.
+/// </para>
+/// <para>
+/// Like <see cref="EventModelRoleAttribute"/>, it reaches an <c>override</c> but not a method that hides or
+/// forwards to the attributed one: such a wrapper must re-declare it.
+/// </para>
+/// </remarks>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+public sealed class EventModelActAttribute : Attribute;

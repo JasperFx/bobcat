@@ -168,6 +168,18 @@ public class CritterStackSpecRoleTests
     }
 
     [Fact]
+    public void every_act_that_names_no_command_is_declared_an_act_on_both_twins()
+    {
+        // bobcat#615: WhenActing runs a lambda, so without [EventModelAct] its slice would read as a View
+        string[] acts(Type type) => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttribute<EventModelActAttribute>() is not null)
+            .Select(signatureOf).Order().ToArray();
+
+        acts(typeof(CritterStackScenario)).ShouldBe(acts(typeof(CritterStackSpec)));
+        acts(typeof(CritterStackSpec)).Select(x => x.Split('(')[0]).Distinct().ShouldBe(["WhenActing", "WhenActingOn<T>"]);
+    }
+
+    [Fact]
     public void every_role_names_a_parameter_of_its_method()
     {
         // BOBCAT034 runs on a consumer's source, not on Bobcat's own; nameof already keeps these honest

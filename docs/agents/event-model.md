@@ -144,7 +144,10 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     only when non-empty); an argument whose type is not knowable (`object`, interface,
     rows, `null`) stamps nothing. `Specified<T>`, `ExpectedValue<T>` and `TaggedValue` are unwrapped
     by metadata name — Bobcat's own types, so the same-repo contract.
-  - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature.**
+  - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature** — unless the feature's
+    unbound tests make different acts (bobcat#615): then a command act goes to the slice named for its command, and
+    a read act or an act naming no command (`[EventModelAct]`, an anonymous body) goes nowhere, as BOBCAT041. A
+    slice whose act names no command is never inferred a View (`SliceModel.HasUnstampedAct`).
   - `Specifications[].ResolvedTypes` (#107's join target) is filled here, and the same list
     rides `SpecificationBindingDescriptor.ResolvedTypes` from `SpecificationManifest` — gated on the
     property existing in the consumer's JasperFx. The manifest prefers the role-stamped act over its

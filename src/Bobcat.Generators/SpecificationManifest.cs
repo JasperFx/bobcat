@@ -127,7 +127,8 @@ internal static class SpecificationManifest
             // the fallback for a vocabulary that declares no roles. A test whose act is a read (bobcat#501) sends
             // no command, so an arranging When… must not be inferred as one
             var roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
-            var command = roles.ReadAct is not null
+            // bobcat#615: neither does a test whose last act names no command -- an earlier When… arranged state
+            var command = roles.ReadAct is not null || roles.UnstampedAct is not null
                 ? null
                 : unqualified(roles.Act) ?? inferCommand(method, ctx.SemanticModel, ct);
             var resolved = roles.ResolvedTypes().ToImmutableArray();

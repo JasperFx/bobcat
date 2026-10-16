@@ -84,6 +84,14 @@ public class ProjectedEventModelRoleTests
                 [EventModelTrigger(TriggerKind.Http, Route = nameof(route))]
                 public Task WhenPosted(object command, string route) => Task.CompletedTask;
 
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "DELETE")]
+                public Task WhenDeleted(object command, string route) => Task.CompletedTask;
+
+                // bobcat#615: an act that names no command anywhere on the call
+                [EventModelAct]
+                public Task WhenActing(string description, Func<Task> act) => Task.CompletedTask;
+
                 // bobcat#501: a read-only act -- a GET/HEAD trigger plus a read role, no command
                 [EventModelRole(SliceRole.ReadModel, nameof(T))]
                 [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
@@ -595,13 +603,16 @@ public class ProjectedEventModelRoleTests
             }
             """);
 
-        // A read role behind a POST is an asserted read model, as before: a View that consumes its arrangement,
-        // and no act to take a trigger from
+        // A read role behind a POST is no read act, so no Query. Since bobcat#615 the POST is still an act -- one that
+        // names no command -- so the slice is not a View either: its pattern is left null and its trigger is the POST
         var searched = slices.Single(x => x.Name == "AccountSummary");
-        searched.Pattern.ShouldBe(SlicePattern.View);
+        searched.Pattern.ShouldBeNull();
         names(searched.ReadModelTypes).ShouldBe(["AccountSummary"]);
-        names(searched.ConsumedEvents).ShouldBe(["AccountOpened"]);
-        searched.TriggerKind.ShouldBeNull();
+        names(searched.ConsumedEvents).ShouldBeEmpty();
+        searched.CommandType.ShouldBeNull();
+        searched.TriggerKind.ShouldBe(TriggerKind.Http);
+        searched.TriggerOrigin!.HttpMethod.ShouldBe("POST");
+        searched.TriggerOrigin.HttpRoute.ShouldBe("/accounts/search");
 
         var posted = slices.Single(x => x.Name == "Deposit");
         posted.Pattern.ShouldBe(SlicePattern.Command);
@@ -1273,6 +1284,222 @@ public class ProjectedEventModelRoleTests
 
         slice.CommandType!.Name.ShouldBe("Deposit");
         names(slice.Specifications.Single().ResolvedTypes).ShouldBe(["Deposit"]);
+    }
+
+    // ---------------------------------------------------------------- bobcat#615: an act that names no command
+
+    [Fact]
+    public void a_delete_with_an_anonymous_body_is_never_a_view()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "CloseAccount")]
+                public async Task an_account_is_closed()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await GivenReadModel<AccountSummary>(new AccountSummary { Id = id });
+                    await WhenDeleted(new { id }, "/accounts/{id}");
+                    await ThenReadModel<AccountSummary>(id);
+                }
+            }
+            """).Single(x => x.Name == "CloseAccount");
+
+        // Before #615 the asserted read model was the only thing left to infer from, so the delete was a View
+        // consuming AccountOpened. Null is the honest answer, and the DELETE and its route are still facts
+        slice.Pattern.ShouldBeNull();
+        slice.CommandType.ShouldBeNull();
+        names(slice.ConsumedEvents).ShouldBeEmpty();
+        slice.TriggerKind.ShouldBe(TriggerKind.Http);
+        slice.TriggerOrigin!.HttpMethod.ShouldBe("DELETE");
+        slice.TriggerOrigin.HttpRoute.ShouldBe("/accounts/{id}");
+    }
+
+    [Fact]
+    public void an_arranging_command_is_not_the_slices_when_the_act_names_none()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "NightlySweep")]
+                public async Task the_sweep_runs()
+                {
+                    await WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+                    await WhenActing("the nightly sweep runs", () => Task.CompletedTask);
+                    await ThenReadModel<AccountSummary>(Guid.Empty);
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.Single(x => x.Name == "NightlySweep");
+        slice.Pattern.ShouldBeNull();
+        slice.CommandType.ShouldBeNull();
+        slice.TriggerKind.ShouldBeNull();
+
+        // The specification manifest agrees: the arranging When… is not inferred as the command either
+        outcome.GeneratedSource("SpecificationBindings").ShouldNotContain("CommandType");
+    }
+
+    [Fact]
+    public void a_later_command_act_still_wins_over_an_earlier_unstamped_one()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "Deposit")]
+                public async Task a_deposit_after_an_anonymous_post()
+                {
+                    await WhenPosted(new { owner = "Ann" }, "/accounts");
+                    await WhenReceived(new Deposit(Guid.Empty, 10m));
+                }
+            }
+            """).Single(x => x.Name == "Deposit");
+
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        slice.CommandType!.Name.ShouldBe("Deposit");
+        slice.TriggerKind.ShouldBeNull();
+    }
+
+    [Fact]
+    public void unbound_specs_with_different_acts_are_not_folded_into_one_feature_slice()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            [BobcatFeature("Library")]
+            public class library : ScenarioBase
+            {
+                [Fact]
+                public async Task a_deposit()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenReceived(new Deposit(id, 10m));
+                }
+
+                [Fact]
+                public async Task a_return()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenPosted(new { }, "/accounts/1/return");
+                    await ThenReadModel<AccountSummary>(id);
+                }
+
+                [Fact]
+                public async Task the_summaries() => await WhenReading<AccountSummary>("/summaries");
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // The command act lands where [BobcatSpec(typeof(Deposit))] would put it; nothing invents a "Library" view
+        var slices = GeneratedEventModel.For(load(outcome))!.Slices;
+        slices.Select(x => x.Name).ShouldBe(["Deposit"]);
+        slices[0].Pattern.ShouldBe(SlicePattern.Command);
+        slices[0].Specifications.ShouldHaveSingleItem().Identity.ShouldBe("Library/a deposit");
+
+        // The two that cannot be placed without a guess say so where they are declared
+        var reported = outcome.WithId("BOBCAT041").ToList();
+        reported.Select(x => x.Severity).Distinct().ShouldBe([DiagnosticSeverity.Info]);
+        reported.Select(x => x.GetMessage()).ShouldSatisfyAllConditions(
+            m => m.ShouldContain(x => x.Contains("'Library/a return'") && x.Contains("WhenPosted")),
+            m => m.ShouldContain(x => x.Contains("'Library/the summaries'") && x.Contains("query")));
+    }
+
+    [Fact]
+    public void unbound_specs_making_one_act_keep_the_feature_slice()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact]
+                public async Task a_deposit() => await WhenReceived(new Deposit(Guid.Empty, 10m));
+
+                [Fact]
+                public async Task another_deposit() => await WhenReceived(new Deposit(Guid.Empty, 20m));
+
+                [Fact]
+                public async Task the_summary() => await ThenReadModel<AccountSummary>(Guid.Empty);
+            }
+            """);
+
+        var slice = slices.ShouldHaveSingleItem();
+        slice.Name.ShouldBe("Accounts");
+        slice.CommandType!.Name.ShouldBe("Deposit");
+        slice.Specifications.Count.ShouldBe(3);
+    }
+
+    // Bobcat.Xunit's attribute, as far as these compilations need: the generator matches it by name
+    private const string SpecAttribute =
+        """
+        namespace Vocab
+        {
+            public class BobcatSpecAttribute : FactAttribute
+            {
+                public BobcatSpecAttribute() { }
+                public BobcatSpecAttribute(Type slice) { }
+            }
+        }
+
+        """;
+
+    [Fact]
+    public void a_bobcat_spec_that_reaches_no_slice_is_reported_in_a_suite_that_models_slices()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [BobcatSpec(typeof(Deposit))]
+                public async Task a_deposit() => await WhenReceived(new Deposit(Guid.Empty, 10m));
+
+                [BobcatSpec]
+                public void nothing_role_stamped() { }
+
+                [BobcatSpec]
+                public async Task only_a_document() => await ThenDocument<Statement>(Guid.Empty);
+
+                // Not declared a specification, so not reported
+                [Fact]
+                public void an_ordinary_test() { }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // A slice holding only documents has nothing on it, so none is invented
+        GeneratedEventModel.For(load(outcome))!.Slices.Select(x => x.Name).ShouldBe(["Deposit"]);
+
+        var reported = outcome.WithId("BOBCAT041").Select(x => x.GetMessage()).ToList();
+        reported.Count.ShouldBe(2);
+        reported.ShouldContain(x => x.Contains("'Accounts/nothing role stamped'"));
+        reported.ShouldContain(x => x.Contains("'Accounts/only a document'") && x.Contains("documents"));
+    }
+
+    [Fact]
+    public void a_suite_that_models_nothing_is_not_told_about_every_spec()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [BobcatSpec]
+                public void nothing_role_stamped() { }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        outcome.WithId("BOBCAT041").ShouldBeEmpty();
     }
 
     // ---------------------------------------------------------------- helpers
