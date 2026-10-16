@@ -2153,21 +2153,49 @@ public class CritterStackScenario
     /// on, up to <see cref="ProjectionTimeout" />.
     /// </summary>
     [EventModelRole(SliceRole.ReadModel, nameof(readModel))]
-    public Task ThenProjectionsAreCaughtUp(Type readModel) => projectionsCaughtUpBefore(readModel, null);
-
-    // The catch-up step every read of a projected document opens with: its timeout names what was being read
-    private Task projectionsCaughtUpBefore(Type read, object? identity)
+    public Task ThenProjectionsAreCaughtUp(Type readModel)
     {
-        var text = $"the {read.Name} read model has caught up";
-        return inStep(ScenarioRecorder.Step("Then", text), () => waitBeforeReading(text, read, identity));
+        var text = catchUpText(readModel);
+        return inStep(ScenarioRecorder.Step("Then", text), () => waitBeforeReading(text, readModel, null));
     }
 
-    // AfterAsyncDaemonsCatchUpAsync's step, before a read of the scenario's own stream
-    private Task daemonsCaughtUpBefore(Type read)
+    private static string catchUpText(Type read) => $"the {read.Name} read model has caught up";
+
+    // The catch-up step every read of a projected document opens with: its timeout names what was being read.
+    // Not rendered, and not waited on, when the store has no async projections (bobcat#620)
+    private async Task projectionsCaughtUpBefore(Type read, object? identity)
+    {
+        var text = catchUpText(read);
+        if (await nothingToCatchUpAsync(text, read)) return;
+        await inStep(ScenarioRecorder.Step("Then", text), () => waitBeforeReading(text, read, identity));
+    }
+
+    // AfterAsyncDaemonsCatchUpAsync's step, before a read of the scenario's own stream; skipped as above
+    private async Task daemonsCaughtUpBefore(Type read)
     {
         const string text = "the async daemons have caught up";
+        if (await nothingToCatchUpAsync(text, read)) return;
         var stream = LastAct.StartedStreams is [var started] ? started.Key ?? (object)started.Id : _state.Stream;
-        return inStep(ScenarioRecorder.Step("Given", text), () => waitBeforeReading(text, read, stream));
+        await inStep(ScenarioRecorder.Step("Given", text), () => waitBeforeReading(text, read, stream));
+    }
+
+    /// <summary>
+    /// bobcat#620. True only when the store being read positively says it configures no async projection shard:
+    /// then nothing can be stale, and an implicit catch-up step before every document read is noise. A store that
+    /// cannot say, or a store that cannot be chosen, is "not known", so the step renders and waits (or fails on its
+    /// own line) as before.
+    /// </summary>
+    private async Task<bool> nothingToCatchUpAsync(string wait, Type read)
+    {
+        try
+        {
+            var store = await storeForAsync(wait, read);
+            return EventStoreShards.TryNames(store) is { Count: 0 };
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>
