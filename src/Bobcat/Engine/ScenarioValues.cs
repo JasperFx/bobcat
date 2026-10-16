@@ -125,12 +125,20 @@ public static class ScenarioValues
     /// <summary>
     /// <paramref name="value"/>'s properties without the type around them —
     /// <c>OrderId: Order, Total: 100</c> — for a grid whose other column already names the type. A
-    /// value with no properties to show reads as <see cref="Describe"/> does.
+    /// scalar or a collection reads as <see cref="Describe"/> does; an object with no properties at all
+    /// (<c>record BookReturned;</c>) has nothing to say, so it is empty rather than its type name again
+    /// beside the column that already names it (bobcat#618).
     /// </summary>
     public static string DescribeProperties(object? value)
     {
+        if (value is not null && !isScalar(value.GetType()) && value is not IEnumerable
+            && readable(value.GetType()).Length == 0) return "";
+
         var described = describe(value, 0, learnOnly: false);
         if (value is null || isScalar(value.GetType()) || value is IEnumerable) return described;
+
+        if (isAnonymous(value.GetType()) && described.StartsWith("{ ", StringComparison.Ordinal))
+            return described[2..^2];
 
         var prefix = displayName(value.GetType()) + "(";
         return described.StartsWith(prefix, StringComparison.Ordinal) && described.EndsWith(')')
@@ -162,6 +170,9 @@ public static class ScenarioValues
         }
 
         var properties = readable(type);
+
+        // bobcat#618: an anonymous object has no name worth printing, so it reads as its members
+        if (isAnonymous(type) && properties.Length == 0) return "an empty object";
         if (properties.Length == 0 || depth >= MaxDepth) return displayName(type);
 
         // Learn every name on this object before formatting any of it, so a value is named after the
@@ -179,14 +190,15 @@ public static class ScenarioValues
             }
         }
 
-        var builder = new StringBuilder(displayName(type)).Append('(');
+        var anonymous = isAnonymous(type);
+        var builder = anonymous ? new StringBuilder("{ ") : new StringBuilder(displayName(type)).Append('(');
         for (var i = 0; i < properties.Length; i++)
         {
             if (i > 0) builder.Append(", ");
             builder.Append(properties[i].Name).Append(": ").Append(describe(read(properties[i], value), depth + 1, learnOnly));
         }
 
-        return builder.Append(')').ToString();
+        return builder.Append(anonymous ? " }" : ")").ToString();
     }
 
     /// <summary>
@@ -223,12 +235,38 @@ public static class ScenarioValues
 
     private static string quote(string value) => "\"" + value + "\"";
 
+    /// <summary>
+    /// A type as a reader writes it (bobcat#618): <c>List&lt;Account&gt;</c> rather than <c>List`1</c>,
+    /// <c>string[]</c>, <c>int?</c>, and an anonymous type as "anonymous object" rather than
+    /// <c>&lt;&gt;f__AnonymousType0</c>. For step text; never a key anything compares on.
+    /// </summary>
+    public static string TypeName(Type type) => displayName(type);
+
+    private static readonly Dictionary<Type, string> keywords = new()
+    {
+        [typeof(string)] = "string", [typeof(int)] = "int", [typeof(long)] = "long", [typeof(short)] = "short",
+        [typeof(byte)] = "byte", [typeof(bool)] = "bool", [typeof(decimal)] = "decimal", [typeof(double)] = "double",
+        [typeof(float)] = "float", [typeof(char)] = "char", [typeof(object)] = "object", [typeof(uint)] = "uint",
+        [typeof(ulong)] = "ulong", [typeof(ushort)] = "ushort", [typeof(sbyte)] = "sbyte"
+    };
+
     private static string displayName(Type type)
     {
+        if (keywords.TryGetValue(type, out var keyword)) return keyword;
+        if (type.IsArray) return displayName(type.GetElementType()!) + "[" + new string(',', type.GetArrayRank() - 1) + "]";
+        if (Nullable.GetUnderlyingType(type) is { } underlying) return displayName(underlying) + "?";
+        if (isAnonymous(type)) return "anonymous object";
         if (!type.IsGenericType) return type.Name;
-        var name = type.Name[..type.Name.IndexOf('`')];
+
+        var tick = type.Name.IndexOf('`');
+        var name = tick < 0 ? type.Name : type.Name[..tick];
         return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(displayName))}>";
     }
+
+    // The compiler's name for an anonymous type: <>f__AnonymousType0`2 (VB: VB$AnonymousType_0)
+    private static bool isAnonymous(Type type)
+        => type.Name.Contains("AnonymousType", StringComparison.Ordinal)
+           && (type.Name.StartsWith("<>", StringComparison.Ordinal) || type.Name.StartsWith("VB$", StringComparison.Ordinal));
 
     private static object? read(PropertyInfo property, object owner)
     {

@@ -168,10 +168,45 @@ public class DescribePropertiesTests
     }
 
     [Fact]
-    public void a_stub_or_a_scalar_reads_as_itself()
+    public void a_scalar_reads_as_itself_and_a_stub_has_nothing_to_say()
     {
-        ScenarioValues.DescribeProperties(new Stub()).ShouldBe("Stub");
+        // bobcat#618: "│ BookReturned │ BookReturned │" repeated the type column in the values column
+        ScenarioValues.DescribeProperties(new Stub()).ShouldBe("");
         ScenarioValues.DescribeProperties(42).ShouldBe("42");
+    }
+
+    [Fact]
+    public void an_anonymous_object_shows_its_members()
+    {
+        ScenarioValues.DescribeProperties(new { Name = "Ann" }).ShouldBe("Name: \"Ann\"");
+    }
+}
+
+// bobcat#618: step text names types and values the way a reader writes them
+public class ReadableTypeNameTests
+{
+    [Fact]
+    public void a_generic_type_reads_as_csharp_writes_it()
+    {
+        ScenarioValues.TypeName(typeof(List<Order>)).ShouldBe("List<Order>");
+        ScenarioValues.TypeName(typeof(IReadOnlyList<Order>)).ShouldBe("IReadOnlyList<Order>");
+        ScenarioValues.TypeName(typeof(Dictionary<string, int?>)).ShouldBe("Dictionary<string, int?>");
+        ScenarioValues.TypeName(typeof(string[])).ShouldBe("string[]");
+        ScenarioValues.TypeName(typeof(Order)).ShouldBe("Order");
+    }
+
+    [Fact]
+    public void an_anonymous_type_has_no_compiler_name()
+    {
+        ScenarioValues.TypeName(new { }.GetType()).ShouldBe("anonymous object");
+        ScenarioValues.TypeName(new { A = 1 }.GetType()).ShouldBe("anonymous object");
+    }
+
+    [Fact]
+    public void an_anonymous_object_reads_as_its_members()
+    {
+        ScenarioValues.Describe(new { }).ShouldBe("an empty object");
+        ScenarioValues.Describe(new { Name = "Ann", Age = 3 }).ShouldBe("{ Name: \"Ann\", Age: 3 }");
     }
 }
 
