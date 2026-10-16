@@ -597,6 +597,22 @@ public class CritterStackScenario
     }
 
     /// <summary>
+    /// A read model already exists: <paramref name="document" /> is stored directly. The same step as
+    /// <see cref="GivenReadModel{T}(object)" />, with <typeparamref name="T" /> inferred from the
+    /// document, so <c>GivenReadModel(new Flight { … })</c> needs no type argument (bobcat#619).
+    /// </summary>
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
+    public Task GivenReadModel<T>(T document) where T : class => GivenReadModel<T>((object)document);
+
+    /// <summary>
+    /// A read model already exists, specified by only some of its members:
+    /// <c>GivenReadModel(Specify&lt;Flight&gt;().With(x =&gt; x.Number, "BA117"))</c>, with
+    /// <typeparamref name="T" /> inferred as the specified type rather than as <see cref="Specified{T}" />.
+    /// </summary>
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
+    public Task GivenReadModel<T>(Specified<T> document) where T : class => GivenReadModel<T>((object)document);
+
+    /// <summary>
     /// A read model already exists: <paramref name="document" /> is stored directly, as when an event
     /// model arranges a view rather than the events that build it.
     /// </summary>

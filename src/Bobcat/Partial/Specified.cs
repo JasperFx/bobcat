@@ -61,6 +61,13 @@ public sealed class Specified<T> : IPartialObject, ITaggedExpectation
     }
 
     /// <summary>Specify <paramref name="member"/> — <c>x =&gt; x.Prop</c>, or a nested <c>x =&gt; x.Address.City</c>.</summary>
+    /// <remarks>
+    /// Preferred over the <see cref="ExpectedItems" /> and <see cref="Specified{T}" /> overloads, so
+    /// <c>.With(x =&gt; x.Address, null)</c> specifies a null member rather than being ambiguous
+    /// (bobcat#619). Neither of those can take a value this one does: a collection member's
+    /// <c>TValue</c> cannot be an <see cref="ExpectedItems" />, and one typed <c>object</c> stores it the same.
+    /// </remarks>
+    [System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
     public Specified<T> With<TValue>(Expression<Func<T, TValue>> member, TValue value)
         => with(MemberPaths.Of(member), value);
 

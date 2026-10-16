@@ -109,6 +109,27 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
     }
 
     [Fact]
+    public async Task a_read_models_type_is_inferred_from_the_document()
+    {
+        // bobcat#619: no type argument, from a whole document or from a partial one
+        var scenario = newScenario();
+        var whole = Guid.NewGuid();
+        var partial = Guid.NewGuid();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.GivenReadModel(new Customer { Id = whole, Name = "Ann" });
+            await scenario.GivenReadModel(Specifications.Specify<Customer>().With(x => x.Id, partial).With(x => x.Name, "Bo"));
+            await scenario.ThenDocument<Customer>(whole, Specifications.Specify<Customer>().With(x => x.Name, "Ann"));
+            await scenario.ThenDocument<Customer>(partial, Specifications.Specify<Customer>().With(x => x.Name, "Bo"));
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps[0].Text.ShouldStartWith("the Customer read model is ");
+        recording.Steps[1].Text.ShouldStartWith("the Customer read model is Customer(");
+    }
+
+    [Fact]
     public async Task a_read_model_is_arranged_directly_and_read_back_as_a_document()
     {
         var scenario = newScenario();

@@ -34,6 +34,21 @@ public class BuildingPartialObjectsTests
     }
 
     [Fact]
+    public void a_member_specified_as_a_bare_null_is_null_not_ambiguous()
+    {
+        // bobcat#619: a bare null used to be CS0121 between the value and the nested-object overloads
+        var customer = Specify<SettableCustomer>()
+            .With(x => x.Address, null)
+            .With(x => x.Nickname, null)
+            .With(x => x.LastSeen, null)
+            .Build();
+
+        customer.Address.ShouldBeNull();
+        customer.Nickname.ShouldBeNull();
+        customer.LastSeen.ShouldBeNull();
+    }
+
+    [Fact]
     public void two_unspecified_guids_are_different_identities()
     {
         var first = Specify<PositionalOrder>().Build();
