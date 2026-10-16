@@ -206,8 +206,8 @@ all has nothing to be stale, so the wait returns at once there.
 | `ThenReadModel<T>(id, expected?)` | the read model with this identity, loaded with `LoadAsync` once projections have caught up. Throws when there is none |
 | `ThenDocument<T>(id, expected?)` | the same load, for a plain document or a projection stored as one |
 | `ThenNoReadModel<T>(id)` / `ThenNoReadModel<T>()` | no such read model -- with that id, or at all |
-| `ThenSingleReadModel<T>(expected?)` | the `T` of the stream this scenario is about -- the one the act started, else the one the givens arranged. Single-stream projections only |
-| `ThenSingleDocument<T>(expected?)` | the `T` document stored under that stream's id |
+| `ThenSingleReadModel<T>(expected?)` | the `T` of the stream this scenario is about -- the one the act started, else the one the givens arranged. Single-stream projections only. With no stream, the one `T` in the store, as below |
+| `ThenSingleDocument<T>(expected?)` | the `T` document stored under that stream's id. With no stream (a document app, where the act's document gets its id from the endpoint or a cascaded handler), **the one `T` in the store**: none or several is a failure naming the count |
 | `ThenProjectionsAreCaughtUp(Type readModel)` | the projections that build it have caught up |
 | `AfterAsyncDaemonsCatchUpAsync(tenantId?)` | wait for every async daemon, on every database or one tenant's: the database the store's `FindDatabaseForTenantAsync` finds for it, else every database. Not a step |
 | `ForTenant(tenantId)` | a view whose Givens append, and whose Thens read, as one tenant of a multi-tenanted store, on the database that tenant lives in ([details](marten.md#one-tenant-of-a-multi-tenanted-store)). Send the act for the tenant yourself, with `DeliveryOptions { TenantId = … }` |

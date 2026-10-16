@@ -2020,11 +2020,15 @@ public class CritterStackScenario
     /// <remarks>
     /// Only for a single-stream projection, registered or self-aggregating: a multi-stream projection has no
     /// one stream to be fetched by, so it is refused (wolverine#4865). For a document stored any other way,
-    /// <see cref="ThenSingleDocument{T}" />.
+    /// <see cref="ThenSingleDocument{T}" />. With no stream at all — the act started none and the givens arranged
+    /// none, as in a document app — it is the one <typeparamref name="T" /> in the store (bobcat#616), as
+    /// <see cref="ThenSingleDocument{T}" /> reads it.
     /// </remarks>
     [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public async Task<T> ThenSingleReadModel<T>(object? expected = null) where T : class
     {
+        if (scenarioStreamOrNull() is null) return await theOnly<T>(expected);
+
         var kind = await EventStores.ProjectionKindAsync(await storeForAsync(singleText<T>(), typeof(T)), typeof(T));
         if (kind is not null && kind != SubscriptionType.SingleStreamProjection)
             throw new SpecCriticalException(
@@ -2053,9 +2057,18 @@ public class CritterStackScenario
     /// <c>LoadAsync</c> once the async daemons have caught up — a projected document on Marten or Polecat — and
     /// judged against <paramref name="expected" /> when one is given.
     /// </summary>
+    /// <remarks>
+    /// With no stream — the act started none and the givens arranged none — it is <em>the one</em>
+    /// <typeparamref name="T" /> in the store (bobcat#616): the document a document app's act created under an id
+    /// the system chose (a <c>Guid.NewGuid()</c> in the endpoint, a cascaded handler, a saga). Exactly one is the
+    /// subject; none or several is a wrong naming the count. Queried through <c>JasperFx.Events.Documents</c>, so
+    /// it works on every store.
+    /// </remarks>
     [EventModelRole(SliceRole.Document, nameof(T))]
     public async Task<T> ThenSingleDocument<T>(object? expected = null) where T : class
     {
+        if (scenarioStreamOrNull() is null) return await theOnly<T>(expected);
+
         await daemonsCaughtUpBefore(typeof(T));
 
         return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? singleText<T>() : matchesText(expected))), async () =>
@@ -2083,11 +2096,39 @@ public class CritterStackScenario
 
     // The stream a spec without an id means: the one stream the act started, else the one the givens arranged
     private object scenarioStream(Type model, string step)
-    {
-        if (LastAct.StartedStreams is [var started]) return started.Key ?? (object)started.Id;
-        return _state.Stream ?? throw new SpecCriticalException(
+        => scenarioStreamOrNull() ?? throw new SpecCriticalException(
             $"{step}<{model.Name}>() reads the stream the scenario is about, but the act started none and the givens arranged none. " +
             $"Name it: ThenReadModel<{model.Name}>(id, ...).");
+
+    private object? scenarioStreamOrNull()
+        => LastAct.StartedStreams is [var started] ? started.Key ?? (object)started.Id : _state.Stream;
+
+    private static string onlyText<T>() => $"there is exactly one {nameOf(typeof(T))}";
+
+    // bobcat#616: no stream to read by, so the one T in the store — the document a document app's act created
+    // under an id the system chose. Waits first, as every read of a projected document does.
+    private async Task<T> theOnly<T>(object? expected) where T : class
+    {
+        await projectionsCaughtUpBefore(typeof(T), null);
+
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? onlyText<T>() : matchesText(expected))), async () =>
+        {
+            var documents = await allDocuments<T>(onlyText<T>());
+            if (documents.Count != 1)
+            {
+                var found = documents.Count == 0
+                    ? "there is none"
+                    : $"there are {documents.Count}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}";
+
+                throw failureOf(
+                    $"Expected exactly one {nameOf(typeof(T))} document, but {found}. The scenario has no stream to read by " +
+                    $"(the act started none and the givens arranged none), so every {nameOf(typeof(T))} in the store counts.");
+            }
+
+            recordTouched(typeof(T));
+            if (expected is not null) judge(documents[0], expected);
+            return documents[0];
+        });
     }
 
     /// <summary>
@@ -2147,15 +2188,15 @@ public class CritterStackScenario
 
         await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {nameOf(typeof(T))}")), async () =>
         {
-            var documents = await allDocuments<T>();
+            var documents = await allDocuments<T>($"there is no {nameOf(typeof(T))}");
             fact(documents.Count == 0,
                 $"Expected no {nameOf(typeof(T))} document, but there {(documents.Count == 1 ? "is one" : $"are {documents.Count}")}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}");
         });
     }
 
-    private async Task<IReadOnlyList<T>> allDocuments<T>() where T : class
+    private async Task<IReadOnlyList<T>> allDocuments<T>(string step) where T : class
     {
-        var store = await storeForAsync($"there is no {nameOf(typeof(T))}", typeof(T));
+        var store = await storeForAsync(step, typeof(T));
         object session = _tenant is null
             ? DocumentStores.SessionFactoryFor(store).QuerySession()
             : await DocumentStores.TenantSessionAsync(store, _tenant);
