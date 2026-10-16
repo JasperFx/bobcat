@@ -22,6 +22,21 @@ public class SpecInput
     [Description("Only the scenarios whose title contains this (case-insensitive); repeatable")]
     public IEnumerable<string> ScenarioFlag { get; set; } = [];
 
+    [Description("Only the specifications bound to this Event Model slice; repeatable (a repeated flag ORs, different flags AND)")]
+    public IEnumerable<string> SliceFlag { get; set; } = [];
+
+    [Description("Only the specifications whose slice is in this chapter; repeatable")]
+    public IEnumerable<string> ChapterFlag { get; set; } = [];
+
+    [Description("Only the specifications whose slice is in this domain; repeatable")]
+    public IEnumerable<string> DomainFlag { get; set; } = [];
+
+    [Description("Only the specifications whose slice has this pattern (Command, View, Query, Automation, Translation); repeatable")]
+    public IEnumerable<string> PatternFlag { get; set; } = [];
+
+    [Description("Only the specifications with this trait, Name=Value (Slice/Chapter/Domain/Pattern included); repeatable")]
+    public IEnumerable<string> TraitFlag { get; set; } = [];
+
     [Description("Use the last build as it is")]
     public bool NoBuildFlag { get; set; }
 
@@ -93,10 +108,11 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             return false;
         }
 
-        if ((input.FailedFlag || input.RepeatFlag) && (input.FeatureFlag.Any() || input.ScenarioFlag.Any()))
+        if ((input.FailedFlag || input.RepeatFlag)
+            && (input.FeatureFlag.Any() || input.ScenarioFlag.Any() || SpecSelectionFlow.CoordinatesOf(input).NarrowsAnything))
         {
             AnsiConsole.MarkupLine($"[red]--{(input.FailedFlag ? "failed" : "repeat")} chooses what to run from the last run; "
-                                   + "it cannot be combined with --feature or --scenario.[/]");
+                                   + "it cannot be combined with --feature, --scenario, --slice, --chapter, --domain, --pattern or --trait.[/]");
             return false;
         }
 
@@ -362,10 +378,11 @@ internal static class SpecSelectionFlow
     {
         var features = input.FeatureFlag.ToList();
         var scenarios = input.ScenarioFlag.ToList();
-        if (features.Count == 0 && scenarios.Count == 0) return Chosen.Everything;
+        var coordinates = CoordinatesOf(input);
+        if (features.Count == 0 && scenarios.Count == 0 && !coordinates.NarrowsAnything) return Chosen.Everything;
 
         var manifest = await SpecHost.ListAsync(project);
-        var identities = SpecHost.Choose(manifest, features, scenarios);
+        var identities = SpecHost.Choose(manifest, features, scenarios, coordinates);
         return identities is null
             ? null
             : new Chosen(identities, Bobcat.Runtime.SpecFilterArguments.For(manifest, Bobcat.Runtime.SpecSelection.Of(identities)));
@@ -402,6 +419,16 @@ internal static class SpecSelectionFlow
             return null;
         }
     }
+
+    /// <summary>The Event Model coordinate and trait flags (bobcat#573) as one filter.</summary>
+    public static Bobcat.Runtime.SpecCoordinateFilter CoordinatesOf(SpecInput input) => new()
+    {
+        Slices = input.SliceFlag.ToList(),
+        Chapters = input.ChapterFlag.ToList(),
+        Domains = input.DomainFlag.ToList(),
+        Patterns = input.PatternFlag.ToList(),
+        Traits = input.TraitFlag.ToList()
+    };
 
     public static async Task<IReadOnlyList<string>?> PickAsync(SpecProject project)
     {

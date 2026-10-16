@@ -55,7 +55,7 @@ namespace Bobcat.Xunit;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IExplicitScenarioName
+public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITraitAttribute, IExplicitScenarioName
 {
     // Armed when the runner instantiates the attribute, which is during discovery and so before any
     // fixture or host startup can throw (bobcat#539).
@@ -182,4 +182,36 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IEx
 
     public virtual void After(MethodInfo methodUnderTest, IXunitTest test)
         => XunitScenarioBracket.Close();
+
+    /// <summary>
+    /// The specification's Event Model coordinates as traits (bobcat#573) — <c>Slice</c>, <c>Chapter</c>,
+    /// <c>Domain</c> and <c>Pattern</c>, the ones the generated binding has — so
+    /// <c>dotnet test --filter-trait "Slice=Deposit"</c>, IDE grouping and TRX see what <c>bobcat run
+    /// --slice</c> selects on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The pattern is the derived one, not only what this attribute says</b>: the values come from
+    /// the binding the generator folded with the Event Model, not from <see cref="Pattern"/> and its
+    /// siblings, which is what keeps the traits, the manifest and the model from disagreeing.
+    /// </para>
+    /// <para>
+    /// xUnit asks <see cref="ITraitAttribute.GetTraits"/> with no argument, so the attribute finds its
+    /// own method by the source location the compiler stamped on it (<see cref="XunitSpecMethods"/>).
+    /// A test it cannot place, or one bound to no slice, simply has no Bobcat traits.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyCollection<KeyValuePair<string, string>> GetTraits()
+    {
+        try
+        {
+            var method = XunitSpecMethods.Find(SourceFilePath, SourceLineNumber);
+            return DeclaredSteps.CoordinatesFor(method?.DeclaringType, method?.Name)?.ToTraits() ?? [];
+        }
+        catch
+        {
+            // Traits are a courtesy to filters and IDEs; discovery must never fail over one
+            return [];
+        }
+    }
 }

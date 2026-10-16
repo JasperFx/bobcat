@@ -224,10 +224,26 @@ internal static class SpecHost
     /// nothing and reads as green.
     /// </summary>
     public static IReadOnlyList<string>? Choose(SpecManifest manifest, IReadOnlyList<string> features, IReadOnlyList<string> scenarios)
-    {
-        if (features.Count == 0 && scenarios.Count == 0) return [];
+        => Choose(manifest, features, scenarios, new SpecCoordinateFilter());
 
-        var chosen = manifest.Identities.Where(identity =>
+    /// <summary>
+    /// The same, narrowed further by Event Model coordinates and traits (bobcat#573): the identities
+    /// <paramref name="coordinates"/> resolves to, and among them the feature and scenario matches. A
+    /// coordinate nothing is bound to is refused by name (null), the same as a title that matches nothing.
+    /// </summary>
+    public static IReadOnlyList<string>? Choose(SpecManifest manifest, IReadOnlyList<string> features,
+        IReadOnlyList<string> scenarios, SpecCoordinateFilter coordinates)
+    {
+        if (features.Count == 0 && scenarios.Count == 0 && !coordinates.NarrowsAnything) return [];
+
+        var resolved = coordinates.Resolve(manifest);
+        if (resolved.IsRefused)
+        {
+            AnsiConsole.MarkupLine("[red]Refused:[/] " + Markup.Escape(resolved.Refusal!));
+            return null;
+        }
+
+        var chosen = resolved.Identities.Where(identity =>
         {
             var (feature, scenario) = Split(identity);
             return (features.Count == 0 || features.Any(f => feature.Contains(f, StringComparison.OrdinalIgnoreCase)))
