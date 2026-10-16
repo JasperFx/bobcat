@@ -88,6 +88,8 @@ export default defineConfig({
     },
     outline: [2, 3]
   },
+  // docs/agents/ is the repository's CLAUDE.md, split by area (bobcat#605), not part of the site.
+  srcExclude: ['agents/**'],
   ignoreDeadLinks: [/^https?:\/\/localhost/, /Directory\.Packages\.props$/],
   markdown: {
     theme: { light: 'github-light', dark: 'github-dark' },

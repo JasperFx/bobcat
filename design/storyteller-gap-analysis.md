@@ -76,11 +76,11 @@ the gap needs a design call (owed), is a plain bug/build task (none needed), or 
 | Storyteller feature | Why Bobcat doesn't have it | Where decided |
 |---|---|---|
 | `ISystem` / `SimpleSystem` / `IExecutionContext`, warmup | Hosting is the test runner's job (fixtures, `IAsyncLifetime`) | `docs/integrations/index.md` |
-| `[PerfLimit]`, `PerformancePolicies` | "Report, don't act": a duration threshold turns a useful signal into a flaky one | CLAUDE.md, `RunTiming` |
+| `[PerfLimit]`, `PerformancePolicies` | "Report, don't act": a duration threshold turns a useful signal into a flaky one | `docs/agents/resilience-and-supervisor.md`, `RunTiming` |
 | Continue past an exception | Irreducible spec-engine vs test-method difference | Samples README gap 1; `docs/marker-steps.md` |
 | Paragraph `.AsTable()` (a row of several grammars) | Paragraphs out of scope for tables | `docs/tutorials/data-intensive-specifications.md` |
 | Markdown spec files, `convert`, `st open` editor, spec editing, `[Editor]`, step-through | Code-first only; Gherkin lane removed in 0.50.0; the IDE debugger steps through a test; the UI is Stoat's | CLAUDE.md; bobcat#471 |
-| Run queue | The monitor owns the queue; a runner refuses rather than queues | CLAUDE.md, resident runner |
+| Run queue | The monitor owns the queue; a runner refuses rather than queues | `docs/agents/console-and-tool.md`, resident runner |
 | Warmup / lifecycle timing | Lifecycle belongs to the runner; "not measured", never zero | #141 |
 | Selection lists (`[SelectionValues]`, fixture/system/dynamic lists) | A closed set of values is an enum in C#, and enum cells already fail naming the alternatives; the editor drop-down they fed is gone | G7, 2026-10-16 |
 | RDBMS grammars, Selenium, Redux, TestRail | Query with EF Core/Dapper/Marten and verify with `ObjectSetVerification`; Playwright specs are plain tests; TestRail would be a third-party plugin on existing seams | G11/G15, 2026-10-16 |
