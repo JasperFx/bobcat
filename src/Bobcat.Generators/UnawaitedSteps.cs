@@ -60,8 +60,6 @@ internal static class UnawaitedSteps
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
         if (StepAttributes.On(definition) is not null) return true;
 
-        return ProjectedRoles.AttributesOf(method, ProjectedRoles.RoleAttributeName).Carrier is not null
-               || ProjectedRoles.AttributesOf(method, ProjectedRoles.TriggerAttributeName).Carrier is not null
-               || ProjectedRoles.AttributesOf(method, ProjectedRoles.ActAttributeName).Carrier is not null;
+        return ProjectedRoles.StatesEventModel(method);
     }
 }

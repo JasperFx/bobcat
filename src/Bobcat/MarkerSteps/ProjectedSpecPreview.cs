@@ -32,8 +32,8 @@ public static class ProjectedSpecPreview
     /// within it, ready to render.
     /// </summary>
     /// <remarks>
-    /// Built from the union of both registries: a scenario appears if it declared marker comments,
-    /// or planned grammar calls, or both. A test that did neither is not a specification and is not
+    /// Built from the union of the registries: a scenario appears if it declared marker comments,
+    /// planned grammar calls, or scenario vocabulary calls (bobcat#625). A test that did none of those is not a specification and is not
     /// listed — the same rule <c>MarkerCommentSpecs</c> applies when it declines to register an
     /// unmarked test. A subclass of a shared test base is listed under its own identity, with the
     /// steps its base declares (bobcat#600).
@@ -49,6 +49,7 @@ public static class ProjectedSpecPreview
 
         var uids = DeclaredSteps.KnownScenarios
             .Concat(PlannedSteps.KnownScenarios)
+            .Concat(VocabularySteps.KnownScenarios)
             .Concat(DeclaredSteps.InheritedScenarios)
             .Where(uid => !bases.Contains(uid))
             .Distinct()
@@ -68,12 +69,14 @@ public static class ProjectedSpecPreview
         var steps = DeclaredSteps.InheritedFrom(uid) ?? uid;
         var declared = DeclaredSteps.For(steps);
         var planned = PlannedSteps.For(steps);
+        var vocabulary = VocabularySteps.For(steps);
 
         // Merged by source line, the one ordering both of them carry — the same merge the results
         // render uses, so a preview and a result list the steps in the same order by construction.
         var rows = declared
             .Select(d => (d.Line, Step: narrativeRow(d)))
             .Concat(planned.Select(p => (p.Line, Step: plannedRow(p))))
+            .Concat(vocabulary.Select(v => (v.Line, Step: vocabularyRow(v))))
             .OrderBy(x => x.Line)
             .Select(x => x.Step)
             .ToList();
@@ -95,6 +98,22 @@ public static class ProjectedSpecPreview
             IsNarrative = true,
             StepText = declared.Text
         };
+
+    // bobcat#625: the vocabulary method is the binding, the way a [BobcatStep] helper is a planned step's
+    private static PreviewStepRender vocabularyRow(VocabularyStep step)
+    {
+        var dot = step.Grammar.LastIndexOf('.');
+
+        return new PreviewStepRender
+        {
+            StepId = "v" + step.Line,
+            Kind = StepRender.KindOf(step.Keyword),
+            Keyword = step.Keyword,
+            StepText = step.Text,
+            Binding = new StepBinding(dot > 0 ? step.Grammar[..dot] : step.Grammar,
+                dot > 0 ? step.Grammar[(dot + 1)..] : step.Grammar, step.Text)
+        };
+    }
 
     private static PreviewStepRender plannedRow(PlannedStep planned)
     {

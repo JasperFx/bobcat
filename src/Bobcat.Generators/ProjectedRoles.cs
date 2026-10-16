@@ -366,6 +366,15 @@ internal static class ProjectedRoles
     }
 
     /// <summary>
+    /// Whether a method states anything to the Event Model — a role, a trigger or an act — on itself or on
+    /// the declaration it overrides. What makes a project's own scenario method vocabulary (bobcat#625).
+    /// </summary>
+    internal static bool StatesEventModel(IMethodSymbol method)
+        => AttributesOf(method, RoleAttributeName).Carrier is not null
+           || AttributesOf(method, TriggerAttributeName).Carrier is not null
+           || AttributesOf(method, ActAttributeName).Carrier is not null;
+
+    /// <summary>
     /// The attributes of <paramref name="fullName"/> on this method, walking an extension method back to
     /// its definition and an override back to the declaration that carries them — and that declaration,
     /// as seen from the call (so its containing type is the constructed base a closed scenario derives
