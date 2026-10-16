@@ -958,6 +958,13 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
   every file, named by `$schema`) and packed under `schemas/`. `ResultsFileTests` fails on drift;
   `BOBCAT_REGENERATE_SCHEMA=1` rewrites it. A breaking change moves `SchemaVersion` and the file
   name; an additive field does not. #541's TypeScript types are to be generated from this schema.
+- **`obj/bobcat/last-run.json`** (`Bobcat.Console/Specs/LastRun.cs`, bobcat#572): every `bobcat run`
+  writes it in the spec project: failed identities, selection, flags, exit code, a reserved `seed`.
+  `run --failed` / `--repeat` read it. The failures come **from the results file**, so `SpecHost`
+  now always sets `BOBCAT_RESULTS`: a private per-run temp directory (deleted afterwards) when
+  `--results` isn't given. An identity the manifest lost is refused through `SpecSelection.NotIn`;
+  a host that wrote no results leaves `resultsRead: false`, and `--failed` refuses rather than reading
+  that as "nothing failed". `RunFailedAndRepeatTests` (Supervisor.Tests) drives the real tool.
 
 ### Three-Level Failure Semantics
 1. **Assertion** — a gathered wrong (`SpecAssert`, a `[Check]` returning false,
