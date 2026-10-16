@@ -26,7 +26,7 @@ In practice:
 | | Requirement | Built and tested against |
 |---|---|---|
 | .NET | `net9.0` or `net10.0` for the libraries; the `bobcat` tool needs the .NET 10 SDK | .NET 10 |
-| `JasperFx`, `JasperFx.Events` | 2.87.0 or later | 2.87.0 |
+| `JasperFx`, `JasperFx.Events` | 2.90.2 or later | 2.90.2 |
 | Marten | a release built on JasperFx.Events 2.80 or later | 9.46.0 |
 | Fisher | a release built on JasperFx.Events 2.80 or later | 1.19.0 |
 | Polecat | a release built on JasperFx.Events 2.80 or later | 5.36.0 (not run in CI; it needs SQL Server) |
@@ -75,7 +75,7 @@ The JasperFx minimum is the line that matters when you upgrade.
 
 | Bobcat | `JasperFx` / `JasperFx.Events` minimum | Test framework line |
 |---|---|---|
-| 1.0 | 2.87.0 | xUnit v3 4.x, MTP 2.x |
+| 1.0 | 2.90.2 | xUnit v3 4.x, MTP 2.x |
 | 0.60.x | 2.85.0 | xUnit v3 4.x, MTP 2.x |
 | 0.39.0 – 0.50.0 | 2.84.1 | xUnit v3 3.x, MTP 1.9 |
 | 0.37.0 – 0.38.1 | 2.82.0 | xUnit v3 3.x, MTP 1.9 |
