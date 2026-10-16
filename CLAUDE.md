@@ -245,9 +245,9 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   stream through `Storage.StartStream` needs Wolverine's `[Emits(typeof(…))]` before any source
   knows what it appends — the event is built in the body, so nothing on the signature says it
   (wolverine GH-4386) — and without it the store's view has no `EventConsumed` link back to that
-  slice. The host's own `event-model --url` export (and therefore Stoat's `watch-event-model`)
+  slice. The host's own `event-model --url` export (and therefore `bobcat watch-event-model`)
   pushes a document *without* the spec-declared slices or their `Specifications` bindings. **The two
-  halves meet on the console — Stoat's — instead:** #268 made `/api/event-model` merge per source
+  halves meet on the console — `bobcat ui`, or Stoat — instead:** #268 made `/api/event-model` merge per source
   and #294 made the runner publish the spec half as it attaches, so each producer pushes what it can
   see and `GET` folds them by slice name. That is the whole reason the `[EventModelName]` above is
   load-bearing rather than cosmetic — the merge is keyed on the model name at both altitudes.
@@ -1323,8 +1323,8 @@ ones on upgrade. Same reasoning as retries being opt-in.
   (never for discovery — it launches before the run bracket opens, and `run_started` stays the
   stream's first event), `test_stalled`, and `run_progress` (the #148 heartbeat, carrying peak
   worker RSS when sampling is on — distinct from `run_heartbeat`, the bare liveness ping).
-  Posted by `SupervisorRunPublisher`; how the receiving side folds and renders them is Stoat's,
-  and kept in `docs/monitor-design.md` (Bobcat-side seams item 4) because the fold is half of
+  Posted by `SupervisorRunPublisher`; how the receiving side folds and renders them is
+  `Bobcat.Ui`'s (and Stoat's, for its own copy), and kept in `docs/monitor-design.md` (Bobcat-side seams item 4) because the fold is half of
   the contract — a publisher that does not know how its events are read cannot tell an
   additive change from a breaking one.
 - **Preflight runs once before any worker is launched** (`Supervisor.Preflight`, which also checks
@@ -1648,7 +1648,7 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 | **Bobcat.NUnit** | net9.0; net10.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
 | **Bobcat.MSTest** | net9.0; net10.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
 | **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
-| **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, and `resident` for the out-of-process resident runner |
+| **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, `resident` for the out-of-process resident runner, `ui` (the run board and Event Model canvas, `src/Bobcat.Ui`), `watch-event-model`, and the agent queries (`list-runs`, `run-status`, `failing-tests`, `failing-spec`, `flaky-ledger`, `await-run`, `export-run`, `event-model`, `slice-coverage`). Packable only with `EmbedFrontend=true`, so it never ships without its page |
 
 `design/history/acceptance-coverage-map.md` maps the retired acceptance suite onto
 `Bobcat.Projected.Acceptance.Tests`; `Bobcat.CritterStackScenario.Tests` and
@@ -1658,18 +1658,35 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 `WolverineScenario` ship in **`WolverineFx.Bobcat`** from the Wolverine repo, so no Bobcat package
 depends on Wolverine.
 
-Not packed: `Bobcat.Xunit.Samples` and `Bobcat.Supervisor.ProjectedWorker` are hosts the tests drive.
+Not packed: `Bobcat.Xunit.Samples` and `Bobcat.Supervisor.ProjectedWorker` are hosts the tests drive;
+`Bobcat.Ui` ships inside the tool, never as a package of its own.
 
-**The console that receives all of this is not in this repository** (commit 3ee3db9, "Carve the
-console out of Bobcat", 2026-09-18). The run board, the archive, the exports, the MCP tools over
-them and the Event Model canvas — everything here that remembered something across a process —
-moved to [Stoat](https://github.com/JasperFx/stoat). Bobcat has no web server, no store, no MCP
-surface and no frontend: no `Bobcat.Console` project, no Vue SPA, no generated TypeScript
-contracts, no `console-frontend.yml` gate, no `Bobcat.Console.Specs`. Stoat's
-`ContractRoundTripTests` / `TypeScriptContractTests` keep *its* copy of the contracts honest, so a
-change made here alone fails there; `Bobcat.Tests/Monitoring/FakeMonitorHost` is how this side is
-tested against real HTTP without one. Decisions of record: `docs/monitor-design.md`, which keeps
-its filename because it documents the wire at least as much as it ever documented the viewer.
+**The console that receives all of this is back in this repository as `bobcat ui` (#524).** It
+left on 2026-09-18 (3ee3db9, "Carve the console out of Bobcat") for
+[Stoat](https://github.com/JasperFx/stoat) and came back in #525: the Event Model canvas and the run
+board belong in the free tool, because the Critter Stack needs that visualization without a
+licence. What came back:
+
+- **`src/Bobcat.Ui`** — the host: `/api/ingest`, `/api/runs`, `/api/event-model`, the exports and
+  ejects, the SignalR relay, the run registry and its archive (`~/.bobcat/monitor/runs`), the
+  resident-runner wire, the idle ceiling, and `/api/agent/*` for the CLI queries. It keeps
+  **Wolverine + Wolverine.HTTP + Wolverine.SignalR**, as in both earlier homes. **Only the `bobcat`
+  tool references it, never a Bobcat library**, so `WolverineFx.Bobcat → Bobcat` stays the only edge
+  between the repositories and there is no package cycle.
+- **`src/Bobcat.Ui.FrontEnd`** — the Vue SPA, embedded under `EmbedFrontend=true` (the CritterWatch
+  pattern); `ui-frontend.yml` and `./build.sh UiSmoke` are its gates.
+- **`Bobcat.Ui.Tests` / `Bobcat.Ui.Specs`** — `ContractRoundTripTests` and `TypeScriptContractTests`
+  keep the receiver's copy of the contracts honest against this repository's publisher, so a wire
+  change that breaks the console now fails here. `Bobcat.Tests/Monitoring/FakeMonitorHost` is still
+  how core is tested against real HTTP without the console.
+- **The agent-facing queries are CLI commands, not MCP tools** — JSON on stdout over a running
+  `bobcat ui` (`docs/agent-queries.md`). MCP stays Stoat's.
+
+Persistence is only what the console keeps while it runs; nothing new. **Stoat still binds 5525
+until its own half of #524 ships** (step 5, tracked in the stoat repository), so today a person runs
+one or the other on that port, or moves one with `--port` and lists both in `BOBCAT_MONITOR_URL`.
+Decisions of record: `docs/monitor-design.md` (the wire and the receiving-side folds) and
+`docs/bobcat-ui.md`.
 
 What stays here is **the format and the run**, and none of its vocabulary is obsolete. Here
 "monitor" means *the thing a run publishes to*, so renaming any of the following is a breaking
@@ -1679,11 +1696,12 @@ sweep:
 - The `Bobcat.Monitoring` namespace (`src/Bobcat/Monitoring/`), `Supervisor.PublishToMonitor`,
   `MonitorPublisher`, and the publisher's copy of the wire records in
   `src/Bobcat/Monitoring/MonitorEvents.cs`. **Two copies of those records is a decision, not drift**
-  (issue #65) — the receiver's lives in Stoat, and the wire shape, not an assembly, is the contract.
-  That is what let a BSL console absorb an MIT viewer without either side acquiring a reference to
-  the other. The cost is that an additive field is **invisible** to the other side: `StepCell.Value`
-  (issue #396) is read by nobody until a console is changed to read it, and nothing warns either
-  party.
+  (issue #65) — the receiver's lives in `Bobcat.Ui/Contracts` (and Stoat keeps its own), and the
+  wire shape, not an assembly, is the contract. That is what lets a BSL console read the same runs
+  as the MIT one without either side acquiring a reference to the other. The cost is that an
+  additive field is **invisible** to a receiver until it is changed to read it: `StepCell.Value`
+  (issue #396) was read by nobody for a while, and nothing warned either party. `Bobcat.Ui`'s round-trip
+  tests now catch that for the receiver in this repository; nothing catches it for Stoat's.
 - `BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`, `BOBCAT_RUN_OWNER`,
   `BOBCAT_RUN_COMMAND`, **`BOBCAT_RUN_COMMAND_FILE`** (issue #402 — a file whose contents are the
   CURRENT request's command id, which **wins** over `BOBCAT_RUN_COMMAND`; see the resident runner's
@@ -1704,13 +1722,14 @@ sweep:
   attribution needs no configuration. **It loses to the command (issue #401): a run carrying a
   `Command` reports no `Session` at all**, because a resident runner holds its launching agent's
   session for life and would otherwise claim every button press a person made. Every one is
-  user-facing or on the wire. The `Monitor:*` keys that were ever *read* (`DataPath`,
-  `RetentionDays`, `RetentionRuns`, `IdleMinutes`) belonged to the console and went with it, along
-  with their `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved
-  rather than reused.
-- **Port 5525**, the *default* address a publisher probes (`MonitorPublisher.DefaultUrl`).
-  Deliberately kept rather than collapsed into Stoat's coordination port, because every publisher
-  already probes it.
+  user-facing or on the wire. The `Monitor:*` keys that are *read* (`DataPath`,
+  `RetentionDays`, `RetentionRuns`, `IdleMinutes`) belong to the console: they left with it in
+  3ee3db9 and came back with `bobcat ui`, along with their `BOBCAT_MONITOR_DATA` /
+  `BOBCAT_MONITOR_RETENTION_DAYS` / `BOBCAT_MONITOR_RETENTION_RUNS` / `BOBCAT_MONITOR_IDLE_MINUTES`
+  spellings. Only `Bobcat.Ui` reads them, never a publisher.
+- **Port 5525**, the *default* address a publisher probes (`MonitorPublisher.DefaultUrl`), and
+  the port `bobcat ui` binds. Deliberately kept rather than collapsed into Stoat's coordination port,
+  because every publisher already probes it.
 
 **`BOBCAT_MONITOR_URL` is a LIST, and a run publishes to every target (bobcat#530).** Comma- or
 semicolon-separated; `MonitorPublisher.ParseUrls` trims, drops empties and drops duplicates (keyed
@@ -1918,10 +1937,10 @@ and so cannot be handed a class to host.
     checked by dropping `.Emits` and watching it go red; `Bobcat.EventModel.Tests` therefore
     references `Microsoft.CodeAnalysis.CSharp`.
 
-It is a plain JasperFx command host and hosts no server. **Its assembly is `Bobcat.Cli`, not
-`bobcat`** — see the resident-runner section for why that is load-bearing rather than cosmetic; the
-command a person types is still `bobcat`. **`watch-event-model` is not a command of this tool**; it
-lives in Stoat's `Stoat.Console`.
+It is a plain JasperFx command host; the one server it hosts is `bobcat ui` (below), and only while
+that command runs. **Its assembly is `Bobcat.Cli`, not `bobcat`** — see the resident-runner section
+for why that is load-bearing rather than cosmetic; the command a person types is still `bobcat`.
+`watch-event-model` and `generate-ui-contracts` came back from Stoat with the console (#524).
 
 **The runner publishes the spec half of the Event Model** (issue #294,
 `Monitoring/SpecEventModelPublisher.cs`). A model has two producers compiled into different
@@ -1959,7 +1978,7 @@ foreign specs into the Bobcat model is #110, not this.
 - **The supervisor forwards for every worker, Bobcat ones included**, because it cannot tell which
   of them publishes without a marker only new workers would carry. The gate that makes one test
   one card in either arrival order is a property of the *scenario* and lives on the receiving
-  side, which is Stoat's now — see `docs/monitor-design.md`, where the receiving-side folds are
+  side (`Bobcat.Ui`, and Stoat's own copy) — see `docs/monitor-design.md`, where the receiving-side folds are
   kept deliberately, because a publisher that does not know how its events are read cannot tell an
   additive change from a breaking one.
 - **`State` is the framework's own word** — Passed / Failed / Error / Skipped / Timeout /
@@ -2194,12 +2213,15 @@ meaning the runner is free.
 
 ## Bobcat is MIT; AI agent coordination lives in Stoat
 
-Split 2026-08-09, finished 2026-09-18 when the console followed. **Bobcat is the MIT integration
-testing framework** — source generator, specification recorder, runner adapters, supervisor, and the
-*publisher* side of the monitor wire. **[Stoat](https://github.com/JasperFx/stoat) is the BSL AI
-agent coordination tool** (cross-repo plan DAGs, GitHub/NuGet observation, agent claims, MCP), and
-it now hosts the run console as well. The viewer's `Coordination/` folder went first; the rest of
-the viewer went in 3ee3db9.
+Split 2026-08-09; the console followed Stoat on 2026-09-18, and its visual half came back on
+2026-10-13 as `bobcat ui` (#524). **Bobcat is the MIT integration testing framework** — source
+generator, specification recorder, runner adapters, supervisor, the publisher side of the monitor
+wire, **and the visualization of what a run and a model say**: the run board, the Event Model
+canvas, and the CLI queries over them. **[Stoat](https://github.com/JasperFx/stoat) is the BSL AI
+agent coordination tool** — cross-repo plan DAGs, GitHub/NuGet observation, agent claims, agentic
+memory, and the MCP surface. Stoat may also receive runs (on its own port, through the
+`BOBCAT_MONITOR_URL` list) to show a gate's live progress; that is its own receiver, not a
+dependency on `bobcat ui`.
 
 Two rules this creates, both load-bearing:
 
@@ -2210,12 +2232,15 @@ Two rules this creates, both load-bearing:
   Stoat observes GitHub and nuget.org. An
   MIT repo cannot depend on a BSL one, and keeping the dependency at zero makes that impossible to
   get wrong by accident.
-- **No license gating in this repo.** Bobcat is free, entirely. If a feature seems to want a
-  gate — or needs to remember something across a process — it belongs in Stoat.
+- **No license gating in this repo.** Bobcat is free, entirely, `bobcat ui` included. The line is
+  by subject, not by whether something remembers across a process: **showing and querying runs and
+  Event Models belongs here; coordinating agents — plans, claims, memory, MCP tools — belongs in
+  Stoat.** If a feature seems to want a licence gate, it is a coordination feature and goes there.
 
 What a run publishes is therefore a **public wire contract**, not an internal detail: the events in
-`src/Bobcat/Monitoring/MonitorEvents.cs` are read by a console that has no assembly reference to
-warn it, so changing one of their shapes breaks an external consumer silently. `BOBCAT_RUN_TAG` is
+`src/Bobcat/Monitoring/MonitorEvents.cs` are read by `Bobcat.Ui` and by Stoat, and Stoat has no
+assembly reference to warn it, so changing one of their shapes can break an external consumer
+silently. `BOBCAT_RUN_TAG` is
 the correlation hook — an opaque string Bobcat stamps on a run and never interprets (it was
 `BOBCAT_PLAN_NODE`, renamed in the split because coordination vocabulary does not belong here).
 
