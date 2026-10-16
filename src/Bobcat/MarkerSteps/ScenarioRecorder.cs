@@ -98,8 +98,18 @@ public static class ScenarioRecorder
     /// or null for a test with no row, which is exactly <see cref="Begin(string, string, IMonitorEventSink?, Guid)"/>.
     /// </summary>
     public static Recording Begin(string feature, string scenario, string? row, IMonitorEventSink? publisher, Guid runId)
+        => Begin(feature, scenario, row, null, publisher, runId);
+
+    /// <summary>
+    /// Open a scenario whose test body a base class declares (bobcat#600). <paramref name="inheritedFrom"/>
+    /// is the identity the body has under its declaring class — where the generator registered its
+    /// declared and planned steps, since marker comments are only ever read where the body is written —
+    /// or null when the test class declares the method itself.
+    /// </summary>
+    public static Recording Begin(
+        string feature, string scenario, string? row, string? inheritedFrom, IMonitorEventSink? publisher, Guid runId)
     {
-        var recording = new Recording(feature, scenario, row, publisher, runId);
+        var recording = new Recording(feature, scenario, row, inheritedFrom, publisher, runId);
         _current.Value = recording;
 
         // The same scenario, as the ambient report sink (issue #408), so a grammar helper in another
@@ -244,20 +254,29 @@ public static class ScenarioRecorder
         }
 
         internal Recording(string feature, string scenario, string? row, IMonitorEventSink? publisher, Guid runId)
+            : this(feature, scenario, row, null, publisher, runId)
+        {
+        }
+
+        internal Recording(
+            string feature, string scenario, string? row, string? inheritedFrom, IMonitorEventSink? publisher,
+            Guid runId)
         {
             Feature = feature;
             Scenario = SpecRows.Title(scenario, row);
             Row = row;
             ParentUid = row is null ? null : Runtime.SpecIdentity.Of(feature, scenario);
+            InheritedFrom = inheritedFrom;
             _publisher = publisher;
             _runId = runId;
 
             // What the test SAYS it does, read from its marker comments at compile time. Known
             // before a line of it runs, which is why the step count can be announced up front.
-            // Keyed on the METHOD's identity: every row of a data-driven spec runs the same body.
-            Declared = DeclaredSteps.For(SpecUid);
+            // Keyed on the METHOD's identity: every row of a data-driven spec runs the same body,
+            // and every subclass of a shared test base too (bobcat#600).
+            Declared = DeclaredSteps.For(StepsUid);
 
-            Planned = PlannedSteps.For(SpecUid);
+            Planned = PlannedSteps.For(StepsUid);
 
             publisher?.Post(new ScenarioStarted(
                 runId, Uid, feature, Scenario, 1, DateTimeOffset.UtcNow,
@@ -306,6 +325,20 @@ public static class ScenarioRecorder
         /// Model knows — one specification per method, the rows being examples of it.
         /// </summary>
         public string SpecUid => ParentUid ?? Uid;
+
+        /// <summary>
+        /// The test body's identity under the base class that declares it, when the test class
+        /// inherits the test (bobcat#600), else null. Not on the wire: the scenario is the subclass's,
+        /// and this only says where its body's steps were registered.
+        /// </summary>
+        public string? InheritedFrom { get; }
+
+        /// <summary>
+        /// What the declared and planned steps are keyed on: <see cref="InheritedFrom"/> for an
+        /// inherited test, else <see cref="SpecUid"/>. The generator registers steps where it reads
+        /// the body, which for an inherited test is the base class.
+        /// </summary>
+        public string StepsUid => InheritedFrom ?? SpecUid;
 
         /// <summary>The steps this scenario's marker comments declare, in source order.</summary>
         public IReadOnlyList<DeclaredStep> Declared { get; }
@@ -698,7 +731,7 @@ public static class ScenarioRecorder
                 _openKeyword = keyword;
             }
 
-            var planned = PlannedSteps.For(SpecUid);
+            var planned = PlannedSteps.For(StepsUid);
             var plannedNumber = plannedIndex >= 0 && plannedIndex < planned.Count
                 ? plannedIndex + 1
                 : (int?)null;

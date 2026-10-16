@@ -76,9 +76,10 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IApplyToTe
 
     public void BeforeTest(ITest test)
     {
-        // The method's declaring type, as the xUnit adapter uses: that is the class the generator
-        // read [BobcatFeature] and the marker comments from.
-        var declaringType = test.Method?.MethodInfo.DeclaringType ?? test.TypeInfo?.Type;
+        // The fixture class NUnit is running, as the xUnit adapter uses: for a test inherited from a
+        // shared base that is the subclass, which is the feature (bobcat#600). Core finds the class
+        // that declares the body by the method's name.
+        var declaringType = test.TypeInfo?.Type ?? test.Method?.MethodInfo.DeclaringType;
         // A [TestCase] row is its own specification (bobcat#569): its arguments are part of its
         // identity. A [Test] with no parameters has none and opens the scenario it always did.
         MarkerStepRun.BeginScenario(declaringType, test.MethodName ?? test.Name, Mode, test.Arguments, null);

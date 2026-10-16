@@ -188,6 +188,54 @@ listing -- a resident runner with no manifest can't run anything -- to protect o
 already refused by name. The build-time error is where a duplicate is meant to stop; the manifest is
 the backstop, and it keeps the same invariant it always had: writing it can never fail the suite.
 
+### A test inherited from a shared base {#inherited-specs}
+
+A suite that writes its tests once on a shared base and runs them per subclass -- Wolverine's
+`TransportCompliance<T>`, subclassed bodyless by every transport -- gets one specification per
+**subclass** (bobcat#600):
+
+```csharp
+[BobcatFeature("Transport compliance")]
+public abstract class TransportCompliance<T>
+{
+    [BobcatSpec]
+    public void can_request_reply()
+    {
+        // Given a transport
+        // Then a request gets its reply
+    }
+}
+
+[BobcatFeature("TCP transport")]
+public class TcpCompliance : TransportCompliance<TcpFixture>;   // TCP transport/can request reply
+
+public class RabbitMqTransportCompliance : TransportCompliance<RabbitFixture>;
+                                     // Rabbit Mq Transport Compliance/can request reply
+```
+
+- **The feature is the test class the runner runs**, never the class that declares the method. A
+  subclass's own `[BobcatFeature]` names it; a base's `[BobcatFeature]` is **not inherited**, because
+  every subclass taking the base's title is the collapse this exists to prevent. Without one the
+  subclass's name is read as a sentence, and a generic arity (`` TransportCompliance`1 ``) never reaches
+  a title.
+- **The steps are the base's.** Marker comments are only ever read where the body is written, so a
+  subclass's recording, `bobcat preview` and the run's rendering all show the steps the base declares.
+- **The generator binds every subclass** in the compilation that runs it, reading the base from
+  metadata when it lives in another assembly, so `--list-tests`, `BOBCAT_LIST_SPECS`, running by
+  identity, the resident runner and BOBCAT036 all see one identity per subclass test. An **abstract**
+  class binds no identity of its own: it never runs as itself.
+- **What is not covered.** A base's constant `[InlineData]` rows are listed only when the base is in
+  the same compilation; from another assembly they are left to the run, like `[MemberData]` rows. And
+  the Event Model is not fed per subclass: a spec's slice binding and roles are read off its body, so
+  an inherited spec reaches the model under the base's identity, if the base's compilation emits one.
+- **Two subclasses with one title collide.** Wolverine names a class `BufferedSendingAndReceivingCompliance`
+  in seven transport projects; in one compilation that is BOBCAT036, across suites it is two runs
+  under one identity on `bobcat ui` or Stoat. Give each subclass its own `[BobcatFeature("…")]`.
+- **Skipping one subclass's copy:** override the method with `[BobcatSpec(Skip = "…")]`, not
+  `[Fact(Skip = "…")]`. xUnit inherits the base's `[BobcatSpec]`, so a `[Fact]` on the override gives it
+  two Fact-derived attributes and xUnit fails it at run time ("has multiple [Fact]-derived
+  attributes"). **BOBCAT040** (error) refuses that at build time.
+
 ### Asking for a subset
 
 `SpecSelection` is the set a run was asked for, and **empty means everything**, so a run path takes

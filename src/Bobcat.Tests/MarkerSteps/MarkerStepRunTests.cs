@@ -230,6 +230,90 @@ public class MarkerStepRunTests : IDisposable
     public void a_failure_always_describes_itself(string? type, string? message, string expected)
         => ScenarioVerdict.Failed(type, message).Describe().ShouldBe(expected);
 
+    [Fact]
+    public void an_inherited_test_records_under_the_subclass_that_runs_it()
+    {
+        // bobcat#600. xUnit reflects an inherited test off the concrete subclass; keyed on the
+        // declaring type, every subclass of a shared base collapsed into the base's identity, with
+        // the generic arity in its title.
+        MarkerStepRun.StartForTesting(new MonitorRunInfo(Guid.NewGuid(), "Suite", "/repo", "main", "xunit"));
+
+        var tcp = MarkerStepRun.BeginScenario(
+            typeof(TcpCompliance).GetMethod(nameof(TransportCompliance<int>.can_request_reply))!, "xunit");
+        tcp.Dispose();
+
+        var rabbit = MarkerStepRun.BeginScenario(
+            typeof(RabbitTransportCompliance).GetMethod(nameof(TransportCompliance<int>.can_request_reply))!, "xunit");
+        rabbit.Dispose();
+
+        // [BobcatFeature] on the subclass is honoured; the base's title is not inherited
+        tcp.Uid.ShouldBe("TCP transport/can request reply");
+        rabbit.Uid.ShouldBe("Rabbit Transport Compliance/can request reply");
+
+        tcp.InheritedFrom.ShouldBe("Shared transport base 600/can request reply");
+        rabbit.InheritedFrom.ShouldBe("Shared transport base 600/can request reply");
+    }
+
+    [Fact]
+    public void the_type_and_name_overload_records_an_inherited_test_under_the_subclass_too()
+    {
+        MarkerStepRun.StartForTesting(new MonitorRunInfo(Guid.NewGuid(), "Suite", "/repo", "main", "tunit"));
+
+        var recording = MarkerStepRun.BeginScenario(
+            typeof(TcpCompliance), nameof(TransportCompliance<int>.can_request_reply), "tunit");
+        recording.Dispose();
+
+        recording.Uid.ShouldBe("TCP transport/can request reply");
+        recording.InheritedFrom.ShouldBe("Shared transport base 600/can request reply");
+    }
+
+    [Fact]
+    public void an_inherited_test_renders_the_steps_its_base_declares()
+    {
+        // The generator reads marker comments where the body is written, so they are registered
+        // under the base's identity, never the subclass's
+        DeclaredSteps.Register("Shared transport base 600/declares steps",
+            new DeclaredStep("Given", "a transport", 10), new DeclaredStep("Then", "a reply", 11));
+
+        try
+        {
+            MarkerStepRun.StartForTesting(new MonitorRunInfo(Guid.NewGuid(), "Suite", "/repo", "main", "xunit"));
+
+            var recording = MarkerStepRun.BeginScenario(
+                typeof(TcpCompliance).GetMethod(nameof(TransportCompliance<int>.declares_steps))!, "xunit");
+
+            recording.Uid.ShouldBe("TCP transport/declares steps");
+            recording.Declared.Count.ShouldBe(2);
+
+            var started = _sink.Events.OfType<ScenarioStarted>().Last();
+            started.Uid.ShouldBe("TCP transport/declares steps");
+            started.TotalSteps.ShouldBe(2);
+
+            recording.Dispose();
+        }
+        finally
+        {
+            DeclaredSteps.Remove("Shared transport base 600/declares steps");
+        }
+    }
+
+    [Fact]
+    public void a_test_the_class_declares_itself_inherits_nothing()
+        => begin().InheritedFrom.ShouldBeNull();
+
+    [BobcatFeature("Shared transport base 600")]
+    public abstract class TransportCompliance<T>
+    {
+        public void can_request_reply() { }
+
+        public void declares_steps() { }
+    }
+
+    [BobcatFeature("TCP transport")]
+    public class TcpCompliance : TransportCompliance<int>;
+
+    public class RabbitTransportCompliance : TransportCompliance<string>;
+
     [BobcatFeature("Async daemon")]
     public class SampleSpecs
     {

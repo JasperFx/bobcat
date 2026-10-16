@@ -198,8 +198,31 @@ public class BobcatGenerator : IIncrementalGenerator
             .Where(s => s != null)
             .Select((s, _) => s!);
 
+        // 3e. The specifications a concrete class inherits from a shared test base (bobcat#600),
+        //     possibly compiled into another assembly, each bound under the subclass's identity.
+        var inheritedSpecs = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => InheritedSpecs.IsCandidate(node),
+                transform: InheritedSpecs.Extract)
+            .Where(s => s != null)
+            .Select((s, _) => s!);
+
+        var skipOverrides = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is MethodDeclarationSyntax { AttributeLists.Count: > 0 },
+                transform: InheritedSpecs.SkipOverride)
+            .Where(x => x != null)
+            .Select((x, _) => x!);
+
+        context.RegisterSourceOutput(skipOverrides, (spc, where) =>
+            spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.InheritedSpecOverriddenWithFact, where)));
+
+        var allSpecs = markedSpecs.Collect()
+            .Combine(inheritedSpecs.Collect())
+            .Select((pair, _) => pair.Left.AddRange(pair.Right));
+
         context.RegisterSourceOutput(
-            markedSpecs.Collect().Combine(context.CompilationProvider),
+            allSpecs.Combine(context.CompilationProvider),
             (spc, pair) =>
             {
                 var (specs, compilation) = pair;
@@ -233,11 +256,11 @@ public class BobcatGenerator : IIncrementalGenerator
         //    own branch above for the runtime narrative, but their [BobcatSlice] binding and the
         //    roles their bodies state (bobcat#462) have to reach the Event Model, which is
         //    assembled here against the compilation.
-        var modelInputs = markedSpecs.Collect().Combine(context.CompilationProvider);
+        var modelInputs = markedSpecs.Collect().Combine(inheritedSpecs.Collect()).Combine(context.CompilationProvider);
 
         context.RegisterSourceOutput(modelInputs, (spc, pair) =>
         {
-            var (marked, compilation) = pair;
+            var ((marked, inherited), compilation) = pair;
 
             // Reported whether or not this compilation can host an Event Model descriptor: a
             // [BobcatSlice] that names two slices, or names one as a string where a type exists, is
@@ -265,7 +288,7 @@ public class BobcatGenerator : IIncrementalGenerator
             // keyed on it, so it is refused here, the one place that sees every test in the
             // compilation. Reported at EACH claimant, naming the others, so whichever file the author
             // has open says what it collides with.
-            foreach (var duplicate in MarkerCommentSpecs.DuplicateIdentities(marked))
+            foreach (var duplicate in MarkerCommentSpecs.DuplicateIdentities(marked.Concat(inherited)))
             {
                 foreach (var claim in duplicate.Claims)
                 {
@@ -542,6 +565,26 @@ internal static class Diagnostics
         "Step helper is not accessible to Bobcat's interceptor",
         "Step helper '{0}' is {1}, so Bobcat's generated interceptor cannot call it and its calls would record no " +
         "step. Make it public or internal.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#600: an override of an inherited <c>[BobcatSpec]</c>/<c>[BobcatTheory]</c> test carries a
+    /// different test attribute, usually <c>[Fact(Skip = "…")]</c> to skip one subclass's copy.
+    /// </summary>
+    /// <remarks>
+    /// xUnit inherits the base method's <c>[BobcatSpec]</c>, so the override has two Fact-derived
+    /// attributes and xUnit fails it at run time ("has multiple [Fact]-derived attributes") rather than
+    /// skipping it. An error, because that run-time failure is certain; the fix is to keep the attribute
+    /// family, <c>[BobcatSpec(Skip = "…")]</c>.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor InheritedSpecOverriddenWithFact = new(
+        "BOBCAT040",
+        "An override of an inherited [BobcatSpec] test carries another test attribute",
+        "This override inherits [BobcatSpec] from the method it overrides, so with this test attribute too xUnit " +
+        "sees two Fact-derived attributes and fails the test at run time instead of running or skipping it. " +
+        "Use [BobcatSpec(Skip = \"...\")] (or [BobcatTheory(...)]) on the override instead.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
