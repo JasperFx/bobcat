@@ -412,6 +412,13 @@ We adopt and extend this model for the Critter Stack spec runner:
 | **Critical failure** | Single scenario | **Abort** this scenario immediately, skip remaining steps, proceed to next scenario | No — skip to next scenario | Under a `Retry` trait (corrected 2026-10-16, bobcat#538) |
 | **Catastrophic failure** | Entire suite | **Stop all execution**, report results gathered so far, exit with non-zero code | No — stop everything | Never |
 
+> **Superseded on retries (2026-10-16, Storyteller gap review G1, `design/storyteller-gap-analysis.md`).**
+> A **Critical** failure *is* retried when the test carries a `Retry` trait and the run's
+> `RetryBudget` allows it: in an integration suite the flakiness a `Retry` trait exists for mostly
+> arrives as exceptions (timeouts, a broker not ready, a refused connection), and all of those are
+> Critical. `[NeverRecovers(typeof(X))]` opts a failure type out. **Catastrophic** is still never
+> retried. See CLAUDE.md, "Resilience".
+
 ### How failures are classified
 
 **Assertion failures** are the expected case — the system ran but produced the wrong result. These are the most valuable failures because they tell you what the code is doing wrong:
@@ -538,6 +545,13 @@ Strict by default — matches Storyteller's philosophy that flaky tests must be 
 - **Catastrophic failures:** Never retried regardless of any configuration. An infrastructure failure won't magically fix itself on retry.
 - **Critical failures:** *Corrected 2026-10-16 (bobcat#538, gap G1):* retried under a `Retry` trait. In an integration suite the flakiness that trait exists for mostly arrives as exceptions (timeouts, broker not ready, connection refused), all Critical. `[NeverRecovers(typeof(X))]` is the per-type opt-out.
 - **Per-scenario override:** `@retry(3)` tag allows a specific scenario to retry (useful for known-flaky external dependencies in acceptance tests only).
+
+> **Superseded on retries (2026-10-16, Storyteller gap review G1, `design/storyteller-gap-analysis.md`).**
+> A **Critical** failure *is* retried when the test carries a `Retry` trait and the run's
+> `RetryBudget` allows it: in an integration suite the flakiness a `Retry` trait exists for mostly
+> arrives as exceptions (timeouts, a broker not ready, a refused connection), and all of those are
+> Critical. `[NeverRecovers(typeof(X))]` opts a failure type out. **Catastrophic** is still never
+> retried. See CLAUDE.md, "Resilience".
 
 ### Timeout handling
 

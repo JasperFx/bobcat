@@ -457,10 +457,9 @@ An exception inside the window is "not ready yet", and the last one is named in 
 Cancellation, `SpecCriticalException` and `SpecCatastrophicException` aren't retried, because all
 three mean stop.
 
-`[WaitFor]` and `[Approx]` on a helper do nothing in a C# test -- no generated code wraps the call --
-and that was the dangerous part: a helper with `[WaitFor(5000)]` ran once and reported its first
-answer, which looks exactly like a poll that happened to succeed straight away. The generator says so
-with **BOBCAT035**.
+There is no `[WaitFor]` or `[Approx]` attribute any more: both were Gherkin-lane modifiers and went
+with it in 0.50.0, along with BOBCAT035, which warned that they did nothing on a helper a C# test
+calls. The poll goes in the helper, as above, and a tolerance goes in `options:`.
 
 ### Saying what the system did -- `SpecLog.Write` (bobcat#547)
 
@@ -1135,15 +1134,15 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT027** (warning) | A step template names no parameter of its method. Nothing can fill it, so the step renders as `{thread}` forever -- before this it looked identical to a placeholder that was merely deferred |
 | **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording: no `[BobcatScenario]` or `[BobcatSpec]` on it, and no `[assembly: RecordBobcatFeatures]` hook (the `Bobcat.Xunit` package applies that one for you). Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** -- a suite that records nothing is indistinguishable at run time from a suite with nothing to record -- which is why it is a compiler diagnostic |
 | **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose -- it is here for the one author who meant a step and cannot see why it is missing |
-| **BOBCAT030** (error) | A written value that cannot be read as the type of the parameter it binds to. It suppresses the feature, because the alternative is what happened before it existed: a `CS0103` or `CS1503` inside a generated file the author cannot open |
-| **BOBCAT031** (error) | A set verification over a collection of plain values with no `Column` named for them |
 | **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path. A stale column is always a broken spec |
 | **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
 | **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route` or `RouteName`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
 | **BOBCAT038** (info) | A projected spec's HTTP act passes a `Route` or `RouteName` argument the generator can't turn into a route. This covers a helper call or a variable, a route name no endpoint attribute declares (a minimal API's `.WithName`), an ambiguous route name, or no route at all. The slice keeps its trigger kind with no route. Pass a constant template, an interpolated string, or a route name an endpoint attribute declares. See [The act's route](#act-route) |
 | **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
 | **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
-| **BOBCAT035** (warning) | `[WaitFor]` or `[Approx]` on a step helper a C# test calls, or on a method of a projected spec. No generated code wraps the call, so the poll or the tolerance silently never happens. Poll with [`SpecAssert.EventuallyAsync`](#waiting-for-an-answer-that-arrives-later) and pass `tolerance:` to `SpecAssert.Check` instead |
+
+BOBCAT001–022, 030, 031 and 035 were retired with the Gherkin lane in 0.50.0 (bobcat#471). Nothing
+emits them, and the ids are never reused.
 
 The honest limit on BOBCAT029, pinned by
 `Bobcat.Projected.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,

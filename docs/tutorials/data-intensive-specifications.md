@@ -494,8 +494,10 @@ Register one with CellValues.Register<Dimension>(text => ...), or give Dimension
 When the type *has* a reader and it throws, the cell names the reader's own message instead, with
 the exception as the `InnerException`.
 
-A value written in a step helper's *call* -- a literal argument -- is checked at build time instead:
-**BOBCAT030** reports one that can't be read as the parameter's type.
+A value written as a step helper's *argument* is never read from text at all: it is ordinary C#, so
+the compiler checks it against the parameter's type. Only a table's cells go through the readers
+above, at run time. (BOBCAT030, which checked a Gherkin step's written values at build time, was
+retired with the Gherkin lane in 0.50.0, and nothing emits it.)
 
 ## What a grid says on the wire
 

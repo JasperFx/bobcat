@@ -23,10 +23,8 @@ public record CityRow(string City, int Distance, string Zip);
 /// against the actual collection, with key columns, ordering and column selection as arguments.
 /// </para>
 /// <para>
-/// On a grammar that inherits <c>Fixture</c> this is <c>VerifySet(...)</c> directly, the sibling of
-/// <c>RunTable</c> and <c>BuildRows</c>. Here the static form is used for the same reason
-/// <see cref="RosterGrammar"/> calls <c>TableRunner.BuildRows</c> statically — these grammars are
-/// plain classes.
+/// A grammar is a plain class, so it reaches the engine through public statics, as
+/// <see cref="RosterGrammar"/> calls <c>TableRunner.BuildRows</c>.
 /// </para>
 /// </remarks>
 public class SetsGrammar
@@ -92,8 +90,7 @@ public class SetsGrammar
     /// <summary>
     /// Storyteller's <c>VerifyStringList(() =&gt; _names).Titled("…", "Name").Ordered()</c>. A set of
     /// plain values needs no wrapper record and no column named: the table has one column, so there
-    /// is only one thing it could be. <c>[SetVerification(Column = "…")]</c> has to be told, because
-    /// BOBCAT031 is decided at compile time with no table in view.
+    /// is only one thing it could be.
     /// </summary>
     [Then("the names in order should be")]
     internal void TheNamesShouldBe(StepTable expected)

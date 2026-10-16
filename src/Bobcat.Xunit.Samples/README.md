@@ -107,13 +107,8 @@ comparison supersedes the value the literal wrote for that column, which is why 
 
 ## Sets: a set verification the grammar makes itself
 
-`[SetVerification]` cannot be reached from a C# test, and that is a fact about the feature rather
-than a limitation worth working around. The attribute goes on a `[Then]` returning the **actual**
-collection, and the **expected** rows come from the generator — so there is no argument for a test to
-supply them through. It is the same wall a named-tuple return hits.
-
-A step taking a `StepTable` has no such problem: the expected rows are an argument, and the document
-or the call site supplies it. See `Grammars/SetsGrammar.cs` and `Specs/SetSpecs.cs`:
+A set verification is a step taking a `StepTable`: the expected rows are an argument, and the call
+site supplies them. See `Grammars/SetsGrammar.cs` and `Specs/SetSpecs.cs`:
 
 ```csharp
 [Then("the unordered details should be")]
@@ -131,18 +126,9 @@ _sets.TheUnorderedDetailsShouldBe("""
 ```
 
 The comparison is `SetVerificationComparer.Verify`, with key columns, ordering and column selection
-as arguments.
-
-**Which form to prefer, and why both ship.** `[SetVerification]` stays canonical where it reaches:
-`KeyColumns`, `Ordered` and `Column` are compile-time facts, which is what lets the preview and the
-editor read them and what makes BOBCAT014 (a set verification with no table) and BOBCAT031 (a set of
-plain values with no column named) compile errors. In the `StepTable` form they are arguments, and
-nothing can see an argument before the step runs. The trade is deliberate: a declaration a tool can
-read, or a step a test can call.
-
-One thing the argument form does better: a set of plain values needs no `Column` at all. The table has
-one column, so there is only one thing it could be — an inference `[SetVerification]` cannot make,
-because at compile time there is no table in view.
+as arguments. A set of plain values needs no `Column` at all: the table has one column, so there is
+only one thing it could be. A constant table's columns are checked against the element type at build
+time wherever that type is known (BOBCAT032).
 
 The four outcomes in `Data_Tables.md` are the reason it is worth recreating: a happy path, an extra
 row, a missing row and a mismatch, all through one grammar, which is how the row verdicts get read
