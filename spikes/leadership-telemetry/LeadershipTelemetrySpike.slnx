@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Cluster/Cluster.csproj" />
+  <Project Path="Compliance/Compliance.csproj" />
+  <Project Path="Providers/Providers.csproj" />
+</Solution>

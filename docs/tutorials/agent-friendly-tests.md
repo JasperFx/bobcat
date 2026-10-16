@@ -52,6 +52,17 @@ The point is not to print more to the console. It is to put the context somewher
   integration point.
 - **`BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests`** answers "which step binds to what" without
   executing anything.
+- **Scenario reports, step logs and attachments** carry what the system did, written out only for a
+  failed specification -- see [Custom Telemetry on Failure](../failure-telemetry.md).
+
+### 3a. The second worked example: agent assignments in Wolverine's leadership-election suite
+
+Where a tracked session is a messaging story, a cluster's agent-assignment history is a distributed one:
+which node held which agent, what the leader decided, and whether the assignment table matches what is
+actually running. [Custom Telemetry on Failure](../failure-telemetry.md#worked-example-wolverine-s-leadership-election-compliance-suite)
+walks through it, and `spikes/leadership-telemetry` is the code: a timeline report fed from the nodes'
+own background threads, a placement report with the disagreements as red rows, step logs from the waits,
+and the full transcript as an attachment.
 
 ### 4. Generalizing past Wolverine
 

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stands in for one of Wolverine's *Tests.LeaderElection projects: bodyless subclasses of the compliance
+    base, one per provider. Not collected by `dotnet test`; driven directly or through `bobcat run`.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <IsTestProject>false</IsTestProject>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformConfigurationFile>true</GenerateTestingPlatformConfigurationFile>
+    <GenerateSelfRegisteredExtensions>true</GenerateSelfRegisteredExtensions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Compliance\Compliance.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Import Project="..\..\..\src\Bobcat.Generators\buildTransitive\Bobcat.Generators.props" />
+  <Import Project="..\..\..\src\Bobcat.Xunit\buildTransitive\Bobcat.Xunit.props" />
+
+</Project>
