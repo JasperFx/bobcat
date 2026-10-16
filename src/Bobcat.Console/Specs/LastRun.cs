@@ -72,6 +72,11 @@ internal sealed class LastRun
     /// <c>--failed</c> does not need to. A scenario with no identity cannot be asked for again,
     /// so it is left out.
     /// </summary>
+    /// <remarks>
+    /// The files are read oldest first and <b>the last verdict wins</b>: a supervised run (bobcat#546)
+    /// writes one file per worker request, so a specification that failed and then passed on retry
+    /// appears in both, and it did not fail the run.
+    /// </remarks>
     public static List<string> FailedIn(IEnumerable<string> resultsFiles)
     {
         var failed = new List<string>();
@@ -84,16 +89,20 @@ internal sealed class LastRun
 
             foreach (var scenario in scenarios.EnumerateArray())
             {
+                if (!scenario.TryGetProperty("id", out var id) || id.GetString() is not { Length: > 0 } identity) continue;
+
                 var succeeded = scenario.TryGetProperty("succeeded", out var s) && s.ValueKind == JsonValueKind.True;
-                if (succeeded) continue;
 
                 // A failing Acceptance spec (bobcat#545) failed nothing: the platform reported it
                 // skipped and the run's exit code is green, so it is not one of the run's failures.
-                if (scenario.TryGetProperty("verdict", out var verdict)
-                    && verdict.GetString() == SpecLifecycle.FailingVerdict) continue;
+                var acceptance = scenario.TryGetProperty("verdict", out var verdict)
+                                 && verdict.GetString() == SpecLifecycle.FailingVerdict;
 
-                if (scenario.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } identity
-                    && !failed.Contains(identity, StringComparer.Ordinal))
+                if (succeeded || acceptance)
+                {
+                    failed.Remove(identity);
+                }
+                else if (!failed.Contains(identity, StringComparer.Ordinal))
                 {
                     failed.Add(identity);
                 }
@@ -116,4 +125,11 @@ internal sealed class LastRunArguments
     public string? Results { get; set; }
     public bool Json { get; set; }
     public bool Verbose { get; set; }
+
+    // A supervised run's flags (bobcat#546), null when the run was not supervised. Additive, so
+    // the file's version did not move: an older file reads as an unsupervised run, which it was.
+    public int? Retries { get; set; }
+    public int? Workers { get; set; }
+    public string? Stall { get; set; }
+    public string? StallAction { get; set; }
 }

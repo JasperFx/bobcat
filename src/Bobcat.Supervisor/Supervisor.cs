@@ -149,6 +149,19 @@ public sealed class Supervisor
     public Func<WorkerTest, bool>? TestFilter { get; set; }
 
     /// <summary>
+    /// Run only these specifications, named by identity (<c>{Feature}/{Scenario}</c>) — how
+    /// <c>bobcat run</c> narrows a supervised run (bobcat#546). Empty, the default, runs everything.
+    /// </summary>
+    /// <remarks>
+    /// Joined to the platform's uids through the worker's own spec manifest after discovery, the
+    /// same join a warm resident command uses. An identity no discovered test runs <b>aborts the
+    /// run naming it</b> rather than being dropped, because a narrowed run that silently ran fewer
+    /// specifications than it was asked for looks exactly like a pass. Applied with
+    /// <see cref="TestFilter"/>, when both are set.
+    /// </remarks>
+    public SpecSelection Specifications { get; set; } = SpecSelection.Everything;
+
+    /// <summary>
     /// Previously observed per-test durations, keyed by uid, used to balance the lanes.
     /// </summary>
     /// <remarks>
@@ -558,6 +571,23 @@ public sealed class Supervisor
             // is simply never looked up.
             monitor?.BindSpecIdentities(SpecUidJoin.IdentityByUid(manifest, tests));
 
+            if (Specifications.NarrowsAnything)
+            {
+                var (selected, missing) = selectSpecifications(manifest, tests);
+                if (missing is not null)
+                {
+                    return new SupervisorResults
+                    {
+                        Tests = [],
+                        AbortReason = missing,
+                        WorkersLaunched = _workersLaunched
+                    };
+                }
+
+                Log?.Invoke($"Selected {selected.Count} of {tests.Count} discovered test(s) by specification identity");
+                tests = selected;
+            }
+
             if (TestFilter is not null)
             {
                 var discovered = tests.Count;
@@ -652,6 +682,34 @@ public sealed class Supervisor
         var description = Bobcat.Runtime.Preflight.Describe(results);
         Log?.Invoke(description);
         return description;
+    }
+
+    private (List<WorkerTest> Selected, string? Missing) selectSpecifications(
+        SpecManifest? manifest, IReadOnlyList<WorkerTest> tests)
+    {
+        if (manifest is null)
+        {
+            return ([], "Specifications were selected by identity, but the worker wrote no spec manifest to join them "
+                        + "to its tests (is it a Bobcat spec suite, and is ReadWorkerRecoveryHints on?)");
+        }
+
+        var uidsByIdentity = SpecUidJoin.UidsByIdentity(manifest, tests);
+        var uids = new HashSet<string>(StringComparer.Ordinal);
+        var missing = new List<string>();
+
+        foreach (var identity in Specifications.Identities)
+        {
+            if (uidsByIdentity.TryGetValue(identity, out var joined) && joined.Count > 0) uids.UnionWith(joined);
+            else missing.Add(identity);
+        }
+
+        if (missing.Count > 0)
+        {
+            return ([], $"No discovered test runs {(missing.Count == 1 ? "the specification" : "these specifications")}: "
+                        + string.Join(", ", missing));
+        }
+
+        return (tests.Where(test => uids.Contains(test.Uid)).ToList(), null);
     }
 
     private async Task<(IReadOnlyList<WorkerTest> Tests, SpecManifest? Manifest)> discover(CancellationToken ct)

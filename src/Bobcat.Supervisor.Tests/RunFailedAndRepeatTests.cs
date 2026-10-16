@@ -12,7 +12,9 @@ namespace Bobcat.Supervisor.Tests;
 /// purpose — the file is the tool's, so a class nothing ships would prove nothing.
 /// </summary>
 /// <remarks>
-/// One class, so its tests run one at a time: they share the worker project's state file.
+/// One class, so its tests run one at a time: they share the worker project's state file. The
+/// supervised runs of bobcat#546 (<c>--retries</c>, <c>--workers</c>, <c>--stall</c>) are here for
+/// the same reason.
 /// </remarks>
 public class RunFailedAndRepeatTests : IDisposable
 {
@@ -38,7 +40,11 @@ public class RunFailedAndRepeatTests : IDisposable
         if (File.Exists(lastRun)) File.Delete(lastRun);
     }
 
-    private static async Task<(int ExitCode, string Output, string Error)> bobcat(params string[] arguments)
+    private static Task<(int ExitCode, string Output, string Error)> bobcat(params string[] arguments)
+        => bobcat(new Dictionary<string, string>(), arguments);
+
+    private static async Task<(int ExitCode, string Output, string Error)> bobcat(
+        IReadOnlyDictionary<string, string> environment, params string[] arguments)
     {
         var start = new ProcessStartInfo(tool)
         {
@@ -53,6 +59,7 @@ public class RunFailedAndRepeatTests : IDisposable
         }
 
         start.Environment["BOBCAT_MONITOR"] = "0";
+        foreach (var (key, value) in environment) start.Environment[key] = value;
 
         using var process = Process.Start(start)!;
         var output = process.StandardOutput.ReadToEndAsync();
@@ -161,5 +168,105 @@ public class RunFailedAndRepeatTests : IDisposable
 
         result.ExitCode.ShouldNotBe(0);
         result.Output.ShouldContain("no last run");
+    }
+
+    private static Dictionary<string, string> flakyState(out string path)
+    {
+        path = Path.Combine(Path.GetTempPath(), $"bobcat-flaky-{Guid.NewGuid():N}");
+        return new Dictionary<string, string> { ["BOBCAT_FLAKY_STATE"] = path };
+    }
+
+    [Fact]
+    public async Task retries_makes_the_run_supervised_and_a_pass_on_retry_is_not_a_failure()
+    {
+        var environment = flakyState(out var state);
+        try
+        {
+            var run = await bobcat(environment, "--scenario", "flaky until second attempt", "--retries", "2");
+
+            run.ExitCode.ShouldBe(0, run.Output);
+            run.Output.ShouldContain("1 passed on retry");
+            run.Output.ShouldContain("Passed on retry (not clean passes)");
+
+            // The first attempt's results file says it failed; the retry's says it passed, and wins
+            strings(recorded()["failed"]).ShouldBeEmpty();
+            recorded()["arguments"]!["retries"]!.GetValue<int>().ShouldBe(2);
+        }
+        finally
+        {
+            File.Delete(state);
+        }
+    }
+
+    [Fact]
+    public async Task without_retries_a_retry_trait_retries_nothing()
+    {
+        var environment = flakyState(out var state);
+        try
+        {
+            var run = await bobcat(environment, "--scenario", "flaky until second attempt");
+
+            run.ExitCode.ShouldNotBe(0, run.Output);
+            strings(recorded()["failed"]).ShouldBe(["Fussy/flaky until second attempt"]);
+            recorded()["arguments"]!["retries"].ShouldBeNull();
+        }
+        finally
+        {
+            File.Delete(state);
+        }
+    }
+
+    [Fact]
+    public async Task workers_runs_the_selection_in_lanes_and_repeat_replays_it()
+    {
+        var run = await bobcat("--feature", "Basics", "--workers", "2", "--stall", "90s");
+
+        run.ExitCode.ShouldNotBe(0, run.Output);
+        run.Output.ShouldContain("3 passed, 1 failed");
+        strings(recorded()["failed"]).ShouldBe(["Basics/always fails"]);
+
+        var arguments = recorded()["arguments"]!;
+        arguments["workers"]!.GetValue<int>().ShouldBe(2);
+        arguments["stall"]!.GetValue<string>().ShouldBe("90s");
+        arguments["stallAction"]!.GetValue<string>().ShouldBe("report");
+
+        var again = await bobcat("--repeat");
+        again.ExitCode.ShouldNotBe(0, again.Output);
+        again.Output.ShouldContain("3 passed, 1 failed");
+        recorded()["arguments"]!["workers"]!.GetValue<int>().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task a_stall_is_named_and_abort_stops_the_run()
+    {
+        var run = await bobcat(new Dictionary<string, string> { ["BOBCAT_HANG"] = "true" },
+            "--scenario", "hangs when armed", "--stall", "2s", "--stall-action", "abort");
+
+        run.ExitCode.ShouldNotBe(0, run.Output);
+        run.Output.ShouldContain("Stalled (in flight past the stall threshold)");
+        run.Output.ShouldContain("The run was aborted");
+    }
+
+    [Theory]
+    [InlineData("--stall", "soon", "is not a duration")]
+    [InlineData("--stall-action", "explode", "is not one of report, kill-and-retry, abort")]
+    [InlineData("--workers", "0", "--workers must be 1 or more")]
+    public async Task a_bad_supervision_flag_is_refused_before_anything_runs(string flag, string value, string message)
+    {
+        var refused = await bobcat(flag, value);
+
+        refused.ExitCode.ShouldNotBe(0);
+        refused.Output.ShouldContain(message);
+        File.Exists(lastRun).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task json_is_refused_for_a_supervised_run()
+    {
+        var refused = await bobcat("--workers", "2", "--json");
+
+        refused.ExitCode.ShouldNotBe(0);
+        refused.Error.ShouldContain("--results <dir>");
+        File.Exists(lastRun).ShouldBeFalse();
     }
 }

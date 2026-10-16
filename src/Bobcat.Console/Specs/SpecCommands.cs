@@ -75,8 +75,24 @@ public class SpecRunInput : SpecInput
     [Description("Run only the specifications that failed or errored in this project's last run (obj/bobcat/last-run.json)")]
     public bool FailedFlag { get; set; }
 
-    [Description("Run the last run's selection again, with its framework, configuration, --results, --json and --verbose")]
+    [Description("Run the last run's selection again, with its framework, configuration, --results, --json, --verbose and supervision flags")]
     public bool RepeatFlag { get; set; }
+
+    [Description("Supervised: retry a failed specification up to N times. Only one with a Retry trait or a recovery hint is retried")]
+    public int? RetriesFlag { get; set; }
+
+    [Description("Supervised: run on N worker processes, partitioned by test class")]
+    public int? WorkersFlag { get; set; }
+
+    [Description("Supervised: name a specification in flight longer than this (90s, 5m, 1h); 5m by default")]
+    public string? StallFlag { get; set; }
+
+    [Description("Supervised: what a stall does -- report (the default), kill-and-retry, or abort")]
+    public string? StallActionFlag { get; set; }
+
+    /// <summary>The supervision the flags ask for; null for a plain run.</summary>
+    internal Supervision? Supervision(out string? refusal)
+        => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, out refusal);
 }
 
 /// <summary>
@@ -84,6 +100,11 @@ public class SpecRunInput : SpecInput
 /// output goes to a file and the terminal gets the rendered Feature / scenario / step tree.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <c>--retries</c>, <c>--workers</c>, <c>--stall</c> or <c>--stall-action</c> make the run supervised
+/// (bobcat#546, <see cref="SupervisedHost"/>): the same host, driven as worker processes by the
+/// supervisor. Without any of them the run is exactly the plain one.
+/// </para>
 /// Every run leaves <c>obj/bobcat/last-run.json</c> behind (<see cref="LastRun"/>, bobcat#572):
 /// what it asked for and what failed. <c>--failed</c> runs the failures again by identity, and
 /// <c>--repeat</c> replays the selection and flags. An identity the suite no longer specifies is
@@ -116,6 +137,13 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             return false;
         }
 
+        var supervision = input.Supervision(out var refusal);
+        if (refusal is not null)
+        {
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(refusal)}[/]");
+            return false;
+        }
+
         var project = await input.ProjectAsync();
 
         LastRun? last = null;
@@ -138,9 +166,24 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             input.ResultsFlag ??= recorded.Results;
             input.JsonFlag |= recorded.Json;
             input.VerboseFlag |= recorded.Verbose;
+            input.RetriesFlag ??= recorded.Retries;
+            input.WorkersFlag ??= recorded.Workers;
+            input.StallFlag ??= recorded.Stall;
+            input.StallActionFlag ??= recorded.StallAction;
             input.RouteConsole();
 
             project = await input.ProjectAsync();
+        }
+
+        // Again, for the flags --repeat replayed; what it recorded was valid when it ran.
+        supervision = input.Supervision(out _);
+        if (supervision is not null && input.JsonFlag)
+        {
+            // A supervised run writes a results file per worker request, so there is no one file
+            // to put on standard output; they all go to --results.
+            AnsiConsole.MarkupLine("[red]--json prints one results file, and a supervised run (--retries, --workers, --stall, "
+                                   + "--stall-action) writes one per worker. Use --results <dir> to keep them all.[/]");
+            return false;
         }
 
         IReadOnlyList<string>? selection;
@@ -180,15 +223,18 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             : await SpecSelectionFlow.IdentitiesAsync(project, selection);
         if (chosen is null) return false;
 
-        var outcome = await SpecHost.RunAsync(project, chosen.FilterArguments, input.RunOptions);
+        var outcome = supervision is null
+            ? await SpecHost.RunAsync(project, chosen.FilterArguments, input.RunOptions)
+            : await SupervisedHost.RunAsync(project, chosen.Identities, input.RunOptions, supervision);
 
-        remember(project, input, chosen, outcome);
+        remember(project, input, chosen, outcome, supervision);
 
         return outcome.ExitCode == 0;
     }
 
     /// <summary>Write <c>obj/bobcat/last-run.json</c>. Never fails the run it describes.</summary>
-    private static void remember(SpecProject project, SpecRunInput input, Chosen chosen, RunOutcome outcome)
+    private static void remember(SpecProject project, SpecRunInput input, Chosen chosen, RunOutcome outcome,
+        Supervision? supervision)
     {
         var path = LastRun.PathFor(project);
         try
@@ -206,7 +252,11 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     Selection = chosen.Identities.ToList(),
                     Results = input.RunOptions.ResultsDirectory,
                     Json = input.JsonFlag,
-                    Verbose = input.VerboseFlag
+                    Verbose = input.VerboseFlag,
+                    Retries = supervision?.Retries,
+                    Workers = supervision?.Workers,
+                    Stall = supervision is null ? null : input.StallFlag,
+                    StallAction = supervision is null ? null : Specs.Supervision.Spell(supervision.StallAction)
                 }
             }.Write(path);
         }
