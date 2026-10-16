@@ -110,6 +110,9 @@ public abstract class CritterStackSpec
     /// <inheritdoc cref="CritterStackScenario.In(string)" />
     public CritterStackScenario In(string storeName) => Scenario.In(storeName);
 
+    /// <inheritdoc cref="CritterStackScenario.ForTenant" />
+    public CritterStackScenario ForTenant(string tenantId) => Scenario.ForTenant(tenantId);
+
     /// <inheritdoc cref="CritterStackScenario.LastAct" />
     public CritterStackActOutcome LastAct => Scenario.LastAct;
 

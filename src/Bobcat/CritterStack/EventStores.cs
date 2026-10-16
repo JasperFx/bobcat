@@ -69,6 +69,24 @@ public static class EventStores
         => fetchStreamAsync(store, reader => reader.FetchStreamAsync(streamKey, token: token));
 
     /// <summary>
+    /// bobcat#536. All events in a <see cref="Guid"/>-identified stream as <paramref name="tenantId"/> sees it, read
+    /// through a session opened for that tenant on the database that holds it (<see cref="OpenTenantSessionAsync"/>).
+    /// A null tenant is <see cref="FetchStreamAsync(IEventStore, Guid, CancellationToken)"/>.
+    /// </summary>
+    public static Task<IReadOnlyList<IEvent>> FetchStreamAsync(IEventStore store, Guid streamId, string? tenantId,
+        CancellationToken token = default)
+        => tenantId is null
+            ? FetchStreamAsync(store, streamId, token)
+            : inTenantAsync(store, tenantId, events => events.FetchStreamAsync(streamId, token: token));
+
+    /// <inheritdoc cref="FetchStreamAsync(IEventStore, Guid, string?, CancellationToken)"/>
+    public static Task<IReadOnlyList<IEvent>> FetchStreamAsync(IEventStore store, string streamKey, string? tenantId,
+        CancellationToken token = default)
+        => tenantId is null
+            ? FetchStreamAsync(store, streamKey, token)
+            : inTenantAsync(store, tenantId, events => events.FetchStreamAsync(streamKey, token: token));
+
+    /// <summary>
     /// Every event in the store at or after <paramref name="sequenceFloor"/>, across all streams
     /// (issue #319).
     /// </summary>
@@ -138,10 +156,19 @@ public static class EventStores
     /// by their tags -- a Dynamic Consistency Boundary model, or a view built the same way -- as
     /// <c>AggregateByTagsAsync&lt;T&gt;</c> does on Marten, Polecat and Fisher. Null when no event matches.
     /// </summary>
-    public static async Task<T?> AggregateByTagsAsync<T>(IEventStore store, EventTagQuery query, CancellationToken token = default)
+    public static Task<T?> AggregateByTagsAsync<T>(IEventStore store, EventTagQuery query, CancellationToken token = default)
+        where T : class
+        => AggregateByTagsAsync<T>(store, query, null, token);
+
+    /// <summary>
+    /// bobcat#536. <see cref="AggregateByTagsAsync{T}(IEventStore, EventTagQuery, CancellationToken)"/> over
+    /// <paramref name="tenantId"/>'s events. A null tenant is the store's default session.
+    /// </summary>
+    public static async Task<T?> AggregateByTagsAsync<T>(IEventStore store, EventTagQuery query, string? tenantId,
+        CancellationToken token = default)
         where T : class
     {
-        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        var session = await EventStoreSessions.OpenAsync(store, tenantId, token).ConfigureAwait(false);
         await using (session.ConfigureAwait(false))
         {
             return await EventStoreSessions.EventStoreOperationsOf(session).AggregateByTagsAsync<T>(query, token).ConfigureAwait(false);
@@ -175,21 +202,74 @@ public static class EventStores
         => aggregateStreamAsync(store, events => events.AggregateStreamAsync<T>(streamKey, token: token));
 
     /// <summary>
+    /// bobcat#536. Rebuild the aggregate of a <see cref="Guid"/>-identified stream from <paramref name="tenantId"/>'s
+    /// events. A null tenant is <see cref="AggregateStreamAsync{T}(IEventStore, Guid, CancellationToken)"/>.
+    /// </summary>
+    public static Task<T?> AggregateStreamAsync<T>(IEventStore store, Guid streamId, string? tenantId,
+        CancellationToken token = default) where T : class
+        => tenantId is null
+            ? AggregateStreamAsync<T>(store, streamId, token)
+            : inTenantAsync(store, tenantId, events => events.AggregateStreamAsync<T>(streamId, token: token));
+
+    /// <inheritdoc cref="AggregateStreamAsync{T}(IEventStore, Guid, string?, CancellationToken)"/>
+    public static Task<T?> AggregateStreamAsync<T>(IEventStore store, string streamKey, string? tenantId,
+        CancellationToken token = default) where T : class
+        => tenantId is null
+            ? AggregateStreamAsync<T>(store, streamKey, token)
+            : inTenantAsync(store, tenantId, events => events.AggregateStreamAsync<T>(streamKey, token: token));
+
+    /// <summary>
     /// The aggregate of a <see cref="Guid"/>-identified stream as the store serves it, through
     /// <c>FetchLatest&lt;T&gt;</c> (wolverine#4921): a projected snapshot where there is one, else built from
     /// the stream, whatever the projection lifecycle. Null when there is no such stream.
     /// </summary>
     public static Task<T?> FetchLatestAsync<T>(IEventStore store, Guid streamId, CancellationToken token = default) where T : class
-        => fetchLatestAsync(store, events => events.FetchLatest<T>(streamId, token));
+        => fetchLatestAsync(store, null, events => events.FetchLatest<T>(streamId, token), token);
 
     /// <inheritdoc cref="FetchLatestAsync{T}(IEventStore, Guid, CancellationToken)"/>
     public static Task<T?> FetchLatestAsync<T>(IEventStore store, string streamKey, CancellationToken token = default) where T : class
-        => fetchLatestAsync(store, events => events.FetchLatest<T>(streamKey, token));
+        => fetchLatestAsync(store, null, events => events.FetchLatest<T>(streamKey, token), token);
 
-    private static async Task<T?> fetchLatestAsync<T>(IEventStore store, Func<IEventStoreOperations, ValueTask<T?>> fetch)
+    /// <summary>
+    /// bobcat#536. <see cref="FetchLatestAsync{T}(IEventStore, Guid, CancellationToken)"/> as
+    /// <paramref name="tenantId"/> sees it. A null tenant is the store's default session.
+    /// </summary>
+    public static Task<T?> FetchLatestAsync<T>(IEventStore store, Guid streamId, string? tenantId,
+        CancellationToken token = default) where T : class
+        => fetchLatestAsync(store, tenantId, events => events.FetchLatest<T>(streamId, token), token);
+
+    /// <inheritdoc cref="FetchLatestAsync{T}(IEventStore, Guid, string?, CancellationToken)"/>
+    public static Task<T?> FetchLatestAsync<T>(IEventStore store, string streamKey, string? tenantId,
+        CancellationToken token = default) where T : class
+        => fetchLatestAsync(store, tenantId, events => events.FetchLatest<T>(streamKey, token), token);
+
+    /// <summary>
+    /// bobcat#536. A session on <paramref name="store"/> scoped to <paramref name="tenantId"/>, opened on the database
+    /// that tenant lives in: the store's own answer through <see cref="IEventStore.FindDatabaseForTenantAsync"/>, then
+    /// Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c>, then the store's only database. A store whose tenants
+    /// are spread over several databases and that can name none of them for this tenant is refused, never guessed at.
+    /// Dispose it; the object is the store's own session type (a Marten or Fisher session).
+    /// </summary>
+    public static Task<IAsyncDisposable> OpenTenantSessionAsync(IEventStore store, string tenantId, CancellationToken token = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tenantId);
+        return EventStoreSessions.OpenAsync(store, tenantId, token);
+    }
+
+    private static async Task<T> inTenantAsync<T>(IEventStore store, string tenantId, Func<IQueryEventStore, Task<T>> read)
+    {
+        var session = await EventStoreSessions.OpenAsync(store, tenantId).ConfigureAwait(false);
+        await using (session.ConfigureAwait(false))
+        {
+            return await read(EventStoreSessions.QueryEventStoreOf(session)).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<T?> fetchLatestAsync<T>(IEventStore store, string? tenantId,
+        Func<IEventStoreOperations, ValueTask<T?>> fetch, CancellationToken token)
         where T : class
     {
-        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        var session = await EventStoreSessions.OpenAsync(store, tenantId, token).ConfigureAwait(false);
         await using (session.ConfigureAwait(false))
         {
             return await fetch(EventStoreSessions.EventStoreOperationsOf(session)).ConfigureAwait(false);
@@ -314,7 +394,7 @@ public static class EventStores
     {
         ArgumentException.ThrowIfNullOrEmpty(tenantId);
 
-        if (await tenantDatabaseAsync(store, tenantId, token).ConfigureAwait(false) is { } database)
+        if (await TenantDatabaseAsync(store, tenantId, token).ConfigureAwait(false) is { } database)
         {
             await database.WaitForNonStaleProjectionDataAsync(timeout ?? DefaultProjectionTimeout).WaitAsync(token).ConfigureAwait(false);
             return;
@@ -377,7 +457,7 @@ public static class EventStores
 
     // The database a tenant's events live in: the store's own answer through FindDatabaseForTenantAsync first
     // (jasperfx#1005), then Storage.FindOrCreateDatabase(string) where the store has one; null when neither can say
-    private static async Task<IEventDatabase?> tenantDatabaseAsync(IEventStore store, string tenantId, CancellationToken token)
+    internal static async Task<IEventDatabase?> TenantDatabaseAsync(IEventStore store, string tenantId, CancellationToken token)
     {
         if (await store.FindDatabaseForTenantAsync(tenantId, token).ConfigureAwait(false) is { } found) return found;
 
@@ -595,12 +675,17 @@ public static class EventStores
 internal static class EventStoreSessions
 {
     private static readonly Dictionary<Type, MethodInfo> openSessionByStoreType = new();
+    private static readonly Dictionary<Type, MethodInfo> openTenantSessionByStoreType = new();
     private static readonly Dictionary<Type, PropertyInfo?> eventsBySessionType = new();
     private static readonly Lock gate = new();
 
-    public static async Task<IAsyncDisposable> OpenAsync(IEventStore store)
+    public static Task<IAsyncDisposable> OpenAsync(IEventStore store) => OpenAsync(store, null);
+
+    // bobcat#536: a tenant's session is opened on the database that tenant lives in, through the closure's
+    // OpenSession(IEventDatabase, string tenantId); no tenant is the first database's default session, as before
+    public static async Task<IAsyncDisposable> OpenAsync(IEventStore store, string? tenantId, CancellationToken token = default)
     {
-        var open = openSessionMethod(store.GetType());
+        var open = openSessionMethod(store.GetType(), tenantId is not null);
 
         var databases = await store.AllDatabases().ConfigureAwait(false);
         if (databases.Count == 0)
@@ -610,8 +695,10 @@ internal static class EventStoreSessions
                 "so no session can be opened against it to aggregate a stream.");
         }
 
-        var session = open.Invoke(store, [databases[0]])
-                      ?? throw new InvalidOperationException($"OpenSession on {store.GetType().Name} returned null.");
+        var session = tenantId is null
+            ? open.Invoke(store, [databases[0]])
+            : open.Invoke(store, [await tenantDatabaseAsync(store, tenantId, databases, token).ConfigureAwait(false), tenantId]);
+        if (session is null) throw new InvalidOperationException($"OpenSession on {store.GetType().Name} returned null.");
 
         return session as IAsyncDisposable
                ?? throw new InvalidOperationException(
@@ -646,11 +733,26 @@ internal static class EventStoreSessions
             "sessions all expose one; another store needs IEventStore.OpenReadOnlyEventStore() to return an IQueryEventStore.");
     }
 
-    private static MethodInfo openSessionMethod(Type storeType)
+    // The tenant's database, or the store's only one. Several databases and no answer is refused: the first one
+    // would be a guess, and a wrong guess reads or writes another tenant's database without a word
+    private static async Task<IEventDatabase> tenantDatabaseAsync(IEventStore store, string tenantId,
+        IReadOnlyList<IEventDatabase> databases, CancellationToken token)
+    {
+        if (await EventStores.TenantDatabaseAsync(store, tenantId, token).ConfigureAwait(false) is { } found) return found;
+        if (databases.Count == 1) return databases[0];
+
+        throw new InvalidOperationException(
+            $"Event store {EventStores.Describe(store)} has {databases.Count} databases and cannot say which one holds tenant " +
+            $"'{tenantId}': IEventStore.FindDatabaseForTenantAsync returned null and the store has no " +
+            "Storage.FindOrCreateDatabase(string). Is the tenant id right, and is the tenant registered with the store?");
+    }
+
+    private static MethodInfo openSessionMethod(Type storeType, bool forTenant)
     {
         lock (gate)
         {
-            if (openSessionByStoreType.TryGetValue(storeType, out var cached))
+            var cache = forTenant ? openTenantSessionByStoreType : openSessionByStoreType;
+            if (cache.TryGetValue(storeType, out var cached))
                 return cached;
 
             var closure = storeType.GetInterfaces()
@@ -659,12 +761,12 @@ internal static class EventStoreSessions
                     $"Event store type {storeType.FullName} does not implement IEventStore<TOperations, TQuerySession>, " +
                     "so Bobcat cannot open a session on it to aggregate a stream.");
 
+            Type[] parameters = forTenant ? [typeof(IEventDatabase), typeof(string)] : [typeof(IEventDatabase)];
             var method = closure.GetMethods()
                 .First(m => m.Name == nameof(IEventStore<IStorageOperations, object>.OpenSession)
-                            && m.GetParameters().Length == 1
-                            && m.GetParameters()[0].ParameterType == typeof(IEventDatabase));
+                            && m.GetParameters().Select(x => x.ParameterType).SequenceEqual(parameters));
 
-            openSessionByStoreType[storeType] = method;
+            cache[storeType] = method;
             return method;
         }
     }

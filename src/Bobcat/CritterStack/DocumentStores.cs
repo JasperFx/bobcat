@@ -73,12 +73,21 @@ public static class DocumentStores
     /// Store every document — all of <paramref name="documentType"/> — and commit, which is the
     /// arrange half of a document-backed spec: the rows the behaviour under test runs against.
     /// </summary>
-    public static async Task StoreAllAsync(IEventStore store, Type documentType,
+    public static Task StoreAllAsync(IEventStore store, Type documentType,
         IReadOnlyList<object> documents, CancellationToken token = default)
+        => StoreAllAsync(store, documentType, documents, null, token);
+
+    /// <summary>
+    /// bobcat#536. <see cref="StoreAllAsync(IEventStore, Type, IReadOnlyList{object}, CancellationToken)"/> for one
+    /// tenant: stored and committed through a session opened for <paramref name="tenantId"/> on the database that
+    /// tenant lives in. A null tenant is the store's lightweight session.
+    /// </summary>
+    public static async Task StoreAllAsync(IEventStore store, Type documentType,
+        IReadOnlyList<object> documents, string? tenantId, CancellationToken token = default)
     {
         if (documents.Count == 0) return;
 
-        var session = SessionFactoryFor(store).LightweightSession();
+        var session = tenantId is null ? SessionFactoryFor(store).LightweightSession() : await TenantSessionAsync(store, tenantId, token);
         try
         {
             if (session is not IDocumentWriteOperations writes)
@@ -100,6 +109,24 @@ public static class DocumentStores
         {
             await disposeAsync(session).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// bobcat#536. A document session for one tenant, opened on the database that tenant lives in. Not
+    /// <c>IDocumentSessionFactory.LightweightSession(tenantId)</c>: Marten does not implement that overload, so it
+    /// throws there. The event store's own tenant session (<see cref="EventStores.OpenTenantSessionAsync"/>) is the
+    /// same session on every store, and is one.
+    /// </summary>
+    public static async Task<IDocumentSessionOperations> TenantSessionAsync(IEventStore store, string tenantId,
+        CancellationToken token = default)
+    {
+        var session = await EventStores.OpenTenantSessionAsync(store, tenantId, token).ConfigureAwait(false);
+        if (session is IDocumentSessionOperations documents) return documents;
+
+        await session.DisposeAsync().ConfigureAwait(false);
+        throw new InvalidOperationException(
+            $"The tenant session {session.GetType().FullName} opened by {EventStores.Describe(store)} is not a "
+            + "JasperFx.Events.Documents.IDocumentSessionOperations, so Bobcat cannot reach that tenant's documents.");
     }
 
     /// <summary>

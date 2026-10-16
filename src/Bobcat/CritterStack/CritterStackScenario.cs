@@ -55,6 +55,9 @@ public class CritterStackScenario
     private readonly CritterStackScenario? _root;
     private readonly IEventStore? _pinned;
 
+    // bobcat#536: the tenant a view from ForTenant reads and writes as; null for the store's default session
+    private readonly string? _tenant;
+
     private sealed class SpecificationState
     {
         public object? Stream;
@@ -125,6 +128,26 @@ public class CritterStackScenario
         Services = root.Services;
         _storeName = root._storeName;
         _state = root._state;
+        _tenant = root._tenant;
+    }
+
+    /// <summary>
+    /// bobcat#536. A view of <paramref name="root" />'s specification for one tenant: every Given and Then reads and
+    /// writes as <paramref name="tenantId" />, on the store <paramref name="root" /> is pinned to (or routed to, as
+    /// before), while the specification stays <paramref name="root" />'s. What <see cref="createTenantView" />
+    /// builds; a derived scenario that overrides it to hand out its own view type calls this.
+    /// </summary>
+    protected CritterStackScenario(CritterStackScenario root, string tenantId)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        _root = root._root ?? root;
+        _pinned = root._pinned;
+        _host = root._host;
+        Services = root.Services;
+        _storeName = root._storeName;
+        _state = root._state;
+        _tenant = tenantId;
     }
 
     /// <summary>
@@ -270,6 +293,45 @@ public class CritterStackScenario
             return null;
         }
     }
+
+    // ---- one tenant (bobcat#536) -------------------------------------------------------------
+
+    /// <summary>
+    /// bobcat#536. The tenant this view reads and writes as (<see cref="ForTenant" />), or null for the store's
+    /// default session.
+    /// </summary>
+    public string? TenantId => _tenant;
+
+    /// <summary>
+    /// bobcat#536. The same Given/Then vocabulary for one tenant of a multi-tenanted store: the events a Given
+    /// arranges are appended as <paramref name="tenantId" />, and an aggregate, stream, document or read model a Then
+    /// reads is read as that tenant — through a session opened for it on the database it lives in
+    /// (<see cref="IEventStore.FindDatabaseForTenantAsync" />, else Marten's <c>Storage.FindOrCreateDatabase</c>, else
+    /// the store's only database). A projection wait before a read waits on that tenant's database. The view shares
+    /// this specification exactly as <see cref="In{TStore}" />'s does, and the two compose:
+    /// <c>In&lt;IInvoicingStore&gt;().ForTenant("red")</c>.
+    /// </summary>
+    /// <remarks>
+    /// Only the store's reads and writes are the tenant's. An act through the view is the specification's act and
+    /// runs as it always did: send it for the tenant the way the application takes one (WolverineFx.Bobcat's
+    /// <c>DeliveryOptions { TenantId = … }</c>). A store-only act's events are read back from the default session, so
+    /// on a conjoined store judge them with a tenant's <c>ThenEventsOn</c>/<c>ThenAggregate</c> rather than
+    /// <c>ThenEvents</c>.
+    /// </remarks>
+    public CritterStackScenario ForTenant(string tenantId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        return createTenantView(tenantId);
+    }
+
+    /// <summary>
+    /// bobcat#536. Build the view <see cref="ForTenant" /> hands out. A derived scenario whose own steps should be on
+    /// the view overrides this and returns its own type, built with the protected tenant view constructor.
+    /// </summary>
+    protected virtual CritterStackScenario createTenantView(string tenantId) => new(this, tenantId);
+
+    // A step's text, saying whose data it is when a tenant view takes it
+    private string asTenant(string text) => _tenant is null ? text : $"{text} for tenant \"{_tenant}\"";
 
     // Every store the host registers, read once per specification
     private IReadOnlyList<IEventStore> allStores() => _state.Stores ??= Services.EventStores();
@@ -419,7 +481,7 @@ public class CritterStackScenario
         var stream = streamName(aggregate, id);
         events = flatten(events);
         var (described, inline) = describe(events);
-        var text = events.Length == 0 ? $"{stream} has no events yet" : $"{stream} has already recorded {described}";
+        var text = asTenant(events.Length == 0 ? $"{stream} has no events yet" : $"{stream} has already recorded {described}");
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             // wolverine#4865: a strong-typed id is the Guid or string it wraps, to the store
@@ -432,7 +494,7 @@ public class CritterStackScenario
             if (!inline) recordValues("event", events);
             // Every store's StartStream(Type, ...) takes a null aggregate type as an untyped stream
             if (events.Length > 0)
-                await EventStoreAuthoring.AppendAsync(await storeForAsync(text, aggregate, events), aggregate!, identity, build(events, text));
+                await EventStoreAuthoring.AppendAsync(await storeForAsync(text, aggregate, events), aggregate!, identity, build(events, text), _tenant);
         });
     }
 
@@ -520,7 +582,7 @@ public class CritterStackScenario
     {
         events = flatten(events);
         var (described, inline) = describe(events);
-        var text = $"{streamName(aggregate, id)} has already recorded {described}";
+        var text = asTenant($"{streamName(aggregate, id)} has already recorded {described}");
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             recordTouched(aggregate);
@@ -530,7 +592,7 @@ public class CritterStackScenario
             claimTags(events);
             if (events.Length > 0)
                 await EventStoreAuthoring.AppendAsync(await storeForAsync(text, aggregate, events), aggregate,
-                    StrongTypedIds.StreamIdentity(id), build(events, text));
+                    StrongTypedIds.StreamIdentity(id), build(events, text), _tenant);
         });
     }
 
@@ -546,7 +608,7 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public async Task GivenReadModel<T>(object document) where T : class
     {
-        var text = $"the {typeof(T).Name} read model is {describe([document]).Text}";
+        var text = asTenant($"the {typeof(T).Name} read model is {describe([document]).Text}");
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             var built = Build(document, text);
@@ -555,7 +617,7 @@ public class CritterStackScenario
                     $"'{text}': a {PartialMatching.ExpectedType(document).Name} cannot be stored as the {typeof(T).Name} read model.");
 
             recordTouched(typeof(T));
-            await DocumentStores.StoreAllAsync(await storeForAsync(text, typeof(T)), typeof(T), [built]);
+            await DocumentStores.StoreAllAsync(await storeForAsync(text, typeof(T)), typeof(T), [built], _tenant);
         });
     }
 
@@ -988,7 +1050,7 @@ public class CritterStackScenario
 
     private Task thenEventsOn(Type aggregate, object id, long afterVersion, object[] expected)
     {
-        var text = $"{describeEmitted(expected)} on the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}";
+        var text = asTenant($"{describeEmitted(expected)} on the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}");
         return inStep(ScenarioRecorder.Step("Then", text),
             () => verifyGained(aggregate, id, afterVersion, expected));
     }
@@ -1125,10 +1187,10 @@ public class CritterStackScenario
             ? "no events are emitted"
             : $"{describeTypes(expected.Select(PartialMatching.ExpectedType).ToArray())} {(expected.Length == 1 ? "is" : "are")} emitted";
 
-    private static Task<IReadOnlyList<IEvent>> fetchAsync(IEventStore store, object id) => id switch
+    private Task<IReadOnlyList<IEvent>> fetchAsync(IEventStore store, object id) => id switch
     {
-        Guid guid => EventStores.FetchStreamAsync(store, guid),
-        string key => EventStores.FetchStreamAsync(store, key),
+        Guid guid => EventStores.FetchStreamAsync(store, guid, _tenant),
+        string key => EventStores.FetchStreamAsync(store, key, _tenant),
         _ => throw new ArgumentOutOfRangeException(nameof(id), $"A stream is identified by a Guid or a string, not a {id.GetType().Name}")
     };
 
@@ -1510,7 +1572,7 @@ public class CritterStackScenario
     public async Task<T?> TheAggregate<T>(Guid id) where T : class
     {
         recordTouched(typeof(T));
-        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), id);
+        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), id, _tenant);
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
@@ -1518,7 +1580,7 @@ public class CritterStackScenario
     public async Task<T?> TheAggregate<T>(string key) where T : class
     {
         recordTouched(typeof(T));
-        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), key);
+        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), key, _tenant);
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
@@ -1835,13 +1897,13 @@ public class CritterStackScenario
     private Task<T> thenAggregate<T>(object id, object? expected) where T : class
     {
         // The step opens before the load, so a missing aggregate fails a rendered step
-        return inStep(ScenarioRecorder.Step("Then", expected is null ? existsText<T>(id) : matchesText(expected)), async () =>
+        return inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText(expected))), async () =>
         {
             var store = await storeForAsync(existsText<T>(id), typeof(T));
             var aggregate = StrongTypedIds.StreamIdentity(id) switch
             {
-                Guid guid => await EventStores.FetchLatestAsync<T>(store, guid),
-                string key => await EventStores.FetchLatestAsync<T>(store, key),
+                Guid guid => await EventStores.FetchLatestAsync<T>(store, guid, _tenant),
+                string key => await EventStores.FetchLatestAsync<T>(store, key, _tenant),
                 _ => throw new ArgumentOutOfRangeException(nameof(id), "A stream is identified by a Guid or a string")
             } ?? throw failureOf(
                 $"No {typeof(T).Name} with id {id}: FetchLatest found no stream there. The act appended to another stream, or none.");
@@ -1890,9 +1952,9 @@ public class CritterStackScenario
         await projectionsCaughtUpBefore(typeof(T), id);
 
         // The step opens before the load, so a missing document fails a rendered step
-        return await inStep(ScenarioRecorder.Step("Then", expected is null ? existsText<T>(id) : matchesText(expected)), async () =>
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText(expected))), async () =>
         {
-            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id)
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id, _tenant)
                            ?? throw failureOf(
                                $"No {typeof(T).Name} document with id {id}. The projections caught up, so either nothing routed to this id or its identity rule differs.");
             recordTouched(typeof(T));
@@ -1909,9 +1971,9 @@ public class CritterStackScenario
     {
         await projectionsCaughtUpBefore(typeof(T), id);
 
-        await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name} {ScenarioValues.Format(id)}"), async () =>
+        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {typeof(T).Name} {ScenarioValues.Format(id)}")), async () =>
         {
-            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id);
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id, _tenant);
             fact(document is null,
                 $"Expected no {typeof(T).Name} document with id {id}, but there is one: {ScenarioValues.Describe(document)}");
         });
@@ -1938,7 +2000,7 @@ public class CritterStackScenario
 
         await daemonsCaughtUpBefore(typeof(T));
 
-        return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? singleText<T>() : matchesText(expected))), async () =>
         {
             var stream = scenarioStream(typeof(T), nameof(ThenSingleReadModel));
             var model = await theLatest<T>(stream)
@@ -1963,10 +2025,10 @@ public class CritterStackScenario
     {
         await daemonsCaughtUpBefore(typeof(T));
 
-        return await inStep(ScenarioRecorder.Step("Then", expected is null ? singleText<T>() : matchesText(expected)), async () =>
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? singleText<T>() : matchesText(expected))), async () =>
         {
             var stream = scenarioStream(typeof(T), nameof(ThenSingleDocument));
-            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(singleText<T>(), typeof(T)), stream)
+            var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(singleText<T>(), typeof(T)), stream, _tenant)
                            ?? throw failureOf(
                                $"No {typeof(T).Name} document with id {ScenarioValues.Format(stream)}. The async daemons caught up, so nothing stored one there.");
 
@@ -1981,8 +2043,8 @@ public class CritterStackScenario
         var store = await storeForAsync(singleText<T>(), typeof(T));
         return stream switch
         {
-            Guid guid => await EventStores.FetchLatestAsync<T>(store, guid),
-            _ => await EventStores.FetchLatestAsync<T>(store, (string)stream)
+            Guid guid => await EventStores.FetchLatestAsync<T>(store, guid, _tenant),
+            _ => await EventStores.FetchLatestAsync<T>(store, (string)stream, _tenant)
         };
     }
 
@@ -2006,6 +2068,13 @@ public class CritterStackScenario
     /// </summary>
     public async Task AfterAsyncDaemonsCatchUpAsync()
     {
+        // bobcat#536: a tenant view waits on its tenant's database
+        if (_tenant is not null)
+        {
+            await AfterAsyncDaemonsCatchUpAsync(_tenant);
+            return;
+        }
+
         await inStep(ScenarioRecorder.Step("Given", "the async daemons have caught up"), async () =>
         {
             foreach (var store in storesToWaitOn())
@@ -2043,7 +2112,7 @@ public class CritterStackScenario
     {
         await projectionsCaughtUpBefore(typeof(T), null);
 
-        await inStep(ScenarioRecorder.Step("Then", $"there is no {typeof(T).Name}"), async () =>
+        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {typeof(T).Name}")), async () =>
         {
             var documents = await allDocuments<T>();
             fact(documents.Count == 0,
@@ -2054,7 +2123,9 @@ public class CritterStackScenario
     private async Task<IReadOnlyList<T>> allDocuments<T>() where T : class
     {
         var store = await storeForAsync($"there is no {typeof(T).Name}", typeof(T));
-        var session = DocumentStores.SessionFactoryFor(store).QuerySession();
+        object session = _tenant is null
+            ? DocumentStores.SessionFactoryFor(store).QuerySession()
+            : await DocumentStores.TenantSessionAsync(store, _tenant);
         try
         {
             var queryable = ((JasperFx.Events.Documents.IDocumentReadOperations)session).Query<T>();
@@ -2101,7 +2172,9 @@ public class CritterStackScenario
         var store = await storeForAsync(wait, read);
         try
         {
-            await EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout);
+            // bobcat#536: a tenant view reads its tenant's database, so that is the one to wait on
+            if (_tenant is null) await EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout);
+            else await EventStores.WaitForNonStaleProjectionsAsync(store, _tenant, ProjectionTimeout);
         }
         catch (TimeoutException e) when (e is not ProjectionCatchUpTimeoutException)
         {
@@ -2122,7 +2195,7 @@ public class CritterStackScenario
         var store = await storeForAsync($"{typeof(T).Name} is projected over {EventStores.Describe(query)}", typeof(T),
             query.Conditions.Where(x => x.EventType is not null).Select(x => (object)x.EventType!),
             query.Conditions.Select(x => x.TagType));
-        return await EventStores.AggregateByTagsAsync<T>(store, query);
+        return await EventStores.AggregateByTagsAsync<T>(store, query, _tenant);
     }
 
     /// <summary>

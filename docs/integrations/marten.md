@@ -170,6 +170,43 @@ every store. A view waits on its own store, and a read waits on the store it rea
 
 A host with one store behaves exactly as before. Nothing is read about what it registers.
 
+## One tenant of a multi-tenanted store
+
+On a store with conjoined tenancy, or one that spreads its tenants over several databases, the Givens and
+Thens use the store's default session unless told otherwise -- the arranged events land in the default
+tenant, and `ThenAggregate` reads a stream the tenant's act never wrote. `ForTenant("id")` is a view that
+arranges and reads as one tenant (bobcat#536):
+
+```csharp
+await ForTenant("58123462").GivenEvents<ProvidedCare>(id, imported);
+await WhenReceived(new IgnoreInflux(id), options: new DeliveryOptions { TenantId = "58123462" });
+ThenEvents(new InfluxIgnored(userId));
+await ForTenant("58123462").ThenAggregate<ProvidedCare>(id, Specify<ProvidedCare>().With(x => x.Ignored, true));
+```
+
+- **What the view covers:** every Given (`GivenEvents`, `GivenContext`, `GivenEventsOn`, `GivenReadModel`)
+  appends or stores as the tenant, and every Then that reads the store (`ThenAggregate`, `TheAggregate`,
+  `ThenEventsOn`, `ThenStreamIsStarted`, `ThenReadModel`/`ThenDocument`, `ThenNoReadModel`,
+  `ThenSingleReadModel`, `TheDcbModel`) reads as the tenant. A read's projection wait, and the view's
+  `AfterAsyncDaemonsCatchUpAsync()`, wait on the tenant's database. Its steps render with
+  `for tenant "58123462"` on the end.
+- **Which database:** the store's own answer (`IEventStore.FindDatabaseForTenantAsync`), else Marten's
+  `Storage.FindOrCreateDatabase(tenantId)`, else the store's only database. A store with several databases
+  that can name none of them for the tenant is refused with a message naming the tenant, never guessed at.
+- **The act is not the view's.** An act through the view is the specification's act, so send it for the
+  tenant the way the application takes one (`DeliveryOptions { TenantId = … }`, a claim on the request).
+  `ThenEvents` judges what the act saw. A store-only `WhenActing` reads its events back from the default
+  session, so on a conjoined store judge a tenant's act with the view's `ThenEventsOn` or `ThenAggregate`.
+- **Views compose.** `In<IInvoicingStore>().ForTenant("red")` and `ForTenant("red").In<IInvoicingStore>()` are
+  the same view: one store, one tenant. `TenantId` says which tenant a view is for. `CritterStackSpec` has
+  `ForTenant` too.
+
+For a step of your own: `EventStores.FetchStreamAsync`, `AggregateStreamAsync<T>`, `FetchLatestAsync<T>` and
+`AggregateByTagsAsync<T>`, and `DocumentStores.StoreAllAsync`, each have an overload taking a `tenantId` (null
+is the default session), and `EventStores.OpenTenantSessionAsync(store, tenantId)` /
+`DocumentStores.TenantSessionAsync(store, tenantId)` open the tenant's session on its database, to append or
+load through.
+
 ## Below the vocabulary
 
 The store helpers the vocabulary is built from are public, and all of them are store-agnostic:
