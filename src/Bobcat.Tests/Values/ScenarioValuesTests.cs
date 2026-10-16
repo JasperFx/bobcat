@@ -22,7 +22,7 @@ public class ScenarioValuesTests
         var customer = Guid.NewGuid();
 
         ScenarioValues.Describe(new OrderStarted(order, customer, 100m))
-            .ShouldBe("OrderStarted(OrderId: Order, CustomerId: Customer, Total: 100)");
+            .ShouldBe("OrderStarted(OrderId: #Order, CustomerId: #Customer, Total: 100)");
     }
 
     [Fact]
@@ -34,8 +34,8 @@ public class ScenarioValuesTests
         ScenarioValues.Describe(new OrderStarted(order, Guid.NewGuid(), 1m));
 
         ScenarioValues.Describe(new OrderShipped(order, "UPS"))
-            .ShouldBe("OrderShipped(OrderId: Order, Carrier: \"UPS\")");
-        ScenarioValues.Format(order).ShouldBe("Order");
+            .ShouldBe("OrderShipped(OrderId: #Order, Carrier: \"UPS\")");
+        ScenarioValues.Format(order).ShouldBe("#Order");
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class ScenarioValuesTests
 
         ScenarioValues.Describe(new OrderShipped(Guid.NewGuid(), "UPS"));
         ScenarioValues.Describe(new OrderShipped(Guid.NewGuid(), "FedEx"))
-            .ShouldBe("OrderShipped(OrderId: Order2, Carrier: \"FedEx\")");
+            .ShouldBe("OrderShipped(OrderId: #Order2, Carrier: \"FedEx\")");
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class ScenarioValuesTests
         using var _ = scenario();
 
         ScenarioValues.Describe(new Order(Guid.NewGuid(), ["a", "b"]))
-            .ShouldBe("Order(Id: Order, Lines: [\"a\", \"b\"])");
+            .ShouldBe("Order(Id: #Order, Lines: [\"a\", \"b\"])");
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class ScenarioValuesTests
         var customer = Guid.NewGuid();
         ScenarioValues.Name(customer, "Alice");
 
-        ScenarioValues.Describe(new OrderStarted(Guid.NewGuid(), customer, 1m)).ShouldContain("CustomerId: Alice");
+        ScenarioValues.Describe(new OrderStarted(Guid.NewGuid(), customer, 1m)).ShouldContain("CustomerId: #Alice");
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class DescribePropertiesTests
     public void the_properties_without_the_type_around_them()
     {
         using var _ = ScenarioRecorder.Begin("Values", "props", publisher: null, runId: Guid.NewGuid());
-        ScenarioValues.DescribeProperties(new OrderShipped(Guid.NewGuid(), "UPS")).ShouldBe("OrderId: Order, Carrier: \"UPS\"");
+        ScenarioValues.DescribeProperties(new OrderShipped(Guid.NewGuid(), "UPS")).ShouldBe("OrderId: #Order, Carrier: \"UPS\"");
     }
 
     [Fact]
@@ -223,8 +223,8 @@ public class PartialObjectValueNamesTests
         var order = Guid.NewGuid();
 
         PartialObjects.Describe(Specifications.Specify<OrderShipped>().With(x => x.OrderId, order))
-            .ShouldBe("OrderShipped(OrderId: Order)");
-        ScenarioValues.Describe(new OrderStarted(order, Guid.NewGuid(), 1m)).ShouldStartWith("OrderStarted(OrderId: Order,");
+            .ShouldBe("OrderShipped(OrderId: #Order)");
+        ScenarioValues.Describe(new OrderStarted(order, Guid.NewGuid(), 1m)).ShouldStartWith("OrderStarted(OrderId: #Order,");
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public class PartialObjectValueNamesTests
         using var _ = scenario();
 
         PartialMatching.DescribeExpected(Specifications.Specify<Order>().With(x => x.Id, Guid.NewGuid()))
-            .ShouldBe("Id: Order");
+            .ShouldBe("Id: #Order");
     }
 }
 
@@ -249,7 +249,7 @@ public class DeclaredValueNamesTests
         using var _ = scenario();
         var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
 
-        ScenarioValues.Describe(new OrderShipped(theOrder, "UPS")).ShouldBe("OrderShipped(OrderId: theOrder, Carrier: \"UPS\")");
+        ScenarioValues.Describe(new OrderShipped(theOrder, "UPS")).ShouldBe("OrderShipped(OrderId: #theOrder, Carrier: \"UPS\")");
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class DeclaredValueNamesTests
         var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
 
         using var _ = scenario();
-        ScenarioValues.Format(theOrder).ShouldBe("theOrder");
+        ScenarioValues.Format(theOrder).ShouldBe("#theOrder");
     }
 
     [Fact]
@@ -271,7 +271,7 @@ public class DeclaredValueNamesTests
         ScenarioValues.Learn(theOrder, "Order");
 
         ScenarioValues.Describe(new OrderStarted(theOrder, Guid.NewGuid(), 1m))
-            .ShouldStartWith("OrderStarted(OrderId: theOrder, CustomerId: Customer");
+            .ShouldStartWith("OrderStarted(OrderId: #theOrder, CustomerId: #Customer");
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public class DeclaredValueNamesTests
         var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
         ScenarioValues.Name(theOrder, "the big order");
 
-        ScenarioValues.Format(theOrder).ShouldBe("the big order");
+        ScenarioValues.Format(theOrder).ShouldBe("#the big order");
     }
 
     [Fact]

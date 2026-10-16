@@ -648,7 +648,7 @@ public class CritterStackScenario
 
     /// <summary>
     /// How a stream reads in a step: its id is named after the aggregate (GH-4835), so a stream
-    /// arranged once reads "the Order stream" — and a second one of the same type "Order Order2".
+    /// arranged once reads "the Order stream" — and a second one of the same type "Order #Order2".
     /// </summary>
     private static string streamName(Type? aggregate, object id)
     {
@@ -658,7 +658,7 @@ public class CritterStackScenario
 
         ScenarioValues.Learn(id, label);
         var name = ScenarioValues.Format(id);
-        return name == label ? $"the {label}{(aggregate is null ? "" : " stream")}" : $"{label} {name}";
+        return name == ScenarioValues.Alias(label) ? $"the {label}{(aggregate is null ? "" : " stream")}" : $"{label} {name}";
     }
 
     /// <summary>
@@ -1946,14 +1946,8 @@ public class CritterStackScenario
 
     private static string existsText<T>(object id) => $"there is a {documentNamed<T>(id)}";
 
-    // A document by its id: "Product Product2", or -- when the id is named after the type itself, as an
-    // arranged document's is -- "Product with the Product id" rather than "Product Product" (bobcat#618)
-    private static string documentNamed<T>(object id)
-    {
-        var type = nameOf(typeof(T));
-        var name = ScenarioValues.Format(id);
-        return name == type ? $"{type} with the {type} id" : $"{type} {name}";
-    }
+    // A document by its id: "Product #Product", the alias marked so it cannot read as the type twice (bobcat#640)
+    private static string documentNamed<T>(object id) => $"{nameOf(typeof(T))} {ScenarioValues.Format(id)}";
 
     /// <summary>
     /// GH-4921. The document of type <typeparamref name="T" /> with this identity, loaded with

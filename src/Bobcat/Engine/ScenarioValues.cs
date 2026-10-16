@@ -9,8 +9,8 @@ namespace Bobcat.Engine;
 
 /// <summary>
 /// How a specification shows a VALUE rather than a type name: a record reads
-/// <c>OrderStarted(OrderId: Order, CustomerId: Customer, Total: 100)</c>, and an identifier reads as
-/// a name the scenario gave it instead of 36 characters of hex.
+/// <c>OrderStarted(OrderId: #Order, CustomerId: #Customer, Total: 100)</c>, and an identifier reads as
+/// a name the scenario gave it, marked with <see cref="AliasMarker"/>, instead of 36 characters of hex.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -94,12 +94,22 @@ public static class ScenarioValues
         SpecReport.For<NamedValuesReport>().Assign(id, owner, overwrite: false);
     }
 
-    /// <summary>One value, as a cell or a step shows it: its name, a short Guid, or its text.</summary>
+    /// <summary>
+    /// What a name reads as wherever it stands for a value (bobcat#640): <c>#Order</c>, so an alias can
+    /// never be mistaken for a type name or a literal — <c>there is no Product #Product</c>. The names
+    /// report and <see cref="NamedValuesReport.NameOf"/> keep the bare name.
+    /// </summary>
+    public const string AliasMarker = "#";
+
+    /// <summary><paramref name="name"/> as an alias reads in a step or a cell: <c>#Order</c>.</summary>
+    public static string Alias(string name) => AliasMarker + name;
+
+    /// <summary>One value, as a cell or a step shows it: its name (<c>#Order</c>), a short Guid, or its text.</summary>
     public static string Format(object? value)
     {
         if (value is not null && isNameable(value))
         {
-            if (SpecReport.IsRecording && SpecReport.For<NamedValuesReport>().NameOf(value) is { } name) return name;
+            if (SpecReport.IsRecording && SpecReport.For<NamedValuesReport>().NameOf(value) is { } name) return Alias(name);
             if (value is Guid guid) return guid.ToString()[..8] + "…";
         }
 
@@ -108,7 +118,7 @@ public static class ScenarioValues
         if (value is not null && StrongTypedIds.TryUnwrap(value, out var inner))
         {
             if (inner is Guid id && id != Guid.Empty && SpecReport.IsRecording
-                && SpecReport.For<NamedValuesReport>().NameOf(id) is { } idName) return idName;
+                && SpecReport.For<NamedValuesReport>().NameOf(id) is { } idName) return Alias(idName);
 
             return $"{displayName(value.GetType())}({Format(inner)})";
         }
