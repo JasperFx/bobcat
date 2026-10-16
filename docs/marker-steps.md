@@ -870,6 +870,23 @@ two cannot come apart.
 **xUnit-only, for now.** It subclasses `Xunit.FactAttribute`, so TUnit needs its own equivalent;
 that is a follow-up. On TUnit, NUnit and MSTest, bind with `[BobcatSlice]` beside `[BobcatScenario]`.
 
+### A theory in one attribute -- `[BobcatTheory]` (bobcat#569) {#bobcattheory}
+
+`[BobcatTheory]` is `[BobcatSpec]` for a `[Theory]`: the theory, the scenario bracket and the slice
+binding, with the same `Name`, slice settings and `Pending`. **Each row is its own specification**,
+named by its arguments or its label:
+
+```csharp
+[BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]
+[InlineData(100, Tier.Gold)]                          // Discounts/Discount is applied (amount: 100, tier: Gold)
+[BobcatExample("silver customer", 50, Tier.Silver)]   // Discounts/Discount is applied [silver customer]
+public void discount(int amount, Tier tier) { /* … */ }
+```
+
+The Event Model keeps one specification per method, and each row's result names it as its parent.
+What the row identity is made of, which rows reach the manifest, and why one row can't be run on its
+own by a filter: [spec identities](spec-identities.md#each-data-row-is-its-own-specification).
+
 ### An explicit scenario name: `Name = "…"` (bobcat#489) {#explicit-name}
 
 A projected spec's scenario title is its method name read as a sentence. Two things a method name

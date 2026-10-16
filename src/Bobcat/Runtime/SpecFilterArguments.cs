@@ -87,6 +87,24 @@ public static class SpecFilterArguments
                 nameof(selection));
         }
 
+        // bobcat#569. A row of a data-driven spec shares its method with every other row, so a method
+        // filter cannot pick it out: it would run the whole theory while the request named one row.
+        // Refused by name, pointing at the method's identity, unless that identity is asked for too —
+        // then the row is already covered and drops out.
+        var rows = selection.Identities.Where(identity => manifest.For(identity)?.IsRow == true).ToList();
+        var lonelyRows = rows.Where(identity => !selection.Identities.Contains(manifest.For(identity)!.Parent!, SpecIdentity.Comparer)).ToList();
+        if (lonelyRows.Count > 0)
+        {
+            throw new NotSupportedException(
+                $"{string.Join(", ", lonelyRows.Select(x => $"'{x}'"))} "
+                + (lonelyRows.Count == 1 ? "is one row" : "are rows")
+                + " of a data-driven specification, and a framework filter selects a test method, not one of its "
+                + "rows: it would run every row while looking filtered to one. Run the whole specification instead: "
+                + string.Join(", ", lonelyRows.Select(x => $"'{manifest.For(x)!.Parent}'").Distinct()) + ".");
+        }
+
+        if (rows.Count > 0) selection = SpecSelection.Of(selection.Identities.Except(rows, SpecIdentity.Comparer));
+
         switch (manifest.Framework)
         {
             case SpecManifest.XunitFramework:

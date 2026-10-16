@@ -174,7 +174,7 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IEx
     private bool _pending;
 
     public virtual void Before(MethodInfo methodUnderTest, IXunitTest test)
-        => XunitScenarioBracket.Open(methodUnderTest);
+        => XunitScenarioBracket.Open(methodUnderTest, test);
 
     public virtual void After(MethodInfo methodUnderTest, IXunitTest test)
         => XunitScenarioBracket.Close();

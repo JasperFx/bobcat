@@ -39,7 +39,7 @@ public sealed class RecordBobcatFeaturesAttribute : Attribute, IBeforeAfterTestA
         _opened.Value = false;
         if (!Applies(test.TestMethod.TestClass.Class, methodUnderTest)) return;
 
-        XunitScenarioBracket.Open(methodUnderTest);
+        XunitScenarioBracket.Open(methodUnderTest, test);
         _opened.Value = true;
     }
 

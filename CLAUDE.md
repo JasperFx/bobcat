@@ -1136,6 +1136,22 @@ type-probes for each adapter's `BobcatScenarioAttribute`, the same pattern as th
   `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate on emitting the
   initializer at all.
 
+- **Each data row is its own specification (bobcat#569).** A row's identity is the method's plus
+  `SpecRows.Describe`'s row part: `(name: value, …)` (invariant culture, strings verbatim, enum by
+  name, line breaks escaped) or `[label]` (xUnit's `TestLabel`, which `[BobcatExample("label", …)]`
+  sets; TUnit/NUnit/MSTest carry none). Every adapter passes the row's arguments to
+  `MarkerStepRun.BeginScenario` (xUnit `IXunitTest.TestMethodArguments`, TUnit
+  `TestDetails.TestMethodArguments`, NUnit `ITest.Arguments`, MSTest `TestContext.TestData` through
+  the hook source). `Recording.Uid` is the row's; `ParentUid` / `SpecUid` is the method's, and the
+  declared and planned steps are looked up by `SpecUid` (one body, one registration). The Event Model
+  keeps one specification per method; rows ride `ParentSpecId` on `scenario_started`/`finished`.
+  `[BobcatTheory]` is `[BobcatSpec]` for a theory (the generator's `TheoryAttributeName`, read
+  everywhere `SpecAttributeName` is). The generator lists **constant** rows (`SpecRowConstants`:
+  InlineData/BobcatExample/Arguments/TestCase/DataRow) through `DeclaredSteps.Bind(row, class, method,
+  parent)`, only when the constant's text cannot change in the runner's conversion; BOBCAT036 covers
+  duplicate rows. `MarkerSpecNaming.RowArguments`/`RowLabel` is the generator's copy, pinned by
+  `SpecRowIdentityTests`. A row identity is refused by `SpecFilterArguments` (a method filter runs
+  every row) and skipped by `SpecUidJoin`.
 - **Duplicate identities and the explicit scenario name (bobcat#489).** Two projected specs
   resolving to one identity is **BOBCAT036** (error), computed in
   `MarkerCommentSpecs.DuplicateIdentities` over `IdentityOf`, the same string `Emit` writes, so it

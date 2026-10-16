@@ -199,11 +199,21 @@ public sealed record SpecManifest(
 /// rather than re-derived.
 /// </param>
 /// <param name="TestMethod">The projected test's method name.</param>
+/// <param name="Parent">
+/// The method's identity when this entry is one constant row of a data-driven specification
+/// (bobcat#569), else null. A row shares its method's <see cref="TestClass"/> and
+/// <see cref="TestMethod"/>, so a method filter cannot pick it out on its own.
+/// </param>
 public sealed record SpecManifestEntry(
     string Identity,
     string? TestClass = null,
-    string? TestMethod = null)
+    string? TestMethod = null,
+    string? Parent = null)
 {
+    /// <summary>True when this entry is one row of a data-driven specification (bobcat#569).</summary>
+    [JsonIgnore]
+    public bool IsRow => Parent is not null;
+
     /// <summary>
     /// The fully qualified method name a framework filter takes, or null when this entry carries
     /// no binding.
