@@ -38,6 +38,7 @@ clock's now).
 | `.With(x => x.Address.City, "Austin")` | a nested member, as a dotted path |
 | `.With(x => x.Address, Specify<Address>().With(a => a.City, "Austin"))` | the same claim, written as a nested partial |
 | `.With(nameof(T.Prop), value)` | a string path, which `nameof` keeps honest |
+| `.With(x => x.Address, null)` | a member that is null; a bare `null` needs no cast |
 | `Specify<T>(table)` | a table: `Property \| Value` rows, or the members as headers over one row |
 | `.Check(x => x.Age.ShouldBeGreaterThan(3))` | an assertion on a member, for a claim that is not equality |
 

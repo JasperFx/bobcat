@@ -191,6 +191,14 @@ public abstract class CritterStackSpec
     [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
     public Task GivenReadModel<T>(object document) where T : class => Scenario.GivenReadModel<T>(document);
 
+    /// <inheritdoc cref="CritterStackScenario.GivenReadModel{T}(T)" />
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
+    public Task GivenReadModel<T>(T document) where T : class => Scenario.GivenReadModel<T>(document);
+
+    /// <inheritdoc cref="CritterStackScenario.GivenReadModel{T}(Specified{T})" />
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
+    public Task GivenReadModel<T>(Specified<T> document) where T : class => Scenario.GivenReadModel<T>(document);
+
     /// <inheritdoc cref="CritterStackScenario.GivenEventsOn{TAggregate}(Guid, object[])" />
     [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     [EventModelRole(SliceRole.ArrangedEvent, nameof(events))]
