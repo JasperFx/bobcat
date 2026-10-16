@@ -46,11 +46,16 @@ public class AcceptanceLifecycleEndToEndTests
             host, new Dictionary<string, string> { ["BOBCAT_SPEC_CONSOLE"] = "1" },
             "--filter-class", acceptanceClass);
 
-        output.ShouldContain("ACCEPTANCE: FAILING");
-        output.ShouldContain("This line is always false");
-        // Short on purpose: Spectre wraps the passing spec's heading at 80 columns in a redirected run.
-        output.ShouldContain("OK (acceptance");
-        output.ShouldNotContain(" FAILED", Case.Sensitive);
+        // Spectre wraps the report at whatever width it detects for a redirected stream, and that
+        // differs between machines (CI split the passing spec's heading where a laptop did not), so
+        // the text is compared with every run of whitespace, line breaks included, read as one space.
+        var text = System.Text.RegularExpressions.Regex.Replace(output, @"\s+", " ");
+
+        text.ShouldContain("ACCEPTANCE: FAILING");
+        text.ShouldContain("This line is always false");
+        text.ShouldContain("OK (acceptance");
+        text.ShouldContain(SpecLifecycle.ReadyToPromote);
+        text.ShouldNotContain(" FAILED", Case.Sensitive);
     }
 
     [Fact]
