@@ -65,6 +65,9 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresL
 
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
+    /// <summary>The attachment sink (issue #571), held and closed the same way.</summary>
+    private static readonly AsyncLocal<IDisposable?> _attachments = new();
+
     public ActionTargets Targets => ActionTargets.Test;
 
     public void BeforeTest(ITest test)
@@ -81,6 +84,10 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresL
         // this test's output.
         var writer = TestContext.Out;
         _output.Value = SpecOutput.Open(writer.WriteLine);
+
+        // NUnit attaches files, so attachments are written to a temp file first (issue #571). Only
+        // when the run writes no results directory.
+        _attachments.Value = SpecAttachment.OpenPlatformFileSink(path => TestContext.AddTestAttachment(path));
     }
 
     /// <remarks>
@@ -99,6 +106,8 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresL
 
         _output.Value?.Dispose();
         _output.Value = null;
+        _attachments.Value?.Dispose();
+        _attachments.Value = null;
 
         // bobcat#545: a failing Acceptance spec is reported ignored. Assert.Ignore would throw, and
         // NUnit already holds the body's failure by now, so the recorded result is replaced instead.

@@ -386,6 +386,92 @@ public static class ScenarioRecorder
 
         internal void WriteLog(string line) => (OpenStep?.Log ?? Log).Add(line);
 
+        private readonly List<RecordedAttachment> _attachments = new();
+
+        /// <summary>
+        /// The scenario's attachments (issue #571), in the order they were added — a step's and the
+        /// scenario's alike, told apart by <see cref="RecordedAttachment.StepId"/>. Once the scenario
+        /// closes, only the ones it kept: a passing scenario keeps none unless the run is verbose.
+        /// </summary>
+        public IReadOnlyList<RecordedAttachment> Attachments
+        {
+            get
+            {
+                lock (_attachments) return _attachments.ToList();
+            }
+        }
+
+        /// <summary>Attachments past <see cref="SpecAttachment.MaxPerScenario"/>, counted rather than kept.</summary>
+        public int SuppressedAttachments { get; private set; }
+
+        internal void Attach(RecordedStep? step, string name, string mediaType, byte[] content)
+        {
+            if (content.LongLength > SpecAttachment.MaxBytes)
+            {
+                AttachOmitted(step, name, mediaType, content.LongLength,
+                    SpecAttachment.OmittedForSize(content.LongLength));
+                return;
+            }
+
+            add(step, new RecordedAttachment(name, mediaType, content.LongLength, step?.StepId, content, null));
+        }
+
+        internal void AttachOmitted(RecordedStep? step, string name, string mediaType, long size, string reason)
+            => add(step, new RecordedAttachment(name, mediaType, size, step?.StepId, null, reason));
+
+        private void add(RecordedStep? step, RecordedAttachment attachment)
+        {
+            lock (_attachments)
+            {
+                if (_attachments.Count >= SpecAttachment.MaxPerScenario)
+                {
+                    SuppressedAttachments++;
+                    return;
+                }
+
+                _attachments.Add(attachment);
+            }
+
+            if (step is not null)
+            {
+                lock (step.Attachments) step.Attachments.Add(attachment);
+            }
+        }
+
+        /// <summary>
+        /// Latch the attachments on the verdict, then write the kept ones out — beside the results
+        /// file when there is one, to the platform's attachments otherwise — and let go of the bytes.
+        /// </summary>
+        private void finishAttachments(bool failed)
+        {
+            List<RecordedAttachment> attachments;
+            lock (_attachments) attachments = _attachments.ToList();
+            if (attachments.Count == 0 && SuppressedAttachments == 0) return;
+
+            if (!failed && !ScenarioReportVisibility.Verbose)
+            {
+                lock (_attachments) _attachments.Clear();
+                SuppressedAttachments = 0;
+                foreach (var step in allSteps()) step.Attachments.Clear();
+                return;
+            }
+
+            AttachmentFiles.Write(this, attachments);
+
+            foreach (var attachment in attachments) attachment.Content = null;
+        }
+
+        private IEnumerable<RecordedStep> allSteps()
+        {
+            var stack = new Stack<RecordedStep>(_steps);
+            while (stack.Count > 0)
+            {
+                var step = stack.Pop();
+                yield return step;
+                foreach (var child in step.Children) stack.Push(child);
+            }
+        }
+
         private readonly List<Type> _touchedTypes = new();
 
         /// <summary>
@@ -674,6 +760,15 @@ public static class ScenarioRecorder
 
             var filtered = SpecStackTrace.Filter(thrown);
 
+            // Failure evidence (issue #571), for the step the failure belongs to: the innermost one.
+            // A parent goes red because its child did, and a second screenshot of the same moment
+            // would say nothing the first did not.
+            if (step.Status is ResultStatus.failed or ResultStatus.error
+                && !step.Children.Any(x => x.Status is ResultStatus.failed or ResultStatus.error))
+            {
+                SpecAttachment.CaptureFailure(this, step);
+            }
+
             _publisher?.Post(new StepFinished(
                 _runId, Uid, step.StepId,
                 step.Status == ResultStatus.success ? "Passed" : "Failed",
@@ -873,6 +968,10 @@ public static class ScenarioRecorder
             // scenario's outcome exactly as the runner's own verdict does.
             var failure = FailureDescription ?? Failure?.Message ?? GatheredFailures();
 
+            // Before anything reads the recording: the results file, the per-test output and the wire
+            // all name an attachment by the path it was written to.
+            finishAttachments(failed: failure is not null);
+
             // bobcat#545: a failing Acceptance spec keeps every step and cell, and says so under its
             // own name rather than as Failed -- unless the run is strict, where it IS a failure.
             AcceptanceFailing = failure is not null && Lifecycle == Lifecycle.Acceptance && !SpecLifecycle.Strict
@@ -890,6 +989,8 @@ public static class ScenarioRecorder
                 StepsMs: StepsMs,
                 ParentSpecId: ParentUid,
                 Logs: Monitoring.MonitorLogs.From(this, scenarioFailed: failure is not null),
+                Attachments: MonitorAttachments.From(Attachments),
+                SuppressedAttachments: SuppressedAttachments > 0 ? SuppressedAttachments : null,
                 Lifecycle: Lifecycle == Lifecycle.Acceptance ? nameof(Lifecycle.Acceptance) : null));
 
             ScenarioCompleted?.Invoke(this);
@@ -971,6 +1072,12 @@ public static class ScenarioRecorder
 
         /// <summary>What <see cref="SpecLog.Write"/> recorded while this step was the innermost one open.</summary>
         public StepLog Log { get; } = new();
+
+        /// <summary>
+        /// What was attached while this step ran, and what an <see cref="IFailureCapture"/> returned
+        /// when it failed (issue #571).
+        /// </summary>
+        public List<RecordedAttachment> Attachments { get; } = new();
 
         /// <summary>
         /// The step's verdict, on a four-way vocabulary:

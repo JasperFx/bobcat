@@ -163,6 +163,9 @@ real HTTP without one.
    drop-on-backpressure channel; probes `/api/ping` once and no-ops when absent.
    `BOBCAT_MONITOR_URL` overrides the target — a *list* of them since bobcat#530, fanned out by
    `MonitorTargets`, one publisher per URL — and `BOBCAT_MONITOR=0` is the kill switch.
+   An explicit `BOBCAT_MONITOR=1` (on/true) says a console is *expected*: the probe waits
+   `ExpectedProbeTimeout` (5s) instead of 250ms (bobcat#589). Both resident-runner paths set it,
+   because a child that gives up on a slow-but-present console publishes nothing at all.
    Publishing is **opt-in** (`BobcatRunner.PublishToMonitor`) and turned on only by the real
    entry points — `BobcatRunner.Run` and the MTP host's execution path (never discovery) — so
    unit tests driving the runner never probe. `BOBCAT_RUN_ID` seeds the run identity so a

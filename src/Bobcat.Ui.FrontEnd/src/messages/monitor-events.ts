@@ -113,6 +113,8 @@ export interface ScenarioFinished extends MonitorEvent {
   stepsMs?: number | null
   parentSpecId?: string | null
   logs?: StepLogInfo[] | null
+  attachments?: ScenarioAttachmentInfo[] | null
+  suppressedAttachments?: number | null
   lifecycle?: string | null
 }
 
@@ -145,6 +147,15 @@ export interface StepLogInfo {
   stepId: string | null
   lines: string[]
   suppressed: number
+}
+
+export interface ScenarioAttachmentInfo {
+  name: string
+  mediaType: string
+  size: number
+  path: string | null
+  stepId: string | null
+  omitted: string | null
 }
 
 /** Envelope type: 'retry_scheduled' */

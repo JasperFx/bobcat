@@ -28,6 +28,9 @@ internal static class XunitScenarioBracket
     /// </remarks>
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
+    /// <summary>The attachment sink (issue #571), held and closed the same way.</summary>
+    private static readonly AsyncLocal<IDisposable?> _attachments = new();
+
     internal static void Open(MethodInfo methodUnderTest, IXunitTest test)
     {
         // A theory row is its own specification (bobcat#569): its arguments, or the label a
@@ -42,6 +45,12 @@ internal static class XunitScenarioBracket
         {
             _output.Value = SpecOutput.Open(helper.WriteLine);
         }
+
+        // Failure evidence goes to xUnit's own attachments when the run writes no results directory,
+        // so TRX and the IDE show it (issue #571). Captured now: TestContext.Current is per test.
+        var context = TestContext.Current;
+        _attachments.Value = SpecAttachment.OpenPlatformSink(
+            (name, mediaType, bytes) => context.AddAttachment(name, bytes, mediaType));
     }
 
     /// <remarks>
@@ -70,6 +79,8 @@ internal static class XunitScenarioBracket
 
         _output.Value?.Dispose();
         _output.Value = null;
+        _attachments.Value?.Dispose();
+        _attachments.Value = null;
 
         if (close.SkipReason is { } reason)
         {

@@ -118,6 +118,35 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
         => Environment.GetEnvironmentVariable(KillSwitchVariable)?.ToLowerInvariant() is "0" or "off" or "false";
 
     /// <summary>
+    /// Explicit opt-in: <c>BOBCAT_MONITOR=1</c> (or on/true) says a console is <i>expected</i>, so
+    /// the probe waits <see cref="ExpectedProbeTimeout"/> for it rather than
+    /// <see cref="DefaultProbeTimeout"/> (bobcat#589).
+    /// </summary>
+    public static bool Expected => isExpected(Environment.GetEnvironmentVariable(KillSwitchVariable));
+
+    private static bool isExpected(string? value) => value?.ToLowerInvariant() is "1" or "on" or "true";
+
+    /// <summary>The probe's ceiling for a given <c>BOBCAT_MONITOR</c> value — the rule, testable alone.</summary>
+    internal static TimeSpan ProbeTimeoutFor(string? monitorVariable)
+        => isExpected(monitorVariable) ? ExpectedProbeTimeout : DefaultProbeTimeout;
+
+    /// <summary>How long the probe waits when nobody said a console is there.</summary>
+    public static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// How long the probe waits when <see cref="Expected"/>: a resident runner's child, launched
+    /// because a console just asked for the run.
+    /// </summary>
+    /// <remarks>
+    /// The fake console counted the ping and the child published nothing (bobcat#589): on a loaded
+    /// CI machine a cold process's first HTTP request can take longer than 250ms, so the probe
+    /// gave up on a console that had already answered and the commanded run went out to no one —
+    /// the one outcome a resident runner exists to prevent. An absent console still costs only a
+    /// refused connection; this ceiling matters only to one that accepts and is slow to reply.
+    /// </remarks>
+    public static readonly TimeSpan ExpectedProbeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Probes the monitor once; returns a live publisher, or null when the monitor is absent,
     /// slow, or disabled. The cost of an absent monitor is exactly one refused local connection.
     /// </summary>
@@ -128,7 +157,8 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
         var client = new HttpClient { BaseAddress = new Uri(url ?? ResolveUrl()) };
         try
         {
-            using var cts = new CancellationTokenSource(probeTimeout ?? TimeSpan.FromMilliseconds(250));
+            using var cts = new CancellationTokenSource(
+                probeTimeout ?? ProbeTimeoutFor(Environment.GetEnvironmentVariable(KillSwitchVariable)));
             using var response = await client.GetAsync("/api/ping", cts.Token);
             if (!response.IsSuccessStatusCode)
             {

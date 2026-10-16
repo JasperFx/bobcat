@@ -147,7 +147,10 @@ public record DeclaredStepInfo(string Keyword, string Text);
 /// StepsMs (bobcat#477, Bobcat 0.50.0) is what the scenario's top-level steps cost, summed, next to
 /// DurationMs, which is the whole bracket; the difference is time no step owns. The projected lane
 /// sends it, and null means "not measured", never zero. ParentSpecId (bobcat#569) names the
-/// method's identity when this scenario is one row of a data-driven specification.
+/// method's identity when this scenario is one row of a data-driven specification. Attachments
+/// (bobcat#571) are references to the failure evidence the scenario kept — name, media type, size,
+/// path, step — never the bytes, latched like Reports; SuppressedAttachments counts the ones past
+/// the per-scenario cap.
 /// </summary>
 public record ScenarioFinished(
     Guid RunId,
@@ -164,6 +167,8 @@ public record ScenarioFinished(
     // (bobcat#569), as on ScenarioStarted. Null for a scenario that is not a row.
     string? ParentSpecId = null,
     IReadOnlyList<StepLogInfo>? Logs = null,
+    IReadOnlyList<ScenarioAttachmentInfo>? Attachments = null,
+    int? SuppressedAttachments = null,
     // "Acceptance" for an Acceptance spec (bobcat#545); null for the default, Regression. Such a spec
     // that fails outside strict mode arrives with Outcome "AcceptanceFailing", never "Failed".
     string? Lifecycle = null) : MonitorEvent(RunId);
@@ -175,6 +180,19 @@ public record ScenarioFinished(
 /// silently.
 /// </summary>
 public record StepLogInfo(string? StepId, IReadOnlyList<string> Lines, int Suppressed);
+
+/// <summary>
+/// A reference to one attachment (bobcat#571): Path is the file beside the run's results file, null
+/// when it went to the test platform instead; StepId is the step it hangs on, null for the scenario;
+/// Omitted says why the bytes were not kept (over the size cap).
+/// </summary>
+public record ScenarioAttachmentInfo(
+    string Name,
+    string MediaType,
+    long Size,
+    string? Path = null,
+    string? StepId = null,
+    string? Omitted = null);
 
 /// <summary>
 /// One scenario report on the wire (bobcat#408): a titled grid describing what the scenario's
