@@ -3,7 +3,8 @@
 ### Solutions, packages and the build
 
 - **Solutions are `.slnx`, everywhere** — `bobcat.slnx`, one per sample
-  (`samples/*/*.slnx`), and `spikes/mtp-orchestration/MtpSpike.slnx`. There are no `.sln` files
+  (`samples/*/*.slnx`), `spikes/mtp-orchestration/MtpSpike.slnx`, and
+  `spikes/transport-compliance/TransportComplianceSpike.slnx` (#564: inherited specs, `findings.md`). There are no `.sln` files
   left; converted with `dotnet sln migrate` on 2026-09-28. The samples and the spike are
   deliberately **not** in `bobcat.slnx`.
 - **Central Package Management, one file per tree**, never an inline `Version=` on a
