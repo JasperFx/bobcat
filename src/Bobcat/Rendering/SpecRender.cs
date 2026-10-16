@@ -675,13 +675,20 @@ public class SetVerificationRender
     /// <summary>
     /// The grid for a set of cells carrying a <c>RowIndex</c>, under the given column order.
     /// </summary>
+    /// <remarks>
+    /// Only cells that belong to a row are folded: a <c>RowIndex &gt;= 0</c>, or a row marker, which is
+    /// a row by definition even from an older producer that set no index. A step that has a table
+    /// can also record a step-level cell — an act's own cell, a refusal's status check — whose
+    /// default <c>RowIndex</c> of -1 used to become an empty first row that read as a null message
+    /// dispatched (bobcat#617). Those cells stay on the step and render as the step's own.
+    /// </remarks>
     public static SetVerificationRender FromCells(
         IReadOnlyList<string> columnOrder, IReadOnlyList<CellResult> allCells)
     {
         var columns = columnOrder.ToList();
         var rows = new List<SetVerificationRowRender>();
 
-        foreach (var group in allCells.GroupBy(c => c.RowIndex).OrderBy(g => g.Key))
+        foreach (var group in allCells.Where(belongsToARow).GroupBy(c => c.RowIndex).OrderBy(g => g.Key))
         {
             var cells = group.ToList();
             var missingCell = cells.FirstOrDefault(c => c.Name == "missing-row");
@@ -746,6 +753,15 @@ public class SetVerificationRender
 
         return new SetVerificationRender { Columns = columns, Rows = rows };
     }
+
+    /// <summary>Whether a cell is one of a grid's rows rather than the step's own.</summary>
+    internal static bool BelongsToARow(int rowIndex, string name)
+        => rowIndex >= 0
+           || name is "missing-row" or "extra-row"
+               or DecisionTableComparer.RowErrorCell or SetVerificationComparer.OutOfOrderCell;
+
+    private static bool belongsToARow(CellResult cell)
+        => BelongsToARow(cell.RowIndex, cell.Name);
 
     /// <summary>
     /// A row present on only one side: the marker cell carries the human description and the
