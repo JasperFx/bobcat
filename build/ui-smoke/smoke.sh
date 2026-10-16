@@ -7,7 +7,7 @@
 # into a tool path and calls this; ui-smoke.yml runs that target. The unit and spec suites test the
 # host in-process and the SPA under Vitest, so neither notices a tool that ships without its page,
 # a hashed asset the server will not serve, a deep link that 404s, or a renderer that throws in a
-# real browser. This does.
+# real browser. This does — and the same for the HTML results page the tool writes (bobcat#541).
 #
 # Nothing here touches ~/.bobcat: the UI's data directory is a temp directory (BOBCAT_MONITOR_DATA)
 # and the port is a free one, so it runs beside a developer's own `bobcat ui` or Stoat.
@@ -20,6 +20,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 run_fixture="$repo/src/Bobcat.Ui.Tests/Fixtures/crittercrush-supervised-bobcat-0.60.1.ndjson"
 model_fixture="$here/event-model.json"
+results_fixture="$repo/src/Bobcat.Ui.FrontEnd/src/results/__tests__/results.fixture.json"
 
 work="$(mktemp -d)"
 export BOBCAT_MONITOR_DATA="$work/data"
@@ -102,6 +103,21 @@ grep -q "$run_id" "$work/list-runs.json" || fail "bobcat list-runs does not list
 grep -q 'CreditWallet' "$work/event-model.json" || fail "bobcat event-model does not show CreditWallet"
 echo "ok   CLI queries answer"
 
+# --- The HTML results page (bobcat#541): the packed tool writes one self-contained file from a results
+#     file, with a step's screenshot kept beside the results the way a run writes attachments.
+results_dir="$work/results"
+mkdir -p "$results_dir/attachments/run/spec"
+cp "$results_fixture" "$results_dir/run.json"
+cp "$repo/src/Bobcat.Ui.FrontEnd/public/favicon.png" "$results_dir/attachments/run/spec/01-screen.png"
+results_page="$work/page/results.html"
+"$bobcat" results-html "$results_dir" --out "$results_page" > "$work/results-html.log" 2>&1 \
+  || { cat "$work/results-html.log" >&2; fail "bobcat results-html exited non-zero"; }
+[[ -f "$results_page" ]] || fail "bobcat results-html wrote no page"
+grep -q '/src/results/main.ts' "$results_page" && fail "the results page is the dev template, not the Vite build"
+grep -qE '<(script|link)[^>]*(src|href)=' "$results_page" && fail "the results page references a file beside it"
+grep -q 'Bobcat.Xunit.Samples' "$results_page" || fail "the results page does not carry the run's results"
+echo "ok   bobcat results-html writes a self-contained page"
+
 # --- A second UI on the same port refuses, clearly, rather than hanging or dying with a stack trace.
 "$bobcat" ui --no-browser --port "$port" > "$work/second.log" 2>&1 &
 second_pid=$!
@@ -130,7 +146,7 @@ else
     else
       npx playwright install chromium
     fi
-    BOBCAT_UI_URL="$url" BOBCAT_UI_RUN_ID="$run_id" npx playwright test
+    BOBCAT_UI_URL="$url" BOBCAT_UI_RUN_ID="$run_id" BOBCAT_RESULTS_PAGE="$results_page" npx playwright test
   ) || fail "the browser leg failed"
 fi
 

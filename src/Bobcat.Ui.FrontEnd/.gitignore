@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-results
 coverage
 *.tsbuildinfo
 
@@ -7,3 +8,4 @@ coverage
 # pre-hooks (scripts/ui-contracts.mjs) after one `dotnet build`. Never committed.
 src/messages/monitor-events.ts
 src/messages/relayRoutes.ts
+src/messages/results-file.ts

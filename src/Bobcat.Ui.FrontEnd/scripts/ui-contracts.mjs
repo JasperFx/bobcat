@@ -1,5 +1,5 @@
 // Generates the SPA's TypeScript wire contracts (bobcat#604) before `npm ci`, `dev`, `test`
-// and `build`: src/messages/monitor-events.ts and src/messages/relayRoutes.ts, both gitignored.
+// and `build`: src/messages/monitor-events.ts, relayRoutes.ts and results-file.ts, all gitignored.
 //
 // They come from the C# records in src/Bobcat.Ui/Contracts, through the bobcat tool's
 // `generate-ui-contracts` command. The newest BUILT tool is used when there is one, so after one
@@ -17,7 +17,7 @@ const frontEnd = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const source = join(frontEnd, 'src')
 const repository = resolve(frontEnd, '..', '..')
 const consoleProject = join(repository, 'src', 'Bobcat.Console')
-const generated = ['monitor-events.ts', 'relayRoutes.ts'].map((f) => join(source, 'messages', f))
+const generated = ['monitor-events.ts', 'relayRoutes.ts', 'results-file.ts'].map((f) => join(source, 'messages', f))
 const present = () => generated.every((f) => existsSync(f))
 
 if (process.env.BOBCAT_UI_CONTRACTS_SKIP === '1') {
@@ -45,7 +45,7 @@ if (result.status !== 0) {
     console.warn(`Could not regenerate the TypeScript contracts (${why}); using the ones already generated.`)
     process.exit(0)
   }
-  console.error(`Could not generate src/messages/monitor-events.ts and relayRoutes.ts (${why}).`)
+  console.error(`Could not generate src/messages/monitor-events.ts, relayRoutes.ts and results-file.ts (${why}).`)
   console.error('They are built from the C# contracts: run `dotnet build` (or `./build.sh UiContracts`) at the repository root.')
   process.exit(1)
 }

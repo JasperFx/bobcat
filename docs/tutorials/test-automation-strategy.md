@@ -281,9 +281,9 @@ slow ones once the first is green.
 - The supervisor splits a slow suite across worker processes by test class
   ([Reliable Integration Testing](reliable-integration-testing.md)).
 - **Keep the JSON results file.** `BOBCAT_RESULTS` writes every scenario's steps, cells and tables,
-  with a JSON Schema, for CI to archive ([The results file](../bobcat-tool.md#results-file)). A
-  self-contained HTML page built from it is
-  [bobcat#541](https://github.com/JasperFx/bobcat/issues/541).
+  with a JSON Schema, for CI to archive ([The results file](../bobcat-tool.md#results-file)), and
+  `bobcat results-html` turns it into one self-contained page a person opens from the artifact
+  ([The HTML results page](../bobcat-tool.md#results-page)).
 
 ### 14. Testability is an architectural concern
 

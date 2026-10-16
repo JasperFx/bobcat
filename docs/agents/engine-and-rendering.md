@@ -179,7 +179,7 @@
   duplicate name. Then the bytes are released. Over `MaxBytes` is a reference marked `Omitted`, never a
   truncation; past `MaxPerScenario` is counted (`SuppressedAttachments`, "…and N more"). The wire
   (`ScenarioFinished.Attachments`, `ScenarioAttachmentInfo`) and the results file carry references only.
-  The HTML page (#541) is to render them inline under their step from the results file's `path`.
+  The HTML results page (#541) renders them inline under their step from the results file's `path`.
 - **`StepKind`** / **`FailureLevel`** — drive failure classification.
 - **In-flight progress:** `ScenarioRecorder` posts `step_progress`, and `TotalSteps` / `StepNumber` /
   `ScenarioElapsedMs` ride the step events; a long table's progress is its cells-so-far update
@@ -217,7 +217,7 @@
   id); never fails a run. **The schema is generated and never committed** (#604):
   `ResultsFile.GenerateSchema()` writes it beside every file, the Nuke `Pack` target packs it under
   `schemas/`, and `CI`'s `ResultsSchemaCompatibility` fails a breaking change against the last
-  released package's copy unless `SchemaVersion` moved. An additive field does not. #541's TypeScript types are to be generated from this schema.
+  released package's copy unless `SchemaVersion` moved. An additive field does not. The HTML results page's TypeScript types (`results-file.ts`, #541) are generated from this schema by `./build.sh UiContracts`, like the wire's.
 - **`obj/bobcat/last-run.json`** (`Bobcat.Console/Specs/LastRun.cs`, bobcat#572): every `bobcat run`
   writes it in the spec project: failed identities, selection, flags, exit code, a reserved `seed`.
   `run --failed` / `--repeat` read it. The failures come **from the results file**, so `SpecHost`

@@ -12,12 +12,14 @@
     "predev": "node scripts/ui-contracts.mjs",
     "dev": "vite",
     "prebuild": "node scripts/ui-contracts.mjs",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b && vite build && vite build --config vite.config.results.ts",
     "preview": "vite preview",
     "pretest": "node scripts/ui-contracts.mjs",
     "test": "vitest run",
     "pretest:unit": "node scripts/ui-contracts.mjs",
-    "test:unit": "vitest"
+    "test:unit": "vitest",
+    "build:results": "vite build --config vite.config.results.ts",
+    "prebuild:results": "node scripts/ui-contracts.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

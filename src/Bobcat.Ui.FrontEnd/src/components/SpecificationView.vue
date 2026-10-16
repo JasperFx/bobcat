@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import SpecLine from '@/components/SpecLine.vue'
-import type { ScenarioState } from '@/stores/runs-store'
-import { specificationFor } from '@/composables/specification'
+import { specificationFor, type SpecSource } from '@/composables/specification'
 
 /**
  * One rendered specification (stoat#61), for both authoring lanes. The run view, the standalone
@@ -14,8 +13,11 @@ import { specificationFor } from '@/composables/specification'
  * then the exceptions, each once, in a panel of its own (stoat#60). Inline, one exception pushes
  * the rest of the specification off the screen; at the bottom, the reader first sees WHICH step
  * broke, and chooses when to read why.
+ *
+ * The HTML results page (bobcat#541) renders an archived run through this component too, from a
+ * scenario read out of the results file, so an archived page and the live board agree.
  */
-const props = defineProps<{ scenario: ScenarioState }>()
+const props = defineProps<{ scenario: SpecSource }>()
 
 const spec = computed(() => specificationFor(props.scenario))
 </script>

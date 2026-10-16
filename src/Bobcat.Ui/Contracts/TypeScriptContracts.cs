@@ -39,10 +39,13 @@ public static class TypeScriptContracts
 {
     public const string MonitorEventsFile = "monitor-events.ts";
     public const string RelayRoutesFile = "relayRoutes.ts";
+
+    /// <summary>The results file's types (bobcat#541), generated from its JSON Schema.</summary>
+    public const string ResultsFileTypesFile = "results-file.ts";
     public const string MessagesDirectory = "messages";
 
     /// <summary>The generated files, in the order they are written.</summary>
-    public static IReadOnlyList<string> GeneratedFiles { get; } = [MonitorEventsFile, RelayRoutesFile];
+    public static IReadOnlyList<string> GeneratedFiles { get; } = [MonitorEventsFile, RelayRoutesFile, ResultsFileTypesFile];
 
     /// <summary>How to regenerate, spelled once so every message that mentions it agrees.</summary>
     public const string GenerateCommandLine = "./build.sh UiContracts";
@@ -134,6 +137,115 @@ public static class TypeScriptContracts
             """);
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// The full contents of results-file.ts: the results file's shape (bobcat#540) as TypeScript,
+    /// for the HTML results page (bobcat#541).
+    /// </summary>
+    /// <remarks>
+    /// Generated from the results file's JSON SCHEMA text rather than from records, because this
+    /// assembly references nothing in core (the receiver keeps its own copy of what it reads), and
+    /// the schema is the contract the file publishes anyway. The tool, which references both, hands
+    /// the text over (<c>ResultsFile.SchemaText</c>). Every member is optional: the page may be
+    /// asked to render a file an older Bobcat wrote.
+    /// </remarks>
+    public static string GenerateResultsFile(string resultsSchema)
+    {
+        var schema = JsonSchema.FromJsonAsync(resultsSchema).GetAwaiter().GetResult();
+
+        var settings = new TypeScriptGeneratorSettings
+        {
+            TypeStyle = TypeScriptTypeStyle.Interface,
+            TypeScriptVersion = 5.0m,
+            ExportTypes = true,
+            DateTimeType = TypeScriptDateTimeType.String,
+            NullValue = TypeScriptNullValue.Null,
+            EnumStyle = TypeScriptEnumStyle.StringLiteral,
+            MarkOptionalProperties = true,
+            GenerateConstructorInterface = false,
+            TypeNameGenerator = new ResultsTypeNames()
+        };
+
+        var code = new TypeScriptGenerator(schema, settings).GenerateFile(ResultsTypeNames.Root);
+
+        var builder = new StringBuilder();
+        builder.Append($$"""
+            /**
+             * GENERATED FILE — do not edit by hand, and do not commit it (it is gitignored).
+             *
+             * The results file's shape (BOBCAT_RESULTS, `bobcat run --results`), emitted by
+             * TypeScriptContracts.cs from the file's own JSON Schema (ResultsFile.GenerateSchema), for
+             * the HTML results page. Regenerate with:
+             *
+             *   {{GenerateCommandLine}}
+             *
+             * or any of the frontend's npm scripts, whose pre-hooks run it after one `dotnet build`.
+             */
+
+
+            """);
+
+        // The index signature NJsonSchema adds for an open schema says nothing the page may rely on,
+        // and would let a misspelled member compile.
+        var lines = toHouseStyle(code).Split('\n')
+            .Where(line => line.Trim() != "[key: string]: any");
+        var text = string.Join('\n', lines);
+        while (text.Contains("\n\n}")) text = text.Replace("\n\n}", "\n}");
+        builder.Append(withoutRepeatedDeclarations(text));
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// The schema's object types are anonymous, so NJsonSchema would name them after the property
+    /// holding them (<c>Scenarios</c>, <c>ScenarioFailureCells</c>, and <c>Scenarios2</c> for the
+    /// timing block's). These are named by what they carry instead, which is also what keeps the
+    /// names stable when a property is added somewhere else in the file.
+    /// </summary>
+    private sealed class ResultsTypeNames : DefaultTypeNameGenerator
+    {
+        public const string Root = "BobcatResults";
+
+        // A member only that type has, in the order they are tried.
+        private static readonly (string Member, string Name)[] shapes =
+        [
+            ("schemaVersion", Root),
+            ("runId", "ResultsRun"),
+            ("acceptanceFailing", "ResultsSummary"),
+            ("verdict", "ResultsScenario"),
+            ("measuredMs", "ResultsTiming"),
+            ("wallClockMs", "ResultsScenarioTiming"),
+            ("occurrences", "ResultsStepCost"),
+            ("before", "ResultsGap"),
+            ("stepId", "ResultsStep"),
+            ("mediaType", "ResultsAttachment"),
+            ("shortTitle", "ResultsReport"),
+            ("description", "ResultsGridRow"),
+            ("columns", "ResultsGrid"),
+            ("expected", "ResultsCell"),
+            ("rights", "ResultsCounts")
+        ];
+
+        public override string Generate(JsonSchema schema, string? typeNameHint, IEnumerable<string> reservedTypeNames)
+        {
+            var actual = schema.ActualSchema;
+            foreach (var (member, name) in shapes)
+            {
+                // Reused even when taken: the same shape reached twice (a report's grid and a step's
+                // set verification) is one type, and the duplicate declaration is dropped below.
+                if (actual.Properties.ContainsKey(member)) return name;
+            }
+
+            return base.Generate(schema, typeNameHint, reservedTypeNames);
+        }
+    }
+
+    /// <summary>Drop an interface declared a second time with the same body.</summary>
+    private static string withoutRepeatedDeclarations(string code)
+    {
+        var blocks = code.Split("\n\n");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return string.Join("\n\n", blocks.Where(block => !block.StartsWith("export interface ", StringComparison.Ordinal) || seen.Add(block)));
     }
 
     /// <summary>

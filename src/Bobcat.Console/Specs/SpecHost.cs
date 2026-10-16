@@ -7,9 +7,10 @@ namespace Bobcat.Console.Specs;
 
 /// <summary>
 /// How a run reports beyond the terminal (issue #540): a results directory for the JSON results
-/// file, the file itself on standard output, and whether passing scenarios' reports are written.
+/// file, the file itself on standard output, whether passing scenarios' reports are written, and
+/// a file for the HTML results page rendered from the results (bobcat#541).
 /// </summary>
-internal record RunOptions(string? ResultsDirectory = null, bool Json = false, bool Verbose = false)
+internal record RunOptions(string? ResultsDirectory = null, bool Json = false, bool Verbose = false, string? HtmlFile = null)
 {
     public static RunOptions Default { get; } = new();
 }
@@ -107,6 +108,8 @@ internal static class SpecHost
             foreach (var file in written) AnsiConsole.MarkupLine($"[dim]results: {Markup.Escape(file)}[/]");
         }
 
+        if (options.HtmlFile is { } html) WriteHtml(html, written, attachmentsKept: !ownResults);
+
         IReadOnlyList<string> failed = [];
         var resultsRead = false;
         try
@@ -130,6 +133,37 @@ internal static class SpecHost
             $"{verdict(code)} [dim]in {elapsed.TotalSeconds:0.0}s · host log: {Markup.Escape(log)}[/]");
 
         return new RunOutcome(code, failed, resultsRead);
+    }
+
+    /// <summary>
+    /// The HTML results page for the run (bobcat#541), from the results files it just wrote. Its
+    /// attachments are linked only when the results directory outlives the run (<c>--results</c>).
+    /// Never fails the run: the specifications' verdicts are the run's, and the page reports them.
+    /// </summary>
+    internal static void WriteHtml(string path, IReadOnlyList<string> written, bool attachmentsKept)
+    {
+        if (written.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No results file was written, so there is no HTML results page.[/]");
+            return;
+        }
+
+        var template = Bobcat.Ui.ResultsPages.ResultsPage.Template();
+        if (template is null)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(Bobcat.Ui.ResultsPages.ResultsPage.NotEmbeddedMessage)}[/]");
+            return;
+        }
+
+        try
+        {
+            var page = Bobcat.Ui.ResultsPages.ResultsPage.Write(template, path, written, attachmentsKept);
+            AnsiConsole.MarkupLine($"[dim]results page: {Markup.Escape(page)}[/]");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Could not write the HTML results page to {Markup.Escape(path)}: {Markup.Escape(e.Message)}[/]");
+        }
     }
 
     /// <summary>

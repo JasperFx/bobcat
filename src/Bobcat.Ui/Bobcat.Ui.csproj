@@ -59,6 +59,15 @@
 
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/dist/index.html')"
            Text="EmbedFrontend=true but the frontend build produced no dist/index.html" />
+
+    <!-- The HTML results page (bobcat#541): one self-contained file from the same `npm run build`
+         (vite.config.results.ts), embedded apart from wwwroot because it is a template the tool
+         fills with a run's results, never a page this host serves. -->
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/dist-results/results.html')"
+           Text="EmbedFrontend=true but the frontend build produced no dist-results/results.html" />
+    <ItemGroup>
+      <EmbeddedResource Include="../Bobcat.Ui.FrontEnd/dist-results/results.html" LogicalName="Bobcat.Ui.results.html" />
+    </ItemGroup>
   </Target>
 
   <ItemGroup>

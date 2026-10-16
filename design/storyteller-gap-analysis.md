@@ -354,3 +354,19 @@ User docs: `docs/marker-steps.md` ("Not yet passing"); wire: `docs/monitor-desig
   scenario names. **Open: should that one be skipped like any other Acceptance failure instead?**
 - **Strict mode** (`BOBCAT_LIFECYCLE=strict`, C13) fails Acceptance failures and `Pending = true`
   specs; Pending exists on xUnit only, so that half is xUnit only.
+
+### 2026-10-16 — G2, the HTML page's switches (bobcat#541, at implementation)
+
+- **The page is written by the `bobcat` tool, not by core.** `bobcat run --html <file>` for the run
+  it does, and `bobcat results-html <files or dirs> [--out]` for results files already written.
+  Plain `dotnet test` opts in with the existing `BOBCAT_RESULTS` and then `bobcat results-html`;
+  **no `BOBCAT_*` variable for the page.** Reason: the page is a built Vue bundle (~100 KB), and
+  core is what every spec project references; writing it from core would put the bundle in every
+  `Bobcat.dll` and make Node part of core's build. The tool already embeds the board's frontend
+  (`EmbedFrontend`), so the page is a second Vite build beside it (`vite.config.results.ts`, one
+  file, everything inlined) and writing one is a text substitution with no Node at run time.
+- One page holds every results file it is given (a supervised run writes one per worker).
+  Attachments stay files, linked relative to the page; the page names them without links when the
+  results directory was not kept.
+- The page's TypeScript types are generated from the results file's schema (`results-file.ts`,
+  `./build.sh UiContracts`), so the page reads the shape the file publishes.

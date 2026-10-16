@@ -60,6 +60,7 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 | `--trait <Name=Value>` | only specifications with this trait: a framework trait or property, or `Slice`/`Chapter`/`Domain`/`Pattern`; repeatable (not `pick`) |
 | `--no-build` | use the last build as it is |
 | `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
+| `--html <file>` | also write the run as one self-contained [HTML results page](#results-page) (not `preview`) |
 | `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
 | `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire |
 | `--failed` | run only the specifications that failed or errored last time (`run`; see below) |
@@ -80,15 +81,15 @@ bobcat run --repeat              # the last run's selection and flags again
 
 **Every `bobcat run` writes `obj/bobcat/last-run.json`** in the spec project, with or without
 `--results`: the failed identities, the selection it ran (identities, empty for everything), its
-framework, configuration, `--results`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
+framework, configuration, `--results`, `--html`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
 and a reserved `seed` (null until seeded random order ships). `obj/` is git-ignored and
 `dotnet clean` removes it.
 
 - **`--failed`** runs the specifications whose scenario did not succeed — failed or errored — by
   their `{Feature}/{Scenario}` identity, with the flags given now. The rerun is itself the last run,
   so repeating `--failed` narrows to what is still red.
-- **`--repeat`** replays the last run's selection, framework, configuration, `--results`, `--json`
-  and `--verbose`. A `--framework`/`--results` given beside it wins; `--json`/`--verbose` add to the
+- **`--repeat`** replays the last run's selection, framework, configuration, `--results`, `--html`,
+  `--json` and `--verbose`. A `--framework`/`--results`/`--html` given beside it wins; `--json`/`--verbose` add to the
   recorded ones. It always builds unless `--no-build` is given now.
 - **A specification renamed or deleted since is refused by name**, and nothing runs: a rerun that
   quietly dropped it would read as green. Start over with a plain `bobcat run`.
@@ -178,6 +179,42 @@ BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain
 - A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
   the same rule as the console and the wire.
 - Writing it never fails a run: a directory that cannot be written is one line on standard error.
+
+### The HTML results page {#results-page}
+
+One run as **one HTML file**, for CI to archive and for someone to open later from disk or a
+downloaded artifact — Storyteller's `stresults.htm`, for Bobcat. There is no server behind it and
+it fetches nothing: the page's script, its styles and the run's results are all inside the file.
+It is an archive, not a console; watching a run live is [`bobcat ui`](bobcat-ui.md)'s job.
+
+```bash
+bobcat run --html artifacts/bobcat/results.html                 # the run, as a page
+bobcat run --results artifacts/bobcat --html artifacts/bobcat/results.html   # with its attachments
+BOBCAT_RESULTS=artifacts/bobcat dotnet test                      # plain dotnet test, then:
+bobcat results-html artifacts/bobcat                             # artifacts/bobcat/results.html
+```
+
+- **Opt-in only.** Nothing writes a page by default. `--html <file>` asks `bobcat run` (and `pick`,
+  `watch`) for one; **`bobcat results-html <files or directories> [--out <file>]`** writes one from
+  results files already written — a plain `dotnet test` with `BOBCAT_RESULTS`, a supervised run's
+  one file per worker, a CI artifact downloaded later. Every results file it is given goes on one
+  page, counted together — so a supervised run's retried specification is there once per attempt.
+  With no `--out` the page is `results.html` in the first directory given.
+- **It renders a scenario exactly as `bobcat ui` does**: the same Vue components, built into the
+  tool, show the narrative, each step's cells and grids, missing and extra rows, steps the run
+  never reached, exceptions, logs and reports. Failing scenarios start open; a filter narrows to
+  the failing ones or by name. A failing Acceptance specification is shown as not yet passing,
+  never as a failure.
+- **The page is built from the results file**, so what the file leaves out the page cannot show: a
+  passing scenario's reports need `--verbose`, and an exception carries its type and message but
+  no stack.
+- **Attachments stay files.** A screenshot is drawn inline under the step that took it, from the
+  results directory, through a link relative to the page — keep the page and the results
+  directory together when you archive them. `bobcat run --html` without `--results` writes its
+  results to a temporary directory it deletes, so that page names the attachments and links none.
+- **Writing it never fails a run**: the specifications decide the exit code. A tool built from
+  source without `-p:EmbedFrontend=true` has no page to write and says so; the packed tool always
+  has it.
 
 ### Selecting by Event Model coordinates {#selecting-by-coordinates}
 

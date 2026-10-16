@@ -77,7 +77,8 @@ export interface Specification {
   scenarioFailure: string | null
 }
 
-type SpecSource = Pick<
+/** What a specification is rendered from: a live scenario, or one read from a results file. */
+export type SpecSource = Pick<
   ScenarioState,
   'status' | 'steps' | 'declaredSteps' | 'plannedSteps' | 'errorMessage'
 >

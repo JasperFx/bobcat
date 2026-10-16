@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AttachmentList from '@/components/AttachmentList.vue'
 import type { StepCell } from '@/messages/monitor-events'
 import {
   cellsOf,
@@ -181,6 +182,8 @@ function describe(cell: StepCell): string {
         <dd>{{ value }}</dd>
       </template>
     </dl>
+
+    <AttachmentList v-if="step && step.attachments?.length" :attachments="step.attachments" />
   </li>
 </template>
 

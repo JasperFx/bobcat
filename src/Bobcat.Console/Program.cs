@@ -22,10 +22,14 @@ var executor = CommandExecutor.For(factory =>
     // design-time loop that keeps the canvas live as an application is edited.
     factory.RegisterCommand<UiCommand>();
     factory.RegisterCommand<Bobcat.Ui.EventModel.WatchEventModelCommand>();
-    factory.RegisterCommand<Bobcat.Ui.GenerateCommand>();
+    factory.RegisterCommand<UiContractsCommand>();
 
     // The results file's JSON Schema, generated rather than committed (bobcat#604).
     factory.RegisterCommand<ResultsSchemaCommand>();
+
+    // The HTML results page for results files already written (bobcat#541); `run --html` writes
+    // the same page for the run it does.
+    factory.RegisterCommand<ResultsHtmlCommand>();
 
     // The agent-facing reads over a running `bobcat ui` (bobcat#524): JSON on stdout.
     factory.RegisterCommand<ListRunsCommand>();
