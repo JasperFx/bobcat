@@ -15,7 +15,8 @@ namespace Bobcat.Generators;
 /// Three runtime readers, three rules, and each check uses the reader it is guarding:
 /// <list type="bullet">
 /// <item><see cref="ColumnRule.Property"/> — <c>PropertyCells</c> (a property check): public
-/// instance properties by their <c>[Header]</c> title or else their name, dotted per segment.</item>
+/// instance properties and fields (bobcat#548) by their <c>[Header]</c> title or else their name,
+/// dotted per segment.</item>
 /// <item><see cref="ColumnRule.Set"/> — <c>SetVerificationComparer</c>: the same titles, top level
 /// only; a dotted column is never a key the comparer reads.</item>
 /// <item><see cref="ColumnRule.Partial"/> — partial objects and table-built records: a
@@ -171,7 +172,7 @@ internal static class TableColumns
         var names = new List<string>();
         foreach (var member in instanceMembers(type))
         {
-            if (member is IFieldSymbol && rule != ColumnRule.Partial) continue;
+            if (member is IFieldSymbol && rule == ColumnRule.Set) continue;
             names.Add(titleOf(member) ?? member.Name);
         }
 
@@ -190,7 +191,7 @@ internal static class TableColumns
                 : string.Equals(title ?? member.Name, name, StringComparison.OrdinalIgnoreCase);
 
             if (!matches) continue;
-            if (member is IFieldSymbol && rule != ColumnRule.Partial) continue;
+            if (member is IFieldSymbol && rule == ColumnRule.Set) continue;
 
             return member switch
             {

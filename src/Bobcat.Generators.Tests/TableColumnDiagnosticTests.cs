@@ -32,6 +32,9 @@ public class TableColumnDiagnosticTests
 
         public class Leaf { public string Name { get; set; } = ""; }
 
+        public sealed class Spot { public string City = ""; [Header("zip")] public string Postcode = ""; }
+        public sealed class Fielded { public string Code = ""; public Spot Where = new(); public int Count { get; set; } }
+
         public record Line(string Sku, int Quantity);
         public record Basket(string Id, List<Line> Lines, List<string> Tags);
 
@@ -56,7 +59,7 @@ public class TableColumnDiagnosticTests
         => GeneratorHarness.Run(Types + "\n" + $$"""
             public class Specs : Grammar
             {
-                public void Check(Order order, Titled titled, OpenBase open, object anything, List<Order> orders, Leaf leaf, string dynamicTable)
+                public void Check(Order order, Titled titled, OpenBase open, object anything, List<Order> orders, Leaf leaf, Fielded fielded, string dynamicTable)
                 {
             {{body}}
                 }
@@ -120,6 +123,21 @@ public class TableColumnDiagnosticTests
 
         // A title REPLACES the name for a property check, as PropertyCells reads it.
         messages(run("""VerifyObject(titled, "| OrderNumber |\n| A |");""")).ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void public_fields_are_columns_for_a_property_check_at_every_depth()
+    {
+        // bobcat#548: PropertyCells reads fields as well as properties, with the same titling.
+        var outcome = run("""
+                          VerifyObject(fielded, "| Code | Count | Where.City | Where.zip |\n| A | 1 | Austin | 78701 |");
+                          """);
+
+        messages(outcome).ShouldBeEmpty();
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        messages(run("""VerifyObject(fielded, "| Where.Town |\n| A |");"""))
+            .ShouldHaveSingleItem().ShouldContain("no 'Town' on Spot — it has City, zip");
     }
 
     [Fact]
