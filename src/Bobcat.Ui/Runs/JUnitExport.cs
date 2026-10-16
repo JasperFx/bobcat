@@ -41,6 +41,11 @@ public static class JUnitExport
                             testcase.Add(new XElement("failure",
                                 new XAttribute("message", scenario.ErrorMessage ?? "failed")));
                             break;
+                        case "AcceptanceFailing":
+                            // bobcat#545: not yet passing, and not a failure of the run.
+                            testcase.Add(new XElement("skipped",
+                                new XAttribute("message", "acceptance: failing — " + (scenario.ErrorMessage ?? "not yet passing"))));
+                            break;
                         case "Aborted":
                             testcase.Add(new XElement("error",
                                 new XAttribute("message", scenario.ErrorMessage ?? "aborted")));

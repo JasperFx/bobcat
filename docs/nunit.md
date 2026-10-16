@@ -56,6 +56,11 @@ the attribute throws from `AfterTest`, and NUnit records that against the test.
 It is stateless -- NUnit builds one attribute instance per declaration and runs it around every test
 it covers, in parallel when the fixture is `[Parallelizable]` -- so parallel fixtures are fine.
 
+**`[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`** (bobcat#545) marks a spec written before its
+behaviour is finished: a failure is recorded in full as `acceptance: failing` and NUnit reports the test
+ignored, so the build stays green. See
+[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+
 ## Versions
 
 Built against NUnit 4.3.2 and checked against NUnit 4.6 and 5.0 with `NUnit3TestAdapter` 6.x. The

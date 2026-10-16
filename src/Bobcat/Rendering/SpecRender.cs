@@ -12,6 +12,36 @@ public class SpecRender
     public string Title { get; init; } = "";
     public string? FeatureTitle { get; init; }
     public bool Succeeded { get; init; }
+
+    /// <summary>
+    /// The specification's lifecycle (bobcat#545). <see cref="Bobcat.Lifecycle.Regression"/> unless
+    /// the spec declared otherwise.
+    /// </summary>
+    public Lifecycle Lifecycle { get; init; } = Lifecycle.Regression;
+
+    /// <summary>
+    /// A failing <see cref="Bobcat.Lifecycle.Acceptance"/> spec outside strict mode: rendered as
+    /// <c>acceptance: failing</c>, in full, and not a failure of the run. Decided once, when the
+    /// render is built, by the same rule the recording publishes under.
+    /// </summary>
+    public bool AcceptanceFailing { get; init; }
+
+    /// <summary>A passing <see cref="Bobcat.Lifecycle.Acceptance"/> spec: ready to promote to Regression.</summary>
+    public bool ReadyToPromote => Succeeded && Lifecycle == Lifecycle.Acceptance;
+
+    /// <summary>Whether this scenario counts against the run: failed, and not an Acceptance spec outside strict mode.</summary>
+    public bool FailsTheRun => !Succeeded && !AcceptanceFailing;
+
+    /// <summary>
+    /// The verdict every Bobcat surface shows: <c>passed</c>, <c>failed</c>, <c>acceptance: failing</c>
+    /// or <c>acceptance: passing</c> (bobcat#545).
+    /// </summary>
+    public string Verdict => AcceptanceFailing
+        ? SpecLifecycle.FailingVerdict
+        : ReadyToPromote
+            ? "acceptance: passing"
+            : Succeeded ? "passed" : "failed";
+
     public List<StepRender> Steps { get; init; } = new();
     public Counts Counts { get; init; } = new();
 
@@ -136,6 +166,9 @@ public class SpecRender
             Title = recording.Scenario,
             FeatureTitle = recording.Feature,
             Succeeded = succeeded,
+            Lifecycle = recording.Lifecycle,
+            AcceptanceFailing = !succeeded && recording.Lifecycle == Lifecycle.Acceptance
+                                && !SpecLifecycle.Strict && !recording.CannotBeSkipped,
             Reports = ScenarioReportVisibility
                 .Filter(recording.Reports, scenarioFailed: !succeeded)
                 .Select(ReportRender.From)

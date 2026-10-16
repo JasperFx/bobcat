@@ -108,6 +108,32 @@ public class ResultsFileTests : IDisposable
     }
 
     [Fact]
+    public void a_failing_acceptance_spec_is_in_the_file_and_does_not_fail_the_run()
+    {
+        // bobcat#545 meets #540: the spec is there in full under its own verdict, counted apart, and
+        // the summary's succeeded agrees with run_finished rather than calling the run failed.
+        ResultsFile.BeginRun(run(), _directory);
+        finish("Orders", "places an order", passed: true);
+        finish("Orders", "refunds an order", passed: false, Lifecycle.Acceptance);
+        finish("Orders", "ships an order", passed: true, Lifecycle.Acceptance);
+        var path = ResultsFile.EndRun().ShouldNotBeNull();
+
+        var file = JsonDocument.Parse(File.ReadAllText(path)).RootElement;
+        var summary = file.GetProperty("summary");
+        summary.GetProperty("scenarios").GetInt32().ShouldBe(3);
+        summary.GetProperty("passed").GetInt32().ShouldBe(2);
+        summary.GetProperty("failed").GetInt32().ShouldBe(0);
+        summary.GetProperty("acceptanceFailing").GetInt32().ShouldBe(1);
+        summary.GetProperty("succeeded").GetBoolean().ShouldBeTrue();
+
+        var verdicts = file.GetProperty("scenarios").EnumerateArray()
+            .ToDictionary(x => x.GetProperty("title").GetString()!, x => x.GetProperty("verdict").GetString());
+        verdicts["refunds an order"].ShouldBe("acceptance: failing");
+        verdicts["ships an order"].ShouldBe("acceptance: passing");
+        verdicts["places an order"].ShouldBe("passed");
+    }
+
+    [Fact]
     public void nothing_is_written_when_nobody_asked()
     {
         ResultsFile.BeginRun(run(), directory: null);
@@ -172,9 +198,10 @@ public class ResultsFileTests : IDisposable
         }
     }
 
-    private static void finish(string feature, string scenario, bool passed)
+    private static void finish(string feature, string scenario, bool passed, Lifecycle lifecycle = Lifecycle.Regression)
     {
         var recording = ScenarioRecorder.Begin(feature, scenario, null, Guid.NewGuid());
+        recording.Lifecycle = lifecycle;
         using (ScenarioRecorder.Step("Then", "the count is 1"))
         {
             if (!passed)

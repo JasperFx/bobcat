@@ -327,3 +327,30 @@ Milestones `1.0` and `Post-1.0` created. Epic: #556.
   #547 (G9a step logs), #548 (G13 fields), #549 (G14 Timeline), #550 (§6 doc drift).
 - **Post-1.0:** #551 (G9b ILogger), #552 (`bobcat vocabulary`), #553 (living docs),
   #554 (BOBCAT030 replacement), #555 (G3 service-backed converters, wait and see).
+
+### 2026-10-16 — G4 built (#545, PR #586) — implementation decisions, and three open questions
+
+How each runner reports a failing Acceptance spec skipped, and where it meets the other 1.0 work.
+User docs: `docs/marker-steps.md` ("Not yet passing"); wire: `docs/monitor-design.md`.
+
+- **Declared** on `[BobcatSpec(Lifecycle = …)]` (xUnit) and `[BobcatScenario(Lifecycle = …)]`
+  (TUnit/NUnit/MSTest, class or method). Core reads it through `IDeclaresLifecycle`, nullable, so a
+  method attribute that states nothing does not override its class.
+- **xUnit needs its own test case.** A skip thrown from the after-test hook works only when the body
+  finished; when the body threw, xUnit aggregates the two exceptions and never reads an aggregate as
+  a skip. An Acceptance `[BobcatSpec]` therefore becomes a self-executing `AcceptanceTestCase` that
+  rewrites that test's `TestFailed` into `TestSkipped`. TUnit uses `OverrideResult(Skipped)`, NUnit
+  replaces the result with `Ignored`.
+- **MSTest is half-supported.** Its outcomes combine by importance, so only a spec failed by gathered
+  wrongs becomes Inconclusive; one whose body throws stays failed, and Bobcat records it as failed so
+  no surface claims a green build. **Open: acceptable for 1.0?**
+- **Results file (#540)** lists the spec in full with `"verdict": "acceptance: failing"` and counts it
+  in `summary.acceptanceFailing`, never in `failed` or against `succeeded`.
+  **`last-run.json` (#572)** leaves it out of `Failed`, since the run's exit code was green, so
+  `bobcat run --failed` does not re-run it. **Open: is that the wanted `--failed` behaviour?**
+- **A lost environment (#539) is never softened.** A scenario halted after the loss fails in the
+  before-test hook, where no adapter can skip, so it is recorded as failed. The Acceptance spec that
+  threw the `SpecCatastrophicException` stays failed too, because it is the cause every halted
+  scenario names. **Open: should that one be skipped like any other Acceptance failure instead?**
+- **Strict mode** (`BOBCAT_LIFECYCLE=strict`, C13) fails Acceptance failures and `Pending = true`
+  specs; Pending exists on xUnit only, so that half is xUnit only.

@@ -99,6 +99,35 @@ public class ScenarioLoss2_RunsAfterwards
     public void a_later_scenario() => 1.ShouldBe(1);
 }
 
+[CollectionDefinition(Name)]
+[TestClassOrderer(typeof(ByName))]
+public sealed class AcceptanceLossCollection
+{
+    public const string Name = "bobcat#539 + #545 acceptance loss";
+}
+
+/// <summary>
+/// An Acceptance spec (bobcat#545) that loses the environment: a lost environment is never softened
+/// into a skip, neither on the spec that lost it nor on a halted Acceptance spec after it.
+/// </summary>
+[Collection(AcceptanceLossCollection.Name), BobcatFeature("Halt in acceptance")]
+public class AcceptanceLoss1_LosesTheDatabase
+{
+    [BobcatSpec(Lifecycle = Lifecycle.Acceptance, Explicit = true)]
+    public void loses_the_database()
+    {
+        if (HaltProbe.Case == "acceptance") throw new SpecCatastrophicException("the database is gone");
+        throw new NotImplementedException("not built yet");
+    }
+}
+
+[Collection(AcceptanceLossCollection.Name), BobcatFeature("Halt in acceptance")]
+public class AcceptanceLoss2_RunsAfterwards
+{
+    [BobcatSpec(Lifecycle = Lifecycle.Acceptance, Explicit = true)]
+    public void a_later_scenario() => throw new NotImplementedException("not built yet");
+}
+
 /// <summary>Orders a probe collection by class name.</summary>
 public sealed class ByName : ITestClassOrderer
 {
@@ -126,7 +155,8 @@ internal sealed class HaltProbe
         ScenarioRecorder.ScenarioCompleted += recording =>
         {
             var failure = recording.FailureDescription ?? recording.Failure?.Message ?? recording.GatheredFailures();
-            var line = $"{recording.Scenario}\t{(failure ?? "CleanPass").ReplaceLineEndings(" ")}";
+            var acceptance = recording.AcceptanceFailing ? "[acceptance: failing] " : "";
+            var line = $"{recording.Scenario}\t{acceptance}{(failure ?? "CleanPass").ReplaceLineEndings(" ")}";
             lock (_gate) File.AppendAllLines(path, [line]);
         };
     }
@@ -223,6 +253,37 @@ public class EnvironmentLossTests
             "Environment lost in Halt after a scenario/loses the database: the database is gone (this scenario did not run)",
             run.Console);
         run.Console.ShouldContain($"failed {typeof(ScenarioLoss2_RunsAfterwards).FullName}.a_later_scenario");
+    }
+
+    [Fact]
+    public void a_lost_environment_is_never_softened_into_an_acceptance_skip()
+    {
+        // bobcat#545 meets #539: the Acceptance spec that lost the environment is the cause every
+        // later scenario names, so it fails rather than reading as a skip; and a halted Acceptance
+        // spec fails before its body, where no adapter can report a skip, so Bobcat says failed too.
+        var run = HaltProbe.Execute("acceptance", "AcceptanceLoss");
+
+        run.Published["loses the database"]
+            .ShouldBe("Bobcat.Engine.SpecCatastrophicException: the database is gone", run.Console);
+        run.Console.ShouldContain($"failed {typeof(AcceptanceLoss1_LosesTheDatabase).FullName}.loses_the_database");
+
+        run.Published["a later scenario"].ShouldBe(
+            "Environment lost in Halt in acceptance/loses the database: the database is gone (this scenario did not run)",
+            run.Console);
+        run.Console.ShouldContain($"failed {typeof(AcceptanceLoss2_RunsAfterwards).FullName}.a_later_scenario");
+        run.Console.ShouldNotContain(SpecLifecycle.SkipReasonPrefix);
+    }
+
+    [Fact]
+    public void without_a_lost_environment_the_same_acceptance_specs_are_skipped()
+    {
+        // The control: the same two specs failing ordinarily are acceptance: failing and skipped.
+        var run = HaltProbe.Execute("none", "AcceptanceLoss");
+
+        run.Published["loses the database"].ShouldStartWith("[acceptance: failing] ", customMessage: run.Console);
+        run.Published["a later scenario"].ShouldStartWith("[acceptance: failing] ", customMessage: run.Console);
+        run.Console.ShouldContain($"skipped {typeof(AcceptanceLoss1_LosesTheDatabase).FullName}.loses_the_database");
+        run.Console.ShouldContain($"skipped {typeof(AcceptanceLoss2_RunsAfterwards).FullName}.a_later_scenario");
     }
 
     [Fact]

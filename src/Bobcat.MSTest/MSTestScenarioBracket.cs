@@ -93,20 +93,53 @@ public static class MSTestScenarioBracket
     /// MSTest fails a test whose cleanup throws, so a specification whose <c>SpecAssert</c> checks
     /// failed without throwing still turns the test red.
     /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// <b>A failing Acceptance spec (bobcat#545) is only half-supported here.</b> When gathered wrongs
+    /// failed it and the body finished, this throws MSTest's own <c>AssertInconclusiveException</c>, and
+    /// MSTest reports the test inconclusive (a skip on Microsoft.Testing.Platform) with the reason
+    /// <c>acceptance spec, not yet passing: …</c>. When the body THREW, MSTest has already recorded it
+    /// failed and combines a cleanup's outcome by keeping the more important one, so nothing a global
+    /// hook does can make it a skip. That failure stays a failure, and Bobcat records it as one rather
+    /// than as <c>acceptance: failing</c>, so no Bobcat surface claims the build stayed green.
+    /// </para>
+    /// </remarks>
     public static void Close(string outcome, Exception? exception)
     {
         if (ScenarioRecorder.Current is null) return;
 
-        // Before the sink closes: EndScenario is what raises ScenarioCompleted, and that is where
+        // Before the sink closes: CloseScenario is what raises ScenarioCompleted, and that is where
         // the scenario's reports are written.
-        var gathered = MarkerStepRun.EndScenario(VerdictFrom(outcome, exception));
+        var closed = MarkerStepRun.CloseScenario(VerdictFrom(outcome, exception), canSkipAFailedTest: false);
 
         _output.Value?.Dispose();
         _output.Value = null;
         _attachments.Value?.Dispose();
         _attachments.Value = null;
 
-        if (gathered is not null) throw gathered;
+        if (closed.SkipReason is { } reason) throw Inconclusive(reason);
+        if (closed.Rethrow is not null) throw closed.Rethrow;
+    }
+
+    /// <summary>
+    /// MSTest's <c>AssertInconclusiveException</c>, found by name among the loaded assemblies because
+    /// this assembly references no MSTest major (MSTest 4 moved it to a differently named assembly).
+    /// Falls back to an ordinary exception, which fails the test — never to silence.
+    /// </summary>
+    internal static Exception Inconclusive(string reason)
+    {
+        const string name = "Microsoft.VisualStudio.TestTools.UnitTesting.AssertInconclusiveException";
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (assembly.GetType(name, throwOnError: false) is { } type
+                && Activator.CreateInstance(type, reason) is Exception inconclusive)
+            {
+                return inconclusive;
+            }
+        }
+
+        return new InvalidOperationException(reason);
     }
 
     /// <summary>

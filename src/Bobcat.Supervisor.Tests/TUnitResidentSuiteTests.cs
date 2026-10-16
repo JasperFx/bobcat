@@ -85,7 +85,10 @@ public class TUnitResidentSuiteTests : IDisposable
             [
                 auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening, coordinates,
                 "Halt after a fixture/needs the app", "Halt after a fixture/a later scenario",
-                "Halt after a scenario/loses the database", "Halt after a scenario/a later scenario"
+                "Halt after a scenario/loses the database", "Halt after a scenario/a later scenario",
+                // bobcat#545's Acceptance specs, which list like any other.
+                "Acceptance on TUnit/the behaviour throws because it does not exist yet",
+                "Acceptance on TUnit/an acceptance spec that passes is ready to promote"
             ],
             ignoreOrder: true);
         suite.Modes.ShouldBe([RunnerWire.ColdMode]);

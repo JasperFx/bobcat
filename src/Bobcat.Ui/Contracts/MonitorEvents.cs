@@ -83,7 +83,10 @@ public record RunFinished(
     int Failed,
     int PassedOnRetry,
     int Indeterminate,
-    DateTimeOffset FinishedAt) : MonitorEvent(RunId);
+    DateTimeOffset FinishedAt,
+    // Acceptance specs that failed outside strict mode (bobcat#545), counted in neither Passed nor
+    // Failed. Null from an older publisher.
+    int? AcceptanceFailing = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Attempt is 1-based; a value above 1 marks a retry attempt. TotalSteps is how many steps
@@ -165,7 +168,10 @@ public record ScenarioFinished(
     string? ParentSpecId = null,
     IReadOnlyList<StepLogInfo>? Logs = null,
     IReadOnlyList<ScenarioAttachmentInfo>? Attachments = null,
-    int? SuppressedAttachments = null) : MonitorEvent(RunId);
+    int? SuppressedAttachments = null,
+    // "Acceptance" for an Acceptance spec (bobcat#545); null for the default, Regression. Such a spec
+    // that fails outside strict mode arrives with Outcome "AcceptanceFailing", never "Failed".
+    string? Lifecycle = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// The log lines one step wrote through <c>SpecLog.Write</c> (bobcat#547), or the scenario's own

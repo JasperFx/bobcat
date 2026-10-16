@@ -86,6 +86,8 @@ public static class JsonRenderer
             Title = spec.Title,
             Feature = spec.FeatureTitle,
             Succeeded = spec.Succeeded,
+            Verdict = spec.Verdict,
+            SpecLifecycle = spec.Lifecycle == Lifecycle.Acceptance ? "acceptance" : null,
             Counts = countsToJson(spec.Counts),
             DurationMs = spec.DurationMs,
             StepsMs = spec.StepsMs,
@@ -309,6 +311,23 @@ internal class JsonScenarioOutput
     public string Title { get; set; } = "";
     public string? Feature { get; set; }
     public bool Succeeded { get; set; }
+
+    /// <summary>
+    /// <c>passed</c>, <c>failed</c>, <c>acceptance: failing</c> or <c>acceptance: passing</c>
+    /// (bobcat#545). A failing Acceptance spec keeps <see cref="Succeeded"/> false and every step and
+    /// cell; this is what says it does not fail the run.
+    /// </summary>
+    [System.ComponentModel.Description(
+        "passed, failed, \"acceptance: failing\" or \"acceptance: passing\". A failing Acceptance specification keeps succeeded false and every step and cell, and does not fail the run.")]
+    public string Verdict { get; set; } = "";
+
+    /// <summary>
+    /// <c>acceptance</c> for an Acceptance spec; absent for the default, Regression. Not called
+    /// <c>lifecycle</c>, which is the timeline's (below).
+    /// </summary>
+    [System.ComponentModel.Description("\"acceptance\" for an Acceptance specification; absent for the default, Regression.")]
+    public string? SpecLifecycle { get; set; }
+
     public JsonCountsOutput Counts { get; set; } = null!;
 
     /// <summary>True bracket wall clock, not the last step's end (issue #141).</summary>

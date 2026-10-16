@@ -173,6 +173,10 @@ public static class ResultsFile
 
         var passed = ordered.Count(x => x.Succeeded);
 
+        // A failing Acceptance spec (bobcat#545) is in the file in full, under its own verdict, and
+        // fails nothing -- counted apart, as run_finished counts it.
+        var acceptanceFailing = ordered.Count(x => x.AcceptanceFailing);
+
         return new JsonResultsOutput
         {
             Schema = SchemaFileName,
@@ -194,8 +198,9 @@ public static class ResultsFile
             {
                 Scenarios = ordered.Count,
                 Passed = passed,
-                Failed = ordered.Count - passed,
-                Succeeded = passed == ordered.Count,
+                Failed = ordered.Count - passed - acceptanceFailing,
+                AcceptanceFailing = acceptanceFailing,
+                Succeeded = ordered.All(x => !x.FailsTheRun),
                 Rights = ordered.Sum(x => x.Counts.Rights),
                 Wrongs = ordered.Sum(x => x.Counts.Wrongs),
                 Errors = ordered.Sum(x => x.Counts.Errors)
@@ -355,7 +360,7 @@ internal class JsonResultsOutput
 
     public JsonSummaryOutput Summary { get; set; } = new();
 
-    [System.ComponentModel.Description("Every scenario the run finished, by feature then title. A skipped test is not here.")]
+    [System.ComponentModel.Description("Every scenario the run finished, by feature then title. A skipped test is not here; a failing Acceptance specification, which the test platform reports skipped, is, with its verdict.")]
     public List<JsonScenarioOutput> Scenarios { get; set; } = new();
 
     [System.ComponentModel.Description("Where the run spent its time; absent when nothing was measured.")]
@@ -393,7 +398,12 @@ internal class JsonSummaryOutput
     public int Passed { get; set; }
     public int Failed { get; set; }
 
-    [System.ComponentModel.Description("True when every scenario in the file passed.")]
+    [System.ComponentModel.Description(
+        "Acceptance specifications that are not yet passing (verdict \"acceptance: failing\"): counted in neither passed nor failed, and never the reason succeeded is false.")]
+    public int AcceptanceFailing { get; set; }
+
+    [System.ComponentModel.Description(
+        "True when no scenario in the file failed the run: every one passed, or is an Acceptance specification not yet passing.")]
     public bool Succeeded { get; set; }
 
     public int Rights { get; set; }

@@ -286,15 +286,26 @@ public static class ProjectedSpecConsole
             {
                 renderer.Render(spec);
 
+                // A failing Acceptance spec's counts are on its own verdict line; adding its wrongs
+                // to a total printed as "Succeeded" would be the contradiction RenderCounts avoids.
+                if (spec.AcceptanceFailing) continue;
+
                 total.Rights += spec.Counts.Rights;
                 total.Wrongs += spec.Counts.Wrongs;
                 total.Errors += spec.Counts.Errors;
             }
         }
 
-        var green = specs.All(x => x.Succeeded);
-        console.MarkupLine(
-            $"[bold]{specs.Count} specification(s)[/] — {(green ? "[green]all green[/]" : "[red]not green[/]")}");
+        // A failing Acceptance spec (bobcat#545) does not turn the run red; it is counted on its own.
+        var green = specs.All(x => !x.FailsTheRun);
+        var acceptanceFailing = specs.Count(x => x.AcceptanceFailing);
+        var readyToPromote = specs.Count(x => x.ReadyToPromote);
+        var verdict = green
+            ? acceptanceFailing > 0 ? "[green]green[/]" : "[green]all green[/]"
+            : "[red]not green[/]";
+        var acceptance = acceptanceFailing > 0 ? $", [yellow]{acceptanceFailing} {SpecLifecycle.FailingVerdict}[/]" : "";
+        var promote = readyToPromote > 0 ? $", [cyan]{readyToPromote} acceptance spec(s) {SpecLifecycle.ReadyToPromote}[/]" : "";
+        console.MarkupLine($"[bold]{specs.Count} specification(s)[/] — {verdict}{acceptance}{promote}");
         renderer.RenderCounts(total, green);
 
         // Where the time went (issues #142, #466) -- from the projected recordings, with the lifecycle reported as not measured rather than as zero.

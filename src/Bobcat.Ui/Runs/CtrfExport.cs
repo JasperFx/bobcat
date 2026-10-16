@@ -35,6 +35,8 @@ public static class CtrfExport
         {
             "CleanPass" or "PassOnRetry" => "passed",
             "Failed" => "failed",
+            // bobcat#545: a failing Acceptance spec is what the test platform reported it, a skip.
+            "AcceptanceFailing" => "skipped",
             "Aborted" => "other",
             _ => "pending"
         };

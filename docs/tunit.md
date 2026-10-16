@@ -44,6 +44,11 @@ Unlike the xUnit adapter, this one implements TUnit's `ITestStartEventReceiver` 
 scenario opens around each test and closes with **the verdict TUnit reported** -- a failing test is
 published as a failure, a skipped one is withdrawn.
 
+**`[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`** (bobcat#545) marks a spec written before its
+behaviour is finished: a failure is recorded in full as `acceptance: failing` and TUnit reports the test
+skipped (`OverrideResult`), so the build stays green. See
+[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+
 ## What it renders
 
 Everything Bobcat renders is the same whichever runner a test runs on, so all of it applies here

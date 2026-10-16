@@ -66,7 +66,11 @@ public record RunFinished(
     int Failed,
     int PassedOnRetry,
     int Indeterminate,
-    DateTimeOffset FinishedAt) : MonitorEvent(RunId);
+    DateTimeOffset FinishedAt,
+    // Acceptance specs that failed outside strict mode (bobcat#545): counted in neither Passed nor
+    // Failed, and never the reason for a non-zero ExitCode. Null from an older publisher or a
+    // publisher that does not know (the supervisor sees a skip). Optional and additive.
+    int? AcceptanceFailing = null) : MonitorEvent(RunId);
 
 public record ScenarioStarted(
     Guid RunId,
@@ -163,7 +167,12 @@ public record ScenarioFinished(
     IReadOnlyList<ScenarioAttachmentInfo>? Attachments = null,
     // Attachments past the per-scenario cap, counted rather than kept ("…and N more"). Null when
     // none were dropped. Optional and additive.
-    int? SuppressedAttachments = null) : MonitorEvent(RunId);
+    int? SuppressedAttachments = null,
+    // The specification's lifecycle (bobcat#545): "Acceptance", or null for the default, Regression.
+    // A failing Acceptance spec arrives with Outcome "AcceptanceFailing" (never "Failed") outside
+    // strict mode -- recorded in full, not failing the build; a passing one ("CleanPass" with this
+    // set) is ready to promote to Regression. Null from an older publisher. Optional and additive.
+    string? Lifecycle = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// The log lines one step wrote through <c>SpecLog.Write</c> (bobcat#547), or the scenario's own

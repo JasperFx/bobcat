@@ -87,6 +87,11 @@ internal sealed class LastRun
                 var succeeded = scenario.TryGetProperty("succeeded", out var s) && s.ValueKind == JsonValueKind.True;
                 if (succeeded) continue;
 
+                // A failing Acceptance spec (bobcat#545) failed nothing: the platform reported it
+                // skipped and the run's exit code is green, so it is not one of the run's failures.
+                if (scenario.TryGetProperty("verdict", out var verdict)
+                    && verdict.GetString() == SpecLifecycle.FailingVerdict) continue;
+
                 if (scenario.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } identity
                     && !failed.Contains(identity, StringComparer.Ordinal))
                 {

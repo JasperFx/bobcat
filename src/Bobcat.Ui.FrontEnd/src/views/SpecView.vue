@@ -30,7 +30,7 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
   const status = scenario.value?.status
   if (status === 'passed') return 'success'
   if (status === 'failed' || status === 'aborted') return 'danger'
-  if (status === 'passed-on-retry' || status === 'retry-scheduled') return 'warning'
+  if (status === 'passed-on-retry' || status === 'retry-scheduled' || status === 'acceptance-failing') return 'warning'
   return 'info'
 })
 </script>

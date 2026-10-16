@@ -129,6 +129,8 @@ function verdictType(scenario: ScenarioState | undefined): 'success' | 'danger' 
   if (!scenario || !scenario.outcome) return 'warning' // not run (or still running) — the drift colour
   if (scenario.outcome === 'CleanPass') return 'success'
   if (scenario.outcome === 'PassOnRetry') return 'warning'
+  // bobcat#545: an Acceptance spec not yet passing is unfinished work, not a red build.
+  if (scenario.outcome === 'AcceptanceFailing') return 'warning'
   return 'danger'
 }
 

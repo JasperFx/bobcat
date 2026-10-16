@@ -27,4 +27,25 @@ namespace Bobcat.MSTest;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
-public sealed class BobcatScenarioAttribute : Attribute;
+public sealed class BobcatScenarioAttribute : Attribute, IDeclaresLifecycle
+{
+    /// <summary>
+    /// Where the specifications this attribute covers stand (bobcat#545) — on a class, every test in
+    /// it; on a method, that test, beating its class's.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="Bobcat.Lifecycle.Acceptance"/> spec runs every time and is recorded in full when it
+    /// fails. On MSTest only a spec failed by gathered wrongs can be reported inconclusive; one whose body
+    /// threw stays failed (see <see cref="MSTestScenarioBracket.Close"/>). <c>BOBCAT_LIFECYCLE=strict</c>
+    /// makes every failure real.
+    /// </remarks>
+    public Lifecycle Lifecycle
+    {
+        get => _lifecycle ?? Lifecycle.Regression;
+        set => _lifecycle = value;
+    }
+
+    private Lifecycle? _lifecycle;
+
+    Lifecycle? IDeclaresLifecycle.Lifecycle => _lifecycle;
+}

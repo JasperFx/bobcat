@@ -55,7 +55,8 @@ namespace Bobcat.Xunit;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITraitAttribute, IExplicitScenarioName
+[XunitTestCaseDiscoverer(typeof(BobcatSpecDiscoverer))]
+public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITraitAttribute, IExplicitScenarioName, IDeclaresLifecycle
 {
     // Armed when the runner instantiates the attribute, which is during discovery and so before any
     // fixture or host startup can throw (bobcat#539).
@@ -159,6 +160,11 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITr
     /// "indistinguishable from a failing one" state this exists to end. A TUnit suite gets it with
     /// TUnit's own equivalent of this attribute.
     /// </para>
+    /// <para>
+    /// <b>Strict runs fail it instead (C13).</b> Under <c>BOBCAT_LIFECYCLE=strict</c> a pending spec is
+    /// not skipped: it fails without running, as <c>pending specification in strict mode: &lt;identity&gt;</c>.
+    /// Strict means nothing unfinished.
+    /// </para>
     /// </remarks>
     public bool Pending
     {
@@ -166,9 +172,36 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITr
         set
         {
             _pending = value;
-            if (value && Skip is null) Skip = PendingSkipReason;
+            if (value && Skip is null && !SpecLifecycle.Strict) Skip = PendingSkipReason;
         }
     }
+
+    /// <summary>
+    /// Where this specification stands (bobcat#545). <see cref="Bobcat.Lifecycle.Regression"/> by
+    /// default; <see cref="Bobcat.Lifecycle.Acceptance"/> for a spec written before the behaviour is done.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An Acceptance spec <b>runs every time and is never retried</b>. When it fails, Bobcat records the
+    /// failure in full as <c>acceptance: failing</c> — console, JSON, the monitor wire — and xUnit reports
+    /// the test <b>skipped</b> with the reason <c>acceptance spec, not yet passing: &lt;first failure&gt;</c>,
+    /// so the build stays green. When it passes, Bobcat says it is ready to promote: delete
+    /// <c>Lifecycle = Lifecycle.Acceptance</c>.
+    /// </para>
+    /// <para>
+    /// <c>BOBCAT_LIFECYCLE=strict</c> makes its failures real failures, for a branch claiming done.
+    /// Use <see cref="Pending"/> instead for a stub that cannot run at all.
+    /// </para>
+    /// </remarks>
+    public Lifecycle Lifecycle
+    {
+        get => _lifecycle ?? Lifecycle.Regression;
+        set => _lifecycle = value;
+    }
+
+    private Lifecycle? _lifecycle;
+
+    Lifecycle? IDeclaresLifecycle.Lifecycle => _lifecycle;
 
     /// <summary>What a skipped pending specification says it is waiting for.</summary>
     public const string PendingSkipReason =
@@ -178,10 +211,19 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, ITr
     private bool _pending;
 
     public virtual void Before(MethodInfo methodUnderTest, IXunitTest test)
-        => XunitScenarioBracket.Open(methodUnderTest, test);
+    {
+        // C13: a pending spec in a strict run fails here, without running. Only when Pending is what
+        // would have skipped it -- an explicit Skip of the author's own still skips.
+        if (Pending && Skip is null && SpecLifecycle.Strict)
+        {
+            throw MarkerStepRun.FailPendingInStrictMode(methodUnderTest, XunitScenarioBracket.Mode);
+        }
+
+        XunitScenarioBracket.Open(methodUnderTest, test);
+    }
 
     public virtual void After(MethodInfo methodUnderTest, IXunitTest test)
-        => XunitScenarioBracket.Close();
+        => XunitScenarioBracket.Close(test);
 
     /// <summary>
     /// The specification's Event Model coordinates as traits (bobcat#573) — <c>Slice</c>, <c>Chapter</c>,
