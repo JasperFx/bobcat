@@ -310,7 +310,21 @@ public class BobcatGenerator : IIncrementalGenerator
             if (compilation.GetTypeByMetadataName(EventModelEmitter.GateTypeName) == null) return;
 
             var slices = new Dictionary<string, EventModelEmitter.SliceModel>();
-            foreach (var spec in marked) EventModelEmitter.Collect(spec, slices);
+            var omissions = EventModelEmitter.Collect(marked, slices);
+
+            // bobcat#615: a specification that reaches no slice says so -- but only in a suite that models
+            // something, so an ordinary projected suite with no Event Model is not told about every test
+            if (slices.Count > 0)
+            {
+                foreach (var omission in omissions)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        Diagnostics.SpecOffTheModel,
+                        omission.Scenario.Where ?? Microsoft.CodeAnalysis.Location.None,
+                        omission.Identity,
+                        omission.Reason));
+                }
+            }
 
             // One IEventModelDefinitionSource per assembly, after every spec has contributed.
             // Emitted only when there is at least one slice: an empty source would register a
@@ -358,7 +372,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT041 (040 is taken by bobcat#610). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT042 (040 is bobcat#610's, 041 bobcat#615's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -587,6 +601,25 @@ internal static class Diagnostics
         "Use [BobcatSpec(Skip = \"...\")] (or [BobcatTheory(...)]) on the override instead.",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#615: a projected specification in a suite that models slices reaches none of them — a
+    /// <c>[BobcatSpec]</c> with no binding and no role-stamped vocabulary, one whose only stated types are documents,
+    /// or an unbound one whose feature's other unbound specifications make different acts, where its own act (a query,
+    /// or an act naming no command) has no slice it could be put on without a guess.
+    /// </summary>
+    /// <remarks>
+    /// Info, because nothing is wrong with the test: it runs and reports as before. Before it, such a spec was
+    /// silently absent from the model, or folded with unrelated specs into one invented slice named after the feature.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor SpecOffTheModel = new(
+        "BOBCAT041",
+        "A projected specification reaches no Event Model slice",
+        "The specification '{0}' is on no Event Model slice: {1}. Bind it to the slice it describes with " +
+        "[BobcatSpec(typeof(TheCommandOrReadModel))] or [BobcatSpec(SliceName = \"...\")].",
+        "Bobcat",
+        DiagnosticSeverity.Info,
         true);
 
     public static readonly DiagnosticDescriptor SliceBindingConflict = new(

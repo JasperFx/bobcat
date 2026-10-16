@@ -38,6 +38,7 @@ internal static class ProjectedRoles
 {
     internal const string RoleAttributeName = "Bobcat.EventModelRoleAttribute";
     internal const string TriggerAttributeName = "Bobcat.EventModelTriggerAttribute";
+    internal const string ActAttributeName = "Bobcat.EventModelActAttribute";
 
     /// <summary>
     /// <c>Bobcat.SliceRole</c> member name → the role word <see cref="EventModelEmitter"/> stamps on.
@@ -74,6 +75,17 @@ internal static class ProjectedRoles
         /// describes a Query slice. Null when the last act is a command, or there is none.
         /// </summary>
         public string? ReadAct;
+
+        /// <summary>
+        /// bobcat#615: the method name of the test's last act when that act stamped neither a command nor a read —
+        /// <c>WhenPosted(new { }, route)</c>, <c>WhenReceived(someObject)</c>, <c>WhenActing(…)</c>. The test has an
+        /// act, so its slice is not a View, but which command it sends cannot be known. Null when the last act is
+        /// a stamped command or read, or there is none.
+        /// </summary>
+        public string? UnstampedAct;
+
+        /// <summary>Whether the test makes an act at all, stamped or not.</summary>
+        public bool HasAct => Act != null || ReadAct != null || UnstampedAct != null;
 
         /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
         public string? TriggerKind;
@@ -133,7 +145,12 @@ internal static class ProjectedRoles
             if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
 
             var (carrier, roles) = attributesOf(operation.TargetMethod, RoleAttributeName);
-            if (carrier is null) continue;
+
+            // bobcat#615: a call is an act when its vocabulary says how it reaches the application (a trigger), says
+            // it is one ([EventModelAct]), or declares a Command role, whether or not that role names a type here
+            var declaresAct = attributesOf(operation.TargetMethod, TriggerAttributeName).Carrier is not null
+                              || attributesOf(operation.TargetMethod, ActAttributeName).Carrier is not null;
+            if (carrier is null && !declaresAct) continue;
 
             string? command = null;
             string? read = null;
@@ -142,8 +159,9 @@ internal static class ProjectedRoles
                 if (role.ConstructorArguments.Length < 2) continue;
                 if (roleWordOf(role.ConstructorArguments[0]) is not { } word) continue;
                 if (role.ConstructorArguments[1].Value is not string from) continue;
+                if (word == EventModelEmitter.Command) declaresAct = true;
 
-                foreach (var type in typesFrom(operation, carrier, from, compilation))
+                foreach (var type in typesFrom(operation, carrier!, from, compilation))
                 {
                     reading.Roles.Add((word, type));
                     if (word == EventModelEmitter.Command) command = type;
@@ -160,6 +178,7 @@ internal static class ProjectedRoles
             {
                 reading.Act = command;
                 reading.ReadAct = null;
+                reading.UnstampedAct = null;
                 readTrigger(operation, reading, compilation);
             }
             else if (read is not null && isReadTrigger(operation.TargetMethod))
@@ -168,6 +187,17 @@ internal static class ProjectedRoles
                 // what tells it from an assertion: ThenReadModel<T> carries the same role and no trigger
                 reading.Act = null;
                 reading.ReadAct = read;
+                reading.UnstampedAct = null;
+                readTrigger(operation, reading, compilation);
+            }
+            else if (declaresAct)
+            {
+                // bobcat#615: an act whose command cannot be known — an anonymous or object body, a lambda. It is
+                // still the LAST act, so an earlier arranging command must not become the slice's; its trigger
+                // (a DELETE and its route) is still a fact about the slice
+                reading.Act = null;
+                reading.ReadAct = null;
+                reading.UnstampedAct = operation.TargetMethod.Name;
                 readTrigger(operation, reading, compilation);
             }
         }

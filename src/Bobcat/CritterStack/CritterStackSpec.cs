@@ -209,21 +209,25 @@ public abstract class CritterStackSpec
     // ---- act -------------------------------------------------------------------------------
 
     /// <inheritdoc cref="CritterStackScenario.WhenActing" />
+    [EventModelAct]
     public Task WhenActing(string description, Func<IServiceProvider, Task> act) => Scenario.WhenActing(description, act);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => Scenario.WhenActingOn<T>(id, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => Scenario.WhenActingOn<T>(key, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(Guid, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, string description, Func<IServiceProvider, Task> act, params object[] events)
@@ -231,6 +235,7 @@ public abstract class CritterStackSpec
         => Scenario.WhenActingOn<T>(id, description, act, events);
 
     /// <inheritdoc cref="CritterStackScenario.WhenActingOn{T}(string, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, string description, Func<IServiceProvider, Task> act, params object[] events)

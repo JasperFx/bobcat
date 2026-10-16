@@ -118,6 +118,12 @@ internal static class MarkerCommentSpecs
         public bool OpensRecording;
 
         /// <summary>
+        /// Whether the method itself carries <c>[BobcatSpec]</c> / <c>[BobcatTheory]</c> — a test its author declared a
+        /// specification, so one that reaches no slice is worth saying so about (BOBCAT041, bobcat#615).
+        /// </summary>
+        public bool DeclaredAsSpec;
+
+        /// <summary>
         /// The identity the test body has under the base class that declares it, for a test this
         /// class inherits (bobcat#600), else null. Its declared and planned steps are registered there.
         /// </summary>
@@ -223,6 +229,8 @@ internal static class MarkerCommentSpecs
                 TestMethod = method.Identifier.Text,
                 Where = method.Identifier.GetLocation(),
                 OpensRecording = featuresRecord || HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
+                DeclaredAsSpec = method.AttributeLists.SelectMany(list => list.Attributes)
+                    .Any(a => IsSpecAttribute(ShortName(a.Name.ToString()))),
                 Pending = isPending(method),
                 Rows = SpecRowConstants.Read(method, ctx.SemanticModel, ct)
             };

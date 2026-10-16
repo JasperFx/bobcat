@@ -139,6 +139,13 @@ internal static class EventModelEmitter
         /// act a Query; the types themselves reach <c>ReadsFrom</c> through <see cref="ReadModels"/>.
         /// </summary>
         public readonly List<string> ReadActs = new();
+
+        /// <summary>
+        /// bobcat#615: true once a specification of this slice acted without naming its command (an anonymous HTTP
+        /// body, <c>WhenActing</c>). Such a slice is never inferred a View, and an arranging command is not its
+        /// command; see <see cref="PatternOf"/>.
+        /// </summary>
+        public bool HasUnstampedAct;
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -182,6 +189,77 @@ internal static class EventModelEmitter
     /// </para>
     /// </remarks>
     public static void Collect(MarkerCommentSpecs.MarkedSpec spec, Dictionary<string, SliceModel> slices)
+        => Collect(new[] { spec }, slices);
+
+    /// <summary>
+    /// bobcat#615: a specification that reaches no slice, and why — reported as BOBCAT041 (info) where the test is
+    /// declared, so a spec is never silently absent from the model.
+    /// </summary>
+    internal sealed class Omission
+    {
+        public MarkerCommentSpecs.MarkedSpec Spec = null!;
+        public MarkerCommentSpecs.MarkedScenario Scenario = null!;
+        public string Identity = "";
+        public string Reason = "";
+    }
+
+    /// <summary>
+    /// Fold every specification into <paramref name="slices"/>, returning the ones that reach no slice. Folded
+    /// together rather than one class at a time because an unbound specification's slice depends on its
+    /// feature's other unbound specifications (bobcat#615): specs with different acts are never folded into one
+    /// slice named after the feature.
+    /// </summary>
+    public static List<Omission> Collect(IEnumerable<MarkerCommentSpecs.MarkedSpec> specs, Dictionary<string, SliceModel> slices)
+    {
+        var all = specs.ToList();
+        var omissions = new List<Omission>();
+
+        // bobcat#615: the distinct acts each feature's UNBOUND specifications make. An act nobody can name counts
+        // once per specification, because two of them cannot be known to be the same act
+        var actsByFeature = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var spec in all)
+        foreach (var scenario in spec.Scenarios)
+        {
+            if (declaredSliceOf(spec, scenario) != null || actKeyOf(spec, scenario) is not { } key) continue;
+            if (!actsByFeature.TryGetValue(spec.FeatureTitle, out var acts))
+                actsByFeature[spec.FeatureTitle] = acts = new HashSet<string>(StringComparer.Ordinal);
+            acts.Add(key);
+        }
+
+        foreach (var spec in all) collect(spec, slices, actsByFeature, omissions);
+        return omissions;
+    }
+
+    private static string? declaredSliceOf(MarkerCommentSpecs.MarkedSpec spec, MarkerCommentSpecs.MarkedScenario scenario)
+        => GeneratorSliceTags.Slice(scenario.Tags.Count > 0 ? scenario.Tags : spec.Tags);
+
+    private static string? actKeyOf(MarkerCommentSpecs.MarkedSpec spec, MarkerCommentSpecs.MarkedScenario scenario)
+    {
+        var roles = scenario.Roles;
+        if (roles.Act != null) return "command:" + roles.Act;
+        if (roles.ReadAct != null) return "read:" + roles.ReadAct;
+        if (roles.UnstampedAct != null) return "unstamped:" + MarkerCommentSpecs.IdentityOf(spec, scenario);
+        return null;
+    }
+
+    /// <summary>
+    /// <c>global::Bank.Deposit</c> → <c>Deposit</c>: the slice <c>[BobcatSpec(typeof(Deposit))]</c> names, so an
+    /// unbound specification of that command lands where a bound one would.
+    /// </summary>
+    private static string simpleNameOf(string qualified)
+    {
+        var name = qualified;
+        var generic = name.IndexOf('<');
+        if (generic >= 0) name = name.Substring(0, generic);
+        var dot = name.LastIndexOf('.');
+        return dot >= 0 ? name.Substring(dot + 1) : name;
+    }
+
+    private static void collect(
+        MarkerCommentSpecs.MarkedSpec spec,
+        Dictionary<string, SliceModel> slices,
+        Dictionary<string, HashSet<string>> actsByFeature,
+        List<Omission> omissions)
     {
         foreach (var scenario in spec.Scenarios)
         {
@@ -195,12 +273,55 @@ internal static class EventModelEmitter
             var tags = rebound ? scenario.Tags : spec.Tags;
             var roles = scenario.Roles;
 
-            // No binding and no roles has nothing to say about a model, and
-            // inventing a slice for it would fill the canvas with every ordinary test in the suite.
             var declared = GeneratorSliceTags.Slice(tags);
-            if (declared == null && roles.Roles.Count == 0) continue;
+            string name;
+            if (declared != null)
+            {
+                name = declared;
+            }
+            else
+            {
+                // No binding, and nothing a slice could carry -- no act and no role but a document -- has nothing to
+                // say about a model. Inventing a slice for it would fill the canvas with every ordinary test in the
+                // suite, and a slice holding only documents (bobcat#615's "Optimistic concurrency") is one with no
+                // pattern, no command and nothing on it
+                if (!roles.HasAct && roles.Roles.All(x => x.Role == Document))
+                {
+                    if (scenario.DeclaredAsSpec)
+                    {
+                        omissions.Add(omission(spec, scenario, roles.Roles.Count == 0
+                            ? "it names no slice and calls no role-stamped vocabulary, so nothing says which slice it describes"
+                            : "it names no slice, and the only types it states are documents, which no slice carries"));
+                    }
 
-            var name = declared ?? spec.FeatureTitle;
+                    continue;
+                }
+
+                // bobcat#615: the feature-named slice is a fallback for a feature whose unbound specs all make the
+                // same act (or none). Where they make different ones, a command act goes to the slice named for its
+                // command -- where [BobcatSpec(typeof(TheCommand))] puts it -- and an act that names no command or
+                // reads a model cannot be placed without a guess, so it is left off and reported
+                var acts = actsByFeature.TryGetValue(spec.FeatureTitle, out var found) ? found.Count : 0;
+                if (acts > 1 && roles.HasAct)
+                {
+                    if (roles.Act != null)
+                    {
+                        name = simpleNameOf(roles.Act);
+                    }
+                    else
+                    {
+                        omissions.Add(omission(spec, scenario, roles.ReadAct != null
+                            ? $"it names no slice, and the feature '{spec.FeatureTitle}' has unbound specifications with different acts, so its query has no slice it can be put on without a guess"
+                            : $"it names no slice, its act ({roles.UnstampedAct}) names no command, and the feature '{spec.FeatureTitle}' has unbound specifications with different acts, so it cannot be placed without a guess"));
+                        continue;
+                    }
+                }
+                else
+                {
+                    name = spec.FeatureTitle;
+                }
+            }
+
             if (!slices.TryGetValue(name, out var slice))
             {
                 slice = new SliceModel { Name = name, ClassName = SanitizeIdentifier(name) };
@@ -231,6 +352,7 @@ internal static class EventModelEmitter
             // scenario to say so wins, like ActCommand.
             slice.ActCommand ??= roles.Act;
             if (roles.ReadAct != null) addDistinct(slice.ReadActs, roles.ReadAct);
+            if (roles.UnstampedAct != null) slice.HasUnstampedAct = true;
 
             // bobcat#501: a command act outranks a read act's trigger, whichever folds first
             if (roles.Act != null && slice.TriggerFromRead) clearTrigger(slice);
@@ -271,6 +393,9 @@ internal static class EventModelEmitter
             else slice.Specifications.Add((identity, roles.ResolvedTypes()));
         }
     }
+
+    private static Omission omission(MarkerCommentSpecs.MarkedSpec spec, MarkerCommentSpecs.MarkedScenario scenario, string reason)
+        => new() { Spec = spec, Scenario = scenario, Identity = MarkerCommentSpecs.IdentityOf(spec, scenario), Reason = reason };
 
     /// <summary>
     /// A known route replaces an unknown one — null or "" — whatever order the scenarios fold in, and brings
@@ -427,7 +552,8 @@ internal static class EventModelEmitter
         // producing it. A stream arranged with plain GivenEvents stamps NOTHING on a Query: it is setup feeding a
         // projection, not something the endpoint reads -- no AggregateTypes, no ReadsFrom, no ConsumedEvents
         var query = pattern == "Query";
-        var command = query ? null : slice.ActCommand ?? slice.Commands.FirstOrDefault();
+        // bobcat#615: on a slice whose act named no command, an arranging command is not the slice's either
+        var command = query ? null : slice.ActCommand ?? (slice.HasUnstampedAct ? null : slice.Commands.FirstOrDefault());
         var readModels = query ? EmptyTypes : slice.ReadModels;
         var aggregates = query ? EmptyTypes : slice.Aggregates;
         var readsFrom = slice.ReadsFrom;
@@ -512,7 +638,7 @@ internal static class EventModelEmitter
         IEnumerable<MarkerCommentSpecs.MarkedSpec> specs, Contract contract)
     {
         var slices = new Dictionary<string, SliceModel>();
-        foreach (var spec in specs) Collect(spec, slices);
+        Collect(specs, slices);
 
         var coordinates = new Dictionary<string, (string, string?, string?, string?)>(StringComparer.Ordinal);
         foreach (var slice in slices.Values)
@@ -551,6 +677,11 @@ internal static class EventModelEmitter
 
         if (slice.ActCommand != null) return "Command";
         if (slice.ReadActs.Count > 0 && contract.Query) return "Query";
+
+        // bobcat#615: a slice whose act named no command (a body-less DELETE, WhenActing) is not a View because it
+        // also asserts a read model, and an arranging command does not make it that command's slice. Which pattern
+        // it is cannot be known, and a null pattern does not miscolour the canvas
+        if (slice.HasUnstampedAct) return null;
         if (slice.Commands.Count > 0) return "Command";
         if (slice.ReadModels.Count > 0) return "View";
         return null;

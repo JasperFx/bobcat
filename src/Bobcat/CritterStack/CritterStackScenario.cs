@@ -673,6 +673,7 @@ public class CritterStackScenario
     /// </summary>
     /// <param name="description">How the step reads: <c>"the nightly sweep runs"</c>.</param>
     /// <param name="act">The act, given the scope's services.</param>
+    [EventModelAct]
     public async Task WhenActing(string description, Func<IServiceProvider, Task> act)
     {
         ArgumentNullException.ThrowIfNull(act);
@@ -960,12 +961,14 @@ public class CritterStackScenario
     /// <see cref="ThenValidationFails" /> can assert on it.
     /// </para>
     /// </remarks>
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, Func<IServiceProvider, Task> act, params object[] events) where T : class
         => actingOn(typeof(T), id, null, act, flatten(events));
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, Func<IServiceProvider, Task> act, params object[] events) where T : class
@@ -973,6 +976,7 @@ public class CritterStackScenario
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, Func{IServiceProvider, Task}, object[])" />
     /// <param name="description">The act, as the When sentence says it: "the wallet is credited by hand".</param>
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(Guid id, string description, Func<IServiceProvider, Task> act, params object[] events)
@@ -980,6 +984,7 @@ public class CritterStackScenario
         => actingOn(typeof(T), id, description, act, flatten(events));
 
     /// <inheritdoc cref="WhenActingOn{T}(Guid, string, Func{IServiceProvider, Task}, object[])" />
+    [EventModelAct]
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     [EventModelRole(SliceRole.Event, nameof(events))]
     public Task WhenActingOn<T>(string key, string description, Func<IServiceProvider, Task> act, params object[] events)
