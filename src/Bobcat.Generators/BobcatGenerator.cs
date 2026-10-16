@@ -166,6 +166,20 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         });
 
+        // 3f'. BOBCAT043 (bobcat#623): a Task-returning step called as a statement and never awaited, whose
+        //      assertion runs unobserved. CS4014 says so only inside an async method, and only as a warning
+        //      nobody connects to a false green.
+        var unawaitedSteps = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => UnawaitedSteps.IsCandidate(node),
+                transform: UnawaitedSteps.Check)
+            .Where(f => f != null)
+            .Select((f, _) => f!.Value);
+
+        context.RegisterSourceOutput(unawaitedSteps, (spc, finding) =>
+            spc.ReportDiagnostic(Diagnostic.Create(
+                Diagnostics.UnawaitedStep, finding.Location, finding.Method, finding.ReturnType)));
+
         // 3f. BOBCAT034 (bobcat#462): an [EventModelRole] / [EventModelTrigger] naming no parameter of
         //     the vocabulary method it decorates, caught where the vocabulary is declared
         var roleSources = context.SyntaxProvider
@@ -392,7 +406,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT043 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT044 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's, 043 bobcat#623's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -655,6 +669,26 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#623: a step (or Event Model vocabulary method) returning a <c>Task</c>, called as a statement and
+    /// never awaited. Its assertion runs unobserved, possibly after the scenario closed, so a failure in it never
+    /// fails the test.
+    /// </summary>
+    /// <remarks>
+    /// A warning rather than an error because the compiler cannot prove the Task is never observed (a test may
+    /// wait on it some other way), but the shape is almost always a forgotten <c>await</c>: CS4014 reports it only
+    /// inside an <c>async</c> method, and <c>await</c> on a synchronous step is CS4008, so an author cannot simply
+    /// await every step.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnawaitedStep = new(
+        "BOBCAT043",
+        "A Task-returning step is not awaited",
+        "'{0}' returns {1} and is not awaited, so its step runs unobserved: it may finish after the scenario has " +
+        "closed, and a failure in it never fails the test. Add 'await' (and make the test async).",
+        "Bobcat",
+        DiagnosticSeverity.Warning,
         true);
 
     public static readonly DiagnosticDescriptor SliceBindingConflict = new(
