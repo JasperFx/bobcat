@@ -1004,6 +1004,47 @@ public abstract class reading_an_empty_store<THost>(THost store) where THost : S
     }
 }
 
+/// <summary>
+/// bobcat#620: a document read on a store with no async projection renders no catch-up step — there is nothing to
+/// catch up, and in a document-only app it doubled every Then line. With one, the step stays.
+/// </summary>
+public abstract class reading_a_store_with_no_async_projections<THost>(THost store) where THost : StoreHost
+{
+    [Fact]
+    public async Task renders_no_catch_up_step_before_a_read()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CritterStackScenario(store.Host);
+        var id = Guid.NewGuid();
+        var wallet = Guid.NewGuid();
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.GivenReadModel<Customer>(new Customer { Id = id, Name = "Ann", City = "Austin" });
+            await scenario.GivenEvents<Wallet>(wallet, new WalletOpened(wallet, "Eve"));
+            await scenario.ThenDocument<Customer>(id, Specifications.Specify<Customer>().With(x => x.City, "Austin"));
+            await scenario.ThenNoReadModel<Ghost>(Guid.NewGuid());
+            await scenario.ThenNoReadModel<Ghost>();
+            await scenario.ThenReadModel<WalletSummary>(wallet);
+            await scenario.ThenProjectionsAreCaughtUp(typeof(WalletSummary));
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        var lines = recording.Lines().ToList();
+        lines.ShouldNotContain(x => x.Contains("Customer read model has caught up"));
+        lines.ShouldNotContain(x => x.Contains("Ghost read model has caught up"));
+        // Only the step the author wrote renders: it is theirs
+        lines.Count(x => x.Contains("read model has caught up")).ShouldBe(1);
+        recording.Steps.Last().Text.ShouldBe("the WalletSummary read model has caught up");
+    }
+}
+
+public class reading_a_store_with_no_async_projections_on_marten(InlineOnlyMartenStoreHost store)
+    : reading_a_store_with_no_async_projections<InlineOnlyMartenStoreHost>(store), IClassFixture<InlineOnlyMartenStoreHost>;
+
+public class reading_a_store_with_no_async_projections_on_fisher(InlineOnlyFisherStoreHost store)
+    : reading_a_store_with_no_async_projections<InlineOnlyFisherStoreHost>(store), IClassFixture<InlineOnlyFisherStoreHost>;
+
 public class reading_an_empty_store_on_marten(MartenStoreHost store)
     : reading_an_empty_store<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
 

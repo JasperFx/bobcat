@@ -60,7 +60,7 @@ public abstract class StoreHost : IAsyncLifetime
     }
 }
 
-public sealed class MartenStoreHost : StoreHost
+public class MartenStoreHost : StoreHost
 {
     private static int _hosts;
 
@@ -71,6 +71,9 @@ public sealed class MartenStoreHost : StoreHost
     public override bool IsAvailable => PostgresEnvironment.IsCi || PostgresEnvironment.IsAvailable;
 
     public override string SkipReason => PostgresEnvironment.SkipReason;
+
+    /// <summary>The WalletSummary projection's lifecycle: Async, unless a store with no async projection is wanted.</summary>
+    protected virtual SnapshotLifecycle SummaryLifecycle => SnapshotLifecycle.Async;
 
     protected override IHost Build()
     {
@@ -83,7 +86,7 @@ public sealed class MartenStoreHost : StoreHost
                 opts.DisableNpgsqlLogging = true;
 
                 opts.Projections.Snapshot<Wallet>(SnapshotLifecycle.Inline);
-                opts.Projections.Snapshot<WalletSummary>(SnapshotLifecycle.Async);
+                opts.Projections.Snapshot<WalletSummary>(SummaryLifecycle);
 
                 opts.Events.RegisterTagType<ScreeningId>("screening").ForAggregate<SeatAvailability>();
                 opts.Projections.LiveStreamAggregation<SeatAvailability>();
@@ -121,9 +124,12 @@ public sealed class MartenStoreHost : StoreHost
     }
 }
 
-public sealed class FisherStoreHost : StoreHost
+public class FisherStoreHost : StoreHost
 {
     private readonly string _file = Path.Combine(Path.GetTempPath(), $"bobcat-critterstack-scenario-{Guid.NewGuid():N}.db");
+
+    /// <summary>The WalletSummary projection's lifecycle: Async, unless a store with no async projection is wanted.</summary>
+    protected virtual SnapshotLifecycle SummaryLifecycle => SnapshotLifecycle.Async;
 
     protected override IHost Build()
     {
@@ -133,7 +139,7 @@ public sealed class FisherStoreHost : StoreHost
                 opts.Connection($"Data Source={_file}");
 
                 opts.Projections.Snapshot<Wallet>(SnapshotLifecycle.Inline);
-                opts.Projections.Snapshot<WalletSummary>(SnapshotLifecycle.Async);
+                opts.Projections.Snapshot<WalletSummary>(SummaryLifecycle);
 
                 opts.Events.RegisterTagType<ScreeningId>("screening").ForAggregate<SeatAvailability>();
                 opts.Projections.LiveStreamAggregation<SeatAvailability, Guid>();
@@ -161,4 +167,16 @@ public sealed class FisherStoreHost : StoreHost
             }
         }
     }
+}
+
+/// <summary>bobcat#620: <see cref="MartenStoreHost" /> with every projection inline, so the store has no async shard.</summary>
+public sealed class InlineOnlyMartenStoreHost : MartenStoreHost
+{
+    protected override SnapshotLifecycle SummaryLifecycle => SnapshotLifecycle.Inline;
+}
+
+/// <summary>bobcat#620: <see cref="FisherStoreHost" /> with every projection inline, so the store has no async shard.</summary>
+public sealed class InlineOnlyFisherStoreHost : FisherStoreHost
+{
+    protected override SnapshotLifecycle SummaryLifecycle => SnapshotLifecycle.Inline;
 }
