@@ -51,8 +51,9 @@ namespace Bobcat.Monitoring;
 /// serving <c>BankAccountES</c> would not join the host's half — it would HIDE it, and silently,
 /// trading one broken picture for another. Issue #294 names this as the thing nothing checks;
 /// this checks it. When the console already serves a differently-named model we publish nothing
-/// and say why, because the fix is one line in the spec assembly
-/// (<c>[assembly: EventModelName("…")]</c>, issue #172) and it belongs to the author, not to us.
+/// and say why, because the fix belongs to the author, not to us: one line in the spec assembly
+/// (<c>[assembly: EventModelName("…")]</c>, issue #172) when the halves are one application, or
+/// pointing the run at its own console when the one answering serves another (bobcat#621).
 /// </para>
 /// <para>
 /// <b>What is deliberately NOT here: the host half.</b> A runner cannot export the host's chains
@@ -192,13 +193,7 @@ internal static class SpecEventModelPublisher
         {
             if (current is not null && !string.Equals(current, half.Descriptor.Name, StringComparison.Ordinal))
             {
-                notify?.Invoke(
-                    $"Bobcat did not publish the Event Model half of '{half.Assembly}': the console "
-                    + $"at {publisher.Url} is serving a model named '{current}' and the half is "
-                    + $"named '{half.Descriptor.Name}'. "
-                    + $"{Route} merges only the sources naming the CURRENT model, so publishing this one "
-                    + "would hide the other half rather than join it. Name them alike with "
-                    + $"[assembly: EventModelName(\"{current}\")] on {half.Assembly}.");
+                notify?.Invoke(MismatchNotice(half, current, publisher.Url));
                 continue;
             }
 
@@ -223,6 +218,91 @@ internal static class SpecEventModelPublisher
         }
 
         return published;
+    }
+
+    /// <summary>
+    /// What a run is told when a half is withheld because the console serves another model.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two fixes, because a mismatch has two causes (bobcat#621).</b> Either the halves belong
+    /// to one application and are spelled differently (<c>BankAccountES</c> beside
+    /// <c>BankAccountES.Tests</c>) — rename with <c>[assembly: EventModelName]</c> — or the console on
+    /// the port is another application's, which a shared machine makes routine. Offering only the
+    /// rename told the author to name their model after an unrelated application, and an agent does
+    /// that literally. When the names share no word the foreign console is the likely cause and is
+    /// named first; it also says the run's events went there, which the rename would not fix.
+    /// </remarks>
+    internal static string MismatchNotice(Half half, string current, string url)
+    {
+        var lead =
+            $"Bobcat did not publish the Event Model half of '{half.Assembly}': the console "
+            + $"at {url} is serving a model named '{current}' and the half is "
+            + $"named '{half.Descriptor.Name}'. "
+            + $"{Route} merges only the sources naming the CURRENT model, so publishing this one "
+            + "would hide the other half rather than join it. ";
+
+        var otherApplication =
+            $"If that console serves another application, do not rename your model: point "
+            + $"{MonitorPublisher.UrlVariable} at your own console, or set {MonitorPublisher.KillSwitchVariable}=0 "
+            + "to publish nothing (this run's events went to that console too).";
+
+        var sameApplication =
+            "If the two halves belong to one application, name them alike with "
+            + $"[assembly: EventModelName(\"{current}\")] on {half.Assembly}.";
+
+        return NamesShareAWord(current, half.Descriptor.Name)
+            ? lead + sameApplication + " " + otherApplication
+            : lead + otherApplication + " " + sameApplication;
+    }
+
+    /// <summary>
+    /// Whether two model names look like the same application: they share a word, read off
+    /// PascalCase and separators, ignoring case and the words every project name carries.
+    /// </summary>
+    internal static bool NamesShareAWord(string left, string right)
+    {
+        var words = wordsOf(left);
+        return wordsOf(right).Any(words.Contains);
+    }
+
+    private static readonly HashSet<string> genericWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tests", "test", "specs", "spec", "specifications", "service", "services", "api", "app", "web", "host"
+    };
+
+    private static HashSet<string> wordsOf(string name)
+    {
+        var words = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = new System.Text.StringBuilder();
+
+        void flush()
+        {
+            if (current.Length > 0 && !genericWords.Contains(current.ToString())) words.Add(current.ToString());
+            current.Clear();
+        }
+
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (!char.IsLetterOrDigit(c))
+            {
+                flush();
+                continue;
+            }
+
+            // A new word starts at an upper-case letter after a lower-case one (CqrsMinimal), or at
+            // the last capital of an acronym before a lower-case letter (ESTests -> ES, Tests).
+            if (char.IsUpper(c) && current.Length > 0
+                && (char.IsLower(name[i - 1]) || (i + 1 < name.Length && char.IsLower(name[i + 1]))))
+            {
+                flush();
+            }
+
+            current.Append(c);
+        }
+
+        flush();
+        return words;
     }
 
     /// <summary>One spec assembly's contribution: what to push, and the source name to push it as.</summary>
