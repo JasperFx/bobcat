@@ -628,6 +628,57 @@ public class SupervisorTests
         factory.RunningWorkers.Count.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData("Bobcat.Engine.SpecCatastrophicException", WorkerTestState.Failed)]
+    [InlineData("SpecCatastrophicException", WorkerTestState.Error)]
+    public async Task a_worker_reporting_a_catastrophic_exception_aborts_the_run_under_the_default_policy(
+        string errorType, WorkerTestState state)
+    {
+        // Issue #538: no custom policy. The type is only a name off the wire, and a Retry trait
+        // with budget to spare must not turn the environment being gone into a retry.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("doomed", "Retry=3"), FakeWorkerFactory.Test("later", "Isolated=true")],
+            Outcome = (uid, _, _) => uid == "doomed" ? state : WorkerTestState.Passed,
+            ErrorType = (uid, _) => uid == "doomed" ? errorType : null
+        };
+
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
+
+        results.AbortReason.ShouldNotBeNull();
+        results.ExitCode.ShouldBe(2);
+        results.Tests.Single(t => t.Uid == "doomed").AttemptCount.ShouldBe(1);
+        factory.RunningWorkers.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(null)] // TUnit erases the type on the wire: degrade to today's behaviour
+    [InlineData("MyApp.SpecCatastrophicException")] // a lookalike in someone else's namespace
+    public async Task a_failure_not_named_as_bobcats_catastrophic_exception_does_not_abort(string? errorType)
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("doomed", "Retry=3")],
+            Outcome = (_, attempt, _) => attempt == 1 ? WorkerTestState.Error : WorkerTestState.Passed,
+            ErrorType = (_, _) => errorType
+        };
+
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 3 }).Run();
+
+        // Critical stays retryable under a Retry trait — the decision recorded on #538.
+        results.AbortReason.ShouldBeNull();
+        results.Tests.Single().Outcome.ShouldBe(RunOutcome.PassOnRetry);
+    }
+
+    [Theory]
+    [InlineData("Bobcat.Engine.SpecCatastrophicException", true)]
+    [InlineData("SpecCatastrophicException", true)]
+    [InlineData("Bobcat.Engine.SpecCriticalException", false)]
+    [InlineData("MyApp.SpecCatastrophicException", false)]
+    [InlineData(null, false)]
+    public void a_reported_type_is_catastrophic_by_its_simple_or_full_name(string? errorType, bool expected)
+        => Supervisor.IsCatastrophic(errorType).ShouldBe(expected);
+
     private class AbortOnAnything : IFailurePolicy
     {
         public Disposition? Decide(AttemptContext attempt)
