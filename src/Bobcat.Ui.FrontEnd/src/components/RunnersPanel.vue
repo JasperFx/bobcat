@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
 import RunButton from '@/components/RunButton.vue'
-import { loadRunners, runnerState, START_A_RUNNER, type RunnerView } from '@/lib/runners'
+import { useRunners } from '@/composables/useRunners'
+import { runnerState, START_A_RUNNER, type RunnerView } from '@/lib/runners'
 
 /**
  * The attached runners, on the board before anything has run (bobcat#645): each with a button that
@@ -11,23 +11,7 @@ import { loadRunners, runnerState, START_A_RUNNER, type RunnerView } from '@/lib
  */
 const props = withDefaults(defineProps<{ pollMs?: number }>(), { pollMs: 5000 })
 
-const runners = ref<RunnerView[] | null>(null)
-let timer: ReturnType<typeof setInterval> | null = null
-
-async function refresh(): Promise<void> {
-  const found = await loadRunners()
-  if (found !== null) runners.value = found
-  else if (runners.value === null) runners.value = []
-}
-
-onMounted(() => {
-  void refresh()
-  timer = setInterval(() => void refresh(), props.pollMs)
-})
-
-onUnmounted(() => {
-  if (timer !== null) clearInterval(timer)
-})
+const { runners } = useRunners(props.pollMs)
 
 function where(runner: RunnerView): string {
   return [runner.repositorySlug ?? runner.repository, runner.branch ? `@ ${runner.branch}` : null].filter(Boolean).join(' ')
@@ -49,7 +33,6 @@ function where(runner: RunnerView): string {
         v-if="runner.specs > 0"
         :target="{ all: true, runnerId: runner.runnerId }"
         label="Run all"
-        data-testid="run-all"
       />
     </div>
   </div>

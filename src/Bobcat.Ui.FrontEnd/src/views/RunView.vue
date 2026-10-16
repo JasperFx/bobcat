@@ -5,6 +5,7 @@ import SpecificationView from '@/components/SpecificationView.vue'
 import { useRunsStore, visibleScenarios } from '@/stores/runs-store'
 import SupervisorTopology from '@/components/SupervisorTopology.vue'
 import RunButton from '@/components/RunButton.vue'
+import MissingRun from '@/components/MissingRun.vue'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref, specHref } from '@/lib/specLinks'
 
@@ -42,7 +43,7 @@ function sliceOf(uid: string) {
 
 <template>
   <div v-if="!run">
-    <el-empty description="Unknown run" />
+    <MissingRun :run-id="runId" />
   </div>
   <div v-else>
     <h2 class="bm-run-heading">
@@ -52,7 +53,6 @@ function sliceOf(uid: string) {
         v-if="selection.length > 0"
         :target="{ specs: selection }"
         :label="`Run again (${selection.length})`"
-        data-testid="run-again"
       />
     </h2>
     <div class="bm-run-meta">

@@ -46,7 +46,6 @@ function where(found: RunnerView): string {
         v-if="runner.specs > 0"
         :target="{ all: true, runnerId: runner.runnerId }"
         :label="`Run all (${runner.specs})`"
-        data-testid="run-all"
       />
     </h2>
     <div class="bm-runner-meta">

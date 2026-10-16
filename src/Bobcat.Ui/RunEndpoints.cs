@@ -241,6 +241,14 @@ public static class RunEndpoints
             .ToArray());
 
     /// <summary>
+    /// Where a run is (bobcat#646): on the board, ejected with its archive kept, or unknown. A page
+    /// open on a run the board evicted asks this, and says so, rather than reading as a run that never
+    /// was. Always 200: every answer is an answer.
+    /// </summary>
+    [WolverineGet("/api/runs/{runId}/whereabouts")]
+    public static RunWhereabouts Whereabouts(Guid runId, MonitorRunRegistry registry) => registry.WhereIs(runId);
+
+    /// <summary>
     /// One run with its per-scenario results, or 404 once it has been ejected. Read under the
     /// registry's gate like the exports are — a run mutates under live ingestion.
     /// </summary>

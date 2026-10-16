@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import RunnersPanel from '../RunnersPanel.vue'
+import { resetRunners } from '@/composables/useRunners'
 import type { RunnerView } from '@/lib/runners'
 
 /**
@@ -32,6 +33,7 @@ describe('RunnersPanel', () => {
     posts = []
     asked = []
     localStorage.clear()
+    resetRunners()
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       asked.push(url)
       if (init?.method === 'POST') {

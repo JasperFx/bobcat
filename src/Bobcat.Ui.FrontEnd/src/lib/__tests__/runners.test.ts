@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { askRunner, commandProgress, findRunners, loadMode, modeFor, runnerState, saveMode, type RunnerCommandView, type RunnerView } from '../runners'
+import { askRunner, commandForRun, commandProgress, describeCommand, findRunners, loadMode, modeFor, runnerState, saveMode, type RunnerCommandView, type RunnerView } from '../runners'
 
 function runner(overrides: Partial<RunnerView> = {}): RunnerView {
   return {
@@ -62,5 +62,38 @@ describe('runners', () => {
 
     expect(modeFor(runner({ modes: ['cold', 'warm'] }), 'warm')).toBe('warm')
     expect(modeFor(runner({ modes: ['cold'] }), 'warm')).toBe('cold')
+  })
+})
+
+// bobcat#646: a commanded run's card says what was run — a spec, a feature, the whole project.
+describe('describeCommand', () => {
+  function runnerWith(specs: number): RunnerView {
+    return {
+      runnerId: 'r1', repository: '/code/bank', repositorySlug: null, branch: 'main', suite: 'Bank.Tests',
+      lane: 'projected', modes: ['cold', 'warm'], specs, connected: true, status: null, statusDetail: null,
+      registeredAt: '', lastSeenAt: '', commands: [],
+    }
+  }
+
+  function asked(specs: string[], mode = 'warm'): RunnerCommandView {
+    return {
+      commandId: 'c1', kind: 'run', specs, mode, state: 'accepted', reason: null,
+      requestedBy: 'bobcat-ui', requestedAt: '', acknowledgedAt: null, runId: 'run-1',
+    }
+  }
+
+  it('names the whole project, a feature, one spec or a count, with the mode and who asked', () => {
+    expect(describeCommand(asked(['A/x', 'A/y', 'B/z']), runnerWith(3))).toBe('Run all · warm · from bobcat-ui')
+    expect(describeCommand(asked(['Bank Account/opens', 'Bank Account/closes'], 'cold'), runnerWith(9)))
+      .toBe('Run 2 in feature Bank Account · cold · from bobcat-ui')
+    expect(describeCommand(asked(['Bank Account/opens']), runnerWith(9))).toBe('Run opens · warm · from bobcat-ui')
+    expect(describeCommand(asked(['A/x', 'B/z']), runnerWith(9))).toBe('Run 2 specs · warm · from bobcat-ui')
+  })
+
+  it('finds the command that caused a run by the run id it recorded', () => {
+    const runner = { ...runnerWith(3), commands: [asked(['A/x'])] }
+    expect(commandForRun([runner], 'run-1')?.command.commandId).toBe('c1')
+    expect(commandForRun([runner], 'other')).toBeUndefined()
+    expect(commandForRun(null, 'run-1')).toBeUndefined()
   })
 })

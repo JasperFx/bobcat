@@ -120,6 +120,12 @@ it shows templates (`{amount}`) rather than values, because nothing has run. A r
 specification that run ran, whatever happened to them. Over the API, a command can name `"all": true`
 in place of `specs` or `feature`: the UI resolves it to every identity the runner registered.
 
+A run a button started says so on its card -- `Run 2 in feature Bank · warm · from bobcat-ui`, or
+`Run all` -- and while it runs, how many scenarios have finished of the specifications it selected.
+The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTION_RUNS`, 10 by
+default), so pressing buttons can evict the run a page is open on. That page then says the run was
+evicted and where its archive is, rather than calling it unknown.
+
 ### Exports
 
 Every card exports its run, and so does `GET /api/runs/{runId}/export?format=…`:

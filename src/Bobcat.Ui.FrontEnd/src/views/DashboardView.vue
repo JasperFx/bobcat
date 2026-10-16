@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRunsStore, type RunState } from '@/stores/runs-store'
+import { useRunsStore, visibleScenarios, type RunState } from '@/stores/runs-store'
+import { useRunners } from '@/composables/useRunners'
+import { commandForRun, describeCommand } from '@/lib/runners'
 import LaneStrip from '@/components/LaneStrip.vue'
 import RunnersPanel from '@/components/RunnersPanel.vue'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/composables/time'
@@ -9,6 +11,24 @@ import { loadRunLimit, RUN_LIMIT_CHOICES, saveRunLimit, visibleRuns } from '@/li
 
 const runs = useRunsStore()
 const now = useNow()
+const { runners } = useRunners()
+
+/**
+ * What a commanded run was asked to run (bobcat#646), and while it is in flight with no declared
+ * total, how far through its selection it is: the runner knows how many specifications it selected,
+ * while the run itself publishes no total. A data-driven specification runs a scenario per row, so
+ * this counts specifications selected beside scenarios finished rather than claiming a fraction.
+ */
+function commandLineOf(run: RunState): string | null {
+  const found = commandForRun(runners.value, run.runId)
+  if (!found) return null
+
+  const line = describeCommand(found.command, found.runner)
+  if (run.finished || run.orphaned || run.totalScenarios) return line
+
+  const done = visibleScenarios(run).filter((s) => s.status !== 'running' && s.status !== 'retry-scheduled').length
+  return `${line} · ${done} finished of ${found.command.specs.length} spec${found.command.specs.length === 1 ? '' : 's'} selected`
+}
 
 function progressPercent(run: RunState): number {
   const p = runs.progressOf(run)
@@ -290,6 +310,7 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
           @click="repositoryFilter = runs.repositoryOf(run) ?? ''"
         >{{ repositoryName(run) }}</span>
         <span class="bm-run-meta" :title="run.repository">{{ metaOf(run) }}</span>
+        <span v-if="commandLineOf(run)" class="bm-run-command" data-testid="run-command">{{ commandLineOf(run) }}</span>
         <span v-if="run.counts" class="bm-run-counts">
           <span class="bm-passed">{{ run.counts.passed }} passed</span>
           <span v-if="run.counts.passedOnRetry > 0" class="bm-retried">
@@ -462,6 +483,11 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
 
 .bm-failed {
   color: var(--bm-state-failed);
+}
+
+.bm-run-command {
+  font-size: 12px;
+  color: var(--bm-menu-text);
 }
 
 .bm-skipped {

@@ -150,6 +150,43 @@ export function runnerState(runner: RunnerView): { label: string; tone: 'ok' | '
   return { label: 'not connected', tone: 'bad' }
 }
 
+/**
+ * The command that started a run, and the runner that ran it (bobcat#646): found by the run id a
+ * command records once its run's run_started names it. Undefined for a run nobody commanded.
+ */
+export function commandForRun(
+  runners: RunnerView[] | null,
+  runId: string,
+): { runner: RunnerView; command: RunnerCommandView } | undefined {
+  for (const runner of runners ?? []) {
+    const command = runner.commands.find((c) => c.runId === runId)
+    if (command) return { runner, command }
+  }
+  return undefined
+}
+
+/**
+ * What a commanded run was asked to run, for its card (bobcat#646): `Run all`, `Run feature X`, one
+ * spec or a count — then its mode and who asked. A spec, a feature, a slice and the whole project
+ * were told apart only by the count before.
+ */
+export function describeCommand(command: RunnerCommandView, runner: RunnerView): string {
+  const specs = command.specs
+  const features = new Set(specs.map((s) => (s.lastIndexOf('/') > 0 ? s.slice(0, s.lastIndexOf('/')) : '')))
+  const only = specs.length === 1 ? specs[0]! : null
+
+  const what =
+    specs.length > 0 && specs.length === runner.specs
+      ? 'Run all'
+      : only
+        ? `Run ${only.slice(only.lastIndexOf('/') + 1)}`
+        : features.size === 1 && [...features][0]
+          ? `Run ${specs.length} in feature ${[...features][0]}`
+          : `Run ${specs.length} specs`
+
+  return `${what} · ${command.mode} · from ${command.requestedBy}`
+}
+
 /** Where a command has got to: queued → sent → accepted (then the run) or rejected. */
 export function commandProgress(command: RunnerCommandView | undefined): { label: string; done: boolean; failed: boolean } {
   if (!command) return { label: 'queued', done: false, failed: false }
