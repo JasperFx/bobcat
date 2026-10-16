@@ -1,5 +1,25 @@
 namespace Bobcat.Supervisor;
 
+/// <summary>
+/// How many of the planned tests the supplied known durations matched (bobcat#663) — the
+/// difference between a plan balanced by duration and one that quietly fell back to test count.
+/// </summary>
+/// <remarks>
+/// The durations are keyed by uid, and xUnit v3's uid hashes the assembly path, so a ledger
+/// recorded on another machine, configuration or TFM can match nothing at all. Marten's committed
+/// ledger matched 0 of 2525 tests on CI while the run read exactly like a balanced one.
+/// </remarks>
+public sealed record DurationCoverage(int Matched, int Tests)
+{
+    /// <summary>True when no supplied duration named any planned test, so lanes were balanced by count.</summary>
+    public bool BalancedByCount => Matched == 0;
+
+    public override string ToString()
+        => BalancedByCount
+            ? $"Known durations matched 0/{Tests} test(s): lanes balanced by test count"
+            : $"Known durations matched {Matched}/{Tests} test(s)";
+}
+
 /// <summary>One worker's share of a run.</summary>
 public sealed record WorkLane(int Index, IReadOnlyList<string> Uids, TimeSpan Estimate)
 {
@@ -152,6 +172,17 @@ public static class WorkPlan
             .OrderByDescending(lane => lane.Estimate)
             .ToList();
     }
+
+    /// <summary>
+    /// How many of <paramref name="tests"/> have an entry in <paramref name="knownDurations"/>
+    /// (bobcat#663). Null when no durations were supplied at all, which is a deliberate count
+    /// balance rather than a silent fallback.
+    /// </summary>
+    public static DurationCoverage? CoverageOf(
+        IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? knownDurations)
+        => knownDurations is null
+            ? null
+            : new DurationCoverage(tests.Count(t => knownDurations.ContainsKey(t.Uid)), tests.Count);
 
     private static TimeSpan estimate(
         WorkerTest test, IReadOnlyDictionary<string, TimeSpan>? known, TimeSpan fallback)

@@ -29,6 +29,13 @@ public static class RunReport
 
         report.AppendLine(results.Summarize());
 
+        // A plan that silently fell back to counting tests reads exactly like a balanced one
+        // (bobcat#663), so the match is stated whenever durations were supplied.
+        if (results.DurationCoverage is { } coverage)
+        {
+            report.AppendLine(coverage.ToString());
+        }
+
         // What the failed attempt failed WITH is what decides whether a test belongs on retries
         // or is a real bug (bobcat#662), so a pass-on-retry carries it.
         section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
@@ -318,6 +325,14 @@ public static class RunReport
                 ["retriesPerformed"] = results.RetriesPerformed,
                 ["workersLaunched"] = results.WorkersLaunched
             },
+            ["knownDurations"] = results.DurationCoverage is not { } coverage
+                ? null
+                : new JsonObject
+                {
+                    ["matched"] = coverage.Matched,
+                    ["tests"] = coverage.Tests,
+                    ["balancedBy"] = coverage.BalancedByCount ? "count" : "duration"
+                },
             ["timing"] = describe(RunTiming.For(results)),
             ["memory"] = describe(RunResources.For(results)),
             ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject

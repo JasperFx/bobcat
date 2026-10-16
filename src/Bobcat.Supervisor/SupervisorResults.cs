@@ -190,6 +190,13 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<TestMemory> TestMemory { get; init; } = [];
 
+    /// <summary>
+    /// How many planned tests <see cref="Supervisor.KnownTestDurations"/> matched (bobcat#663).
+    /// Null when no durations were supplied; zero matches means the lanes were balanced by test
+    /// count, whatever the caller intended.
+    /// </summary>
+    public DurationCoverage? DurationCoverage { get; init; }
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 

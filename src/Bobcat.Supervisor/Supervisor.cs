@@ -175,6 +175,8 @@ public sealed class Supervisor
     /// </remarks>
     public IReadOnlyDictionary<string, TimeSpan>? KnownTestDurations { get; set; }
 
+    private DurationCoverage? _durationCoverage;
+
     /// <summary>Progress, for a console or a log. Never required.</summary>
     public Action<string>? Log { get; set; }
 
@@ -526,6 +528,7 @@ public sealed class Supervisor
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
             TestMemory = _sampler?.Tests ?? [],
+            DurationCoverage = _durationCoverage,
             Duration = live.Elapsed,
             WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks))
         };
@@ -660,7 +663,8 @@ public sealed class Supervisor
             StalledTests = _ledger.Stalled,
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
-            TestMemory = _sampler?.Tests ?? []
+            TestMemory = _sampler?.Tests ?? [],
+            DurationCoverage = _durationCoverage
         };
     }
 
@@ -839,6 +843,12 @@ public sealed class Supervisor
         if (batched.Count > 0)
         {
             var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
+
+            // Said out loud (bobcat#663): a ledger keyed by uids from another machine or TFM can
+            // match nothing, and the run then reads exactly like a duration-balanced one.
+            _durationCoverage = WorkPlan.CoverageOf(batched, KnownTestDurations);
+            if (_durationCoverage is { } coverage) Log?.Invoke(coverage.ToString());
+            notify(observer => observer.LanesPlanned(plan, _durationCoverage));
 
             if (plan.Count > 1)
             {

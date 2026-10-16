@@ -429,7 +429,11 @@ isolation -- report, don't act, so whether a slow test is a bug or honestly slow
 Across runs, the committed ledger (`TestLedger`, see
 [ledger-design.md](https://github.com/JasperFx/bobcat/blob/main/design/ledger-design.md)) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
-durations instead of test counts.
+durations instead of test counts. The durations are keyed by test uid, and xUnit v3's uid hashes the
+assembly path, so a ledger recorded on another machine, configuration or target framework can match
+nothing. The run says how many matched: `Known durations matched 2521/2525 test(s)`, or
+`Known durations matched 0/2525 test(s): lanes balanced by test count` (the report's first lines,
+and `knownDurations` in the JSON). Keep one ledger per framework, recorded where the run happens.
 
 And it does not shorten a CI run whose wall clock is set by a *different* job. Wolverine's matrix
 runs ~30 jobs concurrently, so the workflow takes as long as its slowest; parallelising the Redis
