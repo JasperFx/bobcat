@@ -409,7 +409,7 @@ We adopt and extend this model for the Critter Stack spec runner:
 | Level | Scope | Behavior | Continue? | Retry? |
 |---|---|---|---|---|
 | **Assertion failure** | Single step | Mark step as failed, **continue** executing remaining steps in the scenario | Yes — gather all failures | Per policy |
-| **Critical failure** | Single scenario | **Abort** this scenario immediately, skip remaining steps, proceed to next scenario | No — skip to next scenario | Never |
+| **Critical failure** | Single scenario | **Abort** this scenario immediately, skip remaining steps, proceed to next scenario | No — skip to next scenario | Under a `Retry` trait (corrected 2026-10-16, bobcat#538) |
 | **Catastrophic failure** | Entire suite | **Stop all execution**, report results gathered so far, exit with non-zero code | No — stop everything | Never |
 
 ### How failures are classified
@@ -535,7 +535,8 @@ Strict by default — matches Storyteller's philosophy that flaky tests must be 
 - **Default: no retries.** A failing scenario fails.
 - **`@regression` scenarios:** Never retried, period. If it fails, the build fails.
 - **`@acceptance` scenarios:** Optionally retried once (configurable via `--retry-acceptance` flag). This gives early-stage scenarios a small grace period.
-- **Critical/catastrophic failures:** Never retried regardless of any configuration. An infrastructure failure won't magically fix itself on retry.
+- **Catastrophic failures:** Never retried regardless of any configuration. An infrastructure failure won't magically fix itself on retry.
+- **Critical failures:** *Corrected 2026-10-16 (bobcat#538, gap G1):* retried under a `Retry` trait. In an integration suite the flakiness that trait exists for mostly arrives as exceptions (timeouts, broker not ready, connection refused), all Critical. `[NeverRecovers(typeof(X))]` is the per-type opt-out.
 - **Per-scenario override:** `@retry(3)` tag allows a specific scenario to retry (useful for known-flaky external dependencies in acceptance tests only).
 
 ### Timeout handling

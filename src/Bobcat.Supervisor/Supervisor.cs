@@ -1121,12 +1121,35 @@ public sealed class Supervisor
         return (Disposition.FailAndContinue($"a retry was requested ({decided.Reason}) but {denial}"), null);
     }
 
+    /// <summary>
+    /// The level a worker's verdict is judged at. A failure the worker reports as a
+    /// <see cref="SpecCatastrophicException"/> is <see cref="FailureLevel.Catastrophic"/> whatever
+    /// state the framework gave it (xUnit reports a thrown exception as <c>failed</c>), so
+    /// <see cref="DefaultFailurePolicy"/> aborts the run instead of carrying on or retrying it
+    /// (issue #538).
+    /// </summary>
+    /// <remarks>
+    /// Out of process the exception type is only ever a name read off the message, so this is
+    /// best effort: a framework that erases the type on the wire (TUnit) degrades to the
+    /// state-based mapping below — the run carries on, exactly as it did before.
+    /// </remarks>
     private static FailureLevel failureLevelFor(WorkerOutcome outcome) => outcome.State switch
     {
         WorkerTestState.Passed or WorkerTestState.Skipped => FailureLevel.None,
+        _ when IsCatastrophic(outcome.ErrorType) => FailureLevel.Catastrophic,
         WorkerTestState.Failed => FailureLevel.Assertion,
         _ => FailureLevel.Critical
     };
+
+    /// <summary>
+    /// Whether a reported exception type names <see cref="SpecCatastrophicException"/>, by its
+    /// simple or full name. Exact, not a suffix match: an application's own type that happens to
+    /// share the simple name inside another namespace is not Bobcat's signal to stop the run.
+    /// </summary>
+    internal static bool IsCatastrophic(string? errorType)
+        => errorType is not null &&
+           (errorType == typeof(SpecCatastrophicException).FullName ||
+            errorType == nameof(SpecCatastrophicException));
 
     private static Exception? exceptionFor(WorkerOutcome outcome)
         => outcome.Succeeded

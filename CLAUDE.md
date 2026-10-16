@@ -971,7 +971,15 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
    `SpecAssertionException`) → continue, gathering every failure
 2. **Critical** — `SpecCriticalException` or any other exception in a step → abort the scenario
 3. **Catastrophic** — `SpecCatastrophicException`: unrecoverable infrastructure (host won't start,
-   database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it
+   database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it.
+   **Out of process (bobcat#538)** the supervisor only has the worker's reported type *name*, so
+   `Supervisor.failureLevelFor` maps an outcome whose `ErrorType` is exactly
+   `Bobcat.Engine.SpecCatastrophicException` (or the bare simple name) to `Catastrophic`, whatever
+   the state (xUnit reports a throw as `failed`), and the run aborts. TUnit erases the type, so
+   there it degrades to an ordinary Critical. **Critical stays retryable under a `Retry` trait**
+   (decided 2026-10-16, gap G1): the flakiness that trait exists for mostly arrives as exceptions;
+   `[NeverRecovers]` is the per-type opt-out. Pinned against the real worker by
+   `SupervisorEndToEndTests.a_workers_catastrophic_failure_aborts_the_run_and_is_never_retried`.
 
 ### Resilience (`src/Bobcat/Resilience/`)
 The retry policy layer — `FailureLevel` promoted to a decision the supervisor acts on.
