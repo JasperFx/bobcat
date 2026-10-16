@@ -93,7 +93,9 @@ public sealed class FakeWorker : IWorkerClient
             {
                 Traits = traits,
                 ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
-                ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}",
+                ErrorMessage = state == WorkerTestState.Passed
+                    ? null
+                    : _factory.ErrorMessageFor(uid, attempt) ?? $"{uid} attempt {attempt}",
                 Duration = _factory.DurationFor(uid, attempt),
                 CollapsedDisplayNames = _factory.CollapsedRows(uid)
             });
@@ -166,6 +168,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// erases it on the MTP wire the same way it erases exception types.
     /// </summary>
     public Func<string, int, TimeSpan?> Duration { get; init; } = (_, _) => null;
+
+    /// <summary>
+    /// The failure message a test reports on an attempt; null keeps the default
+    /// "{uid} attempt {n}".
+    /// </summary>
+    public Func<string, int, string?> ErrorMessageFor { get; init; } = (_, _) => null;
 
     /// <summary>
     /// The name a run-time result carries, when it differs from the discovered one. MTP node

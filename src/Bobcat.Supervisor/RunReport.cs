@@ -29,8 +29,11 @@ public static class RunReport
 
         report.AppendLine(results.Summarize());
 
+        // What the failed attempt failed WITH is what decides whether a test belongs on retries
+        // or is a real bug (bobcat#662), so a pass-on-retry carries it.
         section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
-            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {placements(test)}");
+            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {placements(test)}" +
+                    (RecoveredFrom(test) is { } failure ? $"; first failed with {failure}" : ""));
 
         section(report, "Failed", results.Failed,
             test => $"{test.DisplayName} — {reason(test)}");
@@ -249,6 +252,42 @@ public static class RunReport
         return $"{test.DisplayName} — {rows.Count} rows, judged {test.Outcome} by the worst: {named}{more}";
     }
 
+    /// <summary>How much of a failure message a report repeats — enough to recognise it.</summary>
+    internal const int FailureMessageLimit = 200;
+
+    /// <summary>
+    /// The failure a pass-on-retry recovered from (bobcat#662): the first attempt that failed for
+    /// the test's own reasons, never one the supervisor's stall kill manufactured. Null when no
+    /// attempt failed that way.
+    /// </summary>
+    internal static RecoveredFailure? RecoveredFrom(TestReport test)
+    {
+        var failed = test.Attempts.FirstOrDefault(a => !a.Succeeded && !a.StallInduced);
+        if (failed is null) return null;
+
+        return new RecoveredFailure(
+            failed.AttemptNumber, failed.Outcome.State, failed.Outcome.ErrorType,
+            Bounded(withoutType(failed.Outcome.ErrorMessage, failed.Outcome.ErrorType)));
+    }
+
+    /// <summary>The first line of a message, cut to <see cref="FailureMessageLimit"/> with an ellipsis.</summary>
+    internal static string? Bounded(string? message)
+    {
+        var line = message?.Split('\n')[0].Trim();
+        if (string.IsNullOrEmpty(line)) return null;
+
+        return line.Length <= FailureMessageLimit ? line : line[..FailureMessageLimit] + "…";
+    }
+
+    /// <summary>
+    /// xUnit writes the type at the head of the message ("Ns.Type : message"), which is where the
+    /// type was recovered from, so the report says it once.
+    /// </summary>
+    private static string? withoutType(string? message, string? type)
+        => type is not null && message?.StartsWith(type + " : ", StringComparison.Ordinal) == true
+            ? message[(type.Length + 3)..]
+            : message;
+
     private static string placements(TestReport test)
         => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
 
@@ -374,6 +413,15 @@ public static class RunReport
         ["outcome"] = test.Outcome.ToString(),
         ["attempts"] = test.AttemptCount,
         ["quarantineCandidate"] = test.WasRetried,
+        ["recoveredFrom"] = test.Outcome != RunOutcome.PassOnRetry || RecoveredFrom(test) is not { } failure
+            ? null
+            : new JsonObject
+            {
+                ["attempt"] = failure.Attempt,
+                ["state"] = failure.State.ToString(),
+                ["errorType"] = failure.ErrorType,
+                ["message"] = failure.Message
+            },
         ["attemptDetail"] = new JsonArray(test.Attempts.Select(attempt => (JsonNode)new JsonObject
         {
             ["attempt"] = attempt.AttemptNumber,
@@ -402,4 +450,17 @@ public static class RunReport
             ["durationMs"] = attempt.Outcome.Duration?.TotalMilliseconds
         }).ToArray())
     };
+}
+
+/// <summary>
+/// What a pass-on-retry's failed attempt failed with (bobcat#662) — the type name a recovery hint
+/// would match on and a bounded first line of the message.
+/// </summary>
+public sealed record RecoveredFailure(int Attempt, WorkerTestState State, string? ErrorType, string? Message)
+{
+    public override string ToString()
+    {
+        var what = ErrorType ?? State.ToString().ToLowerInvariant();
+        return Message is null ? $"{what} (attempt {Attempt})" : $"{what}: {Message} (attempt {Attempt})";
+    }
 }

@@ -122,7 +122,9 @@ run. `--results`, `--verbose` and every selection flag work on both.
   is never retried and aborts the run. A `Retry` trait's retry runs alone in a fresh process;
   `[Trait("RetryWarm", "true")]` retries in the same process instead.
 - **A pass on retry exits 0 and is reported apart**: the report after the specifications lists
-  "Passed on retry (not clean passes)" and the quarantine candidates. `--failed` does not count it:
+  "Passed on retry (not clean passes)" and the quarantine candidates. Each pass on retry says what
+  its failed attempt failed with (`first failed with System.TimeoutException: … (attempt 1)`), which
+  is the evidence for keeping it on retries or treating it as a bug. `--failed` does not count it:
   the last verdict for a specification is the one that counts.
 - **`--workers N`** runs N lanes, each a worker process, partitioned by test class, never by test:
   a class's fixtures and static state stay in one process. Classes that share a database still

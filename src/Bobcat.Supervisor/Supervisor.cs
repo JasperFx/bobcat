@@ -879,7 +879,7 @@ public sealed class Supervisor
         {
             ct.ThrowIfCancellationRequested();
 
-            Log?.Invoke($"running alone: {uid}");
+            Log?.Invoke($"running alone: {nameOf(uid)}");
             var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
             var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
@@ -948,7 +948,8 @@ public sealed class Supervisor
 
             if (sameProcess.Count > 0)
             {
-                Log?.Invoke($"retrying {sameProcess.Count} test(s) in place");
+                Log?.Invoke($"retrying {sameProcess.Count} test(s) in place: " +
+                            string.Join(", ", sameProcess.Select(nameOf)));
 
                 // Back to the lane the test already ran in, not merely to some warm process. A
                 // class's static state lives in the process that ran it, so retrying elsewhere
@@ -976,7 +977,7 @@ public sealed class Supervisor
             {
                 ct.ThrowIfCancellationRequested();
 
-                Log?.Invoke($"retrying alone in a fresh process: {uid}");
+                Log?.Invoke($"retrying alone in a fresh process: {nameOf(uid)}{failedWith(attempts, uid)}");
                 var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
                 var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
@@ -992,7 +993,7 @@ public sealed class Supervisor
                 var recycleFailure = await recycle(resources, ct);
                 if (recycleFailure is not null) return recycleFailure;
 
-                Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
+                Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {nameOf(uid)}{failedWith(attempts, uid)}");
                 var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Recycled, ct);
 
                 var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts, stallKilled);
@@ -1134,6 +1135,23 @@ public sealed class Supervisor
     /// worker actually reported.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A test's discovered display name for a log line, never its uid — on xUnit the uid is a
+    /// hash that names nothing (bobcat#662, the #82 rule for log lines).
+    /// </summary>
+    private string nameOf(string uid)
+        => _discoveredNames.TryGetValue(uid, out var name) && !string.IsNullOrWhiteSpace(name) ? name : uid;
+
+    /// <summary>What the attempt being retried failed with, for the retry's log line (bobcat#662).</summary>
+    private static string failedWith(Dictionary<string, List<SupervisorAttempt>> attempts, string uid)
+    {
+        if (!attempts.TryGetValue(uid, out var history) || history.Count == 0) return "";
+
+        var outcome = history[^1].Outcome;
+        var what = outcome.ErrorType ?? outcome.State.ToString().ToLowerInvariant();
+        return $" (attempt {history[^1].AttemptNumber} {(outcome.ErrorType is null ? "was" : "failed with")} {what})";
+    }
+
     private WorkerOutcome named(WorkerOutcome outcome)
         => outcome.DisplayName == outcome.Uid &&
            _discoveredNames.TryGetValue(outcome.Uid, out var discovered) &&
