@@ -26,6 +26,7 @@ public class ProjectedEventModelRoleTests
     private const string Usings =
         """
         using System;
+        using System.Collections.Generic;
         using System.Threading.Tasks;
         using Bobcat;
         using JasperFx.Events.EventModeling;
@@ -403,6 +404,58 @@ public class ProjectedEventModelRoleTests
 
         names(slice.Specifications.Single().ResolvedTypes)
             .ShouldBe(["Account", "AccountOpened", "FundsDeposited", "AccountSummary"]);
+    }
+
+    // bobcat#612: a list GET is the commonest query, and its read model is the element type
+    [Theory]
+    [InlineData("List<AccountSummary>")]
+    [InlineData("AccountSummary[]")]
+    [InlineData("IReadOnlyList<AccountSummary>")]
+    [InlineData("IEnumerable<AccountSummary>")]
+    public void a_list_read_act_is_a_query_slice_reading_its_element_type(string readModel)
+    {
+        var slice = describe(
+            $$"""
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts")]
+                public async Task the_summaries_are_listed()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));
+                    await WhenReading<{{readModel}}>("/accounts");
+                }
+            }
+            """).Single(x => x.Name == "GET /accounts");
+
+        slice.Pattern.ShouldBe(SlicePattern.Query);
+        slice.TriggerKind.ShouldBe(TriggerKind.Http);
+        slice.TriggerOrigin!.HttpRoute.ShouldBe("/accounts");
+        slice.TriggerOrigin.HttpMethod.ShouldBe("GET");
+        names(slice.ReadsFrom).ShouldBe(["AccountSummary"]);
+        slice.ReadModelTypes.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_dictionary_read_names_no_read_model()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "GET /accounts/by-id")]
+                public async Task the_summaries_are_keyed()
+                {
+                    await WhenReading<Dictionary<Guid, AccountSummary>>("/accounts/by-id");
+                }
+            }
+            """).Single(x => x.Name == "GET /accounts/by-id");
+
+        // A keyed collection is not a list of one thing: it stamps no read role, so no read act either
+        slice.ReadsFrom.ShouldBeEmpty();
+        slice.Pattern.ShouldNotBe(SlicePattern.Query);
     }
 
     [Fact]
