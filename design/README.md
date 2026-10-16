@@ -19,6 +19,7 @@ when it answers *"how do I do the thing I came here to do."*
 | `ui-validation-560.md` | `bobcat ui` validated end to end on BankAccountES (#560): what works cold and warm, what was missing and filed, and how to repeat it |
 | `critter-stack-interop-notes.md` | Upstream Wolverine/Marten/Fisher hazards a Bobcat suite was first to hit |
 | `dogfood-critterstacksamples/` | bobcat#559: every CritterStackSamples test project adopted as a package consumer — the cross-project trends (`README.md`), one findings file per project, and the method |
+| `ui-validation-561.md` | bobcat#561: `bobcat ui` in watch mode (`bobcat watch`, and a resident runner relaunched by `stoat runner`) through code, spec and build-breaking changes, what works, and the gaps filed |
 
 ## Known follow-up
 
