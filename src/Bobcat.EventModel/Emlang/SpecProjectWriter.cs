@@ -58,10 +58,11 @@ public static class SpecProjectWriter
 {
     /// <summary>
     /// The WolverineFx.Bobcat used when neither <c>--wolverine-version</c> nor the
-    /// <c>WolverineFxBobcatVersion</c> property says otherwise: the newest one published. It is a
-    /// prerelease built against an older Bobcat, so pass the version that pairs with this tool when one exists.
+    /// <c>WolverineFxBobcatVersion</c> property says otherwise: the newest one published, built
+    /// against Bobcat 0.60.4 (bobcat#660). Move it with each WolverineFx.Bobcat that pairs with a
+    /// newer Bobcat, so a freshly imported spec project never pins an old pairing.
     /// </summary>
-    public const string DefaultWolverineFxBobcatVersion = "6.49.0-alpha.3";
+    public const string DefaultWolverineFxBobcatVersion = "6.51.0-alpha.1";
 
     /// <summary>The file holding <c>[assembly: EventModelName]</c>, the parallelization and the content root.</summary>
     public const string AssemblyAttributesFile = "AssemblyAttributes.cs";

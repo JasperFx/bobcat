@@ -55,8 +55,21 @@ public class ExportRunInput : RunQueryInput
     public string? OutputFlag { get; set; }
 }
 
-public class AwaitRunInput : RunQueryInput
+public class FlakyLedgerInput : AgentQueryInput
 {
+    // Not RunQueryInput: this reads every run unless narrowed, never "the most recent" (bobcat#660).
+    [Description("Narrow to one run id (from list-runs); every run the UI knows by default")]
+    [FlagAlias("run", 'r')]
+    public string? RunFlag { get; set; }
+}
+
+public class AwaitRunInput : AgentQueryInput
+{
+    // Not RunQueryInput: with no id this waits on the run in flight (bobcat#660).
+    [Description("Run id to wait on (from list-runs); defaults to the run in flight, or the most recent run when none is")]
+    [FlagAlias("run", 'r')]
+    public string? RunFlag { get; set; }
+
     [Description("Seconds to wait before answering 'timeout' with the run's progress; default 600, at most 3600")]
     public int TimeoutFlag { get; set; } = 600;
 }
@@ -151,9 +164,9 @@ public class FailingSpecCommand : JasperFxAsyncCommand<FailingSpecInput>
 }
 
 [Description("Scenarios that passed only after retrying, across every known run (JSON)", Name = "flaky-ledger")]
-public class FlakyLedgerCommand : JasperFxAsyncCommand<RunQueryInput>
+public class FlakyLedgerCommand : JasperFxAsyncCommand<FlakyLedgerInput>
 {
-    public override Task<bool> Execute(RunQueryInput input)
+    public override Task<bool> Execute(FlakyLedgerInput input)
         => AgentQuery.RunAsync(input, "/api/agent/flaky-ledger" + AgentQuery.Query(("runId", input.RunFlag)));
 }
 

@@ -130,7 +130,8 @@ public sealed record SpecIdentityAudit(
                 $"None of {string.Join(", ", specAssemblies.Select(x => x.GetName().Name))} has a generated "
                 + $"Event Model source ({GeneratedEventModel.GeneratedSourceTypeName}). The generator emits "
                 + "one only for an assembly whose specs declare slices, so either the assembly named is not "
-                + "the spec assembly, or no scenario in it carries an @slice: tag. Auditing against nothing "
+                + "the spec assembly, or no test in it is bound to a slice: bind one with "
+                + "[BobcatSpec(typeof(TheCommand))] or [BobcatSlice(typeof(TheCommand))]. Auditing against nothing "
                 + "would report every declared scenario as uncovered.");
         }
 
