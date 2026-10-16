@@ -75,6 +75,13 @@ public class CritterStackSpecRoleTests
                     await WhenActing("an account is opened", _ => Task.CompletedTask);
                     await ThenAggregate<Account>(Guid.NewGuid());
                 }
+
+                [Fact, BobcatSlice(SliceName = "CloseAccount", Pattern = "Command")]
+                public async Task an_account_is_closed_for_a_stored_client()
+                {
+                    await GivenReadModel<Client>(new Client());
+                    await WhenActing("an account is closed", _ => Task.CompletedTask);
+                }
             }
 
             [BobcatFeature("Summaries")]
@@ -124,6 +131,11 @@ public class CritterStackSpecRoleTests
         names(open.AggregateTypes).ShouldBe(["Account"]);
         names(open.Specifications.ShouldHaveSingleItem().ResolvedTypes).ShouldBe(["Client", "ClientEnrolled", "Account"]);
         names(deposit.ReadsFrom).ShouldBeEmpty();
+
+        // bobcat#614: a document stored before a command is a lookup the command reads, not a view it produces
+        var close = slices.Single(x => x.Name == "CloseAccount");
+        names(close.ReadsFrom).ShouldBe(["Client"]);
+        close.ReadModelTypes.ShouldBeEmpty();
 
         var summary = slices.Single(x => x.Name == "AccountSummary");
         summary.Pattern.ShouldBe(SlicePattern.View);

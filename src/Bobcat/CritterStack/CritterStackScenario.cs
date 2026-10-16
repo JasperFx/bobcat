@@ -542,8 +542,13 @@ public class CritterStackScenario
     /// <paramref name="document" /> may be a partial object, built with its unspecified members
     /// filled by <see cref="UnspecifiedValues" />. Storing it bypasses the projection, so a spec that
     /// is about how the view is built should arrange the events instead.
+    /// <para>
+    /// On the Event Model the document is the slice's read model only when the slice is a View; before a
+    /// command it is a lookup the command decides against, so it is stamped into <c>ReadsFrom</c>
+    /// (<see cref="SliceRole.ArrangedReadModel" />, bobcat#614).
+    /// </para>
     /// </remarks>
-    [EventModelRole(SliceRole.ReadModel, nameof(T))]
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
     public async Task GivenReadModel<T>(object document) where T : class
     {
         var text = $"the {typeof(T).Name} read model is {describe([document]).Text}";
