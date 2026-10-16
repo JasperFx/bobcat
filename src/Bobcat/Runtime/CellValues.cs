@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Engine.Verification;
+using Bobcat.Partial;
 
 namespace Bobcat.Runtime;
 
@@ -40,6 +41,15 @@ namespace Bobcat.Runtime;
 /// suite can override how a type it does not own is written. The tokens keep their meaning whatever is
 /// registered: <c>NULL</c>, <c>EMPTY</c>, a quoted literal and a relative time are decided before any
 /// conversion runs.
+/// </para>
+/// <para>
+/// <b>Collections (bobcat#543).</b> An array, <c>List&lt;T&gt;</c>, <c>HashSet&lt;T&gt;</c> or one of the
+/// common collection interfaces (<c>IEnumerable&lt;T&gt;</c>, <c>IReadOnlyList&lt;T&gt;</c>, …) is read from
+/// a comma-delimited cell, each item trimmed and read as a <c>T</c> by this same method — so a list of
+/// strong-typed ids, enums or relative dates works exactly as one of them does. A blank cell or
+/// <c>EMPTY</c> is an empty collection, <c>NULL</c> is null, and a comma inside double quotes belongs to
+/// its item. A <see cref="Register{T}"/> for the collection type itself wins. Partial objects read a
+/// collection member through the same rule (<see cref="ReadCollection"/>), so there is one.
 /// </para>
 /// </remarks>
 public static class CellValues
@@ -83,6 +93,9 @@ public static class CellValues
         var nullable = underlying != null;
         if (nullable) target = underlying!;
 
+        if (!_registered.ContainsKey(target) && CollectionShapes.ElementType(target) is { } element)
+            return ReadCollection(text, target, element, item => Read(item, element));
+
         var trimmed = text.Trim();
 
         // Quoted means "the literal text", so a cell really can say the word NULL.
@@ -123,6 +136,65 @@ public static class CellValues
 
         return convert(trimmed, target, text);
     }
+
+    /// <summary>
+    /// The one comma-list rule: <paramref name="text"/> as a <paramref name="target"/> collection whose
+    /// items <paramref name="readItem"/> reads. <c>NULL</c> is null; a blank cell or <c>EMPTY</c> is an
+    /// empty collection; otherwise the cell splits on every comma outside double quotes and each item is
+    /// trimmed before it is read.
+    /// </summary>
+    /// <exception cref="BadCellException">An item could not be read; names the item and the whole cell.</exception>
+    internal static object? ReadCollection(string text, Type target, Type element, Func<string, object?> readItem)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.Equals(CellTokens.Null, StringComparison.OrdinalIgnoreCase)) return null;
+        if (trimmed.Length == 0 || trimmed.Equals(CellTokens.Empty, StringComparison.OrdinalIgnoreCase))
+            return CollectionShapes.Make(target, []);
+
+        var items = SplitList(trimmed);
+        var values = new List<object?>(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            try
+            {
+                values.Add(readItem(items[i]));
+            }
+            catch (BadCellException e)
+            {
+                throw new BadCellException(
+                    $"The cell '{text}' could not be read as a list of {element.Name}: item {i + 1} of {items.Count}, {e.Message}",
+                    e);
+            }
+        }
+
+        return CollectionShapes.Make(target, values);
+    }
+
+    /// <summary>
+    /// A comma-delimited cell's items, each trimmed. A comma inside a double-quoted item is part of it,
+    /// and the quotes stay on the item so reading it keeps their "literal text" meaning.
+    /// </summary>
+    internal static IReadOnlyList<string> SplitList(string text)
+    {
+        var items = new List<string>();
+        var start = 0;
+        var quoted = false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '"') quoted = !quoted;
+            else if (text[i] == ',' && !quoted)
+            {
+                items.Add(text.Substring(start, i - start).Trim());
+                start = i + 1;
+            }
+        }
+
+        items.Add(text.Substring(start).Trim());
+        return items;
+    }
+
+    /// <summary>Whether <see cref="Register{T}"/> holds a conversion for exactly <paramref name="type"/>.</summary>
+    internal static bool IsRegistered(Type type) => _registered.ContainsKey(type);
 
     /// <summary>
     /// Whether a cell reads as a relative time rather than a literal — <c>TODAY</c>, <c>NOW</c> and

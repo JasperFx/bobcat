@@ -35,14 +35,18 @@ internal static class SpecifiedValues
         if (FSharpShapes.SingleCaseWrapper(target) is { } wrapper)
             return wrapper.Invoke(null, [ReadText(text, wrapper.GetParameters()[0].ParameterType, path)]);
 
-        if (CollectionShapes.ElementType(target) is { } element)
+        // The comma-list rule is CellValues' (bobcat#543); only the item reader is this one, so an item
+        // may be an F# shape a plain cell cannot name.
+        if (!CellValues.IsRegistered(target) && CollectionShapes.ElementType(target) is { } element)
         {
-            if (trimmed.Equals(CellTokens.Null, StringComparison.OrdinalIgnoreCase)) return null;
-            if (trimmed.Length == 0 || trimmed.Equals(CellTokens.Empty, StringComparison.OrdinalIgnoreCase))
-                return CollectionShapes.Make(target, []);
-
-            return CollectionShapes.Make(target,
-                trimmed.Split(',').Select(item => ReadText(item, element, path)).ToList());
+            try
+            {
+                return CellValues.ReadCollection(text, target, element, item => ReadText(item, element, path));
+            }
+            catch (BadCellException e) when (!e.Message.StartsWith($"'{path}'", StringComparison.Ordinal))
+            {
+                throw new BadCellException($"'{path}': {e.Message}");
+            }
         }
 
         try

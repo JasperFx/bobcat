@@ -472,6 +472,36 @@ quotes -- those keep their meaning whatever is registered. The same reading appl
 cell compared against a value of that type, so a decision table's output column of a domain type
 needs nothing more.
 
+### A list in one cell
+
+A row-method parameter that is an array, `List<T>`, `HashSet<T>` or one of the common collection
+interfaces (`IEnumerable<T>`, `IReadOnlyList<T>`, `IList<T>`, `ICollection<T>`,
+`IReadOnlyCollection<T>`, `ISet<T>`, `IReadOnlySet<T>`) reads from a comma-delimited cell:
+
+```csharp
+public void Place(string customer, int[] quantities, IReadOnlyList<OrderId> ids) { ... }
+```
+
+```
+| customer | quantities | ids                                     |
+| ann      | 1, 2, 3    | 0198c4f2-…-a1, 0198c4f2-…-b2            |
+| bob      | EMPTY      |                                         |
+```
+
+- Each item is trimmed and read **exactly as a cell of the item's type is** -- a registration,
+  `IParsable<T>`, an enum name, `TODAY+1` -- so a list of strong-typed ids needs nothing extra.
+- A blank cell or `EMPTY` is an empty collection; `NULL` is null.
+- A comma inside double quotes belongs to its item: `"Smith, Jane", Doe` is two names, and a quoted
+  item keeps its literal meaning (`"NULL"` is the word).
+- A registration for the collection type itself (`CellValues.Register<Shade[]>(…)`) wins over the
+  comma rule.
+- An `out` list or a returned list is judged the same way, by its items -- in order, unless it is a
+  set -- and shown as the list it was written as.
+
+Partial-object tables and `TableRunner.BuildRows<T>` read a collection member by this same rule. One
+item that will not read fails the cell and names it: `The cell '1, two, 3' could not be read as a
+list of Int32: item 2 of 3, …`.
+
 ### A cell that cannot be read
 
 A cell that won't convert to the type it binds to is a `BadCellException`, which sits deliberately
