@@ -101,6 +101,50 @@ public static class PlainSpecText
     }
 
     /// <summary>
+    /// The scenario's <see cref="SpecLog"/> lines alone (bobcat#547) — each step that logged, then
+    /// the lines written between steps — for a runner output that is not given the whole scenario.
+    /// <see cref="SpecRender"/> has already latched them, so this is empty for a passing scenario
+    /// unless the run is verbose.
+    /// </summary>
+    public static IReadOnlyList<string> LogLines(SpecRender spec)
+    {
+        var lines = new List<string>();
+
+        try
+        {
+            foreach (var step in spec.Steps.Where(x => x.Logs.Count > 0 || x.SuppressedLogs > 0))
+            {
+                lines.Add("");
+                lines.Add($"Logs from: {(step.Keyword is { Length: > 0 } keyword ? keyword + " " : "")}{step.StepText}");
+                addLogs(lines, step.Logs, step.SuppressedLogs);
+            }
+
+            if (spec.Logs.Count > 0 || spec.SuppressedLogs > 0)
+            {
+                lines.Add("");
+                lines.Add("Logs:");
+                addLogs(lines, spec.Logs, spec.SuppressedLogs);
+            }
+        }
+        catch
+        {
+            return [];
+        }
+
+        return lines;
+    }
+
+    private static void addLogs(List<string> lines, IReadOnlyList<string> logs, int suppressed)
+    {
+        foreach (var log in logs)
+        {
+            lines.AddRange(log.Split('\n').Select(x => "  " + x.TrimEnd('\r')));
+        }
+
+        if (suppressed > 0) lines.Add("  " + Engine.StepLog.MoreLine(suppressed));
+    }
+
+    /// <summary>
     /// The scenario and its reports as one block, or an empty string when there is nothing to say.
     /// </summary>
     public static string Render(SpecRender spec)

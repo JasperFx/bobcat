@@ -145,13 +145,18 @@ public static class SpecOutput
                 {
                     WriteScenario(SpecRender.FromRecording(recording));
                 }
-                else if (recording.Reports.Count > 0)
+                else if (recording.Reports.Count > 0 || hasLogs(recording))
                 {
-                    WriteReports(SpecRender.FromRecording(recording));
+                    var spec = SpecRender.FromRecording(recording);
+                    WriteReports(spec);
+                    foreach (var line in PlainSpecText.LogLines(spec)) Write(line);
                 }
             };
         }
     }
+
+    private static bool hasLogs(ScenarioRecorder.Recording recording)
+        => !recording.Log.IsEmpty || recording.Steps.Any(x => !x.Log.IsEmpty);
 
     private sealed class Scope(Action<string>? previous) : IDisposable
     {

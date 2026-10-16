@@ -16,6 +16,15 @@ public class SpecRender
     public Counts Counts { get; init; } = new();
 
     /// <summary>
+    /// What <see cref="SpecLog.Write"/> recorded between steps (bobcat#547). Empty unless the
+    /// scenario failed or the run is verbose (<see cref="ScenarioReportVisibility.ShouldWriteLogs"/>).
+    /// </summary>
+    public List<string> Logs { get; init; } = new();
+
+    /// <summary>Scenario log lines past <see cref="StepLog.MaxLines"/> that were not kept.</summary>
+    public int SuppressedLogs { get; init; }
+
+    /// <summary>
     /// The scenario's wall clock across the whole bracket — reset, scope, hooks, steps,
     /// teardown (issue #141). Falls back to the last step's end offset only for results that
     /// carried no wall clock (a bare executor in a test, an older artifact), which
@@ -105,6 +114,14 @@ public class SpecRender
 
         var succeeded = counts.Succeeded && unexplained is null && recording.FailureDescription is null;
 
+        // Latched like reports (bobcat#547): a passing scenario's logs are noise unless the run
+        // asked for everything, and every surface reads this same render model.
+        var showLogs = ScenarioReportVisibility.ShouldWriteLogs(scenarioFailed: !succeeded);
+        if (!showLogs)
+        {
+            foreach (var step in steps) step.HideLogs();
+        }
+
         return new SpecRender
         {
             Title = recording.Scenario,
@@ -116,6 +133,8 @@ public class SpecRender
                 .ToList(),
             Steps = steps,
             Counts = counts,
+            Logs = showLogs ? recording.Log.Lines.ToList() : [],
+            SuppressedLogs = showLogs ? recording.Log.Suppressed : 0,
             ScenarioFailure = unexplained?.Message,
             ScenarioFailureCells = unexplained?.Cells.Select(CellRender.From).ToList() ?? [],
             // The bracket, not the step span (issue #466): a scenario whose cost sat outside its
@@ -362,6 +381,16 @@ public class StepRender
     public SetVerificationRender? SetVerification { get; init; }
     public List<CellRender> Cells { get; init; } = new();
     public List<string> Logs { get; init; } = new();
+
+    /// <summary>Log lines past <see cref="StepLog.MaxLines"/> that were not kept (bobcat#547).</summary>
+    public int SuppressedLogs { get; private set; }
+
+    internal void HideLogs()
+    {
+        Logs.Clear();
+        SuppressedLogs = 0;
+    }
+
     public Dictionary<string, string> Diagnostics { get; init; } = new();
 
     /// <summary>Whether the step's own cells already account for its failure.</summary>
@@ -391,6 +420,8 @@ public class StepRender
                 : FailureLevel.Critical,
             StartedAtMs = step.StartedAtMs,
             DurationMs = step.DurationMs is > 0 ? step.DurationMs.Value : 0,
+            Logs = step.Log.Lines.ToList(),
+            SuppressedLogs = step.Log.Suppressed,
 
             // A gathered wrong has no exception TYPE worth showing — SpecAssert.Fail's
             // SpecAssertionException was never thrown, and naming it would make a clean failure
