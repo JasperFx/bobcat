@@ -36,10 +36,12 @@ namespace Bobcat.Rendering;
 /// </para>
 /// <para>
 /// <b>The file carries a JSON Schema</b>, generated from the records it is written from
-/// (<see cref="GenerateSchema"/>), committed beside this class, drift-tested, embedded in the
-/// assembly and packed under <c>schemas/</c>. The schema is written into the results directory
-/// next to the file, and the file's <c>$schema</c> names it, so an archived artifact describes
-/// itself with no network.
+/// (<see cref="GenerateSchema"/>) whenever it is needed: written into the results directory next
+/// to the file, where the file's <c>$schema</c> names it, so an archived artifact describes itself
+/// with no network. It is <b>not committed</b> (bobcat#604): the Nuke <c>Pack</c> target generates
+/// it and packs it under <c>schemas/</c>, and the <c>ResultsSchema</c> target, part of <c>CI</c>,
+/// fails a breaking change against the last released package's copy unless
+/// <see cref="SchemaVersion"/> moved (<see cref="ResultsSchemaCompatibility"/>).
 /// </para>
 /// <para>
 /// <b>Writing can never fail a suite</b> — the invariant every other output here keeps. A
@@ -57,7 +59,7 @@ public static class ResultsFile
     /// <summary>The schema's file name, in the package under <c>schemas/</c> and beside every results file.</summary>
     public const string SchemaFileName = "bobcat-results-1.0.schema.json";
 
-    private const string schemaResource = "Bobcat.Rendering." + SchemaFileName;
+    private static readonly Lazy<string> schemaText = new(GenerateSchema);
 
     private static readonly object _gate = new();
     private static readonly List<SpecRender> _specs = new();
@@ -85,17 +87,8 @@ public static class ResultsFile
         }
     }
 
-    /// <summary>The committed schema, as shipped in the assembly.</summary>
-    public static string SchemaText
-    {
-        get
-        {
-            using var stream = typeof(ResultsFile).Assembly.GetManifestResourceStream(schemaResource)
-                               ?? throw new InvalidOperationException($"The embedded resource {schemaResource} is missing");
-            using var reader = new StreamReader(stream);
-            return reader.ReadToEnd();
-        }
-    }
+    /// <summary>The results file's schema, generated once per process from the records.</summary>
+    public static string SchemaText => schemaText.Value;
 
     /// <summary>
     /// Start collecting for a run bracket, when <see cref="EnvironmentVariable"/> asks. Called by
@@ -290,8 +283,8 @@ public static class ResultsFile
 
     /// <summary>
     /// The results file's JSON Schema, exported from the records the file is serialized from, with
-    /// the options it is serialized with. The committed copy beside this class must equal it; a
-    /// test fails when the two drift.
+    /// the options it is serialized with. This is the only source of the schema: the copy beside a
+    /// results file and the one packed under <c>schemas/</c> are both its output.
     /// </summary>
     public static string GenerateSchema()
     {

@@ -5,43 +5,12 @@ namespace Bobcat.Ui.Tests;
 
 /// <summary>
 /// The TypeScript mirrors of the monitor contracts are generated, not hand-written (issue #85),
-/// and these tests are the CI gate that keeps the committed files equal to what the C# records
-/// generate. A contract change that forgets to regenerate is a red build here — never a
-/// dashboard quietly reading a field that is not there.
+/// and not committed either (bobcat#604): the Nuke <c>UiContracts</c> target and the frontend's
+/// npm pre-hooks write them, and <c>ui-frontend.yml</c> type-checks, tests and builds the SPA
+/// against what was just generated. These pin what the generator emits.
 /// </summary>
 public class TypeScriptContractTests
 {
-    private static string frontEndMessages()
-    {
-        var frontEnd = TypeScriptContracts.FindFrontEndSourceDirectory();
-        frontEnd.ShouldNotBeNull("the test must run from inside the repository to find src/Bobcat.Ui.FrontEnd/src");
-        return Path.Combine(frontEnd, TypeScriptContracts.MessagesDirectory);
-    }
-
-    private static string read(string file)
-        => File.ReadAllText(Path.Combine(frontEndMessages(), file)).Replace("\r\n", "\n");
-
-    [Fact]
-    public void the_committed_monitor_events_ts_is_exactly_what_the_generator_emits()
-    {
-        var committed = read(TypeScriptContracts.MonitorEventsFile);
-        var generated = TypeScriptContracts.GenerateMonitorEvents();
-
-        committed.ShouldBe(generated,
-            $"{TypeScriptContracts.MonitorEventsFile} has drifted from MonitorEvents.cs — run `{TypeScriptContracts.GenerateCommandLine}` and commit the result");
-    }
-
-    [Fact]
-    public void the_committed_relay_to_store_routes_every_event_and_imports_what_it_routes()
-    {
-        var committed = read(TypeScriptContracts.RelayToStoreFile);
-
-        // The patch is a no-op on a current file: every event has its case, the import block
-        // lists every routed type. A new record without a case would come back inserted here.
-        TypeScriptContracts.PatchRelayToStore(committed).ShouldBe(committed,
-            $"{TypeScriptContracts.RelayToStoreFile} is missing a case or import — run `{TypeScriptContracts.GenerateCommandLine}` and commit the result");
-    }
-
     [Fact]
     public void every_derived_event_is_mirrored_with_its_wire_name()
     {
@@ -64,6 +33,7 @@ public class TypeScriptContractTests
     public void generation_is_deterministic()
     {
         TypeScriptContracts.GenerateMonitorEvents().ShouldBe(TypeScriptContracts.GenerateMonitorEvents());
+        TypeScriptContracts.GenerateRelayRoutes().ShouldBe(TypeScriptContracts.GenerateRelayRoutes());
     }
 
     [Fact]
@@ -80,62 +50,77 @@ public class TypeScriptContractTests
     }
 
     [Fact]
-    public void patching_inserts_a_missing_case_above_the_marker_and_leaves_existing_cases_alone()
+    public void every_event_is_routed_to_its_runs_store_handler()
     {
-        var relay = string.Join('\n',
-        [
-            "import { useRunsStore } from '@/stores/runs-store'",
-            "import type {",
-            "  MonitorEnvelope,",
-            "  RunStarted,",
-            "} from './monitor-events'",
-            "",
-            "export function relayToStore(message: unknown): void {",
-            "  const runs = useRunsStore()",
-            "  switch (envelope.type) {",
-            "    case 'run_started':",
-            "      runs.handleRunStarted(envelope.data as RunStarted) // hand-written, stays verbatim",
-            "      break",
-            $"    {TypeScriptContracts.CaseMarker}",
-            "    default:",
-            "      break",
-            "  }",
-            "}",
-            ""
-        ]);
+        var routes = TypeScriptContracts.GenerateRelayRoutes();
 
-        var patched = TypeScriptContracts.PatchRelayToStore(relay);
-
-        // The hand-written case survived untouched, including its comment.
-        patched.ShouldContain("runs.handleRunStarted(envelope.data as RunStarted) // hand-written, stays verbatim");
-        patched.Split("case 'run_started':").Length.ShouldBe(2);
-
-        // Every other event gained a case, each above the marker, in the store's handler convention.
-        foreach (var (type, wireName) in TypeScriptContracts.EventTypes.Where(e => e.WireName != "run_started"))
+        foreach (var (type, wireName) in TypeScriptContracts.EventTypes)
         {
-            patched.ShouldContain($"    case '{wireName}':\n      runs.handle{type.Name}(envelope.data as {type.Name})\n      break");
-            patched.IndexOf($"case '{wireName}':", StringComparison.Ordinal)
-                .ShouldBeLessThan(patched.IndexOf(TypeScriptContracts.CaseMarker, StringComparison.Ordinal));
+            routes.ShouldContain($"    case '{wireName}':\n      runs.handle{type.Name}(envelope.data as {type.Name})\n      return true");
         }
 
-        // And the import block now lists everything it routes, sorted, plus the envelope shapes.
+        routes.ShouldContain("export function routeMonitorEvent(runs: RunsStore, envelope: MonitorEnvelope): boolean {");
+        routes.ShouldContain("    default:\n      return false");
+
+        // The import block lists exactly what the table casts to, sorted, plus the envelope.
         var expectedImports = TypeScriptContracts.EventTypes.Select(e => e.Type.Name)
             .Append("MonitorEnvelope")
-            .Append("BatchedWebSocketPayload")
             .OrderBy(n => n, StringComparer.Ordinal)
             .Select(n => $"  {n},");
-        patched.ShouldContain("import type {\n" + string.Join('\n', expectedImports) + "\n} from './monitor-events'");
-
-        // Idempotent: a second pass changes nothing.
-        TypeScriptContracts.PatchRelayToStore(patched).ShouldBe(patched);
+        routes.ShouldContain("import type {\n" + string.Join('\n', expectedImports) + "\n} from './monitor-events'");
     }
 
     [Fact]
-    public void patching_a_relay_with_no_marker_and_a_missing_case_fails_loudly_instead_of_guessing()
+    public void the_routes_leave_the_envelopes_that_are_not_monitor_events_to_the_hand_written_relay()
     {
-        var relay = "import type {\n  MonitorEnvelope,\n} from './monitor-events'\nswitch (x) {\n  default:\n    break\n}\n";
+        var routes = TypeScriptContracts.GenerateRelayRoutes();
 
-        var e = Should.Throw<InvalidOperationException>(() => TypeScriptContracts.PatchRelayToStore(relay));
-        e.Message.ShouldContain(TypeScriptContracts.CaseMarker);
+        routes.ShouldNotContain("batched_web_socket_payload");
+        routes.ShouldNotContain("event_model_changed");
+    }
+
+    [Fact]
+    public void the_hand_written_relay_delegates_to_the_generated_routes()
+    {
+        var frontEnd = TypeScriptContracts.FindFrontEndSourceDirectory();
+        frontEnd.ShouldNotBeNull("the test must run from inside the repository to find src/Bobcat.Ui.FrontEnd/src");
+        var relay = File.ReadAllText(Path.Combine(frontEnd, TypeScriptContracts.MessagesDirectory, "relayToStore.ts"));
+
+        relay.ShouldContain("import { routeMonitorEvent } from './relayRoutes'");
+        relay.ShouldContain("routeMonitorEvent(useRunsStore(), envelope)");
+    }
+
+    [Fact]
+    public void the_command_writes_both_files_and_a_second_run_changes_nothing()
+    {
+        var frontEnd = Path.Combine(Path.GetTempPath(), "bobcat-ui-contracts", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var first = GenerateCommand.Write(frontEnd);
+            first.Select(r => Path.GetFileName(r.Path)).ShouldBe(TypeScriptContracts.GeneratedFiles);
+            first.ShouldAllBe(r => r.Changed);
+
+            File.ReadAllText(first[0].Path).ShouldBe(TypeScriptContracts.GenerateMonitorEvents());
+            File.ReadAllText(first[1].Path).ShouldBe(TypeScriptContracts.GenerateRelayRoutes());
+
+            GenerateCommand.Write(frontEnd).ShouldAllBe(r => !r.Changed);
+        }
+        finally
+        {
+            if (Directory.Exists(frontEnd)) Directory.Delete(frontEnd, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void the_generated_files_are_gitignored()
+    {
+        var frontEnd = TypeScriptContracts.FindFrontEndSourceDirectory();
+        frontEnd.ShouldNotBeNull();
+        var ignore = File.ReadAllText(Path.Combine(frontEnd, "..", ".gitignore"));
+
+        foreach (var file in TypeScriptContracts.GeneratedFiles)
+        {
+            ignore.ShouldContain($"src/messages/{file}");
+        }
     }
 }

@@ -34,10 +34,21 @@
     glob evaluates before any target runs, so on a clean build (no dist/ yet) it matches nothing
     and the "embedded" tool ships hollow. SkipFrontendBuild reuses an existing dist/.
   -->
+  <!--
+    The SPA's TypeScript contracts (src/messages/monitor-events.ts and relayRoutes.ts) are
+    generated from Contracts/ and gitignored (bobcat#604). They cannot be generated HERE: the
+    generator is this assembly, which is not built yet. So the Nuke UiContracts target writes them
+    first (Pack and UiSmoke depend on it), and the npm pre-hooks are told to skip, because a
+    `dotnet run` of the tool from inside the tool's own build is a build inside a build.
+  -->
   <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Condition="'$(EmbedFrontend)' == 'true'">
+    <Error Condition="'$(SkipFrontendBuild)' != 'true' And (!Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/src/messages/monitor-events.ts') Or !Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/src/messages/relayRoutes.ts'))"
+           Text="EmbedFrontend=true needs the SPA's generated TypeScript contracts (src/messages/monitor-events.ts, relayRoutes.ts). Run `./build.sh UiContracts` first, or pack through `./build.sh Pack`." />
     <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm ci"
+          EnvironmentVariables="BOBCAT_UI_CONTRACTS_SKIP=1"
           WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd" />
     <Exec Condition="'$(SkipFrontendBuild)' != 'true'" Command="npm run build"
+          EnvironmentVariables="BOBCAT_UI_CONTRACTS_SKIP=1"
           WorkingDirectory="$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd" />
 
     <ItemGroup>
@@ -65,7 +76,7 @@
     <!-- Wolverine 6.24 split the runtime (Roslyn) codegen compiler out of core; without this the
          host dies at startup in TypeLoadMode.Dynamic. -->
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
-    <!-- GenerateCommand: the SPA's TypeScript contract mirrors, from Contracts/MonitorEvents.cs. -->
+    <!-- GenerateCommand: the SPA's generated TypeScript contracts, from Contracts/MonitorEvents.cs. -->
     <PackageReference Include="NJsonSchema" />
     <PackageReference Include="NJsonSchema.CodeGeneration.TypeScript" />
   </ItemGroup>

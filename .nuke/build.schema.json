@@ -31,11 +31,14 @@
         "Docker",
         "Pack",
         "Restore",
+        "ResultsSchema",
+        "ResultsSchemaCompatibility",
         "Samples",
         "Test",
         "TestSamples",
         "TestSamplesOnFisher",
         "TUnitTests",
+        "UiContracts",
         "UiSmoke"
       ]
     },
@@ -121,6 +124,10 @@
         "SamplesPostgres": {
           "type": "string",
           "description": "Postgres the sample specs run against, without a database name - each sample gets its own"
+        },
+        "SchemaBaseline": {
+          "type": "string",
+          "description": "A results schema file to check against instead of the last released package's (ResultsSchemaCompatibility)"
         },
         "Solution": {
           "type": "string",
