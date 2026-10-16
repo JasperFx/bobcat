@@ -273,9 +273,10 @@ internal sealed class EnumChecker<T> : IValueChecker<T> where T : struct, Enum
 }
 
 /// <summary>
-/// Last-resort checker: convert expected text to <typeparamref name="T"/> via a
-/// <see cref="TypeConverter"/> / <see cref="Convert.ChangeType(object, Type)"/>, then compare
-/// with <see cref="EqualityComparer{T}.Default"/>.
+/// Last-resort checker: read expected text as <typeparamref name="T"/> through
+/// <see cref="Bobcat.Runtime.CellValues"/> — so a registered conversion, <see cref="IParsable{TSelf}"/>,
+/// a <see cref="TypeConverter"/> or a <c>ctor(string)</c> means the same on both sides of a table —
+/// then compare with <see cref="EqualityComparer{T}.Default"/>.
 /// </summary>
 internal sealed class FallbackChecker<T> : IValueChecker<T>
 {
@@ -284,32 +285,31 @@ internal sealed class FallbackChecker<T> : IValueChecker<T>
         var actualText = CheckFormat.Of(actual);
         var text = options.Trim ? expectedText.Trim() : expectedText;
 
-        if (!tryConvert(text, out var expected))
-            return CheckResult.Invalid(expectedText, actualText, $"could not convert '{expectedText}' to {typeof(T).Name}");
+        if (!tryConvert(text, out var expected, out var problem))
+            return CheckResult.Invalid(expectedText, actualText, problem);
 
         return EqualityComparer<T>.Default.Equals(actual, expected!)
             ? CheckResult.Match(CheckFormat.Of(expected), actualText)
             : CheckResult.Mismatch(CheckFormat.Of(expected), actualText);
     }
 
-    private static bool tryConvert(string text, out T value)
+    private static bool tryConvert(string text, out T value, out string problem)
     {
         value = default!;
+        problem = $"could not convert '{text}' to {typeof(T).Name}";
         try
         {
-            var converter = TypeDescriptor.GetConverter(typeof(T));
-            if (converter.CanConvertFrom(typeof(string)))
-            {
-                var converted = converter.ConvertFromInvariantString(text);
-                if (converted is null) return false;
-                value = (T)converted;
-                return true;
-            }
-
-            value = (T)Convert.ChangeType(text, typeof(T), CultureInfo.InvariantCulture);
+            var converted = Bobcat.Runtime.CellValues.Read(text, typeof(T));
+            if (converted is null) return false;
+            value = (T)converted;
             return true;
         }
-        catch
+        catch (BadCellException e)
+        {
+            problem = e.Message;
+            return false;
+        }
+        catch (Exception e) when (e is InvalidCastException or FormatException)
         {
             return false;
         }

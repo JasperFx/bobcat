@@ -559,6 +559,12 @@ not checked. A row that throws is a `row-error` cell and the remaining rows stil
 cancellation are not row failures. Naming the row method by string is a bounded softening of "no
 reflection", beside `RecordBuilding` and the store conventions.
 
+**A domain type in a cell (bobcat#542)** reads through `CellValues.Register<T>(Func<string, T>)`, then
+`IParsable<T>`, then a string `TypeConverter`, then a public `ctor(string)` (resolved once per type);
+a registration wins over the built-in readers too, and never sees `NULL`/`EMPTY`/relative times/quotes.
+`FallbackChecker` (the expected side's last resort) reads through `CellValues`, so both sides agree.
+Service-backed converters (Storyteller's `IRuntimeConverter`) are deferred.
+
 A column naming no property is an `invalid` cell **at run time**, unless the table is a constant the
 generator can check — see BOBCAT032 below.
 

@@ -60,4 +60,8 @@ public class BadCellException : Exception
     public BadCellException(string message) : base(message)
     {
     }
+
+    public BadCellException(string message, Exception inner) : base(message, inner)
+    {
+    }
 }
