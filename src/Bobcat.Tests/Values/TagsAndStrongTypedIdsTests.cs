@@ -34,9 +34,9 @@ public class StrongTypedIdRenderingTests
         using var _ = scenario();
         var theScreeningId = ScenarioValues.Declare(new ScreeningId(Guid.NewGuid()), "theScreeningId");
 
-        ScenarioValues.Format(theScreeningId).ShouldBe("theScreeningId");
+        ScenarioValues.Format(theScreeningId).ShouldBe("#theScreeningId");
         ScenarioValues.Describe(new SeatReserved(theScreeningId, new SeatCode("4C")))
-            .ShouldBe("SeatReserved(Screening: theScreeningId, Seat: SeatCode(4C))");
+            .ShouldBe("SeatReserved(Screening: #theScreeningId, Seat: SeatCode(4C))");
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class StrongTypedIdRenderingTests
 
         ScenarioValues.Describe(new SeatReserved(screening, new SeatCode("4C")));
 
-        ScenarioValues.Format(screening).ShouldBe("Screening");
+        ScenarioValues.Format(screening).ShouldBe("#Screening");
     }
 
     [Fact]
@@ -71,14 +71,14 @@ public class StrongTypedIdRenderingTests
         using var _ = scenario();
         var ticket = ScenarioValues.Declare(new TicketId(Guid.NewGuid()), "theTicketId");
 
-        ScenarioValues.Format(ticket).ShouldBe("theTicketId");
+        ScenarioValues.Format(ticket).ShouldBe("#theTicketId");
     }
 
     [Fact]
     public void a_record_with_one_member_that_is_not_called_value_reads_as_it_always_has()
     {
         ScenarioValues.Describe(new OneThing("x")).ShouldBe("OneThing(Name: \"x\")");
-        ScenarioValues.Describe(new KeyValuePair<string, string>("a", "b")).ShouldNotStartWith("KeyValuePair<String, String>(b");
+        ScenarioValues.Describe(new KeyValuePair<string, string>("a", "b")).ShouldNotStartWith("KeyValuePair<string, string>(b");
     }
 }
 
@@ -149,7 +149,7 @@ public class TaggedExpectationTests
         ScenarioValues.Declare(Customer, "theCustomerId");
 
         PartialMatching.DescribeExpected(Specify<SeatReserved>().With(x => x.Seat, new SeatCode("4C")).Tagged(Screening, Customer))
-            .ShouldBe("Seat: SeatCode(4C), tags: [theScreeningId, theCustomerId]");
+            .ShouldBe("Seat: SeatCode(4C), tags: [#theScreeningId, #theCustomerId]");
     }
 
     [Fact]
@@ -184,6 +184,6 @@ public class EventTagQueryDescriptionTests
         var query = JasperFx.Events.Tags.EventTagQuery.For(screening).AndEventsOfType<SeatReserved, SeatReleased>().Or(seat);
 
         Bobcat.CritterStack.EventStores.Describe(query)
-            .ShouldBe("events tagged theScreeningId (SeatReserved, SeatReleased) or SeatCode(4C)");
+            .ShouldBe("events tagged #theScreeningId (SeatReserved, SeatReleased) or SeatCode(4C)");
     }
 }

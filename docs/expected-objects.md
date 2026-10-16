@@ -238,8 +238,8 @@ Then the order matches
 
 | | |
 |---|---|
-| **Strong-typed ids** | a Guid-based id reads as the name its Guid was declared under (`theScreeningId`); any other as `ScreeningId(SCR-104)`, however the type is built -- `record struct`, Vogen, StronglyTypedId |
-| **Guids** | named after the property they were first seen under, minus a trailing `Id`, and the scenario's report lists each name beside its value |
+| **Strong-typed ids** | a Guid-based id reads as the name its Guid was declared under (`#theScreeningId`); any other as `ScreeningId(SCR-104)`, however the type is built -- `record struct`, Vogen, StronglyTypedId |
+| **Guids** | named after the property they were first seen under, minus a trailing `Id` (a bare `Id` takes its type's name, a second value `#Order2`), and read with a leading `#` -- `OrderStarted(OrderId: #Order)`, `there is no Product #Product` -- so a name is never mistaken for a type or a literal. The scenario's report lists each bare name beside its value |
 | **Enums** | compare by value or by name, so `Status.Open` agrees with `"Open"` |
 | **Decimals** | scale is not the claim: `2.50m` agrees with `2.5m` |
 | **F# options and single-case unions** | compare by what they hold, so `Some "UPS"` agrees with `"UPS"` and `OrderId g` with `g` |

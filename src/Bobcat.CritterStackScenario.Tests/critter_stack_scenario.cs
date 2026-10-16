@@ -45,7 +45,8 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         recording.GatheredFailures().ShouldBeNull();
         recording.Steps.Select(x => x.Keyword).ShouldBe(["Given", "And", "And"]);
         recording.Steps[0].Text.ShouldStartWith("the Wallet stream has already recorded WalletOpened(");
-        recording.Steps[1].Text.ShouldContain("has already recorded WalletOpened(");
+        // bobcat#640: a second stream's name is marked as an alias, so it cannot read as the type twice
+        recording.Steps[1].Text.ShouldStartWith("Wallet #Wallet2 has already recorded WalletOpened(");
         recording.Steps[2].Text.ShouldEndWith("has no events yet");
 
         (await scenario.TheAggregate<Wallet>(id))!.Balance.ShouldBe(10);
@@ -161,7 +162,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
     public async Task a_read_model_too_long_for_the_line_keeps_its_values_and_reads_back_by_a_readable_id()
     {
         // bobcat#618: a class read model rendered "the Customer read model is Customer" with none of its values,
-        // and a document named after its own type read "there is no Customer Customer"
+        // and a document named after its own type read "there is no Customer Customer" (#Customer since bobcat#640)
         var scenario = newScenario();
         var id = Guid.NewGuid();
         var customer = new Customer { Id = id, Name = new string('n', 80), City = "a city with a long enough name" };
@@ -175,7 +176,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         recording.GatheredFailures().ShouldBeNull();
         recording.Steps[0].Text.ShouldBe("the Customer read model is Customer");
         recording.Steps[0].Cells.Single(x => x.Name == "values").DisplayText.ShouldContain("City: \"a city with a long enough name\"");
-        recording.Steps.Select(x => x.Text).ShouldContain("there is a Customer with the Customer id");
+        recording.Steps.Select(x => x.Text).ShouldContain("there is a Customer #Customer");
 
         // A recording of its own starts with no names, so the id is named as the arranged document named it
         var missing = await Recordings.RecordAsync(() =>
@@ -183,7 +184,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
             ScenarioValues.Learn(id, "Customer");
             return scenario.ThenNoReadModel<Customer>(id);
         });
-        missing.Steps.Select(x => x.Text).ShouldContain("there is no Customer with the Customer id");
+        missing.Steps.Select(x => x.Text).ShouldContain("there is no Customer #Customer");
     }
 
     // ---- the store-only act ------------------------------------------------------------------
