@@ -234,7 +234,7 @@ public class RabbitMqTransportCompliance : TransportCompliance<RabbitFixture>;
 - **Skipping one subclass's copy:** override the method with `[BobcatSpec(Skip = "…")]`, not
   `[Fact(Skip = "…")]`. xUnit inherits the base's `[BobcatSpec]`, so a `[Fact]` on the override gives it
   two Fact-derived attributes and xUnit fails it at run time ("has multiple [Fact]-derived
-  attributes"). **BOBCAT039** (error) refuses that at build time.
+  attributes"). **BOBCAT040** (error) refuses that at build time.
 
 ### Asking for a subset
 

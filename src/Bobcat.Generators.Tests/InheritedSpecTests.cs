@@ -234,7 +234,7 @@ public class InheritedSpecTests
             }
             """);
 
-        var error = outcome.WithId("BOBCAT039").ShouldHaveSingleItem();
+        var error = outcome.WithId("BOBCAT040").ShouldHaveSingleItem();
         error.Severity.ShouldBe(DiagnosticSeverity.Error);
         error.GetMessage().ShouldContain("[BobcatSpec(Skip = \"...\")]");
     }
@@ -257,6 +257,6 @@ public class InheritedSpecTests
             }
             """);
 
-        outcome.WithId("BOBCAT039").ShouldBeEmpty();
+        outcome.WithId("BOBCAT040").ShouldBeEmpty();
     }
 }
