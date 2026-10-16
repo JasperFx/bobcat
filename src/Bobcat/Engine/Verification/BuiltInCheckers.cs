@@ -288,9 +288,45 @@ internal sealed class FallbackChecker<T> : IValueChecker<T>
         if (!tryConvert(text, out var expected, out var problem))
             return CheckResult.Invalid(expectedText, actualText, problem);
 
+        // A collection read from a comma list (bobcat#543) is a new instance, so it is compared by its
+        // items — in order, unless it is a set — and shown as the list it was written as.
+        if (Bobcat.Partial.CollectionShapes.ItemsOf(actual!) is { } actualItems
+            && Bobcat.Partial.CollectionShapes.ItemsOf(expected!) is { } expectedItems)
+        {
+            var expectedList = formatItems(expectedItems);
+            var actualList = formatItems(actualItems);
+            return sameItems(actualItems, expectedItems, isSet(typeof(T)))
+                ? CheckResult.Match(expectedList, actualList)
+                : CheckResult.Mismatch(expectedList, actualList);
+        }
+
         return EqualityComparer<T>.Default.Equals(actual, expected!)
             ? CheckResult.Match(CheckFormat.Of(expected), actualText)
             : CheckResult.Mismatch(CheckFormat.Of(expected), actualText);
+    }
+
+    private static string formatItems(IReadOnlyList<object?> items)
+        => string.Join(", ", items.Select(CheckFormat.Of));
+
+    private static bool isSet(Type type)
+        => type.GetInterfaces().Append(type).Any(i => i.IsGenericType
+            && (i.GetGenericTypeDefinition() == typeof(ISet<>)
+                || i.GetGenericTypeDefinition() == typeof(IReadOnlySet<>)));
+
+    private static bool sameItems(IReadOnlyList<object?> actual, IReadOnlyList<object?> expected, bool unordered)
+    {
+        if (actual.Count != expected.Count) return false;
+        if (!unordered) return actual.SequenceEqual(expected);
+
+        var remaining = expected.ToList();
+        foreach (var item in actual)
+        {
+            var index = remaining.FindIndex(x => Equals(x, item));
+            if (index < 0) return false;
+            remaining.RemoveAt(index);
+        }
+
+        return true;
     }
 
     private static bool tryConvert(string text, out T value, out string problem)
