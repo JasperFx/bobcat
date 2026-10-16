@@ -208,13 +208,19 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
     /// <c>PUT /api/event-model/{source}</c> — publish one producer's half of the model, replacing
     /// whatever that source published before. Issue #294. Never throws.
     /// </summary>
-    internal async Task<EventModelPush> PublishEventModel(string source, string json, CancellationToken token)
+    /// <param name="provenance">
+    /// Where the half was produced, sent as the optional <c>root</c> / <c>repository</c> /
+    /// <c>branch</c> query parameters (bobcat#532); null sends none.
+    /// </param>
+    internal async Task<EventModelPush> PublishEventModel(
+        string source, string json, CancellationToken token, CheckoutProvenance? provenance = null)
     {
         try
         {
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             using var response = await _client.PutAsync(
-                $"{SpecEventModelPublisher.Route}/{Uri.EscapeDataString(source)}", content, token);
+                $"{SpecEventModelPublisher.Route}/{Uri.EscapeDataString(source)}{provenance?.ToQueryString()}",
+                content, token);
 
             if (response.IsSuccessStatusCode) return new EventModelPush(Published: true, Refusal: null);
 

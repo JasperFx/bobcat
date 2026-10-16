@@ -245,7 +245,113 @@ internal static class GitInfo
         return (null, null);
     }
 
-    private static string? readBranch(string headPath)
+    /// <summary>What <see cref="FindCheckout"/> reads about one checkout.</summary>
+    internal sealed record Checkout(string Root, string? Repository, string? Branch);
+
+    /// <summary>
+    /// The checkout containing <paramref name="startDirectory"/> with the <c>owner/name</c> of its
+    /// <c>origin</c> remote, or null when it is in none. Unlike <see cref="Discover"/>, a detached
+    /// HEAD has no branch here: an Event Model half's <c>branch</c> (bobcat#532) is compared as a
+    /// branch, and a commit sha is not one. Never throws.
+    /// </summary>
+    public static Checkout? FindCheckout(string startDirectory)
+    {
+        try
+        {
+            var dir = new DirectoryInfo(startDirectory);
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir.FullName, ".git");
+
+                if (Directory.Exists(gitPath)) return checkoutAt(dir.FullName, gitPath);
+
+                if (File.Exists(gitPath))
+                {
+                    // A worktree: ".git" is a file pointing at the real git directory.
+                    var text = File.ReadAllText(gitPath).Trim();
+                    const string prefix = "gitdir:";
+                    if (!text.StartsWith(prefix)) return new Checkout(dir.FullName, null, null);
+
+                    var gitDir = text.Substring(prefix.Length).Trim();
+                    if (!Path.IsPathRooted(gitDir)) gitDir = Path.GetFullPath(Path.Combine(dir.FullName, gitDir));
+
+                    return checkoutAt(dir.FullName, gitDir);
+                }
+
+                dir = dir.Parent;
+            }
+        }
+        catch
+        {
+            // Metadata discovery is decoration, never a failure.
+        }
+
+        return null;
+    }
+
+    private static Checkout checkoutAt(string root, string gitDir)
+        => new(
+            root,
+            CheckoutProvenance.RepositoryFromRemote(readOriginUrl(Path.Combine(commonDirOf(gitDir), "config"))),
+            readBranch(Path.Combine(gitDir, "HEAD"), detachedAsSha: false));
+
+    /// <summary>
+    /// A worktree's git directory holds its own HEAD but shares the main checkout's config, which
+    /// it names in a <c>commondir</c> file (relative to itself).
+    /// </summary>
+    private static string commonDirOf(string gitDir)
+    {
+        try
+        {
+            var commonDir = Path.Combine(gitDir, "commondir");
+            if (!File.Exists(commonDir)) return gitDir;
+
+            var path = File.ReadAllText(commonDir).Trim();
+            return Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(gitDir, path));
+        }
+        catch
+        {
+            return gitDir;
+        }
+    }
+
+    /// <summary>The <c>url</c> of <c>[remote "origin"]</c> in a git config file, or null.</summary>
+    private static string? readOriginUrl(string configPath)
+    {
+        try
+        {
+            if (!File.Exists(configPath)) return null;
+
+            var inOrigin = false;
+            foreach (var raw in File.ReadLines(configPath))
+            {
+                var line = raw.Trim();
+                if (line.StartsWith('['))
+                {
+                    inOrigin = line.Replace(" ", "").Equals("[remote\"origin\"]", StringComparison.Ordinal);
+                    continue;
+                }
+
+                if (!inOrigin) continue;
+
+                var equals = line.IndexOf('=');
+                if (equals > 0 && line[..equals].Trim().Equals("url", StringComparison.OrdinalIgnoreCase))
+                {
+                    return line[(equals + 1)..].Trim();
+                }
+            }
+        }
+        catch
+        {
+            // Unreadable config: no repository, which only means the rule does not apply.
+        }
+
+        return null;
+    }
+
+    private static string? readBranch(string headPath) => readBranch(headPath, detachedAsSha: true);
+
+    private static string? readBranch(string headPath, bool detachedAsSha)
     {
         try
         {
@@ -254,6 +360,8 @@ internal static class GitInfo
             var head = File.ReadAllText(headPath).Trim();
             const string refPrefix = "ref: refs/heads/";
             if (head.StartsWith(refPrefix)) return head.Substring(refPrefix.Length);
+
+            if (!detachedAsSha) return null;
 
             // Detached HEAD: report the short sha rather than nothing.
             return head.Length >= 8 ? head.Substring(0, 8) : head;

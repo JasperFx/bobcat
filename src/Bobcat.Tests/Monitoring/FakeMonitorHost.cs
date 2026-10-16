@@ -128,6 +128,23 @@ internal sealed class FakeMonitorHost : IDisposable
         get { lock (_eventModelPushes) return _eventModelPushes.ToArray(); }
     }
 
+    /// <summary>
+    /// The query string of every Event Model PUT this host took, in arrival order and including
+    /// the leading '?' — empty for none. Where bobcat#532's provenance parameters arrive.
+    /// </summary>
+    public IReadOnlyList<string> EventModelPushQueries
+    {
+        get { lock (_eventModelPushes) return _eventModelPushQueries.ToArray(); }
+    }
+
+    private readonly List<string> _eventModelPushQueries = [];
+
+    private int _pings;
+
+    /// <summary>How many <c>GET /api/ping</c> probes this host answered — evidence for a test that
+    /// waits on a child process and has to say whether the child ever found it.</summary>
+    public int Pings => Volatile.Read(ref _pings);
+
     private async Task loop()
     {
         try
@@ -175,7 +192,11 @@ internal sealed class FakeMonitorHost : IDisposable
                     }
                     else
                     {
-                        lock (_eventModelPushes) _eventModelPushes.Add((source, body));
+                        lock (_eventModelPushes)
+                        {
+                            _eventModelPushes.Add((source, body));
+                            _eventModelPushQueries.Add(context.Request.Url?.Query ?? "");
+                        }
                         context.Response.StatusCode = 204;
                     }
                 }
@@ -206,6 +227,7 @@ internal sealed class FakeMonitorHost : IDisposable
                 }
                 else
                 {
+                    if (path == "/api/ping") Interlocked.Increment(ref _pings);
                     context.Response.StatusCode = 200;
                 }
 

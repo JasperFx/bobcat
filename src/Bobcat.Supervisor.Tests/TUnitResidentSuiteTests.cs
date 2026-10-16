@@ -59,10 +59,16 @@ public class TUnitResidentSuiteTests : IDisposable
     }
 
     private Task<OutOfProcessResidentSuite> coldSuiteFor(FakeMonitorHost monitor)
-        => OutOfProcessResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
+    {
+        _monitor = monitor;
+        return OutOfProcessResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
+    }
 
     private Task<WarmProjectedResidentSuite> warmSuiteFor(FakeMonitorHost monitor)
-        => WarmProjectedResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
+    {
+        _monitor = monitor;
+        return WarmProjectedResidentSuite.For(host, monitorUrl: monitor.Url, log: log, listingDirectory: _directory);
+    }
 
     [TUnitHostedFact]
     public async Task a_tunit_suite_lists_its_identities_and_is_no_longer_refused_at_launch()
@@ -180,7 +186,45 @@ public class TUnitResidentSuiteTests : IDisposable
     /// means the child published nothing — and then its own words are the whole diagnosis.
     /// </summary>
     private Task eventuallyWithEvidence(Func<bool> condition, string because)
-        => eventually(condition, () => because + childSaid);
+        => eventually(condition, () => because + monitorSaw + childSaid);
+
+    private FakeMonitorHost? _monitor;
+
+    /// <summary>
+    /// What the fake console received: whether the child's probe reached it at all, and which
+    /// events arrived. "No pings" and "pings, but no run_finished" are different bugs.
+    /// </summary>
+    private string monitorSaw
+    {
+        get
+        {
+            if (_monitor is null) return "";
+
+            var types = new List<string>();
+            foreach (var batch in _monitor.Batches)
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(batch);
+                    var root = document.RootElement;
+                    var events = root.ValueKind == JsonValueKind.Array
+                        ? root.EnumerateArray()
+                        : root.TryGetProperty("events", out var nested) ? nested.EnumerateArray() : default;
+                    foreach (var e in events)
+                    {
+                        if (e.TryGetProperty("type", out var type)) types.Add(type.GetString() ?? "?");
+                    }
+                }
+                catch
+                {
+                    types.Add("<unparseable batch>");
+                }
+            }
+
+            return $" The monitor answered {_monitor.Pings} ping(s) and took {_monitor.Batches.Count} batch(es)"
+                   + (types.Count == 0 ? "." : $": {string.Join(", ", types)}.");
+        }
+    }
 
     private static Task eventually(Func<bool> condition, string because) => eventually(condition, () => because);
 

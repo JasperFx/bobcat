@@ -129,6 +129,9 @@ internal static class SpecEventModelPublisher
     {
         if (halves.Count == 0) return [];
 
+        // One checkout, read once, whichever console it is sent to (bobcat#532).
+        var provenance = CheckoutProvenance.Discover(Directory.GetCurrentDirectory());
+
         // Concurrently, so the whole exchange stays inside ONE Ceiling however many targets there
         // are: sequentially, two wedged consoles would have cost a run two of them. Each target
         // collects its own notices and they are replayed below, which keeps `notify` a
@@ -137,7 +140,7 @@ internal static class SpecEventModelPublisher
             .Select(async publisher =>
             {
                 var notices = new List<string>();
-                var published = await PublishAll(publisher, halves, notices.Add);
+                var published = await PublishAll(publisher, halves, notices.Add, provenance);
                 return (published, notices);
             })
             .ToArray();
@@ -164,10 +167,17 @@ internal static class SpecEventModelPublisher
     /// model-name rule and the rejection path can be exercised without a spec assembly whose
     /// generated source happens to say the right thing.
     /// </summary>
+    /// <param name="provenance">
+    /// Where the halves were produced (bobcat#532). Null reads the working directory's checkout,
+    /// which is the same checkout the run reports as its repository.
+    /// </param>
     internal static async Task<IReadOnlyList<string>> PublishAll(
-        MonitorPublisher publisher, IReadOnlyList<Half> halves, Action<string>? notify = null)
+        MonitorPublisher publisher, IReadOnlyList<Half> halves, Action<string>? notify = null,
+        CheckoutProvenance? provenance = null)
     {
         if (halves.Count == 0) return [];
+
+        provenance ??= CheckoutProvenance.Discover(Directory.GetCurrentDirectory());
 
         var published = new List<string>();
 
@@ -193,7 +203,7 @@ internal static class SpecEventModelPublisher
             }
 
             var json = JsonSerializer.Serialize(half.Descriptor, Wire);
-            var push = await publisher.PublishEventModel(half.Source, json, cts.Token);
+            var push = await publisher.PublishEventModel(half.Source, json, cts.Token, provenance);
 
             if (push.Published)
             {
