@@ -38,22 +38,46 @@ export interface RunnerView {
   commands: RunnerCommandView[]
 }
 
-/** What a button runs: named specs, or a whole feature. */
-export type RunTarget = { specs: string[] } | { feature: string }
+/**
+ * What a button runs: named specs, a whole feature, or a whole project (bobcat#645). `all` may name
+ * the one runner it is for, when the button sits beside that runner.
+ */
+export type RunTarget = { specs: string[] } | { feature: string } | { all: true; runnerId?: string }
 
 export const START_A_RUNNER = 'bobcat resident <test host>'
 
 export async function findRunners(target: RunTarget, fetchImpl: typeof fetch = fetch): Promise<RunnerView[] | null> {
   const query = new URLSearchParams()
-  if ('feature' in target) query.set('feature', target.feature)
+  if ('all' in target) query.set('all', 'true')
+  else if ('feature' in target) query.set('feature', target.feature)
   else for (const spec of target.specs) query.append('spec', spec)
 
   try {
     const response = await fetchImpl(`/api/runners/for?${query}`)
-    return response.ok ? ((await response.json()) as RunnerView[]) : null
+    if (!response.ok) return null
+    const runners = (await response.json()) as RunnerView[]
+    return 'all' in target && target.runnerId ? runners.filter((r) => r.runnerId === target.runnerId) : runners
   } catch {
     return null
   }
+}
+
+/** Every runner the UI knows (bobcat#645): what the board offers before anything has run. */
+export async function loadRunners(fetchImpl: typeof fetch = fetch): Promise<RunnerView[] | null> {
+  try {
+    const response = await fetchImpl('/api/runners')
+    const body = response.ok ? await response.json() : null
+    return Array.isArray(body) ? (body as RunnerView[]) : null
+  } catch {
+    return null
+  }
+}
+
+/** What a target runs, in words. */
+export function describeTarget(target: RunTarget): string {
+  if ('all' in target) return 'the whole project'
+  if ('feature' in target) return `feature ${target.feature}`
+  return target.specs.length === 1 ? target.specs[0]! : `${target.specs.length} specs`
 }
 
 export async function loadRunner(runnerId: string, fetchImpl: typeof fetch = fetch): Promise<RunnerView | null> {
@@ -74,10 +98,12 @@ export async function askRunner(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Asked> {
   try {
+    // The runner a whole-project button is for chose the runner already; it is not part of the request.
+    const { runnerId: _ignored, ...asked } = request as Record<string, unknown>
     const response = await fetchImpl(`/api/runners/${encodeURIComponent(runnerId)}/commands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...request, by: 'bobcat-ui' }),
+      body: JSON.stringify({ ...asked, by: 'bobcat-ui' }),
     })
     const body = (await response.json().catch(() => null)) as
       | { commandId?: string; specs?: string[]; errors?: string[]; message?: string }

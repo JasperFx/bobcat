@@ -10,14 +10,18 @@ using Wolverine.Util;
 
 namespace Bobcat.Ui.Runners;
 
-/// <summary>A person asks a runner for a run (stoat#77). Exactly one of <see cref="Specs"/> or
-/// <see cref="Feature"/> — or <see cref="Restart"/> for a new runner.</summary>
+/// <summary>A person asks a runner for a run (stoat#77). Exactly one of <see cref="Specs"/>,
+/// <see cref="Feature"/> or <see cref="All"/> — or <see cref="Restart"/> for a new runner.</summary>
+/// <param name="All">Every specification the runner registered (bobcat#645): the whole project.
+/// Resolved here to those identities, as a feature is, so the runner still receives identities and
+/// its refusal of a command naming none is unchanged.</param>
 public record RunnerCommandRequest(
     IReadOnlyList<string>? Specs = null,
     string? Feature = null,
     string? Mode = null,
     bool Restart = false,
-    string? By = null);
+    string? By = null,
+    bool All = false);
 
 public record RunnerCommandQueued(Guid CommandId, string Kind, IReadOnlyList<string> Specs, string Mode);
 
@@ -124,13 +128,18 @@ public static class RunnerEndpoints
             return Results.Accepted(value: new RunnerCommandQueued(restart, "restart", [], RunnerWire.Cold));
         }
 
-        var sources = (request.Specs is { Count: > 0 } ? 1 : 0) + (request.Feature is not null ? 1 : 0);
-        if (sources != 1) return refuse("name exactly one of specs or feature — or restart");
+        var sources = (request.Specs is { Count: > 0 } ? 1 : 0) + (request.Feature is not null ? 1 : 0) + (request.All ? 1 : 0);
+        if (sources != 1) return refuse("name exactly one of specs, feature or all — or restart");
 
         IReadOnlyList<string> specs;
         if (request.Specs is { Count: > 0 } named)
         {
             specs = named.Distinct().ToList();
+        }
+        else if (request.All)
+        {
+            specs = registered.Distinct().ToList();
+            if (specs.Count == 0) return refuse("this runner registered no specifications to run");
         }
         else
         {
@@ -158,12 +167,16 @@ public static class RunnerEndpoints
         => runners.All(runLookup(runs));
 
     /// <summary>
-    /// Which runners can run this (stoat#78): <c>?spec=</c>, repeated, or <c>?feature=</c>. Empty is an
-    /// answer — the button says no runner can, and how to start one — never a 404.
+    /// Which runners can run this (stoat#78): <c>?spec=</c>, repeated, <c>?feature=</c>, or
+    /// <c>?all=true</c> for a whole project (every runner that registered anything, bobcat#645).
+    /// Empty is an answer — the button says no runner can, and how to start one — never a 404.
     /// </summary>
     [WolverineGet("/api/runners/for")]
     public static IReadOnlyList<RunnerView> For(HttpRequest request, RunnerRegistry runners, MonitorRunRegistry runs)
     {
+        if (bool.TryParse(request.Query["all"].FirstOrDefault(), out var all) && all)
+            return runners.All(runLookup(runs)).Where(x => x.Specs > 0).ToList();
+
         var specs = request.Query["spec"].Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
         var feature = request.Query["feature"].FirstOrDefault();
         return runners.CandidatesFor(specs, string.IsNullOrWhiteSpace(feature) ? null : feature, runLookup(runs));

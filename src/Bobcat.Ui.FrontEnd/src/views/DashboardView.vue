@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRunsStore, type RunState } from '@/stores/runs-store'
 import LaneStrip from '@/components/LaneStrip.vue'
+import RunnersPanel from '@/components/RunnersPanel.vue'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/composables/time'
 import { loadRunLimit, RUN_LIMIT_CHOICES, saveRunLimit, visibleRuns } from '@/lib/runBoard'
 
@@ -275,6 +276,7 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
         </el-button>
       </div>
     </div>
+    <RunnersPanel />
     <el-empty v-if="runs.allRuns.length === 0" description="No runs yet — waiting for a publisher" />
     <el-card v-for="run in board.shown" :key="run.runId" class="bm-run-card" :data-live="isLive(run)">
       <div class="bm-run-row">

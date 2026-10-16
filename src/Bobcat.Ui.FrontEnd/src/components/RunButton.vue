@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import {
   askRunner,
   commandProgress,
+  describeTarget,
   findRunners,
   loadMode,
   loadRunner,
@@ -40,13 +41,7 @@ const mode = computed(() => (selected.value ? modeFor(selected.value, remembered
 const offersWarm = computed(() => selected.value?.modes.includes('warm') ?? false)
 const progress = computed(() => commandProgress(command.value))
 
-const what = computed(() =>
-  'feature' in props.target
-    ? `feature ${props.target.feature}`
-    : props.target.specs.length === 1
-      ? props.target.specs[0]
-      : `${props.target.specs.length} specs`,
-)
+const what = computed(() => describeTarget(props.target))
 
 async function press(): Promise<void> {
   open.value = true

@@ -20,6 +20,12 @@ onMounted(() => {
   if (model.status === 'idle') void model.load()
 })
 
+/**
+ * bobcat#645: this run's selection, to run again — every specification it ran, whatever happened
+ * to them. A supervised foreign test has no feature, so no identity a runner knows.
+ */
+const selection = computed(() => scenarios.value.filter((s) => s.feature).map((s) => s.uid))
+
 /** stoat#78: what "re-run failed" runs. A supervised foreign test has no feature, so no identity a runner knows. */
 const failed = computed(() =>
   scenarios.value.filter((s) => (s.status === 'failed' || s.status === 'aborted') && s.feature).map((s) => s.uid),
@@ -42,6 +48,12 @@ function sliceOf(uid: string) {
     <h2 class="bm-run-heading">
       {{ run.suite }}
       <RunButton v-if="failed.length > 0" :target="{ specs: failed }" :label="`Re-run failed (${failed.length})`" />
+      <RunButton
+        v-if="selection.length > 0"
+        :target="{ specs: selection }"
+        :label="`Run again (${selection.length})`"
+        data-testid="run-again"
+      />
     </h2>
     <div class="bm-run-meta">
       {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span>
