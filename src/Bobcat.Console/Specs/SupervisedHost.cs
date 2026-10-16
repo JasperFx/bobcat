@@ -219,6 +219,9 @@ internal static class SupervisedHost
             foreach (var file in written) AnsiConsole.MarkupLine($"[dim]results: {Markup.Escape(file)}[/]");
         }
 
+        // Every worker's file on one page; a retried specification is there once per attempt.
+        if (options.HtmlFile is { } html) SpecHost.WriteHtml(html, written, attachmentsKept: !ownResults);
+
         IReadOnlyList<string> failed = [];
         var resultsRead = false;
         try

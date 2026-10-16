@@ -1,0 +1,633 @@
+{
+ "$schema": "bobcat-results-1.0.schema.json",
+ "schemaVersion": "1.0",
+ "run": {
+  "runId": "b4c8ddd9-c268-4af8-87ec-c4f7f30b4c81",
+  "suite": "Bobcat.Xunit.Samples",
+  "mode": "xunit",
+  "repository": "/src/bobcat",
+  "branch": "main",
+  "tag": null,
+  "startedAt": "2026-10-16T19:31:09.799593+00:00",
+  "finishedAt": "2026-10-16T19:31:10.026665+00:00",
+  "durationMs": 227
+ },
+ "summary": {
+  "scenarios": 6,
+  "passed": 1,
+  "failed": 4,
+  "acceptanceFailing": 1,
+  "succeeded": false,
+  "rights": 10,
+  "wrongs": 6,
+  "errors": 1
+ },
+ "scenarios": [
+  {
+   "id": "Acceptance specifications/a wrong is gathered before the behaviour is finished",
+   "title": "a wrong is gathered before the behaviour is finished",
+   "feature": "Acceptance specifications",
+   "succeeded": false,
+   "verdict": "acceptance: failing",
+   "specLifecycle": "acceptance",
+   "counts": {
+    "rights": 1,
+    "wrongs": 1,
+    "errors": 0,
+    "succeeded": false
+   },
+   "durationMs": 0,
+   "stepsMs": 0,
+   "steps": [
+    {
+     "stepId": "d1",
+     "kind": "Given",
+     "keyword": "Given",
+     "narrative": true,
+     "text": "the thing is activated",
+     "status": "success",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "s1",
+     "kind": "Then",
+     "keyword": "Then",
+     "depth": 1,
+     "text": "The thing is activated",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "d2",
+     "kind": "Then",
+     "keyword": "Then",
+     "narrative": true,
+     "text": "the line that is not true yet",
+     "status": "failed",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "s2",
+     "kind": "Then",
+     "keyword": "And",
+     "depth": 1,
+     "text": "This line is always false",
+     "status": "failed",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0
+    }
+   ]
+  },
+  {
+   "id": "Actions/custom logging from a step",
+   "title": "custom logging from a step",
+   "feature": "Actions",
+   "succeeded": true,
+   "verdict": "passed",
+   "counts": {
+    "rights": 3,
+    "wrongs": 0,
+    "errors": 0,
+    "succeeded": true
+   },
+   "durationMs": 39,
+   "stepsMs": 35,
+   "steps": [
+    {
+     "stepId": "s1",
+     "kind": "When",
+     "keyword": "When",
+     "text": "Do something that requires custom logging",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 2
+    },
+    {
+     "stepId": "s2",
+     "kind": "Then",
+     "keyword": "And",
+     "text": "Start the batch process and wait for it to finish",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 3,
+     "durationMs": 35,
+     "logs": [
+      "batch started",
+      "batch finished"
+     ]
+    },
+    {
+     "stepId": "s3",
+     "kind": "Then",
+     "keyword": "Then",
+     "text": "12 records should have been processed",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 38,
+     "cells": [
+      {
+       "column": "count",
+       "status": "success",
+       "expected": "12",
+       "actual": "12"
+      }
+     ]
+    }
+   ],
+   "logs": [
+    "between steps: 12 rows"
+   ],
+   "reports": [
+    {
+     "title": "Envelopes",
+     "grid": {
+      "columns": [
+       "Message",
+       "Outcome"
+      ],
+      "rows": [
+       {
+        "row": 0,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Message",
+          "row": 0,
+          "status": "ok",
+          "value": "Debit"
+         },
+         {
+          "column": "Outcome",
+          "row": 0,
+          "status": "ok",
+          "value": "Succeeded"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "Calculator/an exception in an action stops the scenario",
+   "title": "an exception in an action stops the scenario",
+   "feature": "Calculator",
+   "succeeded": false,
+   "verdict": "failed",
+   "counts": {
+    "rights": 1,
+    "wrongs": 0,
+    "errors": 1,
+    "succeeded": false
+   },
+   "durationMs": 0,
+   "stepsMs": 0,
+   "steps": [
+    {
+     "stepId": "s1",
+     "kind": "Given",
+     "keyword": "Given",
+     "text": "Start with 3",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "s2",
+     "kind": "When",
+     "keyword": "When",
+     "text": "Divide by zero using integer maths",
+     "status": "error",
+     "failureLevel": "Critical",
+     "startedAtMs": 0,
+     "error": "Attempted to divide by zero.",
+     "exceptionType": "DivideByZeroException",
+     "attachments": [
+      {
+       "name": "screen.png",
+       "mediaType": "image/png",
+       "size": 2048,
+       "path": "attachments/run/spec/01-screen.png"
+      }
+     ]
+    },
+    {
+     "stepId": "p98",
+     "kind": "Then",
+     "keyword": "Then",
+     "notRun": true,
+     "text": "The value should be {value}",
+     "status": "ok",
+     "startedAtMs": 0
+    }
+   ],
+   "attachments": [
+    {
+     "name": "huge.log",
+     "mediaType": "text/plain",
+     "size": 99999999,
+     "omitted": "over the 10 MB cap"
+    }
+   ]
+  },
+  {
+   "id": "Calculator/asserting values",
+   "title": "asserting values",
+   "feature": "Calculator",
+   "succeeded": false,
+   "verdict": "failed",
+   "counts": {
+    "rights": 6,
+    "wrongs": 2,
+    "errors": 0,
+    "succeeded": false
+   },
+   "durationMs": 0,
+   "stepsMs": 0,
+   "steps": [
+    {
+     "stepId": "s1",
+     "kind": "Then",
+     "keyword": "Then",
+     "text": "Adding 3 to 3 should equal 6",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "returnValue",
+       "status": "success",
+       "expected": "6",
+       "actual": "6"
+      }
+     ]
+    },
+    {
+     "stepId": "s2",
+     "kind": "Then",
+     "keyword": "And",
+     "text": "For X=5 and Y=6, the Sum should be 11 and the Product should be 30",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "Sum",
+       "status": "success",
+       "expected": "11",
+       "actual": "11"
+      },
+      {
+       "column": "Product",
+       "status": "success",
+       "expected": "30",
+       "actual": "30"
+      }
+     ]
+    },
+    {
+     "stepId": "s3",
+     "kind": "Then",
+     "keyword": "And",
+     "text": "For X=3 and Y=3, the Sum should be 6 and the Product should be 9",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "Sum",
+       "status": "success",
+       "expected": "6",
+       "actual": "6"
+      },
+      {
+       "column": "Product",
+       "status": "success",
+       "expected": "9",
+       "actual": "9"
+      }
+     ]
+    },
+    {
+     "stepId": "s4",
+     "kind": "Then",
+     "keyword": "And",
+     "text": "For X=4 and Y=4, the Sum should be 6 and the Product should be 8",
+     "status": "failed",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "Sum",
+       "status": "failed",
+       "expected": "6",
+       "actual": "8"
+      },
+      {
+       "column": "Product",
+       "status": "failed",
+       "expected": "8",
+       "actual": "16"
+      }
+     ]
+    },
+    {
+     "stepId": "s5",
+     "kind": "Then",
+     "keyword": "And",
+     "text": "The value should be 6",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "value",
+       "status": "success",
+       "expected": "6",
+       "actual": "6"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "Calculator, narrated/the run throws before the next action",
+   "title": "the run throws before the next action",
+   "feature": "Calculator, narrated",
+   "succeeded": false,
+   "verdict": "failed",
+   "counts": {
+    "rights": 0,
+    "wrongs": 1,
+    "errors": 0,
+    "succeeded": false
+   },
+   "durationMs": 0,
+   "stepsMs": 0,
+   "steps": [
+    {
+     "stepId": "d1",
+     "kind": "Then",
+     "keyword": "Then",
+     "narrative": true,
+     "text": "the value disagrees",
+     "status": "failed",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "s1",
+     "kind": "Then",
+     "keyword": "Then",
+     "depth": 1,
+     "text": "calculator.Value should be 99",
+     "status": "failed",
+     "failureLevel": "Assertion",
+     "startedAtMs": 0,
+     "cells": [
+      {
+       "column": "calculator.Value",
+       "status": "failed",
+       "expected": "99",
+       "actual": "3"
+      }
+     ]
+    },
+    {
+     "stepId": "d2",
+     "kind": "When",
+     "keyword": "When",
+     "narrative": true,
+     "text": "the calculator is doubled anyway",
+     "status": "ok",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "d3",
+     "kind": "Then",
+     "keyword": "Then",
+     "narrative": true,
+     "text": "this is never reached",
+     "status": "ok",
+     "startedAtMs": 0
+    },
+    {
+     "stepId": "p140",
+     "kind": "Then",
+     "keyword": "Then",
+     "depth": 1,
+     "notRun": true,
+     "text": "calculator.Value should be 6",
+     "status": "ok",
+     "startedAtMs": 0
+    }
+   ]
+  },
+  {
+   "id": "Sets/a set of names missing one and expecting one that is not there",
+   "title": "a set of names missing one and expecting one that is not there",
+   "feature": "Sets",
+   "succeeded": false,
+   "verdict": "failed",
+   "counts": {
+    "rights": 3,
+    "wrongs": 2,
+    "errors": 0,
+    "succeeded": false
+   },
+   "durationMs": 9,
+   "stepsMs": 6,
+   "steps": [
+    {
+     "stepId": "s1",
+     "kind": "Given",
+     "keyword": "Given",
+     "text": "the names are",
+     "status": "success",
+     "failureLevel": "Assertion",
+     "startedAtMs": 2,
+     "durationMs": 1,
+     "cells": [
+      {
+       "column": "Name",
+       "status": "ok",
+       "value": "Luke"
+      },
+      {
+       "column": "Name",
+       "status": "ok",
+       "value": "Han"
+      },
+      {
+       "column": "Name",
+       "status": "ok",
+       "value": "Chewie"
+      }
+     ],
+     "setVerification": {
+      "columns": [
+       "Name"
+      ],
+      "rows": [
+       {
+        "row": 0,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 0,
+          "status": "ok",
+          "value": "Luke"
+         }
+        ]
+       },
+       {
+        "row": 1,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 1,
+          "status": "ok",
+          "value": "Han"
+         }
+        ]
+       },
+       {
+        "row": 2,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 2,
+          "status": "ok",
+          "value": "Chewie"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "stepId": "s2",
+     "kind": "Then",
+     "keyword": "Then",
+     "text": "the names in order should be",
+     "status": "failed",
+     "failureLevel": "Assertion",
+     "startedAtMs": 3,
+     "durationMs": 5,
+     "cells": [
+      {
+       "column": "Name",
+       "status": "success",
+       "expected": "Luke",
+       "actual": "Luke"
+      },
+      {
+       "column": "Name",
+       "status": "success",
+       "expected": "Han",
+       "actual": "Han"
+      },
+      {
+       "column": "missing-row",
+       "status": "missing",
+       "note": "Expected row not found: Name=Leia",
+       "value": "Expected row not found: Name=Leia"
+      },
+      {
+       "column": "Name",
+       "status": "ok",
+       "expected": "Leia"
+      },
+      {
+       "column": "extra-row",
+       "status": "invalid",
+       "note": "Extra row: Name=Chewie",
+       "value": "Extra row: Name=Chewie"
+      },
+      {
+       "column": "Name",
+       "status": "ok",
+       "actual": "Chewie"
+      }
+     ],
+     "setVerification": {
+      "columns": [
+       "Name"
+      ],
+      "rows": [
+       {
+        "row": 0,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 0,
+          "status": "success",
+          "expected": "Luke",
+          "actual": "Luke"
+         }
+        ]
+       },
+       {
+        "row": 1,
+        "type": "Matched",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 1,
+          "status": "success",
+          "expected": "Han",
+          "actual": "Han"
+         }
+        ]
+       },
+       {
+        "row": 2,
+        "type": "Missing",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 2,
+          "status": "missing",
+          "expected": "Leia"
+         }
+        ],
+        "description": "Expected row not found: Name=Leia"
+       },
+       {
+        "row": 3,
+        "type": "Extra",
+        "cells": [
+         {
+          "column": "Name",
+          "row": 3,
+          "status": "invalid",
+          "actual": "Chewie"
+         }
+        ],
+        "description": "Extra row: Name=Chewie"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "timing": {
+  "measuredMs": 50,
+  "scenarios": [
+   {
+    "feature": "Actions",
+    "title": "custom logging from a step",
+    "wallClockMs": 39,
+    "stepsMs": 35,
+    "unownedMs": 4
+   }
+  ],
+  "steps": []
+ }
+}

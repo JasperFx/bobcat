@@ -169,6 +169,24 @@ export interface StepState {
   /** Named diagnostics the step attached. */
   diagnostics: Record<string, string>
   exception: StepExceptionState | null
+  /**
+   * What the step attached (bobcat#571), as links the page can follow. Only the HTML results page
+   * fills it (bobcat#541), from the results file's `path`; the board does not fold the wire's
+   * attachment references onto steps yet.
+   */
+  attachments?: StepAttachment[]
+}
+
+/** An attachment as a viewer renders it: a link when the bytes were kept somewhere it can reach. */
+export interface StepAttachment {
+  name: string
+  mediaType: string
+  /** Size in bytes. */
+  size: number
+  /** Where the bytes are, relative to the page; null when they were not kept. */
+  href: string | null
+  /** Why the bytes were not kept, such as being over the size cap. */
+  omitted: string | null
 }
 
 // 'acceptance-failing' (bobcat#545): an Acceptance spec not yet passing — recorded in full, and not a

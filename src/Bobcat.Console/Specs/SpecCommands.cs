@@ -49,8 +49,12 @@ public class SpecInput
     [Description("Write every scenario's reports, passing ones too, on every surface -- BOBCAT_VERBOSE_REPORTS for the host")]
     public bool VerboseFlag { get; set; }
 
+    [Description("Also write the run as one self-contained HTML results page to this file; with --results its attachments link from it")]
+    public string? HtmlFlag { get; set; }
+
     internal RunOptions RunOptions => new(
-        ResultsFlag is { Length: > 0 } results ? Path.GetFullPath(results) : null, JsonFlag, VerboseFlag);
+        ResultsFlag is { Length: > 0 } results ? Path.GetFullPath(results) : null, JsonFlag, VerboseFlag,
+        HtmlFlag is { Length: > 0 } html ? Path.GetFullPath(html) : null);
 
     /// <summary>
     /// With <c>--json</c>, standard output is the results file and nothing else, so an agent can
@@ -75,7 +79,7 @@ public class SpecRunInput : SpecInput
     [Description("Run only the specifications that failed or errored in this project's last run (obj/bobcat/last-run.json)")]
     public bool FailedFlag { get; set; }
 
-    [Description("Run the last run's selection again, with its framework, configuration, --results, --json, --verbose and supervision flags")]
+    [Description("Run the last run's selection again, with its framework, configuration, --results, --html, --json, --verbose and supervision flags")]
     public bool RepeatFlag { get; set; }
 
     [Description("Supervised: retry a failed specification up to N times. Only one with a Retry trait or a recovery hint is retried")]
@@ -164,6 +168,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             input.FrameworkFlag ??= recorded.Framework;
             input.ConfigurationFlag = recorded.Configuration;
             input.ResultsFlag ??= recorded.Results;
+            input.HtmlFlag ??= recorded.Html;
             input.JsonFlag |= recorded.Json;
             input.VerboseFlag |= recorded.Verbose;
             input.RetriesFlag ??= recorded.Retries;
@@ -251,6 +256,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     Configuration = project.Configuration,
                     Selection = chosen.Identities.ToList(),
                     Results = input.RunOptions.ResultsDirectory,
+                    Html = input.RunOptions.HtmlFile,
                     Json = input.JsonFlag,
                     Verbose = input.VerboseFlag,
                     Retries = supervision?.Retries,

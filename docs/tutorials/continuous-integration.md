@@ -69,6 +69,25 @@ it ([The results file](../bobcat-tool.md#results-file)):
     path: artifacts/bobcat
 ```
 
+For a person rather than a parser, add the [HTML results page](../bobcat-tool.md#results-page): one
+self-contained file, rendered the way `bobcat ui` renders a run, that opens from the downloaded
+artifact with no server. Write it from the results files before the upload:
+
+```yaml
+- run: dotnet test
+  env:
+    BOBCAT_RESULTS: artifacts/bobcat
+- run: bobcat results-html artifacts/bobcat     # artifacts/bobcat/results.html
+  if: always()
+- uses: actions/upload-artifact@v4
+  if: always()
+  with:
+    name: bobcat-results
+    path: artifacts/bobcat
+```
+
+(`bobcat run --results artifacts/bobcat --html artifacts/bobcat/results.html` does both in one step.)
+
 ## 5. Publish the run
 
 A run can announce itself over a documented wire -- every scenario's start, verdict and timing --

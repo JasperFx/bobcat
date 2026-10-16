@@ -17,6 +17,8 @@ on:
     paths:
       - 'src/Bobcat.Ui.FrontEnd/**'
       - 'src/Bobcat.Ui/Contracts/**'
+      # The results file's records: the HTML results page's types are generated from its schema.
+      - 'src/Bobcat/Rendering/**'
       - 'build/**'
       - '.github/workflows/ui-frontend.yml'
 
@@ -61,3 +63,8 @@ jobs:
       # Rollup cannot split), and before this step that first showed up in the release's pack.
       - name: Production build (Vite)
         run: npx vite build
+
+      # The HTML results page (bobcat#541): one self-contained file. Its build fails if the page
+      # would reference anything beside itself.
+      - name: Results page build (Vite, single file)
+        run: npx vite build --config vite.config.results.ts

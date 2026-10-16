@@ -123,6 +123,10 @@ internal sealed class LastRunArguments
     public List<string> Selection { get; set; } = new();
 
     public string? Results { get; set; }
+
+    /// <summary>The HTML results page <c>--html</c> wrote (bobcat#541), as a full path.</summary>
+    public string? Html { get; set; }
+
     public bool Json { get; set; }
     public bool Verbose { get; set; }
 

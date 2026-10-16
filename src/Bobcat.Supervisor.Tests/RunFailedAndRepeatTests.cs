@@ -120,6 +120,40 @@ public class RunFailedAndRepeatTests : IDisposable
         scenariosIn(again.Output).ShouldBe(["Basics/also passes"]);
     }
 
+    /// <summary>
+    /// bobcat#541: <c>--html</c> writes the page from the run's results, and is replayed by
+    /// <c>--repeat</c>. The page is a template only a tool packed with EmbedFrontend carries, so a
+    /// plain build says why there is no page instead — and either way the run's verdict is the
+    /// specifications', never the page's. ui-smoke.yml opens a page the packed tool wrote.
+    /// </summary>
+    [Fact]
+    public async Task html_writes_the_results_page_or_says_why_it_cannot()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "bobcat-run-html", Guid.NewGuid().ToString("N"));
+        var page = Path.Combine(directory, "results.html");
+        try
+        {
+            var run = await bobcat("--feature", "Basics", "--scenario", "also passes", "--html", page);
+            run.ExitCode.ShouldBe(0, run.Output);
+
+            if (File.Exists(page))
+            {
+                File.ReadAllText(page).ShouldContain("Basics");
+            }
+            else
+            {
+                string.Join(' ', run.Output.Split((char[])['\n', '\r', ' '], StringSplitOptions.RemoveEmptyEntries))
+                    .ShouldContain("built without its web pages");
+            }
+
+            recorded()["arguments"]!["html"]!.GetValue<string>().ShouldBe(page);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task an_identity_the_suite_no_longer_has_is_refused_by_name()
     {

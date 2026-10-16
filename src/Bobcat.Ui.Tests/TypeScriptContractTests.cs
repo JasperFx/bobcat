@@ -91,24 +91,51 @@ public class TypeScriptContractTests
     }
 
     [Fact]
-    public void the_command_writes_both_files_and_a_second_run_changes_nothing()
+    public void the_command_writes_every_file_and_a_second_run_changes_nothing()
     {
         var frontEnd = Path.Combine(Path.GetTempPath(), "bobcat-ui-contracts", Guid.NewGuid().ToString("N"));
+        var schema = Bobcat.Rendering.ResultsFile.SchemaText;
         try
         {
-            var first = GenerateCommand.Write(frontEnd);
+            var first = GenerateCommand.Write(frontEnd, schema);
             first.Select(r => Path.GetFileName(r.Path)).ShouldBe(TypeScriptContracts.GeneratedFiles);
             first.ShouldAllBe(r => r.Changed);
 
             File.ReadAllText(first[0].Path).ShouldBe(TypeScriptContracts.GenerateMonitorEvents());
             File.ReadAllText(first[1].Path).ShouldBe(TypeScriptContracts.GenerateRelayRoutes());
+            File.ReadAllText(first[2].Path).ShouldBe(TypeScriptContracts.GenerateResultsFile(schema));
 
-            GenerateCommand.Write(frontEnd).ShouldAllBe(r => !r.Changed);
+            GenerateCommand.Write(frontEnd, schema).ShouldAllBe(r => !r.Changed);
         }
         finally
         {
             if (Directory.Exists(frontEnd)) Directory.Delete(frontEnd, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// The results page (bobcat#541) reads these by name. The schema's object types are anonymous,
+    /// so a name falling back to NJsonSchema's (<c>Scenarios2</c>, <c>ScenarioFailureCells</c>) is a
+    /// renamed type the page's imports stop finding — or, worse, one that still compiles.
+    /// </summary>
+    [Fact]
+    public void the_results_file_types_are_named_for_what_they_carry()
+    {
+        var generated = TypeScriptContracts.GenerateResultsFile(Bobcat.Rendering.ResultsFile.SchemaText);
+
+        var names = System.Text.RegularExpressions.Regex.Matches(generated, @"^export interface (\w+) \{", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        names.ShouldBe([
+            "BobcatResults", "ResultsRun", "ResultsSummary", "ResultsScenario", "ResultsTiming", "ResultsReport",
+            "ResultsCounts", "ResultsStep", "ResultsCell", "ResultsAttachment", "ResultsScenarioTiming",
+            "ResultsStepCost", "ResultsGap", "ResultsGrid", "ResultsGridRow"
+        ], ignoreOrder: true);
+
+        generated.ShouldContain("  setVerification?: ResultsGrid | null");
+        generated.ShouldContain("  scenarioFailureCells?: ResultsCell[] | null");
+        generated.ShouldNotContain("[key: string]: any");
     }
 
     [Fact]
