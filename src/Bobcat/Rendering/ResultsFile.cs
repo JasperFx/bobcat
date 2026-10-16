@@ -73,6 +73,18 @@ public static class ResultsFile
             ? directory.Trim()
             : null;
 
+    /// <summary>
+    /// The directory the open bracket writes into, and its run id, or null when no results file was
+    /// asked for. Attachments (issue #571) are written under it as each scenario closes.
+    /// </summary>
+    internal static (string Directory, Guid RunId)? Active
+    {
+        get
+        {
+            lock (_gate) return _run is null || _directory is null ? null : (_directory, _run.RunId);
+        }
+    }
+
     /// <summary>The committed schema, as shipped in the assembly.</summary>
     public static string SchemaText
     {
@@ -215,7 +227,7 @@ public static class ResultsFile
         writeSchema(directory);
 
         var json = Serialize(document);
-        var stem = $"{safe(run.Suite)}-{run.RunId:N}";
+        var stem = $"{Safe(run.Suite)}-{run.RunId:N}";
 
         for (var attempt = 1; ; attempt++)
         {
@@ -251,7 +263,7 @@ public static class ResultsFile
         }
     }
 
-    private static string safe(string name)
+    internal static string Safe(string name)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(name.Select(c => invalid.Contains(c) || char.IsWhiteSpace(c) ? '_' : c).ToArray());

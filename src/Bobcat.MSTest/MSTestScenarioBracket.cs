@@ -39,6 +39,9 @@ public static class MSTestScenarioBracket
 
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
+    /// <summary>The attachment sink (issue #571), held and closed the same way.</summary>
+    private static readonly AsyncLocal<IDisposable?> _attachments = new();
+
     /// <summary>
     /// Open a scenario for a test, if its class or method carries <see cref="BobcatScenarioAttribute"/>.
     /// </summary>
@@ -51,7 +54,7 @@ public static class MSTestScenarioBracket
     /// <param name="writeLine"><c>TestContext.WriteLine</c>, so specification output lands on the test.</param>
     public static void Open(
         Assembly testAssembly, string? fullyQualifiedTestClassName, string? testName, Action<string> writeLine)
-        => Open(testAssembly, fullyQualifiedTestClassName, testName, null, writeLine);
+        => Open(testAssembly, fullyQualifiedTestClassName, testName, null, writeLine, null);
 
     /// <summary>
     /// Open the scenario for one row of a <c>[DataRow]</c> test (bobcat#569): <paramref name="testData"/>
@@ -60,12 +63,23 @@ public static class MSTestScenarioBracket
     public static void Open(
         Assembly testAssembly, string? fullyQualifiedTestClassName, string? testName, object?[]? testData,
         Action<string> writeLine)
+        => Open(testAssembly, fullyQualifiedTestClassName, testName, testData, writeLine, null);
+
+    /// <inheritdoc cref="Open(Assembly, string?, string?, object?[], Action{string})"/>
+    /// <param name="addResultFile">
+    /// <c>TestContext.AddResultFile</c>, so a failed scenario's attachments land on the test when the
+    /// run writes no results directory (issue #571). Null leaves them on the results directory only.
+    /// </param>
+    public static void Open(
+        Assembly testAssembly, string? fullyQualifiedTestClassName, string? testName, object?[]? testData,
+        Action<string> writeLine, Action<string>? addResultFile)
     {
         var testClass = fullyQualifiedTestClassName is null ? null : testAssembly.GetType(fullyQualifiedTestClassName);
         if (testClass is null || testName is null || !optedIn(testClass, testName)) return;
 
         MarkerStepRun.BeginScenario(testClass, testName, Mode, testData, null);
         _output.Value = SpecOutput.Open(writeLine);
+        if (addResultFile is not null) _attachments.Value = SpecAttachment.OpenPlatformFileSink(addResultFile);
     }
 
     /// <summary>
@@ -89,6 +103,8 @@ public static class MSTestScenarioBracket
 
         _output.Value?.Dispose();
         _output.Value = null;
+        _attachments.Value?.Dispose();
+        _attachments.Value = null;
 
         if (gathered is not null) throw gathered;
     }

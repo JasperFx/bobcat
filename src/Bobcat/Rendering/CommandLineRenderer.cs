@@ -103,6 +103,22 @@ public class CommandLineRenderer
             RenderLogs(spec.Logs, spec.SuppressedLogs, "  ");
         }
 
+        if (spec.Attachments.Count > 0 || spec.SuppressedAttachments > 0)
+        {
+            output.WriteLine();
+            foreach (var attachment in spec.Attachments)
+            {
+                output.MarkupLine($"    [dim]{Markup.Escape(attachment.ToString())}[/]");
+            }
+
+            if (spec.SuppressedAttachments > 0)
+            {
+                output.MarkupLine(
+                    $"    [dim]…and {spec.SuppressedAttachments} more "
+                    + $"{(spec.SuppressedAttachments == 1 ? "attachment" : "attachments")} not kept[/]");
+            }
+        }
+
         if (IncludeReports) RenderReports(spec);
 
         output.WriteLine();
@@ -426,6 +442,12 @@ public class CommandLineRenderer
                 output.MarkupLine(
                     $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
             }
+        }
+
+        // Failure evidence (issue #571): one line each, the path a reader opens.
+        foreach (var attachment in step.Attachments)
+        {
+            output.MarkupLine($"{indent}  [dim]{Markup.Escape(attachment.ToString())}[/]");
         }
 
         // What the step logged through SpecLog (bobcat#547), already latched by the render model.

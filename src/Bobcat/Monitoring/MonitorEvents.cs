@@ -156,7 +156,14 @@ public record ScenarioFinished(
     // with a null StepId for lines written between steps. Here rather than on StepFinished because
     // logs are latched like reports — written for a failed scenario, or a verbose run — and the
     // verdict is only known at the close. Null when nothing is visible. Optional and additive.
-    IReadOnlyList<StepLogInfo>? Logs = null) : MonitorEvent(RunId);
+    IReadOnlyList<StepLogInfo>? Logs = null,
+    // Failure evidence (issue #571): a reference to each attachment the scenario kept — latched like
+    // Reports, so a passing scenario carries none unless the run was verbose. Never the bytes. Null
+    // from an older publisher or a scenario that attached nothing. Optional and additive.
+    IReadOnlyList<ScenarioAttachmentInfo>? Attachments = null,
+    // Attachments past the per-scenario cap, counted rather than kept ("…and N more"). Null when
+    // none were dropped. Optional and additive.
+    int? SuppressedAttachments = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// The log lines one step wrote through <c>SpecLog.Write</c> (bobcat#547), or the scenario's own
@@ -165,6 +172,24 @@ public record ScenarioFinished(
 /// silently.
 /// </summary>
 public record StepLogInfo(string? StepId, IReadOnlyList<string> Lines, int Suppressed);
+
+/// <summary>
+/// A reference to one attachment on the wire (issue #571) — never its bytes.
+/// </summary>
+/// <param name="Size">Bytes.</param>
+/// <param name="Path">
+/// The absolute path of the file beside the results file, or null when the run wrote no results
+/// file (the attachment went to the test platform instead) or the bytes were omitted.
+/// </param>
+/// <param name="StepId">The step it hangs on — <c>StepStarted.StepId</c> — or null for the scenario.</param>
+/// <param name="Omitted">Why the bytes were not kept (over the size cap), or null.</param>
+public record ScenarioAttachmentInfo(
+    string Name,
+    string MediaType,
+    long Size,
+    string? Path = null,
+    string? StepId = null,
+    string? Omitted = null);
 
 /// <summary>
 /// One scenario report on the wire (issue #408): a titled grid of cells describing what the
