@@ -58,6 +58,9 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
     /// </summary>
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
+    /// <summary>The attachment sink (issue #571), held and closed the same way.</summary>
+    private static readonly AsyncLocal<IDisposable?> _attachments = new();
+
     // The deferred session close above: scenarios open right now, and whether TUnit has said the
     // session's last test is done. Process-wide, because a session is.
     private static readonly Lock _sessionGate = new();
@@ -77,6 +80,10 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
         // SpecOutput's seam is an Action<string> and core names neither runner's types (issue #409).
         _output.Value = SpecOutput.Open(context.OutputWriter.WriteLine);
 
+        // TUnit attaches files, not bytes, so attachments are written to a temp file first
+        // (issue #571). Only when the run writes no results directory.
+        _attachments.Value = SpecAttachment.OpenPlatformFileSink(path => context.Output.AttachArtifact(path));
+
         // TUnit does not flow AsyncLocal values set in a receiver into the test unless asked
         // (bobcat#470, measured on TUnit 1.74.0): without this the recording is ambient here and
         // nowhere else, so OnTestEnd finds no scenario, publishes no verdict, and a step inside the
@@ -93,6 +100,8 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
 
         _output.Value?.Dispose();
         _output.Value = null;
+        _attachments.Value?.Dispose();
+        _attachments.Value = null;
 
         bool close;
         lock (_sessionGate)
