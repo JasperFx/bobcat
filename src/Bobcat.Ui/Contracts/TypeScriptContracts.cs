@@ -12,8 +12,8 @@ namespace Bobcat.Ui.Contracts;
 /// <summary>
 /// Generates the Vue SPA's TypeScript mirrors of <see cref="MonitorEvent"/> from the C# records
 /// — issue #85. CritterWatch's <c>GenerateCommand</c> pattern, cut down to what this console
-/// needs: one generated file of interfaces, plus a <c>case</c> per event inserted into
-/// <c>relayToStore.ts</c>.
+/// needs: one file of interfaces (<c>monitor-events.ts</c>) and one of routes
+/// (<c>relayRoutes.ts</c>, the event → runs-store case table).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,31 +25,27 @@ namespace Bobcat.Ui.Contracts;
 /// Wolverine's snake_case message names — so the generator has exactly one spelling to emit.
 /// </para>
 /// <para>
-/// Two rules make this re-runnable over a file someone else hand-edited, which matters because
-/// contracts and their mirrors land from more than one branch:
-/// <list type="bullet">
-/// <item><c>monitor-events.ts</c> is owned wholesale — a hand-added interface is simply
-/// regenerated from its C# record, and the result is identical if the hand-written one was
-/// right.</item>
-/// <item><c>relayToStore.ts</c> is patched, not owned: a case already present (hand-written or
-/// generated) is left exactly as it is, and only a missing one is inserted, above the
-/// <see cref="CaseMarker"/> line. The import block is merged and sorted.</item>
-/// </list>
-/// <c>TypeScriptContractTests</c> fails the build when either file differs from what this
-/// generates, so drift is a red build rather than a silent lie in the dashboard.
+/// <b>Both files are built, not committed (bobcat#604).</b> They are gitignored and written by the
+/// Nuke <c>UiContracts</c> target (which <c>UiSmoke</c>, <c>Pack</c> and <c>ui-frontend.yml</c>
+/// run) and by the frontend's npm <c>prepare</c>/<c>predev</c>/<c>pretest</c>/<c>prebuild</c> hooks.
+/// Parallel branches that touched the wire used to conflict on them even when their C# merged
+/// cleanly. Each file is owned wholesale by this generator; nothing hand-written is patched.
+/// The hand-written <c>relayToStore.ts</c> imports <c>routeMonitorEvent</c> from the routes file
+/// and keeps the cases that are not a <see cref="MonitorEvent"/> (the batched frame, the Event
+/// Model change notice).
 /// </para>
 /// </remarks>
 public static class TypeScriptContracts
 {
     public const string MonitorEventsFile = "monitor-events.ts";
-    public const string RelayToStoreFile = "relayToStore.ts";
+    public const string RelayRoutesFile = "relayRoutes.ts";
     public const string MessagesDirectory = "messages";
 
-    /// <summary>The line in relayToStore.ts a generated case is inserted above.</summary>
-    public const string CaseMarker = "// *CASE ABOVE* -- generated cases are inserted above this line; keep it.";
+    /// <summary>The generated files, in the order they are written.</summary>
+    public static IReadOnlyList<string> GeneratedFiles { get; } = [MonitorEventsFile, RelayRoutesFile];
 
     /// <summary>How to regenerate, spelled once so every message that mentions it agrees.</summary>
-    public const string GenerateCommandLine = "dotnet run --project src/Bobcat.Console -- generate-ui-contracts";
+    public const string GenerateCommandLine = "./build.sh UiContracts";
 
     private const string frontEndSourceRelativePath = "src/Bobcat.Ui.FrontEnd/src";
 
@@ -80,17 +76,64 @@ public static class TypeScriptContracts
     }
 
     /// <summary>
-    /// relayToStore.ts with a case for every event type and an import for every type it routes.
-    /// Returns the input unchanged when nothing is missing, which is what the drift test checks.
+    /// The full contents of relayRoutes.ts: <c>routeMonitorEvent(runs, envelope)</c>, one case per
+    /// event calling the runs store's <c>handle{Type}</c>, returning false for a type it does not
+    /// route. A store missing a handler for a new event is a vue-tsc error, which is the point.
     /// </summary>
-    public static string PatchRelayToStore(string existing)
+    public static string GenerateRelayRoutes()
     {
-        var lines = existing.Replace("\r\n", "\n").Split('\n').ToList();
+        var builder = new StringBuilder();
+        builder.Append($$"""
+            /**
+             * GENERATED FILE — do not edit by hand, and do not commit it (it is gitignored).
+             *
+             * The event → runs-store routes for every MonitorEvent in src/Bobcat.Ui/Contracts/MonitorEvents.cs,
+             * emitted by TypeScriptContracts.cs. relayToStore.ts (hand-written) calls routeMonitorEvent
+             * for anything it does not handle itself. Regenerate with:
+             *
+             *   {{GenerateCommandLine}}
+             *
+             * or any of the frontend's npm scripts, whose pre-hooks run it after one `dotnet build`.
+             */
+            import type { useRunsStore } from '@/stores/runs-store'
+            import type {
 
-        mergeImports(lines);
-        insertMissingCases(lines);
+            """);
 
-        return string.Join('\n', lines);
+        var names = new SortedSet<string>(EventTypes.Select(e => e.Type.Name), StringComparer.Ordinal) { "MonitorEnvelope" };
+        foreach (var name in names) builder.Append($"  {name},\n");
+
+        builder.Append($$"""
+            } from './{{Path.GetFileNameWithoutExtension(MonitorEventsFile)}}'
+
+            /** The runs store, as the routes see it. */
+            type RunsStore = ReturnType<typeof useRunsStore>
+
+            /**
+             * Route one envelope to the runs store's handler for its event. Returns false for a type this
+             * table does not route, which relayToStore handles itself or ignores (forward compatibility).
+             */
+            export function routeMonitorEvent(runs: RunsStore, envelope: MonitorEnvelope): boolean {
+              switch (envelope.type) {
+
+            """);
+
+        foreach (var (type, wireName) in EventTypes)
+        {
+            builder.Append($"    case '{wireName}':\n");
+            builder.Append($"      runs.handle{type.Name}(envelope.data as {type.Name})\n");
+            builder.Append("      return true\n");
+        }
+
+        builder.Append("""
+                default:
+                  return false
+              }
+            }
+
+            """);
+
+        return builder.ToString();
     }
 
     /// <summary>
@@ -114,7 +157,7 @@ public static class TypeScriptContracts
     private static string header() =>
         $$"""
         /**
-         * GENERATED FILE — do not edit by hand.
+         * GENERATED FILE — do not edit by hand, and do not commit it (it is gitignored).
          *
          * TypeScript mirrors of src/Bobcat.Ui/Contracts/MonitorEvents.cs, emitted by
          * TypeScriptContracts.cs (NJsonSchema over the C# records, through the serializer settings
@@ -122,7 +165,7 @@ public static class TypeScriptContracts
          *
          *   {{GenerateCommandLine}}
          *
-         * TypeScriptContractTests fails the build when this file drifts from the C# source, so a
+         * or any of the frontend's npm scripts, whose pre-hooks run it after one `dotnet build`. A
          * new or changed record shows up here by regenerating, never by hand-editing. The envelope
          * `type` strings are Wolverine's snake_case message type names, which the C# side pins as
          * the JSON type discriminators too — one spelling everywhere.
@@ -281,54 +324,5 @@ public static class TypeScriptContracts
         }
 
         return result;
-    }
-
-    private static void mergeImports(List<string> lines)
-    {
-        var start = lines.FindIndex(l => l.TrimEnd() == "import type {");
-        var end = start < 0 ? -1 : lines.FindIndex(start, l => l.Trim() == $"}} from './{Path.GetFileNameWithoutExtension(MonitorEventsFile)}'");
-        if (start < 0 || end < 0)
-        {
-            throw new InvalidOperationException(
-                $"{RelayToStoreFile} has no `import type {{ ... }} from './monitor-events'` block to merge the event types into.");
-        }
-
-        var names = new SortedSet<string>(StringComparer.Ordinal);
-        for (var i = start + 1; i < end; i++)
-        {
-            var name = lines[i].Trim().TrimEnd(',');
-            if (name.Length > 0) names.Add(name);
-        }
-
-        names.Add("MonitorEnvelope");
-        names.Add(nameof(BatchedWebSocketPayload));
-        foreach (var (type, _) in EventTypes) names.Add(type.Name);
-
-        lines.RemoveRange(start + 1, end - start - 1);
-        lines.InsertRange(start + 1, names.Select(n => $"  {n},"));
-    }
-
-    private static void insertMissingCases(List<string> lines)
-    {
-        foreach (var (type, wireName) in EventTypes)
-        {
-            if (lines.Any(l => l.Contains($"case '{wireName}':") || l.Contains($"case \"{wireName}\":"))) continue;
-
-            var marker = lines.FindIndex(l => l.Trim() == CaseMarker);
-            if (marker < 0)
-            {
-                throw new InvalidOperationException(
-                    $"{RelayToStoreFile} has no case for '{wireName}' and no marker line to insert one above. " +
-                    $"Add this line just before `default:` in relayToStore's switch:\n    {CaseMarker}");
-            }
-
-            var indent = lines[marker][..(lines[marker].Length - lines[marker].TrimStart().Length)];
-            lines.InsertRange(marker,
-            [
-                $"{indent}case '{wireName}':",
-                $"{indent}  runs.handle{type.Name}(envelope.data as {type.Name})",
-                $"{indent}  break"
-            ]);
-        }
     }
 }

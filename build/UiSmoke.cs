@@ -20,7 +20,9 @@ partial class Build
 {
     AbsolutePath UiSmokeDirectory => RootDirectory / "artifacts" / "ui-smoke";
 
+    // UiContracts first: the SPA's TypeScript contracts are generated, not committed (bobcat#604).
     Target UiSmoke => _ => _
+        .DependsOn(UiContracts)
         .Executes(() =>
         {
             UiSmokeDirectory.CreateOrCleanDirectory();

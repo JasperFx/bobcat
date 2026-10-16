@@ -167,14 +167,21 @@ CI is GitHub Actions only, and each workflow is a thin wrapper around the Nuke b
 
 | Workflow | Runs | When |
 |----------|------|------|
-| `tests.yml` | `./build.sh CI`, with a Postgres service | every push |
+| `tests.yml` | `./build.sh CI`, with a Postgres service: the suite, then the results schema checked against the last release's | every push |
 | `samples.yml` | `./build.sh Samples`, with a Postgres service | pushes touching `src/`, `samples/`, or `build/` |
 | `ui-smoke.yml` | `./build.sh UiSmoke`: packs the `bobcat` tool with its UI, starts `bobcat ui` and checks it, Chromium included | pushes touching `src/` or `build/` |
-| `ui-frontend.yml` | typecheck, Vitest and the Vite build of the `bobcat ui` page | pushes touching `src/Bobcat.Ui.FrontEnd/` |
+| `ui-frontend.yml` | `./build.sh UiContracts`, then typecheck, Vitest and the Vite build of the `bobcat ui` page | pushes touching `src/Bobcat.Ui.FrontEnd/`, `src/Bobcat.Ui/Contracts/` or `build/` |
 | `publish.yml` | `./build.sh CI Pack`, then pushes to nuget.org | `v*` tags, or manually |
 | `docs.yml` | builds and deploys the documentation site | manually |
 
-To change what CI does, change `build/Build.cs`, `build/Samples.cs` or `build/UiSmoke.cs`, not the workflows.
+To change what CI does, change `build/Build.cs`, `build/Samples.cs`, `build/UiSmoke.cs` or
+`build/Contracts.cs`, not the workflows.
+
+Two files are generated and never committed, so that parallel branches touching the wire do not
+conflict on them: the frontend's TypeScript contracts (`src/Bobcat.Ui.FrontEnd/src/messages/monitor-events.ts`
+and `relayRoutes.ts`) and the results file's JSON Schema. After one `dotnet build`, the frontend's
+`npm ci`, `npm run dev`, `npm test` and `npm run build` generate the TypeScript themselves; so does
+`./build.sh UiContracts`. `./build.sh Pack` generates both.
 
 ## Documentation
 

@@ -4,16 +4,20 @@ name: ui frontend
 # mirroring CritterWatch's frontend-unit workflow. The wire behind it is covered by Bobcat.Ui.Specs
 # in the main test job, and the packed tool serving this page by ui-smoke.yml.
 #
-# The path filter stays: everything this job compiles lives under src/Bobcat.Ui.FrontEnd, including
-# the TypeScript mirrors of the C# wire contracts (src/messages). A contract changed in C# without
-# regenerating them is caught on the C# side by TypeScriptContractTests in tests.yml, and a page
-# that no longer matches the server it ships in by ui-smoke.yml, which runs on src/** changes.
+# The SPA's TypeScript mirrors of the C# wire contracts (src/messages/monitor-events.ts and
+# relayRoutes.ts) are generated, not committed (bobcat#604): `./build.sh UiContracts` writes them
+# from src/Bobcat.Ui/Contracts before anything here compiles, so this job type-checks, tests and
+# builds the SPA against the contracts as they are now. That is why the path filter includes the
+# C# contracts and the build: a changed record is a change to what this job compiles. A page that
+# no longer matches the server it ships in is ui-smoke.yml's, which runs on src/** changes.
 on:
   push:
     branches:
       - '**'
     paths:
       - 'src/Bobcat.Ui.FrontEnd/**'
+      - 'src/Bobcat.Ui/Contracts/**'
+      - 'build/**'
       - '.github/workflows/ui-frontend.yml'
 
 env:
@@ -27,12 +31,24 @@ jobs:
         working-directory: src/Bobcat.Ui.FrontEnd
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # The generated TypeScript contracts, through the Nuke target (build/Contracts.cs).
+      - name: Generate the TypeScript contracts
+        working-directory: .
+        run: ./build.sh UiContracts
+
+      # BOBCAT_UI_CONTRACTS_SKIP: the npm pre-hooks would regenerate them; the step above already
+      # did, and the hooks then only check the files are there.
       - name: Install dependencies
         run: npm ci
+        env:
+          BOBCAT_UI_CONTRACTS_SKIP: '1'
 
       - name: Typecheck (vue-tsc)
         run: npx vue-tsc -b

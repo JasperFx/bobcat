@@ -16,7 +16,9 @@ licence. What came back:
   pattern); `ui-frontend.yml` and `./build.sh UiSmoke` are its gates.
 - **`Bobcat.Ui.Tests` / `Bobcat.Ui.Specs`** — `ContractRoundTripTests` and `TypeScriptContractTests`
   keep the receiver's copy of the contracts honest against this repository's publisher, so a wire
-  change that breaks the console now fails here. `Bobcat.Tests/Monitoring/FakeMonitorHost` is still
+  change that breaks the console now fails here. The SPA's `src/messages/monitor-events.ts` and
+  `relayRoutes.ts` are generated and gitignored (#604): `./build.sh UiContracts`, or the frontend's
+  npm pre-hooks after one `dotnet build`. Never commit them; `relayToStore.ts` is hand-written. `Bobcat.Tests/Monitoring/FakeMonitorHost` is still
   how core is tested against real HTTP without the console.
 - **The agent-facing queries are CLI commands, not MCP tools** — JSON on stdout over a running
   `bobcat ui` (`docs/agent-queries.md`). MCP stays Stoat's.

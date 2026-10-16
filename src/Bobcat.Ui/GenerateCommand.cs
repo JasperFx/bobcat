@@ -5,20 +5,18 @@ namespace Bobcat.Ui;
 
 public class GenerateInput
 {
-    [Description("Write nothing; exit non-zero if the committed TypeScript differs from what the C# contracts generate")]
-    public bool CheckFlag { get; set; }
-
     [Description("The SPA's src directory; discovered by walking up to the repository root when omitted")]
     public string? FrontEndFlag { get; set; }
 }
 
 /// <summary>
-/// <c>dotnet run --project src/Bobcat.Ui -- generate</c> — regenerates the Vue SPA's
-/// TypeScript contract mirrors from <c>Contracts/MonitorEvents.cs</c>. CritterWatch's
-/// <c>GenerateCommand</c>, cut down; the work itself lives in <see cref="TypeScriptContracts"/>
-/// so the drift test can call it without a process.
+/// <c>bobcat generate-ui-contracts</c> — writes the Vue SPA's generated TypeScript from
+/// <c>Contracts/MonitorEvents.cs</c>: <c>monitor-events.ts</c> (the interfaces) and
+/// <c>relayRoutes.ts</c> (the event → runs-store routes). Both are gitignored (bobcat#604); the
+/// Nuke <c>UiContracts</c> target and the frontend's npm pre-hooks run this. The work itself lives
+/// in <see cref="TypeScriptContracts"/> so tests can call it without a process.
 /// </summary>
-[Description("Contributors: regenerate the Bobcat UI SPA's TypeScript mirrors of the monitor event contracts", Name = "generate-ui-contracts")]
+[Description("Contributors: generate the Bobcat UI SPA's TypeScript mirrors of the monitor event contracts (./build.sh UiContracts)", Name = "generate-ui-contracts")]
 public class GenerateCommand : JasperFxCommand<GenerateInput>
 {
     public override bool Execute(GenerateInput input)
@@ -30,51 +28,36 @@ public class GenerateCommand : JasperFxCommand<GenerateInput>
             return false;
         }
 
-        var messages = Path.Combine(frontEnd, TypeScriptContracts.MessagesDirectory);
-        var eventsPath = Path.Combine(messages, TypeScriptContracts.MonitorEventsFile);
-        var relayPath = Path.Combine(messages, TypeScriptContracts.RelayToStoreFile);
-
-        var events = TypeScriptContracts.GenerateMonitorEvents();
-        var relay = TypeScriptContracts.PatchRelayToStore(File.ReadAllText(relayPath));
-
-        var eventsChanged = !File.Exists(eventsPath) || normalize(File.ReadAllText(eventsPath)) != events;
-        var relayChanged = normalize(File.ReadAllText(relayPath)) != relay;
-
-        if (input.CheckFlag)
+        foreach (var (path, changed) in Write(frontEnd))
         {
-            if (!eventsChanged && !relayChanged)
-            {
-                System.Console.WriteLine("TypeScript contract mirrors are current.");
-                return true;
-            }
-
-            if (eventsChanged) System.Console.Error.WriteLine($"{eventsPath} differs from the generated output.");
-            if (relayChanged) System.Console.Error.WriteLine($"{relayPath} is missing a generated case or import.");
-            System.Console.Error.WriteLine($"Run `{TypeScriptContracts.GenerateCommandLine}` and commit the result.");
-            return false;
-        }
-
-        if (eventsChanged)
-        {
-            File.WriteAllText(eventsPath, events);
-            System.Console.WriteLine($"Wrote {eventsPath}");
-        }
-
-        if (relayChanged)
-        {
-            File.WriteAllText(relayPath, relay);
-            System.Console.WriteLine($"Patched {relayPath}");
-        }
-
-        if (!eventsChanged && !relayChanged) System.Console.WriteLine("TypeScript contract mirrors were already current.");
-
-        foreach (var (type, wireName) in TypeScriptContracts.EventTypes)
-        {
-            System.Console.WriteLine($"  {wireName,-24} {type.Name}");
+            System.Console.WriteLine(changed ? $"Wrote {path}" : $"{path} was already current");
         }
 
         return true;
     }
 
-    private static string normalize(string text) => text.Replace("\r\n", "\n");
+    /// <summary>
+    /// Write every generated file under <paramref name="frontEnd"/>/messages. A file whose contents
+    /// are already right is left alone, so its timestamp does not wake a Vite dev server.
+    /// </summary>
+    public static IReadOnlyList<(string Path, bool Changed)> Write(string frontEnd)
+    {
+        var messages = Path.Combine(frontEnd, TypeScriptContracts.MessagesDirectory);
+        Directory.CreateDirectory(messages);
+
+        var results = new List<(string, bool)>();
+        foreach (var (file, contents) in new[]
+                 {
+                     (TypeScriptContracts.MonitorEventsFile, TypeScriptContracts.GenerateMonitorEvents()),
+                     (TypeScriptContracts.RelayRoutesFile, TypeScriptContracts.GenerateRelayRoutes())
+                 })
+        {
+            var path = Path.Combine(messages, file);
+            var changed = !File.Exists(path) || File.ReadAllText(path).Replace("\r\n", "\n") != contents;
+            if (changed) File.WriteAllText(path, contents);
+            results.Add((path, changed));
+        }
+
+        return results;
+    }
 }

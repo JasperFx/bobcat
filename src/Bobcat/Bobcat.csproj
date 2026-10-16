@@ -17,12 +17,27 @@
     <PackageReference Include="JasperFx.Events" />
   </ItemGroup>
 
+  <!--
+    The results file's JSON Schema (issue #540) is generated, not committed (bobcat#604):
+    ResultsFile.GenerateSchema writes it beside every results file at run time, and the Nuke Pack
+    target writes it to artifacts/schemas (`bobcat results-schema`) before packing, so the package
+    still carries it under schemas/. A pack that skipped that step would ship without it, silently,
+    so it is an error instead.
+  -->
+  <PropertyGroup>
+    <ResultsSchemaDirectory Condition="'$(ResultsSchemaDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\schemas\</ResultsSchemaDirectory>
+  </PropertyGroup>
+
   <ItemGroup>
-    <!-- The results file's JSON Schema (issue #540): generated from the records by
-         ResultsFile.GenerateSchema, committed here, drift-tested, embedded so a run can write it
-         beside every results file, and packed so a consumer can validate against it. -->
-    <EmbeddedResource Include="Rendering\bobcat-results-1.0.schema.json" LogicalName="Bobcat.Rendering.bobcat-results-1.0.schema.json" />
-    <None Include="Rendering\bobcat-results-1.0.schema.json" Pack="true" PackagePath="schemas" />
+    <None Include="$(ResultsSchemaDirectory)bobcat-results-*.schema.json" Pack="true" PackagePath="schemas" Visible="false" />
   </ItemGroup>
+
+  <Target Name="RequireResultsSchema" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_ResultsSchemaToPack Include="$(ResultsSchemaDirectory)bobcat-results-*.schema.json" />
+    </ItemGroup>
+    <Error Condition="'@(_ResultsSchemaToPack)' == ''"
+           Text="No results schema in $(ResultsSchemaDirectory) to pack under schemas/. Pack through `./build.sh Pack`, which generates it (bobcat#604)." />
+  </Target>
 
 </Project>
