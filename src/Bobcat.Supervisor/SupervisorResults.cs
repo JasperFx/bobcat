@@ -77,12 +77,27 @@ public sealed class TestReport
         {
             if (Attempts.Any(a => a.Disposition.Kind == DispositionKind.AbortRun)) return RunOutcome.Aborted;
             if (!Final.Succeeded) return RunOutcome.Failed;
+            if (IsSkipped) return RunOutcome.Skipped;
             return WasRetriedForFailure ? RunOutcome.PassOnRetry : RunOutcome.CleanPass;
         }
     }
 
+    /// <summary>
+    /// True when the framework skipped the test on its final attempt (bobcat#655). A skip is
+    /// <see cref="WorkerOutcome.Succeeded"/> to the policy, so it is never retried, but it is
+    /// reported as its own count: nobody ran it, so it is not a pass.
+    /// </summary>
+    public bool IsSkipped => Final.Outcome.State == WorkerTestState.Skipped;
+
     /// <summary>True when the run never established what this test does — a worker died.</summary>
     public bool IsIndeterminate => Final.Outcome.State == WorkerTestState.Indeterminate;
+
+    /// <summary>
+    /// True when some attempt reported several rows under this one uid — a theory the framework
+    /// could not split into tests (bobcat#649). Its verdict is the worst row's, and the fix is in
+    /// the suite: the theory's data has to be serializable.
+    /// </summary>
+    public bool IsCollapsed => Attempts.Any(a => a.Outcome.IsCollapsed);
 
     public IEnumerable<string> UnsupportedDispositions
         => Attempts.Where(a => a.Unsupported is not null).Select(a => a.Unsupported!);
@@ -133,6 +148,16 @@ public sealed class SupervisorResults
     public TimeSpan WorkerLaunchTime { get; internal set; }
 
     /// <summary>
+    /// Time workers spent inside a run request, summed across workers (bobcat#664) — the
+    /// denominator that separates the supervisor's lanes running side by side from a test
+    /// framework's own parallelism inside one worker. Zero when nothing measured it.
+    /// </summary>
+    public TimeSpan WorkerBusyTime { get; internal set; }
+
+    /// <summary>How many lanes the run's first pass planned; zero when nothing was batched (bobcat#664).</summary>
+    public int Lanes { get; internal set; }
+
+    /// <summary>
     /// Every worker death, with its exit code and last standard error. Without these,
     /// <see cref="Indeterminate"/> tells a user that something went wrong but nothing about what.
     /// </summary>
@@ -175,8 +200,23 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<TestMemory> TestMemory { get; init; } = [];
 
+    /// <summary>
+    /// How many planned tests <see cref="Supervisor.KnownTestDurations"/> matched (bobcat#663).
+    /// Null when no durations were supplied; zero matches means the lanes were balanced by test
+    /// count, whatever the caller intended.
+    /// </summary>
+    public DurationCoverage? DurationCoverage { get; init; }
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
+
+    /// <summary>
+    /// Tests the framework skipped (bobcat#655) — counted on their own, never as passes and never
+    /// as failures, so a run that skipped work cannot read as more green than it is. A skip does
+    /// not change <see cref="ExitCode"/>.
+    /// </summary>
+    public IReadOnlyList<TestReport> Skipped
+        => Tests.Where(t => t.Outcome == RunOutcome.Skipped).ToList();
 
     /// <summary>The run's flakiness ledger — reported separately from clean passes, always.</summary>
     public IReadOnlyList<TestReport> PassedOnRetry
@@ -188,6 +228,13 @@ public sealed class SupervisorResults
     /// <summary>Tests whose result was never established. Never silently counted as passing.</summary>
     public IReadOnlyList<TestReport> Indeterminate
         => Tests.Where(t => t.IsIndeterminate).ToList();
+
+    /// <summary>
+    /// Tests whose worker reported several rows under one uid (bobcat#649). Each is judged by its
+    /// worst row, so a collapse can never turn a failure into a pass, and each is reported,
+    /// because the count is short of what a direct run sees and the cause is in the suite.
+    /// </summary>
+    public IReadOnlyList<TestReport> Collapsed => Tests.Where(t => t.IsCollapsed).ToList();
 
     public int RetriesPerformed => Tests.Sum(t => t.AttemptCount - 1);
 
@@ -237,7 +284,9 @@ public sealed class SupervisorResults
         if (PassedOnRetry.Count > 0) parts.Add($"{PassedOnRetry.Count} passed on retry");
         if (Failed.Count > 0) parts.Add($"{Failed.Count} failed");
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
+        if (Skipped.Count > 0) parts.Add($"{Skipped.Count} skipped");
         if (StallKills.Count > 0) parts.Add($"{StallKills.Count} stall kill(s)");
+        if (Collapsed.Count > 0) parts.Add($"{Collapsed.Count} collapsed theory(ies)");
 
         var summary = string.Join(", ", parts);
         summary = $"{partial}{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";

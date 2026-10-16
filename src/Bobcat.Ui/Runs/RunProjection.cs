@@ -42,6 +42,10 @@ public class RunProjection
     public int? Failed { get; private set; }
     public int? PassedOnRetry { get; private set; }
     public int? Indeterminate { get; private set; }
+
+    /// <summary>Tests the framework skipped (bobcat#655); null from a publisher that does not say.</summary>
+    public int? Skipped { get; private set; }
+
     public DateTimeOffset LastEventAt { get; private set; }
 
     /// <summary>
@@ -137,6 +141,7 @@ public class RunProjection
                 Failed = e.Failed;
                 PassedOnRetry = e.PassedOnRetry;
                 Indeterminate = e.Indeterminate;
+                Skipped = e.Skipped;
                 break;
 
             case ScenarioStarted e:

@@ -165,6 +165,10 @@ public sealed record SpecManifest(
     /// <summary>The same, reporting to <paramref name="errors"/> -- the seam a test reads standard error through.</summary>
     internal static bool WriteIfRequested(Func<SpecManifest> build, TextWriter errors)
     {
+        // bobcat#644: a listing that also asked for the outlines gets them at exit, once every
+        // module initializer (planned steps included) has registered.
+        SpecOutline.ArmIfRequested();
+
         var path = RequestedPath();
         if (path is null) return false;
 

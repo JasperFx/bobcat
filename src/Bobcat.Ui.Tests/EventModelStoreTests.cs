@@ -253,4 +253,61 @@ public class EventModelStoreTests : IDisposable
         store.Read().ShouldNotBeNull();
     }
 
+
+    // ---- bobcat#652: a runner's registration drops identities its suite no longer has -----------
+
+    private const string probe =
+        """
+        {
+          "name": "Bank",
+          "slices": [
+            {
+              "name": "FreezeAccount",
+              "specifications": [
+                { "identity": "Watch Probe/freezing twice is still frozen", "resolvedTypes": [] },
+                { "identity": "Watch Probe/freezing is frozen", "resolvedTypes": [] },
+                { "identity": "Watch Probe/a row", "resolvedTypes": [] }
+              ]
+            },
+            {
+              "name": "OpenAccount",
+              "specifications": [{ "identity": "Accounts/opens", "resolvedTypes": [] }]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public void a_registration_drops_the_identities_its_suite_no_longer_has_from_its_spec_half()
+    {
+        var store = new EventModelStore(_dataPath);
+        store.TryStore(probe, EventModelStore.SpecSourceFor("BankAccountES.Tests")).ShouldBeNull();
+
+        store.PruneSpecifications("BankAccountES.Tests",
+            new HashSet<string> { "Watch Probe/freezing is frozen", "Watch Probe/a row (amount: 5)", "Accounts/opens" })
+            .ShouldBeTrue();
+
+        var slices = JsonDocument.Parse(store.Read()!).RootElement.GetProperty("slices");
+        string[] identities(int slice) =>
+            slices[slice].GetProperty("specifications").EnumerateArray().Select(x => x.GetProperty("identity").GetString()!).ToArray();
+
+        // A data row keeps its method's identity bound
+        identities(0).ShouldBe(["Watch Probe/freezing is frozen", "Watch Probe/a row"]);
+        identities(1).ShouldBe(["Accounts/opens"]);
+
+        // Persisted, and a second registration of the same list changes nothing
+        new EventModelStore(_dataPath).PruneSpecifications("BankAccountES.Tests",
+            new HashSet<string> { "Watch Probe/freezing is frozen", "Watch Probe/a row (amount: 5)", "Accounts/opens" })
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public void a_suite_that_published_no_spec_half_is_left_alone()
+    {
+        var store = new EventModelStore(_dataPath);
+        store.TryStore(probe).ShouldBeNull();
+
+        store.PruneSpecifications("BankAccountES.Tests", new HashSet<string>()).ShouldBeFalse();
+        store.Read()!.ShouldContain("freezing twice");
+    }
 }

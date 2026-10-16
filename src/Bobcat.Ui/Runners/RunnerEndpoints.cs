@@ -10,14 +10,18 @@ using Wolverine.Util;
 
 namespace Bobcat.Ui.Runners;
 
-/// <summary>A person asks a runner for a run (stoat#77). Exactly one of <see cref="Specs"/> or
-/// <see cref="Feature"/> — or <see cref="Restart"/> for a new runner.</summary>
+/// <summary>A person asks a runner for a run (stoat#77). Exactly one of <see cref="Specs"/>,
+/// <see cref="Feature"/> or <see cref="All"/> — or <see cref="Restart"/> for a new runner.</summary>
+/// <param name="All">Every specification the runner registered (bobcat#645): the whole project.
+/// Resolved here to those identities, as a feature is, so the runner still receives identities and
+/// its refusal of a command naming none is unchanged.</param>
 public record RunnerCommandRequest(
     IReadOnlyList<string>? Specs = null,
     string? Feature = null,
     string? Mode = null,
     bool Restart = false,
-    string? By = null);
+    string? By = null,
+    bool All = false);
 
 public record RunnerCommandQueued(Guid CommandId, string Kind, IReadOnlyList<string> Specs, string Mode);
 
@@ -124,13 +128,18 @@ public static class RunnerEndpoints
             return Results.Accepted(value: new RunnerCommandQueued(restart, "restart", [], RunnerWire.Cold));
         }
 
-        var sources = (request.Specs is { Count: > 0 } ? 1 : 0) + (request.Feature is not null ? 1 : 0);
-        if (sources != 1) return refuse("name exactly one of specs or feature — or restart");
+        var sources = (request.Specs is { Count: > 0 } ? 1 : 0) + (request.Feature is not null ? 1 : 0) + (request.All ? 1 : 0);
+        if (sources != 1) return refuse("name exactly one of specs, feature or all — or restart");
 
         IReadOnlyList<string> specs;
         if (request.Specs is { Count: > 0 } named)
         {
             specs = named.Distinct().ToList();
+        }
+        else if (request.All)
+        {
+            specs = registered.Distinct().ToList();
+            if (specs.Count == 0) return refuse("this runner registered no specifications to run");
         }
         else
         {
@@ -140,8 +149,7 @@ public static class RunnerEndpoints
         }
 
         var unknown = specs.Where(x => !registered.Contains(x, StringComparer.Ordinal)).ToList();
-        if (unknown.Count > 0)
-            return refuse($"not this runner's specs: {string.Join("; ", unknown)} — a slice or spec from another suite runs on that suite's runner");
+        if (unknown.Count > 0) return refuse(unknownSpecs(unknown, registered));
 
         var mode = string.IsNullOrWhiteSpace(request.Mode) ? RunnerWire.Cold : request.Mode.Trim().ToLowerInvariant();
         if (!(runners.ModesOf(runnerId) ?? []).Contains(mode))
@@ -158,12 +166,16 @@ public static class RunnerEndpoints
         => runners.All(runLookup(runs));
 
     /// <summary>
-    /// Which runners can run this (stoat#78): <c>?spec=</c>, repeated, or <c>?feature=</c>. Empty is an
-    /// answer — the button says no runner can, and how to start one — never a 404.
+    /// Which runners can run this (stoat#78): <c>?spec=</c>, repeated, <c>?feature=</c>, or
+    /// <c>?all=true</c> for a whole project (every runner that registered anything, bobcat#645).
+    /// Empty is an answer — the button says no runner can, and how to start one — never a 404.
     /// </summary>
     [WolverineGet("/api/runners/for")]
     public static IReadOnlyList<RunnerView> For(HttpRequest request, RunnerRegistry runners, MonitorRunRegistry runs)
     {
+        if (bool.TryParse(request.Query["all"].FirstOrDefault(), out var all) && all)
+            return runners.All(runLookup(runs)).Where(x => x.Specs > 0).ToList();
+
         var specs = request.Query["spec"].Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
         var feature = request.Query["feature"].FirstOrDefault();
         return runners.CandidatesFor(specs, string.IsNullOrWhiteSpace(feature) ? null : feature, runLookup(runs));
@@ -172,6 +184,16 @@ public static class RunnerEndpoints
     [WolverineGet("/api/runners/{runnerId}")]
     public static RunnerView? Find(string runnerId, RunnerRegistry runners, MonitorRunRegistry runs)
         => runners.Find(runnerId, runLookup(runs));
+
+    /// <summary>
+    /// What a runner can run, spec by spec with its planned steps (bobcat#644): the runner page, which
+    /// is how a suite is previewed in the UI before anything has run.
+    /// </summary>
+    [WolverineGet("/api/runners/{runnerId}/specs")]
+    public static IResult Specifications(string runnerId, RunnerRegistry runners)
+        => runners.SpecificationsOf(runnerId) is { } specs
+            ? Results.Ok(specs)
+            : Results.NotFound(new { errors = new[] { $"no runner '{runnerId}'" } });
 
     private static Func<Guid, Guid?> runLookup(MonitorRunRegistry runs)
     {
@@ -217,4 +239,27 @@ public static class RunnerEndpoints
         => new(((WolverineRuntime)runtime).Handlers, RunnerWire.Json);
 
     private static IResult refuse(string error) => Results.BadRequest(new { errors = new[] { error } });
+
+    /// <summary>
+    /// Why the runner cannot run these (bobcat#652). An identity in a feature this runner has is from
+    /// this suite, renamed or removed since the run a page shows — pressing Run on an earlier run's
+    /// page after a rebuild — and blaming "another suite" for it sent people looking for a runner that
+    /// does not exist. Only an identity in no feature of this runner's is someone else's.
+    /// </summary>
+    private static string unknownSpecs(IReadOnlyList<string> unknown, IReadOnlyList<string> registered)
+    {
+        static string featureOf(string identity) => identity.LastIndexOf('/') is var slash and > 0 ? identity[..slash] : "";
+
+        var features = registered.Select(featureOf).ToHashSet(StringComparer.Ordinal);
+        var gone = unknown.Where(x => features.Contains(featureOf(x))).ToList();
+        var foreign = unknown.Except(gone).ToList();
+
+        var reasons = new List<string>();
+        if (gone.Count > 0)
+            reasons.Add($"this runner no longer specifies {string.Join("; ", gone)} — renamed or removed since that run; run its feature, or the spec under its new name");
+        if (foreign.Count > 0)
+            reasons.Add($"not this runner's specs: {string.Join("; ", foreign)} — a slice or spec from another suite runs on that suite's runner");
+
+        return string.Join(". ", reasons);
+    }
 }

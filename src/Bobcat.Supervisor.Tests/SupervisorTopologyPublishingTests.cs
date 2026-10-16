@@ -85,7 +85,7 @@ public class SupervisorTopologyPublishingTests
         var sink = new RecordingSink();
         var factory = new FakeWorkerFactory
         {
-            Tests = [FakeWorkerFactory.Test("flaky", "Retry=2"), FakeWorkerFactory.Test("clean")],
+            Tests = [FakeWorkerFactory.Test("flaky", "Retry=2", "RetryWarm=true"), FakeWorkerFactory.Test("clean")],
             Outcome = (uid, attempt, _) =>
                 uid == "clean" || attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };

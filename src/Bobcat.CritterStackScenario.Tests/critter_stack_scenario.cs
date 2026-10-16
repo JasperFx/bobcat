@@ -1196,3 +1196,58 @@ public class resetting_a_scenario_on_marten(MartenStoreHost store)
 
 public class resetting_a_scenario_on_fisher(FisherStoreHost store)
     : resetting_a_scenario<FisherStoreHost>(store), IClassFixture<FisherStoreHost>;
+
+/// <summary>
+/// bobcat#616: in a document app the act's document gets its id from inside the endpoint or a cascaded handler, so
+/// there is no stream and no id to name. <c>ThenSingleDocument</c> / <c>ThenSingleReadModel</c> read the one such
+/// document in the store. A class of its own, so its host's store holds only what these tests put there.
+/// </summary>
+public abstract class reading_a_document_the_system_named<THost>(THost store) where THost : StoreHost
+{
+    private static Func<IServiceProvider, Task> storing(params Customer[] customers)
+        => services => DocumentStores.StoreAllAsync(services.EventStore(), typeof(Customer), customers);
+
+    [Fact]
+    public async Task exactly_one_is_the_subject_and_none_or_several_is_a_wrong_naming_the_count()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CritterStackScenario(store.Host);
+
+        // A wrong, never an InvalidOperationException from Single(): the step fails as an assertion, and with
+        // nothing to hand back it ends the test, as a missing ThenReadModel document does
+        var none = await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenSingleDocument<Customer>());
+        none.Message.ShouldContain("Expected exactly one Customer document, but there is none");
+
+        Customer? read = null;
+        var one = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("a customer signs up", storing(new Customer { Id = Guid.NewGuid(), Name = "Ann" }));
+            read = await scenario.ThenSingleDocument<Customer>(Specifications.Specify<Customer>().With(x => x.Name, "Ann"));
+            await scenario.ThenSingleReadModel<Customer>(Specifications.Specify<Customer>().With(x => x.Name, "Ann"));
+        });
+
+        one.GatheredFailures().ShouldBeNull();
+        read.ShouldNotBeNull().Name.ShouldBe("Ann");
+
+        var wrong = await Recordings.RecordAsync(() =>
+            scenario.ThenSingleDocument<Customer>(Specifications.Specify<Customer>().With(x => x.Name, "Bo")));
+        wrong.GatheredFailures().ShouldNotBeNull();
+
+        await scenario.WhenActing("another customer signs up", storing(new Customer { Id = Guid.NewGuid(), Name = "Cy" }));
+
+        SpecAssertionException? several = null;
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            several = await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenSingleReadModel<Customer>());
+        });
+
+        several!.Message.ShouldContain("Expected exactly one Customer document, but there are 2");
+        recording.Step("there is exactly one Customer").Status.ShouldBe(ResultStatus.failed);
+    }
+}
+
+public class reading_a_document_the_system_named_on_marten(MartenStoreHost store)
+    : reading_a_document_the_system_named<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
+
+public class reading_a_document_the_system_named_on_fisher(FisherStoreHost store)
+    : reading_a_document_the_system_named<FisherStoreHost>(store), IClassFixture<FisherStoreHost>;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Bobcat.Runtime;
 
 namespace Bobcat.Residency;
 
@@ -128,6 +129,15 @@ public static class RunnerRefusal
 /// Every specification identity this runner has. It is both what a monitor offers a person and
 /// what lets the runner reject an identity that is not its own.
 /// </param>
+/// <param name="Outline">
+/// Each specification's planned steps (bobcat#644), so a console can show what the suite specifies
+/// before anything has run. Trailing and optional: null from a runner that predates it, or a suite
+/// that could not say.
+/// </param>
+/// <param name="BuiltAt">
+/// When the code the runner runs was built (bobcat#652), so a console can mark a verdict from before
+/// it. Trailing and optional, like <paramref name="Outline"/>.
+/// </param>
 public sealed record RunnerRegistration(
     string RunnerId,
     string Repository,
@@ -135,7 +145,9 @@ public sealed record RunnerRegistration(
     string Suite,
     string Lane,
     IReadOnlyList<string> Modes,
-    IReadOnlyList<string> Specs);
+    IReadOnlyList<string> Specs,
+    IReadOnlyList<SpecOutline>? Outline = null,
+    DateTimeOffset? BuiltAt = null);
 
 /// <summary>
 /// A runner's answer to one command.

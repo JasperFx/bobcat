@@ -10,8 +10,22 @@ namespace Bobcat.Ui.Runners;
 /// </summary>
 public static class RunnerWireHandler
 {
-    public static void Handle(RunnerRegistered registered, RunnerRegistry runners, IRepositoryIdentity identity)
-        => runners.Register(registered, identity.SlugFor(registered.Repository));
+    /// <summary>
+    /// A runner registered, or registered again after a rebuild. Its specifications are the suite's
+    /// current ones, so any its spec half still binds that it no longer has are dropped from the
+    /// canvas (bobcat#652) — a renamed spec used to stay bound to its slice until a run republished.
+    /// </summary>
+    public static async Task Handle(RunnerRegistered registered, RunnerRegistry runners, IRepositoryIdentity identity,
+        EventModel.EventModelStore model, Wolverine.IMessageBus bus)
+    {
+        runners.Register(registered, identity.SlugFor(registered.Repository));
+
+        if (registered.Suite is { Length: > 0 } suite && registered.Specs.Count > 0
+            && model.PruneSpecifications(suite, registered.Specs.ToHashSet(StringComparer.Ordinal)))
+        {
+            await bus.PublishAsync(new Contracts.EventModelChanged(model.Name ?? string.Empty));
+        }
+    }
 
     public static void Handle(RunnerCommandAcknowledged acknowledged, RunnerRegistry runners)
         => runners.Acknowledge(acknowledged.RunnerId, acknowledged.CommandId, acknowledged.Accepted, acknowledged.Reason, acknowledged.Refusal);

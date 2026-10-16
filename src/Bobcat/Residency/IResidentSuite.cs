@@ -47,6 +47,20 @@ public interface IResidentSuite
     IReadOnlyList<string> SpecIdentities { get; }
 
     /// <summary>
+    /// Each specification's planned steps, registered beside <see cref="SpecIdentities"/> so a console
+    /// can show what a suite specifies before anything has run (bobcat#644). Null when the suite
+    /// cannot say.
+    /// </summary>
+    IReadOnlyList<SpecOutline>? Outline => null;
+
+    /// <summary>
+    /// When the code this suite runs was built (bobcat#652): a console marks a verdict from before it
+    /// as from before the last rebuild, since a relaunched runner re-registers but runs nothing.
+    /// Null when the suite cannot say.
+    /// </summary>
+    DateTimeOffset? BuiltAt => null;
+
+    /// <summary>
     /// Run the selection, in the mode asked for, publishing on the ingest stream as any run does.
     /// </summary>
     /// <remarks>

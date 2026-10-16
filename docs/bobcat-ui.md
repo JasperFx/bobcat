@@ -90,6 +90,10 @@ its counts, and its age.
   rather than "running" forever.
 - **Several repositories on one box** are told apart by a repository filter, and a supervised run
   across several worker processes is one card, not one per worker.
+- **A project that no longer compiles says so**, above the cards and on its runs' pages, with its
+  first compiler errors: `bobcat watch` reports each rebuild to the UI, and so does `stoat runner`
+  for a resident runner it rebuilds. Until the build is fixed, the runs below are of the code before
+  the change that broke it.
 
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
 paste into a pull request -- that renders the specification the test produced: each step with its
@@ -111,6 +115,27 @@ bobcat resident ./artifacts/MySpecs
 A runner registers what its suite specifies, and the buttons send it the identities to run, **cold**
 (a fresh test host on the current code) or **warm** (a test host kept open between runs). With no
 runner attached, the button says how to start one.
+
+The board lists every attached runner above the run cards, before anything has run, with its state
+and a **Run all** button that runs its whole project. A runner's name opens its page, at
+`/runners/{runnerId}`: every specification it can run, by feature, with the steps each one plans,
+and a run button for each feature and each specification. It is the UI's `bobcat preview`, and like
+it shows templates (`{amount}`) rather than values, because nothing has run. A run page's **Run again** runs every
+specification that run ran, whatever happened to them. Over the API, a command can name `"all": true`
+in place of `specs` or `feature`: the UI resolves it to every identity the runner registered.
+
+A run a button started says so on its card -- `Run 2 in feature Bank · warm · from bobcat-ui`, or
+`Run all` -- and while it runs, how many scenarios have finished of the specifications it selected.
+The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTION_RUNS`, 10 by
+default), so pressing buttons can evict the run a page is open on. That page then says the run was
+evicted and where its archive is, rather than calling it unknown.
+
+A resident runner relaunched on a rebuild registers again but runs nothing, so the UI follows it in
+three ways. The latest run of its suite is marked **from before the last rebuild** (the runner says
+when its host was built). Specifications it no longer has are dropped from the canvas's slices (a new
+one reaches the canvas with the next run). And pressing Run on an earlier run's page for a spec
+renamed since says the runner no longer has it, instead of blaming another suite. Re-running on a
+rebuild automatically is not done: a run nobody asked for costs a database and a CPU.
 
 ### Exports
 

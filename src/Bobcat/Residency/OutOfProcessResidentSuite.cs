@@ -56,10 +56,11 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     /// The spec project's test host executable — the thing a person would run to run the suite.
     /// </param>
     /// <param name="manifest">What that host said it specifies, from <see cref="Listing"/>.</param>
-    private OutOfProcessResidentSuite(string hostPath, SpecManifest manifest)
+    private OutOfProcessResidentSuite(string hostPath, SpecManifest manifest, IReadOnlyList<SpecOutline>? outline = null)
     {
         _host = hostPath;
         _manifest = manifest;
+        Outline = outline is { Count: > 0 } ? outline : null;
 
         if (manifest.Specs.Count == 0)
         {
@@ -118,9 +119,9 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
         string? listingDirectory = null,
         CancellationToken token = default)
     {
-        var manifest = await Listing(hostPath, listingDirectory, token);
+        var (manifest, outline) = await listing(hostPath, listingDirectory, token);
 
-        return new OutOfProcessResidentSuite(hostPath, manifest)
+        return new OutOfProcessResidentSuite(hostPath, manifest, outline)
         {
             MonitorUrl = monitorUrl,
             Log = log
@@ -130,6 +131,11 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     /// <summary>What <paramref name="hostPath"/> says it specifies.</summary>
     public static async Task<SpecManifest> Listing(
         string hostPath, string? listingDirectory = null, CancellationToken token = default)
+        => (await listing(hostPath, listingDirectory, token)).Manifest;
+
+    // The manifest, and the outlines the same listing wrote at exit (bobcat#644)
+    private static async Task<(SpecManifest Manifest, IReadOnlyList<SpecOutline> Outline)> listing(
+        string hostPath, string? listingDirectory, CancellationToken token)
     {
         var host = Path.GetFullPath(hostPath);
 
@@ -146,12 +152,14 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
 
         var path = Path.Combine(
             directory, $"{Path.GetFileNameWithoutExtension(host)}.{Environment.ProcessId}.specs.json");
+        var outlinePath = Path.ChangeExtension(path, ".outline.json");
 
         try
         {
             var environment = new Dictionary<string, string?>(EnvironmentFor(command: null))
             {
                 [SpecManifest.PathVariable] = path,
+                [SpecOutline.PathVariable] = outlinePath,
 
                 // A listing must not reach for a console. It publishes nothing, and probing is the
                 // one thing a question about the suite has no business doing.
@@ -169,11 +177,15 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
                     + $"suite or did not get as far as loading. It said:{Environment.NewLine}{output}");
             }
 
-            return SpecManifest.Read(path);
+            return (SpecManifest.Read(path), SpecOutline.Read(outlinePath));
         }
         finally
         {
-            try { if (File.Exists(path)) File.Delete(path); }
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(outlinePath)) File.Delete(outlinePath);
+            }
             catch { /* a leftover listing in a temp directory is not worth a failure */ }
         }
     }
@@ -193,6 +205,32 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
 
     /// <summary>What the host said it specifies — kept so a caller can see the bindings.</summary>
     public SpecManifest Manifest => _manifest;
+
+    /// <summary>Each specification's planned steps, from the same listing (bobcat#644); null when it wrote none.</summary>
+    public IReadOnlyList<SpecOutline>? Outline { get; }
+
+    /// <summary>
+    /// When the host was built (bobcat#652): the later of the executable and its assembly beside it,
+    /// which a rebuild rewrites. Null when neither can be read.
+    /// </summary>
+    public DateTimeOffset? BuiltAt
+    {
+        get
+        {
+            try
+            {
+                var times = new[] { HostPath, Path.ChangeExtension(HostPath, ".dll") }
+                    .Where(File.Exists)
+                    .Select(path => new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero))
+                    .ToList();
+                return times.Count == 0 ? null : times.Max();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
 
     /// <summary>Where the runner narrates each launch. Nothing by default.</summary>
     public Action<string>? Log { get; init; }

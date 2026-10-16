@@ -60,6 +60,7 @@ public static class ConsoleComposition
         // The resident runners and their command queues (stoat#77, back from Stoat with the board):
         // in memory, because a runner re-registers on every start.
         services.AddSingleton(_ => new RunnerRegistry());
+        services.AddSingleton<Builds.BuildStatusRegistry>();
 
         services.AddSingleton<ConsoleActivity>();
         if (idleShutdown) services.AddHostedService<IdleShutdownService>();

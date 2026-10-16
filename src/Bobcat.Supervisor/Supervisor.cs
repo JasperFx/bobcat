@@ -64,6 +64,12 @@ public sealed class Supervisor
 
     private int _workersLaunched;
     private long _launchTicks;
+
+    /// <summary>Time workers spent running tests, summed across workers (bobcat#664).</summary>
+    private long _busyTicks;
+
+    /// <summary>The most lanes any pass planned (bobcat#664).</summary>
+    private int _lanesPlanned;
     private bool _lanesReleased;
 
     // The stall escalation's books (issue #173), all behind _recordGate: written from the
@@ -174,6 +180,8 @@ public sealed class Supervisor
     /// implicitly — an implicit file read is the same kind of side effect as an implicit write.
     /// </remarks>
     public IReadOnlyDictionary<string, TimeSpan>? KnownTestDurations { get; set; }
+
+    private DurationCoverage? _durationCoverage;
 
     /// <summary>Progress, for a console or a log. Never required.</summary>
     public Action<string>? Log { get; set; }
@@ -393,6 +401,8 @@ public sealed class Supervisor
 
             results.Duration = clock.Elapsed;
             results.WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks));
+            results.WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks));
+            results.Lanes = _lanesPlanned;
 
             // Posted for every run that produced results — including preflight failures and
             // empty filters — so a dashboard never shows a bracket that opened and never closed
@@ -526,8 +536,11 @@ public sealed class Supervisor
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
             TestMemory = _sampler?.Tests ?? [],
+            DurationCoverage = _durationCoverage,
             Duration = live.Elapsed,
-            WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks))
+            WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
+            WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
+            Lanes = _lanesPlanned
         };
     }
 
@@ -660,7 +673,8 @@ public sealed class Supervisor
             StalledTests = _ledger.Stalled,
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
-            TestMemory = _sampler?.Tests ?? []
+            TestMemory = _sampler?.Tests ?? [],
+            DurationCoverage = _durationCoverage
         };
     }
 
@@ -839,6 +853,13 @@ public sealed class Supervisor
         if (batched.Count > 0)
         {
             var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
+            _lanesPlanned = Math.Max(_lanesPlanned, plan.Count);
+
+            // Said out loud (bobcat#663): a ledger keyed by uids from another machine or TFM can
+            // match nothing, and the run then reads exactly like a duration-balanced one.
+            _durationCoverage = WorkPlan.CoverageOf(batched, KnownTestDurations);
+            if (_durationCoverage is { } coverage) Log?.Invoke(coverage.ToString());
+            notify(observer => observer.LanesPlanned(plan, _durationCoverage));
 
             if (plan.Count > 1)
             {
@@ -879,7 +900,7 @@ public sealed class Supervisor
         {
             ct.ThrowIfCancellationRequested();
 
-            Log?.Invoke($"running alone: {uid}");
+            Log?.Invoke($"running alone: {nameOf(uid)}");
             var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
             var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
@@ -948,7 +969,8 @@ public sealed class Supervisor
 
             if (sameProcess.Count > 0)
             {
-                Log?.Invoke($"retrying {sameProcess.Count} test(s) in place");
+                Log?.Invoke($"retrying {sameProcess.Count} test(s) in place: " +
+                            string.Join(", ", sameProcess.Select(nameOf)));
 
                 // Back to the lane the test already ran in, not merely to some warm process. A
                 // class's static state lives in the process that ran it, so retrying elsewhere
@@ -976,7 +998,7 @@ public sealed class Supervisor
             {
                 ct.ThrowIfCancellationRequested();
 
-                Log?.Invoke($"retrying alone in a fresh process: {uid}");
+                Log?.Invoke($"retrying alone in a fresh process: {nameOf(uid)}{failedWith(attempts, uid)}");
                 var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
                 var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
@@ -992,7 +1014,7 @@ public sealed class Supervisor
                 var recycleFailure = await recycle(resources, ct);
                 if (recycleFailure is not null) return recycleFailure;
 
-                Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {uid}");
+                Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {nameOf(uid)}{failedWith(attempts, uid)}");
                 var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Recycled, ct);
 
                 var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts, stallKilled);
@@ -1014,7 +1036,15 @@ public sealed class Supervisor
         WorkerRunResult result;
         try
         {
-            result = await worker.Run([uid], ct);
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                result = await worker.Run([uid], ct);
+            }
+            finally
+            {
+                Interlocked.Add(ref _busyTicks, Stopwatch.GetElapsedTime(started).Ticks);
+            }
         }
         finally
         {
@@ -1134,6 +1164,23 @@ public sealed class Supervisor
     /// worker actually reported.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A test's discovered display name for a log line, never its uid — on xUnit the uid is a
+    /// hash that names nothing (bobcat#662, the #82 rule for log lines).
+    /// </summary>
+    private string nameOf(string uid)
+        => _discoveredNames.TryGetValue(uid, out var name) && !string.IsNullOrWhiteSpace(name) ? name : uid;
+
+    /// <summary>What the attempt being retried failed with, for the retry's log line (bobcat#662).</summary>
+    private static string failedWith(Dictionary<string, List<SupervisorAttempt>> attempts, string uid)
+    {
+        if (!attempts.TryGetValue(uid, out var history) || history.Count == 0) return "";
+
+        var outcome = history[^1].Outcome;
+        var what = outcome.ErrorType ?? outcome.State.ToString().ToLowerInvariant();
+        return $" (attempt {history[^1].AttemptNumber} {(outcome.ErrorType is null ? "was" : "failed with")} {what})";
+    }
+
     private WorkerOutcome named(WorkerOutcome outcome)
         => outcome.DisplayName == outcome.Uid &&
            _discoveredNames.TryGetValue(outcome.Uid, out var discovered) &&
@@ -1530,7 +1577,20 @@ public sealed class Supervisor
         var worker = await laneWorker(index, ct);
 
         notify(observer => observer.LaneStarted(index, uids));
-        var result = await worker.Run(uids, ct);
+
+        WorkerRunResult result;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            result = await worker.Run(uids, ct);
+        }
+        finally
+        {
+            // Busy time, not lifetime: what the lanes ran side by side is what lane concurrency
+            // is measured against (bobcat#664).
+            Interlocked.Add(ref _busyTicks, Stopwatch.GetElapsedTime(started).Ticks);
+        }
+
         notify(observer => observer.LaneFinished(index, result));
 
         return (index, result);

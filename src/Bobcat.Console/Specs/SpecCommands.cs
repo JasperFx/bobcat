@@ -1,3 +1,4 @@
+using Bobcat.Monitoring;
 using JasperFx.CommandLine;
 using Spectre.Console;
 
@@ -333,7 +334,7 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
     public override async Task<bool> Execute(SpecInput input)
     {
         var project = await input.ProjectAsync();
-        if (!await project.BuildAsync(input.NoBuildFlag)) return false;
+        if (!await (input.NoBuildFlag ? project.BuildAsync(skipBuild: true) : rebuild(project))) return false;
 
         var chosen = await SpecSelectionFlow.ChooseAsync(project, input);
         if (chosen is null) return false;
@@ -377,11 +378,30 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
             if (next == Next.Changed || next == Next.Pick || next == Next.Everything || next == Next.Rerun)
             {
                 AnsiConsole.Write(new Rule($"[dim]{DateTime.Now:T} · {(next == Next.Changed ? "source changed" : "rerun")}[/]"));
-                if (next == Next.Changed && !await project.BuildAsync()) buildFailed = true;
+                if (next == Next.Changed && !await rebuild(project)) buildFailed = true;
             }
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Rebuild, telling the console as it goes (bobcat#651): a failed rebuild used to be visible only
+    /// in this terminal, while the board went on showing the last run of code that no longer compiled
+    /// as green. Never slows or fails the loop: a console that is not there costs a short timeout.
+    /// </summary>
+    private static async Task<bool> rebuild(SpecProject project)
+    {
+        await BuildStatusPublisher.PublishAsync(BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.Building));
+
+        var built = await project.BuildAsync();
+
+        await BuildStatusPublisher.PublishAsync(built
+            ? BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.Built)
+            : BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.BuildFailed,
+                BuildStatusPublisher.ErrorsIn(project.LastBuildFailure ?? "")));
+
+        return built;
     }
 
     private enum Next { Changed, Rerun, Pick, Everything, Quit }

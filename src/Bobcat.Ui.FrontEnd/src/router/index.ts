@@ -32,6 +32,14 @@ const router = createRouter({
       props: true,
     },
     {
+      // One attached runner and what it can run (bobcat#644): a suite's specifications and their
+      // steps before anything has run, with a run button beside each.
+      path: '/runners/:runnerId',
+      name: 'runner',
+      component: () => import('@/views/RunnerView.vue'),
+      props: true,
+    },
+    {
       path: '/event-model',
       name: 'event-model',
       // Lazy-loaded: pulls in the shared @jasperfx/event-model-vue renderer.

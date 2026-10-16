@@ -17,7 +17,18 @@ public record RunnerView(
     string? StatusDetail,
     DateTimeOffset RegisteredAt,
     DateTimeOffset LastSeenAt,
-    IReadOnlyList<RunnerCommandView> Commands);
+    IReadOnlyList<RunnerCommandView> Commands)
+{
+    /// <summary>When the code it runs was built (bobcat#652); null from a runner that predates it.</summary>
+    public DateTimeOffset? BuiltAt { get; init; }
+}
+
+/// <summary>
+/// One specification a runner can run (bobcat#644): its identity split into feature and scenario,
+/// and its planned steps when the runner registered them — empty for a runner that predates the
+/// outline, or a data row whose steps are its method's.
+/// </summary>
+public record RunnerSpecView(string Identity, string Feature, string Scenario, IReadOnlyList<string> Steps);
 
 /// <summary>One command and where it got to. <c>State</c> is queued / sent / accepted / rejected.
 /// <c>RunId</c> is the run it produced, once that run's <c>run_started</c> names it.</summary>
@@ -411,6 +422,39 @@ public sealed class RunnerRegistry
         }
     }
 
+    /// <summary>
+    /// What the runner can run, spec by spec with its planned steps (bobcat#644) — the runner page's
+    /// list, before anything has run. Null for a runner nobody registered.
+    /// </summary>
+    public IReadOnlyList<RunnerSpecView>? SpecificationsOf(string runnerId)
+    {
+        lock (_gate)
+        {
+            if (find(runnerId) is not { } runner) return null;
+
+            var steps = (runner.Registration.Outline ?? [])
+                .GroupBy(x => x.Identity, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Steps, StringComparer.Ordinal);
+
+            return runner.Registration.Specs
+                .Distinct(StringComparer.Ordinal)
+                .Select(identity =>
+                {
+                    // The identity cannot be parsed in general (a feature title may hold a '/'), but a
+                    // display split at the last one is what the rest of the board already does.
+                    var slash = identity.LastIndexOf('/');
+                    return new RunnerSpecView(
+                        identity,
+                        slash > 0 ? identity[..slash] : "",
+                        slash > 0 ? identity[(slash + 1)..] : identity,
+                        steps.TryGetValue(identity, out var planned) ? planned : []);
+                })
+                .OrderBy(x => x.Feature, StringComparer.Ordinal)
+                .ThenBy(x => x.Scenario, StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
     /// <summary>The runner's registered spec identities — what a command may name.</summary>
     public IReadOnlyList<string>? SpecsOf(string runnerId)
     {
@@ -450,6 +494,9 @@ public sealed class RunnerRegistry
             runner.RegisteredAt, runner.LastSeenAt,
             runner.Commands.OrderByDescending(x => x.Sequence).Select(c => new RunnerCommandView(
                 c.Id, c.Kind, c.Specs, c.Mode, c.State, c.Reason, c.RequestedBy, c.RequestedAt, c.AcknowledgedAt,
-                runFor?.Invoke(c.Id))).ToList());
+                runFor?.Invoke(c.Id))).ToList())
+        {
+            BuiltAt = r.BuiltAt
+        };
     }
 }

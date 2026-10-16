@@ -59,6 +59,15 @@ public sealed class RunTiming
     /// <summary>Total time spent launching worker processes. See <see cref="SupervisorResults.WorkerLaunchTime"/>.</summary>
     public TimeSpan LaunchOverhead { get; private init; }
 
+    /// <summary>
+    /// Time workers spent running tests, summed across workers. Zero when nothing measured it —
+    /// hand-built results, or a run older than bobcat#664.
+    /// </summary>
+    public TimeSpan WorkerBusy { get; private init; }
+
+    /// <summary>How many lanes the run planned. One means every overlap happened inside one worker.</summary>
+    public int Lanes { get; private init; }
+
     /// <summary>What every attempt after a first one cost, across the whole run.</summary>
     public TimeSpan RetryCost { get; private init; }
 
@@ -89,6 +98,26 @@ public sealed class RunTiming
     /// itself — process launch, discovery, gaps between passes — is a visible share of the run.
     /// </remarks>
     public double? ParallelEfficiency => Share(Measured);
+
+    /// <summary>
+    /// <c>worker busy time / wall clock</c> — how many workers were running tests at once, on
+    /// average: the supervisor's own parallelism (bobcat#664). Never above <see cref="Lanes"/>
+    /// plus the odd solo process.
+    /// </summary>
+    public double? LaneConcurrency => WorkerBusy > TimeSpan.Zero ? Share(WorkerBusy) : null;
+
+    /// <summary>
+    /// <c>sum(test durations) / worker busy time</c> — how much test time each worker packed into
+    /// its own running time (bobcat#664). Above 1 is the test framework's in-process parallelism
+    /// (xUnit running collections side by side), which no number of lanes produced.
+    /// </summary>
+    /// <remarks>
+    /// Found on Marten (JasperFx/marten#5687, lesson 7): <see cref="ParallelEfficiency"/> read
+    /// 1.56x on a single sequential worker, which reads as lanes that overlapped. It was xUnit's
+    /// in-worker parallelism. The product of this and <see cref="LaneConcurrency"/> is roughly
+    /// <see cref="ParallelEfficiency"/>; the split is what says whether more workers would help.
+    /// </remarks>
+    public double? InWorkerConcurrency => WorkerBusy > TimeSpan.Zero ? Measured / WorkerBusy : null;
 
     /// <summary>What fraction of wall clock a span accounts for. Null when the run was not timed.</summary>
     public double? Share(TimeSpan span)
@@ -144,6 +173,8 @@ public sealed class RunTiming
             Tests = timings,
             WallClock = results.Duration,
             LaunchOverhead = results.WorkerLaunchTime,
+            WorkerBusy = results.WorkerBusyTime,
+            Lanes = results.Lanes,
             Unmeasured = unmeasured,
             Measured = timings.Aggregate(TimeSpan.Zero, (sum, t) => sum + t.Total),
             RetryCost = timings.Aggregate(TimeSpan.Zero, (sum, t) => sum + t.RetryCost),

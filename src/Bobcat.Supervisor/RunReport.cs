@@ -29,8 +29,18 @@ public static class RunReport
 
         report.AppendLine(results.Summarize());
 
+        // A plan that silently fell back to counting tests reads exactly like a balanced one
+        // (bobcat#663), so the match is stated whenever durations were supplied.
+        if (results.DurationCoverage is { } coverage)
+        {
+            report.AppendLine(coverage.ToString());
+        }
+
+        // What the failed attempt failed WITH is what decides whether a test belongs on retries
+        // or is a real bug (bobcat#662), so a pass-on-retry carries it.
         section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
-            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {placements(test)}");
+            test => $"{test.DisplayName} — {test.AttemptCount} attempts, {placements(test)}" +
+                    (RecoveredFrom(test) is { } failure ? $"; first failed with {failure}" : ""));
 
         section(report, "Failed", results.Failed,
             test => $"{test.DisplayName} — {reason(test)}");
@@ -54,6 +64,11 @@ public static class RunReport
 
         section(report, "Indeterminate (result never established)", results.Indeterminate,
             test => $"{test.DisplayName} — {test.Final.Outcome.ErrorMessage ?? "no result reported"}");
+
+        // A collapsed theory is judged by its worst row, but the run still saw fewer tests than a
+        // direct run would, and the fix is in the suite — so it is named even when it passed.
+        section(report, "Collapsed theories (several rows reported under one test id; make the theory data serializable)",
+            results.Collapsed, collapsed);
 
         section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
             test => $"{test.DisplayName} — {test.AttemptCount} attempts, final: {test.Outcome}");
@@ -127,9 +142,8 @@ public static class RunReport
             return;
         }
 
-        var efficiency = timing.ParallelEfficiency!.Value.ToString("0.00", CultureInfo.InvariantCulture);
         report.AppendLine($"  • {RunTiming.Humanize(timing.Measured)} measured across " +
-                          $"{timing.Tests.Count} test(s) — {efficiency}x parallel efficiency");
+                          $"{timing.Tests.Count} test(s) — {efficiencyOf(timing)}");
 
         // The percentage is what makes someone act; the raw seconds read as "integration tests
         // are slow".
@@ -173,6 +187,29 @@ public static class RunReport
 
             report.AppendLine($"    • {RunTiming.Humanize(test.Total)} ({share}) {test.DisplayName}{retried}");
         }
+    }
+
+    /// <summary>
+    /// Parallel efficiency, split into where the overlap came from (bobcat#664). A test
+    /// framework's in-process parallelism inside one worker is not the supervisor's lanes, and
+    /// reading one as the other misleads the decision the figure exists for: whether more workers
+    /// will help.
+    /// </summary>
+    private static string efficiencyOf(RunTiming timing)
+    {
+        static string x(double value) => value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
+
+        var overall = $"{x(timing.ParallelEfficiency!.Value)} parallel efficiency";
+        if (timing.LaneConcurrency is not { } lanes || timing.InWorkerConcurrency is not { } inWorker) return overall;
+
+        if (timing.Lanes <= 1)
+        {
+            return $"{overall}, all of it inside one worker ({x(inWorker)} in-process test parallelism; " +
+                   "one lane, so none of it is the supervisor's)";
+        }
+
+        return $"{overall}: {x(lanes)} from {timing.Lanes} lanes running side by side, " +
+               $"{x(inWorker)} in-process test parallelism within a worker";
     }
 
     /// <summary>How many of the biggest memory retainers to name.</summary>
@@ -231,6 +268,55 @@ public static class RunReport
         foreach (var test in tests) report.AppendLine($"  • {describe(test)}");
     }
 
+    private static string collapsed(TestReport test)
+    {
+        var rows = test.Attempts
+            .Select(a => a.Outcome.CollapsedDisplayNames)
+            .LastOrDefault(names => names is { Count: > 1 })!;
+
+        const int shown = 5;
+        var named = string.Join("; ", rows.Take(shown));
+        var more = rows.Count > shown ? $"; …and {rows.Count - shown} more" : "";
+
+        return $"{test.DisplayName} — {rows.Count} rows, judged {test.Outcome} by the worst: {named}{more}";
+    }
+
+    /// <summary>How much of a failure message a report repeats — enough to recognise it.</summary>
+    internal const int FailureMessageLimit = 200;
+
+    /// <summary>
+    /// The failure a pass-on-retry recovered from (bobcat#662): the first attempt that failed for
+    /// the test's own reasons, never one the supervisor's stall kill manufactured. Null when no
+    /// attempt failed that way.
+    /// </summary>
+    internal static RecoveredFailure? RecoveredFrom(TestReport test)
+    {
+        var failed = test.Attempts.FirstOrDefault(a => !a.Succeeded && !a.StallInduced);
+        if (failed is null) return null;
+
+        return new RecoveredFailure(
+            failed.AttemptNumber, failed.Outcome.State, failed.Outcome.ErrorType,
+            Bounded(withoutType(failed.Outcome.ErrorMessage, failed.Outcome.ErrorType)));
+    }
+
+    /// <summary>The first line of a message, cut to <see cref="FailureMessageLimit"/> with an ellipsis.</summary>
+    internal static string? Bounded(string? message)
+    {
+        var line = message?.Split('\n')[0].Trim();
+        if (string.IsNullOrEmpty(line)) return null;
+
+        return line.Length <= FailureMessageLimit ? line : line[..FailureMessageLimit] + "…";
+    }
+
+    /// <summary>
+    /// xUnit writes the type at the head of the message ("Ns.Type : message"), which is where the
+    /// type was recovered from, so the report says it once.
+    /// </summary>
+    private static string? withoutType(string? message, string? type)
+        => type is not null && message?.StartsWith(type + " : ", StringComparison.Ordinal) == true
+            ? message[(type.Length + 3)..]
+            : message;
+
     private static string placements(TestReport test)
         => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
 
@@ -257,9 +343,18 @@ public static class RunReport
                 ["passOnRetry"] = results.PassedOnRetry.Count,
                 ["failed"] = results.Failed.Count,
                 ["indeterminate"] = results.Indeterminate.Count,
+                ["skipped"] = results.Skipped.Count,
                 ["retriesPerformed"] = results.RetriesPerformed,
                 ["workersLaunched"] = results.WorkersLaunched
             },
+            ["knownDurations"] = results.DurationCoverage is not { } coverage
+                ? null
+                : new JsonObject
+                {
+                    ["matched"] = coverage.Matched,
+                    ["tests"] = coverage.Tests,
+                    ["balancedBy"] = coverage.BalancedByCount ? "count" : "duration"
+                },
             ["timing"] = describe(RunTiming.For(results)),
             ["memory"] = describe(RunResources.For(results)),
             ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject
@@ -282,6 +377,7 @@ public static class RunReport
             ["unsupportedDispositions"] =
                 new JsonArray(results.UnsupportedDispositions.Select(u => (JsonNode)u!).ToArray()),
             ["quarantine"] = new JsonArray(results.Quarantine.Select(t => (JsonNode)t.Uid!).ToArray()),
+            ["collapsed"] = new JsonArray(results.Collapsed.Select(t => (JsonNode)t.Uid!).ToArray()),
             ["tests"] = new JsonArray(results.Tests.Select(describe).ToArray<JsonNode>())
         };
 
@@ -297,6 +393,12 @@ public static class RunReport
         ["wallClockMs"] = timing.WallClock > TimeSpan.Zero ? timing.WallClock.TotalMilliseconds : null,
         ["measuredMs"] = timing.IsMeasured ? timing.Measured.TotalMilliseconds : null,
         ["parallelEfficiency"] = timing.IsMeasured ? timing.ParallelEfficiency : null,
+        // bobcat#664: where the overlap came from — the supervisor's lanes, or the test
+        // framework's own parallelism inside a worker. Null when nothing measured worker time.
+        ["lanes"] = timing.Lanes,
+        ["workerBusyMs"] = timing.WorkerBusy > TimeSpan.Zero ? timing.WorkerBusy.TotalMilliseconds : null,
+        ["laneConcurrency"] = timing.IsMeasured ? timing.LaneConcurrency : null,
+        ["inWorkerConcurrency"] = timing.IsMeasured ? timing.InWorkerConcurrency : null,
         ["workerLaunchMs"] = timing.LaunchOverhead > TimeSpan.Zero ? timing.LaunchOverhead.TotalMilliseconds : null,
         ["retryCostMs"] = timing.IsMeasured ? timing.RetryCost.TotalMilliseconds : null,
         ["isolationCostMs"] = timing.IsMeasured ? timing.IsolationCost.TotalMilliseconds : null,
@@ -354,6 +456,15 @@ public static class RunReport
         ["outcome"] = test.Outcome.ToString(),
         ["attempts"] = test.AttemptCount,
         ["quarantineCandidate"] = test.WasRetried,
+        ["recoveredFrom"] = test.Outcome != RunOutcome.PassOnRetry || RecoveredFrom(test) is not { } failure
+            ? null
+            : new JsonObject
+            {
+                ["attempt"] = failure.Attempt,
+                ["state"] = failure.State.ToString(),
+                ["errorType"] = failure.ErrorType,
+                ["message"] = failure.Message
+            },
         ["attemptDetail"] = new JsonArray(test.Attempts.Select(attempt => (JsonNode)new JsonObject
         {
             ["attempt"] = attempt.AttemptNumber,
@@ -376,7 +487,23 @@ public static class RunReport
                 },
             ["errorType"] = attempt.Outcome.ErrorType,
             ["errorMessage"] = attempt.Outcome.ErrorMessage,
+            ["collapsedRows"] = attempt.Outcome.CollapsedDisplayNames is { Count: > 1 } rows
+                ? new JsonArray(rows.Select(r => (JsonNode)r!).ToArray())
+                : null,
             ["durationMs"] = attempt.Outcome.Duration?.TotalMilliseconds
         }).ToArray())
     };
+}
+
+/// <summary>
+/// What a pass-on-retry's failed attempt failed with (bobcat#662) — the type name a recovery hint
+/// would match on and a bounded first line of the message.
+/// </summary>
+public sealed record RecoveredFailure(int Attempt, WorkerTestState State, string? ErrorType, string? Message)
+{
+    public override string ToString()
+    {
+        var what = ErrorType ?? State.ToString().ToLowerInvariant();
+        return Message is null ? $"{what} (attempt {Attempt})" : $"{what}: {Message} (attempt {Attempt})";
+    }
 }

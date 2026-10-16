@@ -5,6 +5,10 @@ import SpecificationView from '@/components/SpecificationView.vue'
 import { useRunsStore, visibleScenarios } from '@/stores/runs-store'
 import SupervisorTopology from '@/components/SupervisorTopology.vue'
 import RunButton from '@/components/RunButton.vue'
+import MissingRun from '@/components/MissingRun.vue'
+import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
+import { useRunners } from '@/composables/useRunners'
+import { rebuiltSince } from '@/lib/runners'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref, specHref } from '@/lib/specLinks'
 
@@ -13,12 +17,22 @@ const props = defineProps<{ runId: string }>()
 const runs = useRunsStore()
 const model = useEventModelStore()
 const run = computed(() => runs.runById(props.runId))
+const { runners } = useRunners()
+
+/** bobcat#652: this run is of the code before the runner's last rebuild. */
+const stale = computed(() => (run.value ? rebuiltSince(run.value, runners.value) : undefined))
 const scenarios = computed(() => (run.value ? visibleScenarios(run.value) : []))
 
 onMounted(() => {
   // Specification → slice (stoat#61) needs the model; nothing else on this page does.
   if (model.status === 'idle') void model.load()
 })
+
+/**
+ * bobcat#645: this run's selection, to run again — every specification it ran, whatever happened
+ * to them. A supervised foreign test has no feature, so no identity a runner knows.
+ */
+const selection = computed(() => scenarios.value.filter((s) => s.feature).map((s) => s.uid))
 
 /** stoat#78: what "re-run failed" runs. A supervised foreign test has no feature, so no identity a runner knows. */
 const failed = computed(() =>
@@ -36,16 +50,26 @@ function sliceOf(uid: string) {
 
 <template>
   <div v-if="!run">
-    <el-empty description="Unknown run" />
+    <MissingRun :run-id="runId" />
   </div>
   <div v-else>
     <h2 class="bm-run-heading">
       {{ run.suite }}
-      <RunButton v-if="failed.length > 0" :target="{ specs: failed }" :label="`Re-run failed (${failed.length})`" />
+      <RunButton v-if="failed.length > 0" :target="{ specs: failed }" :label="`Re-run failed (${failed.length})`" :suite="run.suite" />
+      <RunButton
+        v-if="selection.length > 0"
+        :target="{ specs: selection }"
+        :label="`Run again (${selection.length})`"
+        :suite="run.suite"
+      />
     </h2>
     <div class="bm-run-meta">
       {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span>
+      <el-tag v-if="stale" size="small" type="warning" data-testid="before-rebuild" :title="`Rebuilt ${stale.builtAt}`">
+        from before the last rebuild
+      </el-tag>
     </div>
+    <BuildStatusBanner :suite="run.suite" />
 
     <SupervisorTopology :run="run" />
 
@@ -62,7 +86,7 @@ function sliceOf(uid: string) {
           <span v-if="scenario.feature">{{ scenario.feature }}: </span>{{ scenario.scenario }}
         </router-link>
         <el-tag v-if="scenario.state" size="small">{{ scenario.state }}</el-tag>
-        <RunButton v-if="isFailed(scenario.status) && scenario.feature" :target="{ specs: [scenario.uid] }" label="Re-run" text />
+        <RunButton v-if="isFailed(scenario.status) && scenario.feature" :target="{ specs: [scenario.uid] }" label="Re-run" text :suite="run.suite" />
         <el-tag v-if="scenario.attempt > 1" size="small" type="warning">
           attempt {{ scenario.attempt }}
         </el-tag>

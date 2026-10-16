@@ -63,6 +63,15 @@ public interface ISupervisorObserver
     {
     }
 
+    /// <summary>
+    /// The first pass was planned: its lanes, and how many of the planned tests the supplied
+    /// <see cref="Supervisor.KnownTestDurations"/> matched (bobcat#663). The coverage is null when
+    /// no durations were supplied.
+    /// </summary>
+    void LanesPlanned(IReadOnlyList<WorkLane> lanes, DurationCoverage? coverage)
+    {
+    }
+
     /// <summary>A lane's worker was handed a set of tests.</summary>
     void LaneStarted(int lane, IReadOnlyList<string> uids)
     {

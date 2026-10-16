@@ -1,3 +1,4 @@
+using Bobcat.Runtime;
 using System.Text.Json;
 using Bobcat.Residency;
 using Shouldly;
@@ -173,6 +174,26 @@ public class RunnerWireContractTests
         root.GetProperty("modes").EnumerateArray().Select(x => x.GetString()).ShouldBe(["cold"]);
         root.GetProperty("specs").EnumerateArray().Select(x => x.GetString())
             .ShouldBe(["Orders/places an order"]);
+    }
+
+    [Fact]
+    public void a_registration_carries_each_specifications_outline_when_it_has_one()
+    {
+        // bobcat#644: what a console shows before anything has run. Trailing and optional.
+        var root = parse(JsonSerializer.Serialize(
+            new RunnerRegistration("r1", "/repo", "main", "Orders.Specs", "projected",
+                ["cold"], ["Orders/places an order"],
+                [new SpecOutline("Orders/places an order", ["Given a customer", "When they order {sku}"])]),
+            RunnerWire.Json));
+
+        var outline = root.GetProperty("outline").EnumerateArray().Single();
+        outline.GetProperty("identity").GetString().ShouldBe("Orders/places an order");
+        outline.GetProperty("steps").EnumerateArray().Select(x => x.GetString())
+            .ShouldBe(["Given a customer", "When they order {sku}"]);
+
+        var none = parse(JsonSerializer.Serialize(
+            new RunnerRegistration("r1", "/repo", "main", "Orders.Specs", "projected", ["cold"], []), RunnerWire.Json));
+        (!none.TryGetProperty("outline", out var missing) || missing.ValueKind == JsonValueKind.Null).ShouldBeTrue();
     }
 
     [Fact]

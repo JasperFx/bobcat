@@ -44,10 +44,6 @@ Every command takes `-u, --url <url>`, the UI's base URL; `http://localhost:5525
 | `-o, --output <file>` | `export-run` | write to a file instead of standard out |
 | `-t, --timeout <seconds>` | `await-run` | how long to wait; 600 by default, at most 3600 |
 
-<!-- JEREMY: the --run help text on flaky-ledger and await-run says "defaults to the most recent run"
-(they share RunQueryInput), which is not what either does. The table describes the behaviour; the
-help text wants a fix in AgentQueryCommands.cs. -->
-
 ### `await-run`
 
 ```bash

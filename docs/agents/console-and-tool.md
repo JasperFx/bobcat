@@ -65,7 +65,7 @@ and so cannot be handed a class to host.
   - **No `--` inside an XML comment** in the generated csproj (MSB4025). The first cut wrote
     "`--specs`" in its header comment and no project would load; the tests `XDocument.Parse` it.
   - **`DefaultWolverineFxBobcatVersion` is the newest *published* WolverineFx.Bobcat**
-    (6.49.0-alpha.3, built against Bobcat 0.38). Move it when a WolverineFx.Bobcat paired with this
+    (6.51.0-alpha.1, built against Bobcat 0.60.4). Move it when a WolverineFx.Bobcat paired with this
     Bobcat ships; until then pass `--wolverine-version`.
   - `SpecProjectWriterTests.the_generated_spec_project_builds` imports a board and `dotnet build`s the
     result; it skips unless `BOBCAT_IMPORT_BUILD_WOLVERINE` (and `BOBCAT_IMPORT_BUILD_FEED` for a

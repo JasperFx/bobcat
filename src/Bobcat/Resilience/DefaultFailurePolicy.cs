@@ -18,6 +18,10 @@ namespace Bobcat.Resilience;
 /// Ordering matters: catastrophic wins over everything, then the recycle/isolate traits (they
 /// name a specific known cause), then plain <c>@retry(N)</c>.
 /// </para>
+/// <para>
+/// <strong>A plain retry is a fresh process</strong> (bobcat#661), the only reset bracket an
+/// out-of-process worker has. <c>RetryWarm=true</c> opts a test into retrying in the same process.
+/// </para>
 /// </remarks>
 public sealed class DefaultFailurePolicy : IFailurePolicy
 {
@@ -65,8 +69,14 @@ public sealed class DefaultFailurePolicy : IFailurePolicy
 
         if (attempt.HasTrait(ResilienceTags.Retry))
         {
-            return Disposition.RetryInProcess(
-                $"tagged @retry — attempt {attempt.AttemptNumber + 1} of this test");
+            // Warm only when asked (bobcat#661): a failure that polluted its process fails every
+            // warm retry with the first attempt's leftovers, and a fresh process is the only reset
+            // bracket an xUnit worker has.
+            return attempt.Trait(ResilienceTags.RetryWarm) == "true"
+                ? Disposition.RetryInProcess(
+                    $"tagged @retry, warm — attempt {attempt.AttemptNumber + 1} of this test in the same process")
+                : Disposition.RetryInFreshProcess(
+                    $"tagged @retry — attempt {attempt.AttemptNumber + 1} of this test, alone in a fresh process");
         }
 
         return Disposition.FailAndContinue(describeFailure(attempt));

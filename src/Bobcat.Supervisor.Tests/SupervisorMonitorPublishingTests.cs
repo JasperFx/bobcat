@@ -196,6 +196,26 @@ public class SupervisorMonitorPublishingTests : IDisposable
     }
 
     [Fact]
+    public async Task a_skipped_test_is_counted_on_the_wire_and_never_as_a_pass()
+    {
+        // bobcat#655: a run that skipped work must not read as more green than it is.
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("ran"), FakeWorkerFactory.Test("not run")],
+            Outcome = (uid, _, _) => uid == "ran" ? WorkerTestState.Passed : WorkerTestState.Skipped
+        };
+
+        await new Supervisor(factory) { PublishToMonitor = true, MonitorSink = sink }.Run();
+
+        var finished = sink.Events.OfType<RunFinished>().Single();
+        finished.Passed.ShouldBe(1);
+        finished.Skipped.ShouldBe(1);
+        finished.Failed.ShouldBe(0);
+        finished.ExitCode.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task publishing_is_opt_in_so_a_plain_run_neither_posts_nor_tags_workers()
     {
         var sink = new RecordingSink();

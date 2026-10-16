@@ -392,10 +392,13 @@ public sealed class MtpWorkerClient : IWorkerClient
             {
                 // Nodes arrive at least twice — in-progress, then final. Never let a
                 // non-terminal update overwrite a decided one.
-                if (_outcomes.TryGetValue(uid, out var existing) &&
-                    isTerminal(existing.State) && !isTerminal(outcome.State))
+                if (_outcomes.TryGetValue(uid, out var existing) && isTerminal(existing.State))
                 {
-                    continue;
+                    if (!isTerminal(outcome.State)) continue;
+
+                    // A second verdict under one uid: a collapsed theory (bobcat#649). Fold it
+                    // rather than overwrite it, or a later row's pass hides an earlier failure.
+                    outcome = FoldTerminal(existing, outcome);
                 }
 
                 _outcomes[uid] = outcome;
@@ -499,6 +502,40 @@ public sealed class MtpWorkerClient : IWorkerClient
         var candidate = message[..separator].Trim();
         return candidate.Contains('.') && !candidate.Contains(' ') ? candidate : null;
     }
+
+    /// <summary>
+    /// Folds a second verdict reported under one uid into the first (bobcat#649) — worst wins,
+    /// so several results under one id can never collapse to a pass.
+    /// </summary>
+    /// <remarks>
+    /// A failure outranks a pass, and a pass a skip; between two of the same rank the first is
+    /// kept, so the failure reported is the first row that failed, message and all. Durations
+    /// add up, because every row ran. Each distinct display name is remembered, and two or more
+    /// is what marks the outcome <see cref="WorkerOutcome.IsCollapsed"/> — a repeated final
+    /// update for the same row folds without claiming a collapse that did not happen.
+    /// </remarks>
+    internal static WorkerOutcome FoldTerminal(WorkerOutcome existing, WorkerOutcome incoming)
+    {
+        var names = (existing.CollapsedDisplayNames ?? [existing.DisplayName]).ToList();
+        if (!names.Contains(incoming.DisplayName, StringComparer.Ordinal)) names.Add(incoming.DisplayName);
+
+        var worst = severity(incoming.State) > severity(existing.State) ? incoming : existing;
+
+        return worst with
+        {
+            Duration = existing.Duration is null && incoming.Duration is null
+                ? null
+                : (existing.Duration ?? TimeSpan.Zero) + (incoming.Duration ?? TimeSpan.Zero),
+            CollapsedDisplayNames = names
+        };
+    }
+
+    private static int severity(WorkerTestState state) => state switch
+    {
+        WorkerTestState.Skipped => 0,
+        WorkerTestState.Passed => 1,
+        _ => 2
+    };
 
     private static bool isTerminal(WorkerTestState state)
         => state is not (WorkerTestState.Indeterminate);

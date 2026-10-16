@@ -37,6 +37,29 @@ public class RunRetentionTests : IDisposable
     private MonitorRunRegistry registry(int retainedRuns = 0)
         => new(_dataPath, TimeSpan.Zero, retainedRuns);
 
+    // ---- #646: a page open on an evicted run ------------------------------------------
+
+    [Fact]
+    public void a_run_the_board_evicted_is_known_as_ejected_with_its_archive_rather_than_unknown()
+    {
+        using var monitor = registry(retainedRuns: 1);
+        var older = Guid.NewGuid();
+        var newer = Guid.NewGuid();
+        monitor.Record(run(older, "Demo", at(0)));
+        monitor.WhereIs(older).State.ShouldBe(RunWhereabouts.OnBoard);
+
+        monitor.Record(run(newer, "Demo", at(1)));
+        monitor.SweepRetainedRuns();
+
+        var evicted = RunEndpoints.Whereabouts(older, monitor);
+        evicted.State.ShouldBe(RunWhereabouts.Ejected);
+        evicted.Archive.ShouldBe(monitor.EjectedFileFor(older));
+        evicted.RetainedRuns.ShouldBe(1);
+
+        monitor.WhereIs(newer).State.ShouldBe(RunWhereabouts.OnBoard);
+        monitor.WhereIs(Guid.NewGuid()).ShouldBe(new RunWhereabouts(RunWhereabouts.Unknown, null, 1));
+    }
+
     // ---- #197: bulk eject -------------------------------------------------------------
 
     [Fact]

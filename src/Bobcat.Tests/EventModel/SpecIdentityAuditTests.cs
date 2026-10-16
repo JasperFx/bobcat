@@ -168,7 +168,9 @@ public class SpecIdentityAuditTests
             typeof(SpecIdentityAuditTests).Assembly));
 
         refusal.Message.ShouldContain("has a generated");
-        refusal.Message.ShouldContain("@slice:");
+        // The Gherkin lane and its @slice: tag left in 0.50.0 (bobcat#660): name what binds a slice now.
+        refusal.Message.ShouldContain("[BobcatSpec(typeof(TheCommand))]");
+        refusal.Message.ShouldNotContain("@slice:");
     }
 
     [Fact]

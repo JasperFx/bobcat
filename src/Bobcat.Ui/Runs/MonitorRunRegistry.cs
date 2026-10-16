@@ -279,6 +279,23 @@ public sealed class MonitorRunRegistry : IDisposable
 
     public string EjectedFileFor(Guid runId) => Path.Combine(_dataPath, EjectedFolder, $"{runId}.ndjson");
 
+    /// <summary>
+    /// Where a run is (bobcat#646): on the board, ejected from it with its archive kept, or unknown —
+    /// so a page open on a run the board evicted can say so instead of reading as a run that never was.
+    /// </summary>
+    public RunWhereabouts WhereIs(Guid runId)
+    {
+        lock (_gate)
+        {
+            if (_entries.ContainsKey(runId)) return new RunWhereabouts(RunWhereabouts.OnBoard, ArchiveFileFor(runId), _retainedRuns);
+        }
+
+        var ejected = EjectedFileFor(runId);
+        return File.Exists(ejected)
+            ? new RunWhereabouts(RunWhereabouts.Ejected, ejected, _retainedRuns)
+            : new RunWhereabouts(RunWhereabouts.Unknown, null, _retainedRuns);
+    }
+
     /// <summary>Fold a batch into the projections and append each event to its run's archive.</summary>
     /// <summary>
     /// Resolve the run's canonical repository once, when it announces where it runs (stoat#64) —
@@ -472,4 +489,16 @@ public sealed class MonitorRunRegistry : IDisposable
             _entries.Clear();
         }
     }
+}
+
+/// <summary>
+/// Where a run is (bobcat#646). <c>board</c>: the board has it. <c>ejected</c>: it was ejected — by
+/// hand or because the board keeps only the latest <see cref="RetainedRuns"/> finished runs of each
+/// suite — and its archive is kept at <see cref="Archive"/>. <c>unknown</c>: this console never had it.
+/// </summary>
+public record RunWhereabouts(string State, string? Archive, int RetainedRuns)
+{
+    public const string OnBoard = "board";
+    public const string Ejected = "ejected";
+    public const string Unknown = "unknown";
 }

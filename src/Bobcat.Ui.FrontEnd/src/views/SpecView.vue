@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
 import RunButton from '@/components/RunButton.vue'
+import MissingRun from '@/components/MissingRun.vue'
 import { useRunsStore } from '@/stores/runs-store'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref } from '@/lib/specLinks'
@@ -47,7 +48,8 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
       </template>
     </div>
 
-    <el-empty v-if="!scenario" description="This run has no such specification" data-testid="unknown-spec" />
+    <MissingRun v-if="!run" :run-id="runId" />
+    <el-empty v-else-if="!scenario" description="This run has no such specification" data-testid="unknown-spec" />
     <template v-else>
       <h2 class="bm-spec-title">
         <span v-if="scenario.feature" class="bm-spec-feature">{{ scenario.feature }}: </span>{{ scenario.scenario }}
@@ -58,7 +60,7 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
       </h2>
       <!-- stoat#78: run it again, or its whole feature, on a resident runner. -->
       <div class="bm-spec-actions">
-        <RunButton :target="{ specs: [uid] }" label="Run again" />
+        <RunButton :target="{ specs: [uid] }" label="Run again" :suite="run?.suite" />
         <RunButton v-if="scenario.feature" :target="{ feature: scenario.feature }" :label="`Run ${scenario.feature}`" />
       </div>
       <ScenarioProgress :scenario="scenario" />

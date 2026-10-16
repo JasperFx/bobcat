@@ -93,8 +93,11 @@ public sealed class FakeWorker : IWorkerClient
             {
                 Traits = traits,
                 ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
-                ErrorMessage = state == WorkerTestState.Passed ? null : $"{uid} attempt {attempt}",
-                Duration = _factory.DurationFor(uid, attempt)
+                ErrorMessage = state == WorkerTestState.Passed
+                    ? null
+                    : _factory.ErrorMessageFor(uid, attempt) ?? $"{uid} attempt {attempt}",
+                Duration = _factory.DurationFor(uid, attempt),
+                CollapsedDisplayNames = _factory.CollapsedRows(uid)
             });
 
             relay(new WorkerTestUpdate(uid, displayName, state.Value.ToString().ToLowerInvariant())
@@ -167,6 +170,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     public Func<string, int, TimeSpan?> Duration { get; init; } = (_, _) => null;
 
     /// <summary>
+    /// The failure message a test reports on an attempt; null keeps the default
+    /// "{uid} attempt {n}".
+    /// </summary>
+    public Func<string, int, string?> ErrorMessageFor { get; init; } = (_, _) => null;
+
+    /// <summary>
     /// The name a run-time result carries, when it differs from the discovered one. MTP node
     /// updates are free to disagree with discovery — a theory case resolved at run time, say.
     /// Null keeps the discovered name.
@@ -184,6 +193,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// the test case decides to let it finish. Null holds nothing.
     /// </summary>
     public Func<string, FakeWorker, Task>? HoldAfterStart { get; init; }
+
+    /// <summary>
+    /// The rows a test reports under its one uid, modelling a theory the framework could not
+    /// split (bobcat#649). Null by default: an ordinary test.
+    /// </summary>
+    public Func<string, IReadOnlyList<string>?> CollapsedRows { get; init; } = _ => null;
 
     /// <summary>
     /// The resident set a worker reports when sampled. Defaults to null — a client that cannot

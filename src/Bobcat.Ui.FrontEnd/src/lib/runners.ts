@@ -36,24 +36,72 @@ export interface RunnerView {
   registeredAt: string
   lastSeenAt: string
   commands: RunnerCommandView[]
+  /** When the code it runs was built (bobcat#652); absent from a runner that predates it. */
+  builtAt?: string | null
 }
 
-/** What a button runs: named specs, or a whole feature. */
-export type RunTarget = { specs: string[] } | { feature: string }
+/**
+ * One specification a runner can run, with the planned steps it registered (bobcat#644). Steps are
+ * empty from a runner that predates the outline.
+ */
+export interface RunnerSpecView {
+  identity: string
+  feature: string
+  scenario: string
+  steps: string[]
+}
+
+/** What a runner can run, spec by spec: the runner page, before anything has run (bobcat#644). */
+export async function loadRunnerSpecs(runnerId: string, fetchImpl: typeof fetch = fetch): Promise<RunnerSpecView[] | null> {
+  try {
+    const response = await fetchImpl(`/api/runners/${encodeURIComponent(runnerId)}/specs`)
+    const body = response.ok ? await response.json() : null
+    return Array.isArray(body) ? (body as RunnerSpecView[]) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What a button runs: named specs, a whole feature, or a whole project (bobcat#645). `all` may name
+ * the one runner it is for, when the button sits beside that runner.
+ */
+export type RunTarget = { specs: string[] } | { feature: string } | { all: true; runnerId?: string }
 
 export const START_A_RUNNER = 'bobcat resident <test host>'
 
 export async function findRunners(target: RunTarget, fetchImpl: typeof fetch = fetch): Promise<RunnerView[] | null> {
   const query = new URLSearchParams()
-  if ('feature' in target) query.set('feature', target.feature)
+  if ('all' in target) query.set('all', 'true')
+  else if ('feature' in target) query.set('feature', target.feature)
   else for (const spec of target.specs) query.append('spec', spec)
 
   try {
     const response = await fetchImpl(`/api/runners/for?${query}`)
-    return response.ok ? ((await response.json()) as RunnerView[]) : null
+    if (!response.ok) return null
+    const runners = (await response.json()) as RunnerView[]
+    return 'all' in target && target.runnerId ? runners.filter((r) => r.runnerId === target.runnerId) : runners
   } catch {
     return null
   }
+}
+
+/** Every runner the UI knows (bobcat#645): what the board offers before anything has run. */
+export async function loadRunners(fetchImpl: typeof fetch = fetch): Promise<RunnerView[] | null> {
+  try {
+    const response = await fetchImpl('/api/runners')
+    const body = response.ok ? await response.json() : null
+    return Array.isArray(body) ? (body as RunnerView[]) : null
+  } catch {
+    return null
+  }
+}
+
+/** What a target runs, in words. */
+export function describeTarget(target: RunTarget): string {
+  if ('all' in target) return 'the whole project'
+  if ('feature' in target) return `feature ${target.feature}`
+  return target.specs.length === 1 ? target.specs[0]! : `${target.specs.length} specs`
 }
 
 export async function loadRunner(runnerId: string, fetchImpl: typeof fetch = fetch): Promise<RunnerView | null> {
@@ -74,10 +122,12 @@ export async function askRunner(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Asked> {
   try {
+    // The runner a whole-project button is for chose the runner already; it is not part of the request.
+    const { runnerId: _ignored, ...asked } = request as Record<string, unknown>
     const response = await fetchImpl(`/api/runners/${encodeURIComponent(runnerId)}/commands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...request, by: 'bobcat-ui' }),
+      body: JSON.stringify({ ...asked, by: 'bobcat-ui' }),
     })
     const body = (await response.json().catch(() => null)) as
       | { commandId?: string; specs?: string[]; errors?: string[]; message?: string }
@@ -100,6 +150,71 @@ export function runnerState(runner: RunnerView): { label: string; tone: 'ok' | '
   if (runner.status === 'build-failed') return { label: 'build failed', tone: 'bad' }
   if (runner.status === 'exited') return { label: 'exited', tone: 'bad' }
   return { label: 'not connected', tone: 'bad' }
+}
+
+/**
+ * The command that started a run, and the runner that ran it (bobcat#646): found by the run id a
+ * command records once its run's run_started names it. Undefined for a run nobody commanded.
+ */
+export function commandForRun(
+  runners: RunnerView[] | null,
+  runId: string,
+): { runner: RunnerView; command: RunnerCommandView } | undefined {
+  for (const runner of runners ?? []) {
+    const command = runner.commands.find((c) => c.runId === runId)
+    if (command) return { runner, command }
+  }
+  return undefined
+}
+
+/**
+ * What a commanded run was asked to run, for its card (bobcat#646): `Run all`, `Run feature X`, one
+ * spec or a count — then its mode and who asked. A spec, a feature, a slice and the whole project
+ * were told apart only by the count before.
+ */
+export function describeCommand(command: RunnerCommandView, runner: RunnerView): string {
+  const specs = command.specs
+  const features = new Set(specs.map((s) => (s.lastIndexOf('/') > 0 ? s.slice(0, s.lastIndexOf('/')) : '')))
+  const only = specs.length === 1 ? specs[0]! : null
+
+  const what =
+    specs.length > 0 && specs.length === runner.specs
+      ? 'Run all'
+      : only
+        ? `Run ${only.slice(only.lastIndexOf('/') + 1)}`
+        : features.size === 1 && [...features][0]
+          ? `Run ${specs.length} in feature ${[...features][0]}`
+          : `Run ${specs.length} specs`
+
+  return `${what} · ${command.mode} · from ${command.requestedBy}`
+}
+
+function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  const normalize = (path: string | null | undefined) => (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalize(a) === normalize(b)
+}
+
+/**
+ * The runner whose current build is newer than this run (bobcat#652): its verdicts are from before
+ * the last rebuild. A relaunched resident runner re-registers but runs nothing, so without this the
+ * board went on showing a run of code that had changed since as the latest word. Matched by suite and
+ * checkout. Undefined when no runner says, or the run is of the current build.
+ */
+export function rebuiltSince(
+  run: { suite: string; repository: string; startedAt: string },
+  runners: RunnerView[] | null,
+): RunnerView | undefined {
+  const started = Date.parse(run.startedAt)
+  if (Number.isNaN(started)) return undefined
+
+  return (runners ?? []).find(
+    (r) => r.suite === run.suite && samePath(r.repository, run.repository) && !!r.builtAt && Date.parse(r.builtAt) > started,
+  )
+}
+
+/** A runner for this suite, whatever it registered (bobcat#652) — how a button tells a renamed spec from another suite's. */
+export function runnerForSuite(runners: RunnerView[] | null, suite: string | null | undefined): RunnerView | undefined {
+  return suite ? (runners ?? []).find((r) => r.suite === suite) : undefined
 }
 
 /** Where a command has got to: queued → sent → accepted (then the run) or rejected. */

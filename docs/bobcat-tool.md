@@ -48,6 +48,9 @@ Each takes the spec project (a `.csproj`, or a directory holding one; found from
 directory when omitted), builds it, and drives its test host. The host's own output goes to a file
 and the terminal gets the Feature / scenario / step tree. `watch` reruns on every change to the spec
 project or anything it references: Enter reruns, `p` picks, `a` goes back to everything, `q` quits.
+It tells a running `bobcat ui` how each rebuild went (`POST /api/build-status`, to every console
+`BOBCAT_MONITOR_URL` names), so a build that fails shows on the board with its compiler errors
+instead of leaving the last green run in view.
 
 | Flag | What it does |
 |---|---|
@@ -119,9 +122,12 @@ run. `--results`, `--verbose` and every selection flag work on both.
   `Retry` trait (`[Trait("Retry", "2")]`) or a recovery hint (`[ClearsOnRetry(typeof(TimeoutException))]`)
   that matches the failure. Without either, a failure is reported once, `--retries` or not:
   retrying every failure would make flaky indistinguishable from broken. A `SpecCatastrophicException`
-  is never retried and aborts the run.
+  is never retried and aborts the run. A `Retry` trait's retry runs alone in a fresh process;
+  `[Trait("RetryWarm", "true")]` retries in the same process instead.
 - **A pass on retry exits 0 and is reported apart**: the report after the specifications lists
-  "Passed on retry (not clean passes)" and the quarantine candidates. `--failed` does not count it:
+  "Passed on retry (not clean passes)" and the quarantine candidates. Each pass on retry says what
+  its failed attempt failed with (`first failed with System.TimeoutException: … (attempt 1)`), which
+  is the evidence for keeping it on retries or treating it as a bug. `--failed` does not count it:
   the last verdict for a specification is the one that counts.
 - **`--workers N`** runs N lanes, each a worker process, partitioned by test class, never by test:
   a class's fixtures and static state stay in one process. Classes that share a database still

@@ -3,9 +3,12 @@ import { computed, onUnmounted, ref } from 'vue'
 import {
   askRunner,
   commandProgress,
+  describeTarget,
   findRunners,
   loadMode,
   loadRunner,
+  loadRunners,
+  runnerForSuite,
   modeFor,
   runnerState,
   saveMode,
@@ -22,11 +25,16 @@ import {
  * command to the run it caused. No runner is said plainly, with the command that starts one,
  * rather than a dead button.
  */
-const props = withDefaults(defineProps<{ target: RunTarget; label: string; text?: boolean }>(), { text: false })
+const props = withDefaults(defineProps<{ target: RunTarget; label: string; text?: boolean; suite?: string | null }>(), {
+  text: false,
+  suite: null,
+})
 
 const open = ref(false)
 const runners = ref<RunnerView[] | null>(null)
 const failedToLoad = ref(false)
+/** bobcat#652: the suite's own runner is attached, but no longer has what this button names. */
+const renamedAway = ref(false)
 const selectedId = ref<string | undefined>(undefined)
 const remembered = ref(loadMode())
 const sending = ref(false)
@@ -40,13 +48,7 @@ const mode = computed(() => (selected.value ? modeFor(selected.value, remembered
 const offersWarm = computed(() => selected.value?.modes.includes('warm') ?? false)
 const progress = computed(() => commandProgress(command.value))
 
-const what = computed(() =>
-  'feature' in props.target
-    ? `feature ${props.target.feature}`
-    : props.target.specs.length === 1
-      ? props.target.specs[0]
-      : `${props.target.specs.length} specs`,
-)
+const what = computed(() => describeTarget(props.target))
 
 async function press(): Promise<void> {
   open.value = true
@@ -61,6 +63,7 @@ async function press(): Promise<void> {
   failedToLoad.value = found === null
   runners.value = found ?? []
   selectedId.value = runners.value[0]?.runnerId
+  renamedAway.value = runners.value.length === 0 && 'specs' in props.target && !!runnerForSuite(await loadRunners(), props.suite)
 }
 
 function chooseMode(next: string | number | boolean | undefined): void {
@@ -135,8 +138,12 @@ function where(runner: RunnerView): string {
 
     <div v-else-if="runners.length === 0" data-testid="no-runner">
       <p v-if="failedToLoad">The Bobcat UI could not say which runners are there.</p>
+      <p v-else-if="renamedAway" data-testid="renamed-away">
+        {{ suite }}'s runner no longer has {{ what }}: it was renamed or removed since this run. Run its feature, or
+        find it under its new name on the runner's page.
+      </p>
       <p v-else>No runner can run this. Start one in the checkout you want it to test:</p>
-      <pre class="bm-run-command">{{ START_A_RUNNER }}</pre>
+      <pre v-if="!renamedAway" class="bm-run-command">{{ START_A_RUNNER }}</pre>
     </div>
 
     <template v-else>
