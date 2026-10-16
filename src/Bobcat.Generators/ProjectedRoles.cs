@@ -361,7 +361,7 @@ internal static class ProjectedRoles
         for (var i = 0; i < definition.TypeParameters.Length; i++)
         {
             if (definition.TypeParameters[i].Name != from) continue;
-            if (i < operation.TargetMethod.TypeArguments.Length && qualifiedOrNull(operation.TargetMethod.TypeArguments[i], compilation) is { } type)
+            if (i < operation.TargetMethod.TypeArguments.Length && typeArgumentOrNull(operation.TargetMethod.TypeArguments[i], compilation) is { } type)
                 yield return type;
             yield break;
         }
@@ -386,11 +386,41 @@ internal static class ProjectedRoles
             for (var i = 0; i < parameters.Length; i++)
             {
                 if (parameters[i].Name != from) continue;
-                if (i < type.TypeArguments.Length && qualifiedOrNull(type.TypeArguments[i], compilation) is { } supplied)
+                if (i < type.TypeArguments.Length && typeArgumentOrNull(type.TypeArguments[i], compilation) is { } supplied)
                     yield return supplied;
                 yield break;
             }
         }
+    }
+
+    /// <summary>
+    /// bobcat#612: the type a role's type argument names. <c>WhenReading&lt;List&lt;Flight&gt;&gt;</c> is about
+    /// <c>Flight</c>, so a collection the application does not declare itself — <c>T[]</c>, <c>List&lt;T&gt;</c>,
+    /// <c>IReadOnlyList&lt;T&gt;</c>, any one-element <c>IEnumerable&lt;T&gt;</c> — names its element type. An
+    /// application type that happens to be enumerable is its own element, and a dictionary or a string names nothing.
+    /// </summary>
+    private static string? typeArgumentOrNull(ITypeSymbol type, Compilation compilation)
+        => qualifiedOrNull(type, compilation)
+           ?? (elementTypeOf(type) is { } element ? qualifiedOrNull(element, compilation) : null);
+
+    private static ITypeSymbol? elementTypeOf(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol { Rank: 1 } array) return array.ElementType;
+        if (type is not INamedTypeSymbol named || named.SpecialType == SpecialType.System_String) return null;
+
+        var candidates = (named.TypeKind == TypeKind.Interface ? new[] { named }.Concat(named.AllInterfaces) : named.AllInterfaces)
+            .Where(x => x.IsGenericType)
+            .ToList();
+        if (candidates.Any(x => x.OriginalDefinition.ToDisplayString() is "System.Collections.Generic.IDictionary<TKey, TValue>"
+                or "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>"))
+            return null;
+
+        var elements = candidates
+            .Where(x => x.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T)
+            .Select(x => x.TypeArguments[0])
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .ToList();
+        return elements.Count == 1 ? elements[0] : null;
     }
 
     /// <summary>The application types one argument value names, unwrapping Bobcat's own wrappers.</summary>
