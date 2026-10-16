@@ -42,6 +42,7 @@ consuming Bobcat in another repo never sees this file or the source; the skill i
 ./build.sh Docker CI                # start compose services, then exactly what tests.yml runs
 ./build.sh Pack                     # packages to artifacts/packages (never touches artifacts/local-feed)
 ./build.sh Docker Samples           # what samples.yml runs: build every sample, run their specs (Postgres + Fisher)
+./build.sh UiSmoke                  # what ui-smoke.yml runs: pack the tool with its UI, smoke `bobcat ui` (needs Node; BOBCAT_UI_SMOKE_SKIP_BROWSER=1 skips Chromium)
 ./build.sh --help                   # every target and parameter
 
 # Build everything (bobcat.slnx is the only solution at the root, so it is picked up implicitly)
@@ -96,8 +97,9 @@ its own equivalents.
   stays self-contained, and the root file must not grow Nuke.Common.
 - **The Nuke build (`build/`) is the one definition of CI** — `Build.cs` (Restore / Compile / Test /
   `CI` / Pack / Docker) and `Samples.cs` (CompileSamples / TestSamples /
-  TestSamplesOnFisher / `Samples`). `tests.yml` runs `./build.sh CI`, `publish.yml` runs
-  `./build.sh CI Pack`, `samples.yml` runs `./build.sh Samples`. **Change what CI does in `build/`,
+  TestSamplesOnFisher / `Samples`) and `UiSmoke.cs` (`UiSmoke`). `tests.yml` runs `./build.sh CI`,
+  `publish.yml` runs `./build.sh CI Pack`, `samples.yml` runs `./build.sh Samples`, `ui-smoke.yml`
+  runs `./build.sh UiSmoke`. **Change what CI does in `build/`,
   not in a workflow** — the workflows only supply services (Postgres) and environment.
   Configuration defaults to Debug locally and Release on a CI server.
   - `Docker` (`docker compose up -d --wait`) is never a dependency of `Test`: someone pointing

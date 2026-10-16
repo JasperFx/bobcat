@@ -14,7 +14,7 @@ target the **same** set when wired up (issue #8).
 | Document/event store (Postgres) | `Marten` | `9.46.0` |
 | Event store (SQLite, inner loop) | `Fisher` | `1.19.0` |
 | Event store (SQL Server) | `Polecat` | `5.36.0` |
-| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.85.0` ⚠️ [ahead of the stores, deliberately](#the-2810-exception) |
+| Critter Stack core | `JasperFx`, `JasperFx.Events`, `JasperFx.Events.SourceGenerator` | `2.87.0` ⚠️ [ahead of the stores, deliberately](#the-2810-exception) |
 | HTTP testing | `Alba` | `8.5.2` |
 | Test stack | `xunit.v3` / `Microsoft.Testing.Platform` / `Shouldly` / `NSubstitute` | `3.2.2` / `1.9.1` / `4.3.0` / `5.3.0` |
 | Second runner (adapter surface) | `TUnit.Core` | `1.66.27` |
@@ -50,7 +50,7 @@ WolverineFx.Fisher 6.46.0  →  Fisher 1.19.0    →  JasperFx(.Events) 2.80.2  
 WolverineFx 6.46.0         →  JasperFx(.Events) 2.80.2
 Polecat 5.36.0             →  JasperFx(.Events) 2.80.2
 
-PINNED:                       JasperFx(.Events) 2.85.0   ← ABOVE every floor (see src/Directory.Packages.props for each move)
+PINNED:                       JasperFx(.Events) 2.87.0   ← ABOVE every floor (see src/Directory.Packages.props for each move)
 ```
 
 Every floor is at or below the pin, so taking the newest of each still lands on a single

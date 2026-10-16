@@ -1,0 +1,11 @@
+{
+  "name": "bobcat-ui-smoke",
+  "private": true,
+  "description": "The browser leg of build/ui-smoke/smoke.sh: the packed bobcat ui renders its pages in Chromium without console errors.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}

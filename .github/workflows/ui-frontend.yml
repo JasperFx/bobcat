@@ -1,0 +1,47 @@
+name: ui frontend
+
+# Typecheck + Vitest + production build gate for the Bobcat UI's Vue SPA (bobcat ui, bobcat#524),
+# mirroring CritterWatch's frontend-unit workflow. The wire behind it is covered by Bobcat.Ui.Specs
+# in the main test job, and the packed tool serving this page by ui-smoke.yml.
+#
+# The path filter stays: everything this job compiles lives under src/Bobcat.Ui.FrontEnd, including
+# the TypeScript mirrors of the C# wire contracts (src/messages). A contract changed in C# without
+# regenerating them is caught on the C# side by TypeScriptContractTests in tests.yml, and a page
+# that no longer matches the server it ships in by ui-smoke.yml, which runs on src/** changes.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'src/Bobcat.Ui.FrontEnd/**'
+      - '.github/workflows/ui-frontend.yml'
+
+env:
+  CI: true
+
+jobs:
+  frontend-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Bobcat.Ui.FrontEnd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (vue-tsc)
+        run: npx vue-tsc -b
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run
+
+      # What EmbedFrontend runs inside the tool's pack. vue-tsc and Vitest both pass on code that
+      # Vite then refuses to bundle (an import only the test environment resolves, a dynamic import
+      # Rollup cannot split), and before this step that first showed up in the release's pack.
+      - name: Production build (Vite)
+        run: npx vite build

@@ -19,7 +19,7 @@ means -- so the runner lives outside the suite, in the [`bobcat` tool](bobcat-to
 reads the suite's [spec manifest](spec-identities.md#listing-and-running-by-identity), registers those
 identities with the console, and runs a command by driving **the suite's own test host**, narrowed by
 that framework's filter. It ships from the tool because the console at the other end references
-nothing in this repository and so cannot be handed a class to host.
+nothing else in this repository and so cannot be handed a class to host.
 
 **A wiring mistake is refused at launch, not at the first button press**: a host that is not built, a
 suite that lists no specifications (usually a spec project with no runner adapter referenced), or a
