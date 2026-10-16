@@ -47,16 +47,22 @@ public class TableRunnerListTests
     }
 
     [Fact]
-    public async Task a_bad_item_is_a_row_error_naming_the_item()
+    public async Task a_bad_item_is_an_invalid_cell_naming_the_item()
     {
+        // #544: a cell that will not convert is a defect in the specification, so it is an invalid cell in its
+        // own column (the row is left unrun), not a row error.
         var run = await TableRunner.Run(_target, nameof(Orders.Place), """
             | customer | quantities | ids   |
             | ann      | 1, x       | EMPTY |
             """);
 
         run.Succeeded.ShouldBeFalse();
-        var error = run.Cells.Single(c => c.Name == DecisionTableComparer.RowErrorCell);
-        error.DisplayText.ShouldContain("item 2 of 2");
+        run.Cells.ShouldNotContain(c => c.Name == DecisionTableComparer.RowErrorCell);
+        _target.Seen.ShouldBeEmpty();
+
+        var quantities = run.Cells.Single(c => c.RowIndex == 0 && c.Name == "quantities");
+        quantities.Status.ShouldBe(ResultStatus.invalid);
+        quantities.DisplayText.ShouldContain("item 2 of 2");
     }
 
     [Fact]
