@@ -39,7 +39,7 @@ namespace Bobcat.NUnit;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
-public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresLifecycle
+public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IApplyToTest, IDeclaresLifecycle
 {
     // Armed when the runner instantiates the attribute, which is during discovery and so before any
     // fixture or host startup can throw (bobcat#539).
@@ -134,6 +134,64 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresL
     /// <c>"Full.Type.Name : message"</c>, which is split back into its two halves so a viewer shows
     /// the same thing it shows for the other runners.
     /// </param>
+    /// <summary>
+    /// The specification's Event Model coordinates as NUnit properties (bobcat#573) — <c>Slice</c>,
+    /// <c>Chapter</c>, <c>Domain</c>, <c>Pattern</c> — read from the binding the generator registered, so
+    /// the derived pattern is there too.
+    /// </summary>
+    /// <remarks>
+    /// <b>On a fixture, only what its tests share.</b> NUnit applies a fixture's attributes before it
+    /// builds the fixture's tests, so there is no test to stamp yet. The fixture gets each coordinate
+    /// that every bound test in the class has the same value for — the usual case, one class per slice —
+    /// and NUnit's filters match a test through its fixture. A class whose tests sit on different slices
+    /// gets only what they agree on; put <c>[BobcatScenario]</c> on the methods for each test's own.
+    /// </remarks>
+    public void ApplyToTest(Test test)
+    {
+        try
+        {
+            apply(test);
+        }
+        catch
+        {
+            // Properties are a courtesy to filters; building the test must never fail over one
+        }
+    }
+
+    private static void apply(ITest test)
+    {
+        if (test.Method?.MethodInfo is { } method)
+        {
+            foreach (var (name, value) in DeclaredSteps.CoordinatesFor(method.DeclaringType, method.Name)?.ToTraits() ?? [])
+            {
+                if (!test.Properties[name].Contains(value)) test.Properties.Add(name, value);
+            }
+        }
+
+        else if (test.TypeInfo?.Type is { } fixture)
+        {
+            foreach (var (name, value) in sharedBy(fixture))
+            {
+                if (!test.Properties[name].Contains(value)) test.Properties.Add(name, value);
+            }
+        }
+
+        foreach (var child in test.Tests) apply(child);
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> sharedBy(Type fixture)
+    {
+        var bound = fixture.GetMethods()
+            .Select(method => DeclaredSteps.CoordinatesFor(fixture, method.Name))
+            .OfType<Runtime.SpecCoordinates>()
+            .Select(coordinates => coordinates.ToTraits())
+            .ToList();
+
+        if (bound.Count == 0) return [];
+
+        return bound[0].Where(trait => bound.All(other => other.Contains(trait)));
+    }
+
     public static ScenarioVerdict VerdictFrom(ResultState? outcome, string? message)
         => outcome switch
         {

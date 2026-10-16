@@ -21,6 +21,7 @@ public class TUnitResidentSuiteTests : IDisposable
     private const string auditOpening = "Audit/opening a ledger";
     private const string auditClosing = "Audit/closing a ledger";
     private const string auditTrail = "Audit trail/is kept";
+    private const string coordinates = "Coordinates/its coordinates are its properties";
 
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(), "bobcat-tunit-resident", Guid.NewGuid().ToString("n"));
@@ -82,7 +83,7 @@ public class TUnitResidentSuiteTests : IDisposable
         // [Explicit] keeps them out of an unfiltered run, not out of the listing.
         suite.SpecIdentities.ShouldBe(
             [
-                auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening,
+                auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening, coordinates,
                 "Halt after a fixture/needs the app", "Halt after a fixture/a later scenario",
                 "Halt after a scenario/loses the database", "Halt after a scenario/a later scenario",
                 // bobcat#545's Acceptance specs, which list like any other.

@@ -203,7 +203,8 @@ public class DuplicateSpecIdentityTests
         const string escaped = "\"Booking/A volunteer can't re-confirm, \\\"twice\\\"\"";
 
         var registration = outcome.GeneratedSource("DeclaredSteps");
-        registration.ShouldContain($"DeclaredSteps.Bind({escaped}, \"Specs.BookingSpecs\", \"volunteer_cannot_reconfirm\")");
+        registration.ShouldContain(
+            $"DeclaredSteps.Bind({escaped}, \"Specs.BookingSpecs\", \"volunteer_cannot_reconfirm\", null, \"ConfirmAppointment\", null, null, null)");
         registration.ShouldContain($"DeclaredSteps.Register({escaped},");
 
         // And the Event Model's spec list carries the same string, so run evidence joins the slice

@@ -265,8 +265,10 @@ public class SpecRowIdentityTests
             """);
 
         var source = registration(outcome);
-        source.ShouldContain("""DeclaredSteps.Bind("Discounts/Discount is applied", "Specs.DiscountSpecs", "discount");""");
-        source.ShouldContain("\"Discounts/Discount is applied (amount: 100)\"");
+        // The method and its row carry the slice's Event Model coordinates too (bobcat#573)
+        source.ShouldContain("""DeclaredSteps.Bind("Discounts/Discount is applied", "Specs.DiscountSpecs", "discount", null, "ApplyDiscount", null, null, null);""");
+        source.ShouldContain(
+            """DeclaredSteps.Bind("Discounts/Discount is applied (amount: 100)", "Specs.DiscountSpecs", "discount", "Discounts/Discount is applied", "ApplyDiscount", null, null, null);""");
 
         // The declared steps are registered once, under the method: every row runs the same body
         source.ShouldContain("""DeclaredSteps.Register("Discounts/Discount is applied", """);

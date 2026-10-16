@@ -36,10 +36,26 @@ BOBCAT_LIST_SPECS=/tmp/specs.json ./MySpecs --list-tests
       "identity": "Calculator/asserting values",
       "testClass": "Bobcat.Xunit.Samples.Specs.CalculatorSpecs",
       "testMethod": "asserting_values"
+    },
+    {
+      "identity": "Facts, in one attribute/its coordinates are its traits",
+      "testClass": "Bobcat.Xunit.Samples.Specs.OneAttributeSpecs",
+      "testMethod": "its_coordinates_are_its_traits",
+      "slice": "Selecting by coordinates",
+      "chapter": "Selection",
+      "domain": "Bobcat",
+      "traits": { "Category": ["Coordinates"] }
     }
   ]
 }
 ```
+
+An entry bound to an Event Model slice also carries `slice`, `chapter`, `domain` and `pattern`
+(bobcat#573). These are the values the generator folded for the Event Model, with the pattern
+derived when nothing declared one. It also carries `traits`, the traits its test declares through
+its framework's attributes. Each is left out when null, and they are what
+[`bobcat run --slice/--chapter/--domain/--pattern/--trait`](bobcat-tool.md#selecting-by-coordinates)
+resolves through.
 
 A **file**, not stdout, because the listing has to cross a process boundary -- a resident runner is
 not the suite, and *cannot* be, since the suite's entry point belongs to its test framework. Not `--list-tests` either: that prints

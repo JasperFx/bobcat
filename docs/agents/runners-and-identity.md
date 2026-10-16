@@ -211,3 +211,19 @@ type-probes for each adapter's `BobcatScenarioAttribute`, the same pattern as th
 
 `Bobcat.Xunit.Tests/SpecIdentity/ProjectedSpecIdentityEndToEndTests` pins it against the real
 `Bobcat.Xunit.Samples` host — listed and then run by identity.
+
+- **Selecting by Event Model coordinates (bobcat#573).** `bobcat run --slice/--chapter/--domain/--pattern/--trait`
+  resolves through the manifest (`SpecCoordinateFilter`, core) into identities, then `SpecFilterArguments`: a
+  repeated flag ORs, different flags AND, values match whole ignoring case, and a value nothing has is refused BY
+  NAME (never an empty run). No expression language; `--failed`/`--repeat` refuse the flags, as they refuse
+  `--feature`/`--scenario`. **One source, two paths:** the generator folds coordinates with the same
+  `EventModelEmitter.Collect`/`PatternOf` the descriptor uses (`EventModelEmitter.Coordinates`, so the pattern is the
+  derived one) and binds them in `DeclaredSteps.Bind(uid, class, method, parent, slice, chapter, domain, pattern)`
+  (a data row carries its method's); the manifest entry carries them (plus declared framework `traits`, read by
+  attribute shape in `SpecTraits`), and the adapters read them back with `DeclaredSteps.CoordinatesFor(Type,
+  method)`, which runs the module initializer first. xUnit: `[BobcatSpec]` is an `ITraitAttribute` and finds its
+  own method by its `SourceFilePath`/`SourceLineNumber` (`XunitSpecMethods`), because `GetTraits()` takes no
+  argument. TUnit: an `ITestDiscoveryEventReceiver` on `[BobcatScenario]`. NUnit: `IApplyToTest`; on a fixture
+  NUnit has built no tests yet, so the fixture gets only the coordinates all its bound tests share. MSTest: not
+  projected. A slice named by a constant (`SliceName = X.Y`) has no coordinates, because the generator reads
+  literals only there.

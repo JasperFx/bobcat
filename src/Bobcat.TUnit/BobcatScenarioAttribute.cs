@@ -44,7 +44,7 @@ namespace Bobcat.TUnit;
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
 public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver, ITestEndEventReceiver,
-    ILastTestInTestSessionEventReceiver, IDeclaresLifecycle
+    ILastTestInTestSessionEventReceiver, ITestDiscoveryEventReceiver, IDeclaresLifecycle
 {
     // Armed when the runner instantiates the attribute, which is during discovery and so before any
     // fixture or host startup can throw (bobcat#539).
@@ -175,6 +175,30 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
     /// Translate TUnit's verdict into Bobcat's. Public because it is the only part of this adapter
     /// with a decision in it, and a decision worth testing directly.
     /// </summary>
+    /// <summary>
+    /// The specification's Event Model coordinates as TUnit properties (bobcat#573) — <c>Slice</c>,
+    /// <c>Chapter</c>, <c>Domain</c>, <c>Pattern</c> — read from the binding the generator registered,
+    /// so the derived pattern is there too and a property filter sees what <c>bobcat run --slice</c>
+    /// selects on. A test bound to no slice gains nothing.
+    /// </summary>
+    public ValueTask OnTestDiscovered(DiscoveredTestContext context)
+    {
+        try
+        {
+            var details = context.TestDetails;
+            foreach (var (name, value) in DeclaredSteps.CoordinatesFor(details.ClassType, details.MethodName)?.ToTraits() ?? [])
+            {
+                context.AddProperty(name, value);
+            }
+        }
+        catch
+        {
+            // Properties are a courtesy to filters; discovery must never fail over one
+        }
+
+        return default;
+    }
+
     public static ScenarioVerdict VerdictFrom(TestResult? result)
         => result?.State switch
         {
