@@ -65,6 +65,24 @@ public sealed record WorkerOutcome(string Uid, string DisplayName, WorkerTestSta
     public bool Succeeded => State is WorkerTestState.Passed or WorkerTestState.Skipped;
 
     /// <summary>
+    /// The display name of every result the worker reported under this one uid, in arrival
+    /// order, when it reported results under more than one (bobcat#649). Null for an ordinary
+    /// test.
+    /// </summary>
+    /// <remarks>
+    /// The case is a theory whose data the framework cannot serialize (xUnit and a
+    /// <c>DBNull.Value</c> row): discovery sees ONE test, and every row reports its verdict under
+    /// that one uid. Keeping only the last verdict let an earlier row's failure vanish behind a
+    /// later row's pass, so the results are folded worst-first instead
+    /// (<see cref="MtpWorkerClient.FoldTerminal"/>) and the report names the collapse, because
+    /// the fix belongs in the suite.
+    /// </remarks>
+    public IReadOnlyList<string>? CollapsedDisplayNames { get; init; }
+
+    /// <summary>True when several rows reported under this uid — see <see cref="CollapsedDisplayNames"/>.</summary>
+    public bool IsCollapsed => CollapsedDisplayNames is { Count: > 1 };
+
+    /// <summary>
     /// True when the framework said an assertion disagreed rather than an exception escaping.
     /// Both xUnit and tUnit make this distinction natively; it is the primary classification
     /// signal available to a policy.

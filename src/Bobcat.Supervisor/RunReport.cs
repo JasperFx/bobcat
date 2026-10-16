@@ -55,6 +55,11 @@ public static class RunReport
         section(report, "Indeterminate (result never established)", results.Indeterminate,
             test => $"{test.DisplayName} — {test.Final.Outcome.ErrorMessage ?? "no result reported"}");
 
+        // A collapsed theory is judged by its worst row, but the run still saw fewer tests than a
+        // direct run would, and the fix is in the suite — so it is named even when it passed.
+        section(report, "Collapsed theories (several rows reported under one test id; make the theory data serializable)",
+            results.Collapsed, collapsed);
+
         section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
             test => $"{test.DisplayName} — {test.AttemptCount} attempts, final: {test.Outcome}");
 
@@ -231,6 +236,19 @@ public static class RunReport
         foreach (var test in tests) report.AppendLine($"  • {describe(test)}");
     }
 
+    private static string collapsed(TestReport test)
+    {
+        var rows = test.Attempts
+            .Select(a => a.Outcome.CollapsedDisplayNames)
+            .LastOrDefault(names => names is { Count: > 1 })!;
+
+        const int shown = 5;
+        var named = string.Join("; ", rows.Take(shown));
+        var more = rows.Count > shown ? $"; …and {rows.Count - shown} more" : "";
+
+        return $"{test.DisplayName} — {rows.Count} rows, judged {test.Outcome} by the worst: {named}{more}";
+    }
+
     private static string placements(TestReport test)
         => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
 
@@ -283,6 +301,7 @@ public static class RunReport
             ["unsupportedDispositions"] =
                 new JsonArray(results.UnsupportedDispositions.Select(u => (JsonNode)u!).ToArray()),
             ["quarantine"] = new JsonArray(results.Quarantine.Select(t => (JsonNode)t.Uid!).ToArray()),
+            ["collapsed"] = new JsonArray(results.Collapsed.Select(t => (JsonNode)t.Uid!).ToArray()),
             ["tests"] = new JsonArray(results.Tests.Select(describe).ToArray<JsonNode>())
         };
 
@@ -377,6 +396,9 @@ public static class RunReport
                 },
             ["errorType"] = attempt.Outcome.ErrorType,
             ["errorMessage"] = attempt.Outcome.ErrorMessage,
+            ["collapsedRows"] = attempt.Outcome.CollapsedDisplayNames is { Count: > 1 } rows
+                ? new JsonArray(rows.Select(r => (JsonNode)r!).ToArray())
+                : null,
             ["durationMs"] = attempt.Outcome.Duration?.TotalMilliseconds
         }).ToArray())
     };

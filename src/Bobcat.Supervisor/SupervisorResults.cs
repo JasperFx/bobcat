@@ -92,6 +92,13 @@ public sealed class TestReport
     /// <summary>True when the run never established what this test does — a worker died.</summary>
     public bool IsIndeterminate => Final.Outcome.State == WorkerTestState.Indeterminate;
 
+    /// <summary>
+    /// True when some attempt reported several rows under this one uid — a theory the framework
+    /// could not split into tests (bobcat#649). Its verdict is the worst row's, and the fix is in
+    /// the suite: the theory's data has to be serializable.
+    /// </summary>
+    public bool IsCollapsed => Attempts.Any(a => a.Outcome.IsCollapsed);
+
     public IEnumerable<string> UnsupportedDispositions
         => Attempts.Where(a => a.Unsupported is not null).Select(a => a.Unsupported!);
 }
@@ -205,6 +212,13 @@ public sealed class SupervisorResults
     public IReadOnlyList<TestReport> Indeterminate
         => Tests.Where(t => t.IsIndeterminate).ToList();
 
+    /// <summary>
+    /// Tests whose worker reported several rows under one uid (bobcat#649). Each is judged by its
+    /// worst row, so a collapse can never turn a failure into a pass, and each is reported,
+    /// because the count is short of what a direct run sees and the cause is in the suite.
+    /// </summary>
+    public IReadOnlyList<TestReport> Collapsed => Tests.Where(t => t.IsCollapsed).ToList();
+
     public int RetriesPerformed => Tests.Sum(t => t.AttemptCount - 1);
 
     /// <summary>
@@ -255,6 +269,7 @@ public sealed class SupervisorResults
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
         if (Skipped.Count > 0) parts.Add($"{Skipped.Count} skipped");
         if (StallKills.Count > 0) parts.Add($"{StallKills.Count} stall kill(s)");
+        if (Collapsed.Count > 0) parts.Add($"{Collapsed.Count} collapsed theory(ies)");
 
         var summary = string.Join(", ", parts);
         summary = $"{partial}{summary} ({RetriesPerformed} retries, {WorkersLaunched} worker processes)";
