@@ -1187,9 +1187,10 @@ public static class EmlangSpecWriter
 
     /// <inheritdoc cref="Cell(string, string, object?)"/>
     /// <param name="ids">
-    /// The strong-typed identifiers in force. A typed identity has NO cell form (bobcat#512): a cell is
-    /// read back by <c>CellValues</c>, which builds the primitives and cannot construct an
-    /// <c>OrderId</c>, so the value is written as code instead — which is what a null answer here means.
+    /// The strong-typed identifiers in force. A typed identity has NO cell form here (bobcat#512): the
+    /// value is written as code instead — which is what a null answer here means. (<c>CellValues</c> can
+    /// read an <c>OrderId</c> since bobcat#542, through its <c>IParsable</c>; this writer has not
+    /// changed to use that.)
     /// </param>
     public static string? Cell(string type, string text, object? raw, StrongTypedIds ids)
     {

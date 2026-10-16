@@ -54,6 +54,67 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 | `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (not `pick`) |
 | `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (not `pick`) |
 | `--no-build` | use the last build as it is |
+| `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
+| `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
+| `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire |
+| `--failed` | run only the specifications that failed or errored last time (`run`; see below) |
+| `--repeat` | run the last run's selection again, with its flags (`run`; see below) |
+
+### Rerunning what failed: `--failed` and `--repeat` {#failed-repeat}
+
+```bash
+bobcat run                       # 3 of 40 red
+bobcat run --failed              # only those 3, by identity
+bobcat run --failed              # after a fix: whatever is still red
+bobcat run --repeat              # the last run's selection and flags again
+```
+
+**Every `bobcat run` writes `obj/bobcat/last-run.json`** in the spec project, with or without
+`--results`: the failed identities, the selection it ran (identities, empty for everything), its
+framework, configuration, `--results`, `--json` and `--verbose`, the host's exit code, a timestamp
+and a reserved `seed` (null until seeded random order ships). `obj/` is git-ignored and
+`dotnet clean` removes it.
+
+- **`--failed`** runs the specifications whose scenario did not succeed — failed or errored — by
+  their `{Feature}/{Scenario}` identity, with the flags given now. The rerun is itself the last run,
+  so repeating `--failed` narrows to what is still red.
+- **`--repeat`** replays the last run's selection, framework, configuration, `--results`, `--json`
+  and `--verbose`. A `--framework`/`--results` given beside it wins; `--json`/`--verbose` add to the
+  recorded ones. It always builds unless `--no-build` is given now.
+- **A specification renamed or deleted since is refused by name**, and nothing runs: a rerun that
+  quietly dropped it would read as green. Start over with a plain `bobcat run`.
+- **Nothing failed last time:** `--failed` says so and exits 0. **No last run**, or a last run whose
+  host died before writing results (so nothing is known about what failed): refused, exit 1.
+- Neither combines with `--feature`/`--scenario`, nor with each other.
+
+### The results file {#results-file}
+
+A run asked for one writes **one JSON file per run** holding every scenario it finished: the
+specification identity (`{Feature}/{Scenario}`), the verdict, every step with its status, timing,
+logs and cells (`expected` / `actual` / `note`, or `value` for an input), set-verification grids,
+the reports the visibility rule lets through, and the suite's timing block. It is the artifact a CI
+job archives and an agent reads when no console was running; TRX knows nothing about steps or cells.
+
+```bash
+bobcat run --results artifacts/bobcat                 # the tree as usual, plus the file
+bobcat run --json | jq '.scenarios[] | select(.succeeded | not) | .id'
+BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain dotnet test
+```
+
+- **`BOBCAT_RESULTS=<dir>`** is the switch; the flags only set it for the host they launch, so any
+  runner (xUnit, TUnit, NUnit, MSTest) writes the file under plain `dotnet test`. Unset writes
+  nothing.
+- The file is `<suite>-<runId>.json`. A second file for the same run id (supervised workers share
+  `BOBCAT_RUN_ID`) is `-2`, `-3`, never an overwrite. A warm process writes one per run request.
+- Scenarios are ordered by feature, then title, so two runs of one suite diff cleanly. A skipped
+  test is not in the file: it asserted nothing.
+- **It has a JSON Schema** — `bobcat-results-1.0.schema.json`, generated from the records the file
+  is written from, shipped in the `Bobcat` package under `schemas/`, and written beside every
+  results file. The file's `$schema` names it, so an archived artifact validates offline.
+  `schemaVersion` moves only for a breaking change; new optional fields keep it.
+- A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
+  the same rule as the console and the wire.
+- Writing it never fails a run: a directory that cannot be written is one line on standard error.
 
 ## `import-event-model` {#import-event-model}
 

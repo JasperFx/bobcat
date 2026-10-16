@@ -1,3 +1,4 @@
+using JasperFx.Testing;
 using Bobcat.Resilience;
 using Shouldly;
 
@@ -267,14 +268,40 @@ public class SupervisorEndToEndTests : IDisposable
         results.Indeterminate.ShouldBeEmpty();
 
         // Every test has a verdict, and the verdict names the resource.
-        results.Tests.Count.ShouldBe(8);
-        results.Failed.Count.ShouldBe(8);
+        results.Tests.Count.ShouldBe(9);
+        results.Failed.Count.ShouldBe(9);
         results.Failed.ShouldAllBe(t =>
             t.Final.Outcome.ErrorMessage != null
             && t.Final.Outcome.ErrorMessage.Contains("the broker refused the connection"));
 
         // An ordinary red build, not "we do not know what happened".
         results.ExitCode.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task a_workers_catastrophic_failure_aborts_the_run_and_is_never_retried()
+    {
+        // Issue #538. Out of process there is no SpecCatastrophicException to catch — only its
+        // name in the message xUnit reports — and the probe carries a Retry trait with a budget
+        // available, so before the fix it was retried and the run carried on as if nothing happened.
+        var supervisor = new Supervisor(factory(new Dictionary<string, string>
+        {
+            ["BOBCAT_CATASTROPHIC"] = "true"
+        }))
+        {
+            RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
+        };
+
+        var results = await supervisor.Run();
+
+        var doomed = named(results, "Fussy.loses_the_environment_when_armed");
+        doomed.Final.Outcome.ErrorType.ShouldBe("Bobcat.Engine.SpecCatastrophicException");
+        doomed.AttemptCount.ShouldBe(1);
+        doomed.Final.Disposition.Kind.ShouldBe(DispositionKind.AbortRun);
+
+        results.AbortReason.ShouldNotBeNull();
+        results.AbortReason.ShouldContain("the application could not start");
+        results.ExitCode.ShouldBe(2);
     }
 
     [Fact]
@@ -317,8 +344,8 @@ public class SupervisorEndToEndTests : IDisposable
 
         var results = await sweep.Run();
 
-        results.Discovered.ShouldBe(8);
-        results.Partitions.ShouldBe(8);
+        results.Discovered.ShouldBe(9);
+        results.Partitions.ShouldBe(9);
 
         results.InterferenceVictims.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Fussy.only_works_alone");
 

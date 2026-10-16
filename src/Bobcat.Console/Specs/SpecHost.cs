@@ -1,8 +1,25 @@
+using Bobcat.Rendering;
 using Bobcat.Residency;
 using Bobcat.Runtime;
 using Spectre.Console;
 
 namespace Bobcat.Console.Specs;
+
+/// <summary>
+/// How a run reports beyond the terminal (issue #540): a results directory for the JSON results
+/// file, the file itself on standard output, and whether passing scenarios' reports are written.
+/// </summary>
+internal record RunOptions(string? ResultsDirectory = null, bool Json = false, bool Verbose = false)
+{
+    public static RunOptions Default { get; } = new();
+}
+
+/// <summary>
+/// A run's exit code and, read from its results file, the specifications that did not succeed.
+/// <see cref="ResultsRead"/> is false when the host wrote no results file, and then
+/// <see cref="Failed"/> says nothing.
+/// </summary>
+internal record RunOutcome(int ExitCode, IReadOnlyList<string> Failed, bool ResultsRead);
 
 /// <summary>
 /// One launch of a spec project's test host with the specification rendering switched on and
@@ -14,27 +31,66 @@ internal static class SpecHost
     private static readonly string Workspace = Path.Combine(Path.GetTempPath(), "bobcat-tool");
 
     /// <summary>Run the host — every specification, or only <paramref name="selection"/>.</summary>
-    public static async Task<int> RunAsync(SpecProject project, IReadOnlyList<string> filterArguments, CancellationToken token = default)
+    public static async Task<RunOutcome> RunAsync(SpecProject project, IReadOnlyList<string> filterArguments,
+        RunOptions? options = null, CancellationToken token = default)
     {
+        options ??= RunOptions.Default;
+
         Directory.CreateDirectory(Workspace);
         var render = Path.Combine(Workspace, $"{project.Name}.specs.ansi");
         var log = Path.Combine(Workspace, $"{project.Name}.log");
         File.Delete(render);
 
+        // Every run writes a results file, because that is where `--failed` reads what failed
+        // (bobcat#572). With no --results it goes to a directory of this run's own, deleted
+        // afterwards: another run of the same project on this machine must not be read as this one.
+        var ownResults = options.ResultsDirectory is null;
+        var results = options.ResultsDirectory
+                      ?? Path.Combine(Workspace, "results", project.Name, Guid.NewGuid().ToString("n"));
+
         var environment = new Dictionary<string, string?>
         {
-            [ProjectedSpecConsole.EnvironmentVariable] = "1",
-            [ProjectedSpecConsole.OutputFileEnvironmentVariable] = render,
             [ProjectedSpecConsole.WidthEnvironmentVariable] = width().ToString()
         };
+
+        if (options.Json)
+        {
+            // The file is the output; a rendering nobody prints would only cost the host time.
+            environment[ProjectedSpecConsole.EnvironmentVariable] = "0";
+        }
+        else
+        {
+            environment[ProjectedSpecConsole.EnvironmentVariable] = "1";
+            environment[ProjectedSpecConsole.OutputFileEnvironmentVariable] = render;
+        }
+
+        environment[ResultsFile.EnvironmentVariable] = results;
+        if (options.Verbose) environment[Engine.ScenarioReportVisibility.EnvironmentVariable] = "1";
 
         var started = DateTime.UtcNow;
         var (code, _) = await AnsiConsole.Status().StartAsync(
             filterArguments.Count == 0 ? $"Running {project.Name}…" : $"Running the selected specifications in {project.Name}…",
             _ => Shell.RunAsync(project.HostPath, filterArguments, environment, log, token));
 
+        var written = WrittenSince(results, started);
         var rendered = File.Exists(render) ? File.ReadAllText(render) : "";
-        if (rendered.Length > 0)
+
+        if (options.Json)
+        {
+            if (written.Count > 0)
+            {
+                // The newest: a one-shot host writes exactly one, and a host that somehow wrote
+                // several (one per run request) finished its last run last.
+                System.Console.Out.Write(File.ReadAllText(written[^1]));
+                System.Console.Out.WriteLine();
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]No results file was written. The end of the host's output:[/]");
+                foreach (var line in File.ReadLines(log).TakeLast(30)) AnsiConsole.Console.WriteLine(line);
+            }
+        }
+        else if (rendered.Length > 0)
         {
             System.Console.Write(rendered);
         }
@@ -46,11 +102,52 @@ internal static class SpecHost
             foreach (var line in File.ReadLines(log).TakeLast(30)) System.Console.WriteLine(line);
         }
 
+        if (!options.Json && !ownResults)
+        {
+            foreach (var file in written) AnsiConsole.MarkupLine($"[dim]results: {Markup.Escape(file)}[/]");
+        }
+
+        IReadOnlyList<string> failed = [];
+        var resultsRead = false;
+        try
+        {
+            failed = LastRun.FailedIn(written);
+            resultsRead = written.Count > 0;
+        }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
+        {
+            // An unreadable results file leaves the run's verdicts unknown, never the run failed
+        }
+
+        if (ownResults)
+        {
+            try { Directory.Delete(results, recursive: true); }
+            catch { /* a temp directory is not worth failing a run over */ }
+        }
+
         var elapsed = DateTime.UtcNow - started;
         AnsiConsole.MarkupLine(
             $"{verdict(code)} [dim]in {elapsed.TotalSeconds:0.0}s · host log: {Markup.Escape(log)}[/]");
 
-        return code;
+        return new RunOutcome(code, failed, resultsRead);
+    }
+
+    /// <summary>
+    /// The results files in <paramref name="directory"/> written since <paramref name="since"/>,
+    /// oldest first — the run's own, never an earlier run's left in the same directory.
+    /// </summary>
+    internal static IReadOnlyList<string> WrittenSince(string directory, DateTime since)
+    {
+        if (!Directory.Exists(directory)) return [];
+
+        // A second of slack for filesystems that keep coarse timestamps.
+        var threshold = since.AddSeconds(-1);
+
+        return new DirectoryInfo(directory).EnumerateFiles("*.json")
+            .Where(x => x.Name != ResultsFile.SchemaFileName && x.LastWriteTimeUtc >= threshold)
+            .OrderBy(x => x.LastWriteTimeUtc)
+            .Select(x => x.FullName)
+            .ToList();
     }
 
     /// <summary>Show what the project specifies, without running any of it.</summary>
@@ -120,12 +217,13 @@ internal static class SpecHost
             _ => OutOfProcessResidentSuite.Listing(project.HostPath, token: token));
 
     /// <summary>
-    /// The framework filter for the specifications whose feature or scenario title contains one of
-    /// <paramref name="features"/> / <paramref name="scenarios"/>, case-insensitively — or no filter
-    /// at all when neither narrows anything. Null when they match nothing, which is reported rather
-    /// than run, because a filter that matches nothing runs nothing and reads as green.
+    /// The identities of the specifications whose feature or scenario title contains one of
+    /// <paramref name="features"/> / <paramref name="scenarios"/>, case-insensitively — or none at
+    /// all, meaning every specification, when neither narrows anything. Null when they match
+    /// nothing, which is reported rather than run, because a filter that matches nothing runs
+    /// nothing and reads as green.
     /// </summary>
-    public static IReadOnlyList<string>? Filter(SpecManifest manifest, IReadOnlyList<string> features, IReadOnlyList<string> scenarios)
+    public static IReadOnlyList<string>? Choose(SpecManifest manifest, IReadOnlyList<string> features, IReadOnlyList<string> scenarios)
     {
         if (features.Count == 0 && scenarios.Count == 0) return [];
 
@@ -147,7 +245,7 @@ internal static class SpecHost
             return null;
         }
 
-        return SpecFilterArguments.For(manifest, SpecSelection.Of(chosen));
+        return chosen;
     }
 
     /// <summary>An identity is <c>{Feature}/{Scenario}</c>; the scenario never contains the separator's first occurrence.</summary>

@@ -39,11 +39,15 @@ public class LiveScenarioBracketTests
             .ToString().ShouldBe("Given the events are published");
     }
 
+    // bobcat#569: each case is its own specification, named by its arguments, under the method's
     [TestCase(1)]
     [TestCase(2)]
     public void a_test_case_opens_a_scenario_per_case(int row)
-        => ScenarioRecorder.Current.ShouldNotBeNull()
-            .Uid.ShouldBe("Async daemon/a test case opens a scenario per case");
+    {
+        var recording = ScenarioRecorder.Current.ShouldNotBeNull();
+        recording.Uid.ShouldBe($"Async daemon/a test case opens a scenario per case (row: {row})");
+        recording.ParentUid.ShouldBe("Async daemon/a test case opens a scenario per case");
+    }
 }
 
 /// <summary>Opting in one method at a time, and the class's other tests left alone.</summary>

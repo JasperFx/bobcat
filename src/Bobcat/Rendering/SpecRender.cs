@@ -112,7 +112,7 @@ public class SpecRender
     public static SpecRender FromRecording(ScenarioRecorder.Recording recording)
     {
         var declared = recording.Declared;
-        var planned = PlannedSteps.For(recording.Uid);
+        var planned = PlannedSteps.For(recording.SpecUid);
         var recorded = recording.Steps;
 
         var steps = planned.Count > 0 && recorded.Where(x => x.Depth == 0).All(x => x.PlannedStepNumber is not null)

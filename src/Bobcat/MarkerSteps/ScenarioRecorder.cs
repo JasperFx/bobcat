@@ -90,8 +90,16 @@ public static class ScenarioRecorder
     /// Open a scenario. Disposing the returned handle closes it and publishes the verdict.
     /// </summary>
     public static Recording Begin(string feature, string scenario, IMonitorEventSink? publisher, Guid runId)
+        => Begin(feature, scenario, null, publisher, runId);
+
+    /// <summary>
+    /// Open one row of a data-driven scenario (bobcat#569). <paramref name="row"/> is
+    /// <see cref="SpecRows.Describe"/>'s answer — <c>(amount: 100, tier: Gold)</c> or <c>[label]</c> —
+    /// or null for a test with no row, which is exactly <see cref="Begin(string, string, IMonitorEventSink?, Guid)"/>.
+    /// </summary>
+    public static Recording Begin(string feature, string scenario, string? row, IMonitorEventSink? publisher, Guid runId)
     {
-        var recording = new Recording(feature, scenario, publisher, runId);
+        var recording = new Recording(feature, scenario, row, publisher, runId);
         _current.Value = recording;
 
         // The same scenario, as the ambient report sink (issue #408), so a grammar helper in another
@@ -231,20 +239,28 @@ public static class ScenarioRecorder
         private readonly Guid _runId;
 
         internal Recording(string feature, string scenario, IMonitorEventSink? publisher, Guid runId)
+            : this(feature, scenario, null, publisher, runId)
+        {
+        }
+
+        internal Recording(string feature, string scenario, string? row, IMonitorEventSink? publisher, Guid runId)
         {
             Feature = feature;
-            Scenario = scenario;
+            Scenario = SpecRows.Title(scenario, row);
+            Row = row;
+            ParentUid = row is null ? null : Runtime.SpecIdentity.Of(feature, scenario);
             _publisher = publisher;
             _runId = runId;
 
             // What the test SAYS it does, read from its marker comments at compile time. Known
             // before a line of it runs, which is why the step count can be announced up front.
-            Declared = DeclaredSteps.For(Uid);
+            // Keyed on the METHOD's identity: every row of a data-driven spec runs the same body.
+            Declared = DeclaredSteps.For(SpecUid);
 
-            Planned = PlannedSteps.For(Uid);
+            Planned = PlannedSteps.For(SpecUid);
 
             publisher?.Post(new ScenarioStarted(
-                runId, Uid, feature, scenario, 1, DateTimeOffset.UtcNow,
+                runId, Uid, feature, Scenario, 1, DateTimeOffset.UtcNow,
                 TotalSteps: Declared.Count > 0 ? Declared.Count : Planned.Count > 0 ? Planned.Count : null,
                 // The narrative travels with the announcement rather than as steps: a declared
                 // step has not run, and StepStarted is the event that says something did.
@@ -256,14 +272,40 @@ public static class ScenarioRecorder
                 PlannedSteps: Planned.Count > 0
                     ? Planned.Select(x => new PlannedStepInfo(
                         x.Keyword, x.Template, x.Grammar, x.DeclaredStepNumber)).ToList()
-                    : null));
+                    : null,
+                ParentSpecId: ParentUid));
         }
 
         public string Feature { get; }
+
+        /// <summary>The scenario title, with the row part on the end for one row of a data-driven spec.</summary>
         public string Scenario { get; }
 
-        /// <summary>The identity that joins run evidence to a slice, with no mapping table.</summary>
+        /// <summary>
+        /// The row part of this scenario's title (<c>(amount: 100, tier: Gold)</c> or <c>[label]</c>),
+        /// or null when the test is not data-driven (bobcat#569).
+        /// </summary>
+        public string? Row { get; }
+
+        /// <summary>
+        /// The identity this scenario's run evidence is keyed on: the ledger, <c>scenario_finished</c>,
+        /// a run by identity. One row of a data-driven spec has its own.
+        /// </summary>
         public string Uid => $"{Feature}/{Scenario}";
+
+        /// <summary>
+        /// The method's identity when this scenario is one row of a data-driven specification, else
+        /// null (bobcat#569). Rides the wire as <c>ParentSpecId</c>, so a console folds the rows into
+        /// the method's verdict without parsing an identity string.
+        /// </summary>
+        public string? ParentUid { get; }
+
+        /// <summary>
+        /// The specification this scenario runs: <see cref="ParentUid"/> for a row, else
+        /// <see cref="Uid"/>. What the declared and planned steps are keyed on, and what the Event
+        /// Model knows — one specification per method, the rows being examples of it.
+        /// </summary>
+        public string SpecUid => ParentUid ?? Uid;
 
         /// <summary>The steps this scenario's marker comments declare, in source order.</summary>
         public IReadOnlyList<DeclaredStep> Declared { get; }
@@ -562,7 +604,7 @@ public static class ScenarioRecorder
                 _openKeyword = keyword;
             }
 
-            var planned = PlannedSteps.For(Uid);
+            var planned = PlannedSteps.For(SpecUid);
             var plannedNumber = plannedIndex >= 0 && plannedIndex < planned.Count
                 ? plannedIndex + 1
                 : (int?)null;
@@ -838,6 +880,7 @@ public static class ScenarioRecorder
                 At: DateTimeOffset.UtcNow,
                 Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null),
                 StepsMs: StepsMs,
+                ParentSpecId: ParentUid,
                 Lifecycle: Lifecycle == Lifecycle.Acceptance ? nameof(Lifecycle.Acceptance) : null));
 
             ScenarioCompleted?.Invoke(this);

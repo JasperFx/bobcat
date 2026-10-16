@@ -112,7 +112,12 @@ public record ScenarioStarted(
     // a viewer render the steps an aborted scenario never reached instead of letting them vanish.
     // Null from an older publisher and from a scenario with no plan behind it (every .feature
     // scenario today).
-    IReadOnlyList<PlannedStepInfo>? PlannedSteps = null) : MonitorEvent(RunId);
+    IReadOnlyList<PlannedStepInfo>? PlannedSteps = null,
+    // The method's spec identity when this scenario is one row of a data-driven specification
+    // (bobcat#569): Uid is then the row's own identity, and this is the {Feature}/{Scenario} the
+    // Event Model knows, so rows fold under it without parsing Uid. Null for a scenario that is
+    // not a row, and from an older publisher.
+    string? ParentSpecId = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// One step a scenario plans to take, on the wire (stoat#59). Keyword is Given / When / Then, or
@@ -141,7 +146,8 @@ public record DeclaredStepInfo(string Keyword, string Text);
 /// already filtered by visibility — so a passing scenario carries none unless the run was verbose.
 /// StepsMs (bobcat#477, Bobcat 0.50.0) is what the scenario's top-level steps cost, summed, next to
 /// DurationMs, which is the whole bracket; the difference is time no step owns. The projected lane
-/// sends it, and null means "not measured", never zero.
+/// sends it, and null means "not measured", never zero. ParentSpecId (bobcat#569) names the
+/// method's identity when this scenario is one row of a data-driven specification.
 /// </summary>
 public record ScenarioFinished(
     Guid RunId,
@@ -154,6 +160,9 @@ public record ScenarioFinished(
     DateTimeOffset? At = null,
     IReadOnlyList<ScenarioReportInfo>? Reports = null,
     long? StepsMs = null,
+    // The method's spec identity when this scenario is one row of a data-driven specification
+    // (bobcat#569), as on ScenarioStarted. Null for a scenario that is not a row.
+    string? ParentSpecId = null,
     // "Acceptance" for an Acceptance spec (bobcat#545); null for the default, Regression. Such a spec
     // that fails outside strict mode arrives with Outcome "AcceptanceFailing", never "Failed".
     string? Lifecycle = null) : MonitorEvent(RunId);

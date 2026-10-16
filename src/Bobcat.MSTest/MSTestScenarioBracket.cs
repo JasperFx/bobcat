@@ -51,11 +51,20 @@ public static class MSTestScenarioBracket
     /// <param name="writeLine"><c>TestContext.WriteLine</c>, so specification output lands on the test.</param>
     public static void Open(
         Assembly testAssembly, string? fullyQualifiedTestClassName, string? testName, Action<string> writeLine)
+        => Open(testAssembly, fullyQualifiedTestClassName, testName, null, writeLine);
+
+    /// <summary>
+    /// Open the scenario for one row of a <c>[DataRow]</c> test (bobcat#569): <paramref name="testData"/>
+    /// is MSTest's <c>TestContext.TestData</c>, and its values are part of the row's identity.
+    /// </summary>
+    public static void Open(
+        Assembly testAssembly, string? fullyQualifiedTestClassName, string? testName, object?[]? testData,
+        Action<string> writeLine)
     {
         var testClass = fullyQualifiedTestClassName is null ? null : testAssembly.GetType(fullyQualifiedTestClassName);
         if (testClass is null || testName is null || !optedIn(testClass, testName)) return;
 
-        MarkerStepRun.BeginScenario(testClass, testName, Mode);
+        MarkerStepRun.BeginScenario(testClass, testName, Mode, testData, null);
         _output.Value = SpecOutput.Open(writeLine);
     }
 

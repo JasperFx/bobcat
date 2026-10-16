@@ -109,7 +109,7 @@ public class MarkerCommentSpecTests
         // runners Bobcat projects, and this is where that decision becomes visible.
         MarkerCommentSpecs.TestMethodAttributeNames.OrderBy(x => x, StringComparer.Ordinal).ShouldBe(
         [
-            "BobcatSpec", "DataTestMethod", "Fact", "Test", "TestCase", "TestMethod", "Theory"
+            "BobcatSpec", "BobcatTheory", "DataTestMethod", "Fact", "Test", "TestCase", "TestMethod", "Theory"
         ]);
     }
 

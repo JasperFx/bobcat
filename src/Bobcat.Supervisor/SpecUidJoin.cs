@@ -46,6 +46,12 @@ internal static class SpecUidJoin
         {
             if (entry.QualifiedTestMethod is not { Length: > 0 } qualified) continue;
 
+            // bobcat#569. A row of a data-driven spec shares its method's location with every other
+            // row, so joining it by location would name all of them. Left out, which is the refusal
+            // a warm command gets for an identity whose uid cannot be named; the method's identity
+            // still joins to every row.
+            if (entry.IsRow) continue;
+
             if (byDisplayName.TryGetValue(qualified, out var uid))
             {
                 map[entry.Identity] = [uid];

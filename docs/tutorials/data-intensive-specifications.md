@@ -448,6 +448,29 @@ The grid shows the resolved value with the token as its note:
 │ 1 │ 10     │ 2026-09-28 (TODAY-2) │ Socks      │   OK   │
 ```
 
+### A cell of your own type
+
+Beyond strings, numbers, dates, `Guid`, `TimeSpan`, `Uri` and enums, a cell is read as a domain
+type -- a strong-typed id, a `Dimension("1 x 1 x 36")` -- through the first of these the type offers:
+
+1. a conversion registered with `CellValues.Register<T>(Func<string, T>)`
+2. its `IParsable<T>` (`static T Parse(string, IFormatProvider?)`) -- the ids
+   `bobcat import-event-model --strong-typed-ids` writes already are
+3. a `TypeConverter` that converts from a string
+4. a public constructor taking one string
+
+```csharp
+// once, before the specs run -- a module initializer or the suite's fixture
+CellValues.Register(text => Money.Parse(text.Replace("$", "")));
+```
+
+A registration is global to the process and **wins over everything else**, the conventions and the
+built-in readers alike, so it is how a suite reads a type it does not own the way its specifications
+write it. It never sees `NULL`, `EMPTY`, a relative time against a date type, or a quoted cell's
+quotes -- those keep their meaning whatever is registered. The same reading applies to an expected
+cell compared against a value of that type, so a decision table's output column of a domain type
+needs nothing more.
+
 ### A cell that cannot be read
 
 A cell that won't convert to the type it binds to is a `BadCellException`, which sits deliberately
@@ -458,6 +481,17 @@ A cell that won't convert to the type it binds to is a `BadCellException`, which
   row 2: BadCellException: The cell 'Shortstop' could not be read as Position:
           'Shortstop' is not one of Position's values (Pitcher, Outfield, Catcher)
 ```
+
+A type none of the readers above can build says so, and names the fixes:
+
+```
+The cell '1 x 1 x 36' could not be read as Dimension: Bobcat has no way to read a Dimension.
+Register one with CellValues.Register<Dimension>(text => ...), or give Dimension a static Parse
+(IParsable<Dimension>), a TypeConverter, or a public constructor taking a string
+```
+
+When the type *has* a reader and it throws, the cell names the reader's own message instead, with
+the exception as the `InnerException`.
 
 A value written in a step helper's *call* -- a literal argument -- is checked at build time instead:
 **BOBCAT030** reports one that can't be read as the parameter's type.

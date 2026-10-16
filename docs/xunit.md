@@ -61,6 +61,7 @@ for:
 | [Expected/actual cells](marker-steps.md#checks-that-gather-instead-of-throwing) | `SpecAssert.Check(name, actual, expected)` records instead of throwing, so a specification shows *every* disagreement rather than only its first. The adapter turns the gathered wrongs into the test's verdict at the end |
 | [Tables and sets](marker-steps.md#tables-and-sets-from-a-c-test) | a table literal in the test -- pipe-delimited text that `StepTable` reads by an implicit conversion -- rendered as one grid |
 | [Projected assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in) | with `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, ordinary statement-level Shouldly calls render as steps and a *run* of them is all evaluated before the next action |
+| [One specification per theory row](spec-identities.md#each-data-row-is-its-own-specification) | `[BobcatTheory]` is `[BobcatSpec]` for a `[Theory]`; each row records as `Feature/Scenario (amount: 100)`, or `Feature/Scenario [label]` with `[BobcatExample("label", …)]` |
 | [Listing and running one specification](spec-identities.md#listing-and-running-by-identity) | `BOBCAT_LIST_SPECS` writes what the suite specifies; an identity is translated to `--filter-method Ns.Class.method`, which is what [the resident runner](resident-runner.md) drives |
 
 One step-attribute family -- `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` --

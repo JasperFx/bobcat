@@ -48,7 +48,7 @@ public sealed class BobcatScenarioAttribute : BeforeAfterTestAttribute
     internal const string Mode = XunitScenarioBracket.Mode;
 
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
-        => XunitScenarioBracket.Open(methodUnderTest);
+        => XunitScenarioBracket.Open(methodUnderTest, test);
 
     /// <remarks>
     /// The rethrow of a gathered wrong lives in <see cref="XunitScenarioBracket.Close"/>, which

@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Globalization;
+using System.Reflection;
 using Bobcat.Engine;
 using Bobcat.Engine.Verification;
 
@@ -29,9 +32,40 @@ namespace Bobcat.Runtime;
 /// rather than a computed date, because "today" is a fact about the run: a build cached overnight
 /// would otherwise hand every later run yesterday's date, and nothing in the report would say so.
 /// </para>
+/// <para>
+/// <b>Domain types (bobcat#542).</b> A type none of the built-in readers know is read, in order,
+/// through a conversion <see cref="Register{T}"/> was given for it, then its <see cref="IParsable{TSelf}"/>
+/// <c>Parse</c>, then a <see cref="TypeConverter"/> that converts from a string, then a public
+/// constructor taking one string. A registration wins over every reader, built-in or conventional, so a
+/// suite can override how a type it does not own is written. The tokens keep their meaning whatever is
+/// registered: <c>NULL</c>, <c>EMPTY</c>, a quoted literal and a relative time are decided before any
+/// conversion runs.
+/// </para>
 /// </remarks>
 public static class CellValues
 {
+    private static readonly ConcurrentDictionary<Type, Func<string, object?>> _registered = new();
+    private static readonly ConcurrentDictionary<Type, Func<string, object?>?> _conventions = new();
+
+    /// <summary>
+    /// Reads every cell of <typeparamref name="T"/> through <paramref name="read"/>, for a type the
+    /// suite does not own or one whose own parsing is not how a specification writes it. Global to the
+    /// process; registering a type again replaces the earlier conversion.
+    /// </summary>
+    /// <remarks>
+    /// The conversion sees the cell's text trimmed, and the inner text of a quoted cell. It never sees
+    /// <c>NULL</c>, <c>EMPTY</c> or a relative time against a date type — those are read before it is
+    /// asked. Anything it throws becomes a <see cref="BadCellException"/> naming the cell.
+    /// </remarks>
+    public static void Register<T>(Func<string, T> read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        _registered[typeof(T)] = text => read(text);
+    }
+
+    /// <summary>Removes a conversion <see cref="Register{T}"/> was given, if there was one.</summary>
+    public static bool Unregister<T>() => _registered.TryRemove(typeof(T), out _);
+
     /// <summary>The cell as a <typeparamref name="T"/>. The form generated code calls.</summary>
     public static T Read<T>(string text) => (T)Read(text, typeof(T))!;
 
@@ -153,6 +187,8 @@ public static class CellValues
 
     private static object? convert(string raw, Type target, string original)
     {
+        if (_registered.TryGetValue(target, out var registered)) return invoke(registered, raw, target, original);
+
         try
         {
             if (target == typeof(string)) return raw;
@@ -190,13 +226,86 @@ public static class CellValues
             if (target == typeof(TimeOnly)) return TimeOnly.Parse(raw, CultureInfo.InvariantCulture);
             if (target == typeof(TimeSpan)) return TimeSpan.Parse(raw, CultureInfo.InvariantCulture);
             if (target == typeof(Uri)) return new Uri(raw, UriKind.RelativeOrAbsolute);
-
-            return System.Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
         }
         catch (Exception e) when (e is FormatException or OverflowException or ArgumentException
                                      or InvalidCastException)
         {
             throw cannotRead(original, target, e.Message);
+        }
+
+        if (_conventions.GetOrAdd(target, conventionFor) is { } convention)
+            return invoke(convention, raw, target, original);
+
+        if (typeof(IConvertible).IsAssignableFrom(target))
+        {
+            try
+            {
+                return System.Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
+            }
+            catch (Exception e) when (e is FormatException or OverflowException or ArgumentException
+                                         or InvalidCastException)
+            {
+                throw cannotRead(original, target, e.Message);
+            }
+        }
+
+        throw cannotRead(original, target,
+            $"Bobcat has no way to read a {target.Name}. Register one with CellValues.Register<{target.Name}>(text => ...), "
+            + $"or give {target.Name} a static Parse (IParsable<{target.Name}>), a TypeConverter, "
+            + "or a public constructor taking a string");
+    }
+
+    /// <summary>
+    /// The conventional reader for a type the built-in readers do not know, or null when it has none:
+    /// <see cref="IParsable{TSelf}"/>, then a string-converting <see cref="TypeConverter"/>, then a
+    /// public <c>ctor(string)</c>. Resolved once per type.
+    /// </summary>
+    private static Func<string, object?>? conventionFor(Type target)
+    {
+        var parsable = target.GetInterfaces().FirstOrDefault(i =>
+            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IParsable<>)
+                            && i.GetGenericArguments()[0] == target);
+        if (parsable != null && parseMethodOf(target, parsable) is { } parse)
+            return text => parse.Invoke(null, [text, CultureInfo.InvariantCulture]);
+
+        var converter = TypeDescriptor.GetConverter(target);
+        if (converter.GetType() != typeof(TypeConverter) && converter.CanConvertFrom(typeof(string)))
+            return text => converter.ConvertFromString(null, CultureInfo.InvariantCulture, text);
+
+        if (target.GetConstructor([typeof(string)]) is { } constructor)
+            return text => constructor.Invoke([text]);
+
+        return null;
+    }
+
+    private static MethodInfo? parseMethodOf(Type target, Type parsable)
+    {
+        // The interface map finds Parse whether the type declares it publicly or implements it
+        // explicitly, which a public-method lookup would miss.
+        var map = target.GetInterfaceMap(parsable);
+        for (var i = 0; i < map.InterfaceMethods.Length; i++)
+        {
+            var parameters = map.InterfaceMethods[i].GetParameters();
+            if (map.InterfaceMethods[i].Name == "Parse" && parameters.Length == 2
+                                                       && parameters[0].ParameterType == typeof(string))
+                return map.TargetMethods[i];
+        }
+
+        return null;
+    }
+
+    private static object? invoke(Func<string, object?> read, string raw, Type target, string original)
+    {
+        try
+        {
+            return read(raw);
+        }
+        catch (Exception e) when (e is not (SpecCriticalException or SpecCatastrophicException or BadCellException
+                                      or OperationCanceledException))
+        {
+            var inner = e is TargetInvocationException { InnerException: { } thrown } ? thrown : e;
+            throw new BadCellException(
+                $"The cell '{original}' could not be read as {target.Name}: {inner.Message}", inner);
         }
     }
 

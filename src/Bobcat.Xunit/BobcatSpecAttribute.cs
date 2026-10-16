@@ -215,7 +215,7 @@ public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IEx
             throw MarkerStepRun.FailPendingInStrictMode(methodUnderTest, XunitScenarioBracket.Mode);
         }
 
-        XunitScenarioBracket.Open(methodUnderTest);
+        XunitScenarioBracket.Open(methodUnderTest, test);
     }
 
     public virtual void After(MethodInfo methodUnderTest, IXunitTest test)

@@ -28,9 +28,12 @@ internal static class XunitScenarioBracket
     /// </remarks>
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
-    internal static void Open(MethodInfo methodUnderTest)
+    internal static void Open(MethodInfo methodUnderTest, IXunitTest test)
     {
-        MarkerStepRun.BeginScenario(methodUnderTest, Mode);
+        // A theory row is its own specification (bobcat#569): its arguments, or the label a
+        // [BobcatExample] or a data attribute's Label gives it, are part of its identity. A [Fact]
+        // has neither, and opens exactly the scenario it always did.
+        MarkerStepRun.BeginScenario(methodUnderTest, Mode, test.TestMethodArguments, test.TestLabel);
 
         // TestOutputHelper is ambient in xUnit v3, which is what lets a [BobcatSpec] test get this
         // without declaring an ITestOutputHelper constructor parameter — the one-attribute,

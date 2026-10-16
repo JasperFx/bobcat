@@ -54,6 +54,21 @@ A CI job's output is captured, so the rendered specification isn't printed by de
 `BOBCAT_SPEC_CONSOLE=1` to print every specification at the end of the run anyway -- see
 [Reading the specification the run produced](../marker-steps.md#reading-the-specification-the-run-produced).
 
+To keep the whole run -- every scenario's steps, cells and tables -- set `BOBCAT_RESULTS` to a
+directory and archive it. Each run writes one JSON results file there, with its JSON Schema beside
+it ([The results file](../bobcat-tool.md#results-file)):
+
+```yaml
+- run: dotnet test
+  env:
+    BOBCAT_RESULTS: artifacts/bobcat
+- uses: actions/upload-artifact@v4
+  if: always()
+  with:
+    name: bobcat-results
+    path: artifacts/bobcat
+```
+
 ## 5. Publish the run
 
 A run can announce itself over a documented wire -- every scenario's start, verdict and timing --

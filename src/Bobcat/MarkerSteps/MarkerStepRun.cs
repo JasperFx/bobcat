@@ -61,13 +61,30 @@ public static class MarkerStepRun
     /// in a process fixes it, because a run has one mode.
     /// </param>
     public static ScenarioRecorder.Recording BeginScenario(MethodInfo method, string mode)
+        => BeginScenario(method, mode, null, null);
+
+    /// <summary>
+    /// Open one row of a data-driven scenario for <paramref name="method"/> (bobcat#569): its
+    /// identity is the method's plus the row — <c>(amount: 100, tier: Gold)</c>, or <c>[label]</c>
+    /// when the row has a label. With no arguments and no label this is the plain scenario.
+    /// </summary>
+    /// <param name="method">The test method. Its name, declaring type and parameter names supply the identity.</param>
+    /// <param name="mode">How the run was executed — "xunit", "tunit".</param>
+    /// <param name="arguments">The values the runner passes this row, in parameter order.</param>
+    /// <param name="label">The row's label, if the runner carries one.</param>
+    public static ScenarioRecorder.Recording BeginScenario(
+        MethodInfo method, string mode, IReadOnlyList<object?>? arguments, string? label)
     {
         var info = openRun(mode, method.DeclaringType?.Assembly);
+
+        var row = SpecRows.Describe(parameterNamesOf(method), arguments, label);
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
         var recording = ScenarioRecorder.Begin(
-            FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), _sink, info.RunId);
+            FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), row, _sink, info.RunId);
+
+        // A data-driven row takes its method's lifecycle (bobcat#545): it is the method that declares it.
         recording.Lifecycle = SpecLifecycle.Of(method);
         return recording;
     }
@@ -83,13 +100,39 @@ public static class MarkerStepRun
     /// adapter can reach the other one.
     /// </remarks>
     public static ScenarioRecorder.Recording BeginScenario(Type? declaringType, string methodName, string mode)
+        => BeginScenario(declaringType, methodName, mode, null, null);
+
+    /// <summary>
+    /// Open one row of a data-driven scenario for a test the runner identifies by type and method
+    /// name (bobcat#569). The parameter names come from the method of that name whose parameter count
+    /// matches the row; a row with no arguments and no label is the plain scenario.
+    /// </summary>
+    public static ScenarioRecorder.Recording BeginScenario(
+        Type? declaringType, string methodName, string mode, IReadOnlyList<object?>? arguments, string? label)
     {
         var info = openRun(mode, declaringType?.Assembly);
 
+        var row = SpecRows.Describe(parameterNamesOf(declaringType, methodName, arguments?.Count ?? 0), arguments, label);
+
         var recording = ScenarioRecorder.Begin(
-            FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), _sink, info.RunId);
+            FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), row, _sink, info.RunId);
         recording.Lifecycle = SpecLifecycle.Of(declaringType, methodName);
         return recording;
+    }
+
+    private static IReadOnlyList<string> parameterNamesOf(MethodBase method)
+        => method.GetParameters().Select(x => x.Name ?? "arg" + x.Position).ToList();
+
+    private static IReadOnlyList<string> parameterNamesOf(Type? declaringType, string methodName, int count)
+    {
+        if (declaringType is null || count == 0) return [];
+
+        const BindingFlags everything =
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
+        var candidates = declaringType.GetMethods(everything).Where(m => m.Name == methodName).ToList();
+        var method = candidates.FirstOrDefault(m => m.GetParameters().Length == count) ?? candidates.FirstOrDefault();
+        return method is null ? [] : parameterNamesOf(method);
     }
 
     /// <summary>
@@ -290,6 +333,9 @@ public static class MarkerStepRun
             var info = MonitorRunInfo.Discover(mode);
             _info = info;
 
+            // The results file (issue #540) is per bracket too, so a warm process writes one per request.
+            Rendering.ResultsFile.BeginRun(info);
+
             if (_sink is not null && !info.HasExternalOwner)
             {
                 // TotalScenarios is null on purpose. The runner owns discovery here and has not
@@ -435,6 +481,9 @@ public static class MarkerStepRun
 
             stopHeartbeat();
 
+            // Every scenario of this bracket has closed, so the file is complete. Never throws.
+            Rendering.ResultsFile.EndRun();
+
             _started = false;
             _info = null;
             _passed = 0;
@@ -527,6 +576,7 @@ public static class MarkerStepRun
             _acceptanceFailing = 0;
             FindEventModelHalves = specHalves;
             EventModelNotice = writeNotice;
+            Rendering.ResultsFile.Reset();
 
             // The sink is whatever the caller just installed, so the probe must not run and
             // overwrite it. _exitHooked is deliberately NOT reset: the handler is idempotent and

@@ -25,16 +25,57 @@ public class SpecInput
     [Description("Use the last build as it is")]
     public bool NoBuildFlag { get; set; }
 
+    [Description("Write the run's JSON results file (and its schema) into this directory -- BOBCAT_RESULTS for the host")]
+    public string? ResultsFlag { get; set; }
+
+    [Description("Print the run's JSON results file on standard output instead of the rendered specifications; everything else goes to standard error")]
+    public bool JsonFlag { get; set; }
+
+    [Description("Write every scenario's reports, passing ones too, on every surface -- BOBCAT_VERBOSE_REPORTS for the host")]
+    public bool VerboseFlag { get; set; }
+
+    internal RunOptions RunOptions => new(
+        ResultsFlag is { Length: > 0 } results ? Path.GetFullPath(results) : null, JsonFlag, VerboseFlag);
+
+    /// <summary>
+    /// With <c>--json</c>, standard output is the results file and nothing else, so an agent can
+    /// pipe it straight into a parser: every other line the tool writes goes to standard error.
+    /// </summary>
+    internal void RouteConsole()
+    {
+        if (!JsonFlag) return;
+
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(System.Console.Error)
+        });
+    }
+
     internal Task<SpecProject> ProjectAsync()
         => SpecProject.ResolveAsync(Project.Length == 0 ? null : Project, FrameworkFlag, ConfigurationFlag);
+}
+
+public class SpecRunInput : SpecInput
+{
+    [Description("Run only the specifications that failed or errored in this project's last run (obj/bobcat/last-run.json)")]
+    public bool FailedFlag { get; set; }
+
+    [Description("Run the last run's selection again, with its framework, configuration, --results, --json and --verbose")]
+    public bool RepeatFlag { get; set; }
 }
 
 /// <summary>
 /// <c>bobcat run</c> — run a spec project and read its specifications, not its log: the test host's
 /// output goes to a file and the terminal gets the rendered Feature / scenario / step tree.
 /// </summary>
+/// <remarks>
+/// Every run leaves <c>obj/bobcat/last-run.json</c> behind (<see cref="LastRun"/>, bobcat#572):
+/// what it asked for and what failed. <c>--failed</c> runs the failures again by identity, and
+/// <c>--repeat</c> replays the selection and flags. An identity the suite no longer specifies is
+/// refused by name rather than dropped, because a narrowed run that matches nothing exits 0.
+/// </remarks>
 [Description("Run a spec project and show its specifications", Name = "run")]
-public class SpecRunCommand : JasperFxAsyncCommand<SpecInput>
+public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
 {
     public SpecRunCommand()
     {
@@ -42,15 +83,121 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecInput>
         Usage("Run a spec project").Arguments(x => x.Project);
     }
 
-    public override async Task<bool> Execute(SpecInput input)
+    public override async Task<bool> Execute(SpecRunInput input)
     {
+        input.RouteConsole();
+
+        if (input.FailedFlag && input.RepeatFlag)
+        {
+            AnsiConsole.MarkupLine("[red]--failed and --repeat each choose what to run; use one.[/]");
+            return false;
+        }
+
+        if ((input.FailedFlag || input.RepeatFlag) && (input.FeatureFlag.Any() || input.ScenarioFlag.Any()))
+        {
+            AnsiConsole.MarkupLine($"[red]--{(input.FailedFlag ? "failed" : "repeat")} chooses what to run from the last run; "
+                                   + "it cannot be combined with --feature or --scenario.[/]");
+            return false;
+        }
+
         var project = await input.ProjectAsync();
+
+        LastRun? last = null;
+        if (input.FailedFlag || input.RepeatFlag)
+        {
+            last = LastRun.Read(LastRun.PathFor(project));
+            if (last is null)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(project.Name)} has no last run to go back to[/] "
+                                       + $"[dim]({Markup.Escape(LastRun.PathFor(project))} is missing or unreadable). Run `bobcat run` first.[/]");
+                return false;
+            }
+        }
+
+        if (input.RepeatFlag)
+        {
+            var recorded = last!.Arguments;
+            input.FrameworkFlag ??= recorded.Framework;
+            input.ConfigurationFlag = recorded.Configuration;
+            input.ResultsFlag ??= recorded.Results;
+            input.JsonFlag |= recorded.Json;
+            input.VerboseFlag |= recorded.Verbose;
+            input.RouteConsole();
+
+            project = await input.ProjectAsync();
+        }
+
+        IReadOnlyList<string>? selection;
+        if (input.FailedFlag)
+        {
+            if (!last!.ResultsRead)
+            {
+                AnsiConsole.MarkupLine($"[red]The last run of {Markup.Escape(project.Name)} left no results[/] "
+                                       + $"[dim](the test host exited {last.ExitCode} before reporting), so what failed is not known. "
+                                       + "Run it again without --failed.[/]");
+                return false;
+            }
+
+            if (last.Failed.Count == 0)
+            {
+                var exited = last.ExitCode == 0 ? "" : $", though the test host exited {last.ExitCode}";
+                AnsiConsole.MarkupLine($"[green]Nothing failed in the last run of {Markup.Escape(project.Name)}[/] "
+                                       + $"[dim]({last.Timestamp.ToLocalTime():g}{Markup.Escape(exited)}), so there is nothing to rerun.[/]");
+                return true;
+            }
+
+            selection = last.Failed;
+        }
+        else if (input.RepeatFlag)
+        {
+            selection = last!.Arguments.Selection;
+        }
+        else
+        {
+            selection = null;
+        }
+
         if (!await project.BuildAsync(input.NoBuildFlag)) return false;
 
-        var filter = await SpecSelectionFlow.FilterAsync(project, input);
-        if (filter is null) return false;
+        var chosen = selection is null
+            ? await SpecSelectionFlow.ChooseAsync(project, input)
+            : await SpecSelectionFlow.IdentitiesAsync(project, selection);
+        if (chosen is null) return false;
 
-        return await SpecHost.RunAsync(project, filter) == 0;
+        var outcome = await SpecHost.RunAsync(project, chosen.FilterArguments, input.RunOptions);
+
+        remember(project, input, chosen, outcome);
+
+        return outcome.ExitCode == 0;
+    }
+
+    /// <summary>Write <c>obj/bobcat/last-run.json</c>. Never fails the run it describes.</summary>
+    private static void remember(SpecProject project, SpecRunInput input, Chosen chosen, RunOutcome outcome)
+    {
+        var path = LastRun.PathFor(project);
+        try
+        {
+            new LastRun
+            {
+                Timestamp = DateTimeOffset.UtcNow,
+                ExitCode = outcome.ExitCode,
+                ResultsRead = outcome.ResultsRead,
+                Failed = outcome.Failed.ToList(),
+                Arguments = new LastRunArguments
+                {
+                    Framework = project.Framework,
+                    Configuration = project.Configuration,
+                    Selection = chosen.Identities.ToList(),
+                    Results = input.RunOptions.ResultsDirectory,
+                    Json = input.JsonFlag,
+                    Verbose = input.VerboseFlag
+                }
+            }.Write(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            AnsiConsole.MarkupLine($"[dim]Could not write {Markup.Escape(path)}: {Markup.Escape(e.Message)}[/]");
+        }
     }
 }
 
@@ -85,13 +232,15 @@ public class SpecPickCommand : JasperFxAsyncCommand<SpecInput>
 
     public override async Task<bool> Execute(SpecInput input)
     {
+        input.RouteConsole();
+
         var project = await input.ProjectAsync();
         if (!await project.BuildAsync(input.NoBuildFlag)) return false;
 
         var filter = await SpecSelectionFlow.PickAsync(project);
         if (filter is null) return false;
 
-        return await SpecHost.RunAsync(project, filter) == 0;
+        return (await SpecHost.RunAsync(project, filter, input.RunOptions)).ExitCode == 0;
     }
 }
 
@@ -114,8 +263,9 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
         var project = await input.ProjectAsync();
         if (!await project.BuildAsync(input.NoBuildFlag)) return false;
 
-        var filter = await SpecSelectionFlow.FilterAsync(project, input);
-        if (filter is null) return false;
+        var chosen = await SpecSelectionFlow.ChooseAsync(project, input);
+        if (chosen is null) return false;
+        var filter = chosen.FilterArguments;
 
         using var changes = new SourceWatcher(project.SourceDirectories());
         using var quit = new CancellationTokenSource();
@@ -132,7 +282,7 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
         {
             // A failed rebuild leaves the previous host on disk; running it would report on code
             // that no longer exists, so the loop waits for the next change instead.
-            if (!buildFailed) await SpecHost.RunAsync(project, filter);
+            if (!buildFailed) await SpecHost.RunAsync(project, filter, input.RunOptions with { Json = false });
             buildFailed = false;
 
             AnsiConsole.MarkupLine(interactive
@@ -196,16 +346,61 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
     }
 }
 
+/// <summary>
+/// The identities a run was narrowed to (none: every specification) and the framework filter that
+/// selects them.
+/// </summary>
+internal sealed record Chosen(IReadOnlyList<string> Identities, IReadOnlyList<string> FilterArguments)
+{
+    public static Chosen Everything { get; } = new([], []);
+}
+
 /// <summary>Turning flags or a menu into a framework filter, against the suite's own manifest.</summary>
 internal static class SpecSelectionFlow
 {
-    public static async Task<IReadOnlyList<string>?> FilterAsync(SpecProject project, SpecInput input)
+    public static async Task<Chosen?> ChooseAsync(SpecProject project, SpecInput input)
     {
         var features = input.FeatureFlag.ToList();
         var scenarios = input.ScenarioFlag.ToList();
-        if (features.Count == 0 && scenarios.Count == 0) return [];
+        if (features.Count == 0 && scenarios.Count == 0) return Chosen.Everything;
 
-        return SpecHost.Filter(await SpecHost.ListAsync(project), features, scenarios);
+        var manifest = await SpecHost.ListAsync(project);
+        var identities = SpecHost.Choose(manifest, features, scenarios);
+        return identities is null
+            ? null
+            : new Chosen(identities, Bobcat.Runtime.SpecFilterArguments.For(manifest, Bobcat.Runtime.SpecSelection.Of(identities)));
+    }
+
+    /// <summary>
+    /// Exactly <paramref name="identities"/> (none: every specification), or null when the suite no
+    /// longer specifies one of them — named, rather than dropped from the run, because a rerun of
+    /// three failures that silently ran two looks exactly like a pass.
+    /// </summary>
+    public static async Task<Chosen?> IdentitiesAsync(SpecProject project, IReadOnlyList<string> identities)
+    {
+        if (identities.Count == 0) return Chosen.Everything;
+
+        var manifest = await SpecHost.ListAsync(project);
+        var selection = Bobcat.Runtime.SpecSelection.Of(identities);
+
+        var unknown = selection.NotIn(manifest.Identities);
+        if (unknown.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(project.Name)} no longer specifies {unknown.Count} of the last run's specification(s):[/]");
+            foreach (var identity in unknown) AnsiConsole.MarkupLine($"  {Markup.Escape(identity)}");
+            AnsiConsole.MarkupLine("[dim]Renamed or deleted since the last run. Run `bobcat run` (with --feature / --scenario) to start over.[/]");
+            return null;
+        }
+
+        try
+        {
+            return new Chosen(selection.Identities, Bobcat.Runtime.SpecFilterArguments.For(manifest, selection));
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException)
+        {
+            AnsiConsole.MarkupLine($"[red]Cannot run exactly those specifications:[/] {Markup.Escape(e.Message)}");
+            return null;
+        }
     }
 
     public static async Task<IReadOnlyList<string>?> PickAsync(SpecProject project)
