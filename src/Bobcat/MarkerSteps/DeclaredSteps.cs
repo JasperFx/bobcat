@@ -29,6 +29,13 @@ public static class DeclaredSteps
     private static readonly ConcurrentDictionary<string, SpecManifestEntry> _bindings = new();
 
     /// <summary>
+    /// Each bound test's Event Model coordinates (bobcat#573), keyed by test class and method. Keyed by
+    /// the test rather than by identity because that is what a runner adapter has in hand at
+    /// discovery, and first-wins like the bindings.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, SpecCoordinates> _coordinates = new();
+
+    /// <summary>
     /// Every test that tried to bind an identity another test already holds (bobcat#489), keyed by
     /// identity and then by test, so a binding repeated under contention or by a reloaded assembly
     /// is recorded once.
@@ -84,8 +91,29 @@ public static class DeclaredSteps
     /// knows them before the run.
     /// </summary>
     public static void Bind(string uid, string testClass, string testMethod, string? parent)
+        => Bind(uid, testClass, testMethod, parent, null, null, null, null);
+
+    /// <summary>
+    /// Bind an identity — a method's, or one of its rows' with <paramref name="parent"/> — to its test
+    /// method together with its Event Model coordinates (bobcat#573): the slice, chapter, domain and
+    /// pattern the generator folded for it. Called from generated code. A row carries its method's
+    /// coordinates, since it is the same test.
+    /// </summary>
+    /// <remarks>
+    /// The coordinates are recorded beside the binding, and the runner adapters read them back by test
+    /// method (<see cref="CoordinatesFor(string, string)"/>) to project them as platform traits — so
+    /// the manifest <c>bobcat run --slice</c> resolves through and the traits
+    /// <c>dotnet test --filter-trait</c> sees are one record, not two derivations.
+    /// </remarks>
+    public static void Bind(string uid, string testClass, string testMethod, string? parent,
+        string? slice, string? chapter, string? domain, string? pattern)
     {
-        var entry = new SpecManifestEntry(uid, testClass, testMethod, parent);
+        var entry = new SpecManifestEntry(uid, testClass, testMethod, parent, slice, chapter, domain, pattern);
+
+        if (SpecCoordinates.Of(entry) is { } coordinates)
+        {
+            _coordinates.TryAdd(keyOf(entry), coordinates);
+        }
 
         _bindings.AddOrUpdate(uid, entry, (_, existing) =>
         {
@@ -121,6 +149,36 @@ public static class DeclaredSteps
 
     private static string keyOf(SpecManifestEntry entry) => entry.TestClass + "\n" + entry.TestMethod;
 
+    /// <summary>
+    /// The Event Model coordinates the generator bound for a test method (bobcat#573), or null when it
+    /// bound none. <paramref name="testClass"/> is the full name with nested classes joined by
+    /// <c>+</c>, as <see cref="Type.FullName"/> spells it.
+    /// </summary>
+    public static SpecCoordinates? CoordinatesFor(string testClass, string testMethod)
+        => _coordinates.TryGetValue(testClass + "\n" + testMethod, out var coordinates) ? coordinates : null;
+
+    /// <summary>The same for a test's declaring type — what a runner adapter has in hand.</summary>
+    /// <remarks>
+    /// Runs <paramref name="testClass"/>'s module initializer first, which is where the bindings are
+    /// registered: a test framework may reach a test's attributes before anything else in that
+    /// assembly has run. Running it twice is a no-op.
+    /// </remarks>
+    public static SpecCoordinates? CoordinatesFor(Type? testClass, string? testMethod)
+    {
+        if (testClass?.FullName is not { } name || string.IsNullOrEmpty(testMethod)) return null;
+
+        try
+        {
+            System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(testClass.Module.ModuleHandle);
+        }
+        catch
+        {
+            // A module that cannot run its initializer has registered nothing; there is simply no answer
+        }
+
+        return CoordinatesFor(name, testMethod);
+    }
+
     /// <summary>The test method an identity was derived from, or null when nothing bound it.</summary>
     public static SpecManifestEntry? BindingFor(string uid)
         => _bindings.TryGetValue(uid, out var binding) ? binding : null;
@@ -154,10 +212,14 @@ public static class DeclaredSteps
     /// only when a listing was asked for — so a suite pays for the reflection only then.
     /// </remarks>
     public static SpecManifest Manifest(string framework, string suite, System.Reflection.Assembly assembly)
-        => Manifest(framework, suite) with
+    {
+        var manifest = Manifest(framework, suite);
+        return manifest with
         {
+            Specs = manifest.Specs.Select(entry => SpecTraits.WithDeclaredTraits(entry, assembly)).ToList(),
             RecoveryHints = SpecManifestHint.ReadFrom(assembly) is { Count: > 0 } hints ? hints : null
         };
+    }
 
     /// <summary>
     /// Forget one scenario's declared steps and binding. Test-only, and deliberately per scenario: this registry is
@@ -168,7 +230,7 @@ public static class DeclaredSteps
     internal static void Remove(string uid)
     {
         _byUid.TryRemove(uid, out _);
-        _bindings.TryRemove(uid, out _);
+        if (_bindings.TryRemove(uid, out var binding)) _coordinates.TryRemove(keyOf(binding), out _);
         _duplicates.TryRemove(uid, out _);
     }
 }

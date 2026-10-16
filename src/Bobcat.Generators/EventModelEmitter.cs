@@ -419,7 +419,7 @@ internal static class EventModelEmitter
     /// <summary>Emit one slice's builder as a member of the model class.</summary>
     private static string emitSlice(SliceModel slice, Contract contract)
     {
-        var pattern = patternOf(slice, contract);
+        var pattern = PatternOf(slice, contract);
 
         // bobcat#501: a Query changes nothing, so it has no command (an arranging command is not its act), and
         // what it reads -- the read act's type, an asserted read model, an explicit GivenContext -- is ReadsFrom,
@@ -503,6 +503,36 @@ internal static class EventModelEmitter
     private static readonly List<string> EmptyTypes = new();
 
     /// <summary>
+    /// Each specification's Event Model coordinates (bobcat#573): the slice it folds into, that slice's chapter,
+    /// domain and pattern — keyed by identity. Folded by <see cref="Collect"/> and <see cref="PatternOf"/>, the
+    /// same calls the descriptor is emitted from, so the manifest and the platform traits cannot say something
+    /// the Event Model does not. Pending specifications have coordinates too.
+    /// </summary>
+    internal static Dictionary<string, (string Slice, string? Chapter, string? Domain, string? Pattern)> Coordinates(
+        IEnumerable<MarkerCommentSpecs.MarkedSpec> specs, Contract contract)
+    {
+        var slices = new Dictionary<string, SliceModel>();
+        foreach (var spec in specs) Collect(spec, slices);
+
+        var coordinates = new Dictionary<string, (string, string?, string?, string?)>(StringComparer.Ordinal);
+        foreach (var slice in slices.Values)
+        {
+            var value = (slice.Name, slice.Chapter, slice.Domain, PatternOf(slice, contract));
+            foreach (var specification in slice.Specifications)
+            {
+                if (!coordinates.ContainsKey(specification.Identity)) coordinates[specification.Identity] = value;
+            }
+
+            foreach (var identity in slice.PendingSpecifications)
+            {
+                if (!coordinates.ContainsKey(identity)) coordinates[identity] = value;
+            }
+        }
+
+        return coordinates;
+    }
+
+    /// <summary>
     /// Which pattern this is. A declared <c>Pattern</c> settles it outright, which is how a scaffolded
     /// specification carries the curated model's answer through.
     ///
@@ -512,7 +542,7 @@ internal static class EventModelEmitter
     /// Automation and Translation need a trigger the test does not express, so they stay null rather
     /// than being guessed — a wrong pattern miscolours the canvas, a null one does not.
     /// </summary>
-    private static string? patternOf(SliceModel slice, Contract contract)
+    internal static string? PatternOf(SliceModel slice, Contract contract)
     {
         // The model's own word, when it gave one (issue #323). Inference below cannot reach
         // Automation or Translation, and guessing Command for an automation produced a

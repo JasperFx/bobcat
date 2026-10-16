@@ -111,6 +111,34 @@ public class ProjectedSpecIdentityEndToEndTests : IDisposable
             [explicitlyNamed],
             ["--filter-method", "Bobcat.Xunit.Samples.Specs.OneAttributeSpecs.named_explicitly"]);
 
+    private const string coordinateSpec = "Facts, in one attribute/its coordinates are its traits";
+
+    [Fact]
+    public async Task the_manifest_carries_each_specification_s_coordinates_and_declared_traits()
+    {
+        // bobcat#573: what `bobcat run --slice` resolves through
+        var entry = (await _harness.List(projectedHost)).For(coordinateSpec);
+
+        entry.ShouldNotBeNull();
+        entry.Slice.ShouldBe("Selecting by coordinates");
+        entry.Chapter.ShouldBe("Selection");
+        entry.Domain.ShouldBe("Bobcat");
+        entry.Pattern.ShouldBeNull();
+        entry.Traits!["Category"].ShouldBe(["Coordinates"]);
+    }
+
+    [Fact]
+    public async Task the_platform_s_own_trait_filter_selects_a_specification_by_its_slice()
+    {
+        // bobcat#573: plain `dotnet test --filter-trait`, no Bobcat in the loop. The spec asserts its
+        // own traits inside its body, so green is the real runner having them.
+        var (exitCode, output) = await SpecIdentityHarness.Run(
+            projectedHost, null, "--filter-trait", "Slice=Selecting by coordinates");
+
+        exitCode.ShouldBe(0, output);
+        output.ShouldContain("total: 1");
+    }
+
     [Fact]
     public Task an_identity_the_suite_does_not_have_is_refused_before_anything_is_launched()
         => _harness.RefusesAnIdentityItDoesNotHave(projectedHost, "Calculator/no such specification");

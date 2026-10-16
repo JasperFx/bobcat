@@ -204,15 +204,38 @@ public sealed record SpecManifest(
 /// (bobcat#569), else null. A row shares its method's <see cref="TestClass"/> and
 /// <see cref="TestMethod"/>, so a method filter cannot pick it out on its own.
 /// </param>
+/// <param name="Slice">
+/// The Event Model slice the specification is bound to (bobcat#573), or null when it is bound to
+/// none. With <paramref name="Chapter"/>, <paramref name="Domain"/> and <paramref name="Pattern"/>
+/// these are <see cref="SpecCoordinates"/>, written from the generated binding — the same values the
+/// runner adapters project as traits. Additive: a manifest without them reads as "no coordinates".
+/// </param>
+/// <param name="Chapter">The slice's chapter, or null.</param>
+/// <param name="Domain">The slice's domain, or null.</param>
+/// <param name="Pattern">The slice's pattern, declared or derived, or null when neither says.</param>
 public sealed record SpecManifestEntry(
     string Identity,
     string? TestClass = null,
     string? TestMethod = null,
-    string? Parent = null)
+    string? Parent = null,
+    string? Slice = null,
+    string? Chapter = null,
+    string? Domain = null,
+    string? Pattern = null)
 {
     /// <summary>True when this entry is one row of a data-driven specification (bobcat#569).</summary>
     [JsonIgnore]
     public bool IsRow => Parent is not null;
+
+    /// <summary>
+    /// The traits the test declares through its framework's own attributes (bobcat#573) — xUnit's
+    /// <c>[Trait]</c> (any <c>ITraitAttribute</c>), TUnit's and NUnit's <c>[Property]</c>, NUnit's
+    /// <c>[Category]</c> and MSTest's <c>[TestProperty]</c>/<c>[TestCategory]</c>, on the method, its
+    /// class or the assembly — keyed by trait name. Null, and so absent from the document, when it
+    /// declares none. What <c>bobcat run --trait</c> selects on, beside the coordinates; the
+    /// coordinates themselves are not repeated here.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>>? Traits { get; init; }
 
     /// <summary>
     /// The fully qualified method name a framework filter takes, or null when this entry carries

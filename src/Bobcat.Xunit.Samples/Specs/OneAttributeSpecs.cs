@@ -75,6 +75,28 @@ public class OneAttributeSpecs
     public const string ExplicitName = "a spec's name can't always be a method name -- re-stated, verbatim";
 
     /// <summary>
+    /// bobcat#573: the spec's Event Model coordinates are xUnit traits on it, from the binding the
+    /// generator registered — so <c>dotnet test --filter-trait "Slice=Selecting by coordinates"</c>
+    /// selects it. It reads its own traits off the running test, which is the real runner's answer, not
+    /// an attribute instance's; <c>ProjectedSpecIdentityEndToEndTests</c> selects it by that trait.
+    /// </summary>
+    [BobcatSpec(SliceName = "Selecting by coordinates", Chapter = "Selection", Domain = "Bobcat")]
+    [Trait("Category", "Coordinates")]
+    public void its_coordinates_are_its_traits()
+    {
+        _facts.TheThingIsActivated();
+
+        var traits = global::Xunit.TestContext.Current.Test!.Traits;
+        traits["Slice"].ShouldBe(["Selecting by coordinates"]);
+        traits["Chapter"].ShouldBe(["Selection"]);
+        traits["Domain"].ShouldBe(["Bobcat"]);
+        traits["Category"].ShouldBe(["Coordinates"]);
+
+        // No vocabulary role and no declared pattern, so nothing can say what pattern it is
+        traits.ContainsKey("Pattern").ShouldBeFalse();
+    }
+
+    /// <summary>
     /// Stub-first (issue #404): the specification is written before the behaviour exists. It is
     /// SKIPPED, so the throw below never happens, and it reaches the Event Model as a
     /// <c>PendingSpecification</c> hotspot rather than as evidence the slice is verified.

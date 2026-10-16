@@ -53,6 +53,11 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 | `-c, --configuration <name>` | the build configuration; `Debug` by default |
 | `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (not `pick`) |
 | `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (not `pick`) |
+| `--slice <name>` | only specifications bound to this Event Model slice; repeatable (not `pick`) |
+| `--chapter <name>` | only specifications whose slice is in this chapter; repeatable (not `pick`) |
+| `--domain <name>` | only specifications whose slice is in this domain; repeatable (not `pick`) |
+| `--pattern <name>` | only specifications whose slice has this pattern (`Command`, `View`, `Query`, `Automation`, `Translation`); repeatable (not `pick`) |
+| `--trait <Name=Value>` | only specifications with this trait: a framework trait or property, or `Slice`/`Chapter`/`Domain`/`Pattern`; repeatable (not `pick`) |
 | `--no-build` | use the last build as it is |
 | `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
 | `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
@@ -115,6 +120,74 @@ BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain
 - A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
   the same rule as the console and the wire.
 - Writing it never fails a run: a directory that cannot be written is one line on standard error.
+
+### Selecting by Event Model coordinates {#selecting-by-coordinates}
+
+```bash
+bobcat run --slice "Deposit funds"
+bobcat run --chapter "Money in" --pattern Command
+bobcat watch --slice "Deposit funds" --slice "Withdraw funds"
+bobcat run --trait Category=Slow
+```
+
+The spec-driven loop works slice by slice, so a run can be narrowed to a slice, a chapter, a domain
+or a pattern (bobcat#573). **A repeated flag ORs and different flags AND**, so `--slice A --slice B
+--pattern View` means "slice A or B, and a View". There is no expression language and no NOT.
+`--feature` and `--scenario` narrow further on top.
+
+The coordinates come from the suite's [spec manifest](spec-identities.md#what-a-suite-says-it-specifies).
+Each entry carries the slice the generator folded the specification into, and that slice's chapter,
+domain and pattern. These are the values the Event Model descriptor gets: the slice from
+`[BobcatSpec]`/`[BobcatSlice]` (or the feature title for a spec with vocabulary roles and no
+binding), the chapter and domain the slice's first specification declared, and the pattern as
+declared or **as derived**. A spec whose act sends a command is `Command` even though nothing says
+so. The selection becomes a method filter, the same as `--feature`.
+
+Values match **whole, ignoring case**, and never as a substring: `--slice Deposit` does not also run
+"Deposit refund". A value no specification has is **refused by name**, and the message lists the
+values that exist:
+
+```
+Refused: No specification is bound to the slice 'Withdraw funds'. The slices with specifications are: AccountSummary, Deposit funds.
+```
+
+The run never goes ahead with nothing selected, because a filter that matches nothing runs nothing
+and reads as green. A combination that each value exists for but no specification satisfies is
+refused the same way ("each of those exists, but never together").
+
+**It is *not* that the slice is misspelled when** the spec binds its slice through a named constant
+(`SliceName = MySlices.Deposit`). The generator reads only a literal or `typeof(...)` there, the same
+as for the Event Model, so such a spec has no coordinates. Write the literal, or bind by type.
+
+`--trait Name=Value` matches the traits the test declares (xUnit `[Trait]`, TUnit and NUnit
+`[Property]`, NUnit `[Category]`, MSTest `[TestProperty]`/`[TestCategory]`, on the method, class or
+assembly) and the coordinates under the names `Slice`, `Chapter`, `Domain` and `Pattern`. So
+`--trait Slice=X` means what `dotnet test --filter-trait "Slice=X"` means.
+
+### The same coordinates as platform traits
+
+The runner adapters project the same four values onto the tests, so a plain `dotnet test`, IDE
+grouping, TRX and the supervisor's discovery see them with no Bobcat tool involved. They read the
+same generated binding the manifest is written from, so the two cannot disagree. A coordinate that
+is null (no chapter, a pattern nothing can tell) is left off rather than projected as an empty value.
+
+| Framework | Projected as | Filter |
+|---|---|---|
+| xUnit v3 | traits from `[BobcatSpec]` (an `ITraitAttribute`) | `dotnet test --filter-trait "Slice=Deposit funds"` |
+| TUnit | properties, added at discovery by `[BobcatScenario]` | `--treenode-filter "/*/*/*/*[Slice=Deposit funds]"` |
+| NUnit | properties, from `[BobcatScenario]` (`IApplyToTest`) | `--filter "Slice~Deposit"` |
+| MSTest | not projected | use `bobcat run --slice` |
+
+- **xUnit: only `[BobcatSpec]` carries them**, not `[Fact]` + `[BobcatScenario]`. xUnit asks a trait
+  attribute for its traits without saying which method it is on, so the attribute finds its method
+  by the source location the compiler stamped on it.
+- **NUnit: on a class-level `[BobcatScenario]`, the fixture gets only the coordinates every bound
+  test in the class shares.** NUnit applies a fixture's attributes before it builds the fixture's
+  tests, so there is no test to stamp yet. NUnit's filters match a test through its fixture, so
+  "one class, one slice" selects as expected. For each test's own coordinates in a mixed class,
+  put `[BobcatScenario]` on the methods.
+- **MSTest: not projected.** `Bobcat.MSTest` references no MSTest assembly, and its hooks run when
+  a test runs, which is too late for a discovery-time filter.
 
 ## `import-event-model` {#import-event-model}
 

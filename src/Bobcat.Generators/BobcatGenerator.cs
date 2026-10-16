@@ -193,9 +193,25 @@ public class BobcatGenerator : IIncrementalGenerator
                 // The compilation is combined in only to name the test framework (issue #391):
                 // a projected suite is filtered by ITS framework's spelling, so a listing has to
                 // say which one owns the process rather than leaving a reader to assume.
+                // bobcat#573: each identity's Event Model coordinates, folded by the same calls the
+                // descriptor is, so `bobcat run --slice` and the platform traits agree with the model.
+                // Pattern inference follows this JasperFx's contract where there is one, so a Query is
+                // a Query only where the model can say so; with no JasperFx at all there is no model to
+                // disagree with and the full vocabulary applies.
+                var hostsModel = compilation.GetTypeByMetadataName(EventModelEmitter.GateTypeName) != null;
+                var contract = hostsModel
+                    ? new EventModelEmitter.Contract
+                    {
+                        Query = compilation.GetTypeByMetadataName("JasperFx.Events.EventModeling.SlicePattern")?.GetMembers("Query").Length > 0
+                    }
+                    : EventModelEmitter.Contract.Latest;
+
                 spc.AddSource(
                     "BobcatDeclaredSteps.g.cs",
-                    MarkerCommentSpecs.Emit(specs, MarkerCommentSpecs.FrameworkOf(compilation)));
+                    MarkerCommentSpecs.Emit(
+                        specs,
+                        MarkerCommentSpecs.FrameworkOf(compilation),
+                        EventModelEmitter.Coordinates(specs, contract)));
             });
 
         // 4. Marker-comment specs feed the Event Model too (issue #324): they are emitted on their
