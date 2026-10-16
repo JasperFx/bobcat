@@ -14,6 +14,8 @@ when it answers *"how do I do the thing I came here to do."*
 | `wolverine-ci-rollout.md` | Lessons of record from the first production Supervisor rollout |
 | `rider/` | The upstream Reqnroll.Rider patch, its PR body, and notes on what was and was not verified |
 | `history/` | Gherkin-era records kept for history (the lane was removed in 0.50.0, bobcat#471): the original `spec-driven-development-design.md` vision, the `acceptance-coverage-map.md` from the lane's removal, and the `sample-wiring-playbook.md` for wiring samples to `BobcatRunner` |
+| `storyteller-gap-analysis.md` | Living comparison of Storyteller 5 against Bobcat: the gap register, what was dropped and why, and an append-only log of decisions taken about each gap |
+| `bdd-tools-comparison.md` | Testing strategies from Gauge, Reqnroll and Cucumber that a code-first Bobcat could use (no Gherkin or Markdown), with an append-only decision log |
 | `critter-stack-interop-notes.md` | Upstream Wolverine/Marten/Fisher hazards a Bobcat suite was first to hit |
 
 ## Known follow-up
