@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Compliance/Compliance.csproj" />
+  <Project Path="Transports/Transports.csproj" />
+</Solution>

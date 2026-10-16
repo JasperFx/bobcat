@@ -1,0 +1,4 @@
+<Project>
+  <!-- The spike pins nothing of its own: it takes src's versions, so it measures the Bobcat in this tree. -->
+  <Import Project="../../src/Directory.Packages.props" />
+</Project>
