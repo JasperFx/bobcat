@@ -134,6 +134,10 @@ public static class RunnerRefusal
 /// before anything has run. Trailing and optional: null from a runner that predates it, or a suite
 /// that could not say.
 /// </param>
+/// <param name="BuiltAt">
+/// When the code the runner runs was built (bobcat#652), so a console can mark a verdict from before
+/// it. Trailing and optional, like <paramref name="Outline"/>.
+/// </param>
 public sealed record RunnerRegistration(
     string RunnerId,
     string Repository,
@@ -142,7 +146,8 @@ public sealed record RunnerRegistration(
     string Lane,
     IReadOnlyList<string> Modes,
     IReadOnlyList<string> Specs,
-    IReadOnlyList<SpecOutline>? Outline = null);
+    IReadOnlyList<SpecOutline>? Outline = null,
+    DateTimeOffset? BuiltAt = null);
 
 /// <summary>
 /// A runner's answer to one command.

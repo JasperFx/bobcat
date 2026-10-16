@@ -135,6 +135,57 @@ public sealed class EventModelStore
     }
 
     /// <summary>
+    /// The source a spec assembly publishes its half under: its name with anything a file name will
+    /// not take as '-' — the publisher's <c>SpecEventModelPublisher.SourceNameFor</c>, mirrored here,
+    /// as every wire rule is, because the console references nothing of the publisher's.
+    /// </summary>
+    public static string SpecSourceFor(string suite)
+    {
+        var source = new string(suite.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray()).Trim('-');
+        return source.Length == 0 ? "specs" : source;
+    }
+
+    /// <summary>
+    /// Drop from <paramref name="suite"/>'s spec half every specification its runner no longer has
+    /// (bobcat#652): a renamed or deleted spec stayed bound to its slice on the canvas until a run
+    /// republished the half, and a resident runner relaunched on a rebuild runs nothing. A data row
+    /// keeps its method's identity bound. Returns true when anything was dropped.
+    /// </summary>
+    /// <remarks>
+    /// Only ever removes. A new specification's slice is a compile-time fact the runner does not
+    /// carry, so it reaches the canvas with the next run that publishes the half, as before.
+    /// </remarks>
+    public bool PruneSpecifications(string suite, IReadOnlyCollection<string> current)
+    {
+        var source = SpecSourceFor(suite);
+        bool keeps(string identity)
+            => current.Contains(identity)
+               || current.Any(x => x.StartsWith(identity + " (", StringComparison.Ordinal) || x.StartsWith(identity + " [", StringComparison.Ordinal));
+
+        lock (_gate)
+        {
+            if (!_bySource.TryGetValue(source, out var descriptor)) return false;
+
+            var changed = false;
+            var slices = descriptor.Slices.Select(slice =>
+            {
+                var kept = slice.Specifications.Where(spec => keeps(spec.Identity)).ToArray();
+                if (kept.Length == slice.Specifications.Count) return slice;
+
+                changed = true;
+                return slice with { Specifications = kept };
+            }).ToArray();
+
+            if (!changed) return false;
+
+            var pruned = descriptor with { Slices = slices };
+            File.WriteAllText(fileFor(source), JsonSerializer.Serialize(pruned, Wire));
+            _bySource[source] = pruned;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Validate and store a descriptor. The document is round-tripped through the typed
     /// JasperFx <see cref="EventModelDescriptor"/> so an unparseable push is a 400 at the
     /// endpoint rather than a blank canvas later, and so the stored copy is normalized to the

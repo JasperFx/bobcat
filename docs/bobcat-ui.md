@@ -130,6 +130,13 @@ The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTIO
 default), so pressing buttons can evict the run a page is open on. That page then says the run was
 evicted and where its archive is, rather than calling it unknown.
 
+A resident runner relaunched on a rebuild registers again but runs nothing, so the UI follows it in
+three ways. The latest run of its suite is marked **from before the last rebuild** (the runner says
+when its host was built). Specifications it no longer has are dropped from the canvas's slices (a new
+one reaches the canvas with the next run). And pressing Run on an earlier run's page for a spec
+renamed since says the runner no longer has it, instead of blaming another suite. Re-running on a
+rebuild automatically is not done: a run nobody asked for costs a database and a CPU.
+
 ### Exports
 
 Every card exports its run, and so does `GET /api/runs/{runId}/export?format=…`:

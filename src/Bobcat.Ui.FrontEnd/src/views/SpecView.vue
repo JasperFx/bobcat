@@ -60,7 +60,7 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
       </h2>
       <!-- stoat#78: run it again, or its whole feature, on a resident runner. -->
       <div class="bm-spec-actions">
-        <RunButton :target="{ specs: [uid] }" label="Run again" />
+        <RunButton :target="{ specs: [uid] }" label="Run again" :suite="run?.suite" />
         <RunButton v-if="scenario.feature" :target="{ feature: scenario.feature }" :label="`Run ${scenario.feature}`" />
       </div>
       <ScenarioProgress :scenario="scenario" />

@@ -395,6 +395,10 @@ public class ProjectedResidentRunnerTests : IDisposable
 
         await using var runner = new ResidentRunner(suite, new ResidentRunnerOptions { RunnerId = "r1" });
         runner.Registration().Outline.ShouldBeSameAs(suite.Outline);
+
+        // bobcat#652: when the host was built rides along, so a console can mark verdicts from before it
+        suite.BuiltAt.ShouldNotBeNull().ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow);
+        runner.Registration().BuiltAt.ShouldBe(suite.BuiltAt);
     }
 
     [Fact]

@@ -93,3 +93,54 @@ public class RunnerSpecificationsTests
             .StatusCode.ShouldBe(404);
     }
 }
+
+/// <summary>
+/// bobcat#652: pressing Run on a spec renamed since the run a page shows was refused as belonging to
+/// "another suite", sending people to look for a runner that does not exist.
+/// </summary>
+public class StaleIdentityRefusalTests
+{
+    private static string refusalFor(params string[] specs)
+    {
+        var runners = new RunnerRegistry();
+        runners.Register(new RunnerRegistered("r-1", "/code/bank", "main", "Bank.Tests", "projected", null,
+            ["Watch Probe/freezing is frozen", "Accounts/opens"]), null);
+
+        var result = RunnerEndpoints.Ask("r-1", new RunnerCommandRequest(Specs: specs), runners);
+        var body = System.Text.Json.JsonSerializer.SerializeToElement((result as Microsoft.AspNetCore.Http.IValueHttpResult)!.Value);
+        return string.Join("; ", body.GetProperty("errors").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    [Fact]
+    public void a_spec_in_one_of_this_runners_features_was_renamed_or_removed_not_another_suites()
+    {
+        var refusal = refusalFor("Watch Probe/freezing twice is still frozen");
+
+        refusal.ShouldContain("no longer specifies Watch Probe/freezing twice is still frozen");
+        refusal.ShouldContain("renamed or removed since that run");
+        refusal.ShouldNotContain("another suite");
+    }
+
+    [Fact]
+    public void a_spec_in_no_feature_of_this_runners_is_still_another_suites()
+    {
+        var refusal = refusalFor("Orders/places an order");
+
+        refusal.ShouldContain("not this runner's specs: Orders/places an order");
+        refusal.ShouldNotContain("renamed");
+    }
+}
+
+/// <summary>bobcat#652: when the code a runner runs was built rides its registration to the console.</summary>
+public class RunnerBuiltAtTests
+{
+    [Fact]
+    public void the_build_time_a_runner_registers_is_on_its_view()
+    {
+        var builtAt = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+        var runners = new RunnerRegistry();
+        runners.Register(new RunnerRegistered("r-1", "/code/bank", "main", "Bank.Tests", "projected", null, ["F/a"], null, builtAt), null);
+
+        runners.Find("r-1")!.BuiltAt.ShouldBe(builtAt);
+    }
+}

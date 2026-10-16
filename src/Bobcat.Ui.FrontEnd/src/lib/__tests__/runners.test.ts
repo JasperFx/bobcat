@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { askRunner, commandForRun, commandProgress, describeCommand, findRunners, loadMode, modeFor, runnerState, saveMode, type RunnerCommandView, type RunnerView } from '../runners'
+import { askRunner, commandForRun, commandProgress, describeCommand, findRunners, loadMode, modeFor, rebuiltSince, runnerState, saveMode, type RunnerCommandView, type RunnerView } from '../runners'
 
 function runner(overrides: Partial<RunnerView> = {}): RunnerView {
   return {
@@ -95,5 +95,27 @@ describe('describeCommand', () => {
     expect(commandForRun([runner], 'run-1')?.command.commandId).toBe('c1')
     expect(commandForRun([runner], 'other')).toBeUndefined()
     expect(commandForRun(null, 'run-1')).toBeUndefined()
+  })
+})
+
+// bobcat#652: a relaunched runner re-registers but runs nothing, so the board marks the verdicts it predates
+describe('rebuiltSince', () => {
+  const runner = (overrides: Partial<RunnerView>): RunnerView => ({
+    runnerId: 'r1', repository: '/code/bank/', repositorySlug: null, branch: 'main', suite: 'Bank.Tests', lane: 'projected',
+    modes: ['cold'], specs: 3, connected: true, status: null, statusDetail: null, registeredAt: '', lastSeenAt: '',
+    commands: [], builtAt: '2026-10-16T12:00:00Z', ...overrides,
+  })
+  const run = { suite: 'Bank.Tests', repository: '/code/bank', startedAt: '2026-10-16T11:00:00Z' }
+
+  it("finds the suite's runner when it was built after the run started", () => {
+    expect(rebuiltSince(run, [runner({})])?.runnerId).toBe('r1')
+  })
+
+  it('says nothing for a run of the current build, another suite, another checkout, or a runner that cannot say', () => {
+    expect(rebuiltSince({ ...run, startedAt: '2026-10-16T12:30:00Z' }, [runner({})])).toBeUndefined()
+    expect(rebuiltSince(run, [runner({ suite: 'Other.Tests' })])).toBeUndefined()
+    expect(rebuiltSince(run, [runner({ repository: '/code/other' })])).toBeUndefined()
+    expect(rebuiltSince(run, [runner({ builtAt: null })])).toBeUndefined()
+    expect(rebuiltSince(run, null)).toBeUndefined()
   })
 })

@@ -18,9 +18,9 @@ function runner(overrides: Partial<RunnerView> = {}): RunnerView {
   }
 }
 
-function render(target = { specs: ['F/a'] }) {
+function render(target = { specs: ['F/a'] }, suite: string | null = null) {
   return mount(RunButton, {
-    props: { target, label: 'Run again' },
+    props: { target, label: 'Run again', suite },
     // Teleport stubbed, so the dialog renders inside the wrapper and the test needs no `document`.
     global: { stubs: { RouterLink: routerLinkStub, teleport: true } },
   })
@@ -59,6 +59,20 @@ describe('RunButton', () => {
     const empty = wrapper.find('[data-testid="no-runner"]').text()
     expect(empty).toContain('No runner can run this')
     expect(empty).toContain('bobcat resident <test host>')
+    wrapper.unmount()
+  })
+
+  // bobcat#652: pressing Run on an earlier run's page for a spec renamed since blamed another suite
+  it("says the suite's own runner no longer has a spec renamed since the run, rather than to start one", async () => {
+    followed = [runner()] as unknown as RunnerView
+    const wrapper = render({ specs: ['F/renamed away'] }, 'Stoat.Specs')
+    await wrapper.find('[data-testid="run-button"]').trigger('click')
+    await flushPromises()
+
+    const said = wrapper.find('[data-testid="renamed-away"]').text()
+    expect(said).toContain("Stoat.Specs's runner no longer has F/renamed away")
+    expect(said).toContain('renamed or removed since this run')
+    expect(wrapper.text()).not.toContain('bobcat resident <test host>')
     wrapper.unmount()
   })
 

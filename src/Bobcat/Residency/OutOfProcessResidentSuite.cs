@@ -209,6 +209,29 @@ public sealed class OutOfProcessResidentSuite : IResidentSuite
     /// <summary>Each specification's planned steps, from the same listing (bobcat#644); null when it wrote none.</summary>
     public IReadOnlyList<SpecOutline>? Outline { get; }
 
+    /// <summary>
+    /// When the host was built (bobcat#652): the later of the executable and its assembly beside it,
+    /// which a rebuild rewrites. Null when neither can be read.
+    /// </summary>
+    public DateTimeOffset? BuiltAt
+    {
+        get
+        {
+            try
+            {
+                var times = new[] { HostPath, Path.ChangeExtension(HostPath, ".dll") }
+                    .Where(File.Exists)
+                    .Select(path => new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero))
+                    .ToList();
+                return times.Count == 0 ? null : times.Max();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
     /// <summary>Where the runner narrates each launch. Nothing by default.</summary>
     public Action<string>? Log { get; init; }
 

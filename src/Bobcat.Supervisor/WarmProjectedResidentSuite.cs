@@ -108,6 +108,8 @@ public sealed class WarmProjectedResidentSuite : IResidentSuite, IAsyncDisposabl
 
     public IReadOnlyList<SpecOutline>? Outline => _cold.Outline;
 
+    public DateTimeOffset? BuiltAt => _cold.BuiltAt;
+
     public SpecManifest Manifest => _cold.Manifest;
 
     public string HostPath => _cold.HostPath;

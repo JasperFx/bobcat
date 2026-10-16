@@ -160,7 +160,8 @@ public sealed class ResidentRunner : IAsyncDisposable
             _suite.Lane,
             AvailableModes,
             _suite.SpecIdentities,
-            _suite.Outline);
+            _suite.Outline,
+            _suite.BuiltAt);
     }
 
     /// <summary>

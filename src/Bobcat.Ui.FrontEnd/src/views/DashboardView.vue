@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRunsStore, visibleScenarios, type RunState } from '@/stores/runs-store'
 import { useRunners } from '@/composables/useRunners'
-import { commandForRun, describeCommand } from '@/lib/runners'
+import { commandForRun, describeCommand, rebuiltSince } from '@/lib/runners'
 import LaneStrip from '@/components/LaneStrip.vue'
 import RunnersPanel from '@/components/RunnersPanel.vue'
 import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
@@ -20,6 +20,19 @@ const { runners } = useRunners()
  * while the run itself publishes no total. A data-driven specification runs a scenario per row, so
  * this counts specifications selected beside scenarios finished rather than claiming a fraction.
  */
+/**
+ * bobcat#652: the latest finished run of a suite whose runner has been rebuilt since — the board's
+ * latest word on that suite is of code that has changed. Older cards are older anyway, so only the
+ * latest says so.
+ */
+function staleLatest(run: RunState): boolean {
+  if (!run.finished || !rebuiltSince(run, runners.value)) return false
+  return !runs.runsNewestFirst.some(
+    (other) => other.runId !== run.runId && other.suite === run.suite && other.repository === run.repository
+      && Date.parse(other.startedAt) > Date.parse(run.startedAt),
+  )
+}
+
 function commandLineOf(run: RunState): string | null {
   const found = commandForRun(runners.value, run.runId)
   if (!found) return null
@@ -313,6 +326,15 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
         >{{ repositoryName(run) }}</span>
         <span class="bm-run-meta" :title="run.repository">{{ metaOf(run) }}</span>
         <span v-if="commandLineOf(run)" class="bm-run-command" data-testid="run-command">{{ commandLineOf(run) }}</span>
+        <el-tag
+          v-if="staleLatest(run)"
+          size="small"
+          type="warning"
+          data-testid="before-rebuild"
+          :title="`The runner was rebuilt at ${rebuiltSince(run, runners)!.builtAt} and has not run this since`"
+        >
+          from before the last rebuild
+        </el-tag>
         <span v-if="run.counts" class="bm-run-counts">
           <span class="bm-passed">{{ run.counts.passed }} passed</span>
           <span v-if="run.counts.passedOnRetry > 0" class="bm-retried">

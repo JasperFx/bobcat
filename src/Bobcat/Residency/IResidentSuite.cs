@@ -54,6 +54,13 @@ public interface IResidentSuite
     IReadOnlyList<SpecOutline>? Outline => null;
 
     /// <summary>
+    /// When the code this suite runs was built (bobcat#652): a console marks a verdict from before it
+    /// as from before the last rebuild, since a relaunched runner re-registers but runs nothing.
+    /// Null when the suite cannot say.
+    /// </summary>
+    DateTimeOffset? BuiltAt => null;
+
+    /// <summary>
     /// Run the selection, in the mode asked for, publishing on the ingest stream as any run does.
     /// </summary>
     /// <remarks>

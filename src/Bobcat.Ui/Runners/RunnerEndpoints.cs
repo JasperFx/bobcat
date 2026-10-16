@@ -149,8 +149,7 @@ public static class RunnerEndpoints
         }
 
         var unknown = specs.Where(x => !registered.Contains(x, StringComparer.Ordinal)).ToList();
-        if (unknown.Count > 0)
-            return refuse($"not this runner's specs: {string.Join("; ", unknown)} — a slice or spec from another suite runs on that suite's runner");
+        if (unknown.Count > 0) return refuse(unknownSpecs(unknown, registered));
 
         var mode = string.IsNullOrWhiteSpace(request.Mode) ? RunnerWire.Cold : request.Mode.Trim().ToLowerInvariant();
         if (!(runners.ModesOf(runnerId) ?? []).Contains(mode))
@@ -240,4 +239,27 @@ public static class RunnerEndpoints
         => new(((WolverineRuntime)runtime).Handlers, RunnerWire.Json);
 
     private static IResult refuse(string error) => Results.BadRequest(new { errors = new[] { error } });
+
+    /// <summary>
+    /// Why the runner cannot run these (bobcat#652). An identity in a feature this runner has is from
+    /// this suite, renamed or removed since the run a page shows — pressing Run on an earlier run's
+    /// page after a rebuild — and blaming "another suite" for it sent people looking for a runner that
+    /// does not exist. Only an identity in no feature of this runner's is someone else's.
+    /// </summary>
+    private static string unknownSpecs(IReadOnlyList<string> unknown, IReadOnlyList<string> registered)
+    {
+        static string featureOf(string identity) => identity.LastIndexOf('/') is var slash and > 0 ? identity[..slash] : "";
+
+        var features = registered.Select(featureOf).ToHashSet(StringComparer.Ordinal);
+        var gone = unknown.Where(x => features.Contains(featureOf(x))).ToList();
+        var foreign = unknown.Except(gone).ToList();
+
+        var reasons = new List<string>();
+        if (gone.Count > 0)
+            reasons.Add($"this runner no longer specifies {string.Join("; ", gone)} — renamed or removed since that run; run its feature, or the spec under its new name");
+        if (foreign.Count > 0)
+            reasons.Add($"not this runner's specs: {string.Join("; ", foreign)} — a slice or spec from another suite runs on that suite's runner");
+
+        return string.Join(". ", reasons);
+    }
 }

@@ -36,6 +36,8 @@ export interface RunnerView {
   registeredAt: string
   lastSeenAt: string
   commands: RunnerCommandView[]
+  /** When the code it runs was built (bobcat#652); absent from a runner that predates it. */
+  builtAt?: string | null
 }
 
 /**
@@ -185,6 +187,34 @@ export function describeCommand(command: RunnerCommandView, runner: RunnerView):
           : `Run ${specs.length} specs`
 
   return `${what} · ${command.mode} · from ${command.requestedBy}`
+}
+
+function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  const normalize = (path: string | null | undefined) => (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalize(a) === normalize(b)
+}
+
+/**
+ * The runner whose current build is newer than this run (bobcat#652): its verdicts are from before
+ * the last rebuild. A relaunched resident runner re-registers but runs nothing, so without this the
+ * board went on showing a run of code that had changed since as the latest word. Matched by suite and
+ * checkout. Undefined when no runner says, or the run is of the current build.
+ */
+export function rebuiltSince(
+  run: { suite: string; repository: string; startedAt: string },
+  runners: RunnerView[] | null,
+): RunnerView | undefined {
+  const started = Date.parse(run.startedAt)
+  if (Number.isNaN(started)) return undefined
+
+  return (runners ?? []).find(
+    (r) => r.suite === run.suite && samePath(r.repository, run.repository) && !!r.builtAt && Date.parse(r.builtAt) > started,
+  )
+}
+
+/** A runner for this suite, whatever it registered (bobcat#652) — how a button tells a renamed spec from another suite's. */
+export function runnerForSuite(runners: RunnerView[] | null, suite: string | null | undefined): RunnerView | undefined {
+  return suite ? (runners ?? []).find((r) => r.suite === suite) : undefined
 }
 
 /** Where a command has got to: queued → sent → accepted (then the run) or rejected. */

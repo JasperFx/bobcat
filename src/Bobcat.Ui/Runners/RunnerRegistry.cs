@@ -17,7 +17,11 @@ public record RunnerView(
     string? StatusDetail,
     DateTimeOffset RegisteredAt,
     DateTimeOffset LastSeenAt,
-    IReadOnlyList<RunnerCommandView> Commands);
+    IReadOnlyList<RunnerCommandView> Commands)
+{
+    /// <summary>When the code it runs was built (bobcat#652); null from a runner that predates it.</summary>
+    public DateTimeOffset? BuiltAt { get; init; }
+}
 
 /// <summary>
 /// One specification a runner can run (bobcat#644): its identity split into feature and scenario,
@@ -490,6 +494,9 @@ public sealed class RunnerRegistry
             runner.RegisteredAt, runner.LastSeenAt,
             runner.Commands.OrderByDescending(x => x.Sequence).Select(c => new RunnerCommandView(
                 c.Id, c.Kind, c.Specs, c.Mode, c.State, c.Reason, c.RequestedBy, c.RequestedAt, c.AcknowledgedAt,
-                runFor?.Invoke(c.Id))).ToList());
+                runFor?.Invoke(c.Id))).ToList())
+        {
+            BuiltAt = r.BuiltAt
+        };
     }
 }
