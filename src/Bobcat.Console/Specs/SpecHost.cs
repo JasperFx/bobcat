@@ -50,7 +50,7 @@ internal static class SpecHost
 
         var environment = new Dictionary<string, string?>
         {
-            [ProjectedSpecConsole.WidthEnvironmentVariable] = width().ToString()
+            [ProjectedSpecConsole.WidthEnvironmentVariable] = Width().ToString()
         };
 
         if (options.Json)
@@ -162,7 +162,7 @@ internal static class SpecHost
         {
             [ProjectedSpecConsole.PreviewEnvironmentVariable] = "1",
             [ProjectedSpecConsole.OutputFileEnvironmentVariable] = render,
-            [ProjectedSpecConsole.WidthEnvironmentVariable] = width().ToString(),
+            [ProjectedSpecConsole.WidthEnvironmentVariable] = Width().ToString(),
             ["BOBCAT_MONITOR"] = "0"
         };
 
@@ -271,7 +271,7 @@ internal static class SpecHost
         return slash < 0 ? ("", identity) : (identity[..slash], identity[(slash + 1)..]);
     }
 
-    private static int width()
+    internal static int Width()
     {
         try
         {

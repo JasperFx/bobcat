@@ -64,6 +64,10 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 | `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire |
 | `--failed` | run only the specifications that failed or errored last time (`run`; see below) |
 | `--repeat` | run the last run's selection again, with its flags (`run`; see below) |
+| `--retries <N>` | supervised: retry a failed specification up to N times, if it has a `Retry` trait or a recovery hint (`run`; see below) |
+| `--workers <N>` | supervised: run on N worker processes, partitioned by test class (`run`) |
+| `--stall <duration>` | supervised: name a specification in flight longer than this, `90s`/`5m`/`1h`; 5 minutes by default (`run`) |
+| `--stall-action <action>` | supervised: what a stall does, `report` (default), `kill-and-retry` or `abort` (`run`) |
 
 ### Rerunning what failed: `--failed` and `--repeat` {#failed-repeat}
 
@@ -76,7 +80,7 @@ bobcat run --repeat              # the last run's selection and flags again
 
 **Every `bobcat run` writes `obj/bobcat/last-run.json`** in the spec project, with or without
 `--results`: the failed identities, the selection it ran (identities, empty for everything), its
-framework, configuration, `--results`, `--json` and `--verbose`, the host's exit code, a timestamp
+framework, configuration, `--results`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
 and a reserved `seed` (null until seeded random order ships). `obj/` is git-ignored and
 `dotnet clean` removes it.
 
@@ -93,6 +97,47 @@ and a reserved `seed` (null until seeded random order ships). `obj/` is git-igno
 - Neither combines with `--feature`/`--scenario` or the coordinate flags (`--slice`, `--chapter`,
   `--domain`, `--pattern`, `--trait`), nor with each other. A run selected by coordinates is
   repeated as the identities it resolved to.
+
+### Supervised runs: `--retries`, `--workers`, `--stall` {#supervised}
+
+```bash
+bobcat run --retries 2                        # retry what is allowed to be retried, twice at most
+bobcat run --workers 4                        # four worker processes, one test class per lane
+bobcat run --stall 2m --stall-action kill-and-retry
+bobcat run --failed --retries 2 --results artifacts/bobcat
+```
+
+**Any of `--retries`, `--workers`, `--stall` or `--stall-action` makes the run supervised**
+(bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor, the thing a
+hand-written `Supervisor` host does in C#. Without any of them `bobcat run` is exactly the plain
+run. `--results`, `--verbose` and every selection flag work on both.
+
+- **`--retries N` is a ceiling, not a switch.** A specification is retried only when it carries a
+  `Retry` trait (`[Trait("Retry", "2")]`) or a recovery hint (`[ClearsOnRetry(typeof(TimeoutException))]`)
+  that matches the failure. Without either, a failure is reported once, `--retries` or not:
+  retrying every failure would make flaky indistinguishable from broken. A `SpecCatastrophicException`
+  is never retried and aborts the run.
+- **A pass on retry exits 0 and is reported apart**: the report after the specifications lists
+  "Passed on retry (not clean passes)" and the quarantine candidates. `--failed` does not count it:
+  the last verdict for a specification is the one that counts.
+- **`--workers N`** runs N lanes, each a worker process, partitioned by test class, never by test:
+  a class's fixtures and static state stay in one process. Classes that share a database still
+  collide; give each lane its own database before raising it.
+- **There is no default per-specification timeout**; that is the test framework's job. A supervised
+  run instead **names** a specification that has been in flight for 5 minutes (`--stall` changes
+  that) in a "Stalled" section of the report, and does nothing else unless `--stall-action` says
+  `kill-and-retry` (kill the worker, run the stalled specification once more alone, resume the rest)
+  or `abort` (stop the run).
+- **The tool exits 0 when everything passed, on retry included**, and non-zero otherwise. The last
+  line tells a failure ("Specifications failed") from a run that was aborted or whose worker died
+  ("never established"); `obj/bobcat/last-run.json` records the supervisor's exit code (1 failed,
+  2 aborted or unknown).
+- Each worker renders its own specifications, so a specification retried in a fresh process is shown
+  once per attempt; the report says which attempt counted. The supervisor's own log is named on the
+  last line.
+- **`--json` is refused** for a supervised run: it writes one results file per worker request, so
+  there is no single file to print. Use `--results <dir>`.
+- `--repeat` replays the supervision flags with the rest.
 
 ### The results file {#results-file}
 
