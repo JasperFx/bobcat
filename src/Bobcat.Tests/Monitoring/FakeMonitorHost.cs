@@ -139,6 +139,12 @@ internal sealed class FakeMonitorHost : IDisposable
 
     private readonly List<string> _eventModelPushQueries = [];
 
+    private int _pings;
+
+    /// <summary>How many <c>GET /api/ping</c> probes this host answered — evidence for a test that
+    /// waits on a child process and has to say whether the child ever found it.</summary>
+    public int Pings => Volatile.Read(ref _pings);
+
     private async Task loop()
     {
         try
@@ -221,6 +227,7 @@ internal sealed class FakeMonitorHost : IDisposable
                 }
                 else
                 {
+                    if (path == "/api/ping") Interlocked.Increment(ref _pings);
                     context.Response.StatusCode = 200;
                 }
 
