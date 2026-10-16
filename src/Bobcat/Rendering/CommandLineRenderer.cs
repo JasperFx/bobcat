@@ -97,6 +97,12 @@ public class CommandLineRenderer
             }
         }
 
+        if (spec.Logs.Count > 0 || spec.SuppressedLogs > 0)
+        {
+            output.WriteLine();
+            RenderLogs(spec.Logs, spec.SuppressedLogs, "  ");
+        }
+
         if (IncludeReports) RenderReports(spec);
 
         output.WriteLine();
@@ -300,6 +306,26 @@ public class CommandLineRenderer
         }
     }
 
+    /// <summary>
+    /// A block of <see cref="SpecLog"/> lines under a <c>Logs:</c> heading, with "…and N more" when
+    /// the cap cut it short. Nothing at all when there is nothing to show.
+    /// </summary>
+    public void RenderLogs(IReadOnlyList<string> logs, int suppressed, string indent)
+    {
+        if (logs.Count == 0 && suppressed == 0) return;
+
+        output.MarkupLine($"{indent}[dim]Logs:[/]");
+        foreach (var log in logs)
+        {
+            foreach (var line in log.Split('\n'))
+            {
+                output.MarkupLine($"{indent}  [dim]{Markup.Escape(line.TrimEnd('\r'))}[/]");
+            }
+        }
+
+        if (suppressed > 0) output.MarkupLine($"{indent}  [dim]{Markup.Escape(StepLog.MoreLine(suppressed))}[/]");
+    }
+
     public void RenderStep(StepRender step)
     {
         var icon = step.Status switch
@@ -402,15 +428,8 @@ public class CommandLineRenderer
             }
         }
 
-        // Render correlated logs
-        if (step.Logs.Count > 0)
-        {
-            output.MarkupLine($"{indent}  [dim]Logs:[/]");
-            foreach (var log in step.Logs)
-            {
-                output.MarkupLine($"{indent}    [dim]{Markup.Escape(log)}[/]");
-            }
-        }
+        // What the step logged through SpecLog (bobcat#547), already latched by the render model.
+        RenderLogs(step.Logs, step.SuppressedLogs, indent + "  ");
 
         // Render diagnostics
         if (step.Diagnostics.Count > 0)

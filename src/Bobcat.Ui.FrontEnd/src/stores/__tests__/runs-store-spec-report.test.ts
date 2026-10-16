@@ -73,6 +73,27 @@ describe('runs-store — a step’s report', () => {
     expect(step(store).exception).toBeNull()
   })
 
+  it('folds spec logs from scenario_finished onto the step they were written in (bobcat#547)', () => {
+    const store = useRunsStore()
+    started(store)
+    const finished = {
+      runId: RUN,
+      uid: UID,
+      outcome: 'Failed',
+      attempts: 1,
+      durationMs: 5,
+      errorMessage: 'failed',
+      logs: [
+        { stepId: 'Check', lines: ['computed'], suppressed: 2 },
+        { stepId: null, lines: ['between steps'], suppressed: 0 },
+      ],
+    }
+    store.handleScenarioFinished(finished)
+    store.handleScenarioFinished(finished)
+
+    expect(step(store).logs).toEqual(['computed', '…and 2 more lines'])
+  })
+
   it('keeps an exception apart from the message, with the filtered frames and the hidden count', () => {
     const store = useRunsStore()
     started(store)

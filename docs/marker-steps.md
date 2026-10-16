@@ -462,6 +462,34 @@ and that was the dangerous part: a helper with `[WaitFor(5000)]` ran once and re
 answer, which looks exactly like a poll that happened to succeed straight away. The generator says so
 with **BOBCAT035**.
 
+### Saying what the system did -- `SpecLog.Write` (bobcat#547)
+
+When a spec goes red the next question is "what did the system do?". A step helper answers it
+with `SpecLog.Write`:
+
+```csharp
+[When("the order is placed")]
+internal async Task PlaceOrder()
+{
+    var response = await _client.PostAsJsonAsync("/orders", _order);
+    SpecLog.Write($"POST /orders -> {(int)response.StatusCode}");
+}
+```
+
+- **The line goes on the step in progress**, the innermost open one, and renders under that step in
+  the console, the JSON report (`logs` on the step), the runner's own test output, and the monitor
+  wire (`scenario_finished.logs`, keyed by step id). A line written with no step open goes on the
+  scenario and renders after the steps under `Logs:`. With no scenario open it does nothing.
+- **Latched like reports.** The lines are always recorded but only written out for a **failed**
+  scenario. A passing one shows none unless the run sets `BOBCAT_VERBOSE_REPORTS=1`. So a green
+  spec showing no logs does *not* mean `SpecLog` did nothing.
+- **Capped at 100 lines per step** (`StepLog.MaxLines`); the rest are counted and every surface
+  says `…and N more lines`, never a silent truncation.
+- **Writing can never fail a test.** It is static and `AsyncLocal`-backed like `SpecAssert`, so a
+  vocabulary in another package can call it without being handed anything, and parallel tests never
+  log into each other. Your application's own `ILogger` output is **not** captured; that is still
+  post-1.0.
+
 ## When the environment is gone, stop -- `SpecCatastrophicException` (bobcat#539) {#environment-lost}
 
 A failure comes in one of three sizes:

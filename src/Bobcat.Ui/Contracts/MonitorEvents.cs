@@ -159,7 +159,16 @@ public record ScenarioFinished(
     long? StepsMs = null,
     // The method's spec identity when this scenario is one row of a data-driven specification
     // (bobcat#569), as on ScenarioStarted. Null for a scenario that is not a row.
-    string? ParentSpecId = null) : MonitorEvent(RunId);
+    string? ParentSpecId = null,
+    IReadOnlyList<StepLogInfo>? Logs = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// The log lines one step wrote through <c>SpecLog.Write</c> (bobcat#547), or the scenario's own
+/// lines when <see cref="StepId"/> is null. <see cref="Suppressed"/> counts the lines past the
+/// per-step cap that were not kept, so a consumer says "…and N more" rather than truncating
+/// silently.
+/// </summary>
+public record StepLogInfo(string? StepId, IReadOnlyList<string> Lines, int Suppressed);
 
 /// <summary>
 /// One scenario report on the wire (bobcat#408): a titled grid describing what the scenario's
