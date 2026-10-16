@@ -152,6 +152,33 @@ public class TableRunnerOutParameterTests
     }
 
     [Fact]
+    public async Task an_input_cell_that_will_not_convert_is_invalid_and_the_row_is_not_run()
+    {
+        var run = await TableRunner.Run(_target, nameof(Arithmetic.DivMod), """
+            | dividend | divisor | quotient | remainder |
+            | seventeen | 5x     | 3        | 2         |
+            | 10       | 3       | 3        | 1         |
+            """);
+
+        run.Succeeded.ShouldBeFalse();
+
+        // Every unreadable cell of the row is named, each in its own column, with its type and text.
+        var dividend = cell(run, 0, "dividend");
+        dividend.Status.ShouldBe(ResultStatus.invalid);
+        dividend.DisplayText.ShouldContain("'seventeen'");
+        dividend.DisplayText.ShouldContain("Int32");
+        cell(run, 0, "divisor").Status.ShouldBe(ResultStatus.invalid);
+        cell(run, 0, "divisor").DisplayText.ShouldContain("'5x'");
+
+        // Not a row error, and no outputs invented for a row that never ran.
+        run.Cells.Where(c => c.RowIndex == 0).Select(c => c.Name)
+            .ShouldBe(["dividend", "divisor"], ignoreOrder: true);
+
+        _target.Calls.ShouldBe(1);
+        cell(run, 1, "quotient").Status.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
     public async Task output_columns_match_by_name_case_insensitively_like_inputs()
     {
         var run = await TableRunner.Run(_target, nameof(Arithmetic.DivMod), """

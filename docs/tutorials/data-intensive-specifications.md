@@ -504,14 +504,22 @@ list of Int32: item 2 of 3, …`.
 
 ### A cell that cannot be read
 
-A cell that won't convert to the type it binds to is a `BadCellException`, which sits deliberately
-*outside* the `Spec*` tier so it fails its own row and lets the others run:
+A cell that won't convert to the type it binds to is a defect in the specification, decidable
+without running anything, so it is reported the way an unknown column is: an **`invalid` cell in
+its own column**, naming the type and the text (bobcat#544). That row is not run -- there is no
+value to call it with -- and the other rows still run. Every unreadable cell of the row is named,
+not only the first. The cell's text is the reason:
 
 ```
-│ 2 │ Nobody      │ Shortstop │ ERROR  │
-  row 2: BadCellException: The cell 'Shortstop' could not be read as Position:
-          'Shortstop' is not one of Position's values (Pitcher, Outfield, Catcher)
+The cell 'Shortstop' could not be read as Position:
+'Shortstop' is not one of Position's values (Pitcher, Outfield, Catcher)
 ```
+
+The step is `failed`, not `error`: `error` (a `row-error` cell) is kept for a row whose *code*
+threw. This applies to `TableRunner.Run`'s input columns and to the rows `TableRunner.Build` /
+`BuildRows<T>` builds. An expected (output) cell that can't be read is `invalid` too, as it already
+was. Underneath, `CellValues.Read` still throws `BadCellException`, outside the `Spec*` tier, for a
+caller reading a cell itself.
 
 A type none of the readers above can build says so, and names the fixes:
 

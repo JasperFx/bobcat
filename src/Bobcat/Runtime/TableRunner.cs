@@ -62,9 +62,22 @@ public static class TableRunner
         {
             var row = rows[r];
 
+            var invalid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
             try
             {
-                var arguments = bind(parameters, row, method);
+                var arguments = bind(parameters, row, method, invalid);
+
+                // A cell that cannot be read as its parameter's type is a defect in the specification,
+                // decidable without running anything (bobcat#544): `invalid` in its own column, the
+                // status an unknown column carries, and the row is not run.
+                if (invalid.Count > 0)
+                {
+                    addInvalidCells(run, invalid, r);
+                    addInputCells(run, table, row, r, outputColumns, invalid);
+                    continue;
+                }
+
                 var returned = await invoke(target, method, arguments);
 
                 foreach (var header in table.Headers)
@@ -83,11 +96,17 @@ public static class TableRunner
                 run.Cells.Add(DecisionTableComparer.RowError(r, e));
             }
 
-            addInputCells(run, table, row, r, outputColumns);
+            addInputCells(run, table, row, r, outputColumns, null);
         }
 
         run.Report();
         return run;
+    }
+
+    private static void addInvalidCells(TableRun run, IReadOnlyDictionary<string, string> invalid, int rowIndex)
+    {
+        foreach (var (column, message) in invalid)
+            run.Cells.Add(new CellResult(column, ResultStatus.invalid, message) { RowIndex = rowIndex });
     }
 
     /// <summary>
@@ -126,16 +145,27 @@ public static class TableRunner
 
         for (var r = 0; r < rows.Count; r++)
         {
+            Dictionary<string, string>? invalid = null;
             try
             {
                 results.Add(RecordBuilding.Build(type, rows[r]));
+            }
+            catch (BadCellException e) when (columnOf(table, e) is { } column)
+            {
+                // The cell, not the row (bobcat#544): the specification wrote something the member's
+                // type cannot hold, so that column is `invalid` and names the type and the text.
+                invalid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [column] = e.Reason
+                };
+                addInvalidCells(run, invalid, r);
             }
             catch (Exception e) when (DecisionTableComparer.IsRowFailure(e))
             {
                 run.Cells.Add(DecisionTableComparer.RowError(r, e));
             }
 
-            addInputCells(run, table, rows[r], r, null);
+            addInputCells(run, table, rows[r], r, null, invalid);
         }
 
         built = results.ToArray();
@@ -183,12 +213,20 @@ public static class TableRunner
         };
     }
 
+    /// <summary>The table's column a bad cell came from, when the exception names one.</summary>
+    private static string? columnOf(StepTable table, BadCellException e)
+        => e.Path is null
+            ? null
+            : table.Headers.FirstOrDefault(h => string.Equals(h.Trim(), e.Path, StringComparison.OrdinalIgnoreCase));
+
     private static void addInputCells(TableRun run, StepTable table,
-        IReadOnlyDictionary<string, string> row, int rowIndex, IReadOnlyDictionary<string, int>? outputColumns)
+        IReadOnlyDictionary<string, string> row, int rowIndex, IReadOnlyDictionary<string, int>? outputColumns,
+        IReadOnlyDictionary<string, string>? invalid)
     {
         foreach (var header in table.Headers)
         {
             if (outputColumns != null && outputColumns.ContainsKey(header)) continue;
+            if (invalid != null && invalid.ContainsKey(header)) continue;
 
             // The plain-value constructor: an input column was not judged, which is what the
             // report reads to decide it earns no Status. Its text travels as StepCell.Value
@@ -199,7 +237,7 @@ public static class TableRunner
     }
 
     private static object?[] bind(ParameterInfo[] parameters,
-        IReadOnlyDictionary<string, string> row, MethodInfo method)
+        IReadOnlyDictionary<string, string> row, MethodInfo method, Dictionary<string, string> invalid)
     {
         var arguments = new object?[parameters.Length];
 
@@ -217,7 +255,16 @@ public static class TableRunner
 
             if (row.TryGetValue(column, out var cell))
             {
-                arguments[i] = CellValues.Read(cell, type);
+                // Every unreadable cell of the row is reported, not only the first.
+                try
+                {
+                    arguments[i] = CellValues.Read(cell, type);
+                }
+                catch (BadCellException e)
+                {
+                    invalid[column] = e.Message;
+                }
+
                 continue;
             }
 

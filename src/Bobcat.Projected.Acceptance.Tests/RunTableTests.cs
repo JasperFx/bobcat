@@ -99,24 +99,36 @@ public class RunTableTests
         | Linus       | Free   |
         """;
 
+    /// <summary>
+    /// A cell its parameter's type cannot hold is a defect in the specification, decidable without
+    /// running anything, so it is an <c>invalid</c> cell in its own column naming the type and the
+    /// text (bobcat#544) -- not a <c>row-error</c>, which says the code threw.
+    /// </summary>
     [Fact]
-    public async Task a_row_whose_cell_will_not_convert_is_that_rows_error_alone()
+    public async Task a_cell_that_will_not_convert_is_an_invalid_cell_and_the_other_rows_still_run()
     {
         var (recording, render) = await Projected.RunAsync("bad cell", () => _grammar.TheMembersAre(wizardRow));
         var step = recording.Step("the members are");
 
-        var rowError = step.Cells.Single(c => c.Name == DecisionTableComparer.RowErrorCell);
-        rowError.RowIndex.ShouldBe(1);
-        rowError.DisplayText.ShouldContain("Free, Pro, Enterprise");
+        step.Cells.ShouldNotContain(c => c.Name == DecisionTableComparer.RowErrorCell);
 
-        render.Step("the members are").SetVerification.ShouldNotBeNull().Rows[1].RowType
-            .ShouldBe(SetVerificationRowType.Errored);
+        var invalid = step.Cells.Single(c => c.RowIndex == 1 && c.Name == "tier");
+        invalid.Status.ShouldBe(ResultStatus.invalid);
+        invalid.DisplayText.ShouldContain("'Wizard'");
+        invalid.DisplayText.ShouldContain("Tier");
+        invalid.DisplayText.ShouldContain("Free, Pro, Enterprise");
 
-        // The rows either side of it still ran.
+        // The row's other input is still shown as written.
+        step.Cells.Single(c => c.RowIndex == 1 && c.Name == "Member Name").DisplayText.ShouldBe("Grace");
+
+        render.Step("the members are").SetVerification.ShouldNotBeNull()
+            .Rows[1].Cells.Single(c => c.Column == "tier").Status.ShouldBe(ResultStatus.invalid);
+
+        // The bad row was not run; the rows either side of it were.
         _grammar.Flushed.ShouldBe("Ada:Pro|Linus:Free");
 
-        // ...and the step did not pass.
-        step.Status.ShouldNotBe(ResultStatus.success);
+        // A spec defect fails the step -- it is not an exception the code threw.
+        step.Status.ShouldBe(ResultStatus.failed);
         recording.GatheredFailures().ShouldNotBeNull().ShouldContain("the members are");
     }
 

@@ -55,7 +55,7 @@ internal static class SpecifiedValues
         }
         catch (BadCellException e)
         {
-            throw new BadCellException($"'{path}': {e.Message}");
+            throw new BadCellException($"'{path}': {e.Message}", e) { Path = path, Reason = e.Message };
         }
     }
 
