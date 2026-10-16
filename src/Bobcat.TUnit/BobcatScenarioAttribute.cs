@@ -46,6 +46,10 @@ namespace Bobcat.TUnit;
 public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver, ITestEndEventReceiver,
     ILastTestInTestSessionEventReceiver
 {
+    // Armed when the runner instantiates the attribute, which is during discovery and so before any
+    // fixture or host startup can throw (bobcat#539).
+    static BobcatScenarioAttribute() => SpecEnvironment.Arm();
+
     internal const string Mode = "tunit";
 
     EventReceiverStage ITestStartEventReceiver.Stage => EventReceiverStage.Early;
@@ -64,12 +68,20 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
     private static int _openScenarios;
     private static bool _sessionEnding;
 
+    /// <summary>
+    /// Marks a test whose scenario this attribute opened, so its end receiver counts it down. A test
+    /// halted because the environment was lost (bobcat#539) throws from <see cref="OnTestStart"/>
+    /// before it is counted, and must not be counted down either.
+    /// </summary>
+    private const string OpenedKey = "Bobcat.ScenarioOpened";
+
     public ValueTask OnTestStart(TestContext context)
     {
-        lock (_sessionGate) _openScenarios++;
-
         var details = context.Metadata.TestDetails;
         MarkerStepRun.BeginScenario(details.ClassType, details.MethodName, Mode);
+
+        lock (_sessionGate) _openScenarios++;
+        context.StateBag.GetOrAdd(OpenedKey, _ => true);
 
         // TUnit has no ITestOutputHelper — it hands out a TextWriter — which is exactly why
         // SpecOutput's seam is an Action<string> and core names neither runner's types (issue #409).
@@ -91,6 +103,8 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
 
         _output.Value?.Dispose();
         _output.Value = null;
+
+        if (!context.StateBag.TryRemove(OpenedKey, out _)) return default;
 
         bool close;
         lock (_sessionGate)

@@ -65,8 +65,7 @@ public static class MarkerStepRun
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
-        return ScenarioRecorder.Begin(
-            FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), _sink, info.RunId);
+        return begin(FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), info);
     }
 
     /// <summary>
@@ -83,8 +82,32 @@ public static class MarkerStepRun
     {
         var info = openRun(mode, declaringType?.Assembly);
 
-        return ScenarioRecorder.Begin(
-            FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), _sink, info.RunId);
+        return begin(FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), info);
+    }
+
+    /// <summary>
+    /// Open the scenario, unless the environment is already lost (bobcat#539): then it is published
+    /// as failed with the reason, closed, and the adapter's opening hook throws, which every runner
+    /// reports as the test failing without its body having run.
+    /// </summary>
+    /// <remarks>
+    /// Closed here rather than left for the adapter's after-test hook, because not every runner calls
+    /// that hook once its before-test hook has thrown. A closed recording is no longer
+    /// <see cref="ScenarioRecorder.Current"/>, so a hook that does run finds nothing to close twice.
+    /// </remarks>
+    private static ScenarioRecorder.Recording begin(string feature, string scenario, MonitorRunInfo info)
+    {
+        SpecEnvironment.Arm();
+
+        var recording = ScenarioRecorder.Begin(feature, scenario, _sink, info.RunId);
+        if (SpecEnvironment.Lost is not { } loss) return recording;
+
+        var halted = new SpecEnvironmentLostException(loss);
+        recording.Failure = halted;
+        Interlocked.Increment(ref _failed);
+        recording.Dispose();
+
+        throw halted;
     }
 
     /// <summary>

@@ -8,6 +8,14 @@
 
 namespace Bobcat.MSTest.Generated
 {
+    internal static class BobcatEnvironmentWatch
+    {
+        // A module initializer runs before any code in the test assembly does, so the catastrophic-failure
+        // watch is armed before an [AssemblyInitialize] or [ClassInitialize] can throw (bobcat#539).
+        [global::System.Runtime.CompilerServices.ModuleInitializer]
+        internal static void Arm() => global::Bobcat.SpecEnvironment.Arm();
+    }
+
     [global::Microsoft.VisualStudio.TestTools.UnitTesting.TestClass]
     public static class BobcatMSTestHooks
     {

@@ -966,6 +966,34 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
 3. **Catastrophic** — `SpecCatastrophicException`: unrecoverable infrastructure (host won't start,
    database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it
 
+**A catastrophic failure halts the rest of the process (bobcat#539, G1 + G10).** `SpecEnvironment`
+(`MarkerSteps/SpecEnvironment.cs`) latches the first `SpecCatastrophicException` thrown anywhere in
+the process, and `MarkerStepRun.begin` turns every scenario opening afterwards into a published
+failure plus a thrown `SpecEnvironmentLostException` ("Environment lost in Feature/Scenario: …", or
+"Environment lost: …" from setup), which every adapter's opening hook surfaces as the test failing
+unrun. Decisions worth not re-deriving:
+- **The latch is `AppDomain.FirstChanceException`, not a verdict an adapter reads**, because the
+  canonical case (a Playwright app that won't start) fails in setup — a class fixture,
+  `IAsyncLifetime`, `[OneTimeSetUp]`, `[ClassInitialize]`, `[Before(Class)]` — where the bracket
+  never runs (xUnit v3 fails a class fixture's tests without invoking `BeforeAfterTestAttribute`).
+  The throw is the one place every route passes through. Consequence: a thrown-and-caught one counts.
+- **Armed before any setup can run**: each adapter's attribute has a static constructor (the runner
+  instantiates attributes during discovery), `BobcatSessionLifetime` arms at session start, the
+  MSTest hook source carries a `[ModuleInitializer]`, and `begin` arms again. No library module
+  initializer in core: a process that never touches an adapter (the supervisor, `bobcat ui`) is
+  never armed.
+- **The halted scenario is closed inside `begin`**, before the throw, because not every runner calls
+  its after-hook once the before-hook threw. TUnit marks the tests it counted (`StateBag`), so a
+  halted test cannot skew the deferred session close.
+- `SpecEnvironmentLostException` derives from `SpecCatastrophicException` (never retried) and carries
+  **no inner exception**, so hundreds of halted tests don't print the startup stack hundreds of times.
+- Proven per adapter against a real host, one case per child process (the halt is process-wide):
+  `Bobcat.Xunit.Tests`/`Bobcat.NUnit.Tests`/`Bobcat.MSTest.Tests` `EnvironmentLossTests`, and
+  `Bobcat.Supervisor.Tests/TUnitHaltTests` over `Bobcat.TUnit.Tests/Halt`. Probe ordering: xUnit
+  needs a collection-level `[TestClassOrderer]` (a case orderer did not take effect), MSTest
+  `[DoNotParallelize]`, TUnit `[DependsOn(…, ProceedOnFailure = true)]`. User docs:
+  `docs/marker-steps.md#environment-lost`.
+
 ### Resilience (`src/Bobcat/Resilience/`)
 The retry policy layer — `FailureLevel` promoted to a decision the supervisor acts on.
 Framework-neutral by design, so the same engine drives xUnit, TUnit, NUnit and MSTest workers

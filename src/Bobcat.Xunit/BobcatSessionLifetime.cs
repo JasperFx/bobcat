@@ -55,6 +55,8 @@ public sealed class BobcatSessionLifetime : ITestSessionLifetimeHandler
 
     public Task OnTestSessionStartingAsync(ITestSessionContext testSessionContext)
     {
+        // Before any assembly or collection fixture is created (bobcat#539).
+        SpecEnvironment.Arm();
         MarkerStepRun.OpenRun(XunitScenarioBracket.Mode);
         return Task.CompletedTask;
     }
