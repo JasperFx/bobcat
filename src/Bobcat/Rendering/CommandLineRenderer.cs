@@ -424,25 +424,25 @@ public class CommandLineRenderer
         // Storyteller's own StoryTellerAssert existed to replace.
 
 
-        // A grid has already shown every one of them, in the rows they belong to. Listing them again
-        // underneath reads as a second, flatter report of the same comparison.
-        if (step.SetVerification == null)
+        // A grid has already shown every cell that belongs to a row. Listing those again underneath
+        // reads as a second, flatter report of the same comparison — but a step-level cell
+        // (RowIndex < 0) is in no row, so the grid never showed it (bobcat#617).
+        foreach (var cell in step.Cells)
         {
-            foreach (var cell in step.Cells)
-            {
-                // Already in the sentence, where its value was.
-                if (inlineCells.Contains(cell.Name)) continue;
+            if (step.SetVerification != null && SetVerificationRender.BelongsToARow(cell.RowIndex, cell.Name)) continue;
 
-                var cellIcon = cell.Status switch
-                {
-                    ResultStatus.success => "[green]✓[/]",
-                    ResultStatus.failed => "[red]✗[/]",
-                    ResultStatus.error => "[yellow]![/]",
-                    _ => " "
-                };
-                output.MarkupLine(
-                    $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
-            }
+            // Already in the sentence, where its value was.
+            if (inlineCells.Contains(cell.Name)) continue;
+
+            var cellIcon = cell.Status switch
+            {
+                ResultStatus.success => "[green]✓[/]",
+                ResultStatus.failed => "[red]✗[/]",
+                ResultStatus.error => "[yellow]![/]",
+                _ => " "
+            };
+            output.MarkupLine(
+                $"{indent}    {cellIcon} {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
         }
 
         // Failure evidence (issue #571): one line each, the path a reader opens.
@@ -532,8 +532,7 @@ public class CommandLineRenderer
             var written = step.StepText.Substring(span.Start, span.Length);
 
             if (span.Name is { Length: > 0 } name
-                && verdicts.TryGetValue(name, out var cell)
-                && step.SetVerification == null)
+                && verdicts.TryGetValue(name, out var cell))
             {
                 inline.Add(cell.Name);
 
