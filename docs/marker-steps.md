@@ -553,6 +553,53 @@ A plain `dotnet test` then fails fast with one cause. This works in xUnit, TUnit
   either exception ([a `SpecCatastrophicException` stops a supervised
   run](parallel-ready-suites.md#a-speccatastrophicexception-stops-a-supervised-run)).
 
+## Failure evidence: attachments and screenshots (issue #571) {#attachments}
+
+A red step often needs more than its message: the page it was looking at, the response body, a log.
+`SpecAttachment` puts bytes on the **step in progress**, or on the scenario when called between steps:
+
+```csharp
+SpecAttachment.Add("response.json", bytes, "application/json");
+SpecAttachment.AddText("console.log", consoleOutput);
+SpecAttachment.AddFile(screenshotPath);          // read now; media type from the extension
+```
+
+For evidence nobody should have to ask for in every spec, register an `IFailureCapture` **once** --
+a Playwright base class's static constructor, an assembly fixture, a module initializer. It is called
+for every step that goes `failed` or `error` (the innermost one, not each parent the failure bubbles
+through) and returns attachments that hang on that step:
+
+```csharp
+public sealed class ScreenshotOnFailure : IFailureCapture
+{
+    public async Task<IReadOnlyList<CapturedAttachment>> CaptureAsync(FailedStep step, CancellationToken cancellation)
+    {
+        if (BrowserSpec.CurrentPage is not { } page) return [];   // the test's own AsyncLocal flows in
+        return [new CapturedAttachment("screenshot.png", await page.ScreenshotAsync(), "image/png")];
+    }
+}
+
+SpecAttachment.RegisterFailureCapture(new ScreenshotOnFailure());
+```
+
+- **It can never fail a test.** A capture that throws, or runs past `SpecAttachment.CaptureTimeout`
+  (10 s), is logged to the test's output -- `Bobcat: failure capture X threw on '…' and was skipped` --
+  and stepped over; the step keeps its own verdict.
+- **There are no general `BeforeStep`/`AfterStep` hooks**, deliberately: this seam can only produce
+  evidence, never behaviour hidden around steps.
+- **Latched like reports.** A passing scenario keeps nothing unless the run is verbose
+  (`--verbose`, `BOBCAT_VERBOSE_REPORTS=1`).
+- **Where they go.** With a results directory (`BOBCAT_RESULTS`, `bobcat run --results`) each is a
+  file at `attachments/{runId}/{feature}_{scenario}/{nn}-{name}` beside the results file, whose step
+  names it by that relative `path`. Without one, the test platform's own attachments: xUnit v3's
+  `TestContext.AddAttachment`, a TUnit artifact, NUnit's `AddTestAttachment`, MSTest's
+  `AddResultFile` -- so TRX and the IDE show them, numbered `01-…` so two of one name never collide.
+- **On the wire, a reference only**: `ScenarioFinished.Attachments` carries name, media type, size,
+  the absolute path (when written to a results directory) and the step id. Never the bytes.
+- **Capped.** Over `SpecAttachment.MaxBytes` (10 MB) an attachment is kept as a reference marked
+  `omitted: … is over the … cap`, never truncated; past `SpecAttachment.MaxPerScenario` (20) the rest
+  are counted and render as "…and N more attachments not kept".
+
 ## Tables and sets from a C# test
 
 A C# test has no trailing `|...|` block, so a table arrives as **pipe-delimited text** that

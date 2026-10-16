@@ -48,6 +48,9 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction
 
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
+    /// <summary>The attachment sink (issue #571), held and closed the same way.</summary>
+    private static readonly AsyncLocal<IDisposable?> _attachments = new();
+
     public ActionTargets Targets => ActionTargets.Test;
 
     public void BeforeTest(ITest test)
@@ -64,6 +67,10 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction
         // this test's output.
         var writer = TestContext.Out;
         _output.Value = SpecOutput.Open(writer.WriteLine);
+
+        // NUnit attaches files, so attachments are written to a temp file first (issue #571). Only
+        // when the run writes no results directory.
+        _attachments.Value = SpecAttachment.OpenPlatformFileSink(path => TestContext.AddTestAttachment(path));
     }
 
     /// <remarks>
@@ -82,6 +89,8 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction
 
         _output.Value?.Dispose();
         _output.Value = null;
+        _attachments.Value?.Dispose();
+        _attachments.Value = null;
 
         if (gathered is not null) throw gathered;
     }

@@ -152,9 +152,9 @@ public static class PropertyCells
     /// <see cref="CellCheck"/> exist to prevent.
     /// </para>
     /// <para>
-    /// <b>Titling applies per segment</b>, through <see cref="ColumnNames.Of(PropertyInfo)"/>, so a
-    /// property renamed by <c>[Header]</c> stays addressable by its header at every depth rather
-    /// than only at the top.
+    /// <b>Titling applies per segment</b>, through <see cref="ColumnNames"/>, so a property or a
+    /// public field renamed by <c>[Header]</c> stays addressable by its header at every depth rather
+    /// than only at the top. Fields are read as well as properties (bobcat#548).
     /// </para>
     /// <para>
     /// <b>Collection indexers are deliberately unsupported.</b> <c>Items[0].Sku</c> is a question a
@@ -185,21 +185,24 @@ public static class PropertyCells
         for (var i = 0; i < segments.Length; i++)
         {
             var owner = current!.GetType();
-            var properties = owner
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .ToDictionary(ColumnNames.Of, p => p, StringComparer.OrdinalIgnoreCase);
+            var members = membersOf(owner);
 
-            if (!properties.TryGetValue(segments[i], out var property))
+            if (!members.TryGetValue(segments[i], out var member))
             {
                 // Named at the depth that failed, not at the top: "no 'City' on Address" is the
                 // reader's next move, where the subject's own property list would be the least
                 // useful half of the sentence.
                 return new PathResult(PathResultKind.NoSuchProperty, null,
                     $"no '{segments[i]}' on {owner.Name} — it has "
-                    + string.Join(", ", properties.Keys.OrderBy(k => k)));
+                    + string.Join(", ", members.Keys.OrderBy(k => k)));
             }
 
-            current = property.GetValue(current);
+            current = member switch
+            {
+                PropertyInfo property => property.GetValue(current),
+                FieldInfo field => field.GetValue(current),
+                _ => null
+            };
 
             var isLast = i == segments.Length - 1;
             if (current is null && !isLast)
@@ -210,6 +213,28 @@ public static class PropertyCells
         }
 
         return new PathResult(PathResultKind.Found, current, null);
+    }
+
+    /// <summary>
+    /// The public instance properties and fields of <paramref name="type"/> by column name (bobcat#548).
+    /// Fields count because partial objects already address them, and a column that names a member a
+    /// <c>Specify&lt;T&gt;()</c> can set but a property check cannot read would be two vocabularies for
+    /// one type. A property wins a name a field also claims.
+    /// </summary>
+    private static Dictionary<string, MemberInfo> membersOf(Type type)
+    {
+        var members = new Dictionary<string, MemberInfo>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            members.TryAdd(ColumnNames.Of(property), property);
+        }
+
+        foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+        {
+            members.TryAdd(ColumnNames.Of(field), field);
+        }
+
+        return members;
     }
 
     /// <summary>

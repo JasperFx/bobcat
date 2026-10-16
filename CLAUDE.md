@@ -573,7 +573,9 @@ matches by key columns so one wrong value becomes a missing row beside an extra 
 subject is known and the columns *are* the claim.
 
 **A column may be a dotted path into a nested object (issue #411).** `Customer.Address.City` resolves
-left to right over public instance properties, with `[Header]` titling applied **per segment** so a
+left to right over public instance properties **and fields** (bobcat#548 — partial objects already
+addressed fields, so a property check now reads what a `Specify<T>()` can name; a property wins a name
+a field also claims), with `[Header]` titling applied **per segment** so a
 renamed property stays addressable at every depth. Put in the shared lookup rather than in any one
 grammar because several callers share it — `PropertyCells.Verify` and the Wolverine side's event and
 HTTP-response assertions (wolverine#4835/#4836) among them — and solving it in one would leave the
@@ -737,7 +739,7 @@ attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is cover
 
 | Call shape | Type checked | Rule (`TableColumns.ColumnRule`) |
 |---|---|---|
-| `(object subject, StepTable expected)` — `PropertyCells.Verify`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
+| `(object subject, StepTable expected)` — `PropertyCells.Verify`, any such pair | subject's static type | `Property`: properties and fields by `[Header]` title (which REPLACES the name), dotted |
 | `(IEnumerable actual, StepTable expected)` — `SetVerificationComparer.Verify`, any such pair | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
 | `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
 | `Specified<T>.With("path", value)` | `T` | `Partial` |
@@ -925,6 +927,21 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
   **On the wire they ride `ScenarioFinished.Logs` (`StepLogInfo`, keyed by step id, null id = between
   steps), not `StepFinished.Logs`**, because the verdict that latches them is only known at the close;
   `bobcat ui` folds them onto its steps. App `ILogger` capture is G9(b), post-1.0.
+- **Failure evidence: `SpecAttachment` and `IFailureCapture` (bobcat#571, `MarkerSteps/SpecAttachment.cs`).**
+  `SpecAttachment.Add/AddText/AddFile` hangs bytes on the step in progress (`RecordedStep.Attachments`) or
+  the scenario; `RegisterFailureCapture` is called from `EndStep` for the **innermost** failed/error step
+  only, on `Task.Run` (no sync context to deadlock; the test's AsyncLocals flow) bounded by
+  `CaptureTimeout`, and a throw or overrun is logged to `SpecOutput`/stderr and stepped over. No general
+  step hooks, by decision (`design/bdd-tools-comparison.md` C2). **Latched in `Recording.Dispose` before
+  anything reads the recording** (`ScenarioReportVisibility.Verbose` or a failure keeps them, else they are
+  cleared), then `AttachmentFiles.Write` puts them in ONE place: `attachments/{runId}/{uid}/{nn}-{name}`
+  under `ResultsFile.Active` when there is a results directory, else the adapter's platform sink
+  (`OpenPlatformSink` bytes for xUnit's `AddAttachment`; `OpenPlatformFileSink` temp files for TUnit
+  `AttachArtifact`, NUnit `AddTestAttachment`, MSTest `AddResultFile`), numbered because xUnit refuses a
+  duplicate name. Then the bytes are released. Over `MaxBytes` is a reference marked `Omitted`, never a
+  truncation; past `MaxPerScenario` is counted (`SuppressedAttachments`, "…and N more"). The wire
+  (`ScenarioFinished.Attachments`, `ScenarioAttachmentInfo`) and the results file carry references only.
+  The HTML page (#541) is to render them inline under their step from the results file's `path`.
 - **`StepKind`** / **`FailureLevel`** — drive failure classification.
 - **In-flight progress:** `ScenarioRecorder` posts `step_progress`, and `TotalSteps` / `StepNumber` /
   `ScenarioElapsedMs` ride the step events; a long table's progress is its cells-so-far update

@@ -112,9 +112,25 @@ public static class JsonRenderer
 
             // SpecLog lines written between steps (bobcat#547), latched like reports.
             Logs = spec.Logs.Count > 0 ? spec.Logs : null,
-            SuppressedLogs = spec.SuppressedLogs > 0 ? spec.SuppressedLogs : null
+            SuppressedLogs = spec.SuppressedLogs > 0 ? spec.SuppressedLogs : null,
+
+            // Failure evidence (issue #571): references, never bytes. Latched like reports.
+            Attachments = attachmentsToJson(spec.Attachments),
+            SuppressedAttachments = spec.SuppressedAttachments > 0 ? spec.SuppressedAttachments : null
         };
     }
+
+    private static List<JsonAttachmentOutput>? attachmentsToJson(List<AttachmentRender> attachments)
+        => attachments.Count > 0
+            ? attachments.Select(a => new JsonAttachmentOutput
+            {
+                Name = a.Name,
+                MediaType = a.MediaType,
+                Size = a.Size,
+                Path = a.Path,
+                Omitted = a.Omitted
+            }).ToList()
+            : null;
 
     private static JsonReportOutput reportToJson(ReportRender report)
     {
@@ -150,7 +166,8 @@ public static class JsonRenderer
             Cells = step.Cells.Count > 0
                 ? step.Cells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
                 : null,
-            SetVerification = step.SetVerification != null ? svToJson(step.SetVerification) : null
+            SetVerification = step.SetVerification != null ? svToJson(step.SetVerification) : null,
+            Attachments = attachmentsToJson(step.Attachments)
         };
     }
 
@@ -329,6 +346,27 @@ internal class JsonScenarioOutput
 
     /// <summary>Scenario log lines past the cap that were not kept. Null when none were dropped.</summary>
     public int? SuppressedLogs { get; set; }
+
+    [System.ComponentModel.Description("Attachments on the scenario rather than a step. Kept for a failed scenario, or any scenario in a verbose run.")]
+    public List<JsonAttachmentOutput>? Attachments { get; set; }
+
+    [System.ComponentModel.Description("Attachments past the per-scenario cap, counted rather than kept. Absent when none were dropped.")]
+    public int? SuppressedAttachments { get; set; }
+}
+
+internal class JsonAttachmentOutput
+{
+    public string Name { get; set; } = "";
+    public string MediaType { get; set; } = "";
+
+    [System.ComponentModel.Description("Size in bytes.")]
+    public long Size { get; set; }
+
+    [System.ComponentModel.Description("The file, relative to the results directory. Absent when the attachment was not written there.")]
+    public string? Path { get; set; }
+
+    [System.ComponentModel.Description("Why the bytes were not kept, such as being over the size cap.")]
+    public string? Omitted { get; set; }
 }
 
 internal class JsonTimelinePointOutput
@@ -376,6 +414,9 @@ internal class JsonStepOutput
     public List<JsonCellOutput>? Cells { get; set; }
 
     public JsonSetVerificationOutput? SetVerification { get; set; }
+
+    [System.ComponentModel.Description("What the step attached, and what a failure capture returned when it failed.")]
+    public List<JsonAttachmentOutput>? Attachments { get; set; }
 }
 
 internal class JsonReportOutput

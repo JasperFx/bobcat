@@ -20,4 +20,7 @@ internal static class ColumnNames
 
     public static string Of(PropertyInfo property)
         => property.GetCustomAttribute<HeaderAttribute>()?.Name ?? property.Name;
+
+    public static string Of(FieldInfo field)
+        => field.GetCustomAttribute<HeaderAttribute>()?.Name ?? field.Name;
 }

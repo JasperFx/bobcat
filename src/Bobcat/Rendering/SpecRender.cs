@@ -73,6 +73,15 @@ public class SpecRender
     public List<ReportRender> Reports { get; init; } = new();
 
     /// <summary>
+    /// Attachments that hang on the scenario rather than a step (issue #571). A step's own are on
+    /// <see cref="StepRender.Attachments"/>. Already latched on the verdict.
+    /// </summary>
+    public List<AttachmentRender> Attachments { get; init; } = new();
+
+    /// <summary>Attachments past the per-scenario cap: rendered as "…and N more", never left silent.</summary>
+    public int SuppressedAttachments { get; init; }
+
+    /// <summary>
     /// The rendering model, built from a <b>projected</b> test — an ordinary xUnit or TUnit test
     /// whose steps were declared by marker comments and recorded by <c>[BobcatStep]</c> helpers
     /// (issue #110).
@@ -132,6 +141,8 @@ public class SpecRender
                 .Select(ReportRender.From)
                 .ToList(),
             Steps = steps,
+            Attachments = recording.Attachments.Where(x => x.StepId is null).Select(AttachmentRender.From).ToList(),
+            SuppressedAttachments = recording.SuppressedAttachments,
             Counts = counts,
             Logs = showLogs ? recording.Log.Lines.ToList() : [],
             SuppressedLogs = showLogs ? recording.Log.Suppressed : 0,
@@ -380,6 +391,10 @@ public class StepRender
     public string? ExceptionType { get; init; }
     public SetVerificationRender? SetVerification { get; init; }
     public List<CellRender> Cells { get; init; } = new();
+
+    /// <summary>What this step attached, and what a failure capture returned for it (issue #571).</summary>
+    public List<AttachmentRender> Attachments { get; init; } = new();
+
     public List<string> Logs { get; init; } = new();
 
     /// <summary>Log lines past <see cref="StepLog.MaxLines"/> that were not kept (bobcat#547).</summary>
@@ -441,6 +456,8 @@ public class StepRender
             // that already says everything — handing either to an exception formatter dresses a clean
             // failure up as a crash.
             Exception = rendered?.ShowStackTrace == true ? step.Failure : null,
+
+            Attachments = step.Attachments.Select(AttachmentRender.From).ToList(),
 
             // The step's own cells, plus any the failure's renderer recovered from its message.
             Cells = step.Cells.Select(CellRender.From)
@@ -593,6 +610,41 @@ public class ReportRender
             SuppressedRows = report.SuppressedRows,
             Grid = SetVerificationRender.FromCells(report.Columns, report.Cells)
         };
+}
+
+/// <summary>One attachment as every renderer reads it (issue #571).</summary>
+public class AttachmentRender
+{
+    public string Name { get; init; } = "";
+    public string MediaType { get; init; } = "";
+    public long Size { get; init; }
+
+    /// <summary>Relative to the results directory, <c>/</c>-separated; null when not written there.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>The absolute path of the written file, or null.</summary>
+    public string? FullPath { get; init; }
+
+    /// <summary>Why the bytes were not kept, or null.</summary>
+    public string? Omitted { get; init; }
+
+    public static AttachmentRender From(RecordedAttachment attachment)
+        => new()
+        {
+            Name = attachment.Name,
+            MediaType = attachment.MediaType,
+            Size = attachment.Size,
+            Path = attachment.RelativePath,
+            FullPath = attachment.FullPath,
+            Omitted = attachment.Omitted
+        };
+
+    /// <summary>One line: <c>📎 name (image/png, 12 KB) → path</c>.</summary>
+    public override string ToString()
+    {
+        var where = Omitted ?? FullPath;
+        return $"📎 {Name} ({MediaType}, {SpecAttachment.Describe(Size)})" + (where is null ? "" : $" → {where}");
+    }
 }
 
 /// <summary>

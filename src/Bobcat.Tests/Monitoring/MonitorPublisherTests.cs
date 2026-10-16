@@ -46,6 +46,33 @@ public class MonitorPublisherTests : IDisposable
     }
 
     [Fact]
+    public async Task a_console_slower_than_the_default_probe_is_given_up_on_unless_one_is_expected()
+    {
+        // bobcat#589: the console saw the ping, the child's 250ms probe had already given up, and a
+        // resident runner's commanded run published nothing at all.
+        using var host = new FakeMonitorHost { PingDelay = TimeSpan.FromSeconds(1) };
+
+        (await MonitorPublisher.TryConnect(host.Url)).ShouldBeNull();
+        host.Pings.ShouldBe(1);
+
+        // What a resident runner sets on every child it launches.
+        Environment.SetEnvironmentVariable(MonitorPublisher.KillSwitchVariable, "1");
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("0", false)]
+    [InlineData("1", true)]
+    [InlineData("on", true)]
+    [InlineData("TRUE", true)]
+    public void only_an_explicit_opt_in_waits_longer_for_the_console(string? value, bool expected)
+        => MonitorPublisher.ProbeTimeoutFor(value).ShouldBe(
+            expected ? MonitorPublisher.ExpectedProbeTimeout : MonitorPublisher.DefaultProbeTimeout);
+
+    [Fact]
     public async Task posted_events_arrive_in_batch_envelopes_with_snake_case_discriminators_and_camel_case_fields()
     {
         using var host = new FakeMonitorHost();

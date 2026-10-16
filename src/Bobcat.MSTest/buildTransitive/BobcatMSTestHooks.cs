@@ -26,7 +26,8 @@ namespace Bobcat.MSTest.Generated
                 context.FullyQualifiedTestClassName,
                 context.TestName,
                 context.TestData,
-                line => context.WriteLine(line));
+                line => context.WriteLine(line),
+                path => context.AddResultFile(path));
 
         [global::Microsoft.VisualStudio.TestTools.UnitTesting.GlobalTestCleanup]
         public static void CloseBobcatScenario(global::Microsoft.VisualStudio.TestTools.UnitTesting.TestContext context)

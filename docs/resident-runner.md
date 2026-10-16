@@ -175,7 +175,10 @@ commanded run silently, so they are cleared for the child:
 | `BOBCAT_RESIDENT` | would have the child register itself instead of running |
 
 And two are forced on: `BOBCAT_MONITOR=1`, because a resident runner exists to serve a console and
-`BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole box; and `BOBCAT_MONITOR_URL` from
+`BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole box (an explicit `1` also tells
+the child's probe a console is expected, so it waits up to 5s rather than 250ms for the answer --
+bobcat#589, where a slow first request on a loaded CI machine left a commanded run publishing
+nothing); and `BOBCAT_MONITOR_URL` from
 the runner's own `--url`, because a runner pointed at a second console would otherwise take that
 console's commands and publish the runs to the default one.
 

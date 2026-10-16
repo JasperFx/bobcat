@@ -382,6 +382,42 @@
                       "$ref": "#/properties/scenarios/items/properties/reports/items/properties/grid/properties/rows"
                     }
                   }
+                },
+                "attachments": {
+                  "description": "What the step attached, and what a failure capture returned when it failed.",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "mediaType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "description": "Size in bytes.",
+                        "type": "integer"
+                      },
+                      "path": {
+                        "description": "The file, relative to the results directory. Absent when the attachment was not written there.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "omitted": {
+                        "description": "Why the bytes were not kept, such as being over the size cap.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -411,6 +447,23 @@
             }
           },
           "suppressedLogs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "attachments": {
+            "description": "Attachments on the scenario rather than a step. Kept for a failed scenario, or any scenario in a verbose run.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/properties/scenarios/items/properties/steps/items/properties/attachments/items"
+            }
+          },
+          "suppressedAttachments": {
+            "description": "Attachments past the per-scenario cap, counted rather than kept. Absent when none were dropped.",
             "type": [
               "integer",
               "null"
