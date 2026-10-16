@@ -42,20 +42,39 @@ public class AcceptanceLifecycleEndToEndTests
     [Fact]
     public async Task bobcat_shows_the_failure_in_full_under_its_own_verdict()
     {
-        var (_, output) = await SpecIdentityHarness.Run(
-            host, new Dictionary<string, string> { ["BOBCAT_SPEC_CONSOLE"] = "1" },
-            "--filter-class", acceptanceClass);
+        // The end-of-run report is written at process exit. Read through the file the bobcat tool
+        // uses rather than the child's stdout: on the Linux CI runner the exit-time write to a
+        // redirected stdout never reached the parent, so only MTP's echo of the SKIPPED tests' own
+        // output arrived and the passing spec's heading was missing. The file is also laid out at a
+        // fixed width, so nothing depends on where a console would have wrapped.
+        var report = Path.Combine(Path.GetTempPath(), $"bobcat-acceptance-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await SpecIdentityHarness.Run(
+                host,
+                new Dictionary<string, string>
+                {
+                    ["BOBCAT_SPEC_CONSOLE"] = "1",
+                    [ProjectedSpecConsole.OutputFileEnvironmentVariable] = report,
+                    [ProjectedSpecConsole.WidthEnvironmentVariable] = "240"
+                },
+                "--filter-class", acceptanceClass);
 
-        // Spectre wraps the report at whatever width it detects for a redirected stream, and that
-        // differs between machines (CI split the passing spec's heading where a laptop did not), so
-        // the text is compared with every run of whitespace, line breaks included, read as one space.
-        var text = System.Text.RegularExpressions.Regex.Replace(output, @"\s+", " ");
+            File.Exists(report).ShouldBeTrue("the child wrote no spec report");
 
-        text.ShouldContain("ACCEPTANCE: FAILING");
-        text.ShouldContain("This line is always false");
-        text.ShouldContain("OK (acceptance");
-        text.ShouldContain(SpecLifecycle.ReadyToPromote);
-        text.ShouldNotContain(" FAILED", Case.Sensitive);
+            // The file is written with colour for the tool to replay; the claims are about the words.
+            var text = System.Text.RegularExpressions.Regex.Replace(
+                File.ReadAllText(report), @"\x1b\[[0-9;]*m", "");
+
+            text.ShouldContain("ACCEPTANCE: FAILING");
+            text.ShouldContain("This line is always false");
+            text.ShouldContain("OK (acceptance — " + SpecLifecycle.ReadyToPromote + ")");
+            text.ShouldNotContain(" FAILED", Case.Sensitive);
+        }
+        finally
+        {
+            File.Delete(report);
+        }
     }
 
     [Fact]
