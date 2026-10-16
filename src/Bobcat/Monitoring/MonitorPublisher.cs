@@ -26,6 +26,13 @@ public interface IMonitorEventSink
 /// <item>Repeated send failures mid-run mark the monitor gone and the pump stops; nothing is
 /// retried, nothing surfaces to the run.</item>
 /// </list>
+/// <para>
+/// <b>One publisher is one target.</b> A run may publish to several (bobcat#530) and does so
+/// through <see cref="MonitorTargets"/>, which holds one of these per URL — so the client, the
+/// channel, the backpressure policy and the give-up counter above are all per target, and a target
+/// that is unreachable, slow, wedged or hostile costs the others nothing. The invariant holds per
+/// target because the thing it is a property of is per target.
+/// </para>
 /// </summary>
 public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
 {
@@ -54,9 +61,57 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
         _pump = Task.Run(pump);
     }
 
-    /// <summary>The target URL: <c>BOBCAT_MONITOR_URL</c> when set, else the default port.</summary>
-    public static string ResolveUrl()
-        => Environment.GetEnvironmentVariable(UrlVariable) is { Length: > 0 } url ? url : DefaultUrl;
+    /// <summary>
+    /// The target URLs: <c>BOBCAT_MONITOR_URL</c> read as a <b>list</b> when set, else the one
+    /// default port. Never empty.
+    /// </summary>
+    /// <remarks>
+    /// A run publishes to every one of them (bobcat#530). Two consumers now want the same events
+    /// and only one of them can hold 5525: the run console keeps that port and Stoat listens on its
+    /// own, so it can show a gate's live progress while a long suite runs. Forwarding from one to
+    /// the other was the alternative and was decided against — it would make Stoat's live view
+    /// depend on the run console running.
+    /// </remarks>
+    public static IReadOnlyList<string> ResolveUrls()
+        => ParseUrls(Environment.GetEnvironmentVariable(UrlVariable));
+
+    /// <summary>
+    /// The <b>first</b> target URL, for the one caller that needs a single origin rather than a
+    /// fan-out: <see cref="Bobcat.Residency.ResidentRunner"/>, which takes its commands from
+    /// exactly one console. Publishing is the other direction and goes to every target.
+    /// </summary>
+    public static string ResolveUrl() => ResolveUrls()[0];
+
+    /// <summary>
+    /// Read a <c>BOBCAT_MONITOR_URL</c> value as a list: comma- or semicolon-separated, trimmed,
+    /// empties dropped, duplicates dropped — a doubled target would double every event — and
+    /// <see cref="DefaultUrl"/> when nothing is left. Never empty.
+    /// </summary>
+    /// <remarks>
+    /// Duplicates are compared on the <c>Uri</c> each entry resolves to, so
+    /// <c>http://localhost:5525</c> and <c>http://localhost:5525/</c> are one target. An entry that
+    /// is not a URL at all is kept and compared as written: <see cref="TryConnect"/> is where it
+    /// fails, and it fails there the way an unreachable console does — silently, costing the run
+    /// nothing. Refusing the whole list over one bad entry would cost the good ones their events.
+    /// </remarks>
+    public static IReadOnlyList<string> ParseUrls(string? value)
+    {
+        if (value is null || value.Length == 0) return [DefaultUrl];
+
+        var urls = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var part in value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var url = part.Trim();
+            if (url.Length == 0) continue;
+
+            var key = Uri.TryCreate(url, UriKind.Absolute, out var parsed) ? parsed.ToString() : url;
+            if (seen.Add(key)) urls.Add(url);
+        }
+
+        return urls.Count == 0 ? [DefaultUrl] : urls;
+    }
 
     /// <summary>Hard opt-out: <c>BOBCAT_MONITOR=0</c> (or off/false) suppresses even the probe.</summary>
     public static bool Disabled

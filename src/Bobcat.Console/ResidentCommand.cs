@@ -1,3 +1,4 @@
+using Bobcat.Monitoring;
 using Bobcat.Residency;
 using Bobcat.Supervisor;
 using JasperFx.CommandLine;
@@ -9,7 +10,7 @@ public class ResidentInput
     [Description("The spec project's test host executable — the thing you would run to run the suite")]
     public string HostPath { get; set; } = string.Empty;
 
-    [Description("Base URL of the monitor to register with; defaults to the one every publisher probes")]
+    [Description("Base URL of the monitor to register with; several, comma-separated, publish a commanded run to each. Defaults to BOBCAT_MONITOR_URL, then to the port every publisher probes")]
     [FlagAlias("url", 'u')]
     public string? UrlFlag { get; set; }
 
@@ -74,8 +75,9 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
             suite = await WarmProjectedResidentSuite.For(
                 input.HostPath,
 
-                // The same origin the runner registers with, so a commanded run lands on the
-                // console that asked for it rather than on whatever the child would resolve.
+                // The same origins the runner was pointed at, whole, so a commanded run lands on
+                // the console that asked for it rather than on whatever the child would resolve —
+                // and on every other console the list names (bobcat#530).
                 monitorUrl: input.UrlFlag,
                 log: System.Console.WriteLine);
         }
@@ -101,7 +103,11 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
 
         var options = new ResidentRunnerOptions
         {
-            Url = input.UrlFlag,
+            // Commands come from ONE console, while the run they ask for may be published to
+            // several (bobcat#530) — so the whole list went to the suite above, and the first
+            // entry is where this runner registers and reads its command stream. Null leaves the
+            // runner to resolve BOBCAT_MONITOR_URL's first target for itself.
+            Url = input.UrlFlag is { Length: > 0 } flag ? MonitorPublisher.ParseUrls(flag)[0] : null,
             Log = System.Console.WriteLine
         };
 

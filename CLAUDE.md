@@ -1708,9 +1708,41 @@ sweep:
   `RetentionDays`, `RetentionRuns`, `IdleMinutes`) belonged to the console and went with it, along
   with their `BOBCAT_MONITOR_*` spellings — nothing here reads one today. The prefix stays reserved
   rather than reused.
-- **Port 5525**, the address a publisher probes (`MonitorPublisher.DefaultUrl`). Deliberately kept
-  rather than collapsed into Stoat's coordination port, because every publisher already probes it;
-  Stoat's single host binds both.
+- **Port 5525**, the *default* address a publisher probes (`MonitorPublisher.DefaultUrl`).
+  Deliberately kept rather than collapsed into Stoat's coordination port, because every publisher
+  already probes it.
+
+**`BOBCAT_MONITOR_URL` is a LIST, and a run publishes to every target (bobcat#530).** Comma- or
+semicolon-separated; `MonitorPublisher.ParseUrls` trims, drops empties and drops duplicates (keyed
+on the `Uri` each entry resolves to, so a trailing slash is not a second target — a doubled target
+would double every event). Two consumers now want the same events and only one can hold 5525:
+`bobcat ui` (#524's command) keeps it and Stoat listens on its own, so it can show a gate's live progress
+(`run_progress`, the lane events, `test_stalled`, `worker_faulted`, step progress) while a long
+suite runs. **Forwarding from `bobcat ui` to Stoat was the alternative and was decided against** —
+it would make Stoat's live view depend on `bobcat ui` running.
+
+- **`MonitorTargets` is the fan-out, and the isolation is structural rather than promised.** It
+  holds one `MonitorPublisher` per URL, and a publisher already owns its client, its bounded
+  channel, its drop-on-backpressure policy and its give-up counter — so *"a run is never slowed or
+  failed by the monitor"* holds **per target** with nothing added: an unreachable Stoat cannot cost
+  `bobcat ui` one event, and the reverse. That is why the list is a composite over the existing
+  publisher rather than N targets inside it; the thing the invariant is a property of is one target.
+- **Probes run concurrently**, so N absent consoles cost one probe timeout rather than N. Nobody
+  answering is the same "no publisher at all" as before (null, and the run proceeds), and
+  `BOBCAT_MONITOR=0` still suppresses every probe.
+- **The Event Model `PUT` goes to every target, each asked its own model-name question** — `GET
+  /api/event-model` merges only the sources naming the name *that* console serves, so the decision
+  is per console: one serving another model gets the half withheld with a notice **naming it**,
+  while the others still receive it. `SpecEventModelPublisher.PublishAll(MonitorTargets, …)`
+  publishes to the targets **concurrently** so the whole exchange stays inside one `Ceiling`, and
+  each target's notices are collected and replayed on the calling thread — `notify` stays a
+  single-threaded callback.
+- **Taking commands stays singular.** `MonitorPublisher.ResolveUrl()` (first entry) survives for
+  the one caller that needs one origin: `ResidentRunner`'s command stream. `bobcat resident --url`
+  accepts the list, registers with the first entry, and passes the whole string down as
+  `BOBCAT_MONITOR_URL` — commands come from somewhere in particular, a run may be watched from
+  anywhere. Supervisor workers inherit the variable unchanged, so their per-scenario streams fan
+  out exactly as the bracket does.
 
 **The `bobcat` tool is `src/Bobcat.Console/`**: `run` (the default — a bare `bobcat` runs the spec
 project found from the current directory), `preview`, `pick` and `watch` over a spec project,
@@ -2035,7 +2067,8 @@ below).
     exists to serve a console, and `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole
     box — and `MonitorUrl` travels down as `BOBCAT_MONITOR_URL`, because a runner pointed at a
     second console with `--url` would otherwise take that console's commands and publish the runs
-    to the default one.
+    to the default one. It travels **whole**, list and all (bobcat#530), while the runner registers
+    with the first entry only.
 - **Warm is `WarmProjectedResidentSuite`, in `Bobcat.Supervisor` (issue #402 item 4).** It wraps
   `OutOfProcessResidentSuite` — **cold is delegated unchanged**, so a cold command is byte-for-byte
   what it always was — and holds an `MtpWorkerClient` open for warm, so a warm command is one
@@ -2161,7 +2194,9 @@ Two rules this creates, both load-bearing:
 
 - **Nothing here may reference Stoat, and Stoat references nothing here.** Not one-way — *zero*.
   The two sides meet only on the wire: a run POSTs `/api/ingest` and PUTs `/api/event-model` at
-  whatever `BOBCAT_MONITOR_URL` names, on the same terms Stoat observes GitHub and nuget.org. An
+  whatever `BOBCAT_MONITOR_URL` names — every origin it names, since bobcat#530, which is how
+  Stoat and `bobcat ui` watch one run without either knowing about the other — on the same terms
+  Stoat observes GitHub and nuget.org. An
   MIT repo cannot depend on a BSL one, and keeping the dependency at zero makes that impossible to
   get wrong by accident.
 - **No license gating in this repo.** Bobcat is free, entirely. If a feature seems to want a

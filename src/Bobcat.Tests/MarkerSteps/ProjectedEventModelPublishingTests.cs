@@ -9,7 +9,7 @@ namespace Bobcat.Tests.MarkerSteps;
 /// <summary>
 /// Bobcat#488: the projected run bracket publishes the spec assembly's half of the Event Model, the
 /// job only the Gherkin runner used to do. These drive <see cref="MarkerStepRun"/> against a real
-/// <see cref="MonitorPublisher"/> over real HTTP to <see cref="FakeMonitorHost"/>; the half itself is
+/// <see cref="MonitorTargets"/> over real HTTP to <see cref="FakeMonitorHost"/>; the half itself is
 /// handed in through <see cref="MarkerStepRun.FindEventModelHalves"/>, because this assembly declares
 /// no slices. The real generated half, in a real projected host, is
 /// <c>Bobcat.Supervisor.Tests.ProjectedEventModelPublishingEndToEndTests</c>.
@@ -17,7 +17,7 @@ namespace Bobcat.Tests.MarkerSteps;
 /// <remarks>
 /// In the <c>marker-step-run</c> collection because the bracket is process-wide state. That
 /// collection runs alone, which is also what makes clearing <c>BOBCAT_MONITOR</c> here safe:
-/// CI sets it to 0, and <see cref="MonitorPublisher.TryConnect"/> would refuse to build a publisher.
+/// CI sets it to 0, and <see cref="MonitorTargets.TryConnect"/> would refuse to build a publisher.
 /// </remarks>
 [Collection("marker-step-run")]
 public class ProjectedEventModelPublishingTests : IDisposable
@@ -74,7 +74,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task a_run_publishes_the_half_once_however_many_scenarios_it_opens()
     {
         using var host = new FakeMonitorHost();
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         attach(publisher);
 
@@ -98,7 +98,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task a_bracket_opened_by_its_first_scenario_publishes_once_and_looks_in_that_scenarios_assembly()
     {
         using var host = new FakeMonitorHost();
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         attach(publisher);
 
@@ -119,7 +119,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task each_run_request_in_a_warm_process_publishes_again_under_the_same_source()
     {
         using var host = new FakeMonitorHost();
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         attach(publisher);
 
@@ -171,7 +171,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task a_half_naming_a_different_model_is_withheld_and_the_run_is_told_why()
     {
         using var host = new FakeMonitorHost { CurrentEventModelName = "BankAccountES" };
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         attach(publisher, model: "BankAccountES.Tests");
 
@@ -190,7 +190,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task a_half_that_will_not_load_does_not_disturb_the_run()
     {
         using var host = new FakeMonitorHost();
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         MarkerStepRun.Reset(publisher);
         MarkerStepRun.FindEventModelHalves = _ => throw new InvalidOperationException("no model here");
@@ -209,7 +209,7 @@ public class ProjectedEventModelPublishingTests : IDisposable
     public async Task an_assembly_with_no_slices_sends_nothing()
     {
         using var host = new FakeMonitorHost();
-        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        await using var publisher = await MonitorTargets.TryConnect([host.Url]);
         publisher.ShouldNotBeNull();
         MarkerStepRun.Reset(publisher);
 

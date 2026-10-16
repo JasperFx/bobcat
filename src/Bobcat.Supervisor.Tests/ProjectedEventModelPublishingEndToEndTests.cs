@@ -187,4 +187,46 @@ public class ProjectedEventModelPublishingEndToEndTests
 
         host.EventModelPushes.Select(p => p.Source).ShouldBe([source, source]);
     }
+
+    /// <summary>
+    /// Bobcat#530, end to end: <c>BOBCAT_MONITOR_URL</c> naming two consoles sends a real run's
+    /// events AND its Event Model half to both. That is what lets <c>bobcat ui</c> keep port 5525
+    /// while Stoat watches the same run from its own port, with neither depending on the other.
+    /// </summary>
+    [Fact]
+    public async Task a_run_publishes_to_every_console_the_url_list_names()
+    {
+        using var first = new FakeMonitorHost();
+        using var second = new FakeMonitorHost();
+
+        var environment = new Dictionary<string, string>
+        {
+            ["BOBCAT_MONITOR_URL"] = $"{first.Url},{second.Url}",
+            ["BOBCAT_MONITOR"] = "1"
+        };
+
+        // Attachment is observed rather than assumed, for runAttached's reason — the 250ms probe
+        // ceiling is per target, and a cold process on a busy box can lose it.
+        const int attempts = 3;
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            await runOnce(environment);
+            if (first.Batches.Count > 0 && second.Batches.Count > 0) break;
+
+            if (attempt == attempts)
+            {
+                throw new ShouldAssertException(
+                    $"The host did not attach to both consoles ({first.Url}, {second.Url}) in {attempts} runs.");
+            }
+        }
+
+        foreach (var host in new[] { first, second })
+        {
+            string.Join("\n", host.Batches).ShouldContain("\"type\":\"run_started\"");
+
+            var push = host.EventModelPushes.ShouldHaveSingleItem();
+            push.Source.ShouldBe(source);
+            push.Body.ShouldContain("\"identity\":\"Wallet/a credit raises the balance\"");
+        }
+    }
 }

@@ -274,21 +274,23 @@ public static class MarkerStepRun
     /// the first scenario, so it publishes once per process, which for those runners is the run.
     /// </para>
     /// <para>
-    /// The same bounds as the event pump: nothing runs without a live <see cref="MonitorPublisher"/>
+    /// The same bounds as the event pump: nothing runs without a live <see cref="MonitorTargets"/>
     /// (so <c>BOBCAT_MONITOR=0</c> or no console means no request at all), the exchange is held to
-    /// <see cref="SpecEventModelPublisher.Ceiling"/>, and nothing here can fail a run.
+    /// <see cref="SpecEventModelPublisher.Ceiling"/>, and nothing here can fail a run. It goes to
+    /// <b>every</b> target the run is attached to (bobcat#530), each asked its own model-name
+    /// question.
     /// </para>
     /// </remarks>
     private static void publishEventModel(Assembly? scenarioAssembly)
     {
-        if (_sink is not MonitorPublisher publisher) return;
+        if (_sink is not MonitorTargets targets) return;
 
         try
         {
             var halves = FindEventModelHalves(scenarioAssembly);
             if (halves.Count == 0) return;
 
-            SpecEventModelPublisher.PublishAll(publisher, halves, EventModelNotice).GetAwaiter().GetResult();
+            SpecEventModelPublisher.PublishAll(targets, halves, EventModelNotice).GetAwaiter().GetResult();
         }
         catch
         {
@@ -381,9 +383,9 @@ public static class MarkerStepRun
 
         ProjectedSpecConsole.EnableIfRequested();
 
-        // Never let a missing or slow console matter to a test run: TryConnect probes once
-        // with a tight timeout and hands back null when nothing answers.
-        _sink = MonitorPublisher.TryConnect().GetAwaiter().GetResult();
+        // Never let a missing or slow console matter to a test run: TryConnect probes each target
+        // once, concurrently, with a tight timeout, and hands back null when nothing answers.
+        _sink = MonitorTargets.TryConnect().GetAwaiter().GetResult();
 
         // Now that we know whether anything answered, the local report can take its default:
         // on in a terminal with nothing listening, which is exactly the run that would otherwise
