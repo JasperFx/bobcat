@@ -25,6 +25,32 @@ public class SpecInput
     [Description("Use the last build as it is")]
     public bool NoBuildFlag { get; set; }
 
+    [Description("Write the run's JSON results file (and its schema) into this directory -- BOBCAT_RESULTS for the host")]
+    public string? ResultsFlag { get; set; }
+
+    [Description("Print the run's JSON results file on standard output instead of the rendered specifications; everything else goes to standard error")]
+    public bool JsonFlag { get; set; }
+
+    [Description("Write every scenario's reports, passing ones too, on every surface -- BOBCAT_VERBOSE_REPORTS for the host")]
+    public bool VerboseFlag { get; set; }
+
+    internal RunOptions RunOptions => new(
+        ResultsFlag is { Length: > 0 } results ? Path.GetFullPath(results) : null, JsonFlag, VerboseFlag);
+
+    /// <summary>
+    /// With <c>--json</c>, standard output is the results file and nothing else, so an agent can
+    /// pipe it straight into a parser: every other line the tool writes goes to standard error.
+    /// </summary>
+    internal void RouteConsole()
+    {
+        if (!JsonFlag) return;
+
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(System.Console.Error)
+        });
+    }
+
     internal Task<SpecProject> ProjectAsync()
         => SpecProject.ResolveAsync(Project.Length == 0 ? null : Project, FrameworkFlag, ConfigurationFlag);
 }
@@ -44,13 +70,15 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecInput>
 
     public override async Task<bool> Execute(SpecInput input)
     {
+        input.RouteConsole();
+
         var project = await input.ProjectAsync();
         if (!await project.BuildAsync(input.NoBuildFlag)) return false;
 
         var filter = await SpecSelectionFlow.FilterAsync(project, input);
         if (filter is null) return false;
 
-        return await SpecHost.RunAsync(project, filter) == 0;
+        return await SpecHost.RunAsync(project, filter, input.RunOptions) == 0;
     }
 }
 
@@ -85,13 +113,15 @@ public class SpecPickCommand : JasperFxAsyncCommand<SpecInput>
 
     public override async Task<bool> Execute(SpecInput input)
     {
+        input.RouteConsole();
+
         var project = await input.ProjectAsync();
         if (!await project.BuildAsync(input.NoBuildFlag)) return false;
 
         var filter = await SpecSelectionFlow.PickAsync(project);
         if (filter is null) return false;
 
-        return await SpecHost.RunAsync(project, filter) == 0;
+        return await SpecHost.RunAsync(project, filter, input.RunOptions) == 0;
     }
 }
 
@@ -132,7 +162,7 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
         {
             // A failed rebuild leaves the previous host on disk; running it would report on code
             // that no longer exists, so the loop waits for the next change instead.
-            if (!buildFailed) await SpecHost.RunAsync(project, filter);
+            if (!buildFailed) await SpecHost.RunAsync(project, filter, input.RunOptions with { Json = false });
             buildFailed = false;
 
             AnsiConsole.MarkupLine(interactive

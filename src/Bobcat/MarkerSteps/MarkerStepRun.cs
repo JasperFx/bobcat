@@ -217,6 +217,9 @@ public static class MarkerStepRun
             var info = MonitorRunInfo.Discover(mode);
             _info = info;
 
+            // The results file (issue #540) is per bracket too, so a warm process writes one per request.
+            Rendering.ResultsFile.BeginRun(info);
+
             if (_sink is not null && !info.HasExternalOwner)
             {
                 // TotalScenarios is null on purpose. The runner owns discovery here and has not
@@ -361,6 +364,9 @@ public static class MarkerStepRun
 
             stopHeartbeat();
 
+            // Every scenario of this bracket has closed, so the file is complete. Never throws.
+            Rendering.ResultsFile.EndRun();
+
             _started = false;
             _info = null;
             _passed = 0;
@@ -451,6 +457,7 @@ public static class MarkerStepRun
             _failed = 0;
             FindEventModelHalves = specHalves;
             EventModelNotice = writeNotice;
+            Rendering.ResultsFile.Reset();
 
             // The sink is whatever the caller just installed, so the probe must not run and
             // overwrite it. _exitHooked is deliberately NOT reset: the handler is idempotent and
