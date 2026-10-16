@@ -205,7 +205,7 @@
       moment a project references them it lands on this JasperFx and no other. Fisher coverage in
       Bobcat.CritterStack.Tests (a temp SQLite file, no docker) and the BankAccountES-on-Fisher
       acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
-      documented manual path (CLAUDE.md, "Bobcat.CritterStack is store-agnostic").
+      documented manual path (docs/agents/critter-stack.md, "The Critter Stack helpers are store-agnostic").
     -->
     <PackageVersion Include="JasperFx.Events" Version="2.87.0" />
     <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
