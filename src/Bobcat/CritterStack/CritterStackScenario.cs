@@ -613,13 +613,17 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
     public async Task GivenReadModel<T>(object document) where T : class
     {
-        var text = asTenant($"the {typeof(T).Name} read model is {describe([document]).Text}");
+        var (described, inline) = describe([document]);
+        var text = asTenant($"the {nameOf(typeof(T))} read model is {described}");
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
+            // bobcat#618: a read model too long for the line keeps its values, as a table under the step
+            if (!inline) recordValues("read model", [document]);
+
             var built = Build(document, text);
             if (built is not T)
                 throw new SpecCriticalException(
-                    $"'{text}': a {PartialMatching.ExpectedType(document).Name} cannot be stored as the {typeof(T).Name} read model.");
+                    $"'{text}': a {nameOf(PartialMatching.ExpectedType(document))} cannot be stored as the {nameOf(typeof(T))} read model.");
 
             recordTouched(typeof(T));
             await DocumentStores.StoreAllAsync(await storeForAsync(text, typeof(T)), typeof(T), [built], _tenant);
@@ -634,7 +638,7 @@ public class CritterStackScenario
     {
         // A stream with no aggregate type (GH-4892) reads as "the stream", or "stream 2" for a second
         var label = aggregate?.Name ?? "stream";
-        if (id is string key) return $"{(aggregate is null ? "stream" : aggregate.Name)} \"{key}\"";
+        if (id is string key) return $"{(aggregate is null ? "stream" : nameOf(aggregate))} \"{key}\"";
 
         ScenarioValues.Learn(id, label);
         var name = ScenarioValues.Format(id);
@@ -702,7 +706,7 @@ public class CritterStackScenario
         var run = new TableRun([noun, ObjectSetVerification.ValuesColumn]);
         for (var i = 0; i < values.Count; i++)
         {
-            run.Cells.Add(new CellResult(noun, ResultStatus.ok, PartialMatching.ExpectedType(values[i]).Name) { RowIndex = i });
+            run.Cells.Add(new CellResult(noun, ResultStatus.ok, nameOf(PartialMatching.ExpectedType(values[i]))) { RowIndex = i });
             run.Cells.Add(new CellResult(ObjectSetVerification.ValuesColumn, ResultStatus.ok,
                 PartialMatching.DescribeExpected(values[i])) { RowIndex = i });
         }
@@ -1060,7 +1064,7 @@ public class CritterStackScenario
 
     private Task thenEventsOn(Type aggregate, object id, long afterVersion, object[] expected)
     {
-        var text = asTenant($"{describeEmitted(expected)} on the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}");
+        var text = asTenant($"{describeEmitted(expected)} on the {nameOf(aggregate)} stream {ScenarioValues.Format(id)} after version {afterVersion}");
         return inStep(ScenarioRecorder.Step("Then", text),
             () => verifyGained(aggregate, id, afterVersion, expected));
     }
@@ -1070,18 +1074,18 @@ public class CritterStackScenario
     {
         ArgumentNullException.ThrowIfNull(act);
         recordTouched(aggregate);
-        ScenarioValues.Learn(id, aggregate.Name);
+        ScenarioValues.Learn(id, nameOf(aggregate));
         // bobcat#503: the stream the act is addressed to is the specification's, whoever arranged it
         claimStream(id);
 
         var paragraph = new Paragraph("Given");
         var version = await streamVersion(aggregate, id);
-        using (paragraph.Sentence($"the {aggregate.Name} stream {ScenarioValues.Format(id)} is at version {version}"))
+        using (paragraph.Sentence($"the {nameOf(aggregate)} stream {ScenarioValues.Format(id)} is at version {version}"))
         {
         }
 
         await inStep(
-            paragraph.Sentence("When", description ?? $"the {aggregate.Name} stream {ScenarioValues.Format(id)} is acted on"),
+            paragraph.Sentence("When", description ?? $"the {nameOf(aggregate)} stream {ScenarioValues.Format(id)} is acted on"),
             () => recordActAsync(act));
 
         await inStep(paragraph.Sentence("Then", $"{describeEmitted(expected)} on it"),
@@ -1090,7 +1094,7 @@ public class CritterStackScenario
 
     private async Task verifyGained(Type aggregate, object id, long afterVersion, object[] expected)
     {
-        var where = $"the {aggregate.Name} stream {ScenarioValues.Format(id)} after version {afterVersion}";
+        var where = $"the {nameOf(aggregate)} stream {ScenarioValues.Format(id)} after version {afterVersion}";
         if (afterVersion < 0)
             throw new SpecCriticalException($"A stream version is never negative, so nothing can be checked on {where}.");
 
@@ -1107,7 +1111,7 @@ public class CritterStackScenario
         // A version past the end makes every check vacuous: nothing can follow it yet
         if (afterVersion > current)
             throw new SpecCriticalException(
-                $"The {aggregate.Name} stream {ScenarioValues.Format(id)} is at version {current}, so nothing can follow "
+                $"The {nameOf(aggregate)} stream {ScenarioValues.Format(id)} is at version {current}, so nothing can follow "
                 + $"version {afterVersion} — the version the spec names is ahead of the stream.");
 
         recordTouched(aggregate);
@@ -1360,8 +1364,8 @@ public class CritterStackScenario
     private void verifyEventsOn(Type aggregate, object id, object[] expected)
     {
         var text = expected.Length == 0
-            ? $"no events are emitted on the {aggregate.Name} stream {ScenarioValues.Format(id)}"
-            : $"{describeTypes(expected.Select(PartialMatching.ExpectedType).ToArray())} {(expected.Length == 1 ? "is" : "are")} emitted on the {aggregate.Name} stream {ScenarioValues.Format(id)}";
+            ? $"no events are emitted on the {nameOf(aggregate)} stream {ScenarioValues.Format(id)}"
+            : $"{describeTypes(expected.Select(PartialMatching.ExpectedType).ToArray())} {(expected.Length == 1 ? "is" : "are")} emitted on the {nameOf(aggregate)} stream {ScenarioValues.Format(id)}";
         using var step = ScenarioRecorder.Step("Then", text);
         if (!actSucceeded() || !tagsCanBeJudged(expected)) return;
 
@@ -1372,7 +1376,7 @@ public class CritterStackScenario
         if (expected.Length == 0)
         {
             fact(onStream.Length == 0,
-                $"Expected no events on the {aggregate.Name} stream {id}, but the act appended {ScenarioValues.DescribeAll(onStream)}");
+                $"Expected no events on the {nameOf(aggregate)} stream {id}, but the act appended {ScenarioValues.DescribeAll(onStream)}");
             return;
         }
 
@@ -1385,8 +1389,8 @@ public class CritterStackScenario
                 .Select(x => $"{(x.Key.Store is { } store ? $"{storeLabel(store)} " : "")}{x.Key.Stream}: {ScenarioValues.DescribeAll(x.Select(e => e.Data))}")
                 .ToList();
             fact(false, elsewhere.Count == 0
-                ? $"Expected events on the {aggregate.Name} stream {id}, but the act appended no events anywhere"
-                : $"Expected events on the {aggregate.Name} stream {id}, but the act appended none there. It appended to: {string.Join("; ", elsewhere)}");
+                ? $"Expected events on the {nameOf(aggregate)} stream {id}, but the act appended no events anywhere"
+                : $"Expected events on the {nameOf(aggregate)} stream {id}, but the act appended none there. It appended to: {string.Join("; ", elsewhere)}");
             return;
         }
 
@@ -1479,7 +1483,7 @@ public class CritterStackScenario
         var matching = LastAct.NewEvents.Select(x => x.Data).OfType<T>().ToArray();
         if (matching.Length == 1) return matching[0];
 
-        throw failureOf($"Expected exactly one {typeof(T).Name} but the act appended {matching.Length}{failureSuffix()}{storesSuffix()}{crossTalkSuffix()}");
+        throw failureOf($"Expected exactly one {nameOf(typeof(T))} but the act appended {matching.Length}{failureSuffix()}{storesSuffix()}{crossTalkSuffix()}");
     }
 
     /// <summary>Every event the act appended, for a test that wants to look for itself.</summary>
@@ -1507,14 +1511,14 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.Aggregate, nameof(aggregate))]
     public async Task ThenStreamIsStarted(Type aggregate, object id)
     {
-        await inStep(ScenarioRecorder.Step("Then", $"a {aggregate.Name} stream is started with id \"{id}\""), async () =>
+        await inStep(ScenarioRecorder.Step("Then", $"a {nameOf(aggregate)} stream is started with id \"{id}\""), async () =>
         {
             if (!actSucceeded()) return;
 
-            var events = await fetchAsync(await storeForAsync($"a {aggregate.Name} stream is started", aggregate),
+            var events = await fetchAsync(await storeForAsync($"a {nameOf(aggregate)} stream is started", aggregate),
                 StrongTypedIds.StreamIdentity(id));
             fact(events.Count > 0,
-                $"Expected a {aggregate.Name} stream with id {id}, but no stream exists there. The act appended its events somewhere else, or started no stream at all.");
+                $"Expected a {nameOf(aggregate)} stream with id {id}, but no stream exists there. The act appended its events somewhere else, or started no stream at all.");
         });
     }
 
@@ -1534,17 +1538,17 @@ public class CritterStackScenario
     private async Task streamIsStartedWithEvents(Type aggregate, object[] expected)
     {
         var paragraph = new Paragraph("Then");
-        var stream = await inStep<object?>(paragraph.Sentence($"a {aggregate.Name} stream is started"), async () =>
+        var stream = await inStep<object?>(paragraph.Sentence($"a {nameOf(aggregate)} stream is started"), async () =>
         {
             if (!actSucceeded()) return null;
 
             var started = startedStreamOrNull(aggregate);
             if (started is null) return null;
 
-            ScenarioValues.Learn(started, aggregate.Name);
+            ScenarioValues.Learn(started, nameOf(aggregate));
             var events = await fetchAsync(await startedStreamStoreAsync(aggregate, started), started);
             fact(events.Count > 0,
-                $"Expected a {aggregate.Name} stream with id {ScenarioValues.Format(started)}, but no stream exists there.");
+                $"Expected a {nameOf(aggregate)} stream with id {ScenarioValues.Format(started)}, but no stream exists there.");
             return started;
         });
         if (stream is null) return;
@@ -1561,7 +1565,7 @@ public class CritterStackScenario
     private Task<IEventStore> startedStreamStoreAsync(Type aggregate, object stream)
     {
         var known = LastAct.AllNewEvents.Where(x => isOn(x, stream)).Select(LastAct.StoreOf).FirstOrDefault(x => x is not null);
-        return known is not null && _pinned is null ? Task.FromResult(known) : storeForAsync($"a {aggregate.Name} stream is started", aggregate);
+        return known is not null && _pinned is null ? Task.FromResult(known) : storeForAsync($"a {nameOf(aggregate)} stream is started", aggregate);
     }
 
     // The one stream of this type the act started, or null with the reason recorded as the step's failure
@@ -1571,8 +1575,8 @@ public class CritterStackScenario
         if (started.Count == 1) return started[0].Key ?? (object)started[0].Id;
 
         fail((started.Count == 0
-            ? $"The act started no {aggregate.Name} stream{(LastAct.StartedStreams.Count == 0 ? "; it started no stream at all" : "")}."
-            : $"The act started {started.Count} {aggregate.Name} streams; name the one you mean with ThenStreamIsStartedWithEvents<{aggregate.Name}>(id, ...)."
+            ? $"The act started no {nameOf(aggregate)} stream{(LastAct.StartedStreams.Count == 0 ? "; it started no stream at all" : "")}."
+            : $"The act started {started.Count} {nameOf(aggregate)} streams; name the one you mean with ThenStreamIsStartedWithEvents<{nameOf(aggregate)}>(id, ...)."
               + startedByAnotherNote(started.Count)) + crossTalkSuffix());
         return null;
     }
@@ -1582,7 +1586,7 @@ public class CritterStackScenario
     public async Task<T?> TheAggregate<T>(Guid id) where T : class
     {
         recordTouched(typeof(T));
-        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), id, _tenant);
+        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {nameOf(typeof(T))} aggregate", typeof(T)), id, _tenant);
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
@@ -1590,7 +1594,7 @@ public class CritterStackScenario
     public async Task<T?> TheAggregate<T>(string key) where T : class
     {
         recordTouched(typeof(T));
-        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {typeof(T).Name} aggregate", typeof(T)), key, _tenant);
+        return await EventStores.AggregateStreamAsync<T>(await storeForAsync($"the {nameOf(typeof(T))} aggregate", typeof(T)), key, _tenant);
     }
 
     /// <inheritdoc cref="TheAggregate{T}(Guid)" />
@@ -1618,7 +1622,7 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
     public string TheStartedStreamKey<TAggregate>() where TAggregate : class
         => startedStream(typeof(TAggregate)).Key
-           ?? throw new SpecCriticalException($"The {typeof(TAggregate).Name} stream the act started is identified by a Guid, not a string key. Use TheStartedStream<{typeof(TAggregate).Name}>().");
+           ?? throw new SpecCriticalException($"The {nameOf(typeof(TAggregate))} stream the act started is identified by a Guid, not a string key. Use TheStartedStream<{nameOf(typeof(TAggregate))}>().");
 
     private StreamAction startedStream(Type aggregate)
     {
@@ -1629,10 +1633,10 @@ public class CritterStackScenario
         {
             1 => started[0],
             0 => throw new SpecCriticalException((LastAct.StartedStreams.Count == 0
-                ? $"The act started no {aggregate.Name} stream; it started no stream at all."
-                : $"The act started no {aggregate.Name} stream. It started: {string.Join(", ", LastAct.StartedStreams.Select(x => x.AggregateType?.Name ?? "(no aggregate type)"))}.")
+                ? $"The act started no {nameOf(aggregate)} stream; it started no stream at all."
+                : $"The act started no {nameOf(aggregate)} stream. It started: {string.Join(", ", LastAct.StartedStreams.Select(x => x.AggregateType?.Name ?? "(no aggregate type)"))}.")
                 + crossTalkSuffix()),
-            _ => throw new SpecCriticalException($"The act started {started.Count} {aggregate.Name} streams, so there is no one id to name."
+            _ => throw new SpecCriticalException($"The act started {started.Count} {nameOf(aggregate)} streams, so there is no one id to name."
                                                  + startedByAnotherNote(started.Count) + crossTalkSuffix())
         };
     }
@@ -1855,10 +1859,10 @@ public class CritterStackScenario
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         using var step = ScenarioRecorder.Step("Then",
-            count == 1 ? $"{typeof(T).Name} is sent" : $"at least {count} {typeof(T).Name} are sent");
+            count == 1 ? $"{nameOf(typeof(T))} is sent" : $"at least {count} {nameOf(typeof(T))} are sent");
         if (!_state.Acted)
         {
-            fail($"Expected {count} message(s) of type {typeof(T).Name} to be sent, but no act has run.");
+            fail($"Expected {count} message(s) of type {nameOf(typeof(T))} to be sent, but no act has run.");
             return;
         }
 
@@ -1866,7 +1870,7 @@ public class CritterStackScenario
 
         var sent = LastAct.MessagesSent.OfType<T>().Count();
         cell("sent", sent >= count, count == 1 ? "at least one" : $"at least {count}", sent);
-        fact(sent >= count, $"Expected at least {count} message(s) of type {typeof(T).Name} to be sent, but {sent} were.");
+        fact(sent >= count, $"Expected at least {count} message(s) of type {nameOf(typeof(T))} to be sent, but {sent} were.");
     }
 
     // ---- assert: read models -----------------------------------------------------------------
@@ -1916,7 +1920,7 @@ public class CritterStackScenario
                 string key => await EventStores.FetchLatestAsync<T>(store, key, _tenant),
                 _ => throw new ArgumentOutOfRangeException(nameof(id), "A stream is identified by a Guid or a string")
             } ?? throw failureOf(
-                $"No {typeof(T).Name} with id {id}: FetchLatest found no stream there. The act appended to another stream, or none.");
+                $"No {nameOf(typeof(T))} with id {id}: FetchLatest found no stream there. The act appended to another stream, or none.");
 
             recordTouched(typeof(T));
             if (expected is not null) judge(aggregate, expected);
@@ -1924,7 +1928,16 @@ public class CritterStackScenario
         });
     }
 
-    private static string existsText<T>(object id) => $"there is a {typeof(T).Name} {ScenarioValues.Format(id)}";
+    private static string existsText<T>(object id) => $"there is a {documentNamed<T>(id)}";
+
+    // A document by its id: "Product Product2", or -- when the id is named after the type itself, as an
+    // arranged document's is -- "Product with the Product id" rather than "Product Product" (bobcat#618)
+    private static string documentNamed<T>(object id)
+    {
+        var type = nameOf(typeof(T));
+        var name = ScenarioValues.Format(id);
+        return name == type ? $"{type} with the {type} id" : $"{type} {name}";
+    }
 
     /// <summary>
     /// GH-4921. The document of type <typeparamref name="T" /> with this identity, loaded with
@@ -1966,7 +1979,7 @@ public class CritterStackScenario
         {
             var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id, _tenant)
                            ?? throw failureOf(
-                               $"No {typeof(T).Name} document with id {id}. The projections caught up, so either nothing routed to this id or its identity rule differs.");
+                               $"No {nameOf(typeof(T))} document with id {id}. The projections caught up, so either nothing routed to this id or its identity rule differs.");
             recordTouched(typeof(T));
             if (expected is not null) judge(document, expected);
             return document;
@@ -1981,11 +1994,11 @@ public class CritterStackScenario
     {
         await projectionsCaughtUpBefore(typeof(T), id);
 
-        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {typeof(T).Name} {ScenarioValues.Format(id)}")), async () =>
+        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {documentNamed<T>(id)}")), async () =>
         {
             var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id, _tenant);
             fact(document is null,
-                $"Expected no {typeof(T).Name} document with id {id}, but there is one: {ScenarioValues.Describe(document)}");
+                $"Expected no {nameOf(typeof(T))} document with id {id}, but there is one: {ScenarioValues.Describe(document)}");
         });
     }
 
@@ -2005,8 +2018,8 @@ public class CritterStackScenario
         var kind = await EventStores.ProjectionKindAsync(await storeForAsync(singleText<T>(), typeof(T)), typeof(T));
         if (kind is not null && kind != SubscriptionType.SingleStreamProjection)
             throw new SpecCriticalException(
-                $"ThenSingleReadModel<{typeof(T).Name}>() reads a single-stream projection, but {typeof(T).Name} is a {kind}. " +
-                $"Name the document instead: ThenReadModel<{typeof(T).Name}>(id, ...).");
+                $"ThenSingleReadModel<{nameOf(typeof(T))}>() reads a single-stream projection, but {nameOf(typeof(T))} is a {kind}. " +
+                $"Name the document instead: ThenReadModel<{nameOf(typeof(T))}>(id, ...).");
 
         await daemonsCaughtUpBefore(typeof(T));
 
@@ -2015,7 +2028,7 @@ public class CritterStackScenario
             var stream = scenarioStream(typeof(T), nameof(ThenSingleReadModel));
             var model = await theLatest<T>(stream)
                         ?? throw failureOf(
-                            $"No {typeof(T).Name} for the stream {ScenarioValues.Format(stream)}: FetchLatest found nothing there.");
+                            $"No {nameOf(typeof(T))} for the stream {ScenarioValues.Format(stream)}: FetchLatest found nothing there.");
 
             recordTouched(typeof(T));
             if (expected is not null) judge(model, expected);
@@ -2023,7 +2036,7 @@ public class CritterStackScenario
         });
     }
 
-    private static string singleText<T>() => $"there is a {typeof(T).Name} for the scenario's stream";
+    private static string singleText<T>() => $"there is a {nameOf(typeof(T))} for the scenario's stream";
 
     /// <summary>
     /// The <typeparamref name="T" /> document stored under the id of the stream this scenario is about, loaded with
@@ -2040,7 +2053,7 @@ public class CritterStackScenario
             var stream = scenarioStream(typeof(T), nameof(ThenSingleDocument));
             var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(singleText<T>(), typeof(T)), stream, _tenant)
                            ?? throw failureOf(
-                               $"No {typeof(T).Name} document with id {ScenarioValues.Format(stream)}. The async daemons caught up, so nothing stored one there.");
+                               $"No {nameOf(typeof(T))} document with id {ScenarioValues.Format(stream)}. The async daemons caught up, so nothing stored one there.");
 
             recordTouched(typeof(T));
             if (expected is not null) judge(document, expected);
@@ -2122,17 +2135,17 @@ public class CritterStackScenario
     {
         await projectionsCaughtUpBefore(typeof(T), null);
 
-        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {typeof(T).Name}")), async () =>
+        await inStep(ScenarioRecorder.Step("Then", asTenant($"there is no {nameOf(typeof(T))}")), async () =>
         {
             var documents = await allDocuments<T>();
             fact(documents.Count == 0,
-                $"Expected no {typeof(T).Name} document, but there {(documents.Count == 1 ? "is one" : $"are {documents.Count}")}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}");
+                $"Expected no {nameOf(typeof(T))} document, but there {(documents.Count == 1 ? "is one" : $"are {documents.Count}")}: {ScenarioValues.DescribeAll(documents.Cast<object>().ToList())}");
         });
     }
 
     private async Task<IReadOnlyList<T>> allDocuments<T>() where T : class
     {
-        var store = await storeForAsync($"there is no {typeof(T).Name}", typeof(T));
+        var store = await storeForAsync($"there is no {nameOf(typeof(T))}", typeof(T));
         object session = _tenant is null
             ? DocumentStores.SessionFactoryFor(store).QuerySession()
             : await DocumentStores.TenantSessionAsync(store, _tenant);
@@ -2230,7 +2243,7 @@ public class CritterStackScenario
     public async Task<T?> TheDcbModel<T>(EventTagQuery query) where T : class
     {
         recordTouched(typeof(T));
-        var store = await storeForAsync($"{typeof(T).Name} is projected over {EventStores.Describe(query)}", typeof(T),
+        var store = await storeForAsync($"{nameOf(typeof(T))} is projected over {EventStores.Describe(query)}", typeof(T),
             query.Conditions.Where(x => x.EventType is not null).Select(x => (object)x.EventType!),
             query.Conditions.Select(x => x.TagType));
         return await EventStores.AggregateByTagsAsync<T>(store, query, _tenant);
@@ -2244,8 +2257,8 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.Aggregate, nameof(T))]
     public async Task ThenDcbModel<T>(EventTagQuery query, object expected) where T : class
     {
-        var text = $"the {typeof(T).Name} over {EventStores.Describe(query)} matches";
-        var model = await inStep(ScenarioRecorder.Step("Given", $"{typeof(T).Name} is projected over {EventStores.Describe(query)}"),
+        var text = $"the {nameOf(typeof(T))} over {EventStores.Describe(query)} matches";
+        var model = await inStep(ScenarioRecorder.Step("Given", $"{nameOf(typeof(T))} is projected over {EventStores.Describe(query)}"),
             () => TheDcbModel<T>(query));
 
         matches(text, model, expected);
@@ -2262,11 +2275,11 @@ public class CritterStackScenario
     /// <param name="expected">One header row naming the properties, one row of expected values: <c>"| Name | Address.City |\n| Ann | Austin |"</c>.</param>
     public void Verify(object subject, StepTable expected)
     {
-        using var step = ScenarioRecorder.Step("Then", $"the {subject.GetType().Name} has");
+        using var step = ScenarioRecorder.Step("Then", $"the {nameOf(subject.GetType())} has");
         var run = PropertyCells.Verify(subject, expected);
         if (!run.Succeeded && !recording)
         {
-            throw failureOf($"{subject.GetType().Name} did not match: {string.Join(", ", PropertyCells.Disagreeing(run))}");
+            throw failureOf($"{nameOf(subject.GetType())} did not match: {string.Join(", ", PropertyCells.Disagreeing(run))}");
         }
     }
 
@@ -2279,13 +2292,33 @@ public class CritterStackScenario
 
     private void matches(string? text, object? subject, object expected)
     {
+        // bobcat#618: a scalar is one value, not an object with a type to name -- "the value is 2",
+        // judged in one cell, rather than "the Int32 matches ✓ Int32: Int32 ✓ value: 2"
+        if (expected is not IPartialObject and not IExpectedValue && ScenarioValues.IsScalar(expected))
+        {
+            using var scalar = ScenarioRecorder.Step("Then", text ?? $"the value is {ScenarioValues.Format(expected)}");
+            if (!check("value", subject, expected))
+                fail($"Expected {ScenarioValues.Format(expected)} but was {ScenarioValues.Format(subject)}");
+            return;
+        }
+
         using var step = ScenarioRecorder.Step("Then", text ?? matchesText(expected));
         judge(subject, expected);
     }
 
-    // How a step that judges an object against expected reads
+    // How a step that judges an object against expected reads: a collection by its items when they fit
+    // on the line ("the collection matches [\"a\", \"b\"]"), anything else by its type
     private static string matchesText(object expected)
-        => $"the {(expected is IPartialObject partial ? partial.Type : unwrap(expected).GetType()).Name} matches";
+    {
+        var value = unwrap(expected);
+        if (expected is not IPartialObject && value is System.Collections.IEnumerable and not string)
+        {
+            var items = ScenarioValues.Describe(value);
+            return items.Length <= ScenarioValues.InlineLimit ? $"the collection matches {items}" : $"the {nameOf(value.GetType())} matches";
+        }
+
+        return $"the {nameOf(expected is IPartialObject partial ? partial.Type : value.GetType())} matches";
+    }
 
     // Judge subject against expected on the step in progress: a partial object on the members it names, else structurally
     private void judge(object? subject, object expected)
@@ -2294,20 +2327,20 @@ public class CritterStackScenario
         {
             if (subject is null)
             {
-                fail($"Expected a {partial.Type.Name} but there was nothing to verify");
+                fail($"Expected a {nameOf(partial.Type)} but there was nothing to verify");
                 return;
             }
 
             var run = PropertyCells.Verify(subject, partial);
             if (!run.Succeeded && !recording)
             {
-                throw failureOf($"{partial.Type.Name} did not match: {string.Join(", ", PropertyCells.Disagreeing(run))}");
+                throw failureOf($"{nameOf(partial.Type)} did not match: {string.Join(", ", PropertyCells.Disagreeing(run))}");
             }
 
             return;
         }
 
-        compareSequence(unwrap(expected).GetType().Name, subject is null ? Array.Empty<object>() : new[] { subject }, new[] { expected });
+        compareSequence(nameOf(unwrap(expected).GetType()), subject is null ? Array.Empty<object>() : new[] { subject }, new[] { expected });
     }
 
     // ---- the clock (ClockGrammars, as recorded steps) ------------------------------------------
@@ -2464,29 +2497,29 @@ public class CritterStackScenario
             var expectedValue = i < expected.Count ? unwrap(expected[i]) : null;
             var actualValue = i < actual.Count ? actual[i] : null;
 
-            check(noun, actualValue?.GetType().Name, expectedValue?.GetType().Name, i);
+            check(noun, actualValue is null ? null : nameOf(actualValue.GetType()), expectedValue is null ? null : nameOf(expectedValue.GetType()), i);
 
             if (expectedValue is null)
             {
-                problems.Add($"[{i}] an extra {actualValue!.GetType().Name}");
+                problems.Add($"[{i}] an extra {nameOf(actualValue!.GetType())}");
                 continue;
             }
 
             if (actualValue is null)
             {
-                problems.Add($"[{i}] {expectedValue.GetType().Name} is missing");
+                problems.Add($"[{i}] {nameOf(expectedValue.GetType())} is missing");
                 continue;
             }
 
             if (actualValue.GetType() != expectedValue.GetType())
             {
-                problems.Add($"[{i}] expected {expectedValue.GetType().Name} but was {actualValue.GetType().Name}");
+                problems.Add($"[{i}] expected {nameOf(expectedValue.GetType())} but was {nameOf(actualValue.GetType())}");
                 continue;
             }
 
             var leaves = ObjectComparison.Compare(actualValue, expectedValue,
                 (expected[i] as IExpectedValue)?.Rules ?? ComparisonRules.None);
-            if (!row(leaves, i)) problems.Add($"[{i}] {expectedValue.GetType().Name}: {describeLeaves(leaves)}");
+            if (!row(leaves, i)) problems.Add($"[{i}] {nameOf(expectedValue.GetType())}: {describeLeaves(leaves)}");
         }
 
         fact(problems.Count == 0, string.Join(Environment.NewLine, problems));
@@ -2548,7 +2581,10 @@ public class CritterStackScenario
 
     private static string names(Type[] types) => describeTypes(types);
 
+    /// <summary>A type as a step reads it: <c>List&lt;Account&gt;</c>, never <c>List`1</c> (bobcat#618).</summary>
+    protected static string nameOf(Type type) => ScenarioValues.TypeName(type);
+
     /// <summary>Type names as a step reads them: <c>A, B</c>, or <c>nothing</c>.</summary>
     protected static string describeTypes(IReadOnlyList<Type> types)
-        => types.Count == 0 ? "nothing" : string.Join(", ", types.Select(x => x.Name));
+        => types.Count == 0 ? "nothing" : string.Join(", ", types.Select(nameOf));
 }

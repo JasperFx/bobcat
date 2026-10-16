@@ -3,6 +3,7 @@ using Bobcat.Engine;
 using Bobcat.Monitoring;
 using Bobcat.Engine.Verification;
 using JasperFx.Events.Tags;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 
 namespace Bobcat.CritterStack.ScenarioTests;
@@ -126,8 +127,42 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         recording.Steps[0].Text.ShouldStartWith("the Customer read model is Customer(");
 
         // A document that is not there is a wrong, not a pass
-        var missing = await Recordings.RecordAsync(() => scenario.ThenNoReadModel<Customer>(id));
+        // A recording of its own starts with no names, so the id is named as the arranged document named it
+        var missing = await Recordings.RecordAsync(() =>
+        {
+            ScenarioValues.Learn(id, "Customer");
+            return scenario.ThenNoReadModel<Customer>(id);
+        });
         missing.GatheredFailures().ShouldNotBeNull().ShouldContain("Expected no Customer document");
+    }
+
+    [Fact]
+    public async Task a_read_model_too_long_for_the_line_keeps_its_values_and_reads_back_by_a_readable_id()
+    {
+        // bobcat#618: a class read model rendered "the Customer read model is Customer" with none of its values,
+        // and a document named after its own type read "there is no Customer Customer"
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        var customer = new Customer { Id = id, Name = new string('n', 80), City = "a city with a long enough name" };
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.GivenReadModel<Customer>(customer);
+            await scenario.ThenReadModel<Customer>(id);
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps[0].Text.ShouldBe("the Customer read model is Customer");
+        recording.Steps[0].Cells.Single(x => x.Name == "values").DisplayText.ShouldContain("City: \"a city with a long enough name\"");
+        recording.Steps.Select(x => x.Text).ShouldContain("there is a Customer with the Customer id");
+
+        // A recording of its own starts with no names, so the id is named as the arranged document named it
+        var missing = await Recordings.RecordAsync(() =>
+        {
+            ScenarioValues.Learn(id, "Customer");
+            return scenario.ThenNoReadModel<Customer>(id);
+        });
+        missing.Steps.Select(x => x.Text).ShouldContain("there is no Customer with the Customer id");
     }
 
     // ---- the store-only act ------------------------------------------------------------------
@@ -663,6 +698,32 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         recording.Steps.Select(x => x.Text).ShouldBe(["the Customer has", "the Customer matches", "the Customer matches"]);
 
         Should.Throw<SpecAssertionException>(() => scenario.ThenMatches(customer, Specifications.Specify<Customer>().With(x => x.City, "Boston")));
+    }
+
+    [Fact]
+    public async Task a_scalar_or_a_collection_is_matched_by_its_value_not_its_clr_type()
+    {
+        // bobcat#618: "the Int32 matches ✓ Int32: Int32 ✓ value: 2" and "the String[] matches"
+        var scenario = new CritterStackScenario(new ServiceCollection().BuildServiceProvider());
+        var names = new List<string> { "a", "b" };
+
+        var recording = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenMatches(names.Count, 2);
+            scenario.ThenMatches(names, new List<string> { "a", "b" });
+            return Task.CompletedTask;
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps.Select(x => x.Text).ShouldBe(["the value is 2", "the collection matches [\"a\", \"b\"]"]);
+        recording.Steps[0].Cells.Select(x => x.Name).ShouldBe(["value"]);
+
+        var wrong = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenMatches(names.Count, 3);
+            return Task.CompletedTask;
+        });
+        wrong.GatheredFailures().ShouldNotBeNull().ShouldContain("Expected 3 but was 2");
     }
 
     // ---- the clock ----------------------------------------------------------------------------
