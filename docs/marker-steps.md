@@ -94,18 +94,17 @@ internal Task PublishMultiThreaded(int threads) => …
 `StepAttribute`. `[BobcatStep]` is an older spelling of the same thing and still works; its
 `Keyword = "Given"` property is what `[Given]` says in one word.
 
-Each expression may be written in **either** of two syntaxes:
+An expression is a **named template** -- Storyteller's `[FormatAs]` syntax. Each `{placeholder}`
+names a **parameter** of the method and is filled from that argument at the call site: `"Adding {x}
+to {y} should equal {sum}"` over `double Adding(double x, double y, double sum)`.
 
-| | |
-|---|---|
-| a **Cucumber expression** | captures by *type* and position -- `"the left operand is {int}"`, plus `{string}`, `{word}`, the Event Modeling type words (`{aggregate}`, `{command}`, `{event}`, …), optional text and raw regex |
-| a **named template** | Storyteller's `[FormatAs]` syntax, capturing by *parameter name* -- `"Adding {x} to {y} should equal {sum}"` over `double Adding(double x, double y, double sum)` |
-
-Which one is in force is decided **per placeholder**, built-in word first: `{int}` stays a Cucumber
-capture even on a method with a parameter called `int`. A placeholder that is not a built-in type
-word and does name a parameter is the named form. The two mix freely in one expression -- `"the
-{aggregate} has {count} events"` is a natural thing to write, because each placeholder is resolved on
-its own. In the named form the parameter's own declared type decides how a value is read.
+**Placeholders bind by name only.** Cucumber type captures (`{int}`, `{string}`, `{word}`, optional
+text, raw regex) are not supported: they only ever worked by matching Gherkin text against the
+expression, and that lane is gone (#471). `[Then("the message ends {word} on attempt {int}")]` over
+`(string outcome, int attempt)` fills nothing -- it is a `BOBCAT027` warning and renders literally.
+Write `[Then("the message ends {outcome} on attempt {attempt}")]` instead. A name such as
+`{aggregate}` or `{event}` works when a parameter has that name (`Type aggregate`, `Type @event`);
+a `System.Type` argument renders as the type's name.
 
 **Keywordless is a real choice, not a default.** Storyteller sentences and Gauge steps read as prose,
 and "Multiply by 3 then add 4" is not a Given, a When or a Then:

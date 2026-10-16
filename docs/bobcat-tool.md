@@ -111,7 +111,18 @@ BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain
 - **It has a JSON Schema** — `bobcat-results-1.0.schema.json`, generated from the records the file
   is written from, shipped in the `Bobcat` package under `schemas/`, and written beside every
   results file. The file's `$schema` names it, so an archived artifact validates offline.
-  `schemaVersion` moves only for a breaking change; new optional fields keep it.
+  `bobcat results-schema` prints it (`--out <dir>` writes it). `schemaVersion` moves only for a
+  breaking change; new optional fields keep it.
+- **For Bobcat contributors: the schema is built, not committed** (bobcat#604). Parallel branches
+  that changed the file's records kept conflicting on a generated file whose diff nobody needed to
+  review, and that diff compared against the last merge rather than against what consumers have.
+  Now the Nuke `Pack` target generates it into the package, and `./build.sh CI` runs
+  `ResultsSchemaCompatibility`, which downloads the last released `Bobcat` package from nuget.org
+  and compares schemas. It fails on a removed property, a changed type (adding `null` counts) or a
+  newly required property, unless `ResultsFile.SchemaVersion` moved; a new optional property
+  passes. A release with no schema (everything up to 0.60.4, before #540) is no baseline, and the check passes saying so.
+  `./build.sh ResultsSchemaCompatibility --schema-baseline <file>` checks against a file of your
+  own.
 - A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
   the same rule as the console and the wire.
 - Writing it never fails a run: a directory that cannot be written is one line on standard error.

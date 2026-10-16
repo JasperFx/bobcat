@@ -2,3 +2,8 @@ node_modules
 dist
 coverage
 *.tsbuildinfo
+
+# Generated from the C# wire contracts (bobcat#604) by `./build.sh UiContracts`, or by the npm
+# pre-hooks (scripts/ui-contracts.mjs) after one `dotnet build`. Never committed.
+src/messages/monitor-events.ts
+src/messages/relayRoutes.ts

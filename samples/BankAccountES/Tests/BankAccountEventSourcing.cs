@@ -98,6 +98,7 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
         await ThenAggregate<Account>(accountId, Specify<Account>().With(x => x.Balance, 150m));
     }
 
+    // #region overdraft-http
     [BobcatSpec(typeof(WithdrawFunds), Domain = "Banking")]
     public async Task withdrawing_more_than_the_balance_leaves_the_account_untouched()
     {
@@ -112,6 +113,7 @@ public class BankAccountEventSourcing(BankAccountHost app) : BankAccountSpec(app
         ThenNoEvents();
         await ThenAggregate<Account>(accountId, Specify<Account>().With(x => x.Balance, 100m));
     }
+    // #endregion overdraft-http
 
     /// <summary>
     /// A query slice (bobcat#501): the read goes through the GET endpoint, so the spec lands on the slice Wolverine

@@ -26,21 +26,16 @@ public class ResultsFileTests : IDisposable
     }
 
     [Fact]
-    public void the_committed_schema_is_the_one_the_records_generate()
+    public void the_schema_written_beside_a_results_file_is_the_generated_one()
     {
-        var generated = ResultsFile.GenerateSchema();
+        // Not committed and not embedded (bobcat#604): the copy beside a file comes straight from
+        // the records, so it cannot drift from them.
+        ResultsFile.BeginRun(run(), _directory);
+        finish("Orders", "places an order", passed: true);
+        ResultsFile.EndRun().ShouldNotBeNull();
 
-        // BOBCAT_REGENERATE_SCHEMA=1 rewrites the committed copy, for a deliberate change of shape.
-        if (Environment.GetEnvironmentVariable("BOBCAT_REGENERATE_SCHEMA") == "1")
-        {
-            File.WriteAllText(committedSchemaPath(), generated);
-            return;
-        }
-
-        ResultsFile.SchemaText.ShouldBe(generated,
-            "src/Bobcat/Rendering/" + ResultsFile.SchemaFileName + " is out of date with the records. "
-            + "If the change of shape is deliberate, rerun this test with BOBCAT_REGENERATE_SCHEMA=1 and commit the result "
-            + "(a breaking change also moves ResultsFile.SchemaVersion).");
+        File.ReadAllText(Path.Combine(_directory, ResultsFile.SchemaFileName)).ShouldBe(ResultsFile.GenerateSchema());
+        ResultsFile.SchemaText.ShouldBe(ResultsFile.GenerateSchema());
     }
 
     [Fact]
@@ -279,14 +274,5 @@ public class ResultsFileTests : IDisposable
         }
 
         return node;
-    }
-
-    private static string committedSchemaPath()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "bobcat.slnx"))) directory = directory.Parent;
-
-        return Path.Combine(directory?.FullName ?? throw new InvalidOperationException("bobcat.slnx not found above the test output"),
-            "src", "Bobcat", "Rendering", ResultsFile.SchemaFileName);
     }
 }

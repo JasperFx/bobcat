@@ -194,10 +194,9 @@ nothing to configure, so an attribute would carry no information.
 `StepAttribute`, and every one of them is intercepted at the call site when a test calls the method.
 `[BobcatStep]` is the legacy spelling of the same thing.
 
-Each expression may be a **Cucumber expression** (`{int}`, `{string}`, the `{aggregate}`/`{event}` type
-words, raw regex) or a **Storyteller `[FormatAs]` template** naming parameters (`{sum}`). Decided per
-placeholder, built-in word first, so nothing that compiled before means anything different — and the
-two mix freely in one expression.
+Each expression is a **Storyteller `[FormatAs]` template**: every placeholder names a parameter
+(`{sum}`) and is filled from that argument. Cucumber type captures (`{int}`, `{string}`, `{word}`)
+are not supported — they went with Gherkin, and a placeholder naming no parameter is BOBCAT027.
 
 Facts are Storyteller's shape, unchanged: a `bool`-returning step whose answer is the verdict, with no
 `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real duration.

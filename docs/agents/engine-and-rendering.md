@@ -214,12 +214,10 @@
   else on stderr) / `--verbose` (`BOBCAT_VERBOSE_REPORTS`). `MarkerStepRun.openRun` calls
   `BeginRun`, `CloseRun` calls `EndRun`, so a warm process writes one per request. Named
   `<suite>-<runId>.json`, `-2`… on a clash (`FileMode.CreateNew`, supervised workers share a run
-  id); never fails a run. **The schema is generated, not written**: `ResultsFile.GenerateSchema()`
-  (`JsonSchemaExporter` over the internal `Json*Output` records with `JsonRenderer.options`) must
-  equal the committed `Rendering/bobcat-results-1.0.schema.json`, which is embedded (written beside
-  every file, named by `$schema`) and packed under `schemas/`. `ResultsFileTests` fails on drift;
-  `BOBCAT_REGENERATE_SCHEMA=1` rewrites it. A breaking change moves `SchemaVersion` and the file
-  name; an additive field does not. #541's TypeScript types are to be generated from this schema.
+  id); never fails a run. **The schema is generated and never committed** (#604):
+  `ResultsFile.GenerateSchema()` writes it beside every file, the Nuke `Pack` target packs it under
+  `schemas/`, and `CI`'s `ResultsSchemaCompatibility` fails a breaking change against the last
+  released package's copy unless `SchemaVersion` moved. An additive field does not. #541's TypeScript types are to be generated from this schema.
 - **`obj/bobcat/last-run.json`** (`Bobcat.Console/Specs/LastRun.cs`, bobcat#572): every `bobcat run`
   writes it in the spec project: failed identities, selection, flags, exit code, a reserved `seed`.
   `run --failed` / `--repeat` read it. The failures come **from the results file**, so `SpecHost`

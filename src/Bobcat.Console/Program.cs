@@ -24,6 +24,9 @@ var executor = CommandExecutor.For(factory =>
     factory.RegisterCommand<Bobcat.Ui.EventModel.WatchEventModelCommand>();
     factory.RegisterCommand<Bobcat.Ui.GenerateCommand>();
 
+    // The results file's JSON Schema, generated rather than committed (bobcat#604).
+    factory.RegisterCommand<ResultsSchemaCommand>();
+
     // The agent-facing reads over a running `bobcat ui` (bobcat#524): JSON on stdout.
     factory.RegisterCommand<ListRunsCommand>();
     factory.RegisterCommand<RunStatusCommand>();

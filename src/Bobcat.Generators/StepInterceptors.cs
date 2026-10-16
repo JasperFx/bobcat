@@ -80,6 +80,18 @@ internal static class StepInterceptors
         public string? Comparison;
         public List<string> ParameterTypes = new();
 
+        /// <summary>
+        /// The interceptor's own type parameters when the helper's declaring type is generic: every
+        /// containing type's, outermost first, then the method's (bobcat#601). Empty otherwise.
+        /// </summary>
+        public List<ITypeParameterSymbol> TypeParameters = new();
+
+        /// <summary>
+        /// <c>&lt;TEvent&gt;</c> when a generic interceptor calls a generic helper — passed explicitly,
+        /// because a type parameter used only in the return type cannot be inferred.
+        /// </summary>
+        public string MethodTypeArguments = "";
+
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
         public List<string> ParameterNames = new();
 
@@ -160,17 +172,40 @@ internal static class StepInterceptors
         // asserts on a bool. The step reads as Then.
         var keyword = recognized.Keyword == "Check" ? "Then" : recognized.Keyword;
 
+        // A helper declared on a GENERIC type (or nested in one) is intercepted by a generic
+        // interceptor written against the helper's original definition (bobcat#601). Written against
+        // the call's own symbol, a call made inside `Base<T>` named a receiver `Base<T>` with no `T`
+        // in scope — CS0246 per call site, in a file the consumer cannot edit. C# passes the
+        // receiver's type arguments, outermost type first, then the method's own, to an interceptor
+        // whose arity is their sum, so the one generic form serves a call from inside the generic
+        // type, from a generic subclass and from a closed one alike.
+        var containerTypeParameters = typeParametersOf(method.ContainingType);
+        var signature = containerTypeParameters.Count == 0 ? method : method.OriginalDefinition;
+        var typeParameters = containerTypeParameters.Count == 0
+            ? new List<ITypeParameterSymbol>()
+            : containerTypeParameters.Concat(signature.TypeParameters).ToList();
+
+        // A method type parameter named like one of its type's is legal C# (a CS0693 warning) and
+        // cannot be written as one interceptor's type parameter list. Not intercepting is the honest
+        // degradation: the call runs as written, unrecorded, and a wrong inside it still fails the
+        // scenario through SteplessWrongs.
+        if (typeParameters.Select(t => t.Name).Distinct().Count() != typeParameters.Count) return null;
+
         var call = new InterceptedCall
         {
 #pragma warning disable RSEXPERIMENTAL002
             InterceptsLocation = location.GetInterceptsLocationAttributeSyntax(),
 #pragma warning restore RSEXPERIMENTAL002
-            DeclaringType = method.ContainingType.ToDisplayString(),
+            DeclaringType = signature.ContainingType.ToDisplayString(),
             MethodName = method.Name,
-            ReturnType = method.ReturnType.ToDisplayString(),
-            ReturnsTask = method.ReturnType.Name is "Task" or "ValueTask",
-            ReturnsVoid = method.ReturnsVoid,
-            ReturnsBool = returnsBool(method.ReturnType),
+            ReturnType = signature.ReturnType.ToDisplayString(),
+            ReturnsTask = signature.ReturnType.Name is "Task" or "ValueTask",
+            ReturnsVoid = signature.ReturnsVoid,
+            ReturnsBool = returnsBool(signature.ReturnType),
+            TypeParameters = typeParameters,
+            MethodTypeArguments = typeParameters.Count == 0 || signature.TypeParameters.Length == 0
+                ? ""
+                : "<" + string.Join(", ", signature.TypeParameters.Select(t => t.Name)) + ">",
             Keyword = keyword,
             DeclaredIndex = DeclaredIndexOf(invocation),
             Uid = UidOf(invocation, ctx.SemanticModel, ct),
@@ -179,7 +214,7 @@ internal static class StepInterceptors
         };
 
 
-        foreach (var parameter in method.Parameters)
+        foreach (var parameter in signature.Parameters)
         {
             call.ParameterTypes.Add(parameter.Type.ToDisplayString());
             call.ParameterNames.Add(parameter.Name);
@@ -716,8 +751,11 @@ internal static class StepInterceptors
     /// hoped about.
     /// </summary>
     private static IEnumerable<string> constraintsOf(IMethodSymbol definition)
+        => constraintsOf(definition.TypeParameters);
+
+    private static IEnumerable<string> constraintsOf(IEnumerable<ITypeParameterSymbol> typeParameters)
     {
-        foreach (var parameter in definition.TypeParameters)
+        foreach (var parameter in typeParameters)
         {
             var constraints = new List<string>();
 
@@ -767,9 +805,19 @@ internal static class StepInterceptors
                 .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
             var arguments = string.Join(", ", call.ParameterIdentifiers);
 
+            var typeParameters = call.TypeParameters.Count == 0
+                ? ""
+                : "<" + string.Join(", ", call.TypeParameters.Select(t => t.Name)) + ">";
+
             sb.AppendLine($"        {call.InterceptsLocation}");
-            sb.AppendLine($"        internal static {call.ReturnType} __BobcatStep{index}(");
+            sb.AppendLine($"        internal static {call.ReturnType} __BobcatStep{index}{typeParameters}(");
             sb.AppendLine($"            this global::{call.DeclaringType} receiver{parameters})");
+
+            foreach (var clause in constraintsOf(call.TypeParameters))
+            {
+                sb.AppendLine($"            {clause}");
+            }
+
             sb.AppendLine("        {");
             // The values, not the syntax (issue #339). Only the placeholders that survived
             // compile-time substitution are passed — a step with none allocates nothing.
@@ -785,18 +833,18 @@ internal static class StepInterceptors
             {
                 // An asynchronous Fact: the answer decides the verdict, and the step ends when the
                 // work ends so it still carries a real duration.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact(receiver.{call.MethodName}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
             }
             else if (call.ReturnsTask)
             {
                 // End the step when the helper's work ends, not when it hands back a Task.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
             }
             else if (call.ReturnsBool)
             {
                 // A synchronous Fact. The answer flows through to the caller untouched.
                 emitSynchronousCall(sb,
-                    $"return global::Bobcat.MarkerStepRuntime.Fact(receiver.{call.MethodName}({arguments}), step);");
+                    $"return global::Bobcat.MarkerStepRuntime.Fact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
             }
             else if (call.ReturnsVoid)
             {
@@ -804,11 +852,11 @@ internal static class StepInterceptors
                 // a file they cannot edit. It went unnoticed until #304's end-to-end test compiled
                 // the first interceptor inside this repository: every earlier check read the
                 // generated text, and Marten's helpers all return Task.
-                emitSynchronousCall(sb, $"receiver.{call.MethodName}({arguments});");
+                emitSynchronousCall(sb, $"receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
             }
             else
             {
-                emitSynchronousCall(sb, $"return receiver.{call.MethodName}({arguments});");
+                emitSynchronousCall(sb, $"return receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
             }
 
             sb.AppendLine("        }");
@@ -856,6 +904,22 @@ internal static class StepInterceptors
         sb.AppendLine("            {");
         sb.AppendLine("                step.Dispose();");
         sb.AppendLine("            }");
+    }
+
+    /// <summary>
+    /// The type parameters in scope inside <paramref name="type"/>'s original definition — every
+    /// containing type's, outermost first — which is the order C# hands type arguments to an
+    /// interceptor in.
+    /// </summary>
+    private static List<ITypeParameterSymbol> typeParametersOf(INamedTypeSymbol type)
+    {
+        var chain = new List<INamedTypeSymbol>();
+        for (var current = type.OriginalDefinition; current != null; current = current.ContainingType)
+        {
+            chain.Insert(0, current);
+        }
+
+        return chain.SelectMany(t => t.TypeParameters).ToList();
     }
 
     /// <summary>The name as it can be written in generated code.</summary>

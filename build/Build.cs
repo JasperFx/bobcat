@@ -100,9 +100,10 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    // What tests.yml runs on every push.
+    // What tests.yml runs on every push. ResultsSchemaCompatibility (build/Contracts.cs) checks the
+    // generated results schema against the last released package's (bobcat#604).
     Target CI => _ => _
-        .DependsOn(Test);
+        .DependsOn(Test, ResultsSchemaCompatibility);
 
     // What publish.yml packs: every packable project in the solution, plus the bobcat tool — which
     // only this second pack produces, because its IsPackable is gated on EmbedFrontend so it can
@@ -115,8 +116,12 @@ partial class Build : NukeBuild
     // publish output) rebuilt core, the supervisor and the tool between Compile and Test. A pack
     // must never change what the tests ran against; packing what has just been tested is also the
     // order a release wants.
+    //
+    // UiContracts and ResultsSchema (build/Contracts.cs) generate what is no longer committed
+    // (bobcat#604): the SPA's TypeScript contracts, which EmbedFrontend's Vite build needs, and the
+    // results schema Bobcat packs under schemas/.
     Target Pack => _ => _
-        .DependsOn(Clean, Compile)
+        .DependsOn(Clean, Compile, UiContracts, ResultsSchema)
         .After(Test)
         .Executes(() =>
         {

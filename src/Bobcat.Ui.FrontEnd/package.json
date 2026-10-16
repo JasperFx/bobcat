@@ -7,9 +7,16 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
+    "contracts": "node scripts/ui-contracts.mjs",
+    "prepare": "node scripts/ui-contracts.mjs",
+    "predev": "node scripts/ui-contracts.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/ui-contracts.mjs",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
+    "pretest": "node scripts/ui-contracts.mjs",
+    "test": "vitest run",
+    "pretest:unit": "node scripts/ui-contracts.mjs",
     "test:unit": "vitest"
   },
   "dependencies": {

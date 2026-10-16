@@ -13,6 +13,7 @@ are meant to be read in order and typed along with.
 
 | If you want to | Read |
 |---|---|
+| Decide what to test, at which layer, and what makes a suite worth trusting | [Test Automation Strategy Recommendations](test-automation-strategy.md) |
 | Write specifications in plain C#, in the test runner you already use | [Specifications with Code](specifications-with-code.md) |
 | Set up a lot of data, and verify a lot of data | [Data Intensive Specifications](data-intensive-specifications.md) |
 | Run specs in a build pipeline and get useful failures back | [Integrating Bobcat with CI](continuous-integration.md) |
