@@ -64,6 +64,12 @@ public sealed class Supervisor
 
     private int _workersLaunched;
     private long _launchTicks;
+
+    /// <summary>Time workers spent running tests, summed across workers (bobcat#664).</summary>
+    private long _busyTicks;
+
+    /// <summary>The most lanes any pass planned (bobcat#664).</summary>
+    private int _lanesPlanned;
     private bool _lanesReleased;
 
     // The stall escalation's books (issue #173), all behind _recordGate: written from the
@@ -395,6 +401,8 @@ public sealed class Supervisor
 
             results.Duration = clock.Elapsed;
             results.WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks));
+            results.WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks));
+            results.Lanes = _lanesPlanned;
 
             // Posted for every run that produced results — including preflight failures and
             // empty filters — so a dashboard never shows a bracket that opened and never closed
@@ -530,7 +538,9 @@ public sealed class Supervisor
             TestMemory = _sampler?.Tests ?? [],
             DurationCoverage = _durationCoverage,
             Duration = live.Elapsed,
-            WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks))
+            WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
+            WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
+            Lanes = _lanesPlanned
         };
     }
 
@@ -843,6 +853,7 @@ public sealed class Supervisor
         if (batched.Count > 0)
         {
             var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
+            _lanesPlanned = Math.Max(_lanesPlanned, plan.Count);
 
             // Said out loud (bobcat#663): a ledger keyed by uids from another machine or TFM can
             // match nothing, and the run then reads exactly like a duration-balanced one.
@@ -1025,7 +1036,15 @@ public sealed class Supervisor
         WorkerRunResult result;
         try
         {
-            result = await worker.Run([uid], ct);
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                result = await worker.Run([uid], ct);
+            }
+            finally
+            {
+                Interlocked.Add(ref _busyTicks, Stopwatch.GetElapsedTime(started).Ticks);
+            }
         }
         finally
         {
@@ -1558,7 +1577,20 @@ public sealed class Supervisor
         var worker = await laneWorker(index, ct);
 
         notify(observer => observer.LaneStarted(index, uids));
-        var result = await worker.Run(uids, ct);
+
+        WorkerRunResult result;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            result = await worker.Run(uids, ct);
+        }
+        finally
+        {
+            // Busy time, not lifetime: what the lanes ran side by side is what lane concurrency
+            // is measured against (bobcat#664).
+            Interlocked.Add(ref _busyTicks, Stopwatch.GetElapsedTime(started).Ticks);
+        }
+
         notify(observer => observer.LaneFinished(index, result));
 
         return (index, result);

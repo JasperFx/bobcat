@@ -426,6 +426,9 @@ partition sets the floor: Wolverine's run bottomed out at ~67s because one test 
 The evidence for attacking that is in the run itself: `RunReport`'s `Timing` section ranks the
 slowest tests by **share of wall clock**, reports parallel efficiency, and prices retries and
 isolation -- report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
+Parallel efficiency is split by where the overlap came from: the lanes running side by side, or the
+test framework's own parallelism inside one worker. A single-lane run above 1x is the second kind,
+which more workers would not add to.
 Across runs, the committed ledger (`TestLedger`, see
 [ledger-design.md](https://github.com/JasperFx/bobcat/blob/main/design/ledger-design.md)) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured

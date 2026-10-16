@@ -148,6 +148,16 @@ public sealed class SupervisorResults
     public TimeSpan WorkerLaunchTime { get; internal set; }
 
     /// <summary>
+    /// Time workers spent inside a run request, summed across workers (bobcat#664) — the
+    /// denominator that separates the supervisor's lanes running side by side from a test
+    /// framework's own parallelism inside one worker. Zero when nothing measured it.
+    /// </summary>
+    public TimeSpan WorkerBusyTime { get; internal set; }
+
+    /// <summary>How many lanes the run's first pass planned; zero when nothing was batched (bobcat#664).</summary>
+    public int Lanes { get; internal set; }
+
+    /// <summary>
     /// Every worker death, with its exit code and last standard error. Without these,
     /// <see cref="Indeterminate"/> tells a user that something went wrong but nothing about what.
     /// </summary>

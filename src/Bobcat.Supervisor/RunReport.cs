@@ -142,9 +142,8 @@ public static class RunReport
             return;
         }
 
-        var efficiency = timing.ParallelEfficiency!.Value.ToString("0.00", CultureInfo.InvariantCulture);
         report.AppendLine($"  • {RunTiming.Humanize(timing.Measured)} measured across " +
-                          $"{timing.Tests.Count} test(s) — {efficiency}x parallel efficiency");
+                          $"{timing.Tests.Count} test(s) — {efficiencyOf(timing)}");
 
         // The percentage is what makes someone act; the raw seconds read as "integration tests
         // are slow".
@@ -188,6 +187,29 @@ public static class RunReport
 
             report.AppendLine($"    • {RunTiming.Humanize(test.Total)} ({share}) {test.DisplayName}{retried}");
         }
+    }
+
+    /// <summary>
+    /// Parallel efficiency, split into where the overlap came from (bobcat#664). A test
+    /// framework's in-process parallelism inside one worker is not the supervisor's lanes, and
+    /// reading one as the other misleads the decision the figure exists for: whether more workers
+    /// will help.
+    /// </summary>
+    private static string efficiencyOf(RunTiming timing)
+    {
+        static string x(double value) => value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
+
+        var overall = $"{x(timing.ParallelEfficiency!.Value)} parallel efficiency";
+        if (timing.LaneConcurrency is not { } lanes || timing.InWorkerConcurrency is not { } inWorker) return overall;
+
+        if (timing.Lanes <= 1)
+        {
+            return $"{overall}, all of it inside one worker ({x(inWorker)} in-process test parallelism; " +
+                   "one lane, so none of it is the supervisor's)";
+        }
+
+        return $"{overall}: {x(lanes)} from {timing.Lanes} lanes running side by side, " +
+               $"{x(inWorker)} in-process test parallelism within a worker";
     }
 
     /// <summary>How many of the biggest memory retainers to name.</summary>
@@ -371,6 +393,12 @@ public static class RunReport
         ["wallClockMs"] = timing.WallClock > TimeSpan.Zero ? timing.WallClock.TotalMilliseconds : null,
         ["measuredMs"] = timing.IsMeasured ? timing.Measured.TotalMilliseconds : null,
         ["parallelEfficiency"] = timing.IsMeasured ? timing.ParallelEfficiency : null,
+        // bobcat#664: where the overlap came from — the supervisor's lanes, or the test
+        // framework's own parallelism inside a worker. Null when nothing measured worker time.
+        ["lanes"] = timing.Lanes,
+        ["workerBusyMs"] = timing.WorkerBusy > TimeSpan.Zero ? timing.WorkerBusy.TotalMilliseconds : null,
+        ["laneConcurrency"] = timing.IsMeasured ? timing.LaneConcurrency : null,
+        ["inWorkerConcurrency"] = timing.IsMeasured ? timing.InWorkerConcurrency : null,
         ["workerLaunchMs"] = timing.LaunchOverhead > TimeSpan.Zero ? timing.LaunchOverhead.TotalMilliseconds : null,
         ["retryCostMs"] = timing.IsMeasured ? timing.RetryCost.TotalMilliseconds : null,
         ["isolationCostMs"] = timing.IsMeasured ? timing.IsolationCost.TotalMilliseconds : null,
