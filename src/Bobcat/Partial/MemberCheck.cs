@@ -73,6 +73,15 @@ internal static class MemberChecks
             ? (call.Arguments[0], call.Arguments.Skip(1).ToList())
             : (call.Object!, call.Arguments.ToList());
 
+        // Chained Shouldly (x => x.Lines.ShouldHaveSingleItem().Sku.ShouldBe("A")) is the natural thing to
+        // write and cannot be read as one member; BOBCAT044 refuses it at build time (bobcat#624)
+        if (!MemberPaths.IsPath(subject))
+            throw new ArgumentException(
+                $"'{check}' asserts on '{subject}', which is not a member of the object. A member check is one assertion on one "
+                + "property or field path, such as x => x.Address.City.ShouldBe(\"Austin\"); a chained assertion cannot be read as one. "
+                + "To claim a collection member's items, specify them: .With(x => x.Lines, Expect.Exactly(Specify<Line>().With(l => l.Sku, \"A\"))).",
+                nameof(check));
+
         var path = MemberPaths.Of(Expression.Lambda(subject, check.Parameters));
         var parameters = call.Method.GetParameters().Skip(call.Object is null ? 1 : 0).ToList();
 

@@ -180,6 +180,21 @@ public class BobcatGenerator : IIncrementalGenerator
             spc.ReportDiagnostic(Diagnostic.Create(
                 Diagnostics.UnawaitedStep, finding.Location, finding.Method, finding.ReturnType)));
 
+        // 3c''''. BOBCAT044 (bobcat#624): a member check the runtime cannot read as one assertion on one
+        //         member (chained Shouldly, mostly), refused at the lambda instead of thrown at run time.
+        var memberChecks = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => MemberCheckShapes.IsCandidate(node),
+                transform: MemberCheckShapes.Check)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(memberChecks, (spc, findings) =>
+        {
+            foreach (var (location, message) in findings)
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnreadableMemberCheck, location, message));
+        });
+
         // 3f. BOBCAT034 (bobcat#462): an [EventModelRole] / [EventModelTrigger] naming no parameter of
         //     the vocabulary method it decorates, caught where the vocabulary is declared
         var roleSources = context.SyntaxProvider
@@ -406,7 +421,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT044 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's, 043 bobcat#623's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT045 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's, 043 bobcat#623's, 044 bobcat#624's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -689,6 +704,21 @@ internal static class Diagnostics
         "closed, and a failure in it never fails the test. Add 'await' (and make the test async).",
         "Bobcat",
         DiagnosticSeverity.Warning,
+        true);
+
+    /// <summary>
+    /// bobcat#624: a member check (<c>Specify&lt;T&gt;(x =&gt; ...)</c>, <c>.Check(x =&gt; ...)</c>) that is not one
+    /// assertion on one member path: chained Shouldly such as
+    /// <c>x =&gt; x.Lines.ShouldHaveSingleItem().Sku.ShouldBe("A")</c>, an assertion on the object itself, or
+    /// one comparing two members. An error, because the runtime refuses every one of them with an
+    /// exception that ends the test before anything is gathered.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnreadableMemberCheck = new(
+        "BOBCAT044",
+        "A member check is not one assertion on one member",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor SliceBindingConflict = new(
