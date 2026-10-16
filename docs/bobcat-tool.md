@@ -90,7 +90,9 @@ and a reserved `seed` (null until seeded random order ships). `obj/` is git-igno
   quietly dropped it would read as green. Start over with a plain `bobcat run`.
 - **Nothing failed last time:** `--failed` says so and exits 0. **No last run**, or a last run whose
   host died before writing results (so nothing is known about what failed): refused, exit 1.
-- Neither combines with `--feature`/`--scenario`, nor with each other.
+- Neither combines with `--feature`/`--scenario` or the coordinate flags (`--slice`, `--chapter`,
+  `--domain`, `--pattern`, `--trait`), nor with each other. A run selected by coordinates is
+  repeated as the identities it resolved to.
 
 ### The results file {#results-file}
 
