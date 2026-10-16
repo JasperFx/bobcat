@@ -37,6 +37,7 @@ public static class MarkerStepRun
     private static bool _started;
     private static int _passed;
     private static int _failed;
+    private static int _acceptanceFailing;
 
     /// <summary>
     /// Whether the console probe has already run in this process. Separate from
@@ -65,8 +66,10 @@ public static class MarkerStepRun
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
-        return ScenarioRecorder.Begin(
+        var recording = ScenarioRecorder.Begin(
             FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), _sink, info.RunId);
+        recording.Lifecycle = SpecLifecycle.Of(method);
+        return recording;
     }
 
     /// <summary>
@@ -83,8 +86,10 @@ public static class MarkerStepRun
     {
         var info = openRun(mode, declaringType?.Assembly);
 
-        return ScenarioRecorder.Begin(
+        var recording = ScenarioRecorder.Begin(
             FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), _sink, info.RunId);
+        recording.Lifecycle = SpecLifecycle.Of(declaringType, methodName);
+        return recording;
     }
 
     /// <summary>
@@ -115,10 +120,40 @@ public static class MarkerStepRun
     /// runner cannot see.
     /// </para>
     /// </remarks>
-    public static Exception? EndScenario(ScenarioVerdict verdict)
+    public static Exception? EndScenario(ScenarioVerdict verdict) => CloseScenario(verdict).Rethrow;
+
+    /// <summary>
+    /// Close the scenario in progress with the verdict its runner reported, and say what the adapter
+    /// must do to make the runner agree with the specification — rethrow a gathered failure, or
+    /// report a failing Acceptance spec (bobcat#545) as skipped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An Acceptance failure is recorded in full and only then softened.</b> The scenario closes
+    /// as <c>acceptance: failing</c> with every step and cell — console, JSON, the wire — and the
+    /// adapter turns the runner's verdict into a skip whose reason starts
+    /// <see cref="SpecLifecycle.SkipReasonPrefix"/>. Nothing is swallowed, which is what separates
+    /// this from the run-and-absorb #404 rejected. Under <see cref="SpecLifecycle.Strict"/> it is an
+    /// ordinary failure.
+    /// </para>
+    /// <para>
+    /// The adapter does the skipping because only it can: each runner spells "skip a test that
+    /// already failed" differently, and in xUnit it is not a throw at all.
+    /// </para>
+    /// </remarks>
+    /// <param name="verdict">What the runner said.</param>
+    /// <param name="canSkipAFailedTest">
+    /// False for an adapter whose runner cannot turn a test that already failed into a skip (MSTest's
+    /// global hooks: the more important outcome wins, and Failed outranks Inconclusive). A failing
+    /// Acceptance spec the runner already failed is then recorded as the failure it is, not as
+    /// <c>acceptance: failing</c>, so Bobcat never claims the build stayed green when it did not.
+    /// </param>
+    public static ScenarioClose CloseScenario(ScenarioVerdict verdict, bool canSkipAFailedTest = true)
     {
         var recording = ScenarioRecorder.Current;
-        if (recording is null) return null;
+        if (recording is null) return ScenarioClose.Nothing;
+
+        if (!canSkipAFailedTest && verdict.Kind == ScenarioVerdictKind.Failed) recording.CannotBeSkipped = true;
 
         switch (verdict.Kind)
         {
@@ -126,22 +161,60 @@ public static class MarkerStepRun
                 // A skipped test asserted nothing. Publishing CleanPass for it would be the same
                 // lie as publishing CleanPass for a failure, so the scenario is withdrawn instead.
                 recording.Cancel();
-                return null;
+                return ScenarioClose.Nothing;
 
             case ScenarioVerdictKind.Failed:
                 recording.FailureDescription = verdict.Describe();
-                Interlocked.Increment(ref _failed);
                 recording.Dispose();
-                return null;
+
+                if (recording.AcceptanceFailing)
+                {
+                    Interlocked.Increment(ref _acceptanceFailing);
+                    return ScenarioClose.SkipAsAcceptance(SpecLifecycle.FirstFailure(recording.FailureDescription));
+                }
+
+                Interlocked.Increment(ref _failed);
+                return ScenarioClose.Nothing;
 
             default:
                 var gathered = recording.GatheredFailures();
-                if (gathered is null) Interlocked.Increment(ref _passed);
-                else Interlocked.Increment(ref _failed);
-
                 recording.Dispose();
-                return gathered is null ? null : new SpecAssertionException(gathered);
+
+                if (gathered is null)
+                {
+                    Interlocked.Increment(ref _passed);
+                    return ScenarioClose.Nothing;
+                }
+
+                if (recording.AcceptanceFailing)
+                {
+                    Interlocked.Increment(ref _acceptanceFailing);
+                    return ScenarioClose.SkipAsAcceptance(SpecLifecycle.FirstFailure(gathered));
+                }
+
+                Interlocked.Increment(ref _failed);
+                return new ScenarioClose(new SpecAssertionException(gathered), null);
         }
+    }
+
+    /// <summary>
+    /// Fail a <c>Pending = true</c> specification in a strict run (C13): open its scenario, close it
+    /// failed with <c>pending specification in strict mode: &lt;identity&gt;</c> so every Bobcat surface
+    /// shows it, and hand back the exception the adapter throws so the runner fails it too.
+    /// </summary>
+    /// <remarks>
+    /// Called from the adapter's before-test hook, which throws the result: the body never runs, because
+    /// a stub has nothing to say, and the after-test hook never runs either, which is why the scenario
+    /// is opened and closed here in one go.
+    /// </remarks>
+    public static PendingSpecificationException FailPendingInStrictMode(MethodInfo method, string mode)
+    {
+        var recording = BeginScenario(method, mode);
+        var failure = new PendingSpecificationException(recording.Uid);
+        recording.FailureDescription = failure.Message;
+        recording.Dispose();
+        Interlocked.Increment(ref _failed);
+        return failure;
     }
 
     /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived.</summary>
@@ -356,7 +429,8 @@ public static class MarkerStepRun
                     Failed: _failed,
                     PassedOnRetry: 0,
                     Indeterminate: 0,
-                    FinishedAt: DateTimeOffset.UtcNow));
+                    FinishedAt: DateTimeOffset.UtcNow,
+                    AcceptanceFailing: _acceptanceFailing));
             }
 
             stopHeartbeat();
@@ -365,6 +439,7 @@ public static class MarkerStepRun
             _info = null;
             _passed = 0;
             _failed = 0;
+            _acceptanceFailing = 0;
         }
     }
 
@@ -449,6 +524,7 @@ public static class MarkerStepRun
             _started = false;
             _passed = 0;
             _failed = 0;
+            _acceptanceFailing = 0;
             FindEventModelHalves = specHalves;
             EventModelNotice = writeNotice;
 
@@ -461,6 +537,9 @@ public static class MarkerStepRun
 
     /// <summary>Test seam: the counts <c>RunFinished</c> would report right now.</summary>
     internal static (int Passed, int Failed) Counts => (_passed, _failed);
+
+    /// <summary>Test seam: failing Acceptance specs so far in this bracket (bobcat#545).</summary>
+    internal static int AcceptanceFailingCount => _acceptanceFailing;
 
     /// <summary>Test seam: publish the run bracket's close without waiting for process exit.</summary>
     internal static void FinishForTesting() => CloseRun();
@@ -482,6 +561,27 @@ public static class MarkerStepRun
             }
         }
     }
+}
+
+/// <summary>
+/// What an adapter must do after <see cref="MarkerStepRun.CloseScenario"/>: throw
+/// <see cref="Rethrow"/> (a gathered failure the runner cannot see), report the test skipped with
+/// <see cref="SkipReason"/> (a failing Acceptance spec, bobcat#545), or nothing.
+/// </summary>
+public readonly record struct ScenarioClose(Exception? Rethrow, string? SkipReason)
+{
+    /// <summary>The runner already agrees with the specification.</summary>
+    public static ScenarioClose Nothing { get; } = new(null, null);
+
+    /// <summary>
+    /// A failing Acceptance spec: the adapter reports the test skipped, with the reason
+    /// <c>acceptance spec, not yet passing: &lt;first failure&gt;</c>.
+    /// </summary>
+    public static ScenarioClose SkipAsAcceptance(string firstFailure)
+        => new(null, SpecLifecycle.SkipReasonFor(firstFailure));
+
+    /// <summary>Whether the adapter must report the test skipped.</summary>
+    public bool Skip => SkipReason is not null;
 }
 
 /// <summary>What a runner said about a test, in the only three shapes Bobcat can act on.</summary>

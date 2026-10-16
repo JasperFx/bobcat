@@ -75,6 +75,26 @@ describe('runs-store', () => {
     expect(scenario.finishedAt).toBeNull()
   })
 
+  it('a failing Acceptance spec is its own status, never failed (bobcat#545)', () => {
+    const store = useRunsStore()
+    startRun(store)
+
+    const uid = 'Wallets/credit not built yet'
+    store.handleScenarioFinished({
+      runId: RUN,
+      uid,
+      outcome: 'AcceptanceFailing',
+      attempts: 1,
+      durationMs: 40,
+      errorMessage: 'System.NotImplementedException: not yet',
+      lifecycle: 'Acceptance',
+    })
+
+    const scenario = store.runById(RUN)!.scenarios[uid]!
+    expect(scenario.status).toBe('acceptance-failing')
+    expect(scenario.errorMessage).toBe('System.NotImplementedException: not yet')
+  })
+
   it('scenario_finished folds the touched-type evidence and its stamp', () => {
     const store = useRunsStore()
     const uid = 'Credit Wallet/happy path'

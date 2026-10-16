@@ -206,6 +206,25 @@ public class ContractRoundTripTests
     }
 
     [Fact]
+    public void an_acceptance_verdict_round_trips()
+    {
+        // bobcat#545: the outcome, the lifecycle beside it, and the run's count of them.
+        var scenario = roundTrip(new Client.ScenarioFinished(
+                runId, "F/s", "AcceptanceFailing", 1, 10, "not yet", Lifecycle: "Acceptance"))
+            .ShouldBeOfType<Wire.ScenarioFinished>();
+
+        scenario.Outcome.ShouldBe("AcceptanceFailing");
+        scenario.Lifecycle.ShouldBe("Acceptance");
+        scenario.ErrorMessage.ShouldBe("not yet");
+
+        var run = roundTrip(new Client.RunFinished(runId, 0, 1, 0, 0, 0, DateTimeOffset.UtcNow, AcceptanceFailing: 2))
+            .ShouldBeOfType<Wire.RunFinished>();
+
+        run.AcceptanceFailing.ShouldBe(2);
+        run.ExitCode.ShouldBe(0);
+    }
+
+    [Fact]
     public void retry_scheduled_round_trips()
     {
         var wire = roundTrip(new Client.RetryScheduled(runId, "F/s", 2, "RetryInProcess", "flaky broker"))

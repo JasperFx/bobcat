@@ -60,6 +60,12 @@ the cleanup hook throws, and MSTest fails the test for it.
 **Already have global hooks of your own?** Set `<BobcatMSTestHooks>false</BobcatMSTestHooks>` in the
 project and call `Bobcat.MSTest.MSTestScenarioBracket.Open(...)` / `.Close(...)` from yours.
 
+**`[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`** (bobcat#545) marks a spec written before its
+behaviour is finished. On MSTest only a spec failed by gathered `SpecAssert` wrongs can be reported
+inconclusive (a skip): a body that *throws* stays failed, because MSTest keeps the more important
+outcome, and Bobcat records that one as a failure too. See
+[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+
 ## Versions
 
 The package references no MSTest assembly at all. MSTest 4 renamed its assemblies, so anything

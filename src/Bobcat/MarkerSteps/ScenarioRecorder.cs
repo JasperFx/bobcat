@@ -219,6 +219,12 @@ public static class ScenarioRecorder
 
     public sealed class Recording : IDisposable, IReportSink
     {
+        /// <summary>
+        /// The <c>scenario_finished</c> outcome of a failing Acceptance spec (bobcat#545) — beside
+        /// <c>CleanPass</c> and <c>Failed</c>.
+        /// </summary>
+        public const string AcceptanceFailingOutcome = "AcceptanceFailing";
+
         private readonly List<RecordedStep> _steps = new();
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly IMonitorEventSink? _publisher;
@@ -364,6 +370,26 @@ public static class ScenarioRecorder
         public string? FailureDescription { get; set; }
 
         private bool _cancelled;
+
+        /// <summary>
+        /// The specification's lifecycle (bobcat#545), set by <see cref="MarkerStepRun"/> from the
+        /// adapter's attribute when the scenario opens.
+        /// </summary>
+        public Lifecycle Lifecycle { get; set; } = Lifecycle.Regression;
+
+        /// <summary>
+        /// Whether the scenario closed as <c>acceptance: failing</c>: an
+        /// <see cref="Bobcat.Lifecycle.Acceptance"/> spec that failed outside strict mode. Recorded in
+        /// full like any failure, published as the <c>AcceptanceFailing</c> outcome, and never counted
+        /// as a failed scenario. Set when the scenario closes.
+        /// </summary>
+        public bool AcceptanceFailing { get; private set; }
+
+        /// <summary>
+        /// The runner has already failed this test and cannot report it skipped (MSTest), so an
+        /// Acceptance failure is recorded as an ordinary one. See <see cref="MarkerStepRun.CloseScenario"/>.
+        /// </summary>
+        internal bool CannotBeSkipped { get; set; }
 
         /// <summary>The innermost step currently executing, or null between steps.</summary>
         public RecordedStep? OpenStep { get; private set; }
@@ -797,16 +823,22 @@ public static class ScenarioRecorder
             // scenario's outcome exactly as the runner's own verdict does.
             var failure = FailureDescription ?? Failure?.Message ?? GatheredFailures();
 
+            // bobcat#545: a failing Acceptance spec keeps every step and cell, and says so under its
+            // own name rather than as Failed -- unless the run is strict, where it IS a failure.
+            AcceptanceFailing = failure is not null && Lifecycle == Lifecycle.Acceptance && !SpecLifecycle.Strict
+                                && !CannotBeSkipped;
+
             _publisher?.Post(new ScenarioFinished(
                 _runId, Uid,
-                failure is null ? "CleanPass" : "Failed",
+                failure is null ? "CleanPass" : AcceptanceFailing ? AcceptanceFailingOutcome : "Failed",
                 Attempts: 1,
                 DurationMs: WallClockMs.Value,
                 ErrorMessage: failure,
                 TouchedTypes: MonitorTouchedTypes.From(TouchedTypes),
                 At: DateTimeOffset.UtcNow,
                 Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null),
-                StepsMs: StepsMs));
+                StepsMs: StepsMs,
+                Lifecycle: Lifecycle == Lifecycle.Acceptance ? nameof(Lifecycle.Acceptance) : null));
 
             ScenarioCompleted?.Invoke(this);
         }

@@ -72,6 +72,7 @@ export interface RunFinished extends MonitorEvent {
   passedOnRetry: number
   indeterminate: number
   finishedAt: string
+  acceptanceFailing?: number | null
 }
 
 /** Envelope type: 'scenario_started' */
@@ -109,6 +110,7 @@ export interface ScenarioFinished extends MonitorEvent {
   at?: string | null
   reports?: ScenarioReportInfo[] | null
   stepsMs?: number | null
+  lifecycle?: string | null
 }
 
 export interface TouchedType {

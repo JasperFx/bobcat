@@ -79,7 +79,11 @@ public class TUnitResidentSuiteTests : IDisposable
         suite.Suite.ShouldBe("Bobcat.TUnit.Tests");
         suite.Manifest.Framework.ShouldBe(SpecManifest.TUnitFramework);
         suite.SpecIdentities.ShouldBe(
-            [auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening], ignoreOrder: true);
+            [auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening,
+                // bobcat#545's Acceptance specs, which list like any other.
+                "Acceptance on TUnit/the behaviour throws because it does not exist yet",
+                "Acceptance on TUnit/an acceptance spec that passes is ready to promote"],
+            ignoreOrder: true);
         suite.Modes.ShouldBe([RunnerWire.ColdMode]);
 
         await using var warm = await warmSuiteFor(monitor);

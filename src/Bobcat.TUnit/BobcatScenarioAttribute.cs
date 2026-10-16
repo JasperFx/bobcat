@@ -44,9 +44,29 @@ namespace Bobcat.TUnit;
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
 public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver, ITestEndEventReceiver,
-    ILastTestInTestSessionEventReceiver
+    ILastTestInTestSessionEventReceiver, IDeclaresLifecycle
 {
     internal const string Mode = "tunit";
+
+    /// <summary>
+    /// Where the specifications this attribute covers stand (bobcat#545) — on a class, every test in
+    /// it; on a method, that test, beating its class's.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="Bobcat.Lifecycle.Acceptance"/> spec runs every time. When it fails, Bobcat records
+    /// it in full as <c>acceptance: failing</c> and TUnit reports the test <b>skipped</b>, with the reason
+    /// <c>acceptance spec, not yet passing: &lt;first failure&gt;</c>, through
+    /// <c>TestContext.Execution.OverrideResult</c>. <c>BOBCAT_LIFECYCLE=strict</c> makes it a failure.
+    /// </remarks>
+    public Lifecycle Lifecycle
+    {
+        get => _lifecycle ?? Lifecycle.Regression;
+        set => _lifecycle = value;
+    }
+
+    private Lifecycle? _lifecycle;
+
+    Lifecycle? IDeclaresLifecycle.Lifecycle => _lifecycle;
 
     EventReceiverStage ITestStartEventReceiver.Stage => EventReceiverStage.Early;
 
@@ -87,7 +107,14 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
     {
         // Before the sink closes: EndScenario is what raises ScenarioCompleted, and that is where
         // the scenario's reports are written.
-        MarkerStepRun.EndScenario(VerdictFrom(context.Execution.Result));
+        var closed = MarkerStepRun.CloseScenario(VerdictFrom(context.Execution.Result));
+
+        // bobcat#545: a failing Acceptance spec is reported skipped. TUnit's own override, because a
+        // throw here would not turn a failure into anything else.
+        if (closed.SkipReason is { } reason && context.Execution.Result is not { IsOverridden: true })
+        {
+            context.Execution.OverrideResult(TestState.Skipped, reason);
+        }
 
         _output.Value?.Dispose();
         _output.Value = null;

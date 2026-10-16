@@ -932,6 +932,43 @@ A pending spec **stays in the spec manifest and in `--list-tests`**, because xUn
 skipped test like any other. That is the right answer rather than an accident: a resident runner can
 be asked to run it, and gets a skip.
 
+**Strict runs fail it (C13).** Under `BOBCAT_LIFECYCLE=strict` a pending spec is not skipped: it
+fails without running, as `pending specification in strict mode: <identity>`. See the next section.
+
+### Not yet passing: `Lifecycle = Lifecycle.Acceptance` (bobcat#545)
+
+`Pending` is for a stub that cannot run at all. Spec-first work has a second state: a specification
+that *does* run, against behaviour that is not finished yet. Skipping it hides the progress; leaving it
+an ordinary spec turns CI red. Storyteller's answer was the Acceptance/Regression split, and this is it:
+
+```csharp
+[BobcatSpec(typeof(ConfirmAppointment), Lifecycle = Lifecycle.Acceptance)]
+public async Task a_confirmed_appointment_cannot_be_confirmed_twice() { /* a real spec */ }
+```
+
+On TUnit, NUnit and MSTest it is a property of `[BobcatScenario]`, on the class (every test in it) or
+on a method (that test, beating its class's): `[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`.
+
+| | |
+|---|---|
+| **It runs every time, and is never retried** | Nothing about it is skipped up front |
+| **A failure is recorded in full under its own verdict** | Every step and cell, on the console (`ACCEPTANCE: FAILING`), in the JSON report (`"verdict": "acceptance: failing"`), and on the monitor wire (`scenario_finished.outcome` = `AcceptanceFailing`, never `Failed`). Nothing is swallowed, which is what separates it from the run-and-absorb #404 rejected |
+| **The test platform reports it SKIPPED** | With the reason `acceptance spec, not yet passing: <first failure>`, so the build stays green |
+| **A passing one says it is ready to promote** | `OK (acceptance — ready to promote to Regression)`: delete `Lifecycle = Lifecycle.Acceptance` |
+| **`BOBCAT_LIFECYCLE=strict` makes its failures real** | For a branch claiming done. Strict also fails every `Pending = true` spec: strict means nothing unfinished |
+
+How each runner reports the skip:
+
+| Runner | Mechanism | Limit |
+|---|---|---|
+| xUnit v3 | `[BobcatSpec]`'s own test case rewrites the test's `TestFailed` into a `TestSkipped` (a skip thrown from the after-test hook is not enough when the body threw: xUnit aggregates the two exceptions and never reads an aggregate as a skip) | `[BobcatSpec]` only, not `[Fact]` + `[BobcatScenario]` |
+| TUnit | `TestContext.Execution.OverrideResult(TestState.Skipped, reason)` | none |
+| NUnit | the result is replaced with `ResultState.Ignored`, what `Assert.Ignore` reports | none |
+| MSTest | `AssertInconclusiveException` from the global cleanup hook | **only a spec failed by gathered `SpecAssert` wrongs.** MSTest keeps the more important outcome, so a body that *threw* stays failed -- and Bobcat records that one as `Failed`, not `acceptance: failing`, so no surface claims the build stayed green |
+
+**Known limit:** in an IDE or a TRX file a failing Acceptance spec looks like any other skip; only the
+reason text tells it apart. Bobcat's own surfaces are where the distinct verdict lives.
+
 Two implementation facts worth knowing, both pinned by tests rather than left as comments:
 
 - **It is both a Fact and a test-bracket hook because xUnit v3 collects hooks by the

@@ -171,7 +171,16 @@ export interface StepState {
   exception: StepExceptionState | null
 }
 
-export type ScenarioStatus = 'running' | 'passed' | 'passed-on-retry' | 'failed' | 'retry-scheduled' | 'aborted'
+// 'acceptance-failing' (bobcat#545): an Acceptance spec not yet passing — recorded in full, and not a
+// failure of the run.
+export type ScenarioStatus =
+  | 'running'
+  | 'passed'
+  | 'passed-on-retry'
+  | 'failed'
+  | 'retry-scheduled'
+  | 'aborted'
+  | 'acceptance-failing'
 
 export interface ScenarioState {
   uid: string
@@ -549,7 +558,9 @@ export const useRunsStore = defineStore('runs', () => {
           ? 'passed-on-retry'
           : e.outcome === 'Aborted'
             ? 'aborted'
-            : 'failed'
+            : e.outcome === 'AcceptanceFailing'
+              ? 'acceptance-failing'
+              : 'failed'
   }
 
   function handleRetryScheduled(e: RetryScheduled) {

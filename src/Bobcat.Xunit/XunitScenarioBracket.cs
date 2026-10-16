@@ -1,5 +1,6 @@
 using System.Reflection;
 using Xunit;
+using Xunit.v3;
 
 namespace Bobcat.Xunit;
 
@@ -48,17 +49,43 @@ internal static class XunitScenarioBracket
     /// folds an exception from an after-test hook into the test's own result, which is precisely
     /// the window needed: the spec's verdict lands on the test, once, at the end.
     /// </remarks>
-    internal static void Close()
+    /// <remarks>
+    /// <b>A failing Acceptance spec (bobcat#545) is reported skipped, in one of two ways.</b> When only
+    /// gathered wrongs failed it, the body finished cleanly and a skip thrown here is the only exception
+    /// xUnit holds, so it reads it as a skip. When the body threw, a second exception would make an
+    /// aggregate that xUnit never reads as a skip, so the test is registered with
+    /// <see cref="AcceptanceTestCase"/>, which rewrites its <c>TestFailed</c> on the way out.
+    /// </remarks>
+    internal static void Close(IXunitTest? test = null)
     {
-        // EndScenario closes the recording, which raises ScenarioCompleted, which is where the
+        var verdict = BobcatScenarioAttribute.VerdictFrom(TestContext.Current.TestState);
+
+        // CloseScenario closes the recording, which raises ScenarioCompleted, which is where the
         // reports are written — so the sink has to still be open across this call and is disposed
         // only afterwards.
-        var gathered = MarkerStepRun.EndScenario(
-            BobcatScenarioAttribute.VerdictFrom(TestContext.Current.TestState));
+        var close = MarkerStepRun.CloseScenario(verdict);
 
         _output.Value?.Dispose();
         _output.Value = null;
 
-        if (gathered is not null) throw gathered;
+        if (close.SkipReason is { } reason)
+        {
+            if (verdict.Kind == ScenarioVerdictKind.Failed && test is not null)
+            {
+                AcceptanceTestCase.SkipAsAcceptance(test.UniqueID, reason);
+                return;
+            }
+
+            throw new SkipException(reason);
+        }
+
+        if (close.Rethrow is not null) throw close.Rethrow;
     }
+
+    /// <summary>
+    /// A dynamic skip, spelled the way xUnit v3 reads one: <c>Assert.Skip</c> lives in the assertion
+    /// package, which this adapter does not reference, so the message carries xUnit's documented
+    /// dynamic-skip token itself.
+    /// </summary>
+    private sealed class SkipException(string reason) : Exception(DynamicSkipToken.Value + reason);
 }

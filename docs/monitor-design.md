@@ -535,6 +535,21 @@ wait that isn't a step.
   runner and runs outside the bracket, so there is nothing for Bobcat to report. See
   [marker steps](marker-steps.md#timing).
 
+## An Acceptance spec has its own verdict (bobcat#545, built 2026-10-16)
+
+`ScenarioFinished.Outcome` gained a value, **`AcceptanceFailing`**, and `ScenarioFinished` a
+**trailing, optional** `Lifecycle` (`"Acceptance"`, or null for the default, Regression).
+`RunFinished` gained a trailing, optional `AcceptanceFailing` count.
+
+- **A failing Acceptance spec outside strict mode is `AcceptanceFailing`, never `Failed`**, with its
+  `ErrorMessage` and every step and cell as usual. It is counted in neither `Passed` nor `Failed` and
+  never makes `ExitCode` non-zero -- the test platform reported it skipped.
+- **A passing one is `CleanPass` with `Lifecycle: "Acceptance"`**: ready to promote to Regression.
+- **Under `BOBCAT_LIFECYCLE=strict` it is `Failed`**, still with `Lifecycle: "Acceptance"`.
+- **This is a contract change for every receiver.** A consumer that only knows `CleanPass` /
+  `PassOnRetry` / `Failed` / `Aborted` will read the new value as whatever its fallback is -- `bobcat
+  ui` (this repository) shows it as its own status; Stoat needs the matching change.
+
 ## A run sends its spec half of the Event Model (issue #294; projected since #488)
 
 A run that has a console to talk to also sends that console the spec assembly's half of the Event

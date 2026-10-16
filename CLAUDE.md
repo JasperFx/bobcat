@@ -456,6 +456,25 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     `ProjectedSpecIdentityEndToEndTests.a_projected_listing_covers_every_specification…` a real guard:
     the generator recognises the attribute by name and xUnit by base class, two independent
     mechanisms, and that test asserts the two counts agree.
+- **`Lifecycle.Acceptance`: runs, is recorded, cannot fail the build (bobcat#545, Storyteller gap G4).**
+  `[BobcatSpec(Lifecycle = …)]` on xUnit, `[BobcatScenario(Lifecycle = …)]` on TUnit/NUnit/MSTest; core
+  reads it through `IDeclaresLifecycle` (nullable, so a method attribute that says nothing does not
+  override its class) in `SpecLifecycle.Of`. `MarkerStepRun.CloseScenario` returns a `ScenarioClose`:
+  a failing Acceptance spec closes as `acceptance: failing` (wire outcome `AcceptanceFailing`, trailing
+  `ScenarioFinished.Lifecycle`, `RunFinished.AcceptanceFailing`; console/JSON/`SpecRender.Verdict`), is
+  counted as neither passed nor failed, and the adapter reports a skip with
+  `acceptance spec, not yet passing: <first failure>`. **xUnit cannot do that with a throw** when the
+  body threw (two exceptions aggregate, and an aggregate is never a skip), so `[BobcatSpec]` carries
+  `[XunitTestCaseDiscoverer(BobcatSpecDiscoverer)]` and an Acceptance spec becomes a self-executing
+  `AcceptanceTestCase` that rewrites the registered test's `TestFailed` into `TestSkipped`; a
+  gathered-only failure is a plain dynamic skip from the hook. TUnit: `OverrideResult(Skipped)`. NUnit:
+  `CurrentResult.SetResult(Ignored)`. **MSTest is half-supported**: its outcomes combine by importance,
+  so only a gathered-only failure becomes Inconclusive; a thrown one stays Failed and is recorded as
+  Failed (`CloseScenario(canSkipAFailedTest: false)`), so no surface claims green. `BOBCAT_LIFECYCLE=strict`
+  makes every Acceptance failure real and fails `Pending = true` specs as
+  `pending specification in strict mode: <identity>` (C13; xUnit only, where `Pending` lives). Not on the
+  supervisor: a skipped test is never retried there, which is the "never retried" half. Stoat needs the
+  matching wire change; HTML (#541) does not exist yet.
 - **A projected run's bracket is per REQUEST, not per process (issue #402).**
   `MarkerStepRun.OpenRun(mode)` / `CloseRun()` are the seam; `Bobcat.Xunit` ships an
   `ITestSessionLifetimeHandler` (`BobcatSessionLifetime`) that drives them. Two run requests in one

@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using NUnit.Framework.Interfaces;
+using NUnit.Framework.Internal;
 
 namespace Bobcat.NUnit;
 
@@ -38,9 +39,29 @@ namespace Bobcat.NUnit;
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
-public sealed class BobcatScenarioAttribute : Attribute, ITestAction
+public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresLifecycle
 {
     internal const string Mode = "nunit";
+
+    /// <summary>
+    /// Where the specifications this attribute covers stand (bobcat#545) — on a class, every test in
+    /// it; on a method, that test, beating its class's.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="Bobcat.Lifecycle.Acceptance"/> spec runs every time. When it fails, Bobcat records
+    /// it in full as <c>acceptance: failing</c> and NUnit reports the test <b>ignored</b> — what
+    /// <c>Assert.Ignore</c> reports — with the reason <c>acceptance spec, not yet passing: &lt;first
+    /// failure&gt;</c>. <c>BOBCAT_LIFECYCLE=strict</c> makes it a failure.
+    /// </remarks>
+    public Lifecycle Lifecycle
+    {
+        get => _lifecycle ?? Lifecycle.Regression;
+        set => _lifecycle = value;
+    }
+
+    private Lifecycle? _lifecycle;
+
+    Lifecycle? IDeclaresLifecycle.Lifecycle => _lifecycle;
 
     private static readonly AsyncLocal<IDisposable?> _output = new();
 
@@ -72,12 +93,20 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction
 
         // Before the sink closes: EndScenario is what raises ScenarioCompleted, and that is where
         // the scenario's reports are written.
-        var gathered = MarkerStepRun.EndScenario(VerdictFrom(result.Outcome, result.Message));
+        var closed = MarkerStepRun.CloseScenario(VerdictFrom(result.Outcome, result.Message));
 
         _output.Value?.Dispose();
         _output.Value = null;
 
-        if (gathered is not null) throw gathered;
+        // bobcat#545: a failing Acceptance spec is reported ignored. Assert.Ignore would throw, and
+        // NUnit already holds the body's failure by now, so the recorded result is replaced instead.
+        if (closed.SkipReason is { } reason)
+        {
+            TestExecutionContext.CurrentContext.CurrentResult.SetResult(ResultState.Ignored, reason, null);
+            return;
+        }
+
+        if (closed.Rethrow is not null) throw closed.Rethrow;
     }
 
     /// <summary>

@@ -61,3 +61,19 @@ public class BadCellException : Exception
     {
     }
 }
+
+/// <summary>
+/// A <c>Pending = true</c> specification in a strict run (<c>BOBCAT_LIFECYCLE=strict</c>, C13 of the
+/// BDD tools comparison): strict means nothing unfinished, so a stub fails instead of being skipped.
+/// The message is <c>pending specification in strict mode: &lt;identity&gt;</c>.
+/// </summary>
+public class PendingSpecificationException : Exception
+{
+    public PendingSpecificationException(string identity) : base(SpecLifecycle.PendingInStrictMode(identity))
+    {
+        Identity = identity;
+    }
+
+    /// <summary>The pending specification's <c>{Feature}/{Scenario}</c> identity.</summary>
+    public string Identity { get; }
+}

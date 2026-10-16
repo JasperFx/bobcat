@@ -110,7 +110,8 @@ function sliceOf(uid: string) {
 }
 
 .bm-scenario[data-status='passed-on-retry'],
-.bm-scenario[data-status='retry-scheduled'] {
+.bm-scenario[data-status='retry-scheduled'],
+.bm-scenario[data-status='acceptance-failing'] {
   border-color: var(--bm-state-retrying);
 }
 

@@ -51,8 +51,12 @@ public class CommandLineRenderer
         // A scenario with no steps is Bobcat's pending-specification hotspot everywhere else, and the
         // build already warns about it (BOBCAT028). Calling it OK here was the one place that did not
         // agree — a test that declares nothing has not passed anything.
+        // bobcat#545: a failing Acceptance spec is its own verdict, never FAILED, and a passing one
+        // says it is ready to promote -- the one thing to do about it.
         var statusIcon = spec.Steps.Count == 0 && spec.Succeeded
             ? "[yellow]PENDING[/]"
+            : spec.AcceptanceFailing ? "[yellow]ACCEPTANCE: FAILING[/]"
+            : spec.ReadyToPromote ? $"[green]OK[/] [cyan](acceptance — {SpecLifecycle.ReadyToPromote})[/]"
             : spec.Succeeded ? "[green]OK[/]" : "[red]FAILED[/]";
 
         output.WriteLine();
@@ -80,19 +84,20 @@ public class CommandLineRenderer
             // When the failure's renderer recovered a cell from its message, show the CELL — it says
             // the same thing in one line that the message says in five, and in the same shape every
             // other comparison in the report uses.
+            var failureColor = spec.AcceptanceFailing ? "yellow" : "red";
             if (spec.ScenarioFailureCells.Count > 0)
             {
                 foreach (var cell in spec.ScenarioFailureCells)
                 {
                     output.MarkupLine(
-                        $"    [red]✗[/] {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
+                        $"    [{failureColor}]✗[/] {Markup.Escape(cell.Name)}: {Markup.Escape(cell.DisplayText)}");
                 }
             }
             else
             {
                 foreach (var line in failure.Split('\n'))
                 {
-                    output.MarkupLine($"    [red]{Markup.Escape(line.TrimEnd())}[/]");
+                    output.MarkupLine($"    [{failureColor}]{Markup.Escape(line.TrimEnd())}[/]");
                 }
             }
         }
@@ -100,7 +105,18 @@ public class CommandLineRenderer
         if (IncludeReports) RenderReports(spec);
 
         output.WriteLine();
-        RenderCounts(spec.Counts, spec.Succeeded);
+        if (spec.AcceptanceFailing)
+        {
+            // The counts as they are, under the verdict that explains why a red count fails nothing.
+            output.MarkupLine(
+                $"  [yellow]{SpecLifecycle.FailingVerdict} — not yet passing, does not fail the build " +
+                $"(Rights: {spec.Counts.Rights}, Wrongs: {spec.Counts.Wrongs}, Errors: {spec.Counts.Errors}). " +
+                $"{SpecLifecycle.EnvironmentVariable}={SpecLifecycle.StrictValue} makes it a failure.[/]");
+        }
+        else
+        {
+            RenderCounts(spec.Counts, spec.Succeeded);
+        }
 
         if (spec.DurationMs > 0)
         {

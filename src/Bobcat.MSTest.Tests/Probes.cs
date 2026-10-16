@@ -34,6 +34,29 @@ public class Probes
     public void is_inconclusive() => Assert.Inconclusive("no claim made");
 }
 
+/// <summary>
+/// bobcat#545's probes: Acceptance specs run by <see cref="AcceptanceProbeRunTests"/> in a child
+/// process of their own.
+/// </summary>
+[TestClass, BobcatFeature("Acceptance probes"), BobcatScenario(Lifecycle = Lifecycle.Acceptance), ProbeOnly]
+public class AcceptanceProbes
+{
+    [TestMethod]
+    public void passes() => 1.ShouldBe(1);
+
+    [TestMethod]
+    public void throws() => throw new NotImplementedException("not built yet");
+
+    [TestMethod]
+    public void gathers_a_wrong_without_throwing()
+    {
+        using (ScenarioRecorder.Step("Then", "the appointment is confirmed"))
+        {
+            SpecAssert.Check("status", "Proposed", "Confirmed");
+        }
+    }
+}
+
 /// <summary>Runs a test only inside a probe run, and reports it ignored everywhere else.</summary>
 public sealed class ProbeOnlyAttribute() : ConditionBaseAttribute(ConditionMode.Include)
 {
@@ -61,7 +84,8 @@ internal sealed class ProbeRun
         ScenarioRecorder.ScenarioCompleted += recording =>
         {
             var failure = recording.FailureDescription ?? recording.Failure?.Message ?? recording.GatheredFailures();
-            var line = $"{recording.Scenario}\t{(failure ?? "CleanPass").ReplaceLineEndings(" ")}";
+            var acceptance = recording.AcceptanceFailing ? "[acceptance: failing] " : "";
+            var line = $"{recording.Scenario}\t{acceptance}{(failure ?? "CleanPass").ReplaceLineEndings(" ")}";
             lock (_gate) File.AppendAllLines(path, [line]);
         };
     }
@@ -71,7 +95,9 @@ internal sealed class ProbeRun
     public required Dictionary<string, string> Published { get; init; }
     public required string Console { get; init; }
 
-    public static ProbeRun Execute()
+    public static ProbeRun Execute() => Execute(typeof(Probes), strict: false);
+
+    public static ProbeRun Execute(Type probes, bool strict)
     {
         var output = Path.Combine(Path.GetTempPath(), $"bobcat-mstest-probe-{Guid.NewGuid():N}.txt");
         var assembly = typeof(ProbeRun).Assembly.Location;
@@ -87,8 +113,9 @@ internal sealed class ProbeRun
         // ("\e[31mfailed\e[m throws"), which no literal matches
         start.ArgumentList.Add("--no-ansi");
         start.ArgumentList.Add("--filter");
-        start.ArgumentList.Add($"FullyQualifiedName~{typeof(Probes).FullName}.");
+        start.ArgumentList.Add($"FullyQualifiedName~{probes.FullName}.");
         start.Environment[OutputVariable] = output;
+        start.Environment[SpecLifecycle.EnvironmentVariable] = strict ? SpecLifecycle.StrictValue : "";
 
         using var process = Process.Start(start)!;
         var console = process.StandardOutput.ReadToEndAsync();
@@ -151,4 +178,46 @@ public class ProbeRunTests
     [TestMethod]
     public void an_inconclusive_test_is_withdrawn_rather_than_published()
         => _run.Published.ShouldNotContainKey("is inconclusive", _run.Console);
+}
+
+/// <summary>
+/// bobcat#545 against a real MSTest run, and its limit there: a spec failed only by gathered wrongs is
+/// reported inconclusive (a skip) with its reason, while one whose body threw stays failed — MSTest keeps
+/// the more important outcome — and Bobcat records that one as the failure it is.
+/// </summary>
+[TestClass]
+public class AcceptanceProbeRunTests
+{
+    private static ProbeRun _run = null!;
+    private static ProbeRun _strict = null!;
+
+    [ClassInitialize]
+    public static void RunTheProbes(TestContext _)
+    {
+        _run = ProbeRun.Execute(typeof(AcceptanceProbes), strict: false);
+        _strict = ProbeRun.Execute(typeof(AcceptanceProbes), strict: true);
+    }
+
+    [TestMethod]
+    public void a_spec_failed_by_gathered_wrongs_is_inconclusive_with_its_reason()
+    {
+        _run.Console.ShouldNotContain("failed gathers_a_wrong_without_throwing", customMessage: _run.Console);
+        _run.Console.ShouldContain("skipped gathers_a_wrong_without_throwing", customMessage: _run.Console);
+        _run.Console.ShouldContain(SpecLifecycle.SkipReasonPrefix, customMessage: _run.Console);
+        _run.Published["gathers a wrong without throwing"].ShouldStartWith("[acceptance: failing] ", customMessage: _run.Console);
+    }
+
+    [TestMethod]
+    public void a_spec_whose_body_threw_stays_failed_and_bobcat_says_so()
+    {
+        _run.Console.ShouldContain("failed throws", customMessage: _run.Console);
+        _run.Published["throws"].ShouldBe("System.NotImplementedException: not built yet", _run.Console);
+    }
+
+    [TestMethod]
+    public void strict_mode_leaves_the_gathered_one_failed()
+    {
+        _strict.Console.ShouldContain("failed gathers_a_wrong_without_throwing", customMessage: _strict.Console);
+        _strict.Published["gathers a wrong without throwing"].ShouldNotStartWith("[acceptance", customMessage: _strict.Console);
+    }
 }
