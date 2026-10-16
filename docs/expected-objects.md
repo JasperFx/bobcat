@@ -74,6 +74,22 @@ with the assertion's own message when it fails. A plain `ShouldBe` is the same a
 `.Check(…)` adds the same to a `.With(…)` chain. **A check only verifies**, so an object carrying one
 cannot be built as a command or an arranged event.
 
+**A check is one assertion on one member path** -- `x => x.Address.City.ShouldBe("Austin")`. Chained
+Shouldly reads naturally and cannot be read as one member, so it is a build error, **BOBCAT044**, at
+the lambda:
+
+```csharp
+// BOBCAT044: asserts on 'x.Attendees.ShouldHaveSingleItem().MemberId', which is not a member
+Specify<Meeting>(x => x.Attendees.ShouldHaveSingleItem().MemberId.ShouldBe(theMemberId));
+
+// Say what the collection holds instead
+Specify<Meeting>().With(x => x.Attendees, Expect.Exactly(Specify<Attendee>().With(a => a.MemberId, theMemberId)));
+```
+
+The same goes for an assertion on the object itself (`x => x.ShouldNotBeNull()`) and for one comparing
+two of its members (`x => x.Total.ShouldBe(x.Subtotal)`). Without the generator, the run refuses each
+one with an `ArgumentException` saying the same thing.
+
 ::: warning Member checks need C# 14 to read naturally
 A member check is an expression tree, which is how Bobcat reads the member path and the expected
 value out of it -- and **before C# 14 an expression tree cannot leave out an optional argument**,

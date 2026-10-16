@@ -75,4 +75,15 @@ public class CheckingMembersTests
         Should.Throw<ArgumentException>(() => Specify<Shipped>(x => Console.WriteLine(x)));
         Should.Throw<ArgumentException>(() => Specify<Shipped>(x => x.Carrier.ShouldBe(x.TrackingNumber)));
     }
+
+    [Fact]
+    public void a_chained_assertion_is_refused_saying_what_to_write_instead()
+    {
+        // bobcat#624: BOBCAT044 refuses this at build time; without the generator the run says the same
+        var refused = Should.Throw<ArgumentException>(
+            () => Specify<List<Shipped>>(x => x.ShouldHaveSingleItem(null).Carrier.ShouldBe("UPS", null)));
+
+        refused.Message.ShouldContain("is not a member of the object");
+        refused.Message.ShouldContain("Expect.Exactly(");
+    }
 }

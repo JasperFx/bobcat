@@ -6,9 +6,17 @@ namespace Bobcat.Partial;
 internal static class MemberPaths
 {
     public static string Of(LambdaExpression expression)
+        => read(expression.Body) ?? throw new ArgumentException(
+            $"'{expression}' is not a member path. Name a property or field of the object, such as x => x.Name or x => x.Address.City.",
+            nameof(expression));
+
+    /// <summary>True when <paramref name="body" /> is the parameter followed by one or more members.</summary>
+    public static bool IsPath(Expression body) => read(body) != null;
+
+    private static string? read(Expression body)
     {
         var segments = new Stack<string>();
-        var current = expression.Body;
+        var current = body;
 
         // A value-type member read through object, or an implicit conversion, wraps the member access.
         while (current is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } unary)
@@ -22,11 +30,6 @@ internal static class MemberPaths
             current = member.Expression;
         }
 
-        if (current is not ParameterExpression || segments.Count == 0)
-            throw new ArgumentException(
-                $"'{expression}' is not a member path. Name a property or field of the object, such as x => x.Name or x => x.Address.City.",
-                nameof(expression));
-
-        return string.Join(".", segments);
+        return current is ParameterExpression && segments.Count > 0 ? string.Join(".", segments) : null;
     }
 }
