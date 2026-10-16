@@ -133,6 +133,13 @@ internal static class MarkerCommentSpecs
         /// </remarks>
         public bool Pending;
 
+        /// <summary>
+        /// The test's constant data rows (bobcat#569), each its own specification at run time and
+        /// listed in the manifest under <c>{Feature}/{Scenario} {row}</c>. Empty for a test that is
+        /// not data-driven, or whose rows only a run produces.
+        /// </summary>
+        public IReadOnlyList<SpecRowConstants.Row> Rows = Array.Empty<SpecRowConstants.Row>();
+
         /// <summary>A test with no marker comments at all: it runs, but it renders as nothing.</summary>
         public bool IsUnmarked => Steps.Count == 0;
     }
@@ -194,7 +201,8 @@ internal static class MarkerCommentSpecs
                 TestMethod = method.Identifier.Text,
                 Where = method.Identifier.GetLocation(),
                 OpensRecording = featuresRecord || HasScenarioAttribute(declaration) || HasScenarioAttribute(method),
-                Pending = isPending(method)
+                Pending = isPending(method),
+                Rows = SpecRowConstants.Read(method, ctx.SemanticModel, ct)
             };
 
             var prose = new List<MarkedStep>();
@@ -302,11 +310,20 @@ internal static class MarkerCommentSpecs
     /// The attributes that open a scenario recording. <c>[BobcatSpec]</c> is here because it
     /// IMPLIES <c>[BobcatScenario]</c> (issue #403) — it runs the same bracket.
     /// </summary>
-    internal static readonly string[] ScenarioOpeningAttributes = { "BobcatScenario", SpecAttributeName };
+    internal static readonly string[] ScenarioOpeningAttributes = { "BobcatScenario", SpecAttributeName, TheoryAttributeName };
 
     /// <summary>The one-attribute projected spec (issue #403): a Fact, a scenario and a slice
     /// binding at once.</summary>
     internal const string SpecAttributeName = "BobcatSpec";
+
+    /// <summary>
+    /// The one-attribute data-driven spec (bobcat#569): <c>[BobcatSpec]</c> for a theory, with the same
+    /// settings, so every reader of <see cref="SpecAttributeName"/> reads it too.
+    /// </summary>
+    internal const string TheoryAttributeName = "BobcatTheory";
+
+    /// <summary><c>[BobcatSpec]</c> or <c>[BobcatTheory]</c>, by short name.</summary>
+    private static bool isSpecAttribute(string shortName) => shortName is SpecAttributeName or TheoryAttributeName;
 
     /// <summary>
     /// The slice binding on a class or a method — <c>[BobcatSlice]</c>, or the <c>[BobcatSpec]</c>
@@ -338,7 +355,7 @@ internal static class MarkerCommentSpecs
     {
         var attributes = node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" or SpecAttributeName)
+            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" || isSpecAttribute(shortName(a.Name.ToString())))
             .ToList();
 
         if (attributes.Count == 0) yield break;
@@ -352,7 +369,7 @@ internal static class MarkerCommentSpecs
             where ??= attribute;
             if (attribute.ArgumentList is null) continue;
 
-            var positional = shortName(attribute.Name.ToString()) == SpecAttributeName;
+            var positional = isSpecAttribute(shortName(attribute.Name.ToString()));
 
             foreach (var argument in attribute.ArgumentList.Arguments)
             {
@@ -448,7 +465,7 @@ internal static class MarkerCommentSpecs
     private static bool isPending(MemberDeclarationSyntax node)
         => node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) == SpecAttributeName)
+            .Where(a => isSpecAttribute(shortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Any(argument =>
                 argument.NameEquals?.Name.Identifier.Text == "Pending"
@@ -463,7 +480,7 @@ internal static class MarkerCommentSpecs
     private static string? triggeredBy(MemberDeclarationSyntax node)
         => node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" or SpecAttributeName)
+            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" || isSpecAttribute(shortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Where(argument => argument.NameEquals?.Name.Identifier.Text == "TriggeredBy")
             .Select(argument => literalOf(argument.Expression)?.Trim())
@@ -482,6 +499,10 @@ internal static class MarkerCommentSpecs
     internal static string IdentityOf(MarkedSpec spec, MarkedScenario scenario)
         => MarkerSpecNaming.Identity(spec.FeatureTitle, scenario.Title);
 
+    /// <summary>One constant row's identity (bobcat#569): the scenario's, with the row part on the end.</summary>
+    internal static string IdentityOf(MarkedSpec spec, MarkedScenario scenario, SpecRowConstants.Row row)
+        => MarkerSpecNaming.Identity(spec.FeatureTitle, MarkerSpecNaming.RowTitle(scenario.Title, row.Part));
+
     /// <summary>
     /// <c>Name = "…"</c> on this method's <c>[BobcatSpec]</c> (bobcat#489). Read with the semantic model
     /// so a <c>const</c> or a <c>nameof</c> works, with the literal as the fallback for a compilation
@@ -491,7 +512,7 @@ internal static class MarkerCommentSpecs
     private static string? explicitNameOf(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
         => method.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) == SpecAttributeName)
+            .Where(a => isSpecAttribute(shortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Where(argument => argument.NameEquals?.Name.Identifier.Text == "Name")
             .Select(argument => model.GetConstantValue(argument.Expression, ct).Value as string
@@ -511,12 +532,17 @@ internal static class MarkerCommentSpecs
     /// </remarks>
     internal static IReadOnlyList<DuplicateIdentity> DuplicateIdentities(IEnumerable<MarkedSpec> specs)
         => specs
-            .SelectMany(spec => spec.Scenarios.Select(scenario => (Identity: IdentityOf(spec, scenario), spec, scenario)))
+            .SelectMany(spec => spec.Scenarios.SelectMany(scenario =>
+                // bobcat#569: each constant row is a specification of its own, so two rows of one
+                // method that format alike (or share a label) claim one identity, pointed at the row.
+                new[] { (Identity: IdentityOf(spec, scenario), Spec: spec, Scenario: scenario, Where: scenario.Where) }
+                    .Concat(scenario.Rows.Select(row =>
+                        (Identity: IdentityOf(spec, scenario, row), Spec: spec, Scenario: scenario, Where: row.Where ?? scenario.Where)))))
             .GroupBy(x => x.Identity, StringComparer.Ordinal)
             .Where(group => group.Count() > 1)
             .Select(group => new DuplicateIdentity(
                 group.Key,
-                group.Select(x => new DuplicateClaim(x.spec.TestClass, x.scenario.TestMethod, x.scenario.Where)).ToList()))
+                group.Select(x => new DuplicateClaim(x.Spec.TestClass, x.Scenario.TestMethod, x.Where)).ToList()))
             .ToList();
 
     internal sealed class DuplicateIdentity
@@ -591,7 +617,7 @@ internal static class MarkerCommentSpecs
     /// </remarks>
     internal static readonly IReadOnlyCollection<string> TestMethodAttributeNames = new HashSet<string>(StringComparer.Ordinal)
     {
-        "Fact", "Theory", "Test", "TestCase", "TestMethod", "DataTestMethod", SpecAttributeName
+        "Fact", "Theory", "Test", "TestCase", "TestMethod", "DataTestMethod", SpecAttributeName, TheoryAttributeName
     };
 
     /// <summary>
@@ -779,6 +805,15 @@ internal static class MarkerCommentSpecs
                     sb.AppendLine(
                         $"            global::Bobcat.DeclaredSteps.Bind({Quote(identity)}, "
                         + $"{Quote(spec.TestClass)}, {Quote(scenario.TestMethod)});");
+
+                    // bobcat#569: each constant row is listed under its own identity, naming the
+                    // method's as its parent. A row only a run produces is not here.
+                    foreach (var row in scenario.Rows)
+                    {
+                        sb.AppendLine(
+                            $"            global::Bobcat.DeclaredSteps.Bind({Quote(IdentityOf(spec, scenario, row))}, "
+                            + $"{Quote(spec.TestClass)}, {Quote(scenario.TestMethod)}, {Quote(identity)});");
+                    }
                 }
 
                 // A test with no marker comments is not a specification. Registering it empty

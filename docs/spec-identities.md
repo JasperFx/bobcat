@@ -87,6 +87,61 @@ apostrophe and the dash Stoat lost from two of its identities when it converted 
 lane. Leave it off and the identity is exactly what it always was. See
 [the explicit scenario name](marker-steps.md#explicit-name).
 
+### Each data row is its own specification
+
+A data-driven test -- an xUnit `[Theory]` row, a TUnit `[Arguments]`, an NUnit `[TestCase]`, an
+MSTest `[DataRow]` -- runs once per row, and **each row records under its own identity**
+([#569](https://github.com/JasperFx/bobcat/issues/569)): the method's identity plus the row.
+
+| Row | Identity |
+|---|---|
+| `[InlineData(100, Tier.Gold)]` | `Discounts/Discount is applied (amount: 100, tier: Gold)` |
+| `[BobcatExample("gold customer", 100, Tier.Gold)]` | `Discounts/Discount is applied [gold customer]` |
+| `[InlineData(100, Tier.Gold, Label = "gold customer")]` | `Discounts/Discount is applied [gold customer]` |
+
+```csharp
+[BobcatFeature("Discounts")]
+public class DiscountSpecs
+{
+    [BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]
+    [InlineData(100, Tier.Gold)]
+    [BobcatExample("silver customer", 50, Tier.Silver)]
+    public void discount(int amount, Tier tier) { ... }
+}
+```
+
+- **The row part** is the arguments, named by their parameters, or the row's label when it has one.
+  Values use the invariant culture, so the string is the same on every machine: strings verbatim,
+  `null`, `true`/`false`, an enum by member name, numbers round-trippable, a collection as `[a, b]`,
+  line breaks escaped. A label survives a changed argument, so reach for one when the row has a name.
+  Only xUnit carries a label to the test; TUnit, NUnit and MSTest rows are always named by their
+  arguments.
+- **`[BobcatTheory]`** is `[BobcatSpec]` for a theory: the `[Theory]`, the scenario bracket and the
+  slice binding in one attribute, with the same `Name`, slice settings and `Pending`. A plain
+  `[Theory]` under `[BobcatScenario]` gets row identities too.
+- **The Event Model keeps one specification per method.** The rows are examples of one behaviour,
+  so the slice lists `Discounts/Discount is applied`, the declared and planned steps are registered
+  once under it, and every row's `scenario_started`/`scenario_finished` carries it as
+  **`ParentSpecId`**. A console folds the rows into the method's verdict by that field, never by
+  parsing the row identity.
+- **Constant rows are listed.** `[InlineData]`, `[BobcatExample]`, `[Arguments]`, `[TestCase]` and
+  `[DataRow]` rows are in the spec manifest with a `parent`. A row is listed only when its identity
+  is certain at compile time: the value has the parameter's own type (or an integral number for an
+  integral parameter, or any value for an `object` parameter). A string a runner converts to a
+  `Guid`, a `params` parameter, an array or an enum value no member names is left to run time.
+- **`[MemberData]`, `[ClassData]` and their kin** produce rows only a run knows. Those rows still
+  record and publish under their own identities, but they are not in the manifest ahead of the run,
+  so they cannot be asked for by identity.
+- **Two rows of one method that format alike, or share a label, are BOBCAT036**, pointed at the row
+  attributes. Change or remove the repeated row, or label it.
+- **One row can't be run on its own by a filter.** A framework filter selects a test method, so a
+  request for one row would run every row. `SpecFilterArguments` refuses it, naming the method's
+  identity to run instead; a row asked for beside its method is already covered. A warm resident
+  command refuses it too (its uid can't be named), while the method's identity runs every row.
+- **Changing to row identities moves history.** A theory that recorded under the method's identity
+  before this records under one identity per row now, so its ledger history and any curated link to
+  the old string start again under the rows.
+
 ### Two specs, one identity
 
 Nothing used to stop two specs from resolving to the same identity -- same-named methods in two

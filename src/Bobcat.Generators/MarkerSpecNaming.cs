@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace Bobcat.Generators;
@@ -83,6 +85,26 @@ internal static class MarkerSpecNaming
     /// does BOBCAT036's duplicate check, so the check compares exactly the strings that get emitted.
     /// </summary>
     public static string Identity(string featureTitle, string scenarioTitle) => featureTitle + "/" + scenarioTitle;
+
+    /// <summary>
+    /// The row part of a labelled row's identity, <c>[label]</c> (bobcat#569). The run-time copy is
+    /// <c>Bobcat.SpecRows.Labelled</c>; <c>MarkerSpecNamingAgreementTests</c> pins the two together.
+    /// </summary>
+    public static string RowLabel(string label) => "[" + EscapeRowValue(label.Trim()) + "]";
+
+    /// <summary>
+    /// The row part of a row's identity from its formatted values, <c>(name: value, …)</c>
+    /// (bobcat#569). The run-time copy is <c>Bobcat.SpecRows.Arguments</c>.
+    /// </summary>
+    public static string RowArguments(IReadOnlyList<string> parameterNames, IReadOnlyList<string> formattedValues)
+        => "(" + string.Join(", ", formattedValues.Select((value, i) =>
+            (i < parameterNames.Count ? parameterNames[i] : "arg" + i) + ": " + value)) + ")";
+
+    /// <summary>The scenario title of one row: the method's title, a space, then the row part.</summary>
+    public static string RowTitle(string scenarioTitle, string row) => scenarioTitle + " " + row;
+
+    /// <summary>Line breaks escaped, so an identity is always one line. The run-time copy is in <c>Bobcat.SpecRows</c>.</summary>
+    public static string EscapeRowValue(string text) => text.Replace("\r", "\\r").Replace("\n", "\\n");
 
     /// <summary>
     /// A C# identifier as the sentence it was standing in for. Underscores are how a test method

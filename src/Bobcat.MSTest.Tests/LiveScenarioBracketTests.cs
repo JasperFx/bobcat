@@ -42,8 +42,12 @@ public class LiveScenarioBracketTests
     [DataRow(1)]
     [DataRow(2)]
     public void a_data_driven_test_opens_a_scenario_per_row(int row)
-        => ScenarioRecorder.Current.ShouldNotBeNull()
-            .Uid.ShouldBe("Async daemon/a data driven test opens a scenario per row");
+    {
+        // bobcat#569: each row is its own specification, named by its arguments, under the method's
+        var recording = ScenarioRecorder.Current.ShouldNotBeNull();
+        recording.Uid.ShouldBe($"Async daemon/a data driven test opens a scenario per row (row: {row})");
+        recording.ParentUid.ShouldBe("Async daemon/a data driven test opens a scenario per row");
+    }
 }
 
 /// <summary>Opting in one method at a time, and the class's other tests left alone.</summary>

@@ -75,8 +75,17 @@ public static class DeclaredSteps
     /// </para>
     /// </remarks>
     public static void Bind(string uid, string testClass, string testMethod)
+        => Bind(uid, testClass, testMethod, null);
+
+    /// <summary>
+    /// Bind one constant row of a data-driven specification (bobcat#569): its own identity, the test
+    /// method every row shares, and the method's identity as its <paramref name="parent"/>. Called from
+    /// generated code. Rows only a run produces (<c>[MemberData]</c>) are never bound, because nothing
+    /// knows them before the run.
+    /// </summary>
+    public static void Bind(string uid, string testClass, string testMethod, string? parent)
     {
-        var entry = new SpecManifestEntry(uid, testClass, testMethod);
+        var entry = new SpecManifestEntry(uid, testClass, testMethod, parent);
 
         _bindings.AddOrUpdate(uid, entry, (_, existing) =>
         {
