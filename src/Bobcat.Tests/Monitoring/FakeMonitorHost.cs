@@ -145,6 +145,10 @@ internal sealed class FakeMonitorHost : IDisposable
     /// waits on a child process and has to say whether the child ever found it.</summary>
     public int Pings => Volatile.Read(ref _pings);
 
+    /// <summary>How long to sit on a <c>GET /api/ping</c> before answering — a slow console
+    /// (bobcat#589). The ping is counted on arrival, as a real slow console would have seen it.</summary>
+    public TimeSpan PingDelay { get; set; } = TimeSpan.Zero;
+
     private async Task loop()
     {
         try
@@ -227,7 +231,12 @@ internal sealed class FakeMonitorHost : IDisposable
                 }
                 else
                 {
-                    if (path == "/api/ping") Interlocked.Increment(ref _pings);
+                    if (path == "/api/ping")
+                    {
+                        Interlocked.Increment(ref _pings);
+                        if (PingDelay > TimeSpan.Zero) await Task.Delay(PingDelay);
+                    }
+
                     context.Response.StatusCode = 200;
                 }
 

@@ -66,6 +66,7 @@ Starting `bobcat ui` halfway through a run does not attach that run; the next on
 |---|---|
 | `BOBCAT_MONITOR_URL` | where a run looks for the UI; `http://localhost:5525` by default |
 | `BOBCAT_MONITOR=0` | do not publish at all, not even the probe |
+| `BOBCAT_MONITOR=1` | a console is expected: the probe waits up to 5s for it instead of 250ms (a resident runner sets this on every child) |
 | `BOBCAT_RUN_TAG` | an opaque label stamped on the run -- a ticket, a build number -- and shown with it |
 
 The full publisher vocabulary is in [What a Run Publishes](monitor-design.md).
