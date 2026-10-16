@@ -1080,6 +1080,46 @@ The Event Model keeps one specification per method, and each row's result names 
 What the row identity is made of, which rows reach the manifest, and why one row can't be run on its
 own by a filter: [spec identities](spec-identities.md#each-data-row-is-its-own-specification).
 
+### A theory's examples as a table -- `[BobcatExamples]` (bobcat#570) {#bobcatexamples}
+
+For a data-centric spec, write the rows as the same pipe-table literal Bobcat reads everywhere else.
+**One row, one specification**, each with its own run, verdict and identity:
+
+```csharp
+[BobcatTheory(typeof(ApplyDiscount))]
+[BobcatExamples("""
+    | amount | tier | expected |
+    | 100    | Gold | 90       |
+    | 100    | None | 100      |
+    """)]
+public async Task discount_is_applied(decimal amount, Tier tier, decimal expected) { /* … */ }
+// Discounts/discount is applied (amount: 100, tier: Gold, expected: 90)
+// Discounts/discount is applied (amount: 100, tier: None, expected: 100)
+```
+
+- **Columns bind to parameters by name**, case-insensitive: a `[Header("…")]` title on the parameter,
+  else its name -- the rule `TableRunner` binds a row method by. A parameter with a default value may
+  be left out.
+- **Cells read through `CellValues`**: `NULL`, `EMPTY`, a quoted literal, relative times
+  (`TODAY+2`), enums by name (any case), and domain types (`CellValues.Register<T>`, `IParsable<T>`,
+  a `TypeConverter`, a `ctor(string)`). Rows are read when xUnit **discovers** the theory, so register
+  a domain type's conversion in a `[ModuleInitializer]`, not in a fixture, and a relative time
+  resolves against the real clock, not one the spec fakes.
+- **The table is a constant, so the build checks it.** A column naming no parameter is **BOBCAT032**.
+  A parameter with no column and no default, a column given twice, a row with the wrong number of
+  cells, a header with no rows, or a cell its parameter's type can't read (`ten` for an `int`, an enum
+  value no member names, `NULL` for a non-nullable value type) is **BOBCAT042**. A constant built from
+  `nameof` (`$"| {nameof(amount)} |…"`) is read too.
+- **Each row is listed in the spec manifest** under its identity when that identity is certain at
+  compile time: strings and the tokens, enums, numbers, booleans, chars and Guids. A row with a date,
+  a relative time or a domain type still runs under its own identity; it just isn't listed ahead of
+  the run. Two rows that read alike (`1` and `01`) are BOBCAT036.
+- **Not `TableRunner`.** That judges many rows inside **one** spec, with one verdict. Reach for
+  `[BobcatExamples]` when each row is an example someone may want to run, track or see fail on its
+  own; reach for a table step when the rows are one claim.
+- `[AttributeUsage(AllowMultiple = true)]`, so a theory can carry several tables, and mix them with
+  `[InlineData]` and `[BobcatExample]`. xUnit-only, like `[BobcatTheory]`.
+
 ### An explicit scenario name: `Name = "…"` (bobcat#489) {#explicit-name}
 
 A projected spec's scenario title is its method name read as a sentence. Two things a method name
@@ -1236,7 +1276,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT027** (warning) | A step template names no parameter of its method. Nothing can fill it, so the step renders as `{thread}` forever -- before this it looked identical to a placeholder that was merely deferred |
 | **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording: no `[BobcatScenario]` or `[BobcatSpec]` on it, and no `[assembly: RecordBobcatFeatures]` hook (the `Bobcat.Xunit` package applies that one for you). Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** -- a suite that records nothing is indistinguishable at run time from a suite with nothing to record -- which is why it is a compiler diagnostic |
 | **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose -- it is here for the one author who meant a step and cannot see why it is missing |
-| **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path. A stale column is always a broken spec |
+| **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path, and a `[BobcatExamples]` column naming no parameter of its theory. A stale column is always a broken spec |
 | **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
 | **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route` or `RouteName`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
 | **BOBCAT038** (info) | A projected spec's HTTP act passes a `Route` or `RouteName` argument the generator can't turn into a route. This covers a helper call or a variable, a route name no endpoint attribute declares (a minimal API's `.WithName`), an ambiguous route name, or no route at all. A by-type act (`WhenPosted(cmd)`, `WhenPut(cmd)`) gets it when no endpoint attribute takes the command as its body (a minimal API), or several with different templates do, or none of the act's verb does. The slice keeps its trigger kind with no route. Pass a constant template, an interpolated string, or a route name an endpoint attribute declares. See [The act's route](#act-route) |
@@ -1245,6 +1285,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT039** (error) | A step helper the generated interceptor cannot call: `protected`, `private`, `private protected`, or declared on a type the assembly cannot reach (a private nested class). Reported once, at the helper, and its calls get no interceptor -- before this it was a CS0122 per call site in `BobcatStepInterceptors.g.cs`. Make the helper `public` or `internal` (`protected internal` works too) |
 | **BOBCAT040** (error) | An `override` of a test that inherits `[BobcatSpec]`/`[BobcatTheory]` carries another test attribute, usually `[Fact(Skip = "…")]` to skip one subclass's copy. xUnit inherits the base's attribute, so the override has two Fact-derived attributes and fails at run time ("has multiple [Fact]-derived attributes") instead of being skipped. Write `[BobcatSpec(Skip = "…")]` on the override. See [Spec Identities](spec-identities.md#inherited-specs) |
 | **BOBCAT041** (info) | A projected spec in a suite that models slices reaches no Event Model slice: a `[BobcatSpec]` with no binding and no role-stamped vocabulary, one whose only stated types are documents, or an unbound spec whose act is a query or names no command in a feature whose unbound specs make different acts. The test runs as before; only the model is missing it. Bind it with `[BobcatSpec(typeof(TheCommandOrReadModel))]` or `[BobcatSpec(SliceName = "…")]`. See [An act that names no command](#unstamped-act) |
+| **BOBCAT042** (error) | A `[BobcatExamples]` table the runtime would refuse: a parameter with no column and no default, a column given twice, a row with the wrong number of cells, a header with no rows, or a cell its parameter's type can't read (`ten` for an `int`, an enum value no member names, `NULL` for a non-nullable value type). A column naming no parameter is BOBCAT032. Fix the table; see [`[BobcatExamples]`](#bobcatexamples) |
 
 BOBCAT001–022, 030, 031 and 035 were retired with the Gherkin lane in 0.50.0 (bobcat#471). Nothing
 emits them, and the ids are never reused.

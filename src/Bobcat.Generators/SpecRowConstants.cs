@@ -16,7 +16,8 @@ namespace Bobcat.Generators;
 /// <para>
 /// <b>Constant rows only.</b> <c>[InlineData]</c> and <c>[BobcatExample]</c> (xUnit),
 /// <c>[Arguments]</c> (TUnit), <c>[TestCase]</c> (NUnit) and <c>[DataRow]</c> (MSTest) carry their
-/// values in the attribute, so the row identity the runtime will publish can be computed here.
+/// values in the attribute, and so does a <c>[BobcatExamples]</c> table, one row per data row
+/// (<see cref="InlineExamples"/>, bobcat#570), so the row identity the runtime will publish can be computed here.
 /// <c>[MemberData]</c>, <c>[ClassData]</c> and their kin are values only a run produces: those rows
 /// get identities at run time and are not listed ahead of it.
 /// </para>
@@ -72,6 +73,18 @@ internal static class SpecRowConstants
 
         foreach (var attribute in symbol.GetAttributes())
         {
+            // [BobcatExamples(table)] (bobcat#570): one row per data row of the table
+            if (InlineExamples.IsAttribute(attribute))
+            {
+                var at = attribute.ApplicationSyntaxReference?.GetSyntax(ct).GetLocation();
+                foreach (var example in InlineExamples.Read(attribute, symbol).RowParts)
+                {
+                    if (example != null) rows.Add(new Row(example, at));
+                }
+
+                continue;
+            }
+
             if (attribute.AttributeClass?.Name is not { } name || !rowAttributes.Contains(name)) continue;
             if (attribute.AttributeConstructor is null) continue;
 

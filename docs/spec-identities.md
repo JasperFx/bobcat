@@ -114,6 +114,7 @@ MSTest `[DataRow]` -- runs once per row, and **each row records under its own id
 | `[InlineData(100, Tier.Gold)]` | `Discounts/Discount is applied (amount: 100, tier: Gold)` |
 | `[BobcatExample("gold customer", 100, Tier.Gold)]` | `Discounts/Discount is applied [gold customer]` |
 | `[InlineData(100, Tier.Gold, Label = "gold customer")]` | `Discounts/Discount is applied [gold customer]` |
+| a `[BobcatExamples]` row `\| 100 \| Gold \|` | `Discounts/Discount is applied (amount: 100, tier: Gold)` |
 
 ```csharp
 [BobcatFeature("Discounts")]
@@ -141,7 +142,8 @@ public class DiscountSpecs
   **`ParentSpecId`**. A console folds the rows into the method's verdict by that field, never by
   parsing the row identity.
 - **Constant rows are listed.** `[InlineData]`, `[BobcatExample]`, `[Arguments]`, `[TestCase]` and
-  `[DataRow]` rows are in the spec manifest with a `parent`. A row is listed only when its identity
+  `[DataRow]` rows, and each row of a [`[BobcatExamples]`](marker-steps.md#bobcatexamples) table,
+  are in the spec manifest with a `parent`. A row is listed only when its identity
   is certain at compile time: the value has the parameter's own type (or an integral number for an
   integral parameter, or any value for an `object` parameter). A string a runner converts to a
   `Guid`, a `params` parameter, an array or an enum value no member names is left to run time.

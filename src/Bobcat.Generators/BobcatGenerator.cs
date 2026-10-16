@@ -146,6 +146,26 @@ public class BobcatGenerator : IIncrementalGenerator
                 spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnknownTableColumn, finding.Location, finding.Message));
         });
 
+        // 3c'''. bobcat#570: a [BobcatExamples] table checked against the theory's parameters. A column
+        //        naming no parameter is BOBCAT032, like any other stale column; a table the runtime would
+        //        refuse for any other reason is BOBCAT042.
+        var exampleTables = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => InlineExamples.IsCandidate(node),
+                transform: InlineExamples.Check)
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(exampleTables, (spc, findings) =>
+        {
+            foreach (var (location, problem) in findings)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    problem.UnknownColumn ? Diagnostics.UnknownTableColumn : Diagnostics.UnreadableExamples,
+                    location, problem.Message));
+            }
+        });
+
         // 3f. BOBCAT034 (bobcat#462): an [EventModelRole] / [EventModelTrigger] naming no parameter of
         //     the vocabulary method it decorates, caught where the vocabulary is declared
         var roleSources = context.SyntaxProvider
@@ -372,7 +392,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT042 (040 is bobcat#610's, 041 bobcat#615's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT043 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -620,6 +640,21 @@ internal static class Diagnostics
         "[BobcatSpec(typeof(TheCommandOrReadModel))] or [BobcatSpec(SliceName = \"...\")].",
         "Bobcat",
         DiagnosticSeverity.Info,
+        true);
+
+    /// <summary>
+    /// bobcat#570: a <c>[BobcatExamples]</c> table the runtime would refuse — a parameter with no column and
+    /// no default, a column given twice, a row with the wrong number of cells, no rows at all, or a cell its
+    /// parameter's type cannot read (an enum value no member names, a number that does not parse, <c>NULL</c>
+    /// for a non-nullable value type). An error, because every one of them fails the theory before any row
+    /// runs. A column naming no parameter is BOBCAT032, like every other stale column.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnreadableExamples = new(
+        "BOBCAT042",
+        "An inline examples table does not fit its theory",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Error,
         true);
 
     public static readonly DiagnosticDescriptor SliceBindingConflict = new(

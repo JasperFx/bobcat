@@ -42,6 +42,26 @@ public class BobcatTheoryAttributeTests
     }
 
     /// <summary>
+    /// bobcat#570: an inline examples table, one specification per row, its cells read as the
+    /// parameters' types before the runner sees them.
+    /// </summary>
+    [BobcatTheory]
+    [BobcatExamples("""
+        | amount | tier   | expected |
+        | 100    | gold   | 90       |
+        | 100.50 | Silver | 100.50   |
+        """)]
+    public void an_examples_row_records_under_its_own_identity(decimal amount, Tier tier, decimal expected)
+    {
+        var row = tier == Tier.Gold ? "(amount: 100, tier: Gold, expected: 90)" : "(amount: 100.50, tier: Silver, expected: 100.50)";
+
+        ScenarioRecorder.Current.ShouldNotBeNull()
+            .Uid.ShouldBe($"Discounts/an examples row records under its own identity {row}");
+
+        (expected <= amount).ShouldBeTrue();
+    }
+
+    /// <summary>
     /// A plain <c>[Theory]</c> under the class-level opt-in is data-driven too, so it gets row
     /// identities without the one-attribute form.
     /// </summary>
