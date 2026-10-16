@@ -45,7 +45,7 @@ public class LedgerFeedTests
         // The failure class and its recovery — what a hint proposal is made from, and what the
         // in-process feed cannot know (only the final attempt survives there).
         flaky.Failure.ShouldBe("System.TimeoutException");
-        flaky.ClearedBy.ShouldBe(nameof(JasperFx.Testing.DispositionKind.RetryInProcess));
+        flaky.ClearedBy.ShouldBe(nameof(JasperFx.Testing.DispositionKind.RetryInFreshProcess));
         flaky.TotalMs.ShouldBe(2_000);
         flaky.FirstMs.ShouldBe(1_000);
         flaky.StallInduced.ShouldBeFalse();

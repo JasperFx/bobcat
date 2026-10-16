@@ -48,13 +48,25 @@ public class DefaultFailurePolicyTests
     }
 
     [Fact]
-    public void a_retry_trait_asks_for_an_in_process_retry()
+    public void a_retry_trait_asks_for_a_fresh_process_retry()
     {
+        // bobcat#661: a failure that polluted its process fails every warm retry with the first
+        // attempt's leftovers, and the fresh process is the only reset bracket a worker has.
         var disposition = _policy.Decide(attempt(traits: "Retry=2"))!;
 
-        disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
+        disposition.Kind.ShouldBe(DispositionKind.RetryInFreshProcess);
         disposition.IsRetry.ShouldBeTrue();
+        disposition.RequiresSupervisor.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_warm_retry_is_an_explicit_opt_in()
+    {
+        var disposition = _policy.Decide(attempt(traits: ["Retry=2", "RetryWarm=true"]))!;
+
+        disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
         disposition.RequiresSupervisor.ShouldBeFalse();
+        disposition.Reason.ShouldContain("warm");
     }
 
     [Fact]

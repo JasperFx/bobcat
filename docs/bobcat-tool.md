@@ -119,7 +119,8 @@ run. `--results`, `--verbose` and every selection flag work on both.
   `Retry` trait (`[Trait("Retry", "2")]`) or a recovery hint (`[ClearsOnRetry(typeof(TimeoutException))]`)
   that matches the failure. Without either, a failure is reported once, `--retries` or not:
   retrying every failure would make flaky indistinguishable from broken. A `SpecCatastrophicException`
-  is never retried and aborts the run.
+  is never retried and aborts the run. A `Retry` trait's retry runs alone in a fresh process;
+  `[Trait("RetryWarm", "true")]` retries in the same process instead.
 - **A pass on retry exits 0 and is reported apart**: the report after the specifications lists
   "Passed on retry (not clean passes)" and the quarantine candidates. `--failed` does not count it:
   the last verdict for a specification is the one that counts.

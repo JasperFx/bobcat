@@ -130,8 +130,9 @@ public class RunReportTests
         var attempts = flaky.GetProperty("attemptDetail").EnumerateArray().ToList();
         attempts.Count.ShouldBe(2);
         attempts[0].GetProperty("placement").GetString().ShouldBe(nameof(AttemptPlacement.Batched));
-        attempts[0].GetProperty("disposition").GetString().ShouldBe(nameof(DispositionKind.RetryInProcess));
-        attempts[1].GetProperty("placement").GetString().ShouldBe(nameof(AttemptPlacement.SameProcess));
+        // A plain Retry trait retries alone in a fresh process (bobcat#661).
+        attempts[0].GetProperty("disposition").GetString().ShouldBe(nameof(DispositionKind.RetryInFreshProcess));
+        attempts[1].GetProperty("placement").GetString().ShouldBe(nameof(AttemptPlacement.IsolatedProcess));
     }
 
     [Fact]

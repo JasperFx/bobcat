@@ -128,6 +128,12 @@ The budget is a ceiling, not a switch: only a test carrying a `Retry` trait (`[T
 or a recovery hint matching the failure (`[ClearsOnRetry(typeof(TimeoutException))]`) is ever
 retried, and a `SpecCatastrophicException` never is.
 
+A `Retry` trait retries **in a fresh process**, alone. That is the safe default for an integration
+test: a failure that leaves state behind (a handler registry, a static, a half-built schema) would
+fail every warm retry with the first attempt's leftovers, and a worker process has no other reset.
+Add `[Trait("RetryWarm", "true")]` to retry in the same process instead, for a test you know leaves
+nothing behind.
+
 Watch the pass-on-retry number, not the pass number. A retry budget will mask a rising failure
 count if nobody is looking at it.
 

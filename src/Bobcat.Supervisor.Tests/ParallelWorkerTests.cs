@@ -122,10 +122,11 @@ public class ParallelWorkerTests
         // "Same process" has to mean the same one. A class's static state lives in the process
         // that ran it, so retrying in a different warm worker is a fresh-process retry wearing
         // the wrong label.
-        // Retries stay opt-in even in a fleet, so the flaky test carries the tag.
+        // Retries stay opt-in even in a fleet, so the flaky test carries the tag, and a warm
+        // retry is its own opt-in (bobcat#661).
         var tests = classes(("A", 3), ("B", 3))
             .Append(FakeWorkerFactory.InClass("C", "test_1"))
-            .Append(FakeWorkerFactory.InClass("C", "test_2", "Retry=2"))
+            .Append(FakeWorkerFactory.InClass("C", "test_2", "Retry=2", "RetryWarm=true"))
             .Append(FakeWorkerFactory.InClass("C", "test_3"))
             .ToList();
 

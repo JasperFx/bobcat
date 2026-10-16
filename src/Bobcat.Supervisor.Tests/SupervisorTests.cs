@@ -1,3 +1,4 @@
+using JasperFx.Testing;
 using Bobcat.Engine;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
@@ -184,7 +185,7 @@ public class SupervisorTests
     {
         var factory = new FakeWorkerFactory
         {
-            Tests = [FakeWorkerFactory.Test("flaky", "Retry=2")],
+            Tests = [FakeWorkerFactory.Test("flaky", "Retry=2", "RetryWarm=true")],
             Outcome = (_, attempt, _) => attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
@@ -196,6 +197,29 @@ public class SupervisorTests
         var test = results.Tests.ShouldHaveSingleItem();
         test.Outcome.ShouldBe(RunOutcome.PassOnRetry);
         test.Attempts[1].Placement.ShouldBe(AttemptPlacement.SameProcess);
+    }
+
+    [Fact]
+    public async Task a_plain_retry_trait_retries_alone_in_a_fresh_process()
+    {
+        // bobcat#661: the warm worker may hold whatever the failed attempt left behind, so the
+        // default retry gets a process of its own, the only reset bracket a worker has.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("flaky", "Retry=2"), FakeWorkerFactory.Test("clean")],
+            Outcome = (uid, attempt, _) =>
+                uid == "clean" || attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
+        };
+
+        var results = await build(factory, new RetryBudget { MaxAttemptsPerTest = 2 }).Run();
+
+        var flaky = results.Tests.Single(t => t.Uid == "flaky");
+        flaky.Outcome.ShouldBe(RunOutcome.PassOnRetry);
+        flaky.Attempts[0].Disposition.Kind.ShouldBe(DispositionKind.RetryInFreshProcess);
+        flaky.Attempts[1].Placement.ShouldBe(AttemptPlacement.IsolatedProcess);
+
+        factory.RunningWorkers.Count.ShouldBe(2);
+        factory.RunningWorkers[1].Runs.ShouldHaveSingleItem().ShouldBe(["flaky"]);
     }
 
     [Fact]

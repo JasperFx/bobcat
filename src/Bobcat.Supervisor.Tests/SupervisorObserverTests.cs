@@ -64,7 +64,7 @@ public class SupervisorObserverTests
 
         var flaky = observer.Attempts.Where(a => a.Uid == "flaky").ToList();
         flaky[0].Attempt.AttemptNumber.ShouldBe(1);
-        flaky[0].Attempt.Disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
+        flaky[0].Attempt.Disposition.Kind.ShouldBe(DispositionKind.RetryInFreshProcess);
         flaky[1].Attempt.AttemptNumber.ShouldBe(2);
         flaky[1].Attempt.Succeeded.ShouldBeTrue();
     }
@@ -87,7 +87,7 @@ public class SupervisorObserverTests
 
         observer.Retries.Select(r => r.NextAttempt).ShouldBe([2, 3]);
         observer.Retries.ShouldAllBe(r => r.Uid == "flaky");
-        observer.Retries[0].Disposition.Kind.ShouldBe(DispositionKind.RetryInProcess);
+        observer.Retries[0].Disposition.Kind.ShouldBe(DispositionKind.RetryInFreshProcess);
         observer.Retries[0].Disposition.Reason.ShouldNotBeNullOrWhiteSpace();
     }
 
@@ -191,7 +191,7 @@ public class SupervisorObserverTests
         var retries = sink.Events.OfType<RetryScheduled>().ToList();
         retries.Select(r => r.NextAttempt).ShouldBe([2, 3]);
         retries.ShouldAllBe(r => r.Uid == "flaky");
-        retries[0].Disposition.ShouldBe(nameof(DispositionKind.RetryInProcess));
+        retries[0].Disposition.ShouldBe(nameof(DispositionKind.RetryInFreshProcess));
         retries[0].Reason.ShouldNotBeNullOrWhiteSpace();
 
         // Same run as the bracket, so the dashboard folds them onto the same card.
