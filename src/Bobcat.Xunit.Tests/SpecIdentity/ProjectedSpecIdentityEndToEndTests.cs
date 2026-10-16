@@ -140,6 +140,32 @@ public class ProjectedSpecIdentityEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task an_inherited_specification_is_listed_once_per_subclass_under_the_subclass()
+    {
+        // bobcat#600: the test is written once on an abstract generic base. The base is no
+        // specification of its own; each subclass is, under its own feature.
+        var manifest = await _harness.List(projectedHost);
+
+        manifest.For("Alpha transport/each subclass is its own feature").ShouldNotBeNull()
+            .QualifiedTestMethod
+            .ShouldBe("Bobcat.Xunit.Samples.Specs.AlphaTransportCompliance.each_subclass_is_its_own_feature");
+
+        manifest.For("Beta Transport Compliance/each subclass is its own feature").ShouldNotBeNull()
+            .QualifiedTestMethod
+            .ShouldBe("Bobcat.Xunit.Samples.Specs.BetaTransportCompliance.each_subclass_is_its_own_feature");
+
+        manifest.Identities.ShouldNotContain("Shared compliance/each subclass is its own feature");
+    }
+
+    [Fact]
+    public Task an_inherited_specification_runs_by_its_subclass_identity_and_records_under_it()
+        // The sample asserts the recording's feature and declared steps inside its body
+        => _harness.RunsExactly(
+            projectedHost,
+            ["Beta Transport Compliance/each subclass is its own feature"],
+            ["--filter-method", "Bobcat.Xunit.Samples.Specs.BetaTransportCompliance.each_subclass_is_its_own_feature"]);
+
+    [Fact]
     public Task an_identity_the_suite_does_not_have_is_refused_before_anything_is_launched()
         => _harness.RefusesAnIdentityItDoesNotHave(projectedHost, "Calculator/no such specification");
 }

@@ -211,6 +211,58 @@ public class MarkerSpecNamingAgreementTests
     public void the_scenario_derivation_is_the_decided_one(string methodName, string expected)
         => MarkerStepRun.ScenarioNameFor(methodName).ShouldBe(expected);
 
+    /// <summary>
+    /// bobcat#600: a test inherited from a shared base is the SUBCLASS's specification. The generator
+    /// binds it from the subclass's name and its own <c>[BobcatFeature]</c>; the runtime reads the
+    /// class the method was reflected from. A base's title is never inherited on either side.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(TitledTransport))]
+    [InlineData(typeof(UntitledTransportCompliance))]
+    public void the_whole_identity_agrees_for_an_inherited_test(Type testClass)
+    {
+        var attributeTitle = testClass.GetCustomAttribute<BobcatFeatureAttribute>(inherit: false)?.Title;
+
+        var generated = GeneratorNaming.Identity(
+            GeneratorNaming.FeatureTitle(testClass.Name, attributeTitle),
+            GeneratorNaming.ScenarioTitle(nameof(SharedCompliance<int>.can_request_reply)));
+
+        var method = testClass.GetMethod(nameof(SharedCompliance<int>.can_request_reply))!;
+        (MarkerStepRun.FeatureNameFor(method) + "/" + MarkerStepRun.ScenarioNameFor(method)).ShouldBe(generated);
+        (MarkerStepRun.FeatureNameFor(testClass) + "/"
+         + MarkerStepRun.ScenarioNameFor(testClass, method.Name)).ShouldBe(generated);
+    }
+
+    /// <summary>
+    /// bobcat#600: a generic class's CLR name carries its arity (<c>SharedCompliance`1</c>), source
+    /// spells it without one. Neither side lets the backtick reach a title.
+    /// </summary>
+    [Theory]
+    [InlineData("SharedCompliance`1", "Shared Compliance")]
+    [InlineData("OrderSpecs`2", "Order")]
+    public void generic_arity_never_reaches_a_title(string className, string expected)
+    {
+        MarkerSpecNaming.FeatureTitle(className, null).ShouldBe(expected);
+        GeneratorNaming.FeatureTitle(className, null).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void a_generic_base_reads_without_its_arity()
+        => MarkerSpecNaming.FeatureTitle(typeof(UnmarkedGeneric<int>)).ShouldBe("Unmarked Generic");
+
+    [BobcatFeature("Shared compliance")]
+    public abstract class SharedCompliance<T>
+    {
+        public void can_request_reply() { }
+    }
+
+    [BobcatFeature("Titled transport")]
+    public class TitledTransport : SharedCompliance<int>;
+
+    public class UntitledTransportCompliance : SharedCompliance<string>;
+
+    public class UnmarkedGeneric<T>;
+
     public class WalletSpecs
     {
         public void a_wallet_is_credited() { }

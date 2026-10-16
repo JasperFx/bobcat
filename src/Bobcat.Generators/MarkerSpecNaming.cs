@@ -50,7 +50,7 @@ internal static class MarkerSpecNaming
     {
         if (attributeTitle != null) return attributeTitle;
 
-        var name = className;
+        var name = WithoutArity(className);
         foreach (var suffix in titleSuffixes)
         {
             if (name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal))
@@ -61,6 +61,16 @@ internal static class MarkerSpecNaming
         }
 
         return Prettify(name);
+    }
+
+    /// <summary>
+    /// A class name without the generic arity a metadata name carries (<c>TransportCompliance`1</c>),
+    /// so a generic test base reads the same from source, from metadata and from reflection (bobcat#600).
+    /// </summary>
+    public static string WithoutArity(string className)
+    {
+        var tick = className.IndexOf('`');
+        return tick > 0 ? className.Substring(0, tick) : className;
     }
 
     /// <summary>

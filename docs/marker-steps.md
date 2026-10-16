@@ -717,6 +717,10 @@ that it declared any steps. Keyed on declared steps, the first cut of this liste
 `Bobcat.Xunit.Samples`' 41 specifications** while the other 33 rendered and published verdicts
 perfectly well.
 
+A test inherited from a shared base is listed, run and recorded **once per subclass**, under the
+subclass's feature, with the steps its base declares. See
+[Spec Identities](spec-identities.md#inherited-specs).
+
 ## What reaches the viewer
 
 A scenario publishes `ScenarioStarted` (with the declared step count and, since #304, the
@@ -1186,6 +1190,7 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 | **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
 | **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
 | **BOBCAT039** (error) | A step helper the generated interceptor cannot call: `protected`, `private`, `private protected`, or declared on a type the assembly cannot reach (a private nested class). Reported once, at the helper, and its calls get no interceptor -- before this it was a CS0122 per call site in `BobcatStepInterceptors.g.cs`. Make the helper `public` or `internal` (`protected internal` works too) |
+| **BOBCAT040** (error) | An `override` of a test that inherits `[BobcatSpec]`/`[BobcatTheory]` carries another test attribute, usually `[Fact(Skip = "…")]` to skip one subclass's copy. xUnit inherits the base's attribute, so the override has two Fact-derived attributes and fails at run time ("has multiple [Fact]-derived attributes") instead of being skipped. Write `[BobcatSpec(Skip = "…")]` on the override. See [Spec Identities](spec-identities.md#inherited-specs) |
 
 BOBCAT001–022, 030, 031 and 035 were retired with the Gherkin lane in 0.50.0 (bobcat#471). Nothing
 emits them, and the ids are never reused.

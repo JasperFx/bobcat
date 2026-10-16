@@ -35,12 +35,22 @@ public static class ProjectedSpecPreview
     /// Built from the union of both registries: a scenario appears if it declared marker comments,
     /// or planned grammar calls, or both. A test that did neither is not a specification and is not
     /// listed — the same rule <c>MarkerCommentSpecs</c> applies when it declines to register an
-    /// unmarked test.
+    /// unmarked test. A subclass of a shared test base is listed under its own identity, with the
+    /// steps its base declares (bobcat#600).
     /// </remarks>
     public static IReadOnlyList<PreviewRender> All()
     {
+        // A base class's own identity is not a specification when only its subclasses run it: an
+        // abstract base is never bound, and its steps are shown under each subclass instead.
+        var bases = DeclaredSteps.InheritedScenarios
+            .Select(uid => DeclaredSteps.InheritedFrom(uid))
+            .Where(uid => uid is not null && DeclaredSteps.BindingFor(uid) is null)
+            .ToHashSet(StringComparer.Ordinal);
+
         var uids = DeclaredSteps.KnownScenarios
             .Concat(PlannedSteps.KnownScenarios)
+            .Concat(DeclaredSteps.InheritedScenarios)
+            .Where(uid => !bases.Contains(uid))
             .Distinct()
             .OrderBy(x => x, StringComparer.Ordinal);
 
@@ -54,8 +64,10 @@ public static class ProjectedSpecPreview
         var feature = slash > 0 ? uid[..slash] : "";
         var scenario = slash > 0 ? uid[(slash + 1)..] : uid;
 
-        var declared = DeclaredSteps.For(uid);
-        var planned = PlannedSteps.For(uid);
+        // An inherited test's steps are registered under its base class's identity (bobcat#600).
+        var steps = DeclaredSteps.InheritedFrom(uid) ?? uid;
+        var declared = DeclaredSteps.For(steps);
+        var planned = PlannedSteps.For(steps);
 
         // Merged by source line, the one ordering both of them carry — the same merge the results
         // render uses, so a preview and a result list the steps in the same order by construction.

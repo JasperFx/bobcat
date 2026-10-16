@@ -24,10 +24,16 @@ public static partial class MarkerSpecNaming
     private static readonly string[] titleSuffixes = { "Specification", "Specs", "Spec", "Fixture" };
 
     /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived.</summary>
-    public static string FeatureTitle(Type? declaringType)
+    /// <remarks>
+    /// The attribute is read off <paramref name="testClass"/> itself, never inherited (bobcat#600): a
+    /// subclass of a shared test base is its own feature, and a base's title reaching every subclass
+    /// would collapse them back into one. The generator reads the class's own attribute list, which is
+    /// the same rule.
+    /// </remarks>
+    public static string FeatureTitle(Type? testClass)
         => FeatureTitle(
-            declaringType?.Name ?? "Specifications",
-            declaringType?.GetCustomAttribute<BobcatFeatureAttribute>()?.Title);
+            testClass?.Name ?? "Specifications",
+            testClass?.GetCustomAttribute<BobcatFeatureAttribute>(inherit: false)?.Title);
 
     /// <summary>
     /// The feature title for a class name: the attribute's value when one is present, otherwise
@@ -38,7 +44,7 @@ public static partial class MarkerSpecNaming
     {
         if (attributeTitle != null) return attributeTitle;
 
-        var name = className;
+        var name = WithoutArity(className);
         foreach (var suffix in titleSuffixes)
         {
             if (name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal))
@@ -49,6 +55,17 @@ public static partial class MarkerSpecNaming
         }
 
         return Prettify(name);
+    }
+
+    /// <summary>
+    /// A class name without the generic arity a CLR type name carries (<c>TransportCompliance`1</c>):
+    /// source spells it without one, so the generator never sees it, and a backtick in a title is
+    /// nothing a reader wrote (bobcat#600).
+    /// </summary>
+    public static string WithoutArity(string className)
+    {
+        var tick = className.IndexOf('`');
+        return tick > 0 ? className[..tick] : className;
     }
 
     /// <summary>

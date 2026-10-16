@@ -54,6 +54,20 @@ internal static class MarkerCommentSpecs
         /// </summary>
         public string TestClass = "";
 
+        /// <summary>
+        /// An abstract class (bobcat#600). Its tests only ever run as a subclass's, under the
+        /// subclass's identity, so it registers the steps its bodies declare but binds no identity of
+        /// its own: listed, it would be a specification nothing can run.
+        /// </summary>
+        public bool IsAbstract;
+
+        /// <summary>
+        /// <c>typeof</c> expressions naming a base class in another assembly that this class inherits
+        /// tests from (bobcat#600). The generated initializer runs that assembly's module initializer
+        /// first, so the steps its bodies declare are registered before anything reads them.
+        /// </summary>
+        public readonly List<string> BaseModules = new();
+
         public readonly List<MarkedScenario> Scenarios = new();
 
         /// <summary>
@@ -102,6 +116,12 @@ internal static class MarkerCommentSpecs
         /// decides whether its identity belongs in a listing (issue #391).
         /// </summary>
         public bool OpensRecording;
+
+        /// <summary>
+        /// The identity the test body has under the base class that declares it, for a test this
+        /// class inherits (bobcat#600), else null. Its declared and planned steps are registered there.
+        /// </summary>
+        public string? InheritedFrom;
 
         public readonly List<MarkedStep> Steps = new();
 
@@ -163,10 +183,12 @@ internal static class MarkerCommentSpecs
         var title = featureAttributeTitle(declaration, ctx.SemanticModel, ct, out var marked);
         if (!marked) return null;
 
+        var symbol = ctx.SemanticModel.GetDeclaredSymbol(declaration, ct);
         var spec = new MarkedSpec
         {
             FeatureTitle = MarkerSpecNaming.FeatureTitle(declaration.Identifier.Text, title),
-            TestClass = filterNameOf(ctx.SemanticModel.GetDeclaredSymbol(declaration, ct))
+            TestClass = FilterNameOf(symbol),
+            IsAbstract = symbol?.IsAbstract == true
         };
 
         spec.Tags.AddRange(sliceTags(declaration, ctx.SemanticModel, spec.Problems));
@@ -295,7 +317,7 @@ internal static class MarkerCommentSpecs
     internal static bool HasScenarioAttribute(MemberDeclarationSyntax member)
         => member.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Any(a => ScenarioOpeningAttributes.Contains(shortName(a.Name.ToString())));
+            .Any(a => ScenarioOpeningAttributes.Contains(ShortName(a.Name.ToString())));
 
     /// <summary>
     /// Does this assembly carry the runner hook that makes <c>[BobcatFeature]</c> open a recording on
@@ -323,7 +345,7 @@ internal static class MarkerCommentSpecs
     internal const string TheoryAttributeName = "BobcatTheory";
 
     /// <summary><c>[BobcatSpec]</c> or <c>[BobcatTheory]</c>, by short name.</summary>
-    private static bool isSpecAttribute(string shortName) => shortName is SpecAttributeName or TheoryAttributeName;
+    internal static bool IsSpecAttribute(string shortName) => shortName is SpecAttributeName or TheoryAttributeName;
 
     /// <summary>
     /// The slice binding on a class or a method — <c>[BobcatSlice]</c>, or the <c>[BobcatSpec]</c>
@@ -355,7 +377,7 @@ internal static class MarkerCommentSpecs
     {
         var attributes = node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" || isSpecAttribute(shortName(a.Name.ToString())))
+            .Where(a => ShortName(a.Name.ToString()) is "BobcatSlice" || IsSpecAttribute(ShortName(a.Name.ToString())))
             .ToList();
 
         if (attributes.Count == 0) yield break;
@@ -369,7 +391,7 @@ internal static class MarkerCommentSpecs
             where ??= attribute;
             if (attribute.ArgumentList is null) continue;
 
-            var positional = isSpecAttribute(shortName(attribute.Name.ToString()));
+            var positional = IsSpecAttribute(ShortName(attribute.Name.ToString()));
 
             foreach (var argument in attribute.ArgumentList.Arguments)
             {
@@ -440,7 +462,7 @@ internal static class MarkerCommentSpecs
                     IsError = false,
                     Where = (where ?? attributes[0]).GetLocation(),
                     Message =
-                        $"[{shortName((where ?? attributes[0]).Name.ToString())}(SliceName = \"{slice}\")] names a "
+                        $"[{ShortName((where ?? attributes[0]).Name.ToString())}(SliceName = \"{slice}\")] names a "
                         + "slice that IS a type in this compilation. "
                         + $"Prefer SliceType = typeof({slice}): it is rename-safe the same way and the type survives "
                         + "to the generator, where a string cannot be checked against the model."
@@ -465,7 +487,7 @@ internal static class MarkerCommentSpecs
     private static bool isPending(MemberDeclarationSyntax node)
         => node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => isSpecAttribute(shortName(a.Name.ToString())))
+            .Where(a => IsSpecAttribute(ShortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Any(argument =>
                 argument.NameEquals?.Name.Identifier.Text == "Pending"
@@ -480,7 +502,7 @@ internal static class MarkerCommentSpecs
     private static string? triggeredBy(MemberDeclarationSyntax node)
         => node.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => shortName(a.Name.ToString()) is "BobcatSlice" || isSpecAttribute(shortName(a.Name.ToString())))
+            .Where(a => ShortName(a.Name.ToString()) is "BobcatSlice" || IsSpecAttribute(ShortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Where(argument => argument.NameEquals?.Name.Identifier.Text == "TriggeredBy")
             .Select(argument => literalOf(argument.Expression)?.Trim())
@@ -512,7 +534,7 @@ internal static class MarkerCommentSpecs
     private static string? explicitNameOf(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
         => method.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Where(a => isSpecAttribute(shortName(a.Name.ToString())))
+            .Where(a => IsSpecAttribute(ShortName(a.Name.ToString())))
             .SelectMany(a => a.ArgumentList?.Arguments ?? default)
             .Where(argument => argument.NameEquals?.Name.Identifier.Text == "Name")
             .Select(argument => model.GetConstantValue(argument.Expression, ct).Value as string
@@ -532,6 +554,9 @@ internal static class MarkerCommentSpecs
     /// </remarks>
     internal static IReadOnlyList<DuplicateIdentity> DuplicateIdentities(IEnumerable<MarkedSpec> specs)
         => specs
+            // An abstract class's tests never run under its identity, only under each subclass's
+            // (bobcat#600), and those are what is compared.
+            .Where(spec => !spec.IsAbstract)
             .SelectMany(spec => spec.Scenarios.SelectMany(scenario =>
                 // bobcat#569: each constant row is a specification of its own, so two rows of one
                 // method that format alike (or share a label) claim one identity, pointed at the row.
@@ -634,7 +659,7 @@ internal static class MarkerCommentSpecs
     internal static bool IsTestMethod(MethodDeclarationSyntax method)
         => method.AttributeLists
             .SelectMany(list => list.Attributes)
-            .Select(a => shortName(a.Name.ToString()))
+            .Select(a => ShortName(a.Name.ToString()))
             .Any(TestMethodAttributeNames.Contains);
 
     /// <summary>
@@ -790,7 +815,18 @@ internal static class MarkerCommentSpecs
         sb.AppendLine("        internal static void Register()");
         sb.AppendLine("        {");
 
-        foreach (var spec in specs)
+        var specList = specs.ToList();
+
+        // bobcat#600: a base class compiled into another assembly registers its bodies' steps from
+        // that assembly's own initializer, which the runtime only runs once something touches the
+        // module. Run it now, so a subclass's steps are there for a preview or a listing.
+        foreach (var module in specList.SelectMany(spec => spec.BaseModules).Distinct())
+        {
+            sb.AppendLine(
+                $"            global::System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(typeof({module}).Module.ModuleHandle);");
+        }
+
+        foreach (var spec in specList)
         {
             foreach (var scenario in spec.Scenarios)
             {
@@ -809,7 +845,7 @@ internal static class MarkerCommentSpecs
                 // five of Bobcat.Xunit.Samples' seven spec classes while they rendered and
                 // published verdicts perfectly well. What makes a test a specification is that
                 // [BobcatScenario] records it.
-                if (scenario.OpensRecording && spec.TestClass.Length > 0 && scenario.TestMethod.Length > 0)
+                if (Binds(spec, scenario))
                 {
                     var bound = coordinates != null && coordinates.TryGetValue(identity, out var at)
                         ? $", {Quote(at.Slice)}, {quoteOrNull(at.Chapter)}, {quoteOrNull(at.Domain)}, {quoteOrNull(at.Pattern)}"
@@ -819,6 +855,13 @@ internal static class MarkerCommentSpecs
                     sb.AppendLine(
                         $"            global::Bobcat.DeclaredSteps.Bind({Quote(identity)}, "
                         + $"{Quote(spec.TestClass)}, {Quote(scenario.TestMethod)}{(bound.Length > 0 ? ", null" + bound : "")});");
+
+                    // bobcat#600: the body, and so its steps, belong to a base class's identity.
+                    if (scenario.InheritedFrom is { } inheritedFrom)
+                    {
+                        sb.AppendLine(
+                            $"            global::Bobcat.DeclaredSteps.Inherit({Quote(identity)}, {Quote(inheritedFrom)});");
+                    }
 
                     // bobcat#569: each constant row is listed under its own identity, naming the
                     // method's as its parent, with the method's coordinates. A row only a run
@@ -878,10 +921,15 @@ internal static class MarkerCommentSpecs
     /// answer a listing request at all.
     /// </remarks>
     public static bool HasAnything(IEnumerable<MarkedSpec> specs)
-        => specs.Any(spec =>
-            spec.Scenarios.Any(scenario =>
-                !scenario.IsUnmarked
-                || (scenario.OpensRecording && spec.TestClass.Length > 0 && scenario.TestMethod.Length > 0)));
+        => specs.Any(spec => spec.Scenarios.Any(scenario => !scenario.IsUnmarked || Binds(spec, scenario)));
+
+    /// <summary>
+    /// Whether a scenario's identity is bound and listed: it records, it names a method a filter can
+    /// ask for, and its class is one a runner runs — an abstract base's tests run only as a
+    /// subclass's, under the subclass's identity (bobcat#600).
+    /// </summary>
+    internal static bool Binds(MarkedSpec spec, MarkedScenario scenario)
+        => scenario.OpensRecording && !spec.IsAbstract && spec.TestClass.Length > 0 && scenario.TestMethod.Length > 0;
 
     private static string Quote(string value)
         => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
@@ -910,7 +958,7 @@ internal static class MarkerCommentSpecs
 
         foreach (var attribute in declaration.AttributeLists.SelectMany(list => list.Attributes))
         {
-            if (shortName(attribute.Name.ToString()) != AttributeName) continue;
+            if (ShortName(attribute.Name.ToString()) != AttributeName) continue;
 
             marked = true;
 
@@ -928,7 +976,7 @@ internal static class MarkerCommentSpecs
     /// the type names joined with <c>+</c> for a nested class — xUnit's documented
     /// <c>MyNamespace.MyClass+InnerClass</c>.
     /// </summary>
-    private static string filterNameOf(INamedTypeSymbol? type)
+    internal static string FilterNameOf(INamedTypeSymbol? type)
     {
         if (type is null) return "";
 
@@ -966,7 +1014,7 @@ internal static class MarkerCommentSpecs
         return "";
     }
 
-    private static string shortName(string name)
+    internal static string ShortName(string name)
     {
         var lastDot = name.LastIndexOf('.');
         if (lastDot >= 0) name = name.Substring(lastDot + 1);

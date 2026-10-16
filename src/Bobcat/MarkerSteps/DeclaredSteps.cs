@@ -179,6 +179,26 @@ public static class DeclaredSteps
         return CoordinatesFor(name, testMethod);
     }
 
+    private static readonly ConcurrentDictionary<string, string> _inherited = new();
+
+    /// <summary>
+    /// Record that the specification <paramref name="uid"/> runs a test body a base class declares,
+    /// whose own identity is <paramref name="inheritedFrom"/> (bobcat#600). Called from generated code
+    /// in the assembly of the concrete test class, beside its <see cref="Bind(string, string, string)"/>.
+    /// </summary>
+    /// <remarks>
+    /// The body's marker comments and planned steps are registered where the body is written — under
+    /// the base's identity, possibly in another assembly — so this is how a preview of the subclass's
+    /// specification finds them. At run time the recording works the same out from reflection.
+    /// </remarks>
+    public static void Inherit(string uid, string inheritedFrom) => _inherited[uid] = inheritedFrom;
+
+    /// <summary>The base-class identity a specification inherits its body from, or null (bobcat#600).</summary>
+    public static string? InheritedFrom(string uid) => _inherited.TryGetValue(uid, out var from) ? from : null;
+
+    /// <summary>Every specification that inherits its body from a base class (bobcat#600).</summary>
+    public static IReadOnlyCollection<string> InheritedScenarios => _inherited.Keys.ToList();
+
     /// <summary>The test method an identity was derived from, or null when nothing bound it.</summary>
     public static SpecManifestEntry? BindingFor(string uid)
         => _bindings.TryGetValue(uid, out var binding) ? binding : null;
@@ -232,6 +252,7 @@ public static class DeclaredSteps
         _byUid.TryRemove(uid, out _);
         if (_bindings.TryRemove(uid, out var binding)) _coordinates.TryRemove(keyOf(binding), out _);
         _duplicates.TryRemove(uid, out _);
+        _inherited.TryRemove(uid, out _);
     }
 }
 

@@ -55,7 +55,7 @@ public static class MarkerStepRun
     /// <summary>
     /// Open a scenario for <paramref name="method"/>, starting the run bracket on first use.
     /// </summary>
-    /// <param name="method">The test method. Its name and declaring type supply the identity.</param>
+    /// <param name="method">The test method. Its name and the class it was reflected from supply the identity.</param>
     /// <param name="mode">
     /// How the run was executed — "xunit", "tunit". Recorded on <c>RunStarted</c>; the first call
     /// in a process fixes it, because a run has one mode.
@@ -75,14 +75,21 @@ public static class MarkerStepRun
     public static ScenarioRecorder.Recording BeginScenario(
         MethodInfo method, string mode, IReadOnlyList<object?>? arguments, string? label)
     {
-        var info = openRun(mode, method.DeclaringType?.Assembly);
+        // The TEST CLASS, not the method's declaring type (bobcat#600): a test inherited from a shared
+        // base is reflected off the concrete subclass the runner is running, and that subclass is the
+        // feature. Keyed on the declaring type, every subclass collapsed into the base's identity.
+        var testClass = method.ReflectedType ?? method.DeclaringType;
+        var info = openRun(mode, testClass?.Assembly);
 
         var row = SpecRows.Describe(parameterNamesOf(method), arguments, label);
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
+        var scenario = ScenarioNameFor(method);
+
         // A data-driven row takes its method's lifecycle (bobcat#545): it is the method that declares it.
-        return begin(FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), row, info, SpecLifecycle.Of(method));
+        return begin(FeatureNameFor(testClass), scenario, row, inheritedFrom(testClass, method.DeclaringType, scenario),
+            info, SpecLifecycle.Of(method));
     }
 
     /// <summary>
@@ -110,8 +117,23 @@ public static class MarkerStepRun
 
         var row = SpecRows.Describe(parameterNamesOf(declaringType, methodName, arguments?.Count ?? 0), arguments, label);
 
-        return begin(FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), row, info,
+        // declaringType is the test class the runner names, which for an inherited test is the
+        // subclass (bobcat#600); the method of that name says which class wrote the body.
+        var scenario = ScenarioNameFor(declaringType, methodName);
+        var bodyType = methodOf(declaringType, methodName, arguments?.Count ?? 0)?.DeclaringType;
+        return begin(FeatureNameFor(declaringType), scenario, row, inheritedFrom(declaringType, bodyType, scenario), info,
             SpecLifecycle.Of(declaringType, methodName));
+    }
+
+    /// <summary>
+    /// The identity the test body has under the base class that declares it, when that is not the
+    /// test class (bobcat#600) — where its declared and planned steps were registered — else null.
+    /// </summary>
+    private static string? inheritedFrom(Type? testClass, Type? bodyType, string scenario)
+    {
+        if (testClass is null || bodyType is null || testClass == bodyType) return null;
+
+        return Runtime.SpecIdentity.Of(FeatureNameFor(bodyType), scenario);
     }
 
     private static IReadOnlyList<string> parameterNamesOf(MethodBase method)
@@ -119,14 +141,25 @@ public static class MarkerStepRun
 
     private static IReadOnlyList<string> parameterNamesOf(Type? declaringType, string methodName, int count)
     {
-        if (declaringType is null || count == 0) return [];
+        if (count == 0) return [];
+
+        var method = methodOf(declaringType, methodName, count);
+        return method is null ? [] : parameterNamesOf(method);
+    }
+
+    /// <summary>
+    /// The method of that name on the test class, inherited ones included: the one whose parameter
+    /// count matches the row, else the first.
+    /// </summary>
+    private static MethodInfo? methodOf(Type? testClass, string methodName, int count)
+    {
+        if (testClass is null) return null;
 
         const BindingFlags everything =
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 
-        var candidates = declaringType.GetMethods(everything).Where(m => m.Name == methodName).ToList();
-        var method = candidates.FirstOrDefault(m => m.GetParameters().Length == count) ?? candidates.FirstOrDefault();
-        return method is null ? [] : parameterNamesOf(method);
+        var candidates = testClass.GetMethods(everything).Where(m => m.Name == methodName).ToList();
+        return candidates.FirstOrDefault(m => m.GetParameters().Length == count) ?? candidates.FirstOrDefault();
     }
 
     /// <summary>
@@ -140,11 +173,11 @@ public static class MarkerStepRun
     /// <see cref="ScenarioRecorder.Current"/>, so a hook that does run finds nothing to close twice.
     /// </remarks>
     private static ScenarioRecorder.Recording begin(
-        string feature, string scenario, string? row, MonitorRunInfo info, Lifecycle lifecycle)
+        string feature, string scenario, string? row, string? inheritedFrom, MonitorRunInfo info, Lifecycle lifecycle)
     {
         SpecEnvironment.Arm();
 
-        var recording = ScenarioRecorder.Begin(feature, scenario, row, _sink, info.RunId);
+        var recording = ScenarioRecorder.Begin(feature, scenario, row, inheritedFrom, _sink, info.RunId);
         recording.Lifecycle = lifecycle;
         if (SpecEnvironment.Lost is not { } loss) return recording;
 
@@ -290,11 +323,14 @@ public static class MarkerStepRun
         return failure;
     }
 
-    /// <summary>The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived.</summary>
-    public static string FeatureNameFor(MethodInfo method) => FeatureNameFor(method.DeclaringType);
+    /// <summary>
+    /// The feature title: <c>[BobcatFeature]</c>'s title, else the class name derived — of the test
+    /// class the method was reflected from, which for an inherited test is the subclass (bobcat#600).
+    /// </summary>
+    public static string FeatureNameFor(MethodInfo method) => FeatureNameFor(method.ReflectedType ?? method.DeclaringType);
 
     /// <summary>The feature title for a test class.</summary>
-    public static string FeatureNameFor(Type? declaringType) => MarkerSpecNaming.FeatureTitle(declaringType);
+    public static string FeatureNameFor(Type? testClass) => MarkerSpecNaming.FeatureTitle(testClass);
 
     /// <summary>The scenario title: the explicit name the method states (bobcat#489), else the method name derived.</summary>
     public static string ScenarioNameFor(MethodInfo method) => MarkerSpecNaming.ScenarioTitle(method);
