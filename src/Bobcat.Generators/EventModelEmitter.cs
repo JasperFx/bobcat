@@ -67,6 +67,12 @@ internal static class EventModelEmitter
     /// </summary>
     internal const string Context = "context";
 
+    /// <summary>
+    /// Not a capture word: a projected <c>SliceRole.ArrangedReadModel</c> (bobcat#614) — a document stored before
+    /// the act. It reaches the descriptor as a read model on a View slice and as <c>ReadsFrom</c> on any other.
+    /// </summary>
+    internal const string ArrangedReadModel = "arrangedreadmodel";
+
     /// <summary>One slice of the model, accumulated across every scenario that declares it.</summary>
     internal sealed class SliceModel
     {
@@ -156,6 +162,13 @@ internal static class EventModelEmitter
         /// reads before deciding. Emitted as <c>ReadsFrom</c> (jasperfx#824) whatever the slice's pattern.
         /// </summary>
         public readonly List<string> ReadsFrom = new();
+
+        /// <summary>
+        /// Every read model the slice's specifications <em>arranged</em> (bobcat#614, <c>GivenReadModel</c>). Like
+        /// <see cref="ArrangedEvents"/>, decided at emit time: the slice's read models on a View, and
+        /// <c>ReadsFrom</c> on anything else — before a command, a stored document is a lookup it decides against.
+        /// </summary>
+        public readonly List<string> ArrangedReadModels = new();
         public readonly List<(string Identity, List<string> Types)> Specifications = new();
         public readonly List<string> PendingSpecifications = new();
     }
@@ -255,6 +268,8 @@ internal static class EventModelEmitter
                     case Consumed: addDistinct(slice.ArrangedEvents, type); break;
                     // bobcat#502: a lookup stream is read before deciding, never an aggregate of the slice
                     case Context: addDistinct(slice.ReadsFrom, type); break;
+                    // bobcat#614: the pattern decides where it goes, once every specification has folded in
+                    case ArrangedReadModel: addDistinct(slice.ArrangedReadModels, type); break;
                     // Document reaches the resolved types only, exactly as {document} does
                 }
             }
@@ -437,6 +452,23 @@ internal static class EventModelEmitter
             foreach (var type in slice.ReadModels) addDistinct(readsFrom, type);
         }
 
+        // bobcat#614: an arranged read model is the View's own read model, and on any other slice a lookup the act
+        // reads before deciding -- GivenReadModel<Passenger> before WhenPosted(CreateBooking) does not make the
+        // booking command produce a Passenger view
+        if (slice.ArrangedReadModels.Count > 0)
+        {
+            if (pattern == "View")
+            {
+                readModels = new List<string>(readModels);
+                foreach (var type in slice.ArrangedReadModels) addDistinct(readModels, type);
+            }
+            else
+            {
+                readsFrom = new List<string>(readsFrom);
+                foreach (var type in slice.ArrangedReadModels) addDistinct(readsFrom, type);
+            }
+        }
+
         var sb = new StringBuilder();
         sb.AppendLine($"    /// <summary>The <c>{escapeXml(slice.Name)}</c> slice.</summary>");
         sb.AppendLine($"    internal static global::{Ns}.EventModelSliceDescriptor {slice.ClassName}()");
@@ -552,7 +584,7 @@ internal static class EventModelEmitter
         if (slice.ActCommand != null) return "Command";
         if (slice.ReadActs.Count > 0 && contract.Query) return "Query";
         if (slice.Commands.Count > 0) return "Command";
-        if (slice.ReadModels.Count > 0) return "View";
+        if (slice.ReadModels.Count > 0 || slice.ArrangedReadModels.Count > 0) return "View";
         return null;
     }
 

@@ -74,7 +74,7 @@ public class ProjectedEventModelRoleTests
                 [EventModelRole(SliceRole.Context, nameof(context))]
                 public Task GivenContext(Type context, Guid id) => Task.CompletedTask;
 
-                [EventModelRole(SliceRole.ReadModel, nameof(T))]
+                [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
                 public Task GivenReadModel<T>(object document) where T : class => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(message))]
@@ -242,6 +242,92 @@ public class ProjectedEventModelRoleTests
             """).Single(x => x.Name == "Deposit");
 
         slice.ReadsFrom.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_read_model_arranged_before_a_command_is_read_from_and_never_produced()
+    {
+        var slice = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(OpenAccount))]
+                public async Task an_account_is_opened_for_a_stored_client()
+                {
+                    await GivenReadModel<Client>(new Client());
+                    await GivenReadModel<Statement>(new Statement());
+                    await WhenPosted(new OpenAccount(Guid.NewGuid(), "Ann"), "/accounts");
+                    ThenEvents(typeof(AccountOpened));
+                }
+
+                [Fact, BobcatSlice(SliceType = typeof(OpenAccount))]
+                public async Task a_second_spec_storing_the_same_lookup_adds_nothing()
+                {
+                    await GivenContext<Client>(Guid.NewGuid());
+                    await GivenReadModel<Client>(new Client());
+                    await WhenPosted(new OpenAccount(Guid.NewGuid(), "Bo"), "/accounts");
+                }
+            }
+            """).Single(x => x.Name == "OpenAccount");
+
+        // bobcat#614: the documents an [Entity] endpoint loads are lookups the command decides against, not views
+        // the command slice produces
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        names(slice.ReadsFrom).ShouldBe(["Client", "Statement"]);
+        slice.ReadModelTypes.ShouldBeEmpty();
+        slice.AggregateTypes.ShouldBeEmpty();
+
+        // Still something the specification touched
+        names(slice.Specifications.First().ResolvedTypes).ShouldBe(["Client", "Statement", "OpenAccount", "AccountOpened"]);
+    }
+
+    [Fact]
+    public void a_read_model_arranged_on_a_view_slice_is_its_read_model()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Summaries")]
+            public class summaries : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(AccountSummary))]
+                public async Task a_stored_summary_is_shown()
+                {
+                    var id = Guid.NewGuid();
+                    await GivenReadModel<AccountSummary>(new AccountSummary { Id = id });
+                    await ThenReadModel<AccountSummary>(id);
+                }
+
+                [Fact, BobcatSlice(SliceName = "Stored only")]
+                public async Task only_a_stored_document()
+                {
+                    await GivenReadModel<Statement>(new Statement());
+                }
+
+                [Fact, BobcatSlice(SliceName = "Sweep", Pattern = "Automation")]
+                public async Task an_automation_reads_its_todo_list()
+                {
+                    await GivenReadModel<Statement>(new Statement());
+                    await WhenReceived(new Deposit(Guid.NewGuid(), 1m));
+                }
+            }
+            """);
+
+        var summary = slices.Single(x => x.Name == "AccountSummary");
+        summary.Pattern.ShouldBe(SlicePattern.View);
+        names(summary.ReadModelTypes).ShouldBe(["AccountSummary"]);
+        summary.ReadsFrom.ShouldBeEmpty();
+
+        // An arranged read model alone still reads as a View, as it did before it had a role of its own
+        var stored = slices.Single(x => x.Name == "Stored only");
+        stored.Pattern.ShouldBe(SlicePattern.View);
+        names(stored.ReadModelTypes).ShouldBe(["Statement"]);
+
+        // A declared pattern that is not a View reads the stored document: an automation's todo list
+        var sweep = slices.Single(x => x.Name == "Sweep");
+        sweep.Pattern.ShouldBe(SlicePattern.Automation);
+        names(sweep.ReadsFrom).ShouldBe(["Statement"]);
+        sweep.ReadModelTypes.ShouldBeEmpty();
     }
 
     [Fact]

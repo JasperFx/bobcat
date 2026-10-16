@@ -188,7 +188,7 @@ public abstract class CritterStackSpec
     public Task GivenNoEventsFor<TAggregate>(object id) where TAggregate : class => Scenario.GivenNoEventsFor<TAggregate>(id);
 
     /// <inheritdoc cref="CritterStackScenario.GivenReadModel{T}(object)" />
-    [EventModelRole(SliceRole.ReadModel, nameof(T))]
+    [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
     public Task GivenReadModel<T>(object document) where T : class => Scenario.GivenReadModel<T>(document);
 
     /// <inheritdoc cref="CritterStackScenario.GivenEventsOn{TAggregate}(Guid, object[])" />

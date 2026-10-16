@@ -32,7 +32,7 @@ public enum SliceRole
     ArrangedEvent,
 
     /// <summary>
-    /// A read model the specification arranges or asserts on. On a method that also declares a read-only HTTP
+    /// A read model the specification asserts on (an arranged one is <see cref="ArrangedReadModel"/>). On a method that also declares a read-only HTTP
     /// trigger (<c>[EventModelTrigger(TriggerKind.Http, HttpMethod = "GET")]</c> or <c>"HEAD"</c>) it is what the
     /// act <em>reads</em>, and makes the slice a Query (bobcat#501): the type goes to <c>ReadsFrom</c>, not to the
     /// read models the slice produces.
@@ -56,6 +56,15 @@ public enum SliceRole
     /// resolved types.
     /// </summary>
     Context,
+
+    /// <summary>
+    /// A read model (or any document) stored <em>before</em> the act — <c>GivenReadModel&lt;T&gt;</c> (bobcat#614).
+    /// Decided per slice once every specification has folded in, like <see cref="ArrangedEvent"/>: on a View slice
+    /// it is the slice's read model; on any other slice (a Command, a Query, an Automation) it is a lookup the act
+    /// reads before deciding, stamped into <c>ReadsFrom</c> as a <see cref="Context"/> is. It still reaches the
+    /// specification's resolved types either way.
+    /// </summary>
+    ArrangedReadModel,
 }
 
 /// <summary>

@@ -99,7 +99,7 @@ Objects](../expected-objects.md#member-checks-and-the-c-version-they-need).
 | `GivenNoEventsFor<TAggregate>(id)` | the stream has no events yet. Appends nothing, says so, and names the stream the act's events are read from |
 | `GivenEventsOn<TAggregate>(id, params events)` | events on a *different* stream from the one the act runs against -- a second aggregate for a rule that spans two, or history a read model fans in from |
 | `GivenContext<TContext>(id, params events)` | a stream the act only *looks up* -- the Client an `OpenAccount` loads -- not the one it decides against. The same append and step as `GivenEvents`; on the Event Model it is the slice's `ReadsFrom`, never an aggregate (bobcat#502). Also `GivenContext(Type, id, params events)` |
-| `GivenReadModel<T>(document)` | a read model already exists, stored directly. It bypasses the projection, so a spec about how the view is built should arrange the events instead |
+| `GivenReadModel<T>(document)` | a read model already exists, stored directly. It bypasses the projection, so a spec about how the view is built should arrange the events instead. On the Event Model it is the slice's read model only on a View slice; before a command it is a lookup, the slice's `ReadsFrom` (bobcat#614) |
 | `GivenTheDateIs(date)` / `GivenTheTimeIs(now)` | freeze the ambient clock (`BobcatClock.Current`, also `Clock`) |
 | `WhenTheClockAdvancesBy(duration)` / `WhenTimePasses(duration)` / `WhenTheClockAdvancesTo(instant)` | move it forward. Each renders as its own step |
 

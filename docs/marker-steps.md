@@ -797,6 +797,7 @@ public Task WhenPosted(object command, string route)
 | `Document` | the specification's resolved types only, never a slot |
 | `Message` | `PublishedMessages` |
 | `Context` | `ReadsFrom` -- a stream the act only looks up, never an aggregate (#502) |
+| `ArrangedReadModel` | `ReadModelTypes` on a **View** slice; `ReadsFrom` on any other -- a document stored before a command is a lookup it decides against (#614) |
 
 **A lookup stream is context, not an aggregate (bobcat#502).** `GivenEvents<Client>(…)` says Client is an
 aggregate of the slice. When the spec arranges Client only so the handler can load it -- an `OpenAccount`
@@ -812,6 +813,18 @@ await ThenAggregate<Account>(TheStartedStream<Account>());                      
 ```
 
 <!-- JEREMY: when to reach for GivenContext, in your words -->
+
+**A stored document is a lookup too, unless the slice is a View (bobcat#614).** In a document app the usual
+arrange for a command is the documents its endpoint loads with `[Entity]`, stored with `GivenReadModel<T>`.
+That method carries `SliceRole.ArrangedReadModel`, which is decided per slice once every spec has folded in,
+like `ArrangedEvent`: on a View slice the type is the slice's read model, and on a Command (or Query, or
+Automation) slice it goes to `ReadsFrom`, so the canvas does not draw the command as producing those views.
+
+```csharp
+await GivenReadModel<Passenger>(passenger);                       // ReadsFrom Passenger
+await GivenReadModel<Flight>(flight);                             // ReadsFrom Flight
+await WhenPosted(new CreateBooking(passenger.Id, flight.Id), "/api/bookings");   // a Command slice
+```
 
 **A read-only act is a Query (bobcat#501).** A vocabulary method with a `GET` or `HEAD` trigger, a `ReadModel`
 role and no `Command` role is a *read act*:
