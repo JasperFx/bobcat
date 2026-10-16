@@ -297,12 +297,25 @@ internal static class ProjectedRoles
         reading.HttpMethod = named("HttpMethod");
         var routeParameter = named("Route");
         var routeNameParameter = named("RouteName");
+
+        // bobcat#613: a by-type act (WhenPosted(cmd), WhenPut(cmd)) takes no route at all; its vocabulary fills it
+        // from the command, so the route is the template of the endpoint that takes that command
+        if (routeParameter is null && routeNameParameter is null && reading.ReadAct is null && reading.Act is not null)
+        {
+            apply(TriggerRoutes.ResolveByCommand(operation, reading.Act, reading.HttpMethod, compilation), reading);
+            return;
+        }
+
         if (routeParameter is null && routeNameParameter is null) return;
 
         // bobcat#500: a constant route, a route name an endpoint attribute declares, or an interpolated route
         // matched against the endpoints (or rebuilt from the interpolation). A route that cannot be known is
         // null, never "", so it cannot shadow a known one — and BOBCAT038 says so rather than leaving it silent.
-        var resolved = TriggerRoutes.Resolve(operation, routeParameter, routeNameParameter, reading.HttpMethod, compilation);
+        apply(TriggerRoutes.Resolve(operation, routeParameter, routeNameParameter, reading.HttpMethod, compilation), reading);
+    }
+
+    private static void apply(TriggerRoutes.Resolution resolved, Reading reading)
+    {
         reading.TriggerRoute = string.IsNullOrEmpty(resolved.Route) ? null : resolved.Route;
         reading.TriggerRouteReconstructed = reading.TriggerRoute is not null && resolved.Reconstructed;
         reading.TriggerRouteName = resolved.RouteName;

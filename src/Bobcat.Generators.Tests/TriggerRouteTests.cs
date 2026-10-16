@@ -62,6 +62,15 @@ public class TriggerRouteTests
                 [EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "POST")]
                 public Task WhenPostedTo(object command, string routeName, params object[] routeValues) => Task.CompletedTask;
 
+                // bobcat#613: by type -- no route at all, the vocabulary fills it from the command at run time
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                [EventModelTrigger(TriggerKind.Http)]
+                public Task WhenPosted(object command) => Task.CompletedTask;
+
+                [EventModelRole(SliceRole.Command, nameof(command))]
+                [EventModelTrigger(TriggerKind.Http, HttpMethod = "PUT")]
+                public Task WhenPut(object command) => Task.CompletedTask;
+
                 protected static string RouteFor(Guid id) => "/api/accounts/" + id + "/deposits";
             }
         }
@@ -89,6 +98,11 @@ public class TriggerRouteTests
             public class WolverinePostAttribute : WolverineHttpMethodAttribute
             {
                 public WolverinePostAttribute(string template) : base("POST", template) { }
+            }
+
+            public class WolverinePutAttribute : WolverineHttpMethodAttribute
+            {
+                public WolverinePutAttribute(string template) : base("PUT", template) { }
             }
 
             public class WolverineDeleteAttribute : WolverineHttpMethodAttribute
@@ -511,6 +525,167 @@ public class TriggerRouteTests
             """ + (readFirst ? read + rebuilt : rebuilt + read) + "}");
 
         sliceIn(outcome, "Deposit").TriggerOrigin!.HttpRoute.ShouldBe("/accounts/{accountId}");
+    }
+
+    // ---------------------------------------------------------------- by type: the endpoint that takes the command
+
+    [Fact]
+    public void a_by_type_act_takes_the_route_and_verb_of_the_endpoint_whose_body_is_its_command()
+    {
+        var outcome = run(
+            WolverineHttp + Mvc +
+            """
+            namespace BankApp
+            {
+                public interface IClock { }
+
+                [Wolverine.Http.RoutePrefix("api")]
+                public static class Endpoints
+                {
+                    [Wolverine.Http.WolverinePost("/accounts/{accountId}/deposits")]
+                    public static void Deposit(Deposit command, IClock clock) { }
+
+                    // A command the endpoint reads from the query string is not its body
+                    [Wolverine.Http.WolverineGet("/accounts/{accountId}/withdrawals")]
+                    public static void Withdrawals([Microsoft.AspNetCore.Mvc.FromQuery] Withdraw query) { }
+                }
+
+                [Microsoft.AspNetCore.Mvc.Route("api/[controller]")]
+                public class AccountsController : Microsoft.AspNetCore.Mvc.ControllerBase
+                {
+                    [Microsoft.AspNetCore.Mvc.HttpPost("{accountId}/withdrawals")]
+                    public void Withdraw(Guid accountId, Withdraw command) { }
+                }
+            }
+
+            namespace Microsoft.AspNetCore.Mvc
+            {
+                [AttributeUsage(AttributeTargets.Parameter)]
+                public class FromQueryAttribute : Attribute { }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit() => await WhenPosted(new Deposit(Guid.NewGuid(), 10m));
+
+                [Fact, BobcatSlice(SliceType = typeof(Withdraw))]
+                public async Task a_withdrawal() => await WhenPosted(new Withdraw(Guid.NewGuid(), 1m));
+            }
+            """);
+
+        // The act declares no verb, so the endpoint's is taken
+        var deposit = sliceIn(outcome, "Deposit");
+        deposit.TriggerKind.ShouldBe(TriggerKind.Http);
+        deposit.TriggerOrigin!.HttpRoute.ShouldBe("/api/accounts/{accountId}/deposits");
+        deposit.TriggerOrigin.HttpMethod.ShouldBe("POST");
+
+        var withdrawal = sliceIn(outcome, "Withdraw");
+        withdrawal.TriggerOrigin!.HttpRoute.ShouldBe("/api/Accounts/{accountId}/withdrawals");
+        withdrawal.TriggerOrigin.HttpMethod.ShouldBe("POST");
+
+        outcome.WithId("BOBCAT038").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_by_type_act_that_declares_its_verb_takes_only_an_endpoint_of_that_verb()
+    {
+        var outcome = run(
+            WolverineHttp +
+            """
+            namespace BankApp
+            {
+                public static class Endpoints
+                {
+                    [Wolverine.Http.WolverinePost("/accounts/{accountId}/deposits")]
+                    public static void Create(Deposit command) { }
+
+                    [Wolverine.Http.WolverinePut("/accounts/{accountId}/deposits/{depositId}")]
+                    public static void Replace(Deposit command) { }
+                }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_replaced_deposit() => await WhenPut(new Deposit(Guid.NewGuid(), 10m));
+            }
+            """);
+
+        var origin = sliceIn(outcome, "Deposit").TriggerOrigin!;
+        origin.HttpRoute.ShouldBe("/accounts/{accountId}/deposits/{depositId}");
+        origin.HttpMethod.ShouldBe("PUT");
+        outcome.WithId("BOBCAT038").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_by_type_act_whose_command_no_endpoint_takes_is_reported_as_info()
+    {
+        // app.MapPut("/accounts/{id}", (Deposit d) => ...) is a call: only the running host knows it
+        var outcome = run(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit() => await WhenPut(new Deposit(Guid.NewGuid(), 10m));
+            }
+            """);
+
+        var slice = sliceIn(outcome, "Deposit");
+        slice.TriggerKind.ShouldBe(TriggerKind.Http);
+        slice.TriggerOrigin.ShouldBeNull();
+
+        var diagnostic = outcome.WithId("BOBCAT038").ShouldHaveSingleItem();
+        diagnostic.Severity.ShouldBe(DiagnosticSeverity.Info);
+        diagnostic.GetMessage().ShouldContain("'WhenPut' is this specification's HTTP act and passes no route");
+        diagnostic.GetMessage().ShouldContain("takes 'Bank.Deposit'");
+        diagnostic.GetMessage().ShouldContain("MapPost");
+    }
+
+    [Fact]
+    public void a_by_type_act_whose_command_several_endpoints_take_picks_none_of_them()
+    {
+        var outcome = run(
+            WolverineHttp +
+            """
+            namespace BankApp
+            {
+                public static class Endpoints
+                {
+                    [Wolverine.Http.WolverinePost("/accounts/{accountId}/deposits")]
+                    public static void Deposit(Deposit command) { }
+
+                    [Wolverine.Http.WolverinePost("/branches/{branchId}/deposits")]
+                    public static void BranchDeposit(Deposit command) { }
+
+                    // A verb the act does not use is only named in the message
+                    [Wolverine.Http.WolverinePost("/closures")]
+                    public static void Close(CloseAccount command) { }
+                }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit() => await WhenPosted(new Deposit(Guid.NewGuid(), 10m));
+
+                [Fact, BobcatSlice(SliceType = typeof(CloseAccount))]
+                public async Task a_closure() => await WhenPut(new CloseAccount(Guid.NewGuid()));
+            }
+            """);
+
+        sliceIn(outcome, "Deposit").TriggerOrigin.ShouldBeNull();
+        sliceIn(outcome, "CloseAccount").TriggerOrigin.ShouldBeNull();
+
+        var messages = outcome.WithId("BOBCAT038").Select(x => x.GetMessage()).ToList();
+        messages.Count.ShouldBe(2);
+        messages.ShouldContain(x => x.Contains("2 endpoints with different templates take 'Bank.Deposit'")
+                                    && x.Contains("/accounts/{accountId}/deposits") && x.Contains("/branches/{branchId}/deposits"));
+        messages.ShouldContain(x => x.Contains("no PUT endpoint takes 'Bank.CloseAccount'") && x.Contains("POST /closures"));
     }
 
     // ---------------------------------------------------------------- BOBCAT038 and BOBCAT034

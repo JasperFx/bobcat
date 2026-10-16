@@ -57,6 +57,12 @@ internal static class TriggerRoutes
         public string? Verb;
         public string? RouteName;
         public string Shape = "";
+
+        /// <summary>
+        /// bobcat#613: the <c>global::</c>-qualified types of the endpoint method's parameters that could be its
+        /// request body — every parameter not bound from services, the route, the query string or a header.
+        /// </summary>
+        public List<string> BodyTypes = new();
     }
 
     /// <summary>What an HTTP act's route arguments resolve to.</summary>
@@ -196,6 +202,46 @@ internal static class TriggerRoutes
             + "(\"/api/accounts/{accountId}/deposits\", with the values after it), an interpolated string, or a route "
             + "name an endpoint attribute declares.";
         resolution.ProblemLocation = where ?? operation.Syntax.GetLocation();
+        return resolution;
+    }
+
+    /// <summary>
+    /// bobcat#613: an HTTP act that takes its command and no route at all (<c>WhenPosted(cmd)</c>,
+    /// <c>WhenPut(cmd)</c>), where the vocabulary fills the route from the command at run time. The route is the
+    /// template of the one endpoint whose request body is that command type, and the verb that endpoint's, unless
+    /// the act declares its own. None, or several with different templates, is a problem rather than a guess.
+    /// </summary>
+    public static Resolution ResolveByCommand(
+        IInvocationOperation operation, string commandType, string? declaredVerb, Compilation compilation)
+    {
+        var resolution = new Resolution();
+        var taking = EndpointsOf(compilation).Where(x => x.BodyTypes.Contains(commandType)).ToList();
+        var matches = taking
+            .Where(x => declaredVerb is null || x.Verb is null || string.Equals(x.Verb, declaredVerb, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var templates = matches.Select(x => x.Template).Distinct(StringComparer.Ordinal).ToList();
+        if (templates.Count == 1)
+        {
+            resolution.Route = templates[0];
+            resolution.Verb = declaredVerb is null ? singleVerb(matches) : null;
+            return resolution;
+        }
+
+        var command = commandType.StartsWith("global::", StringComparison.Ordinal) ? commandType.Substring("global::".Length) : commandType;
+        var why = templates.Count > 1
+            ? $"{templates.Count} endpoints with different templates take '{command}' ({string.Join(", ", templates)})"
+            : taking.Count > 0
+                ? $"no {declaredVerb} endpoint takes '{command}' (only {string.Join(", ", taking.Select(x => $"{x.Verb ?? "?"} {x.Template}").Distinct())})"
+                : $"no endpoint attribute in this compilation or its references takes '{command}' as its request body "
+                  + "([WolverinePost/Put/…(…)] or [HttpPost/Put/…(…)]); a minimal API's MapPost(…) can only be resolved at run time";
+
+        resolution.Problem =
+            $"'{operation.TargetMethod.Name}' is this specification's HTTP act and passes no route, so the route is "
+            + $"read off the endpoint that takes its command, but {why}. The slice keeps its trigger kind with no route. "
+            + "Pass the endpoint's route template as a constant (\"/api/accounts/{accountId}/deposits\", with the values "
+            + "after it), an interpolated string, or a route name an endpoint attribute declares.";
+        resolution.ProblemLocation = operation.Syntax.GetLocation();
         return resolution;
     }
 
@@ -502,27 +548,43 @@ internal static class TriggerRoutes
                 {
                     if (template is null) continue;
                     add(endpoints, wolverineTemplate(wolverinePrefix, template), verbOf(attributeType.Name, "Wolverine"),
-                        namedString(attribute, "RouteName"));
+                        namedString(attribute, "RouteName"), method);
                 }
                 else
                 {
                     var verb = mvcVerb ? verbOf(attributeType.Name, "Http") : null;
                     var name = namedString(attribute, "Name");
                     foreach (var combined in mvcTemplates(mvcPrefixes!, template, type, method))
-                        add(endpoints, combined, verb, name);
+                        add(endpoints, combined, verb, name, method);
                 }
             }
         }
     }
 
-    private static void add(List<Endpoint> endpoints, string template, string? verb, string? routeName)
+    private static void add(List<Endpoint> endpoints, string template, string? verb, string? routeName, IMethodSymbol method)
         => endpoints.Add(new Endpoint
         {
             Template = template,
             Verb = verb,
             RouteName = string.IsNullOrEmpty(routeName) ? null : routeName,
-            Shape = TemplateShape(template)
+            Shape = TemplateShape(template),
+            BodyTypes = bodyTypesOf(method)
         });
+
+    /// <summary>Binding attributes that say a parameter is not the request body, by simple name.</summary>
+    private static readonly string[] NotBodyAttributes =
+    {
+        "FromServicesAttribute", "FromKeyedServicesAttribute", "FromRouteAttribute", "FromQueryAttribute",
+        "FromHeaderAttribute", "FromFormAttribute", "NotBodyAttribute"
+    };
+
+    private static List<string> bodyTypesOf(IMethodSymbol method)
+        => method.Parameters
+            .Where(p => p.Type is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct, SpecialType: SpecialType.None })
+            .Where(p => !p.GetAttributes().Any(a => a.AttributeClass is { } type && NotBodyAttributes.Contains(type.Name)))
+            .Select(p => p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
     private static (string? Wolverine, List<string> Mvc) prefixesOf(INamedTypeSymbol type)
     {
