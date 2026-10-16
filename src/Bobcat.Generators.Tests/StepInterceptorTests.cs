@@ -376,4 +376,43 @@ public class StepInterceptorTests
         code.ShouldContain("                receiver.ClearCache();");
         code.ShouldNotContain("return receiver.ClearCache();");
     }
+
+    [Fact]
+    public void a_generic_step_is_called_with_its_type_arguments()
+    {
+        // TAggregate appears in no parameter, so a call without explicit type arguments cannot infer
+        // it: CS0411 in the consumer's generated file.
+        const string source =
+            """
+            using System;
+            using System.Threading.Tasks;
+            using Bobcat;
+
+            namespace Specs;
+
+            public class Account;
+
+            public class steps
+            {
+                [Given("{key} has already recorded {events}")]
+                public Task GivenEventsFor<TAggregate>(string key, params object[] events) => Task.CompletedTask;
+
+                [Then("{key} has {expected}")]
+                public Task ThenValue<TAggregate, TValue>(string key, Func<TAggregate, TValue> read, TValue expected) => Task.CompletedTask;
+
+                public async Task a_test()
+                {
+                    await GivenEventsFor<Account>("a", new object());
+                    await ThenValue<Account, int>("a", x => 1, 1);
+                }
+            }
+            """;
+
+        var outcome = GeneratorHarness.Run(source);
+
+        outcome.CompilationErrors.ShouldBeEmpty();
+        var code = outcome.GeneratedSource("BobcatStepInterceptors");
+        code.ShouldContain("receiver.GivenEventsFor<global::Specs.Account>(key, events)");
+        code.ShouldContain("receiver.ThenValue<global::Specs.Account, int>(key, read, expected)");
+    }
 }

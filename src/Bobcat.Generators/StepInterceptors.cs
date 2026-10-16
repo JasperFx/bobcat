@@ -34,6 +34,12 @@ internal static class StepInterceptors
         public string InterceptsLocation = "";
         public string DeclaringType = "";
         public string MethodName = "";
+
+        /// <summary>
+        /// <c>&lt;…&gt;</c> for a generic step, empty otherwise. Always explicit: a type parameter that
+        /// appears in no parameter cannot be inferred from the interceptor's own arguments (CS0411).
+        /// </summary>
+        public string TypeArguments = "";
         public string ReturnType = "";
         public string Keyword = "";
         public string StepText = "";
@@ -86,12 +92,6 @@ internal static class StepInterceptors
         /// </summary>
         public List<ITypeParameterSymbol> TypeParameters = new();
 
-        /// <summary>
-        /// <c>&lt;TEvent&gt;</c> when a generic interceptor calls a generic helper — passed explicitly,
-        /// because a type parameter used only in the return type cannot be inferred.
-        /// </summary>
-        public string MethodTypeArguments = "";
-
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
         public List<string> ParameterNames = new();
 
@@ -142,6 +142,16 @@ internal static class StepInterceptors
         /// <see cref="Extract"/>: one call site cannot see its siblings.
         /// </summary>
         public int PlannedIndex = -1;
+
+        /// <summary>
+        /// Why the generated interceptor could not call this step (BOBCAT039), or null. The interceptor
+        /// is a file-local static class, so it reaches only what the assembly can: a <c>protected</c> or
+        /// <c>private</c> helper would be CS0122 in a file the consumer cannot edit.
+        /// </summary>
+        public string? Inaccessible;
+
+        /// <summary>The step method's own declaration, where BOBCAT039 points; null when it is not in source.</summary>
+        public Location? Declaration;
     }
 
     public static InterceptedCall? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
@@ -198,19 +208,29 @@ internal static class StepInterceptors
 #pragma warning restore RSEXPERIMENTAL002
             DeclaringType = signature.ContainingType.ToDisplayString(),
             MethodName = method.Name,
+            // Always explicit: a type parameter that appears in no parameter cannot be inferred from the
+            // interceptor's own arguments (CS0411, bobcat#534). A generic interceptor (bobcat#601) passes the
+            // method's own type parameters by name, after the container's; a non-generic one passes the
+            // call's type arguments.
+            TypeArguments = typeParameters.Count > 0
+                ? signature.TypeParameters.Length == 0
+                    ? ""
+                    : "<" + string.Join(", ", signature.TypeParameters.Select(t => t.Name)) + ">"
+                : method.TypeArguments.Length == 0
+                    ? ""
+                    : "<" + string.Join(", ", method.TypeArguments.Select(t => t.ToDisplayString(interceptorFormat))) + ">",
             ReturnType = signature.ReturnType.ToDisplayString(),
             ReturnsTask = signature.ReturnType.Name is "Task" or "ValueTask",
             ReturnsVoid = signature.ReturnsVoid,
             ReturnsBool = returnsBool(signature.ReturnType),
             TypeParameters = typeParameters,
-            MethodTypeArguments = typeParameters.Count == 0 || signature.TypeParameters.Length == 0
-                ? ""
-                : "<" + string.Join(", ", signature.TypeParameters.Select(t => t.Name)) + ">",
             Keyword = keyword,
             DeclaredIndex = DeclaredIndexOf(invocation),
             Uid = UidOf(invocation, ctx.SemanticModel, ct),
             Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
-            Location = invocation.GetLocation()
+            Location = invocation.GetLocation(),
+            Inaccessible = InaccessibilityOf(method, ctx.SemanticModel.Compilation),
+            Declaration = method.Locations.FirstOrDefault(l => l.IsInSource)
         };
 
 
@@ -804,6 +824,7 @@ internal static class StepInterceptors
             var parameters = string.Join("", call.ParameterTypes
                 .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
             var arguments = string.Join(", ", call.ParameterIdentifiers);
+            var target = $"receiver.{call.MethodName}{call.TypeArguments}";
 
             var typeParameters = call.TypeParameters.Count == 0
                 ? ""
@@ -833,18 +854,18 @@ internal static class StepInterceptors
             {
                 // An asynchronous Fact: the answer decides the verdict, and the step ends when the
                 // work ends so it still carries a real duration.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact({target}({arguments}), step);");
             }
             else if (call.ReturnsTask)
             {
                 // End the step when the helper's work ends, not when it hands back a Task.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track({target}({arguments}), step);");
             }
             else if (call.ReturnsBool)
             {
                 // A synchronous Fact. The answer flows through to the caller untouched.
                 emitSynchronousCall(sb,
-                    $"return global::Bobcat.MarkerStepRuntime.Fact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                    $"return global::Bobcat.MarkerStepRuntime.Fact({target}({arguments}), step);");
             }
             else if (call.ReturnsVoid)
             {
@@ -852,11 +873,11 @@ internal static class StepInterceptors
                 // a file they cannot edit. It went unnoticed until #304's end-to-end test compiled
                 // the first interceptor inside this repository: every earlier check read the
                 // generated text, and Marten's helpers all return Task.
-                emitSynchronousCall(sb, $"receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
+                emitSynchronousCall(sb, $"{target}({arguments});");
             }
             else
             {
-                emitSynchronousCall(sb, $"return receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
+                emitSynchronousCall(sb, $"return {target}({arguments});");
             }
 
             sb.AppendLine("        }");
@@ -920,6 +941,28 @@ internal static class StepInterceptors
         }
 
         return chain.SelectMany(t => t.TypeParameters).ToList();
+    }
+
+    /// <summary>
+    /// Null when a file-local class in this assembly can call <paramref name="method"/>, else what keeps it
+    /// out, in the words the author would use to fix it.
+    /// </summary>
+    internal static string? InaccessibilityOf(IMethodSymbol method, Compilation compilation)
+    {
+        if (compilation.IsSymbolAccessibleWithin(method.OriginalDefinition, compilation.Assembly)) return null;
+
+        if (!compilation.IsSymbolAccessibleWithin(method.ContainingType, compilation.Assembly))
+        {
+            return $"declared on '{method.ContainingType.ToDisplayString()}', which the rest of the assembly cannot reach";
+        }
+
+        return method.DeclaredAccessibility switch
+        {
+            Accessibility.Private => "private",
+            Accessibility.Protected => "protected",
+            Accessibility.ProtectedAndInternal => "private protected",
+            _ => "not accessible from the assembly"
+        };
     }
 
     /// <summary>The name as it can be written in generated code.</summary>
