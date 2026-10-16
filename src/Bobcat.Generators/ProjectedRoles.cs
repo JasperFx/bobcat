@@ -145,12 +145,12 @@ internal static class ProjectedRoles
             ct.ThrowIfCancellationRequested();
             if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
 
-            var (carrier, roles) = attributesOf(operation.TargetMethod, RoleAttributeName);
+            var (carrier, roles) = AttributesOf(operation.TargetMethod, RoleAttributeName);
 
             // bobcat#615: a call is an act when its vocabulary says how it reaches the application (a trigger), says
             // it is one ([EventModelAct]), or declares a Command role, whether or not that role names a type here
-            var declaresAct = attributesOf(operation.TargetMethod, TriggerAttributeName).Carrier is not null
-                              || attributesOf(operation.TargetMethod, ActAttributeName).Carrier is not null;
+            var declaresAct = AttributesOf(operation.TargetMethod, TriggerAttributeName).Carrier is not null
+                              || AttributesOf(operation.TargetMethod, ActAttributeName).Carrier is not null;
             if (carrier is null && !declaresAct) continue;
 
             string? command = null;
@@ -295,7 +295,7 @@ internal static class ProjectedRoles
     /// </summary>
     private static bool isReadTrigger(IMethodSymbol method)
     {
-        var trigger = attributesOf(method, TriggerAttributeName).Attributes.FirstOrDefault();
+        var trigger = AttributesOf(method, TriggerAttributeName).Attributes.FirstOrDefault();
         if (trigger is null || trigger.ConstructorArguments.Length == 0) return false;
         if (enumMemberName(trigger.ConstructorArguments[0]) != "Http") return false;
 
@@ -314,7 +314,7 @@ internal static class ProjectedRoles
         reading.RouteProblemLocation = null;
         reading.HttpMethod = null;
 
-        var trigger = attributesOf(operation.TargetMethod, TriggerAttributeName).Attributes.FirstOrDefault();
+        var trigger = AttributesOf(operation.TargetMethod, TriggerAttributeName).Attributes.FirstOrDefault();
         if (trigger is null || trigger.ConstructorArguments.Length == 0) return;
 
         reading.TriggerKind = enumMemberName(trigger.ConstructorArguments[0]);
@@ -371,7 +371,7 @@ internal static class ProjectedRoles
     /// as seen from the call (so its containing type is the constructed base a closed scenario derives
     /// from). A null carrier when no declaration carries any.
     /// </summary>
-    private static (IMethodSymbol? Carrier, List<AttributeData> Attributes) attributesOf(IMethodSymbol method, string fullName)
+    internal static (IMethodSymbol? Carrier, List<AttributeData> Attributes) AttributesOf(IMethodSymbol method, string fullName)
     {
         for (var current = method.ReducedFrom ?? method; current is not null; current = current.OverriddenMethod)
         {
