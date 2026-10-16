@@ -89,6 +89,29 @@ Two things to know:
   never to one that shouldn't have. tUnit reports no exception type at all, so on tUnit hints
   never match.
 
+### A `SpecCatastrophicException` stops a supervised run
+
+Throw `SpecCatastrophicException` when the environment is gone and nothing after this spec can pass
+-- the application under test will not start, the database is unreachable, a Playwright suite's site
+never came up. The supervisor reads the type name the worker reports (xUnit writes it into the
+failure message as `Bobcat.Engine.SpecCatastrophicException : …`), treats the failure as
+catastrophic, and **aborts the run**: no further tests are scheduled, nothing is retried -- not even
+under a `Retry` trait with budget to spare -- the report carries `AbortReason`
+(`catastrophic failure: <your message>`), and the exit code is **2**.
+
+- **It is matched by name, exactly** -- `Bobcat.Engine.SpecCatastrophicException` (or the bare
+  simple name), plus `Bobcat.Engine.SpecEnvironmentLostException`, which is what the worker's later
+  scenarios fail with once its environment is lost
+  ([the in-process halt](marker-steps.md#environment-lost)). Any other subclass, or an exception
+  of your own with the same simple name in another namespace, is an ordinary error.
+- **tUnit erases exception types on the wire**, so under the supervisor a tUnit worker's
+  `SpecCatastrophicException` is an ordinary error: the run carries on, and a `Retry` trait retries
+  it. If that matters, register an `IFailurePolicy` that aborts on the message instead.
+- **It is *not* what stops ordinary exceptions from being retried.** A plain exception (a timeout,
+  a refused connection) is a critical failure, and critical failures **are** retried under a `Retry`
+  trait -- that is where flakiness in an integration suite mostly comes from. Opt one type out with
+  `[NeverRecovers(typeof(X))]`.
+
 `UseMicrosoftTestingPlatformRunner` changes only the executable's entry point -- the VSTest adapter
 path is untouched, so `dotnet test`, `--filter`, TRX and coverlet keep working. Verified on Wolverine,
 which runs xUnit v3 in VSTest compatibility mode: `dotnet test --filter "Category!=Flaky"` still

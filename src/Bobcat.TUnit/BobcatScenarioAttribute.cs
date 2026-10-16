@@ -78,7 +78,9 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestStartEventReceiver
     public ValueTask OnTestStart(TestContext context)
     {
         var details = context.Metadata.TestDetails;
-        MarkerStepRun.BeginScenario(details.ClassType, details.MethodName, Mode);
+        // A data-driven row is its own specification (bobcat#569): its arguments are part of its
+        // identity. TUnit carries no row label, so a row is always named by its arguments.
+        MarkerStepRun.BeginScenario(details.ClassType, details.MethodName, Mode, details.TestMethodArguments, null);
 
         lock (_sessionGate) _openScenarios++;
         context.StateBag.GetOrAdd(OpenedKey, _ => true);

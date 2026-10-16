@@ -184,4 +184,23 @@ public class Fussy
             thread.Join();
         });
     }
+
+    /// <summary>
+    /// The environment is gone (issue #538): throws <see cref="Bobcat.Engine.SpecCatastrophicException"/>
+    /// when <c>BOBCAT_CATASTROPHIC</c> is set. It carries a <c>Retry</c> trait on purpose — a
+    /// catastrophic failure must abort the supervised run, never be retried, whatever the trait says.
+    /// </summary>
+    [Fact]
+    [Trait("Retry", "2")]
+    public void loses_the_environment_when_armed()
+    {
+        // Then the environment is lost if BOBCAT_CATASTROPHIC is set
+        Probe.Run(() =>
+        {
+            if (Probe.IsArmed("BOBCAT_CATASTROPHIC"))
+            {
+                throw new Bobcat.Engine.SpecCatastrophicException("the application could not start");
+            }
+        });
+    }
 }

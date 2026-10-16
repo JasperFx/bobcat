@@ -55,7 +55,9 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction
         // The method's declaring type, as the xUnit adapter uses: that is the class the generator
         // read [BobcatFeature] and the marker comments from.
         var declaringType = test.Method?.MethodInfo.DeclaringType ?? test.TypeInfo?.Type;
-        MarkerStepRun.BeginScenario(declaringType, test.MethodName ?? test.Name, Mode);
+        // A [TestCase] row is its own specification (bobcat#569): its arguments are part of its
+        // identity. A [Test] with no parameters has none and opens the scenario it always did.
+        MarkerStepRun.BeginScenario(declaringType, test.MethodName ?? test.Name, Mode, test.Arguments, null);
 
         // Captured now rather than looked up per line: TestContext.Out resolves against the
         // context current at the call, and a line written from a continuation must still land on

@@ -87,7 +87,13 @@ public record ScenarioStarted(
     // lets a watcher render the steps an aborted scenario never reached instead of them simply
     // vanishing. Known before the run because it is a compile-time fact (Bobcat.PlannedSteps).
     // Null from a publisher that predates it, and from a scenario with no plan behind it.
-    IReadOnlyList<PlannedStepInfo>? PlannedSteps = null) : MonitorEvent(RunId);
+    IReadOnlyList<PlannedStepInfo>? PlannedSteps = null,
+    // The method's spec identity when this scenario is one row of a data-driven specification
+    // (bobcat#569): Uid is then the row's own identity, "{Feature}/{Scenario} (amount: 100)" or
+    // "... [label]", and this is the "{Feature}/{Scenario}" the Event Model knows. A consumer folds
+    // rows under it without parsing Uid. Null for a scenario that is not a row, and from an older
+    // publisher. Optional and additive.
+    string? ParentSpecId = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// One step a scenario plans to take, on the wire.
@@ -141,7 +147,11 @@ public record ScenarioFinished(
     // which is the whole bracket. The difference is time no step owns. Always sent now;
     // null from an older publisher (including the removed Gherkin runner), which means "not
     // measured", never zero. Optional and additive.
-    long? StepsMs = null) : MonitorEvent(RunId);
+    long? StepsMs = null,
+    // The method's spec identity when this scenario is one row of a data-driven specification
+    // (bobcat#569) — see ScenarioStarted.ParentSpecId. Null for a scenario that is not a row, and
+    // from an older publisher. Optional and additive.
+    string? ParentSpecId = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// One scenario report on the wire (issue #408): a titled grid of cells describing what the

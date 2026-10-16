@@ -25,6 +25,7 @@ namespace Bobcat.MSTest.Generated
                 typeof(BobcatMSTestHooks).Assembly,
                 context.FullyQualifiedTestClassName,
                 context.TestName,
+                context.TestData,
                 line => context.WriteLine(line));
 
         [global::Microsoft.VisualStudio.TestTools.UnitTesting.GlobalTestCleanup]

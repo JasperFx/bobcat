@@ -958,13 +958,29 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
   every file, named by `$schema`) and packed under `schemas/`. `ResultsFileTests` fails on drift;
   `BOBCAT_REGENERATE_SCHEMA=1` rewrites it. A breaking change moves `SchemaVersion` and the file
   name; an additive field does not. #541's TypeScript types are to be generated from this schema.
+- **`obj/bobcat/last-run.json`** (`Bobcat.Console/Specs/LastRun.cs`, bobcat#572): every `bobcat run`
+  writes it in the spec project: failed identities, selection, flags, exit code, a reserved `seed`.
+  `run --failed` / `--repeat` read it. The failures come **from the results file**, so `SpecHost`
+  now always sets `BOBCAT_RESULTS`: a private per-run temp directory (deleted afterwards) when
+  `--results` isn't given. An identity the manifest lost is refused through `SpecSelection.NotIn`;
+  a host that wrote no results leaves `resultsRead: false`, and `--failed` refuses rather than reading
+  that as "nothing failed". `RunFailedAndRepeatTests` (Supervisor.Tests) drives the real tool.
 
 ### Three-Level Failure Semantics
 1. **Assertion** — a gathered wrong (`SpecAssert`, a `[Check]` returning false,
    `SpecAssertionException`) → continue, gathering every failure
 2. **Critical** — `SpecCriticalException` or any other exception in a step → abort the scenario
 3. **Catastrophic** — `SpecCatastrophicException`: unrecoverable infrastructure (host won't start,
-   database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it
+   database gone). Never retried — `DefaultFailurePolicy` and `HintedFailurePolicy` both refuse it.
+   **Out of process (bobcat#538)** the supervisor only has the worker's reported type *name*, so
+   `Supervisor.failureLevelFor` maps an outcome whose `ErrorType` is exactly
+   `Bobcat.Engine.SpecCatastrophicException` or `…SpecEnvironmentLostException` (#539; or the bare
+   simple names) to `Catastrophic`, whatever
+   the state (xUnit reports a throw as `failed`), and the run aborts. TUnit erases the type, so
+   there it degrades to an ordinary Critical. **Critical stays retryable under a `Retry` trait**
+   (decided 2026-10-16, gap G1): the flakiness that trait exists for mostly arrives as exceptions;
+   `[NeverRecovers]` is the per-type opt-out. Pinned against the real worker by
+   `SupervisorEndToEndTests.a_workers_catastrophic_failure_aborts_the_run_and_is_never_retried`.
 
 **A catastrophic failure halts the rest of the process (bobcat#539, G1 + G10).** `SpecEnvironment`
 (`MarkerSteps/SpecEnvironment.cs`) latches the first `SpecCatastrophicException` thrown anywhere in
@@ -1164,6 +1180,22 @@ type-probes for each adapter's `BobcatScenarioAttribute`, the same pattern as th
   `Bind` keys off `OpensRecording` and `HasAnything` replaced `HasSteps` as the gate on emitting the
   initializer at all.
 
+- **Each data row is its own specification (bobcat#569).** A row's identity is the method's plus
+  `SpecRows.Describe`'s row part: `(name: value, …)` (invariant culture, strings verbatim, enum by
+  name, line breaks escaped) or `[label]` (xUnit's `TestLabel`, which `[BobcatExample("label", …)]`
+  sets; TUnit/NUnit/MSTest carry none). Every adapter passes the row's arguments to
+  `MarkerStepRun.BeginScenario` (xUnit `IXunitTest.TestMethodArguments`, TUnit
+  `TestDetails.TestMethodArguments`, NUnit `ITest.Arguments`, MSTest `TestContext.TestData` through
+  the hook source). `Recording.Uid` is the row's; `ParentUid` / `SpecUid` is the method's, and the
+  declared and planned steps are looked up by `SpecUid` (one body, one registration). The Event Model
+  keeps one specification per method; rows ride `ParentSpecId` on `scenario_started`/`finished`.
+  `[BobcatTheory]` is `[BobcatSpec]` for a theory (the generator's `TheoryAttributeName`, read
+  everywhere `SpecAttributeName` is). The generator lists **constant** rows (`SpecRowConstants`:
+  InlineData/BobcatExample/Arguments/TestCase/DataRow) through `DeclaredSteps.Bind(row, class, method,
+  parent)`, only when the constant's text cannot change in the runner's conversion; BOBCAT036 covers
+  duplicate rows. `MarkerSpecNaming.RowArguments`/`RowLabel` is the generator's copy, pinned by
+  `SpecRowIdentityTests`. A row identity is refused by `SpecFilterArguments` (a method filter runs
+  every row) and skipped by `SpecUidJoin`.
 - **Duplicate identities and the explicit scenario name (bobcat#489).** Two projected specs
   resolving to one identity is **BOBCAT036** (error), computed in
   `MarkerCommentSpecs.DuplicateIdentities` over `IdentityOf`, the same string `Emit` writes, so it

@@ -84,6 +84,7 @@ export interface ScenarioStarted extends MonitorEvent {
   totalSteps?: number | null
   declaredSteps?: DeclaredStepInfo[] | null
   plannedSteps?: PlannedStepInfo[] | null
+  parentSpecId?: string | null
 }
 
 export interface DeclaredStepInfo {
@@ -109,6 +110,7 @@ export interface ScenarioFinished extends MonitorEvent {
   at?: string | null
   reports?: ScenarioReportInfo[] | null
   stepsMs?: number | null
+  parentSpecId?: string | null
 }
 
 export interface TouchedType {

@@ -535,6 +535,20 @@ wait that isn't a step.
   runner and runs outside the bracket, so there is nothing for Bobcat to report. See
   [marker steps](marker-steps.md#timing).
 
+## A data row names the specification it belongs to (issue #569, built 2026-10-16)
+
+`ScenarioStarted` and `ScenarioFinished` gained a **trailing, optional** `ParentSpecId`. One row of a
+data-driven specification (a theory row, a `[TestCase]`) is its own scenario, with its own `Uid` --
+`Discounts/Discount is applied (amount: 100, tier: Gold)`, or `… [gold customer]` for a labelled
+row -- and `ParentSpecId` is the method's `{Feature}/{Scenario}`, the one the Event Model lists.
+
+- **Fold rows by `ParentSpecId`, never by parsing `Uid`.** A feature title may contain anything, and
+  the row part is formatted from values; the parent is the only exact key.
+- **Null for a scenario that is not a row**, and from an older publisher. A consumer that ignores the
+  field sees each row as its own scenario, which is now what it is. Nothing else changed.
+- `test_started`/`test_finished.SpecId` (#515) carries the **method's** identity for a row: the
+  manifest lists a row under its method's location, and one location cannot name one row.
+
 ## A run sends its spec half of the Event Model (issue #294; projected since #488)
 
 A run that has a console to talk to also sends that console the spec assembly's half of the Event

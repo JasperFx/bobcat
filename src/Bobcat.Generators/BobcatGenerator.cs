@@ -461,7 +461,9 @@ internal static class Diagnostics
         "Two projected specifications share one spec identity",
         "The spec identity '{0}' is also claimed by {1}. Identity filtering, the resident runner, the " +
         "flake/duration ledger and the Event Model would treat them as one specification. Rename one of " +
-        "the test methods, or give one an explicit scenario name with [BobcatSpec(Name = \"...\")].",
+        "the test methods, or give one an explicit scenario name with [BobcatSpec(Name = \"...\")]. For two " +
+        "data rows of one method, change or remove the repeated row, or give it its own label with " +
+        "[BobcatExample(\"...\", ...)].",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);
