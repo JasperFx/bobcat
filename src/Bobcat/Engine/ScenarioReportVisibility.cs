@@ -62,6 +62,14 @@ public static class ScenarioReportVisibility
         => verbose || report.Visibility == ReportVisibility.Always || scenarioFailed;
 
     /// <summary>
+    /// Whether a scenario's step logs (<see cref="SpecLog"/>, bobcat#547) are written out: the
+    /// report rule with every log treated as <see cref="ReportVisibility.OnFailure"/> — for a failed
+    /// scenario, or when the run is verbose.
+    /// </summary>
+    public static bool ShouldWriteLogs(bool scenarioFailed, bool? verbose = null)
+        => scenarioFailed || (verbose ?? Verbose);
+
+    /// <summary>
     /// The reports this scenario writes out, in registration order. A report with no cells is
     /// dropped whatever its visibility: an empty grid under a heading says less than no heading,
     /// and a grammar that was never exercised legitimately produces one.

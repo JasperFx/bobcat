@@ -87,6 +87,34 @@ public class SpecificationReportProjectionTests : IDisposable
     }
 
     [Fact]
+    public void spec_logs_on_scenario_finished_land_on_the_steps_they_were_written_in()
+    {
+        // bobcat#547: SpecLog lines are latched at the close, so they ride scenario_finished
+        // keyed by step id rather than step_finished.
+        var events = anAbortedProjectedSpec().ToList();
+        var finished = events.OfType<ScenarioFinished>().Single();
+        events[events.IndexOf(finished)] = finished with
+        {
+            Logs =
+            [
+                new StepLogInfo("StartWith", ["seeded 3"], 0),
+                new StepLogInfo("DivideByZero", ["dividing"], 4),
+                new StepLogInfo(null, ["between steps"], 0)
+            ]
+        };
+
+        using var registry = new MonitorRunRegistry(_dataPath);
+        registry.Record(events.ToArray());
+
+        var steps = detail(registry).Scenarios.Single().Steps;
+        steps.Single(s => s.StepId == "StartWith").Logs.ShouldBe(["seeded 3"]);
+        steps.Single(s => s.StepId == "DivideByZero").Logs.ShouldBe(["dividing", "…and 4 more lines"]);
+
+        // A step no log names keeps what its own step_finished said.
+        steps.Single(s => s.StepId == "Check").Logs.ShouldBe(["computed 4 + 4"]);
+    }
+
+    [Fact]
     public void an_exception_carries_its_type_and_filtered_frames_apart_from_the_message()
     {
         using var registry = new MonitorRunRegistry(_dataPath);
