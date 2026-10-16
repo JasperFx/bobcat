@@ -99,7 +99,7 @@ public static class ProjectedSpecPreview
 
             // No arguments: a call site's argument VALUES are runtime facts, and the preview's job
             // is to say which grammar the step resolves to, not to guess what it will be handed.
-            Binding = new StepBinding(type, method, planned.Template, [])
+            Binding = new StepBinding(type, method, planned.Template)
         };
     }
 }
