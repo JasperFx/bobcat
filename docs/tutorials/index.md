@@ -28,7 +28,7 @@ A tutorial teaches a path. A reference page pins a fact. When the two disagree, 
 is right -- tutorials link to the reference rather than restating it, precisely so there is one
 place each fact lives and one place to fix it.
 
-The pages under **Guides** are how-to: a single task, assumed context, no narrative. The pages
-under **Reference** are lookups. Several pages are records of a design decision or a rollout,
-written when it happened -- they explain *why* Bobcat is shaped the way it is, and they are the
-right read when a behaviour surprises you.
+The pages under **Guides** are how-to and lookup: a single task or tool, assumed context, no
+narrative. **Integrations** covers the Critter Stack vocabulary, and **Supervising** the
+out-of-process runner and the wire a run publishes. Several of those pages also record *why* a
+behaviour is shaped the way it is, and they are the right read when one surprises you.

@@ -10,35 +10,62 @@ Polecat or Fisher. It takes about five minutes.
 
 ## 1. The project
 
-A spec project is an ordinary xUnit v3 test project with three Bobcat packages:
+A spec project is an xUnit v3 test project on Microsoft.Testing.Platform with three Bobcat packages:
 
 ```xml
 <PropertyGroup>
   <OutputType>Exe</OutputType>
   <TargetFramework>net10.0</TargetFramework>
   <ImplicitUsings>enable</ImplicitUsings>
+  <Nullable>enable</Nullable>
+  <IsTestProject>true</IsTestProject>
+  <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+  <!-- the same version for all three Bobcat packages -->
+  <BobcatVersion>1.0.0</BobcatVersion>
 </PropertyGroup>
 
 <ItemGroup>
-  <PackageReference Include="xunit.v3" />
-  <PackageReference Include="Microsoft.NET.Test.Sdk" />
-  <PackageReference Include="xunit.runner.visualstudio" />
+  <PackageReference Include="xunit.v3" Version="4.0.2" />
+  <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+  <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" PrivateAssets="all" />
 
-  <PackageReference Include="Bobcat" />
-  <PackageReference Include="Bobcat.Generators" />
-  <PackageReference Include="Bobcat.Xunit" />
+  <PackageReference Include="Bobcat" Version="$(BobcatVersion)" />
+  <PackageReference Include="Bobcat.Generators" Version="$(BobcatVersion)" PrivateAssets="all" />
+  <PackageReference Include="Bobcat.Xunit" Version="$(BobcatVersion)" />
 
   <ProjectReference Include="..\MyApp\MyApp.csproj" />
 </ItemGroup>
 ```
 
-Three of those lines do work that is easy to miss:
+Which `xunit.v3`, Microsoft.Testing.Platform and
+Critter Stack versions go with which Bobcat is on [Version Compatibility](/compatibility).
+
+And a `global.json` at the root of the repository (or anywhere above the spec project), so
+`dotnet test` runs the project on Microsoft.Testing.Platform:
+
+```json
+{
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
+```
+
+`xunit.v3` 4.x runs on Microsoft.Testing.Platform 2.x, which refuses the old VSTest bridge on the
+.NET 10 SDK, so without that file `dotnet test` fails before a test runs. In that mode the project
+is named with an option and test-host options go straight on the command line:
+`dotnet test --project MySpecs --filter-class "*Wallet*"`. The other changes from xUnit v3 3.x are
+listed under [Moving to xUnit v3 4.x](xunit.md#moving-to-xunit-4).
+
+Several of those lines do work that is easy to miss:
 
 - **`Bobcat.Generators`** is what turns a call to a decorated step helper into a recorded step. Its
-  package carries the interceptor opt-in, so there is no csproj line to remember. Without it every
-  step is an ordinary method call and the suite produces no specification at all. A `SpecAssert`
-  wrong inside one of those calls still fails the test -- with no step to report to, it's kept on the
-  scenario instead -- but a spec whose checks all hold passes with nothing to show for it.
+  package carries the interceptor opt-in (`InterceptorsNamespaces` gains `Bobcat.Generated`), so
+  there is no csproj line to remember. If the opt-in is missing anyway -- see the next section --
+  the build stops with **BOBCAT037** at your first step call rather than passing without recording
+  anything.
 - **`Bobcat.Xunit`** is the runner adapter. It opens a scenario around each test in a
   `[BobcatFeature]` class and closes it with the verdict xUnit reported. Its package also registers
   the per-run bracket with the test platform, so there is no code to write. TUnit, NUnit and MSTest
@@ -46,7 +73,15 @@ Three of those lines do work that is easy to miss:
   [Bobcat with MSTest](mstest.md).
 - **`Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio`** are what Rider and Visual Studio
   discover tests through. Leave them out and the suite still runs from the command line and shows
-  *no tests* in the IDE -- which is why the generator warns with **BOBCAT033** when they are missing.
+  *no tests* in the IDE -- which is why the build warns with **BOBCAT033** when they are missing
+  (`<BobcatSuppressTestSdkWarning>true</BobcatSuppressTestSdkWarning>` if the suite only ever runs
+  from the command line).
+
+::: tip Let the importer write it
+`bobcat import-event-model --specs` writes this project -- with `WolverineFx.Bobcat` and Alba added
+for the specs it generates -- plus the `global.json` and an `AssemblyAttributes.cs`, when the spec
+directory has none yet. See [`import-event-model`](bobcat-tool.md#import-event-model).
+:::
 
 ### Referencing Bobcat by ProjectReference
 
@@ -55,7 +90,8 @@ packages, you lose two settings the packages carry in their `buildTransitive` pr
 `ProjectReference` takes no build assets, so the generator arrives as an analyzer without its
 interceptor opt-in, and `Bobcat.Xunit` arrives without its test-platform registration.
 
-Don't restate them by hand. Import the packages' own props, which is what `samples/Directory.Build.props`
+Don't restate them by hand. Import the packages' own props, which is what
+[`samples/Directory.Build.props`](https://github.com/JasperFx/bobcat/blob/main/samples/Directory.Build.props)
 does for every sample:
 
 ```xml
@@ -65,39 +101,23 @@ does for every sample:
 
 Forget the first one and the build stops with **BOBCAT037**, once, at your first step call. It used to
 be a `CS9137` per call site in a generated file, and before that the danger was a project that built
-anyway and passed without recording a thing. Forget the second and the run bracket falls back to one
-per process (see [Warm Projected Runs](warm-projected-runs.md)).
+anyway and passed without recording a thing. Forget the second and `[BobcatFeature]` on its own no
+longer records a class (the props apply `[assembly: RecordBobcatFeatures]`), and the run bracket
+falls back to one per process (see [Warm Projected Runs](warm-projected-runs.md)).
 
 ## 2. Host the application once
 
 Bobcat doesn't own your test lifecycle any more -- your test runner does. Boot the application in an
 xUnit assembly fixture, exactly as you would for any integration test. This one is from the
-`samples/BankAccountES` sample, trimmed:
+[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) sample
+(the specification below calls its own fixture `AppHost`):
+
+<<< ../samples/BankAccountES/Tests/BankAccountHost.cs#app-host{cs}
+
+The sample registers it once for the run, in its `AssemblyAttributes.cs`:
 
 ```csharp
-using Alba;
-using Bobcat.CritterStack;
-
-[assembly: AssemblyFixture(typeof(AppHost))]
-
-public class AppHost : IAsyncLifetime
-{
-    public IAlbaHost Host { get; private set; } = null!;
-
-    public async ValueTask InitializeAsync()
-    {
-        Host = await AlbaHost.For<Program>();
-
-        // Empties every event store the host registers -- documents AND streams -- through
-        // JasperFx.Events, so it reads the same on Marten, Polecat and Fisher
-        await Host.ResetEventStoresAsync();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Host is not null) await Host.DisposeAsync();
-    }
-}
+[assembly: AssemblyFixture(typeof(BankAccountHost))]
 ```
 
 Any `IHost` works: Alba is only here because the sample also drives HTTP endpoints. A
@@ -160,6 +180,7 @@ Feature: Wallets
 ════════════════
 
   a credit is recorded OK
+  ──────────────────────────────
     ✓ Given the Wallet stream has already recorded WalletOpened(Id: …, Owner: Ann)
     ✓ When the wallet is credited
     ✓ Then WalletCredited(…) is emitted

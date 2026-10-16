@@ -22,9 +22,11 @@ public class VerifySetTests
         [Given("the inventory is")]
         internal void TheInventoryIs(StepTable table) => _inventory.AddRange(TableRunner.BuildRows<InventoryItem>(table));
 
+        // #region inventory-should-be
         [Then("the inventory should be")]
         internal void TheInventoryShouldBe(StepTable expected)
             => SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku");
+        // #endregion inventory-should-be
 
         [Then("the inventory in order should be")]
         internal void TheInventoryInOrderShouldBe(StepTable expected)

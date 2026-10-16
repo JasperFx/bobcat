@@ -12,7 +12,9 @@ public enum Tier
 }
 
 /// <summary>Storyteller's <c>CreateNewObject&lt;T&gt;</c> shape: a record a table row builds.</summary>
+// #region subscription-record
 public record Subscription(string Customer, Tier Tier, DateOnly RenewsOn, string Currency = "USD");
+// #endregion subscription-record
 
 /// <summary>
 /// <c>RunTable.feature</c> from the projected lane: a plain grammar (no <c>Fixture</c>) hands its
@@ -31,6 +33,7 @@ public class RunTableTests
         public string Flushed = "";
         public Subscription[] Built = [];
 
+        // #region members-are
         [Given("the members are")]
         internal async Task TheMembersAre(StepTable table)
         {
@@ -41,6 +44,7 @@ public class RunTableTests
 
         private void addMember([Header("Member Name")] string member, Tier tier = Tier.Free)
             => Log.Add($"{member}:{tier}");
+        // #endregion members-are
 
         [Given("the members are added slowly")]
         internal async Task TheMembersAreAddedSlowly(StepTable table) => await TableRunner.Run(this, nameof(addMemberAsync), table);
@@ -51,13 +55,17 @@ public class RunTableTests
             Log.Add(member);
         }
 
+        // #region doubling-gives
         [Then("doubling gives")]
         internal async Task DoublingGives(StepTable table) => await TableRunner.Run(this, nameof(doubled), table);
 
         private int doubled(int input) => input * 2;
+        // #endregion doubling-gives
 
+        // #region subscriptions-are
         [Given("the subscriptions are")]
         internal void TheSubscriptionsAre(StepTable table) => Built = TableRunner.BuildRows<Subscription>(table);
+        // #endregion subscriptions-are
     }
 
     private readonly MembersGrammar _grammar = new();

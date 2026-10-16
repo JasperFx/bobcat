@@ -40,6 +40,7 @@ public class RosterGrammar
     /// The batched-setup shape: one call, the whole table, one save. Storyteller's
     /// <c>AsTable(...).Before(...).After(...)</c> envelope with the envelope written out.
     /// </summary>
+    // #region roster-is
     [Given("the roster is")]
     internal void TheRosterIs(StepTable roster)
     {
@@ -51,6 +52,7 @@ public class RosterGrammar
             _roster.Add($"{row["player"]} ({position})");
         }
     }
+    // #endregion roster-is
 
     /// <summary>
     /// The cell is named for the placeholder it belongs to, so its verdict renders in the sentence
@@ -95,6 +97,7 @@ public class RosterGrammar
     /// (bobcat#483). The ordinary parameters bind from their columns; each out parameter and the
     /// returned value is an output column, judged per row.
     /// </summary>
+    // #region batting-lines
     [Then("the batting lines are")]
     internal async Task TheBattingLinesAre(StepTable table) => await TableRunner.Run(this, nameof(battingLine), table);
 
@@ -107,11 +110,13 @@ public class RosterGrammar
         // The returned value is compared against the one column no parameter names: Verdict.
         return average >= 0.300m ? "All-Star" : "Bench";
     }
+    // #endregion batting-lines
 
     /// <summary>
     /// A decision table from the C# side: the expected value is a column like any other, and the
     /// grammar reports one cell per row so the grid carries a verdict per row.
     /// </summary>
+    // #region adding-numbers
     [Then("adding numbers together")]
     internal void AddingNumbersTogether(StepTable sums)
     {
@@ -126,4 +131,5 @@ public class RosterGrammar
             SpecAssert.Check("sum", x + y, int.Parse(row["sum"]), rowIndex: i);
         }
     }
+    // #endregion adding-numbers
 }

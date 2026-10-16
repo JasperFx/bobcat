@@ -109,6 +109,7 @@ public class NarratedSpecs
     /// Four assertions, two of them wrong. A plain Shouldly test reports the first and leaves three
     /// blanks; here all four reach the report and the test still fails, once.
     /// </remarks>
+    // #region projected-assertions
     [Fact]
     public void every_assertion_in_a_run_is_evaluated()
     {
@@ -120,6 +121,7 @@ public class NarratedSpecs
         calculator.Value.ShouldBeLessThan(2);
         calculator.Value.ShouldBe(3);
     }
+    // #endregion projected-assertions
 
     /// <summary>
     /// The run ends at the next ACTION, which never runs — it would be operating on state the

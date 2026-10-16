@@ -34,6 +34,30 @@ buys nothing but containers.
 When the floor is what binds, the fix is not more workers. It is splitting that class, or making the
 tests in it faster: two compliance classes were 61% of the Redis suite's total test time.
 
+## Two ways to run under the supervisor
+
+**From the command line**, `bobcat run --workers 4` runs a spec project on four worker processes,
+partitioned by test class; `--retries`, `--stall` and `--stall-action` turn on the retry and stall
+handling below (see [Supervised runs](bobcat-tool.md#supervised)). Every lane gets the same
+environment, so that is enough for a suite whose classes already isolate themselves -- a container
+or a database per process, say.
+
+**In C#**, a small host program builds a `Supervisor` over an `MtpWorkerFactory` and sets what the
+command line doesn't reach: a connection string per lane (Step 2), preflight checks, recyclable
+resources, failure policies, observers, the heartbeat and memory sampling. It drives any MTP test
+host, Bobcat or not:
+
+```csharp
+var supervisor = new Supervisor(new MtpWorkerFactory("path/to/MySpecs"))
+{
+    MaxParallelWorkers = 4,
+    RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
+};
+
+var results = await supervisor.Run();
+return results.ExitCode;
+```
+
 ## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never
@@ -402,7 +426,8 @@ partition sets the floor: Wolverine's run bottomed out at ~67s because one test 
 The evidence for attacking that is in the run itself: `RunReport`'s `Timing` section ranks the
 slowest tests by **share of wall clock**, reports parallel efficiency, and prices retries and
 isolation -- report, don't act, so whether a slow test is a bug or honestly slow stays a judgement.
-Across runs, the committed ledger (`TestLedger`, see `design/ledger-design.md`) carries duration trends,
+Across runs, the committed ledger (`TestLedger`, see
+[ledger-design.md](https://github.com/JasperFx/bobcat/blob/main/design/ledger-design.md)) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
 durations instead of test counts.
 

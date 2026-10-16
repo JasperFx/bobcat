@@ -56,7 +56,9 @@ export default defineConfig({
           { text: 'The Bobcat UI', link: '/bobcat-ui' },
           { text: 'Querying Runs from the CLI', link: '/agent-queries' },
           { text: 'Spec Identities', link: '/spec-identities' },
-          { text: 'The Resident Runner', link: '/resident-runner' }
+          { text: 'The Resident Runner', link: '/resident-runner' },
+          { text: 'Diagnostics', link: '/diagnostics' },
+          { text: 'Version Compatibility', link: '/compatibility' }
         ]
       },
       {

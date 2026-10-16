@@ -8,6 +8,7 @@ namespace BankAccountES.Tests;
 /// host's own appsettings.json and the environment, so <c>EventStore=Fisher</c> or
 /// <c>ConnectionStrings__Marten=...</c> point the same specs at another store or database.
 /// </summary>
+// #region app-host
 public class BankAccountHost : IAsyncLifetime
 {
     public IAlbaHost Host { get; private set; } = null!;
@@ -28,3 +29,4 @@ public class BankAccountHost : IAsyncLifetime
         if (Host is not null) await Host.DisposeAsync();
     }
 }
+// #endregion app-host

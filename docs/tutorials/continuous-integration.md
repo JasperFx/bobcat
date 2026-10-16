@@ -39,6 +39,17 @@ Bobcat identity, `{Feature}/{Scenario}`, is translated to the framework's filter
 [resident runner](../resident-runner.md), and `BOBCAT_LIST_SPECS` writes what the suite specifies;
 see [Spec Identities](../spec-identities.md#listing-and-running-by-identity).
 
+To run a corner of the Event Model -- one slice, a chapter, every `View` -- the runner adapters put
+the specification's coordinates on each test as traits, so the platform filters by them directly:
+
+```bash
+dotnet test --filter-trait "Slice=Deposit funds"     # xUnit v3
+bobcat run --chapter "Money in" --pattern Command    # xUnit v3 or TUnit, through the tool
+```
+
+A coordinate no specification has is refused by name, so a filter cannot quietly select nothing
+([Selecting by Event Model coordinates](../bobcat-tool.md#selecting-by-coordinates)).
+
 ## 4. Get a readable failure
 
 A failed specification fails its test with every gathered disagreement in the message, so the CI log
@@ -88,6 +99,10 @@ artifact with no server. Write it from the results files before the upload:
 
 (`bobcat run --results artifacts/bobcat --html artifacts/bobcat/results.html` does both in one step.)
 
+Anything a step attached with `SpecAttachment` -- a screenshot, a response body -- lands under the
+same directory when its scenario fails, and the HTML page shows it under its step
+([Failure evidence](../marker-steps.md#attachments)).
+
 ## 5. Publish the run
 
 A run can announce itself over a documented wire -- every scenario's start, verdict and timing --
@@ -108,11 +123,15 @@ the whole thing -- is in [What a Run Publishes](../monitor-design.md).
 ## 6. Decide about flakiness before it decides for you
 
 The supervisor's retry budget lets a test pass on a second attempt and still exit 0, reported
-separately so the pass-on-retry is visible rather than laundered:
+separately so the pass-on-retry is visible rather than laundered. From the tool it is one flag, and
+it only ever retries a specification carrying a `Retry` trait or a recovery hint that matches the
+failure ([Supervised runs](../bobcat-tool.md#supervised)):
 
-```csharp
-supervisor.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };
+```bash
+bobcat run --retries 1 --results artifacts/bobcat     # at most two attempts
 ```
+
+In a supervisor host of your own it is `supervisor.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };`.
 
 Use the budget to keep a pipeline moving, not to make a problem invisible -- the number you then watch
 is the pass-on-retry count, not the pass count.
@@ -127,7 +146,7 @@ exactly like a broken change. Segment the work into several jobs by class or tra
 more parallel lanes inside one job, and give each segment its own infrastructure.
 
 If the suite is large enough that segmenting is not enough, the supervisor splits it across worker
-processes -- again, [Reliable Integration Testing](reliable-integration-testing.md).
+processes (`bobcat run --workers 4`) -- again, [Reliable Integration Testing](reliable-integration-testing.md).
 
 ## Where to go next
 

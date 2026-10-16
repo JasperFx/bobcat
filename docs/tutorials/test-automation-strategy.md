@@ -31,9 +31,12 @@ Two things in Bobcat protect what a green build means:
 - **A spec that isn't written yet can't make the build red, and can't pass either.** A
   `[BobcatSpec(…, Pending = true)]` stub is *skipped* and reported as skipped, never run with its
   failure absorbed. It still sits on its Event Model slice as an open question
-  ([Stub-first](../marker-steps.md#bobcatspec)). The next step, a spec that runs and is reported but
-  is red by design until its feature lands, is
-  [bobcat#545](https://github.com/JasperFx/bobcat/issues/545).
+  ([Stub-first](../marker-steps.md#bobcatspec)).
+- **A spec that runs ahead of its feature doesn't turn the build red either.**
+  `Lifecycle = Lifecycle.Acceptance` runs it every time and records every failing step under its own
+  `acceptance: failing` verdict, while the test platform reports it skipped. A passing one says it is
+  ready to promote, and `BOBCAT_LIFECYCLE=strict` makes its failures real on a branch that claims to
+  be done ("Not yet passing" in [Writing Specifications](../marker-steps.md)).
 - **You can see what is unspecified.** A spec bound to its slice puts the Event Model and the run
   evidence side by side: `bobcat slice-coverage` lists every slice with no spec (`no-spec`) or with a
   spec that no run has exercised (`no-evidence`). See
@@ -75,9 +78,11 @@ the change that caused it. Bobcat's part:
 - **The timing report** shows where a run spent its time: the slowest steps, the gaps between them,
   and scenarios that assert nothing ([Where the time went](../marker-steps.md#timing)). Under the
   supervisor, `RunTiming` reports each test's share of the wall clock.
-
-Rerunning only what failed last time (`bobcat run --failed`) and running one slice's specs
-(`--slice`) are planned for 1.0. They are not in the tool yet.
+- **Rerun only what is red.** `bobcat run --failed` runs the specifications that failed last time, by
+  identity, and `--repeat` replays the last run's selection
+  ([Rerunning what failed](../bobcat-tool.md#failed-repeat)).
+- **Run one slice.** `--slice`, `--chapter`, `--domain` and `--pattern` narrow a run to a corner of
+  the Event Model ([Selecting by Event Model coordinates](../bobcat-tool.md#selecting-by-coordinates)).
 
 ### 4. Reliability
 
@@ -96,9 +101,9 @@ than a broad one nobody believes.
   progress, and can kill and retry it if you opt in
   ([When a parallel run hangs](../parallel-ready-suites.md#when-a-parallel-run-hangs-bloats-or-is-cut-short)).
 - **Broken infrastructure stops the run.** A `SpecCatastrophicException` (the database is gone, the
-  host won't start) is never retried, and under the supervisor it aborts the run instead of failing
-  every remaining test one at a time. Halting the rest of an in-process run is
-  [bobcat#539](https://github.com/JasperFx/bobcat/issues/539).
+  host won't start) is never retried. In process, every specification after it fails at once with
+  `SpecEnvironmentLostException` naming the cause, instead of failing one timeout at a time; under the
+  supervisor it aborts the run ([When the environment is gone, stop](../marker-steps.md#environment-lost)).
 
 Most flaky tests against an asynchronous system come from **asserting before the system is done**,
 then papering over it with a `Thread.Sleep`. Wait for the work instead of for the clock:

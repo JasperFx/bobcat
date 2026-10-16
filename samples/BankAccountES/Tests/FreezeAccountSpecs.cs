@@ -12,6 +12,7 @@ namespace BankAccountES.Tests;
 /// spec by adding the missing event -- the gap is the point, and <see cref="EventModel" /> asserts on it.
 /// <c>ThenEmitted&lt;T&gt;</c> is a contains-check, so the spec passes while naming only AccountFrozen.
 /// </remarks>
+// #region freeze-account
 [BobcatFeature("Freeze Account")]
 public class FreezeAccountSpecs(BankAccountHost app) : BankAccountSpec(app)
 {
@@ -27,3 +28,4 @@ public class FreezeAccountSpecs(BankAccountHost app) : BankAccountSpec(app)
         await ThenReadModel<Account>(accountId, Specify<Account>().With(x => x.IsFrozen, true));
     }
 }
+// #endregion freeze-account

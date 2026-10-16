@@ -28,10 +28,11 @@ were Stoat MCP tools are `bobcat` commands now; see
 
 The move changed no part of the wire. What a publisher speaks is what it always spoke:
 
-- **`Bobcat.Monitoring`**, `BobcatRunner.PublishToMonitor`, `MonitorPublisher`, the
+- **`Bobcat.Monitoring`**, `Supervisor.PublishToMonitor`, `MonitorPublisher`, the
   `Monitor:*` config keys, and the mirror records in `src/Bobcat/Monitoring/MonitorEvents.cs`.
 - **`BOBCAT_MONITOR`, `BOBCAT_MONITOR_URL`, `BOBCAT_RUN_ID`, `BOBCAT_RUN_TAG`,
-  `BOBCAT_RUN_OWNER`, `BOBCAT_RUN_COMMAND`, `BOBCAT_LIST_SPECS`, `BOBCAT_RESIDENT`** — every one a
+  `BOBCAT_RUN_OWNER`, `BOBCAT_RUN_COMMAND`, `BOBCAT_RUN_COMMAND_FILE`, `BOBCAT_LIST_SPECS`,
+  `BOBCAT_RESIDENT`, `BOBCAT_RUNNER_ID`** — every one a
   user-facing contract. `CLAUDE_CODE_SESSION_ID` is read too
   (issue #389) and is deliberately *not* a `BOBCAT_*` variable: Bobcat does not ask for it, it reads
   what an agent session already put in the environment.
@@ -58,7 +59,8 @@ change for consumers that have nothing to do with where the viewer lives.
 
 ## Transport: HTTP, fire-and-forget, never slows a run
 
-Publishers (BobcatRunner, the supervisor, worker processes) POST batches of events to
+Publishers (the run bracket in every projected test host, the supervisor, its worker processes)
+POST batches of events to
 `/api/ingest`. HTTP over raw TCP because the emitting client must be dependency-free
 (`HttpClient` + STJ only — no Wolverine in Bobcat), and events arrive at tens/second, not
 thousands. The invariant that outranks all others: **a test run is never slowed or failed by
@@ -111,8 +113,8 @@ What the list means in practice:
 `src/Bobcat/Monitoring/MonitorEvents.cs` — polymorphic `MonitorEvent` records. The STJ
 type discriminator and the Wolverine message type name are pinned to the same snake_case
 string, so ingestion JSON and the SignalR envelope agree by construction. Identity: `RunId`
-(minted per run) + scenario uid `"{Feature}/{Scenario}"` — the string BobcatRunner,
-`RetryBudget`, `SpecNodeMapping`, and `WorkPlan` already share. `RunStarted` carries the root
+(minted per run) + scenario uid `"{Feature}/{Scenario}"` — the spec identity the retry
+budget, the spec manifest and `WorkPlan` already share. `RunStarted` carries the root
 repository path + branch, the board's grouping key for parallel suites on one box.
 `RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
 
@@ -133,7 +135,9 @@ resident runner's command id (issue #390), stamped on the run that satisfies it.
 reuse of `Tag`, because the two are independent and a commanded run routinely wants both: a slice's
 specs re-run from the console are still attributed to that slice's plan node. Unlike the session it
 *is* a `BOBCAT_*` variable, because here Bobcat is the thing asking — a cold command launches a
-child test host and the id travels down to it exactly as `BOBCAT_RUN_ID` does.
+child test host and the id travels down to it exactly as `BOBCAT_RUN_ID` does. A warm host's
+environment is fixed at launch, so there the runner writes each command's id to the file
+`BOBCAT_RUN_COMMAND_FILE` names before sending the request, and the file wins over the variable.
 
 `MonitorRunInfo.Discover` reads all three the same way, and each is null when absent rather than
 empty — an empty string on the wire reads as "there was one" to anything checking for null. A
@@ -262,7 +266,7 @@ real HTTP without one.
    - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
      updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host
-     running `BobcatRunner`, and its own publisher streams steps directly to the monitor.
+     running Bobcat's recorder, and its own publisher streams steps directly to the monitor.
 5. **Step-level progress for a scenario in flight** (built 2026-08-21, issue #99). Four
    additive pieces, engine to viewer:
    - **Step n of N with elapsed.** `IExecutionObserver.ScenarioStarted(feature, scenario,
@@ -688,7 +692,7 @@ gap is invisible, which is exactly why it is written down: Bobcat's own end-to-e
 CI three tags in a row, with the product behaving as specified, before it was.
 
 **The run that follows is an ordinary run on the existing ingest stream**, carrying the command on
-`run_started.Command` (issue #392) and `mode` = `resident`. A viewer therefore follows its own
+`run_started.Command` (issue #392); its `mode` is the test host's own (`xunit`, `tunit`). A viewer therefore follows its own
 button press to the run it produced with no new event type.
 
 **A refusal carries a machine word beside the sentence** (issue #400). `refusal` on the
@@ -718,7 +722,8 @@ the rule every run it made for a button press was attributed to the session that
 framework, so its runner lives outside the suite and runs a command by launching the suite's own test
 host, narrowed by #391's filter translation. It ships as `bobcat resident <host>` because the console
 at the other end references nothing else in this repository and so cannot be handed a class to host.
-Cold-only, for the measured reason above. The child's environment is **pruned on purpose**:
+Cold commands each launch a fresh child; `bobcat resident` also registers `warm`, which keeps one
+host open and sends each command into it as a run request. A cold child's environment is **pruned on purpose**:
 `BOBCAT_RUN_ID` would collapse every command into one run card, `BOBCAT_RUN_OWNER` would stop the
 child publishing a bracket at all, `BOBCAT_LIST_SPECS` would turn the run into a listing, and
 `BOBCAT_RESIDENT` would have the child register itself instead of running; `BOBCAT_MONITOR=1` is
@@ -739,7 +744,9 @@ failure travels as a marked-up grid rather than the sentence it used to be flatt
 
 - **Elapsed-vs-expected per step.** Step progress (Bobcat-side seams item 5) carries elapsed;
   "expected" needs a duration history across runs, which is the same committed ledger #44 layer 2
-  and #56 layer 3 want — one store, not three. See `design/ledger-design.md`.
+  and #56 layer 3 want. That ledger exists now (`TestLedger`, see
+  [ledger-design.md](https://github.com/JasperFx/bobcat/blob/main/design/ledger-design.md)); nothing
+  reads a per-step expectation out of it yet.
 - **Supervisor-side test updates beyond progress.** `ISupervisorObserver.TestUpdated` (item 5's
   tap) is supervisor-side only; item 7 forwards the part of it that a progress bar needs and no
   more.

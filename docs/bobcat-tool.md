@@ -9,6 +9,8 @@ A global .NET tool with these commands:
 | **[`pick`](#run-preview-pick-watch)** | choose specifications from a menu, then run them |
 | **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
 | **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records, an `EventModelDefinition` per chapter, and optionally a specification per example plus the spec project around them |
+| **[`results-html`](#results-page)** | write the self-contained HTML results page from results files already written |
+| **[`results-schema`](#results-file)** | print or write the JSON Schema of the results file |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
 | **[`ui`](bobcat-ui.md)** | serve the [Bobcat UI](bobcat-ui.md) -- the live run board and the Event Model canvas -- on 5525 and open it in the browser, until Ctrl+C |
 | **[`watch-event-model`](bobcat-ui.md#getting-a-model-onto-it)** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
@@ -51,18 +53,18 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 |---|---|
 | `-f, --framework <tfm>` | the target framework to run; the newest the project targets by default |
 | `-c, --configuration <name>` | the build configuration; `Debug` by default |
-| `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (not `pick`) |
-| `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (not `pick`) |
-| `--slice <name>` | only specifications bound to this Event Model slice; repeatable (not `pick`) |
-| `--chapter <name>` | only specifications whose slice is in this chapter; repeatable (not `pick`) |
-| `--domain <name>` | only specifications whose slice is in this domain; repeatable (not `pick`) |
-| `--pattern <name>` | only specifications whose slice has this pattern (`Command`, `View`, `Query`, `Automation`, `Translation`); repeatable (not `pick`) |
-| `--trait <Name=Value>` | only specifications with this trait: a framework trait or property, or `Slice`/`Chapter`/`Domain`/`Pattern`; repeatable (not `pick`) |
+| `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (`run`, `watch`) |
+| `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (`run`, `watch`) |
+| `--slice <name>` | only specifications bound to this Event Model slice; repeatable (`run`, `watch`) |
+| `--chapter <name>` | only specifications whose slice is in this chapter; repeatable (`run`, `watch`) |
+| `--domain <name>` | only specifications whose slice is in this domain; repeatable (`run`, `watch`) |
+| `--pattern <name>` | only specifications whose slice has this pattern (`Command`, `View`, `Query`, `Automation`, `Translation`); repeatable (`run`, `watch`) |
+| `--trait <Name=Value>` | only specifications with this trait: a framework trait or property, or `Slice`/`Chapter`/`Domain`/`Pattern`; repeatable (`run`, `watch`) |
 | `--no-build` | use the last build as it is |
 | `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
 | `--html <file>` | also write the run as one self-contained [HTML results page](#results-page) (not `preview`) |
 | `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
-| `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire |
+| `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire (not `preview`) |
 | `--failed` | run only the specifications that failed or errored last time (`run`; see below) |
 | `--repeat` | run the last run's selection again, with its flags (`run`; see below) |
 | `--retries <N>` | supervised: retry a failed specification up to N times, if it has a `Retry` trait or a recovery hint (`run`; see below) |
@@ -165,17 +167,10 @@ BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain
   is written from, shipped in the `Bobcat` package under `schemas/`, and written beside every
   results file. The file's `$schema` names it, so an archived artifact validates offline.
   `bobcat results-schema` prints it (`--out <dir>` writes it). `schemaVersion` moves only for a
-  breaking change; new optional fields keep it.
-- **For Bobcat contributors: the schema is built, not committed** (bobcat#604). Parallel branches
-  that changed the file's records kept conflicting on a generated file whose diff nobody needed to
-  review, and that diff compared against the last merge rather than against what consumers have.
-  Now the Nuke `Pack` target generates it into the package, and `./build.sh CI` runs
-  `ResultsSchemaCompatibility`, which downloads the last released `Bobcat` package from nuget.org
-  and compares schemas. It fails on a removed property, a changed type (adding `null` counts) or a
-  newly required property, unless `ResultsFile.SchemaVersion` moved; a new optional property
-  passes. A release with no schema (everything up to 0.60.4, before #540) is no baseline, and the check passes saying so.
-  `./build.sh ResultsSchemaCompatibility --schema-baseline <file>` checks against a file of your
-  own.
+  breaking change; new optional fields keep it. `bobcat results-schema --baseline
+  <bobcat-results-<version>.schema.json>` compares this tool's schema with an older one and fails on
+  a breaking change (a removed property, a changed type, a newly required property) unless the
+  schema version moved.
 - A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
   the same rule as the console and the wire.
 - Writing it never fails a run: a directory that cannot be written is one line on standard error.
@@ -183,7 +178,7 @@ BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain
 ### The HTML results page {#results-page}
 
 One run as **one HTML file**, for CI to archive and for someone to open later from disk or a
-downloaded artifact — Storyteller's `stresults.htm`, for Bobcat. There is no server behind it and
+downloaded artifact. There is no server behind it and
 it fetches nothing: the page's script, its styles and the run's results are all inside the file.
 It is an archive, not a console; watching a run live is [`bobcat ui`](bobcat-ui.md)'s job.
 
@@ -272,7 +267,7 @@ is null (no chapter, a pattern nothing can tell) is left off rather than project
 | xUnit v3 | traits from `[BobcatSpec]` (an `ITraitAttribute`) | `dotnet test --filter-trait "Slice=Deposit funds"` |
 | TUnit | properties, added at discovery by `[BobcatScenario]` | `--treenode-filter "/*/*/*/*[Slice=Deposit funds]"` |
 | NUnit | properties, from `[BobcatScenario]` (`IApplyToTest`) | `--filter "Slice~Deposit"` |
-| MSTest | not projected | use `bobcat run --slice` |
+| MSTest | not projected | none yet: `bobcat run --slice` refuses NUnit and MSTest suites too |
 
 - **xUnit: only `[BobcatSpec]` carries them**, not `[Fact]` + `[BobcatScenario]`. xUnit asks a trait
   attribute for its traits without saying which method it is on, so the attribute finds its method
@@ -283,7 +278,9 @@ is null (no chapter, a pattern nothing can tell) is left off rather than project
   "one class, one slice" selects as expected. For each test's own coordinates in a mixed class,
   put `[BobcatScenario]` on the methods.
 - **MSTest: not projected.** `Bobcat.MSTest` references no MSTest assembly, and its hooks run when
-  a test runs, which is too late for a discovery-time filter.
+  a test runs, which is too late for a discovery-time filter. `bobcat run`'s coordinate flags don't
+  cover it either: running an NUnit or MSTest suite by identity is refused until a filter spelling
+  has been verified against a real host.
 
 ## `import-event-model` {#import-event-model}
 
@@ -913,6 +910,9 @@ bobcat help import-event-model     # usage for one
 The tool registers its commands explicitly rather than scanning, so nothing an assembly happens to
 carry can join this surface. A bare `bobcat` is `bobcat run`: it runs the spec project found from the
 current directory, and fails fast when there is none.
+
+`generate-ui-contracts` is for Bobcat contributors only: it regenerates the UI's TypeScript copies of
+the wire contracts (`./build.sh UiContracts` runs it).
 
 ## Where this fits
 

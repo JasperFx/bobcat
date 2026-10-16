@@ -16,6 +16,7 @@ Nothing is rewritten and the tests keep their own runner. For writing new specif
 Put `[BobcatScenario]` on the test class, and name the feature it belongs to:
 
 ```csharp
+using Bobcat;
 using Bobcat.MSTest;
 
 [TestClass, BobcatFeature("Booking"), BobcatScenario]
@@ -64,13 +65,14 @@ project and call `Bobcat.MSTest.MSTestScenarioBracket.Open(...)` / `.Close(...)`
 behaviour is finished. On MSTest only a spec failed by gathered `SpecAssert` wrongs can be reported
 inconclusive (a skip): a body that *throws* stays failed, because MSTest keeps the more important
 outcome, and Bobcat records that one as a failure too. See
-[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+[not yet passing](marker-steps.md#acceptance).
 
 ## Versions
 
 The package references no MSTest assembly at all. MSTest 4 renamed its assemblies, so anything
 compiled against one major fails to load under the other; the hooks the package adds are source,
 compiled against whichever MSTest your project has. It is tested on MSTest 3.11 and checked on 4.5.
+See [Version Compatibility](/compatibility).
 
 ## What it renders
 

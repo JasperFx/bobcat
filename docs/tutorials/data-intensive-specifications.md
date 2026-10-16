@@ -4,8 +4,7 @@ Some specifications are about one value. Others are about *a lot of data* -- doz
 before anything happens, and a whole collection verified afterwards instead of a scalar. Written as
 one step per row, those specifications stop being readable long before they stop being useful.
 
-Bobcat inherited these mechanisms from Storyteller for exactly this, and they all render as **one
-grid per step**:
+Bobcat has a mechanism for each of those, and they all render as **one grid per step**:
 
 | | |
 |---|---|
@@ -15,24 +14,21 @@ grid per step**:
 | **[A set verification](#set-verification)** | a collection compared against expected rows, matched by key rather than by position |
 | **[One object against one row](#one-object-against-one-row)** | a single object's properties checked against the columns a row names |
 
+When each row is a whole case of its own -- its own run, verdict and identity rather than a row in
+one step's grid -- write an xUnit v3 theory instead, with its examples as the same pipe table:
+`[BobcatTheory]` plus `[BobcatExamples]` ([A theory's examples as a table](../marker-steps.md#bobcatexamples)).
+
 Every example on this page is a step helper -- a method carrying `[Given]`, `[When]` or `[Then]` --
-taking a `StepTable`, called from an ordinary test. They come from `src/Bobcat.Projected.Acceptance.Tests`
-and `src/Bobcat.Xunit.Samples`, the second being Storyteller 5's own sample documents recreated as
-xUnit v3 tests.
+taking a `StepTable`, called from an ordinary test. They come from compiled tests in
+[`src/Bobcat.Projected.Acceptance.Tests`](https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.Projected.Acceptance.Tests)
+and [`src/Bobcat.Xunit.Samples`](https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.Xunit.Samples).
 
 ## A table as input
 
 A table arrives as **pipe-delimited text** that `StepTable` reads by an implicit conversion. The step
 takes the whole table as one argument:
 
-```csharp
-[Given("the roster is")]
-internal void TheRosterIs(StepTable roster)
-{
-    foreach (var row in roster.AsDictionaries())
-        _roster.Add($"{row["player"]} ({row.GetValueOrDefault("position", "Outfield")})");
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/RosterGrammar.cs#roster-is{cs}
 
 ```csharp
 _roster.TheRosterIs("""
@@ -56,29 +52,17 @@ reports -- a table it ran, a set it verified -- replaces them rather than arrivi
 
 ## A table the step runs itself
 
-Storyteller's batched-setup envelope was
-`this["BuildUser"].AsTable("The Users are").Before(…).After(…)` -- a table *declared* around another
-grammar. Bobcat's equivalent is `TableRunner`, and the hooks are the lines either side of the call:
+Setting up a batch of rows usually wants something done once before them and once after them --
+clear a list, open a session, save once. `TableRunner` calls a row method once per row, and the
+before/after hooks are simply the lines either side of the call:
 
-```csharp
-[Given("the members are")]
-internal async Task TheMembersAre(StepTable table)
-{
-    Log.Clear();                                   // before all rows
-    await TableRunner.Run(this, nameof(addMember), table);
-    Flushed = string.Join("|", Log);               // after all rows, once
-}
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#members-are{cs}
 
-private void addMember([Header("Member Name")] string member, Tier tier = Tier.Free)
-    => Log.Add($"{member}:{tier}");
-```
+`TableRunner.BuildRows<T>` builds one object per row instead:
 
-```csharp
-[Given("the subscriptions are")]
-internal void TheSubscriptionsAre(StepTable table) => Built = TableRunner.BuildRows<Subscription>(table);
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#subscriptions-are{cs}
 
-public record Subscription(string Customer, Tier Tier, DateOnly RenewsOn, string Currency = "USD");
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#subscription-record{cs}
 
 ```csharp
 _grammar.TheSubscriptionsAre("""
@@ -88,8 +72,7 @@ _grammar.TheSubscriptionsAre("""
     """);
 ```
 
-`TableRunner.BuildRows<T>` is Storyteller's `CreateNewObject<T>`: columns bind to the record's
-constructor first and then to settable properties, `TODAY+30` is read as a real `DateOnly`, and
+Columns bind to the record's constructor first and then to settable properties, `TODAY+30` is read as a real `DateOnly`, and
 `Currency` can be left out of the table entirely because the record declares a default for it.
 
 `TableRunner.Run(target, nameof(rowMethod), table)` calls a method once per row, binding each column to
@@ -103,10 +86,9 @@ a parameter **by name**:
   alternatives.
 - The row method may be private, and may be async; each row is awaited before the next.
 
-**The before/after hooks are the method body**, and that is the whole design. Storyteller needed
-`.Before(...)` and `.After(...)` because the table was declared rather than called; here "before all
-rows" is the line above and "after all rows" is the line below -- which is also where a `DbContext` or
-a document session gets its single `SaveChangesAsync`. The language already has the feature.
+**The before/after hooks are the method body**, and that is the whole design: "before all rows" is
+the line above and "after all rows" is the line below -- which is also where a `DbContext` or a
+document session gets its single `SaveChangesAsync`. The language already has the feature.
 
 `TableRunner` is one of Bobcat's bounded softenings of "no reflection": a method named by a `string`
 cannot be bound at compile time, and naming one is the point -- the row method stays a private detail
@@ -119,12 +101,7 @@ One row per case, with the input columns and the expected-output column in the s
 `TableRunner.Run` a row method that **returns** a value, and the one column no parameter claims is the
 expected output:
 
-```csharp
-[Then("doubling gives")]
-internal async Task DoublingGives(StepTable table) => await TableRunner.Run(this, nameof(doubled), table);
-
-private int doubled(int input) => input * 2;
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#doubling-gives{cs}
 
 ```csharp
 _grammar.DoublingGives("""
@@ -139,17 +116,7 @@ The second row fails in the `doubled` column -- `expected '7', got '6'` -- and t
 
 Or report each row yourself, which is the shape for a computation that isn't one method call:
 
-```csharp
-[Then("adding numbers together")]
-internal void AddingNumbersTogether(StepTable sums)
-{
-    var rows = sums.AsDictionaries();
-
-    for (var i = 0; i < rows.Count; i++)
-        SpecAssert.Check("sum", int.Parse(rows[i]["x"]) + int.Parse(rows[i]["y"]),
-            int.Parse(rows[i]["sum"]), rowIndex: i);
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/RosterGrammar.cs#adding-numbers{cs}
 
 The comparison supersedes the value the table wrote for that column, which is why a wrong row reads
 `expected '5', got '4'` in the `sum` column rather than echoing the `5` the test typed.
@@ -168,9 +135,7 @@ The comparison supersedes the value the table wrote for that column, which is wh
 ```
 
 A row of a table is an independent case, not a step in a sequence, so a row that throws fails that
-row and **the rest of the table still runs** -- Storyteller's behaviour. Before this, one throwing
-row erased the whole grid: the cells were gathered and applied only after the last row, so anything
-that threw discarded every cell, including the rows that had already passed.
+row and **the rest of the table still runs**. The rows that already passed keep their verdicts.
 
 The step's verdict keeps the difference between a wrong and an exception. A row whose code threw
 makes the step `error`. A wrong value, a missing row or an extra row makes it `failed`, because each
@@ -184,36 +149,15 @@ The rows already reached stay on the grid even then.
 ## Decision tables with out parameters
 
 <!-- JEREMY -->
-Storyteller let a decision table grammar declare its outputs as `out` parameters, and it's still the
-most natural way to write a table where one set of inputs produces more than one answer. A returned
-value only gives you one output column. Out parameters give you as many as you need, and each one is
-named right there in the method signature.
+`out` parameters are the most natural way to write a table where one set of inputs produces more
+than one answer. A returned value only gives you one output column. Out parameters give you as many
+as you need, and each one is named right there in the method signature.
 
 Hand `TableRunner.Run` a row method with `out` parameters, and each one is an output column:
 
-```csharp
-[Then("the batting lines are")]
-internal async Task TheBattingLinesAre(StepTable table) => await TableRunner.Run(this, nameof(battingLine), table);
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/RosterGrammar.cs#batting-lines{cs}
 
-private string battingLine([Header("At Bats")] int atBats, int hits, int walks,
-    out decimal average, [Header("On Base")] out decimal onBase)
-{
-    average = Math.Round((decimal)hits / atBats, 3);
-    onBase = Math.Round((decimal)(hits + walks) / (atBats + walks), 3);
-
-    // The returned value is compared against the one column no parameter names: Verdict.
-    return average >= 0.300m ? "All-Star" : "Bench";
-}
-```
-
-```csharp
-await _roster.TheBattingLinesAre("""
-    | At Bats | hits | walks | average | On Base | Verdict  |
-    | 500     | 150  | 50    | 0.300   | 0.364   | All-Star |
-    | 400     | 100  | 40    | 0.250   | 0.318   | Bench    |
-    | 600     | 198  | 0     | 0.330   | 0.330   | All-Star |
-    """);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/TableSpecs.cs#batting-lines-table{cs}
 
 That's `TableSpecs.a_decision_table_with_out_parameters` in `Bobcat.Xunit.Samples`, and it renders as
 one grid with a verdict in each of the `average`, `On Base` and `Verdict` columns of every row.
@@ -245,11 +189,7 @@ A set verification says the collection is **exactly** these rows. Rows are match
 that identify them, every other column the table names is compared once a row is matched, and order
 is not part of the claim unless you say so:
 
-```csharp
-[Then("the inventory should be")]
-internal void TheInventoryShouldBe(StepTable expected)
-    => SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku");
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/VerifySetTests.cs#inventory-should-be{cs}
 
 ```csharp
 _grammar.TheInventoryShouldBe("""
@@ -259,8 +199,7 @@ _grammar.TheInventoryShouldBe("""
     """);
 ```
 
-`keyColumns` is Storyteller's `MatchOn` under another name, comma-separated; leave it empty to match on
-every column the table names.
+`keyColumns` is comma-separated; leave it empty to match on every column the table names.
 
 ### The four row markers
 
@@ -305,47 +244,40 @@ which is the difference between a useful report and a useless one for an event s
 unexpected event.
 
 For a collection of plain values, the single column is inferred from a one-column table, because there
-is only one thing it could be. `column: "Name"` names it explicitly -- Storyteller's
-`VerifyStringList(...).Titled(title, "Name")`, with no wrapper record and no second grammar.
+is only one thing it could be. `column: "Name"` names it explicitly, with no wrapper record and no second grammar.
 
 ### Titling a set's columns
 
-A set's columns are the result type's **properties**, so the property is where `[Header]` goes  -- 
-Storyteller's `_.Compare(o => o.Amount).Header("The Amount")`:
+A set's columns are the result type's **properties**, so the property is where `[Header]` goes:
+
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/SetVerificationTests.cs#ledger-record{cs}
 
 ```csharp
-public record Ledger([property: Header("The Amount")] decimal Amount, string Name);
-```
-
-```csharp
-_ledger.TheLedgerShouldBe("""
-    | The Amount | Name   |
-    | 100.50     | Widget |
+_grammar.TheLedgerShouldBe("""
+    | Line Item | The Amount |
+    | Drill     | 200        |
+    | Cord      | 100        |
     """);
 ```
 
 **The title replaces the name rather than aliasing it**, and that is deliberate: one column with two
 spellings is how a grid ends up with two columns for one property. So `keyColumns` names columns as
 the *table* writes them -- a titled property is named there by its title. Both readings of "what is
-this column called" go through one authority (`Runtime.ColumnNames`), because a column titled one
-thing on the way in and another on the way out would be two columns.
+this column called" go through one rule, because a column titled one thing on the way in and another
+on the way out would be two columns.
 
 ### An empty expected set still has headings
 
 A header-only table -- "the set should be empty" -- is a legitimate expectation, and the grid takes its
-column order from the table's headers rather than from the first expected row. Before that, such a
-step produced a grid with no headings and rendered its extra rows under nothing.
+column order from the table's headers rather than from the first expected row, so its extra rows
+render under the headings the table wrote.
 
 ## One object against one row
 
 The mechanisms above are about *many* rows. This one is about a single object, and the columns the
-row names are compared against the public properties or fields of those names -- Storyteller's
-`VerifyObject`:
+row names are compared against the public properties or fields of those names:
 
-```csharp
-[Then("the address should be")]
-internal void TheAddressShouldBe(StepTable expected) => PropertyCells.Verify(_address, expected);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/ObjectsGrammar.cs#address-should-be{cs}
 
 ```csharp
 _objects.TheAddressShouldBe("""
@@ -375,7 +307,7 @@ It renders as a one-row grid with a verdict per column:
 
 ### A column may reach into a nested object
 
-A column name containing `.` follows the path, property by property:
+A column name containing `.` follows the path, member by member -- properties and fields alike:
 
 ```
 | Id    | Customer.Name | Customer.Address.City |
@@ -534,8 +466,8 @@ the exception as the `InnerException`.
 
 A value written as a step helper's *argument* is never read from text at all: it is ordinary C#, so
 the compiler checks it against the parameter's type. Only a table's cells go through the readers
-above, at run time. (BOBCAT030, which checked a Gherkin step's written values at build time, was
-retired with the Gherkin lane in 0.50.0, and nothing emits it.)
+above, at run time -- there is no build-time check of a cell's value. (What the build does check is a
+constant table's **columns**: BOBCAT032, above.)
 
 ## What a grid says on the wire
 
@@ -563,17 +495,11 @@ equality, so they all leave it unstated. See
 [What a Run Publishes](../monitor-design.md#a-cell-says-exactly-one-thing-issue-396-2026-10-02) and
 [A cell says what it compared](../monitor-design.md#a-cell-says-what-it-compared-issue-384).
 
-## Gaps worth knowing about
-
-- **No inline list capture.** Storyteller's `[FormatAs("The array of names should be {names}")]`
-  compared a whole array from one cell. The closest thing here is a table, which is a set of plain
-  values.
-- **No paragraphs.** Storyteller's `Paragraph("Divide numbers", …).AsTable(…)` composed a table row
-  out of several grammars. Deliberately out of scope.
-
 ## See also
 
 - [Writing Specifications](../marker-steps.md#tables-and-sets-from-a-c-test) -- step helpers, and `SpecAssert`
+- [A theory's examples as a table](../marker-steps.md#bobcatexamples) -- one specification per row, each
+  with its own identity
 - [Expected Objects](../expected-objects.md) -- the other half of this: an object compared as a whole
   rather than against a row, including a **collection member matched as a set**, which is the set
   verification on this page applied inside an object

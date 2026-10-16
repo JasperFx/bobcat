@@ -39,6 +39,10 @@ wire, and the run prints the specification it produced -- see
 An IDE usually captures the output stream, so set `BOBCAT_SPEC_CONSOLE=1` in your run configuration to
 print it anyway.
 
+A failing Acceptance spec (`Lifecycle = Lifecycle.Acceptance`) shows in the test explorer as
+**skipped**, like any other skip; the reason text -- `acceptance spec, not yet passing: …` -- is what
+tells it apart. A `Pending = true` stub is skipped too, before it runs.
+
 ## Navigation
 
 Step helpers, marker comments and the scenario vocabulary are all plain C#, so go-to-definition, find
@@ -46,11 +50,8 @@ usages and rename work on them with no plugin. A step's text lives in the attrib
 describes, one keystroke away from every call.
 
 <!-- JEREMY -->
-That is most of the reason editor support stopped being a project of its own. Step completion and
-go-to-definition used to matter for `.feature` files, which an IDE can't follow into C#; the Cucumber
-extension covered VS Code, and Rider needed a plugin of its own
-([reqnroll/Reqnroll.Rider#92](https://github.com/reqnroll/Reqnroll.Rider/pull/92) is the upstream
-change that was proposed). With no `.feature` files, there's nothing left for an editor to bridge.
+That is why there is no editor plugin: with no second file format, there's nothing for an editor to
+bridge.
 
 ## Where to go next
 

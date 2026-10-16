@@ -55,7 +55,8 @@ that way writes the assembly attribute itself.
 
 **On TUnit, NUnit and MSTest**, put `[BobcatScenario]` beside `[BobcatFeature]` -- on the class, or on
 a single method when only part of a class should project. Without it the steps register at compile
-time but no scenario is ever opened, so nothing publishes, and **BOBCAT028** says so at build time.
+time but no scenario is ever opened, so nothing records or publishes. When the class also binds an
+Event Model slice, [BOBCAT028](diagnostics.md#bobcat028) says so at build time.
 
 Every adapter opens a scenario around each test and closes it with **the verdict the runner
 reported** -- a failing test is published as a failure, and a skipped one is withdrawn rather than
@@ -68,8 +69,7 @@ looking exactly like a correct one. Marten's hand-rolled copy got all four wrong
 verdict, so every scenario it ever published was a `CleanPass`. It minted its own run id and dropped
 `BOBCAT_RUN_TAG`, so its evidence could not be attributed to whatever asked for the run. It published
 a `RunStarted` it might not own, and never a `RunFinished`. And its interceptor opt-in was a csproj
-line that a sibling project also needed, where forgetting it is a `CS9137` build failure rather than
-a missing feature.
+line that a sibling project also needed (forgetting it is now [BOBCAT037](diagnostics.md#bobcat037)).
 
 **xUnit v2 has no adapter and is not simply waiting for one.** v2's `BeforeAfterTestAttribute` is
 `Before(MethodInfo)` / `After(MethodInfo)` with no test context anywhere, so there is no verdict to
@@ -94,25 +94,23 @@ internal Task PublishMultiThreaded(int threads) => …
 `StepAttribute`. `[BobcatStep]` is an older spelling of the same thing and still works; its
 `Keyword = "Given"` property is what `[Given]` says in one word.
 
-An expression is a **named template** -- Storyteller's `[FormatAs]` syntax. Each `{placeholder}`
+An expression is a **named template**. Each `{placeholder}`
 names a **parameter** of the method and is filled from that argument at the call site: `"Adding {x}
 to {y} should equal {sum}"` over `double Adding(double x, double y, double sum)`.
 
 **Placeholders bind by name only.** Cucumber type captures (`{int}`, `{string}`, `{word}`, optional
 text, raw regex) are not supported: they only ever worked by matching Gherkin text against the
 expression, and that lane is gone (#471). `[Then("the message ends {word} on attempt {int}")]` over
-`(string outcome, int attempt)` fills nothing -- it is a `BOBCAT027` warning and renders literally.
+`(string outcome, int attempt)` fills nothing -- it is a [BOBCAT027](diagnostics.md#bobcat027)
+warning and renders literally.
 Write `[Then("the message ends {outcome} on attempt {attempt}")]` instead. A name such as
 `{aggregate}` or `{event}` works when a parameter has that name (`Type aggregate`, `Type @event`);
 a `System.Type` argument renders as the type's name.
 
-**Keywordless is a real choice, not a default.** Storyteller sentences and Gauge steps read as prose,
-and "Multiply by 3 then add 4" is not a Given, a When or a Then:
+**Keywordless is a real choice, not a default.** Some steps read as prose, and "Multiply by 3 then
+add 4" is not a Given, a When or a Then:
 
-```csharp
-[Step("Multiply by {multiplier} then add {delta}")]
-internal void MultiplyThenAdd(int multiplier, int delta) { … }
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/SentenceGrammar.cs#keywordless-step{cs}
 
 An empty keyword renders no label, and it is never promoted to `And`, because `And` is a word the
 author never wrote.
@@ -120,9 +118,11 @@ author never wrote.
 ### A decorated helper cannot be `protected`
 
 A C# interceptor must be an extension method, and an extension method cannot see a `protected`
-member. So every decorated helper has to be `internal` or `public`. This is a language rule rather
-than a Bobcat design choice, and it is the one real cost of step helpers -- widening eight helpers on
-`DaemonContext` is exactly what Marten's PR did. Marker comments have no such constraint.
+member. So every decorated helper has to be `internal` or `public` (`protected internal` works too).
+This is a language rule rather than a Bobcat design choice, and it is the one real cost of step
+helpers -- widening eight helpers on `DaemonContext` is exactly what Marten's PR did. A `protected` or
+`private` helper, or one on a type the assembly can't reach, is [BOBCAT039](diagnostics.md#bobcat039)
+at the helper, and its calls record no step. Marker comments have no such constraint.
 
 ### A placeholder binds from the value, not from the syntax (issue #339)
 
@@ -160,7 +160,7 @@ A step's text is a sentence on a canvas, which is why an object renders as its t
 the placeholder standing, because a reader can see that something did not resolve, where a blank or
 the word "null" would be believed.
 
-**A placeholder that names no parameter is a warning** -- `BOBCAT027`, once per helper -- so a
+**A placeholder that names no parameter is a warning** -- BOBCAT027, once per helper -- so a
 template typo can't render as `{thread}` forever with nothing reported.
 
 ## Marker comments
@@ -202,7 +202,7 @@ across every test in the suite that touches them.
 
 Bobcat's rendering does not depend on Given / When / Then, and should not. The inspiration is
 ThoughtWorks' **Gauge**, whose specifications are bulleted sentences with no keyword vocabulary at
-all, and **Storyteller**, whose specs read as prose rather than as a keyword table:
+all:
 
 ```csharp
 [Fact]
@@ -335,7 +335,8 @@ test calls is not shown (mark the helper `[Given]`/`[When]`/`[Then]` if it shoul
 Both are written at **process exit**, not after the last test -- nothing here knows which test is the
 last one, and the runner does not say. `ProjectedSpecConsole.Captured` is the seam for a consumer that
 would rather render or assert on the specifications itself, and `JsonRenderer.RenderScenario` turns
-one into the agent-facing JSON.
+one into the agent-facing JSON. For a record the run leaves behind, see [the results
+file](bobcat-tool.md#results-file) and [the HTML results page](bobcat-tool.md#results-page).
 
 Scenarios are ordered **alphabetically within a feature**, because a test runner is free to run tests
 in any order and in parallel, so finish order would make two reports of an unchanged suite impossible
@@ -393,16 +394,11 @@ supervisor's `RunTiming` for a run split across processes.
 ## Checks that gather instead of throwing
 
 An assertion library throws, and a throw ends the test method -- so a specification could only ever
-show its *first* disagreement, with every later step unrun. Storyteller's `Asserting_Values.md`
-sample is the case that makes it concrete: it reaches five sentences and shows five verdicts, and its
-own comment says the middle one was written wrong on purpose.
+show its *first* disagreement, with every later step unrun.
 
 `SpecAssert` is how a step reports a comparison without ending the test:
 
-```csharp
-[Then("The value should be {value}")]
-internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/CalculatorGrammar.cs#then-value-should-be{cs}
 
 | | |
 |---|---|
@@ -442,7 +438,7 @@ failed AccountSpecs.a_deposit_is_credited
 A *passing* check outside a step still records nothing, the way it always did. A helper gets called
 from setup code too, and a check that holds there has nothing worth saying.
 
-A `bool`-returning step is the other shape, unchanged from Storyteller: the answer *is* the verdict,
+A `bool`-returning step is the other shape: the answer *is* the verdict,
 with no `[Check]` and nothing reported by hand. `Task<bool>` works the same way and carries a real
 duration.
 
@@ -480,7 +476,7 @@ There is no `[WaitFor]` or `[Approx]` attribute any more: both were Gherkin-lane
 with it in 0.50.0, along with BOBCAT035, which warned that they did nothing on a helper a C# test
 calls. The poll goes in the helper, as above, and a tolerance goes in `options:`.
 
-### Saying what the system did -- `SpecLog.Write` (bobcat#547)
+### Saying what the system did -- `SpecLog.Write` (bobcat#547) {#step-logs}
 
 When a spec goes red the next question is "what did the system do?". A step helper answers it
 with `SpecLog.Write`:
@@ -499,7 +495,8 @@ internal async Task PlaceOrder()
   wire (`scenario_finished.logs`, keyed by step id). A line written with no step open goes on the
   scenario and renders after the steps under `Logs:`. With no scenario open it does nothing.
 - **Latched like reports.** The lines are always recorded but only written out for a **failed**
-  scenario. A passing one shows none unless the run sets `BOBCAT_VERBOSE_REPORTS=1`. So a green
+  scenario. A passing one shows none unless the run is verbose (`bobcat run --verbose`, or
+  `BOBCAT_VERBOSE_REPORTS=1`). So a green
   spec showing no logs does *not* mean `SpecLog` did nothing.
 - **Capped at 100 lines per step** (`StepLog.MaxLines`); the rest are counted and every surface
   says `…and N more lines`, never a silent truncation.
@@ -607,7 +604,8 @@ SpecAttachment.RegisterFailureCapture(new ScreenshotOnFailure());
   evidence, never behaviour hidden around steps.
 - **Latched like reports.** A passing scenario keeps nothing unless the run is verbose
   (`--verbose`, `BOBCAT_VERBOSE_REPORTS=1`).
-- **Where they go.** With a results directory (`BOBCAT_RESULTS`, `bobcat run --results`) each is a
+- **Where they go.** With a results directory (`BOBCAT_RESULTS`, `bobcat run --results`; see
+  [the results file](bobcat-tool.md#results-file)) each is a
   file at `attachments/{runId}/{feature}_{scenario}/{nn}-{name}` beside the results file, whose step
   names it by that relative `path`. Without one, the test platform's own attachments: xUnit v3's
   `TestContext.AddAttachment`, a TUnit artifact, NUnit's `AddTestAttachment`, MSTest's
@@ -623,18 +621,9 @@ SpecAttachment.RegisterFailureCapture(new ScreenshotOnFailure());
 A C# test has no trailing `|...|` block, so a table arrives as **pipe-delimited text** that
 `StepTable` reads by an implicit conversion:
 
-```csharp
-[Given("the roster is")]
-internal void TheRosterIs(StepTable roster) { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/RosterGrammar.cs#roster-is{cs}
 
-```csharp
-_roster.TheRosterIs("""
-    | player       | position |
-    | Nolan Ryan   | Pitcher  |
-    | Johnny Bench | Catcher  |
-    """);
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/TableSpecs.cs#table-step-call{cs}
 
 The step renders as one grid, because a table becomes cells carrying a row index plus the column
 order. A markdown table pastes in unchanged -- the alignment row is recognised and dropped, outer
@@ -653,11 +642,11 @@ verification, and checking one object against one row -- is covered in full in
 
 | | |
 |---|---|
-| `TableRunner.BuildRows<T>(table)` | one `T` per row -- Storyteller's `CreateNewObject<T>` |
-| `TableRunner.Run(this, nameof(rowMethod), table)` | a private method once per row, with the before/after envelope written in the step's own body. A returned value plus one unclaimed column is a decision table |
+| `TableRunner.BuildRows<T>(table)` | one `T` per row |
+| `TableRunner.Run(this, nameof(rowMethod), table)` | a private method once per row, with the before/after envelope written in the step's own body. A returned value plus one unclaimed column, or an `out` parameter per output column, is a decision table |
 | `SpecAssert.Check(column, actual, expected, rowIndex: i)` | a decision table reported row by row |
 | `SetVerificationComparer.Verify(actual, expected, keyColumns: "Name")` | a set verification, matched by key, with `MISSING`, `EXTRA`, `FAIL` and `ORDER` rows |
-| `PropertyCells.Verify(subject, expected)` | one object against one row, on only the columns the row names. `Verify(subject, table)` on a `CritterStackSpec` is the same check |
+| `PropertyCells.Verify(subject, expected)` | one object against one row, on only the columns the row names -- properties or fields, dotted paths included. `Verify(subject, table)` on a `CritterStackSpec` is the same check |
 
 ## Projecting the assertions you already wrote (opt-in)
 
@@ -665,19 +654,7 @@ With `<BobcatProjectAssertions>true</BobcatProjectAssertions>` in the project, a
 statement-level Shouldly call inside a `[BobcatFeature]` test renders as a step -- no attribute, no
 helper, nothing moved:
 
-```csharp
-[Fact]
-public void every_assertion_in_a_run_is_evaluated()
-{
-    var calculator = new Calculator { Value = 3 };
-
-    // Then the calculator agrees about its value
-    calculator.Value.ShouldBe(3);
-    calculator.Value.ShouldBeGreaterThan(10);
-    calculator.Value.ShouldBeLessThan(2);
-    calculator.Value.ShouldBe(3);
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/NarratedSpecs.cs#projected-assertions{cs}
 
 ```
   every assertion in a run is evaluated FAILED
@@ -726,8 +703,9 @@ The manifest it writes carries the lane (`projected`), the framework (`xunit`), 
 `{Feature}/{Scenario}` with the class and method it binds to -- which is the fact a framework's filter
 needs and the identity cannot supply. Bobcat then translates an identity into
 `--filter-method Ns.Class.method`. See [Spec Identities](spec-identities.md#listing-and-running-by-identity)
-for the whole rule, and [The Resident Runner](resident-runner.md) for the loop a console drives it
-from.
+for the whole rule, [selecting by Event Model coordinates](bobcat-tool.md#selecting-by-coordinates)
+for `bobcat run --slice`/`--chapter`/`--domain`/`--pattern`/`--trait`, and [The Resident
+Runner](resident-runner.md) for the loop a console drives it from.
 
 Two details matter if you are reading the manifest yourself. The binding is **recorded, not
 re-derived** -- the identity is a one-way function of the names, and an explicit
@@ -849,11 +827,7 @@ await WhenPosted(new CreateBooking(passenger.Id, flight.Id), "/api/bookings");  
 **A read-only act is a Query (bobcat#501).** A vocabulary method with a `GET` or `HEAD` trigger, a `ReadModel`
 role and no `Command` role is a *read act*:
 
-```csharp
-[EventModelRole(SliceRole.ReadModel, nameof(T))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
-public Task WhenReading<T>(string route, params object[] routeValues) where T : class
-```
+<<< ../samples/BankAccountES/Tests/BankAccountSpec.cs#when-reading{cs}
 
 The last act a test makes -- a command or a read -- is its act. When a slice has a read act and no command
 act, and declares no `Pattern`, it's a `Query` (JasperFx 2.85.0):
@@ -901,7 +875,7 @@ parameters.
 another package -- `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
 generator would let a rename there stop the roles being stamped with no error anywhere. The attribute
 travels into metadata with the method, so Wolverine declares its own roles. Write `From`, `Route` and `RouteName` with `nameof` and a rename keeps them in step; a name
-that matches nothing is **BOBCAT034** where the vocabulary is compiled.
+that matches nothing is [**BOBCAT034**](diagnostics.md#bobcat034) where the vocabulary is compiled.
 
 The command half also rides JasperFx's `SpecificationBindingDescriptor` (jasperfx#995): the act is its
 `CommandType`, and its `ResolvedTypes` are the same list the slice's specification carries.
@@ -932,7 +906,7 @@ The fix is to name the command: send a typed command, or bind the spec with `[Bo
 **Unbound specs with different acts are not folded into one slice.** The feature-named slice is a fallback for a
 feature whose unbound specs all make the same act, or none. When they make different ones, a spec whose act is a
 command lands on the slice named for that command -- where `[BobcatSpec(typeof(TheCommand))]` would put it -- and
-a spec whose act is a query or names no command is left off the model, with **BOBCAT041** saying so. Before, a
+a spec whose act is a query or names no command is left off the model, with [**BOBCAT041**](diagnostics.md#bobcat041) saying so. Before, a
 `ReturnBook` spec and an on-loan list query both landed on a slice named after their feature, which came out a
 View that existed nowhere in the code.
 
@@ -974,7 +948,7 @@ argument the test passes:
 | An interpolated string no single endpoint matches | Rebuilt from the interpolation: `/api/accounts/{theAccount}/deposits` |
 | A route name, through `RouteName` | The template of the endpoint that declares that name |
 | No route at all: a by-type act such as `WhenPosted(cmd)` or `WhenPut(cmd)` (bobcat#613) | The template and verb of the **one** endpoint whose request body is the command's type |
-| Anything else: a helper call, a variable | Unknown, and **BOBCAT038** (info) says so |
+| Anything else: a helper call, a variable | Unknown, and [**BOBCAT038**](diagnostics.md#bobcat038) (info) says so |
 
 The endpoints are the attributes the compilation and its references declare. They're matched by attribute
 shape, so Bobcat takes no dependency on either package:
@@ -1011,13 +985,9 @@ all.
 A vocabulary method addresses an endpoint by name with `RouteName`. It's checked by **BOBCAT034** the same way
 `Route` is:
 
-```csharp
-[EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
-public Task WhenPutTo(object command, string routeName, params object[] routeValues)
-```
+<<< ../samples/BankAccountES/Tests/BankAccountSpec.cs#when-put-to{cs}
 
-`samples/BankAccountES` uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
+[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
 `[WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]`. The slice gets
 `PUT /api/clients/{clientId}`, the same route Wolverine derives from the chain, so the two sources agree.
 
@@ -1041,13 +1011,16 @@ CritterCrush's nineteen slices, Command slices matched a type 13/13 and View sli
 **Automation slices matched 0/3** -- an automation's only type is `{Slice}Handler`, and it has no
 command type at all, by design.
 
-### Three diagnostics, so the preference is enforced rather than remembered
+### Two diagnostics, so the preference is enforced rather than remembered
 
 | | |
 |---|---|
-| **BOBCAT023** (error) | Both spellings set, naming *different* slices. One of them is wrong and no silent winner is the right answer. Setting both to the *same* slice is redundant, not wrong, and is allowed |
-| **BOBCAT024** (warning) | `SliceName` is a literal string and a type of that name exists in this compilation -- use `SliceType`. Silent where no such type exists, which is every Automation |
-| *(not a generator diagnostic)* | "`SliceType.Name` matches no slice in the model" cannot live here: the generator has no curated model to check against. It belongs to the model merge, where a binding naming nothing shows up as an unmatched slice |
+| [**BOBCAT023**](diagnostics.md#bobcat023) (error) | Both spellings set, naming *different* slices. One of them is wrong and no silent winner is the right answer. Setting both to the *same* slice is redundant, not wrong, and is allowed |
+| [**BOBCAT024**](diagnostics.md#bobcat024) (warning) | `SliceName` is a literal string and a type of that name exists in this compilation -- use `SliceType`. Silent where no such type exists, which is every Automation |
+
+"`SliceType.Name` matches no slice in the model" is not a generator diagnostic: the generator has no
+model to check against. It belongs to the model merge, where a binding naming nothing shows up as an
+unmatched slice.
 
 ### A method-level binding replaces, it does not override
 
@@ -1080,8 +1053,14 @@ slice and open no recording -- green tests, an unbound slice, and nothing at run
 why. The attribute that *claims* the slice is now the attribute that *opens* the recording, so the
 two cannot come apart.
 
-**xUnit-only, for now.** It subclasses `Xunit.FactAttribute`, so TUnit needs its own equivalent;
-that is a follow-up. On TUnit, NUnit and MSTest, bind with `[BobcatSlice]` beside `[BobcatScenario]`.
+**xUnit-only.** It subclasses `Xunit.FactAttribute`. On TUnit, NUnit and MSTest, bind with
+`[BobcatSlice]` beside `[BobcatScenario]`.
+
+**Subclassing it** (a `[PostgresFact]`-style attribute of your own) means re-declaring and forwarding
+its `[CallerFilePath]`/`[CallerLineNumber]` parameters. `FactAttribute`'s only constructor takes that
+pair and the compiler fills them at the call site it sees; a subclass that calls `base()` without
+re-declaring them hands over *its own* file and line, so every test reports one source location and
+IDE test navigation lands on the attribute instead of the test.
 
 ### A theory in one attribute -- `[BobcatTheory]` (bobcat#569) {#bobcattheory}
 
@@ -1125,15 +1104,15 @@ public async Task discount_is_applied(decimal amount, Tier tier, decimal expecte
   a `TypeConverter`, a `ctor(string)`). Rows are read when xUnit **discovers** the theory, so register
   a domain type's conversion in a `[ModuleInitializer]`, not in a fixture, and a relative time
   resolves against the real clock, not one the spec fakes.
-- **The table is a constant, so the build checks it.** A column naming no parameter is **BOBCAT032**.
+- **The table is a constant, so the build checks it.** A column naming no parameter is [**BOBCAT032**](diagnostics.md#bobcat032).
   A parameter with no column and no default, a column given twice, a row with the wrong number of
   cells, a header with no rows, or a cell its parameter's type can't read (`ten` for an `int`, an enum
-  value no member names, `NULL` for a non-nullable value type) is **BOBCAT042**. A constant built from
+  value no member names, `NULL` for a non-nullable value type) is [**BOBCAT042**](diagnostics.md#bobcat042). A constant built from
   `nameof` (`$"| {nameof(amount)} |…"`) is read too.
 - **Each row is listed in the spec manifest** under its identity when that identity is certain at
   compile time: strings and the tokens, enums, numbers, booleans, chars and Guids. A row with a date,
   a relative time or a domain type still runs under its own identity; it just isn't listed ahead of
-  the run. Two rows that read alike (`1` and `01`) are BOBCAT036.
+  the run. Two rows that read alike (`1` and `01`) are [BOBCAT036](diagnostics.md#bobcat036).
 - **Not `TableRunner`.** That judges many rows inside **one** spec, with one verdict. Reach for
   `[BobcatExamples]` when each row is an example someone may want to run, track or see fail on its
   own; reach for a table step when the rows are one claim.
@@ -1154,17 +1133,16 @@ public async Task volunteer_cannot_reconfirm() { /* … */ }
 The identity is now `Booking/A volunteer can't re-confirm, twice`, verbatim, the same way a
 `[BobcatFeature("…")]` title is. It reaches everything the identity does -- the declared steps, the
 recorder's `scenario_finished`, the spec manifest, running by identity, and the Event Model's spec
-list -- because the generator and the runtime read it through the same derivation, and
-`MarkerSpecNamingAgreementTests` keeps the two together. A `const` or a `nameof` works as well as a
+list -- because the generator and the runtime read it through the same derivation. A `const` or a `nameof` works as well as a
 literal.
 
 Leave it off and nothing changes: an identity that states no name is byte-for-byte the string it was
 before. A null, empty or all-whitespace name counts as no name. Setting one *does* change the
-identity, which is the point, so it also moves that spec's ledger history and its curated-model
-scenario to the new string.
+identity, which is the point, so it also moves that spec's ledger history to the new string.
 
 It is not xUnit's `DisplayName`, which renames the test in a runner's output and nothing else;
-Bobcat doesn't read that. And like `Pending`, it is on `[BobcatSpec]`, so it is xUnit-only for now.
+Bobcat doesn't read that. And like `Pending`, it is on `[BobcatSpec]` and `[BobcatTheory]`, so it is
+xUnit-only.
 On the other runners the fix for a collision is a distinct method name.
 
 ### Stub-first: `Pending = true` (issue #404)
@@ -1189,27 +1167,27 @@ Three things follow, and they are the issue's acceptance:
 | **It disappears on its own** | Delete `Pending = true` and it is an ordinary specification again. There is no second place to update, which is what keeps a stub from outliving its stub phase |
 
 **"No steps" does NOT mean pending**, deliberately. A test with no marker comments says plenty -- it
-runs real code and publishes a real verdict -- and **33 of this repository's own 41 projected samples
+runs real code and publishes a real verdict -- and **most of this repository's own projected samples
 declare no marker steps at all**. Inferring pending from an empty step list would
 have turned most of a working suite into open questions on the canvas.
 
-**It is on `[BobcatSpec]` and not on `[BobcatSlice]`.** Putting it there would let a TUnit suite
-write it, but that attribute is not the test: it would produce the hotspot while the body still ran
-and still failed -- precisely the "indistinguishable from a failing one" state this exists to end. A
-TUnit suite gets it with TUnit's own equivalent of `[BobcatSpec]`.
+**It is on `[BobcatSpec]` and `[BobcatTheory]`, not on `[BobcatSlice]`.** Putting it there would let
+a TUnit suite write it, but that attribute is not the test: it would produce the hotspot while the
+body still ran and still failed -- precisely the "indistinguishable from a failing one" state this
+exists to end. So `Pending` is xUnit-only; on the other runners, use the runner's own skip.
 
 A pending spec **stays in the spec manifest and in `--list-tests`**, because xUnit discovers a
 skipped test like any other. That is the right answer rather than an accident: a resident runner can
 be asked to run it, and gets a skip.
 
-**Strict runs fail it (C13).** Under `BOBCAT_LIFECYCLE=strict` a pending spec is not skipped: it
+**Strict runs fail it.** Under `BOBCAT_LIFECYCLE=strict` a pending spec is not skipped: it
 fails without running, as `pending specification in strict mode: <identity>`. See the next section.
 
-### Not yet passing: `Lifecycle = Lifecycle.Acceptance` (bobcat#545)
+### Not yet passing: `Lifecycle = Lifecycle.Acceptance` (bobcat#545) {#acceptance}
 
 `Pending` is for a stub that cannot run at all. Spec-first work has a second state: a specification
 that *does* run, against behaviour that is not finished yet. Skipping it hides the progress; leaving it
-an ordinary spec turns CI red. Storyteller's answer was the Acceptance/Regression split, and this is it:
+an ordinary spec turns CI red. An Acceptance spec is the answer:
 
 ```csharp
 [BobcatSpec(typeof(ConfirmAppointment), Lifecycle = Lifecycle.Acceptance)]
@@ -1239,7 +1217,7 @@ How each runner reports the skip:
 **Known limit:** in an IDE or a TRX file a failing Acceptance spec looks like any other skip; only the
 reason text tells it apart. Bobcat's own surfaces are where the distinct verdict lives.
 
-In the **results file** (`BOBCAT_RESULTS`, `bobcat run --results`) such a spec is listed in full with
+In the [**results file**](bobcat-tool.md#results-file) (`BOBCAT_RESULTS`, `bobcat run --results`) such a spec is listed in full with
 `"verdict": "acceptance: failing"` and counted in `summary.acceptanceFailing`, never in `failed` or
 against `succeeded`. `bobcat run --failed` does not re-run it, since the run it came from was green.
 
@@ -1247,18 +1225,6 @@ against `succeeded`. `bobcat run --failed` does not re-run it, since the run it 
 that throws `SpecCatastrophicException` is a plain failure, because it is the cause every halted
 scenario names; and one halted after the loss fails before its body runs, where no runner can report
 a skip, so Bobcat reports it failed too.
-
-Two implementation facts worth knowing, both pinned by tests rather than left as comments:
-
-- **It is both a Fact and a test-bracket hook because xUnit v3 collects hooks by the
-  `IBeforeAfterTestAttribute` *interface***, not only from the `BeforeAfterTestAttribute` base
-  class. Those two are siblings -- both derive straight from `Attribute` -- so inheriting from both
-  was never possible.
-- **It re-declares and forwards `[CallerFilePath]`/`[CallerLineNumber]`, and a subclass of it must
-  too.** `FactAttribute`'s only constructor takes that pair and the compiler fills them at the call
-  site it sees; a subclass that calls `base()` without re-declaring them hands over *its own* file
-  and line, so every test in the suite reports one source location and IDE test navigation lands on
-  the attribute instead of the test.
 
 ## The honest limits
 
@@ -1273,63 +1239,46 @@ Two implementation facts worth knowing, both pinned by tests rather than left as
 - **A step outside a scenario is silent.** Decorated helpers get called from plenty of places that
   are not specifications, and reporting from them would be noise.
 - **An exception ends the test, so the steps after it are never judged.** This is the one
-  irreducible difference between a spec engine and a test method: Storyteller's
-  `Facts_in_Action.md` reaches all five of its lines and the projected version reaches four. It is a
-  design question rather than a bug -- a continue-past-an-exception step bracket would have to
+  irreducible difference between a spec engine and a test method. It is a design decision rather
+  than a bug -- a continue-past-an-exception step bracket would have to
   swallow and record, which changes what a test body means. `SpecAssert` is the way around it for a
   comparison you *expect* might disagree.
 - **A marker comment cannot carry a cell.** A comment *declares* a step; it does not execute one, so
   there is no step object for a comparison to attach to. A narrated test's finest available verdict
   is its own exception -- one failure, with no expected/actual pair. A decorated helper reporting
   through `SpecAssert.Check` is what gets the cell.
-- **A recorded step has no logs and no diagnostics**, so Storyteller's `Context.Reporting.Log(...)`
-  has no equivalent yet.
-- **Test methods are matched by attribute name** -- `Fact`, `Theory`, `Test`, `TestCase` -- so the
+- **Your application's own `ILogger` output is not captured.** A step can say what the system did
+  with [`SpecLog.Write`](#step-logs); capturing the app's
+  logs is post-1.0.
+- **Test methods are matched by attribute name** -- `Fact`, `Theory`, `Test`, `TestCase`,
+  `TestMethod`, `DataTestMethod`, `BobcatSpec`, `BobcatTheory` -- so the
   generator needs no reference to a runner it is trying to stay neutral about.
 
 ## Diagnostics
 
-| | |
-|---|---|
-| **BOBCAT023** (error) | `[BobcatSlice]` or `[BobcatSpec]` sets both `SliceName` and `SliceType`, naming different slices. See [above](#three-diagnostics-so-the-preference-is-enforced-rather-than-remembered) |
-| **BOBCAT024** (warning) | `SliceName` is a literal string and a type of that name exists in this compilation -- use `SliceType` |
-| **BOBCAT027** (warning) | A step template names no parameter of its method. Nothing can fill it, so the step renders as `{thread}` forever -- before this it looked identical to a placeholder that was merely deferred |
-| **BOBCAT028** (warning) | A `[BobcatFeature]` class that never opens a recording: no `[BobcatScenario]` or `[BobcatSpec]` on it, and no `[assembly: RecordBobcatFeatures]` hook (the `Bobcat.Xunit` package applies that one for you). Every step records into nothing and the suite passes having produced no specification at all. **Nothing about a run can report this** -- a suite that records nothing is indistinguishable at run time from a suite with nothing to record -- which is why it is a compiler diagnostic |
-| **BOBCAT029** (info) | A comment opening with `And` or `But` where no narrative is open: ordinary prose, not a step. English sentences begin "And …" constantly, so a keyword that can only *continue* a narrative must not be able to start one. Info rather than a warning, because the common case is that the comment really is prose -- it is here for the one author who meant a step and cannot see why it is missing |
-| **BOBCAT032** (error) | A table column, or a partial object's member path, that names no member of the type it is about -- checked wherever the type and the text are both known at compile time: a constant table passed to a property check, `PartialObjects.FromTable`, a constant `Specified<T>.With` path, and a `[BobcatExamples]` column naming no parameter of its theory. A stale column is always a broken spec |
-| **BOBCAT033** (warning, MSBuild) | An xUnit v3 project with no `Microsoft.NET.Test.Sdk`: it runs from the command line and shows no tests in Rider or Visual Studio. Set `BobcatSuppressTestSdkWarning=true` if the suite only ever runs from the command line |
-| **BOBCAT034** (error) | An `[EventModelRole]`'s `From`, or an `[EventModelTrigger]`'s `Route` or `RouteName`, names no parameter of the method it decorates (for `From`, nor a type parameter of it or of a type declaring it). Reported where the vocabulary is compiled, because at a call site in another assembly the same mistake is only a role silently never stamped. Write it with `nameof` |
-| **BOBCAT038** (info) | A projected spec's HTTP act passes a `Route` or `RouteName` argument the generator can't turn into a route. This covers a helper call or a variable, a route name no endpoint attribute declares (a minimal API's `.WithName`), an ambiguous route name, or no route at all. A by-type act (`WhenPosted(cmd)`, `WhenPut(cmd)`) gets it when no endpoint attribute takes the command as its body (a minimal API), or several with different templates do, or none of the act's verb does. The slice keeps its trigger kind with no route. Pass a constant template, an interpolated string, or a route name an endpoint attribute declares. See [The act's route](#act-route) |
-| **BOBCAT036** (error) | Two projected specs in one compilation resolve to the same `{Feature}/{Scenario}` identity -- same-named methods in two classes bound to one feature, or two method names that read as the same sentence (`order_is_placed` and `order__is_placed`). Reported at each one, naming the other. Everything keyed on identity would treat them as one spec: filtering, the resident runner, the flake/duration ledger, Stoat's per-spec history, the Event Model's spec list. Rename one of the methods, or give one an [explicit name](#explicit-name) with `[BobcatSpec(Name = "…")]`. Compared exactly, case included, the way the runtime compares identities. See [Spec Identities](spec-identities.md#two-specs-one-identity) |
-| **BOBCAT037** (error) | The project calls step helpers (or has projected assertions) for the generator to intercept, but `Bobcat.Generated` isn't in `InterceptorsNamespaces`. The `Bobcat.Generators` package sets it for you; a `ProjectReference` to the generator doesn't, because a project reference takes no build assets. Reported once, at the first call site, in place of a `CS9137` per call site in a generated file. Add `<InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>`, or import the generator's `buildTransitive/Bobcat.Generators.props` the way `samples/Directory.Build.props` does. An error because it can't be wrong: it reads the same compiler option that would otherwise reject the interceptors. See [Getting Started](getting-started.md#referencing-bobcat-by-projectreference) |
-| **BOBCAT039** (error) | A step helper the generated interceptor cannot call: `protected`, `private`, `private protected`, or declared on a type the assembly cannot reach (a private nested class). Reported once, at the helper, and its calls get no interceptor -- before this it was a CS0122 per call site in `BobcatStepInterceptors.g.cs`. Make the helper `public` or `internal` (`protected internal` works too) |
-| **BOBCAT040** (error) | An `override` of a test that inherits `[BobcatSpec]`/`[BobcatTheory]` carries another test attribute, usually `[Fact(Skip = "…")]` to skip one subclass's copy. xUnit inherits the base's attribute, so the override has two Fact-derived attributes and fails at run time ("has multiple [Fact]-derived attributes") instead of being skipped. Write `[BobcatSpec(Skip = "…")]` on the override. See [Spec Identities](spec-identities.md#inherited-specs) |
-| **BOBCAT041** (info) | A projected spec in a suite that models slices reaches no Event Model slice: a `[BobcatSpec]` with no binding and no role-stamped vocabulary, one whose only stated types are documents, or an unbound spec whose act is a query or names no command in a feature whose unbound specs make different acts. The test runs as before; only the model is missing it. Bind it with `[BobcatSpec(typeof(TheCommandOrReadModel))]` or `[BobcatSpec(SliceName = "…")]`. See [An act that names no command](#unstamped-act) |
-| **BOBCAT042** (error) | A `[BobcatExamples]` table the runtime would refuse: a parameter with no column and no default, a column given twice, a row with the wrong number of cells, a header with no rows, or a cell its parameter's type can't read (`ten` for an `int`, an enum value no member names, `NULL` for a non-nullable value type). A column naming no parameter is BOBCAT032. Fix the table; see [`[BobcatExamples]`](#bobcatexamples) |
-| **BOBCAT043** (warning) | A step helper or Event Model vocabulary method (`[Given]`…`[Step]`, `[EventModelRole]`, `[EventModelTrigger]`, `[EventModelAct]`) that returns a `Task` or `ValueTask` is called as a statement, or discarded with `_ =`, and never awaited -- `ThenDocument<Order>(id);` where `await ThenDocument<Order>(id);` was meant. The step runs unobserved: it may finish after the scenario closed, and a failure in it never fails the test, so the spec passes. The compiler says only CS4014, and only inside an `async` method. Some steps on a scenario are synchronous (`ThenEvents`) and `await` on those is CS4008, so the fix is per call: add `await` to the one reported. A Task that is returned, stored or passed to `Task.WhenAll` is not reported |
-| **BOBCAT044** (error) | A member check (`Specify<T>(x => …)`, `.Check(x => …)`) that is not one assertion on one member path: chained Shouldly such as `x => x.Attendees.ShouldHaveSingleItem().MemberId.ShouldBe(id)`, an assertion on the object itself (`x => x.ShouldNotBeNull()`), or one comparing two members. The run would refuse it with an `ArgumentException` that ends the test. Assert on one member, and specify a collection member's items with `.With(x => x.Attendees, Expect.Exactly(Specify<Attendee>().With(a => a.MemberId, id)))`; see [member checks](expected-objects.md#member-checks-and-the-c-version-they-need) |
-
-BOBCAT001–022, 030, 031 and 035 were retired with the Gherkin lane in 0.50.0 (bobcat#471). Nothing
-emits them, and the ids are never reused.
-
-The honest limit on BOBCAT029, pinned by
-`Bobcat.Projected.Acceptance.Tests/MarkerCommentTighteningTests`: inside a test that is *already* narrating,
-`And …` is taken at its word. There is no way to tell that sentence from a step, and guessing from
-its wording would be worse than a rule an author can learn.
+The generator reports what it can see at build time: a template placeholder naming no parameter
+(BOBCAT027), a slice bound with nothing recording it (BOBCAT028), a comment read as prose (BOBCAT029),
+a stale table column (BOBCAT032), duplicate identities (BOBCAT036), interceptors not enabled
+(BOBCAT037), an unreachable step helper (BOBCAT039), an inline examples table that doesn't fit its
+theory (BOBCAT042), a Task-returning step that is never awaited (BOBCAT043), a member check that is not one assertion
+on one member (BOBCAT044), and the Event Model ones (BOBCAT023, 024, 034, 038, 040, 041). Each has its
+symptom, cause and fix on the [Diagnostics](diagnostics.md) page, along with the ids retired with the
+Gherkin lane.
 
 ## The sample corpus
 
-`src/Bobcat.Xunit.Samples` is Storyteller 5's own sample suites recreated one specification at a
-time as ordinary xUnit v3 tests -- sentences, facts, output parameters, tables, sets, decision tables,
-narrated tests, and the projected-assertion style. **Twenty-four of its forty-one specifications fail
-on purpose**, because the samples exist to show what each outcome *looks* like.
+[`src/Bobcat.Xunit.Samples`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.Xunit.Samples)
+is a corpus of ordinary xUnit v3 specifications -- sentences, facts, output parameters, tables, sets,
+decision tables, narrated tests, the projected-assertion style, Acceptance and pending specs. **Many
+of them fail on purpose**, because the samples exist to show what each outcome *looks* like.
 
 ```bash
 dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
 ```
 
-For the Critter Stack vocabulary on a real application, `samples/BankAccountES` runs its
+For the Critter Stack vocabulary on a real application,
+[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) runs its
 specifications on `CritterStackSpec` against Marten and Fisher, with its own HTTP and message acts on
 top. `src/Bobcat.Projected.Acceptance.Tests` and `src/Bobcat.CritterStackScenario.Tests` pin the
 behaviour this page describes.

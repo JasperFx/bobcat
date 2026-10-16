@@ -22,6 +22,12 @@ drift.
 | The Given/When/Then vocabulary the specifications are written in | [Bobcat with Wolverine](../integrations/wolverine.md) |
 | What a specification claims about an event, an aggregate or a read model -- partial objects, collection expectations, tolerances, member checks and the C# version they need | [Expected Objects](../expected-objects.md) |
 | The gate that keeps the model and the specifications honest | [Checking Spec Identities Against the Model](../spec-identities.md#checking-identities-against-the-model) |
+| How the vocabulary maps onto the model -- the act's command, `GivenContext` as `ReadsFrom`, a read act (`WhenReading`) making a **Query** slice | [The Event Model, from the vocabulary](../integrations/wolverine.md#the-event-model-from-the-vocabulary) |
 | Seeing the model, which slices have specifications, and how those specifications last ran | [The Bobcat UI](../bobcat-ui.md#the-event-model-canvas) and [`bobcat slice-coverage`](../agent-queries.md) |
+| Running one slice's specifications, a chapter's, or every `View` | [Selecting by Event Model coordinates](../bobcat-tool.md#selecting-by-coordinates) |
 
 Skeleton generation for declared-only slices is Wolverine's `scaffold` command, not Bobcat's.
+
+For a coding agent working the same loop -- import a board, write the specs, scaffold, implement until
+green -- the [`critterstack-sdd-*` AI skills](https://ai-skills.jasperfx.net) carry the whole workflow,
+including the import's callouts and how to read a red spec.

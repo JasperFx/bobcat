@@ -18,12 +18,14 @@ public class TableSpecs
     [Fact]
     public void a_table_of_setup_data()
     {
+        // #region table-step-call
         _roster.TheRosterIs("""
             | player       | position |
             | Nolan Ryan   | Pitcher  |
             | Willy Mays   | Outfield |
             | Johnny Bench | Catcher  |
             """);
+        // #endregion table-step-call
 
         _roster.TheRosterReads("Nolan Ryan (Pitcher), Willy Mays (Outfield), Johnny Bench (Catcher)");
     }
@@ -79,11 +81,13 @@ public class TableSpecs
     [Fact]
     public async Task a_decision_table_with_out_parameters()
     {
+        // #region batting-lines-table
         await _roster.TheBattingLinesAre("""
             | At Bats | hits | walks | average | On Base | Verdict  |
             | 500     | 150  | 50    | 0.300   | 0.364   | All-Star |
             | 400     | 100  | 40    | 0.250   | 0.318   | Bench    |
             | 600     | 198  | 0     | 0.330   | 0.330   | All-Star |
             """);
+        // #endregion batting-lines-table
     }
 }

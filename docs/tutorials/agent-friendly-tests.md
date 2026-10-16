@@ -1,11 +1,8 @@
 # Agent Friendly Integration Tests
 
 ::: warning OUTLINE -- NOT YET WRITTEN
-This tutorial has no prose yet, and unlike the others it has **almost no existing material to draw
-on** -- the word "agent" appears five times across the entire documentation set, all incidental.
-This is net-new writing.
-
-The outline below records the argument it needs to make.
+This tutorial has no prose yet. The outline below records the argument it needs to make, and the
+Bobcat features it would draw on, each linked to the page that documents it.
 :::
 
 ## What this tutorial is for
@@ -47,9 +44,21 @@ The point is not to print more to the console. It is to put the context somewher
   report the value the system actually had, not only that it differed.
 - **Set verification reporting** already says which rows were missing, extra or wrong, rather than
   that the sets differed.
-- **`JsonRenderer.RenderScenario`** is the machine-readable form of a recorded specification, and is
-  the obvious thing for an agent to consume. Worth stating whether that is the recommended
-  integration point.
+- **Step logs** -- `SpecLog.Write("…")` records a line on the step in progress, kept on a failure (or
+  with `--verbose`) and shown under that step ([Saying what the system did](../marker-steps.md)).
+- **Scenario reports** -- `SpecReport.For<T>()` accumulates a grid of what the system *did* (a
+  `TableReport`, unjudged cells, capped at 200 rows) that reaches the console, the results file and
+  the wire when the scenario fails.
+- **Attachments** -- `SpecAttachment.Add/AddText/AddFile` hang a response body or a screenshot on the
+  step, and `IFailureCapture` takes one automatically when a step fails
+  ([Failure evidence](../marker-steps.md#attachments)).
+- **The JSON results file** -- `BOBCAT_RESULTS=<dir>` or `bobcat run --json` writes every scenario's
+  steps, cells, logs and reports as JSON, with a generated JSON Schema beside it. This is the
+  machine-readable integration point ([The results file](../bobcat-tool.md#results-file)).
+- **The query commands** -- `bobcat failing-tests`, `failing-spec`, `run-status` and the rest return
+  JSON over a running `bobcat ui` ([Querying Runs from the Command Line](../agent-queries.md)).
+- **The loop** -- `bobcat run --failed` reruns only what was red, by identity
+  ([Rerunning what failed](../bobcat-tool.md#failed-repeat)).
 - **`BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests`** answers "which step binds to what" without
   executing anything.
 - **Scenario reports, step logs and attachments** carry what the system did, written out only for a
@@ -77,11 +86,11 @@ Context is not free -- a test that dumps everything is as unreadable as one that
 there is a hard limit worth naming: a single enormous string breaks the MTP wire outright. One real
 suite dumped a 698MB tracked-session log into test output, faulted the worker, and turned every
 unreported test indeterminate. "Write out more context" needs its boundary stated in the same
-breath.
+breath -- which is why a step log keeps 100 lines, a report 200 rows, and an attachment over its size
+limit is kept as a reference, each with an "…and N more" rather than a silent cut.
 
 ## Open questions for the author
 
-- Is there a Bobcat-side API to build here, or is this purely a guidance document? A recorded step
-  carries neither logs nor diagnostics today, so attaching structured context to a step is a gap
-  this tutorial would have to fill or name.
-- Does the JSON report already carry enough for an agent, or does this tutorial imply extending it?
+- The vehicles above now exist (step logs, reports, attachments, the results file). Is this page a
+  guidance document over them, or is there still a Bobcat-side API missing -- for instance capturing
+  the application's own `ILogger` output onto a step, which is not built?

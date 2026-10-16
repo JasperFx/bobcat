@@ -9,6 +9,10 @@ framework-specific.
 | [Marten, Polecat and Fisher](marten.md) | `Bobcat` | `CritterStackScenario` / `CritterStackSpec`: the store-only vocabulary, through the JasperFx.Events abstractions. No message bus, and no `Bobcat.Marten` package to add |
 | [Wolverine](wolverine.md) | `WolverineFx.Bobcat`, `WolverineFx.Bobcat.Http` | `WolverineSpec` and `WolverineHttpSpec`: acts through Wolverine's tracked session and Wolverine.HTTP, message assertions, Dynamic Consistency Boundary steps. Published from the Wolverine repository |
 
+Which Bobcat works with which Marten, Polecat, Fisher and Wolverine versions is on
+[Compatibility](/compatibility). `WolverineFx.Bobcat` is built against a specific Bobcat, so move the two
+together.
+
 Everything else -- hosting the application, a database per test class, a container -- is your test
 runner's job now, done the way you'd do it in any integration test: an xUnit assembly, collection or
 class fixture, `IAsyncLifetime`, TUnit's hooks. Alba is a good way to host an ASP.NET Core

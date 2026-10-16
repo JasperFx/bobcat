@@ -39,8 +39,9 @@ That is all it takes. The package applies an assembly-level xUnit hook,
 `[assembly: RecordBobcatFeatures]`, that opens a scenario around every test in a `[BobcatFeature]`
 class and closes it with **the verdict xUnit reported** -- a failing test is published as a failure,
 and a skipped one is withdrawn rather than reported as anything at all. Opt out with
-`<BobcatRecordFeatures>false</BobcatRecordFeatures>`. An in-repo `ProjectReference` to `Bobcat.Xunit`
-doesn't consume the package's build assets, so such a project writes the assembly attribute itself.
+`<BobcatRecordFeatures>false</BobcatRecordFeatures>`. A `ProjectReference` to `Bobcat.Xunit`
+doesn't consume the package's build assets, so such a project imports the package's props instead --
+see [Referencing Bobcat by ProjectReference](getting-started.md#referencing-bobcat-by-projectreference).
 
 `[BobcatScenario]` on a class or a single method still works, for a suite that would rather opt in
 test by test, and `[BobcatSpec(typeof(SomeCommand))]` is a `[Fact]` that also binds the test to an
@@ -63,6 +64,8 @@ for:
 | [Projected assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in) | with `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, ordinary statement-level Shouldly calls render as steps and a *run* of them is all evaluated before the next action |
 | [One specification per theory row](spec-identities.md#each-data-row-is-its-own-specification) | `[BobcatTheory]` is `[BobcatSpec]` for a `[Theory]`; each row records as `Feature/Scenario (amount: 100)`, or `Feature/Scenario [label]` with `[BobcatExample("label", …)]` |
 | [Theory examples as a table](marker-steps.md#bobcatexamples) | `[BobcatExamples("""\| amount \| tier \|…""")]` gives one specification per row, its columns and cells checked at compile time (BOBCAT032, BOBCAT042) |
+| [Not yet passing](marker-steps.md#acceptance) | `[BobcatSpec(…, Lifecycle = Lifecycle.Acceptance)]` records a failure in full as `acceptance: failing` and xUnit reports the test skipped, so the build stays green; `Pending = true` is a stub that does not run at all |
+| [Step logs](marker-steps.md#step-logs) and [attachments](marker-steps.md#attachments) | `SpecLog.Write` and `SpecAttachment` hang evidence on the step in progress; both reach xUnit's own test output and attachments |
 | [Listing and running one specification](spec-identities.md#listing-and-running-by-identity) | `BOBCAT_LIST_SPECS` writes what the suite specifies; an identity is translated to `--filter-method Ns.Class.method`, which is what [the resident runner](resident-runner.md) drives |
 
 One step-attribute family -- `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` --
@@ -70,10 +73,10 @@ is intercepted at the call site when a test calls the method. `[BobcatStep]` is 
 the same thing.
 
 ::: tip The sample corpus
-`src/Bobcat.Xunit.Samples` recreates Storyteller 5's own sample suites as ordinary xUnit v3 tests  -- 
-sentences, facts, output parameters, tables, sets, decision tables and narrated tests. Twenty-four of
-its forty-one specifications **fail on purpose**, because the samples exist to show what each outcome
-looks like.
+[`src/Bobcat.Xunit.Samples`](https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.Xunit.Samples)
+is a corpus of ordinary xUnit v3 specifications -- sentences, facts, output parameters, tables, sets,
+decision tables and narrated tests. Many of them **fail on purpose**, because the samples exist to
+show what each outcome looks like.
 :::
 
 ## Use this package rather than writing forty lines
@@ -90,15 +93,16 @@ Marten's hand-rolled copy got all four wrong:
 - It minted its own run id and dropped `BOBCAT_RUN_TAG`, so its evidence could not be attributed to
   whatever asked for the run.
 - It published a `RunStarted` it might not own, and never a `RunFinished`.
-- Its interceptor opt-in was a csproj line a sibling project also needed -- where forgetting it is a
-  `CS9137` build failure rather than a missing feature.
+- Its interceptor opt-in was a csproj line a sibling project also needed -- and forgetting it was a
+  build failure in a generated file (now **BOBCAT037**, which the package's props make impossible).
 
-## Moving to xUnit v3 4.x
+## Moving to xUnit v3 4.x {#moving-to-xunit-4}
 
 <!-- JEREMY: an intro sentence or two on why Bobcat moved (bobcat#470), in your voice. -->
 
-`Bobcat.Xunit` now builds against xunit.v3 4.0.2 and Microsoft.Testing.Platform 2.5.1 (TUnit.Engine
-1.74.0 runs on the same platform). What changes in a consuming test project:
+`Bobcat.Xunit` builds against xunit.v3 4.0.2 and Microsoft.Testing.Platform 2.5.1 (TUnit.Engine
+1.74.0 runs on the same platform) since Bobcat 0.60.0; [Version Compatibility](/compatibility) has the
+full table. What changes in a consuming test project:
 
 - **Move `xunit.v3` to 4.x.** The platform and xUnit move together; a 3.x `xunit.v3` beside
   Microsoft.Testing.Platform 2.x fails at run time.

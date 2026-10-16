@@ -42,10 +42,12 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
     /// template -- <c>"/api/accounts/{accountId}/deposits"</c> -- with its values after it, in order: a constant
     /// template is what reaches the Event Model as the slice's route.
     /// </summary>
+    // #region when-posted
     [EventModelRole(SliceRole.Command, nameof(command))]
     [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
     public Task WhenPosted(object command, string route, params object[] routeValues)
         => send("POST", command, route, routeValues);
+    // #endregion when-posted
 
     /// <summary>PUT <paramref name="command" /> to <paramref name="route" />, written as for <see cref="WhenPosted" />.</summary>
     [EventModelRole(SliceRole.Command, nameof(command))]
@@ -58,17 +60,21 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
     /// with the template's values after it, in order (bobcat#500). The generator resolves a constant route name to
     /// the endpoint's template at compile time, so the slice gets the same route a template would have given it.
     /// </summary>
+    // #region when-put-to
     [EventModelRole(SliceRole.Command, nameof(command))]
     [EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
     public Task WhenPutTo(object command, string routeName, params object[] routeValues)
         => send("PUT", command, templateNamed(routeName), routeValues);
+    // #endregion when-put-to
 
     /// <summary>Hand <paramref name="message" /> to its Wolverine handler over the bus, and wait for it to finish.</summary>
+    // #region when-received
     [EventModelRole(SliceRole.Command, nameof(message))]
     [EventModelTrigger(TriggerKind.MessageHandler)]
     public Task WhenReceived(object message)
         => WhenActing($"{message.GetType().Name} is received",
             services => services.GetRequiredService<IMessageBus>().InvokeAsync(message));
+    // #endregion when-received
 
     /// <summary>
     /// GET <paramref name="route" /> (a template, as for <see cref="WhenPosted" />) and keep the response, which
@@ -79,10 +85,12 @@ public abstract class BankAccountSpec(BankAccountHost app) : CritterStackSpec(ap
     /// act it is describes a Query slice, which reads <typeparamref name="T" /> through <c>ReadsFrom</c> rather than
     /// producing it. Streams the spec arranged with <c>GivenEvents</c> are setup and stamp nothing.
     /// </remarks>
+    // #region when-reading
     [EventModelRole(SliceRole.ReadModel, nameof(T))]
     [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
     public Task WhenReading<T>(string route, params object[] routeValues) where T : class
         => send("GET", null, route, routeValues);
+    // #endregion when-reading
 
     private Task send(string verb, object? command, string route, object[] routeValues)
     {
