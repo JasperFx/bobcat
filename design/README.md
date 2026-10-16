@@ -17,6 +17,7 @@ when it answers *"how do I do the thing I came here to do."*
 | `storyteller-gap-analysis.md` | Living comparison of Storyteller 5 against Bobcat: the gap register, what was dropped and why, and an append-only log of decisions taken about each gap |
 | `bdd-tools-comparison.md` | Testing strategies from Gauge, Reqnroll and Cucumber that a code-first Bobcat could use (no Gherkin or Markdown), with an append-only decision log |
 | `critter-stack-interop-notes.md` | Upstream Wolverine/Marten/Fisher hazards a Bobcat suite was first to hit |
+| `dogfood-critterstacksamples/` | bobcat#559: every CritterStackSamples test project adopted as a package consumer — the cross-project trends (`README.md`), one findings file per project, and the method |
 
 ## Known follow-up
 
