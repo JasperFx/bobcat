@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stands in for Wolverine.ComplianceTests: a LIBRARY holding the abstract compliance base, its step
+    vocabulary, and the telemetry producer (Telemetry/): the part that would move into Wolverine. The
+    generator is referenced HERE because the test methods and the step calls are in this compilation.
+  -->
+  <PropertyGroup>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.extensibility.core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cluster\Cluster.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\..\..\src\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

@@ -111,6 +111,12 @@ then papering over it with a `Thread.Sleep`. Wait for the work instead of for th
 - `SpecAssert.EventuallyAsync` polls anything else, and records one cell saying how long it took
   ([Waiting for an answer that arrives later](../marker-steps.md#waiting-for-an-answer-that-arrives-later)).
 
+When a test against an asynchronous system does fail, it should say what the system did, not only
+that it ended up wrong: a failure nobody can diagnose gets retried until it passes, and becomes the
+flaky test you were trying to avoid. Put the system's own telemetry into the specification's
+output, written only when it fails: [Custom Telemetry on Failure](../failure-telemetry.md), worked
+through on Wolverine's leadership-election suite.
+
 ## How to get there
 
 ### 5. Test with the finest-grained mechanism that tells you something important

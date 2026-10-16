@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stands in for Wolverine's runtime and its node storage: nodes, a leader, a fixed family of agents,
+    an assignment table, and an event tracker whose observers are called on the node's own background
+    loop. Knows nothing about Bobcat, the way Wolverine itself doesn't.
+  -->
+
+</Project>
