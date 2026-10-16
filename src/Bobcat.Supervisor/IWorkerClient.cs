@@ -206,7 +206,7 @@ public enum WorkerPurpose
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the seam <c>CLAUDE.md</c> deferred under the name <c>IWorkerLauncher</c>. The
+/// This is the seam <c>CLAUDE.md</c> (now <c>docs/agents/resilience-and-supervisor.md</c>) deferred under the name <c>IWorkerLauncher</c>. The
 /// requirement it was waiting for — pointing each parallel worker at its own database — turned
 /// out to need a launch <em>context</em> rather than a launcher abstraction, so the parameter is
 /// all that was added.

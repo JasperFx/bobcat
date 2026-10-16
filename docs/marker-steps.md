@@ -1124,6 +1124,15 @@ How each runner reports the skip:
 **Known limit:** in an IDE or a TRX file a failing Acceptance spec looks like any other skip; only the
 reason text tells it apart. Bobcat's own surfaces are where the distinct verdict lives.
 
+In the **results file** (`BOBCAT_RESULTS`, `bobcat run --results`) such a spec is listed in full with
+`"verdict": "acceptance: failing"` and counted in `summary.acceptanceFailing`, never in `failed` or
+against `succeeded`. `bobcat run --failed` does not re-run it, since the run it came from was green.
+
+**A lost environment is never softened** ([environment lost](#environment-lost)). An Acceptance spec
+that throws `SpecCatastrophicException` is a plain failure, because it is the cause every halted
+scenario names; and one halted after the loss fails before its body runs, where no runner can report
+a skip, so Bobcat reports it failed too.
+
 Two implementation facts worth knowing, both pinned by tests rather than left as comments:
 
 - **It is both a Fact and a test-bracket hook because xUnit v3 collects hooks by the

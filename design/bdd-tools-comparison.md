@@ -103,7 +103,7 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
   (`TestContext.Current.TestMethodArguments` in xUnit v3).
 - **The Event Model keeps one specification per method** — rows are examples of one behaviour.
   Each row's result names its parent through a new trailing optional **`ParentSpecId`** on the
-  wire, so Stoat folds rows into the method's verdict without parsing identity strings (CLAUDE.md:
+  wire, so Stoat folds rows into the method's verdict without parsing identity strings (docs/agents/runners-and-identity.md:
   never parse an identity). Wire change: coordinate with Stoat.
 - Rows the generator cannot see (non-constant `MemberData`) still get row identities at run time
   but cannot be listed ahead in the manifest; documented.
