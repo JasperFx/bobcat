@@ -145,6 +145,12 @@ internal static class MarkerCommentSpecs
         public ProjectedRoles.Reading Roles = new();
 
         /// <summary>
+        /// The scenario vocabulary calls in the test body (bobcat#625), for the preview only — they are
+        /// not planned steps, because nothing numbers them for the recorder.
+        /// </summary>
+        public List<VocabularyCalls.Call> Vocabulary = new();
+
+        /// <summary>
         /// <c>[BobcatSpec(…, Pending = true)]</c>: declared before the behaviour it describes
         /// (issue #404), so the slice gets a <c>PendingSpecification</c> hotspot rather than a
         /// specification.
@@ -255,6 +261,7 @@ internal static class MarkerCommentSpecs
             scenario.Tags.AddRange(sliceTags(method, ctx.SemanticModel, spec.Problems));
             scenario.TriggeredBy = triggeredBy(method);
             scenario.Roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
+            scenario.Vocabulary = VocabularyCalls.Read(method, ctx.SemanticModel, ct);
 
             // bobcat#500: an HTTP act whose route cannot be known at all says so (BOBCAT038, info)
             if (scenario.Roles.RouteProblem is { } routeProblem)
@@ -882,6 +889,16 @@ internal static class MarkerCommentSpecs
                     }
                 }
 
+                // bobcat#625: what the test says through scenario vocabulary, which only a preview reads
+                if (scenario.Vocabulary.Count > 0)
+                {
+                    var calls = string.Join(", ", scenario.Vocabulary.Select(call =>
+                        $"new global::Bobcat.VocabularyStep({Quote(call.Keyword)}, {Quote(call.Text)}, {Quote(call.Grammar)}, {call.Line})"));
+
+                    sb.AppendLine(
+                        $"            global::Bobcat.VocabularySteps.Register({Quote(identity)}, {calls});");
+                }
+
                 // A test with no marker comments is not a specification. Registering it empty
                 // would announce a scenario with nothing to say, which reads as a defect.
                 if (scenario.IsUnmarked) continue;
@@ -929,7 +946,8 @@ internal static class MarkerCommentSpecs
     /// answer a listing request at all.
     /// </remarks>
     public static bool HasAnything(IEnumerable<MarkedSpec> specs)
-        => specs.Any(spec => spec.Scenarios.Any(scenario => !scenario.IsUnmarked || Binds(spec, scenario)));
+        => specs.Any(spec => spec.Scenarios.Any(scenario =>
+            !scenario.IsUnmarked || scenario.Vocabulary.Count > 0 || Binds(spec, scenario)));
 
     /// <summary>
     /// Whether a scenario's identity is bound and listed: it records, it names a method a filter can

@@ -42,4 +42,39 @@ public class ProjectedSpecPreviewTests
             DeclaredSteps.Remove(rabbitUid);
         }
     }
+
+    [Fact]
+    public void a_vocabulary_spec_previews_its_vocabulary_calls_merged_with_its_helpers_by_line()
+    {
+        // bobcat#625: a spec written in the scenario vocabulary, with one [Then] helper of its own
+        const string uid = "Preview vocabulary 625/a shipment is sent";
+        DeclaredSteps.Bind(uid, "Specs.Shipping", "a_shipment_is_sent");
+        VocabularySteps.Register(uid,
+            new VocabularyStep("Given", "events Shipment, ShipmentCreated", "WolverineSpec.GivenEvents", 20),
+            new VocabularyStep("When", "received ShipOrder", "WolverineSpec.WhenReceived", 21),
+            new VocabularyStep("Then", "document Shipment", "WolverineSpec.ThenDocument", 23));
+        PlannedSteps.Register(uid, new PlannedStep("Then", "the act completed", "Checks.ActCompleted", null, 22));
+
+        try
+        {
+            var preview = ProjectedSpecPreview.All().Single(x => x.FeatureTitle == "Preview vocabulary 625");
+
+            preview.Steps.Select(x => $"{x.Keyword} {x.StepText}").ShouldBe([
+                "Given events Shipment, ShipmentCreated",
+                "When received ShipOrder",
+                "Then the act completed",
+                "Then document Shipment"
+            ]);
+
+            var binding = preview.Steps[1].Binding.ShouldNotBeNull();
+            binding.DeclaringType.ShouldBe("WolverineSpec");
+            binding.Method.ShouldBe("WhenReceived");
+        }
+        finally
+        {
+            VocabularySteps.Remove(uid);
+            PlannedSteps.Remove(uid);
+            DeclaredSteps.Remove(uid);
+        }
+    }
 }

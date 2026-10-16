@@ -312,6 +312,26 @@ single test runs.
 BOBCAT_SPEC_PREVIEW=1 ./MySpecs --list-tests
 ```
 
+A preview shows marker comments, `[Given]`/`[When]`/`[Then]` helpers, and **scenario vocabulary calls**
+(bobcat#625) -- `CritterStackSpec`'s and WolverineFx.Bobcat's `GivenEvents`, `WhenReceived`,
+`WhenPosted`, `ThenDocument` and the rest, or a project's own scenario methods carrying
+`[EventModelRole]`/`[EventModelTrigger]`. A vocabulary step writes its sentence from its arguments when
+it runs, so its preview is the method name after the keyword plus the **types** the call names, never
+its values:
+
+```
+  deposit funds
+      ○ Given events Account, AccountOpened
+        ↳ CritterStackSpec.GivenEvents
+      ○ When  posted DepositFunds
+        ↳ BankAccountSpec.WhenPosted
+      ○ Then  events FundsDeposited
+        ↳ CritterStackSpec.ThenEvents
+```
+
+A vocabulary call is only recognised in the test method's own body; one made inside a helper method the
+test calls is not shown (mark the helper `[Given]`/`[When]`/`[Then]` if it should be).
+
 Both are written at **process exit**, not after the last test -- nothing here knows which test is the
 last one, and the runner does not say. `ProjectedSpecConsole.Captured` is the seam for a consumer that
 would rather render or assert on the specifications itself, and `JsonRenderer.RenderScenario` turns
