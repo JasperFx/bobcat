@@ -34,8 +34,8 @@ public static class RecordBuilding
     /// <summary>
     /// Construct one instance of <paramref name="type"/> from a header → cell map, through the
     /// partial-object engine (bobcat#419): the constructor binding the most columns, then settable or
-    /// <c>init</c> members; members no column names take <c>default(T)</c> (<see cref="DefaultValues"/>),
-    /// as they have since issue #241, until bobcat#421 settles what should fill them.
+    /// <c>init</c> members; members no column names are filled by the process-wide
+    /// <see cref="PartialObjects.UnspecifiedValues"/> policy (bobcat#421).
     /// </summary>
     /// <param name="partial">
     /// Kept for compatibility, and no longer changes anything. Issue #241 made an arranged <c>Given</c>

@@ -20,10 +20,9 @@ public record Address(
 /// property column and a set column disagree in the same words.
 /// </para>
 /// <para>
-/// The static form is used because this grammar is a plain class rather than a <c>Fixture</c>, the
-/// same reason <c>SetsGrammar</c> calls <c>SetVerificationComparer.Verify</c> and
-/// <c>RosterGrammar</c> calls <c>TableRunner.BuildRows</c>. On a <c>Fixture</c> it is
-/// <c>VerifyObject(...)</c> directly.
+/// A grammar is a plain class, so it reaches the engine through public statics:
+/// <c>PropertyCells.Verify</c> here, as <c>SetsGrammar</c> calls
+/// <c>SetVerificationComparer.Verify</c> and <c>RosterGrammar</c> calls <c>TableRunner.BuildRows</c>.
 /// </para>
 /// </remarks>
 public class ObjectsGrammar
