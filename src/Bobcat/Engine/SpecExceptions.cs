@@ -75,17 +75,30 @@ public class SpecAssertionException : Exception
 /// the runner — assertion, critical, catastrophic — and a bad cell is none of them: it is one row's
 /// problem, which <c>DecisionTableComparer.IsRowFailure</c> therefore admits so the row fails, the
 /// grid shows which cell, and the remaining rows still run. A table literal only exists at run
-/// time, so this is where the mistake surfaces.
+/// time, so this is where the mistake surfaces. A grid that knows which column the cell came from
+/// reports it as an <c>invalid</c> cell in that column rather than as the row's error (bobcat#544),
+/// because it is a defect in the specification, decidable without running the system.
 /// </remarks>
 public class BadCellException : Exception
 {
     public BadCellException(string message) : base(message)
     {
+        Reason = message;
     }
 
     public BadCellException(string message, Exception inner) : base(message, inner)
     {
+        Reason = message;
     }
+
+    /// <summary>
+    /// The member path the cell was written for (a table column), when the reader knew it; null
+    /// otherwise.
+    /// </summary>
+    public string? Path { get; init; }
+
+    /// <summary>What was wrong with the cell, without the path prefix <see cref="Path"/> carries.</summary>
+    public string Reason { get; init; }
 }
 
 /// <summary>
