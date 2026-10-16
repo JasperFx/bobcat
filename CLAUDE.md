@@ -940,6 +940,18 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
   per-cell colouring
 - **`TextGrid`** / **`PlainSpecText`** — plain text for a platform's captured test output
 - **`JsonRenderer`** — the JSON report
+- **`ResultsFile`** — the JSON results file (bobcat#540): one file per run bracket, every scenario's
+  `SpecRender` through `JsonRenderer`, opted into with **`BOBCAT_RESULTS=<dir>`** (so plain
+  `dotnet test` works) and set by `bobcat run --results <dir>` / `--json` (the file on stdout, all
+  else on stderr) / `--verbose` (`BOBCAT_VERBOSE_REPORTS`). `MarkerStepRun.openRun` calls
+  `BeginRun`, `CloseRun` calls `EndRun`, so a warm process writes one per request. Named
+  `<suite>-<runId>.json`, `-2`… on a clash (`FileMode.CreateNew`, supervised workers share a run
+  id); never fails a run. **The schema is generated, not written**: `ResultsFile.GenerateSchema()`
+  (`JsonSchemaExporter` over the internal `Json*Output` records with `JsonRenderer.options`) must
+  equal the committed `Rendering/bobcat-results-1.0.schema.json`, which is embedded (written beside
+  every file, named by `$schema`) and packed under `schemas/`. `ResultsFileTests` fails on drift;
+  `BOBCAT_REGENERATE_SCHEMA=1` rewrites it. A breaking change moves `SchemaVersion` and the file
+  name; an additive field does not. #541's TypeScript types are to be generated from this schema.
 
 ### Three-Level Failure Semantics
 1. **Assertion** — a gathered wrong (`SpecAssert`, a `[Check]` returning false,

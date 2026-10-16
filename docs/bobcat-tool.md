@@ -54,6 +54,38 @@ project or anything it references: Enter reruns, `p` picks, `a` goes back to eve
 | `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (not `pick`) |
 | `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (not `pick`) |
 | `--no-build` | use the last build as it is |
+| `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
+| `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
+| `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire |
+
+### The results file {#results-file}
+
+A run asked for one writes **one JSON file per run** holding every scenario it finished: the
+specification identity (`{Feature}/{Scenario}`), the verdict, every step with its status, timing,
+logs and cells (`expected` / `actual` / `note`, or `value` for an input), set-verification grids,
+the reports the visibility rule lets through, and the suite's timing block. It is the artifact a CI
+job archives and an agent reads when no console was running; TRX knows nothing about steps or cells.
+
+```bash
+bobcat run --results artifacts/bobcat                 # the tree as usual, plus the file
+bobcat run --json | jq '.scenarios[] | select(.succeeded | not) | .id'
+BOBCAT_RESULTS=artifacts/bobcat dotnet test           # the same file from plain dotnet test
+```
+
+- **`BOBCAT_RESULTS=<dir>`** is the switch; the flags only set it for the host they launch, so any
+  runner (xUnit, TUnit, NUnit, MSTest) writes the file under plain `dotnet test`. Unset writes
+  nothing.
+- The file is `<suite>-<runId>.json`. A second file for the same run id (supervised workers share
+  `BOBCAT_RUN_ID`) is `-2`, `-3`, never an overwrite. A warm process writes one per run request.
+- Scenarios are ordered by feature, then title, so two runs of one suite diff cleanly. A skipped
+  test is not in the file: it asserted nothing.
+- **It has a JSON Schema** — `bobcat-results-1.0.schema.json`, generated from the records the file
+  is written from, shipped in the `Bobcat` package under `schemas/`, and written beside every
+  results file. The file's `$schema` names it, so an archived artifact validates offline.
+  `schemaVersion` moves only for a breaking change; new optional fields keep it.
+- A passing scenario's reports are in the file only with `--verbose` / `BOBCAT_VERBOSE_REPORTS=1`,
+  the same rule as the console and the wire.
+- Writing it never fails a run: a directory that cannot be written is one line on standard error.
 
 ## `import-event-model` {#import-event-model}
 

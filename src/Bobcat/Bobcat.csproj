@@ -17,4 +17,12 @@
     <PackageReference Include="JasperFx.Events" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The results file's JSON Schema (issue #540): generated from the records by
+         ResultsFile.GenerateSchema, committed here, drift-tested, embedded so a run can write it
+         beside every results file, and packed so a consumer can validate against it. -->
+    <EmbeddedResource Include="Rendering\bobcat-results-1.0.schema.json" LogicalName="Bobcat.Rendering.bobcat-results-1.0.schema.json" />
+    <None Include="Rendering\bobcat-results-1.0.schema.json" Pack="true" PackagePath="schemas" />
+  </ItemGroup>
+
 </Project>

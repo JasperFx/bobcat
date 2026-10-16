@@ -11,8 +11,11 @@ namespace Bobcat.Rendering;
 /// </summary>
 public static class JsonRenderer
 {
-    private static readonly JsonSerializerOptions options = new()
+    internal static readonly JsonSerializerOptions options = new()
     {
+        // A resolver set explicitly so the results file's schema (issue #540) is exported from the
+        // very options the file is written with -- one description of the shape, not two.
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
@@ -27,7 +30,7 @@ public static class JsonRenderer
     public static string RenderTiming(SuiteTiming timing)
         => JsonSerializer.Serialize(timingToJson(timing), options);
 
-    private static JsonTimingOutput? timingToJson(SuiteTiming timing)
+    internal static JsonTimingOutput? timingToJson(SuiteTiming timing)
     {
         if (!timing.IsMeasured && timing.WithoutAssertions.Count == 0 && timing.Unmeasured == 0) return null;
 
@@ -75,10 +78,11 @@ public static class JsonRenderer
         return JsonSerializer.Serialize(specToJson(spec), options);
     }
 
-    private static JsonScenarioOutput specToJson(SpecRender spec)
+    internal static JsonScenarioOutput specToJson(SpecRender spec)
     {
         return new JsonScenarioOutput
         {
+            Id = spec.FeatureTitle is null ? null : $"{spec.FeatureTitle}/{spec.Title}",
             Title = spec.Title,
             Feature = spec.FeatureTitle,
             Succeeded = spec.Succeeded,
@@ -94,6 +98,10 @@ public static class JsonRenderer
                 }).ToList()
                 : null,
             Steps = spec.Steps.Select(stepToJson).ToList(),
+            ScenarioFailure = spec.ScenarioFailure,
+            ScenarioFailureCells = spec.ScenarioFailureCells.Count > 0
+                ? spec.ScenarioFailureCells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                : null,
 
             // The scenario's reports (issue #408) — the agent-readable half of the feature, in the
             // same cell shape every other grid here uses. Already filtered by visibility, so a
@@ -121,6 +129,10 @@ public static class JsonRenderer
         {
             StepId = step.StepId,
             Kind = step.Kind.ToString(),
+            Keyword = step.Keyword,
+            Depth = step.Depth > 0 ? step.Depth : null,
+            Narrative = step.IsNarrative ? true : null,
+            NotRun = step.NotRun ? true : null,
             Text = step.StepText,
             Status = step.Status.ToString(),
             FailureLevel = step.FailureLevel != FailureLevel.None ? step.FailureLevel.ToString() : null,
@@ -266,6 +278,12 @@ internal class JsonScenarioOutput
 {
     public List<JsonReportOutput>? Reports { get; set; }
 
+    /// <summary>
+    /// The specification identity, <c>{Feature}/{Scenario}</c> -- the string the spec manifest,
+    /// the ledger and <c>scenario_finished</c> key on. Absent for a scenario with no feature.
+    /// </summary>
+    public string? Id { get; set; }
+
     public string Title { get; set; } = "";
     public string? Feature { get; set; }
     public bool Succeeded { get; set; }
@@ -290,6 +308,16 @@ internal class JsonScenarioOutput
     public List<JsonTimelinePointOutput>? Lifecycle { get; set; }
 
     public List<JsonStepOutput> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Why the scenario failed when no step accounts for it -- an assertion library that threw
+    /// between steps, or a runner verdict whose cause Bobcat never saw. Absent when the steps
+    /// already explain it.
+    /// </summary>
+    public string? ScenarioFailure { get; set; }
+
+    /// <summary>Expected/actual pairs recovered from <see cref="ScenarioFailure"/>.</summary>
+    public List<JsonCellOutput>? ScenarioFailureCells { get; set; }
 }
 
 internal class JsonTimelinePointOutput
@@ -303,6 +331,19 @@ internal class JsonStepOutput
 {
     public string StepId { get; set; } = "";
     public string Kind { get; set; } = "";
+
+    /// <summary>The keyword as the specification wrote it (And/But included); absent when unknown.</summary>
+    public string? Keyword { get; set; }
+
+    /// <summary>Nesting under the narrative step it ran inside; absent at the top level.</summary>
+    public int? Depth { get; set; }
+
+    /// <summary>True for a marker comment, whose status only aggregates what ran inside it.</summary>
+    public bool? Narrative { get; set; }
+
+    /// <summary>True for a planned step the scenario never reached.</summary>
+    public bool? NotRun { get; set; }
+
     public string Text { get; set; } = "";
     public string Status { get; set; } = "";
     public string? FailureLevel { get; set; }
