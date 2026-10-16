@@ -551,6 +551,18 @@ export const useRunsStore = defineStore('runs', () => {
     // null (older publisher, nothing recorded) leaves whatever stands.
     if (e.touchedTypes) scenario.touchedTypes = e.touchedTypes
     scenario.finishedAt = e.at ?? null
+    // SpecLog lines (bobcat#547) arrive at the close, latched like reports, and are folded onto
+    // the steps they were written in — assigned whole, mirroring the C# fold.
+    for (const log of e.logs ?? []) {
+      if (log.stepId == null) continue
+      const matches = scenario.steps.filter((s) => s.stepId === log.stepId)
+      const step = matches[matches.length - 1]
+      if (!step) continue
+      step.logs =
+        log.suppressed > 0
+          ? [...log.lines, log.suppressed === 1 ? '…and 1 more line' : `…and ${log.suppressed} more lines`]
+          : [...log.lines]
+    }
     scenario.status =
       e.outcome === 'CleanPass'
         ? 'passed'

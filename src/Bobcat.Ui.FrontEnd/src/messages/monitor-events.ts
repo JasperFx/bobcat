@@ -112,6 +112,7 @@ export interface ScenarioFinished extends MonitorEvent {
   reports?: ScenarioReportInfo[] | null
   stepsMs?: number | null
   parentSpecId?: string | null
+  logs?: StepLogInfo[] | null
   lifecycle?: string | null
 }
 
@@ -138,6 +139,12 @@ export interface StepCell {
   rowIndex: number
   value: string | null
   comparison: string | null
+}
+
+export interface StepLogInfo {
+  stepId: string | null
+  lines: string[]
+  suppressed: number
 }
 
 /** Envelope type: 'retry_scheduled' */

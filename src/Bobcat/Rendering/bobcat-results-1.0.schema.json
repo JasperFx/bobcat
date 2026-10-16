@@ -360,6 +360,12 @@
                     "type": "string"
                   }
                 },
+                "suppressedLogs": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "diagnostics": {
                   "type": [
                     "object",
@@ -409,6 +415,21 @@
             "items": {
               "$ref": "#/properties/scenarios/items/properties/reports/items/properties/grid/properties/rows/items/properties/cells/items"
             }
+          },
+          "logs": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "suppressedLogs": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         }
       }

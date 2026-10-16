@@ -940,6 +940,13 @@ source; `[BobcatStep]` placeholders and marker comments already show run-time va
   - **`PlainSpecText` (`Bobcat.Rendering`) is where the plain-text rendering lives**, and
     `SpecOutput` delegates to it, so there is one copy of the rendering — the lesson `StepCells.From`
     already taught (#396).
+- **Step logs (`SpecLog.Write`, bobcat#547, G9(a))** record onto the open step's `RecordedStep.Log`, or
+  `Recording.Log` between steps (a `StepLog`, capped at `MaxLines` = 100 with a suppressed count, "…and N
+  more"). Latched by `ScenarioReportVisibility.ShouldWriteLogs` — the report rule, applied once in
+  `SpecRender.FromRecording` (console, JSON, plain text, runner output) and once in `MonitorLogs.From`.
+  **On the wire they ride `ScenarioFinished.Logs` (`StepLogInfo`, keyed by step id, null id = between
+  steps), not `StepFinished.Logs`**, because the verdict that latches them is only known at the close;
+  `bobcat ui` folds them onto its steps. App `ILogger` capture is G9(b), post-1.0.
 - **`StepKind`** / **`FailureLevel`** — drive failure classification.
 - **In-flight progress:** `ScenarioRecorder` posts `step_progress`, and `TotalSteps` / `StepNumber` /
   `ScenarioElapsedMs` ride the step events; a long table's progress is its cells-so-far update

@@ -156,11 +156,24 @@ public record ScenarioFinished(
     // (bobcat#569) — see ScenarioStarted.ParentSpecId. Null for a scenario that is not a row, and
     // from an older publisher. Optional and additive.
     string? ParentSpecId = null,
+    // What SpecLog.Write recorded (bobcat#547), one entry per step that logged (StepId) and one
+    // with a null StepId for lines written between steps. Here rather than on StepFinished because
+    // logs are latched like reports — written for a failed scenario, or a verbose run — and the
+    // verdict is only known at the close. Null when nothing is visible. Optional and additive.
+    IReadOnlyList<StepLogInfo>? Logs = null,
     // The specification's lifecycle (bobcat#545): "Acceptance", or null for the default, Regression.
     // A failing Acceptance spec arrives with Outcome "AcceptanceFailing" (never "Failed") outside
     // strict mode -- recorded in full, not failing the build; a passing one ("CleanPass" with this
     // set) is ready to promote to Regression. Null from an older publisher. Optional and additive.
     string? Lifecycle = null) : MonitorEvent(RunId);
+
+/// <summary>
+/// The log lines one step wrote through <c>SpecLog.Write</c> (bobcat#547), or the scenario's own
+/// lines when <see cref="StepId"/> is null. <see cref="Suppressed"/> counts the lines past the
+/// per-step cap that were not kept, so a consumer says "…and N more" rather than truncating
+/// silently.
+/// </summary>
+public record StepLogInfo(string? StepId, IReadOnlyList<string> Lines, int Suppressed);
 
 /// <summary>
 /// One scenario report on the wire (issue #408): a titled grid of cells describing what the

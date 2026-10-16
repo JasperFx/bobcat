@@ -110,7 +110,11 @@ public static class JsonRenderer
             // passing scenario carries none unless the run asked for verbose.
             Reports = spec.Reports.Count > 0
                 ? spec.Reports.Select(reportToJson).ToList()
-                : null
+                : null,
+
+            // SpecLog lines written between steps (bobcat#547), latched like reports.
+            Logs = spec.Logs.Count > 0 ? spec.Logs : null,
+            SuppressedLogs = spec.SuppressedLogs > 0 ? spec.SuppressedLogs : null
         };
     }
 
@@ -143,6 +147,7 @@ public static class JsonRenderer
             Error = step.ErrorMessage,
             ExceptionType = step.ExceptionType,
             Logs = step.Logs.Count > 0 ? step.Logs : null,
+            SuppressedLogs = step.SuppressedLogs > 0 ? step.SuppressedLogs : null,
             Diagnostics = step.Diagnostics.Count > 0 ? step.Diagnostics : null,
             Cells = step.Cells.Count > 0
                 ? step.Cells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
@@ -337,6 +342,12 @@ internal class JsonScenarioOutput
 
     /// <summary>Expected/actual pairs recovered from <see cref="ScenarioFailure"/>.</summary>
     public List<JsonCellOutput>? ScenarioFailureCells { get; set; }
+
+    /// <summary>What <c>SpecLog.Write</c> recorded between steps (bobcat#547). Null when none is visible.</summary>
+    public List<string>? Logs { get; set; }
+
+    /// <summary>Scenario log lines past the cap that were not kept. Null when none were dropped.</summary>
+    public int? SuppressedLogs { get; set; }
 }
 
 internal class JsonTimelinePointOutput
@@ -374,6 +385,10 @@ internal class JsonStepOutput
     public string? Error { get; set; }
     public string? ExceptionType { get; set; }
     public List<string>? Logs { get; set; }
+
+    /// <summary>Log lines past the per-step cap that were not kept (bobcat#547). Null when none were dropped.</summary>
+    public int? SuppressedLogs { get; set; }
+
     public Dictionary<string, string>? Diagnostics { get; set; }
 
     /// <summary>Scalar comparison cells (return-value / out-param verification).</summary>

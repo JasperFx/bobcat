@@ -378,6 +378,14 @@ public static class ScenarioRecorder
             else _reports.Add(report);
         }
 
+        /// <summary>
+        /// What <see cref="SpecLog.Write"/> recorded while no step was open (bobcat#547). A step's
+        /// own lines are on <see cref="RecordedStep.Log"/>.
+        /// </summary>
+        public StepLog Log { get; } = new();
+
+        internal void WriteLog(string line) => (OpenStep?.Log ?? Log).Add(line);
+
         private readonly List<Type> _touchedTypes = new();
 
         /// <summary>
@@ -881,6 +889,7 @@ public static class ScenarioRecorder
                 Reports: Monitoring.MonitorReports.From(_reports, scenarioFailed: failure is not null),
                 StepsMs: StepsMs,
                 ParentSpecId: ParentUid,
+                Logs: Monitoring.MonitorLogs.From(this, scenarioFailed: failure is not null),
                 Lifecycle: Lifecycle == Lifecycle.Acceptance ? nameof(Lifecycle.Acceptance) : null));
 
             ScenarioCompleted?.Invoke(this);
@@ -959,6 +968,9 @@ public static class ScenarioRecorder
         /// rendered as a bare red line saying nothing a reader could act on.
         /// </remarks>
         public List<CellResult> Cells { get; } = new();
+
+        /// <summary>What <see cref="SpecLog.Write"/> recorded while this step was the innermost one open.</summary>
+        public StepLog Log { get; } = new();
 
         /// <summary>
         /// The step's verdict, on a four-way vocabulary:

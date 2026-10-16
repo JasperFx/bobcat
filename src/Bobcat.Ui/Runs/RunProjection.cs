@@ -201,6 +201,22 @@ public class RunProjection
                 // evidence to erase with.
                 if (e.TouchedTypes != null) scenario.TouchedTypes = e.TouchedTypes;
                 scenario.FinishedAt = e.At;
+
+                // SpecLog lines (bobcat#547) arrive at the close, latched like reports, so they are
+                // folded onto the steps they were written in. Assigned whole, so a replay lands the
+                // same lines rather than doubled ones.
+                foreach (var log in e.Logs ?? [])
+                {
+                    if (log.StepId is null) continue;
+
+                    var step = scenario.Steps.LastOrDefault(s => s.StepId == log.StepId);
+                    if (step is null) continue;
+
+                    step.Logs = log.Suppressed > 0
+                        ? [.. log.Lines, log.Suppressed == 1 ? "…and 1 more line" : $"…and {log.Suppressed} more lines"]
+                        : log.Lines;
+                }
+
                 break;
             }
 
