@@ -132,6 +132,34 @@ public class GenericStepHelperTests
     }
 
     [Fact]
+    public void a_generic_step_on_a_generic_class_gets_both_type_parameter_lists()
+    {
+        // bobcat#534 meets bobcat#601: TAggregate appears in no parameter, so the generic interceptor
+        // must declare the class's T and the method's TAggregate, and pass TAggregate explicitly.
+        var outcome = GeneratorHarness.Run(spec("""
+            public class Account;
+
+            [BobcatFeature("Compliance")]
+            public abstract class TransportCompliance<T> where T : class
+            {
+                [Given("{key} has already recorded {events}")]
+                public Task GivenEventsFor<TAggregate>(string key, params object[] events) => Task.CompletedTask;
+            }
+
+            public class RabbitCompliance : TransportCompliance<RabbitFixture>
+            {
+                [Fact]
+                public async Task records() => await GivenEventsFor<Account>("a", new object());
+            }
+            """));
+        var code = outcome.GeneratedSource("BobcatStepInterceptors");
+
+        code.ShouldContain("__BobcatStep0<T, TAggregate>(", customMessage: code);
+        code.ShouldContain("receiver.GivenEventsFor<TAggregate>(key, events)", customMessage: code);
+        outcome.CompilationErrors.ShouldBeEmpty(code);
+    }
+
+    [Fact]
     public void a_helper_on_a_type_nested_in_a_generic_one()
     {
         compiles("""

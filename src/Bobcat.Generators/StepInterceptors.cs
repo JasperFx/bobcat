@@ -34,6 +34,12 @@ internal static class StepInterceptors
         public string InterceptsLocation = "";
         public string DeclaringType = "";
         public string MethodName = "";
+
+        /// <summary>
+        /// <c>&lt;…&gt;</c> for a generic step, empty otherwise. Always explicit: a type parameter that
+        /// appears in no parameter cannot be inferred from the interceptor's own arguments (CS0411).
+        /// </summary>
+        public string TypeArguments = "";
         public string ReturnType = "";
         public string Keyword = "";
         public string StepText = "";
@@ -85,12 +91,6 @@ internal static class StepInterceptors
         /// containing type's, outermost first, then the method's (bobcat#601). Empty otherwise.
         /// </summary>
         public List<ITypeParameterSymbol> TypeParameters = new();
-
-        /// <summary>
-        /// <c>&lt;TEvent&gt;</c> when a generic interceptor calls a generic helper — passed explicitly,
-        /// because a type parameter used only in the return type cannot be inferred.
-        /// </summary>
-        public string MethodTypeArguments = "";
 
         /// <summary>The parameters' own names — what a <c>{placeholder}</c> matches.</summary>
         public List<string> ParameterNames = new();
@@ -208,14 +208,22 @@ internal static class StepInterceptors
 #pragma warning restore RSEXPERIMENTAL002
             DeclaringType = signature.ContainingType.ToDisplayString(),
             MethodName = method.Name,
+            // Always explicit: a type parameter that appears in no parameter cannot be inferred from the
+            // interceptor's own arguments (CS0411, bobcat#534). A generic interceptor (bobcat#601) passes the
+            // method's own type parameters by name, after the container's; a non-generic one passes the
+            // call's type arguments.
+            TypeArguments = typeParameters.Count > 0
+                ? signature.TypeParameters.Length == 0
+                    ? ""
+                    : "<" + string.Join(", ", signature.TypeParameters.Select(t => t.Name)) + ">"
+                : method.TypeArguments.Length == 0
+                    ? ""
+                    : "<" + string.Join(", ", method.TypeArguments.Select(t => t.ToDisplayString(interceptorFormat))) + ">",
             ReturnType = signature.ReturnType.ToDisplayString(),
             ReturnsTask = signature.ReturnType.Name is "Task" or "ValueTask",
             ReturnsVoid = signature.ReturnsVoid,
             ReturnsBool = returnsBool(signature.ReturnType),
             TypeParameters = typeParameters,
-            MethodTypeArguments = typeParameters.Count == 0 || signature.TypeParameters.Length == 0
-                ? ""
-                : "<" + string.Join(", ", signature.TypeParameters.Select(t => t.Name)) + ">",
             Keyword = keyword,
             DeclaredIndex = DeclaredIndexOf(invocation),
             Uid = UidOf(invocation, ctx.SemanticModel, ct),
@@ -816,6 +824,7 @@ internal static class StepInterceptors
             var parameters = string.Join("", call.ParameterTypes
                 .Select((t, i) => $", {t} {call.ParameterIdentifiers[i]}"));
             var arguments = string.Join(", ", call.ParameterIdentifiers);
+            var target = $"receiver.{call.MethodName}{call.TypeArguments}";
 
             var typeParameters = call.TypeParameters.Count == 0
                 ? ""
@@ -845,18 +854,18 @@ internal static class StepInterceptors
             {
                 // An asynchronous Fact: the answer decides the verdict, and the step ends when the
                 // work ends so it still carries a real duration.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.TrackFact({target}({arguments}), step);");
             }
             else if (call.ReturnsTask)
             {
                 // End the step when the helper's work ends, not when it hands back a Task.
-                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                sb.AppendLine($"            return global::Bobcat.MarkerStepRuntime.Track({target}({arguments}), step);");
             }
             else if (call.ReturnsBool)
             {
                 // A synchronous Fact. The answer flows through to the caller untouched.
                 emitSynchronousCall(sb,
-                    $"return global::Bobcat.MarkerStepRuntime.Fact(receiver.{call.MethodName}{call.MethodTypeArguments}({arguments}), step);");
+                    $"return global::Bobcat.MarkerStepRuntime.Fact({target}({arguments}), step);");
             }
             else if (call.ReturnsVoid)
             {
@@ -864,11 +873,11 @@ internal static class StepInterceptors
                 // a file they cannot edit. It went unnoticed until #304's end-to-end test compiled
                 // the first interceptor inside this repository: every earlier check read the
                 // generated text, and Marten's helpers all return Task.
-                emitSynchronousCall(sb, $"receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
+                emitSynchronousCall(sb, $"{target}({arguments});");
             }
             else
             {
-                emitSynchronousCall(sb, $"return receiver.{call.MethodName}{call.MethodTypeArguments}({arguments});");
+                emitSynchronousCall(sb, $"return {target}({arguments});");
             }
 
             sb.AppendLine("        }");
