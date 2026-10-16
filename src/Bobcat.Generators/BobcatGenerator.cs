@@ -62,6 +62,21 @@ public class BobcatGenerator : IIncrementalGenerator
                 }
             }
 
+            // bobcat#535. A step the interceptor cannot reach gets no interceptor, and one BOBCAT039 per
+            // method at its declaration instead of a CS0122 per call site in a generated file.
+            foreach (var call in calls.Where(c => c.Inaccessible != null))
+            {
+                if (!reported.Add(call.DeclaringType + "." + call.MethodName + "/inaccessible")) continue;
+
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.InaccessibleStep,
+                    call.Declaration ?? call.Location ?? Microsoft.CodeAnalysis.Location.None,
+                    call.MethodName, call.Inaccessible));
+            }
+
+            calls = calls.Where(c => c.Inaccessible == null).ToImmutableArray();
+            if (calls.Length == 0) return;
+
             // bobcat#484. Without the opt-in every interceptor below is a CS9137 in a generated file,
             // one per call site, and a project that gets the build to go green some other way (the
             // generator missing, or this error suppressed) has helpers that run as plain method calls:
@@ -304,7 +319,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT039. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT040. BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -495,6 +510,20 @@ internal static class Diagnostics
         "to nothing. Add <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces> " +
         "to the project. The Bobcat.Generators package does this for you; a ProjectReference to the generator " +
         "does not, so import its buildTransitive/Bobcat.Generators.props instead.",
+        "Bobcat",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#535: a step helper the generated interceptor cannot call — <c>protected</c>, <c>private</c>, or
+    /// declared on a type the assembly cannot reach. An error for BOBCAT037's reason: left unintercepted the
+    /// helper opens no step, so a <c>SpecAssert</c> inside it reports to nothing.
+    /// </summary>
+    public static readonly DiagnosticDescriptor InaccessibleStep = new(
+        "BOBCAT039",
+        "Step helper is not accessible to Bobcat's interceptor",
+        "Step helper '{0}' is {1}, so Bobcat's generated interceptor cannot call it and its calls would record no " +
+        "step. Make it public or internal.",
         "Bobcat",
         DiagnosticSeverity.Error,
         true);

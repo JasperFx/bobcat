@@ -482,6 +482,11 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
     open and **no step** open (an un-intercepted helper, or no generator at all) goes on
     `Recording.SteplessWrongs` and fails the scenario through `GatheredFailures`; it used to be
     dropped. A *passing* check outside a step stays silent.
+  - **A step the interceptor cannot reach is BOBCAT039 (bobcat#535).** The interceptor is a
+    file-local static class, so it can only call what the assembly can: a `protected` or `private`
+    helper (or one on a private nested type) used to be a CS0122 per call site in the generated file.
+    Now it is one error at the helper, read with `Compilation.IsSymbolAccessibleWithin(method, assembly)`,
+    and its calls get no interceptor. An error for BOBCAT037's reason: run unintercepted, it opens no step.
   - **`Bobcat.Xunit` takes a `Microsoft.Testing.Platform` reference; `Bobcat.TUnit` deliberately
     does NOT.** `xunit.v3.extensibility.core` depends only on `xunit.v3.common`, so this is the
     first platform reference either adapter has had — and it costs an xUnit consumer nothing, since

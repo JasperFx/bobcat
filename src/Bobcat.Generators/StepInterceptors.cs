@@ -130,6 +130,16 @@ internal static class StepInterceptors
         /// <see cref="Extract"/>: one call site cannot see its siblings.
         /// </summary>
         public int PlannedIndex = -1;
+
+        /// <summary>
+        /// Why the generated interceptor could not call this step (BOBCAT039), or null. The interceptor
+        /// is a file-local static class, so it reaches only what the assembly can: a <c>protected</c> or
+        /// <c>private</c> helper would be CS0122 in a file the consumer cannot edit.
+        /// </summary>
+        public string? Inaccessible;
+
+        /// <summary>The step method's own declaration, where BOBCAT039 points; null when it is not in source.</summary>
+        public Location? Declaration;
     }
 
     public static InterceptedCall? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
@@ -175,7 +185,9 @@ internal static class StepInterceptors
             DeclaredIndex = DeclaredIndexOf(invocation),
             Uid = UidOf(invocation, ctx.SemanticModel, ct),
             Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
-            Location = invocation.GetLocation()
+            Location = invocation.GetLocation(),
+            Inaccessible = InaccessibilityOf(method, ctx.SemanticModel.Compilation),
+            Declaration = method.Locations.FirstOrDefault(l => l.IsInSource)
         };
 
 
@@ -856,6 +868,28 @@ internal static class StepInterceptors
         sb.AppendLine("            {");
         sb.AppendLine("                step.Dispose();");
         sb.AppendLine("            }");
+    }
+
+    /// <summary>
+    /// Null when a file-local class in this assembly can call <paramref name="method"/>, else what keeps it
+    /// out, in the words the author would use to fix it.
+    /// </summary>
+    internal static string? InaccessibilityOf(IMethodSymbol method, Compilation compilation)
+    {
+        if (compilation.IsSymbolAccessibleWithin(method.OriginalDefinition, compilation.Assembly)) return null;
+
+        if (!compilation.IsSymbolAccessibleWithin(method.ContainingType, compilation.Assembly))
+        {
+            return $"declared on '{method.ContainingType.ToDisplayString()}', which the rest of the assembly cannot reach";
+        }
+
+        return method.DeclaredAccessibility switch
+        {
+            Accessibility.Private => "private",
+            Accessibility.Protected => "protected",
+            Accessibility.ProtectedAndInternal => "private protected",
+            _ => "not accessible from the assembly"
+        };
     }
 
     /// <summary>The name as it can be written in generated code.</summary>
