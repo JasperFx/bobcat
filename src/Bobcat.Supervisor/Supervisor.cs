@@ -1145,11 +1145,16 @@ public sealed class Supervisor
     /// Whether a reported exception type names <see cref="SpecCatastrophicException"/>, by its
     /// simple or full name. Exact, not a suffix match: an application's own type that happens to
     /// share the simple name inside another namespace is not Bobcat's signal to stop the run.
+    /// <see cref="SpecEnvironmentLostException"/> counts too (bobcat#539): it is what a worker's
+    /// later scenarios fail with once its environment is lost, and where the first failure was a
+    /// fixture's, the framework may report it under its own wrapper type.
     /// </summary>
     internal static bool IsCatastrophic(string? errorType)
         => errorType is not null &&
            (errorType == typeof(SpecCatastrophicException).FullName ||
-            errorType == nameof(SpecCatastrophicException));
+            errorType == nameof(SpecCatastrophicException) ||
+            errorType == typeof(SpecEnvironmentLostException).FullName ||
+            errorType == nameof(SpecEnvironmentLostException));
 
     private static Exception? exceptionFor(WorkerOutcome outcome)
         => outcome.Succeeded

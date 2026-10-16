@@ -42,6 +42,11 @@ internal sealed class ProbeRun
 {
     public const string OutputVariable = "BOBCAT_ADAPTER_PROBE_OUT";
 
+    /// <summary>Which bobcat#539 halt case a probe run acts out; unset everywhere else.</summary>
+    public const string CaseVariable = "BOBCAT_HALT_PROBE";
+
+    public static string? Case => Environment.GetEnvironmentVariable(CaseVariable);
+
     /// <summary>Inside a probe run, write every published scenario where the parent can read it.</summary>
     [ModuleInitializer]
     internal static void RecordPublishedScenarios()
@@ -61,7 +66,9 @@ internal sealed class ProbeRun
     public required Dictionary<string, string> Published { get; init; }
     public required string Console { get; init; }
 
-    public static ProbeRun Execute()
+    /// <param name="classPrefix">The probe classes to run, by the start of their name; <see cref="Probes"/> by default.</param>
+    /// <param name="haltCase">The <see cref="CaseVariable"/> value for the run, if any.</param>
+    public static ProbeRun Execute(string? classPrefix = null, string? haltCase = null)
     {
         var output = Path.Combine(Path.GetTempPath(), $"bobcat-nunit-probe-{Guid.NewGuid():N}.txt");
         var assembly = typeof(ProbeRun).Assembly.Location;
@@ -77,8 +84,9 @@ internal sealed class ProbeRun
         // ("\e[31mfailed\e[m throws"), which no literal matches
         start.ArgumentList.Add("--no-ansi");
         start.ArgumentList.Add("--filter");
-        start.ArgumentList.Add($"FullyQualifiedName~{typeof(Probes).FullName}.");
+        start.ArgumentList.Add($"FullyQualifiedName~{typeof(Probes).Namespace}.{classPrefix ?? nameof(Probes) + "."}");
         start.Environment[OutputVariable] = output;
+        if (haltCase is not null) start.Environment[CaseVariable] = haltCase;
 
         using var process = Process.Start(start)!;
         var console = process.StandardOutput.ReadToEndAsync();

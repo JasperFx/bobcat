@@ -490,6 +490,69 @@ internal async Task PlaceOrder()
   log into each other. Your application's own `ILogger` output is **not** captured; that is still
   post-1.0.
 
+## When the environment is gone, stop -- `SpecCatastrophicException` (bobcat#539) {#environment-lost}
+
+A failure comes in one of three sizes:
+
+| | What it means | What happens |
+|---|---|---|
+| a wrong (`SpecAssert`, a `[Check]` returning false, `SpecAssertionException`) | the system gave the wrong answer | the scenario carries on and gathers every wrong |
+| `SpecCriticalException`, or any other exception | this scenario can't go on | the scenario stops; the next one runs |
+| **`SpecCatastrophicException`** | **nothing after this can pass** | **every scenario that opens afterwards in the process fails without running** |
+
+The last row is for an environment that's gone. The usual case is a Playwright suite whose
+application won't start. Every test needs the app, so every test would wait out its own timeout to
+find that out, and the run ends with hundreds of timeouts and the real cause buried somewhere in
+the first one. Throw `SpecCatastrophicException` where you start the app instead:
+
+```csharp
+public sealed class RunningApp : IAsyncLifetime
+{
+    public async ValueTask InitializeAsync()
+    {
+        try
+        {
+            await _app.StartAsync();
+            await _page.GotoAsync(_app.BaseUrl);
+        }
+        catch (Exception e)
+        {
+            throw new SpecCatastrophicException($"the app did not start: {e.Message}", e);
+        }
+    }
+    // ...
+}
+```
+
+The test that meets it reports the real error, stack trace included. Every scenario after it fails
+at once, without running its body:
+
+```text
+Bobcat.Engine.SpecEnvironmentLostException : Environment lost: the app did not start: connection refused (this scenario did not run)
+```
+
+A plain `dotnet test` then fails fast with one cause. This works in xUnit, TUnit, NUnit and MSTest.
+
+- **It fires from setup too:** a class or collection fixture, `IAsyncLifetime`, `[OneTimeSetUp]`,
+  `[ClassInitialize]`, `[Before(Class)]` or host startup. That's where an app that won't start
+  actually fails, before any scenario has opened. Thrown in setup, the message is
+  `Environment lost: <message>`. Thrown inside a scenario, it names that scenario:
+  `Environment lost in Checkout/pays by card: <message>`.
+- **Throwing it is what counts.** Bobcat watches for the exception being thrown anywhere in the
+  process, so it still counts if something catches it afterwards. Don't throw one to test something;
+  throw it when the environment really is lost.
+- **Only scenarios that open afterwards are halted.** A scenario already running in parallel keeps
+  its own result. The first catastrophic failure is the one every halted scenario names.
+- **A fixture per class still runs for every class.** xUnit creates class B's fixture before any of
+  its tests can be halted, so a per-class app fixture would try to start the app again. Call
+  `SpecEnvironment.ThrowIfLost()` first to skip the attempt, or start the app once in an assembly or
+  collection fixture.
+- **Never retried.** `SpecEnvironmentLostException` is a `SpecCatastrophicException`, so a `Retry`
+  trait doesn't retry it.
+- **Under the supervisor** the halt is per worker process. The supervisor aborts the whole run on
+  either exception ([a `SpecCatastrophicException` stops a supervised
+  run](parallel-ready-suites.md#a-speccatastrophicexception-stops-a-supervised-run)).
+
 ## Failure evidence: attachments and screenshots (issue #571) {#attachments}
 
 A red step often needs more than its message: the page it was looking at, the response body, a log.
