@@ -30,6 +30,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Overview', link: '/tutorials/' },
+          { text: 'Test Automation Strategy', link: '/tutorials/test-automation-strategy' },
           { text: 'Specifications with Code', link: '/tutorials/specifications-with-code' },
           { text: 'Data Intensive Specifications', link: '/tutorials/data-intensive-specifications' },
           { text: 'Integrating with CI', link: '/tutorials/continuous-integration' },

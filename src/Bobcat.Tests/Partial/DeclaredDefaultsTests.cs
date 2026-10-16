@@ -45,6 +45,7 @@ public class DeclaredDefaultsTests
         order.Tags.ShouldBeEmpty();
     }
 
+    // #region declared-defaults
     [Fact]
     public void a_default_on_a_type_applies_wherever_that_type_is_built()
     {
@@ -53,6 +54,7 @@ public class DeclaredDefaultsTests
         Specify<Order>().Build(defaults).ShippingAddress.Country.ShouldBe("US");
         Specify<Invoice>().With(x => x.Number, "INV-1").Build(defaults).BillTo.Country.ShouldBe("US");
     }
+    // #endregion declared-defaults
 
     [Fact]
     public void a_path_declares_the_default_on_the_last_members_type()
