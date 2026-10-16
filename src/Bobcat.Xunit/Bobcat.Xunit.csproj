@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!--
       Microsoft.Testing.Platform's own buildTransitive targets default IsTestingPlatformApplication
       to true in ANY project that references the platform package. This is a library, not a test

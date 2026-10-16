@@ -85,7 +85,7 @@ public static class ValueDifferences
 /// what makes two objects equal.
 /// </para>
 /// <para>
-/// The grid has two columns, the item's type under <paramref name="noun"/> and its values on one line
+/// The grid has two columns, the item's type under the caller's <c>noun</c> and its values on one line
 /// through <see cref="ScenarioValues.DescribeProperties"/>, so a heterogeneous stream — five event types with
 /// five shapes — is still one table.
 /// </para>

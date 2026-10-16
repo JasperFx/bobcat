@@ -11,7 +11,7 @@ namespace Bobcat.Rendering;
 /// <b>Why this is its own type.</b> <see cref="SpecOutput"/> hands a projected spec's scenario to
 /// its runner's per-test output through it, and the console rendering it mirrors lives elsewhere,
 /// so the plain-text answer lives in one place — the discipline <c>CellResult.derive()</c> and
-/// <see cref="ScenarioReportVisibility"/> already follow.
+/// <see cref="Bobcat.Engine.ScenarioReportVisibility"/> already follow.
 /// </para>
 /// <para>
 /// <b>Plain text, not markup.</b> A test runner's output pane and a CI log show the text and none
@@ -76,7 +76,7 @@ public static class PlainSpecText
 
     /// <summary>
     /// The scenario's reports only, each preceded by a blank line.
-    /// <see cref="SpecRender.Reports"/> has already applied <see cref="ScenarioReportVisibility"/>
+    /// <see cref="SpecRender.Reports"/> has already applied <see cref="Bobcat.Engine.ScenarioReportVisibility"/>
     /// and already knows whether the scenario failed, so this cannot reach a different answer than
     /// the console and the JSON report did.
     /// </summary>

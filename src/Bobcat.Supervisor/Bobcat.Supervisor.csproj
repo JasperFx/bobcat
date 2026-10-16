@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>
       Runs Microsoft.Testing.Platform test hosts as worker processes and layers Bobcat's retry,
       isolation and abort policy on top — the out-of-process half of the resilient test runner.

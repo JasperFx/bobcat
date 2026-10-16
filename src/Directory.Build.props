@@ -26,6 +26,19 @@
 
     <!-- Released libraries opt back in individually. -->
     <IsPackable>false</IsPackable>
+
+    <!--
+      Each shipped library also sets <GenerateDocumentationFile>, so its Bobcat.xml travels beside
+      the dll and a consumer gets IntelliSense for the vocabulary (bobcat#622). That cannot be set
+      here on IsPackable: this file is read before the project sets it (see the icon below).
+      Three of the warnings it turns on are noise rather than defects, and are off everywhere —
+      harmless where no documentation file is generated, because none of them fire there:
+        CS1591  a public member with no comment. Much of the public surface is self-describing.
+        CS1573  a parameter with no <param> beside one that has it. The prose usually covers it.
+        CS0419  a cref naming an overloaded method. It still resolves (to one overload) for a reader.
+      The rest — a cref or param tag naming nothing — stay warnings, because they are wrong.
+    -->
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS0419</NoWarn>
   </PropertyGroup>
 
   <!--

@@ -126,16 +126,6 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IApplyToTe
     }
 
     /// <summary>
-    /// Translate NUnit's verdict into Bobcat's. Public because it is the only part of this adapter
-    /// with a decision in it, and a decision worth testing directly.
-    /// </summary>
-    /// <param name="outcome">NUnit's <c>ResultState</c> for the test.</param>
-    /// <param name="message">
-    /// NUnit's result message. For an unexpected exception NUnit writes it as
-    /// <c>"Full.Type.Name : message"</c>, which is split back into its two halves so a viewer shows
-    /// the same thing it shows for the other runners.
-    /// </param>
-    /// <summary>
     /// The specification's Event Model coordinates as NUnit properties (bobcat#573) — <c>Slice</c>,
     /// <c>Chapter</c>, <c>Domain</c>, <c>Pattern</c> — read from the binding the generator registered, so
     /// the derived pattern is there too.
@@ -193,6 +183,16 @@ public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IApplyToTe
         return bound[0].Where(trait => bound.All(other => other.Contains(trait)));
     }
 
+    /// <summary>
+    /// Translate NUnit's verdict into Bobcat's. Public because it is the only part of this adapter
+    /// with a decision in it, and a decision worth testing directly.
+    /// </summary>
+    /// <param name="outcome">NUnit's <c>ResultState</c> for the test.</param>
+    /// <param name="message">
+    /// NUnit's result message. For an unexpected exception NUnit writes it as
+    /// <c>"Full.Type.Name : message"</c>, which is split back into its two halves so a viewer shows
+    /// the same thing it shows for the other runners.
+    /// </param>
     public static ScenarioVerdict VerdictFrom(ResultState? outcome, string? message)
         => outcome switch
         {
