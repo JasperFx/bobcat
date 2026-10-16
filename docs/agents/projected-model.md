@@ -27,10 +27,10 @@ User-facing docs: `docs/marker-steps.md`, `docs/tutorials/specifications-with-co
 
 `[Given]`, `[When]`, `[Then]`, `[Check]` and the keywordless `[Step]` are **one family** —
 `StepAttribute` is the base, and a project's own attribute deriving from `GivenAttribute` inherits
-the keyword (read off the attribute's type, never by instantiating it). Two expression syntaxes,
-decided **per placeholder**: Cucumber captures by type (`{int}`, `{string}`, `{word}`, the Event
-Modeling type words) and Storyteller-style named templates by parameter name (`{sum}`); a built-in
-type word wins, and mixing is allowed. `[BobcatStep]` (`src/Bobcat/MarkerSteps/`) is the same family
+the keyword (read off the attribute's type, never by instantiating it). An expression is a
+Storyteller-style named template: a placeholder binds **by parameter name only** (`{sum}`).
+Cucumber type captures (`{int}`, `{word}`) left with Gherkin (#471, #602) and are BOBCAT027,
+rendered literally. `[BobcatStep]` (`src/Bobcat/MarkerSteps/`) is the same family
 for a shared helper.
 
 - **`[Check]` (not `[Fact]`) for boolean assertions** — avoids the xUnit collision.

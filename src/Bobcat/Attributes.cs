@@ -75,29 +75,21 @@ public class StepAttribute : Attribute
     public StepAttribute(string expression) => Expression = expression;
 
     /// <summary>
-    /// The step's text, in <b>either</b> of two syntaxes.
+    /// The step's text, a named template.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Cucumber expressions</b> capture by TYPE and position: <c>"the left operand is {int}"</c>,
-    /// plus <c>{string}</c>, <c>{word}</c>, the Event Modeling type words (<c>{aggregate}</c>,
-    /// <c>{command}</c>, <c>{event}</c>, …), optional text and raw regex.
+    /// Storyteller's <c>[FormatAs]</c> syntax: each placeholder names a PARAMETER and is filled from
+    /// that argument at the call site — <c>"Adding {x} to {y} should equal {sum}"</c> over
+    /// <c>double Adding(double x, double y, double sum)</c>. The step text says what the value
+    /// <i>is</i> rather than merely what type it has.
     /// </para>
     /// <para>
-    /// <b>Named templates</b> — Storyteller's <c>[FormatAs]</c> syntax — capture by PARAMETER NAME:
-    /// <c>"Adding {x} to {y} should equal {sum}"</c> over <c>double Adding(double x, double y, double
-    /// sum)</c>. The parameter's own type decides how the cell is read, so the step text says what the
-    /// value <i>is</i> rather than merely what type it has, and the same string renders the sentence
-    /// when the method is called from C#.
-    /// </para>
-    /// <para>
-    /// <b>Which one is in force is decided per PLACEHOLDER, not per expression and not per
-    /// project:</b> a built-in type word wins, so <c>{int}</c> stays a Cucumber capture even on a
-    /// method with a parameter called <c>int</c> and nothing that compiled before means anything
-    /// different; a placeholder that is not a built-in word and does name a parameter is the named
-    /// form. An expression with no placeholders reads identically either way, and <b>mixing the two
-    /// is allowed</b> — <c>"the {aggregate} has {count} events"</c> is a natural thing to write and
-    /// there is no ambiguity in it, because each placeholder is resolved on its own.
+    /// <b>Placeholders bind by name only.</b> Cucumber type captures (<c>{int}</c>,
+    /// <c>{string}</c>, <c>{word}</c>, optional text, raw regex) went with the Gherkin lane, the only
+    /// thing that ever matched text against an expression: a placeholder naming no parameter is
+    /// BOBCAT027 and renders literally. <c>{aggregate}</c> or <c>{event}</c> works when a parameter
+    /// has that name.
     /// </para>
     /// </remarks>
     public string Expression { get; }
