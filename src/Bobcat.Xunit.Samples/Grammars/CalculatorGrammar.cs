@@ -9,8 +9,8 @@ namespace Bobcat.Xunit.Samples.Grammars;
 /// <remarks>
 /// <para>
 /// <b>The mapping, grammar for grammar.</b> <c>[FormatAs("Start with {value}")]</c> becomes
-/// <c>[Given("Start with {value}")]</c> — the SAME named-template syntax, because Bobcat's step
-/// attributes now accept it alongside Cucumber expressions. The placeholder binds to the parameter of
+/// <c>[Given("Start with {value}")]</c> — the SAME named-template syntax, which is the only
+/// syntax Bobcat's step attributes accept. The placeholder binds to the parameter of
 /// that name at the C# call site. The only thing added is the
 /// <b>keyword</b>, which is optional: <c>SentenceGrammar</c> next door spells none.
 /// </para>
