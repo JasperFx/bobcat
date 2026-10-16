@@ -13,9 +13,9 @@ public class PreviewRenderTests
     [Fact]
     public void binding_type_names_render_without_namespace_qualification()
     {
-        new StepBinding("global::My.App.OrderFixture", "Place", "an order is placed", [])
+        new StepBinding("global::My.App.OrderFixture", "Place", "an order is placed")
             .DeclaringTypeName.ShouldBe("OrderFixture");
-        new StepBinding("OrderFixture", "Place", "an order is placed", [])
+        new StepBinding("OrderFixture", "Place", "an order is placed")
             .DeclaringTypeName.ShouldBe("OrderFixture");
     }
 }

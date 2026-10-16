@@ -91,14 +91,6 @@ public static class JsonRenderer
             Counts = countsToJson(spec.Counts),
             DurationMs = spec.DurationMs,
             StepsMs = spec.StepsMs,
-            Lifecycle = spec.Timeline.Count > 0
-                ? spec.Timeline.Select(p => new JsonTimelinePointOutput
-                {
-                    Name = p.Name,
-                    StartedAtMs = p.StartedAtMs,
-                    DurationMs = p.DurationMs
-                }).ToList()
-                : null,
             Steps = spec.Steps.Select(stepToJson).ToList(),
             ScenarioFailure = spec.ScenarioFailure,
             ScenarioFailureCells = spec.ScenarioFailureCells.Count > 0
@@ -340,14 +332,6 @@ internal class JsonScenarioOutput
     /// </summary>
     public long? StepsMs { get; set; }
 
-    /// <summary>
-    /// Named lifecycle stop points — BeforeEach, the reset/scope bracket, teardown — on the
-    /// same scenario clock as each step's startedAtMs, so a consumer can rank the time no
-    /// step owns. Null when the results carried no timeline (a foreign worker, an older
-    /// artifact): unmeasured is never zero-filled.
-    /// </summary>
-    public List<JsonTimelinePointOutput>? Lifecycle { get; set; }
-
     public List<JsonStepOutput> Steps { get; set; } = new();
 
     /// <summary>
@@ -386,13 +370,6 @@ internal class JsonAttachmentOutput
 
     [System.ComponentModel.Description("Why the bytes were not kept, such as being over the size cap.")]
     public string? Omitted { get; set; }
-}
-
-internal class JsonTimelinePointOutput
-{
-    public string Name { get; set; } = "";
-    public long StartedAtMs { get; set; }
-    public long DurationMs { get; set; }
 }
 
 internal class JsonStepOutput

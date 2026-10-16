@@ -320,21 +320,6 @@ public class CommandLineRenderer
             output.MarkupLine(
                 $"{indent}  [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]"
                 + expression);
-
-            foreach (var argument in binding.Arguments)
-            {
-                var origin = argument.Source switch
-                {
-                    Runtime.StepArgumentSource.Capture => $"\"{Markup.Escape(argument.Value)}\" [dim](capture)[/]",
-                    Runtime.StepArgumentSource.TableColumn => $"column [yellow]{Markup.Escape(argument.Value)}[/]",
-                    Runtime.StepArgumentSource.DocString => "[dim]doc string[/]",
-                    Runtime.StepArgumentSource.Table => "[dim]the step's table[/]",
-                    Runtime.StepArgumentSource.Service => $"[green]{Markup.Escape(argument.Value)}[/] [dim](injected)[/]",
-                    Runtime.StepArgumentSource.Expected => $"\"{Markup.Escape(argument.Value)}\" [dim](expected)[/]",
-                    _ => "[dim]default[/]"
-                };
-                output.MarkupLine($"{indent}    {Markup.Escape(argument.Name)} [dim]←[/] {origin}");
-            }
         }
     }
 

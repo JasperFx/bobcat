@@ -70,12 +70,6 @@ public class SpecRender
     public long? StepsMs { get; init; }
 
     /// <summary>
-    /// The named non-step stop points — BeforeEach, the ResetAll/BeginScenarioAll bracket,
-    /// EndScenarioAll — on the same clock the steps' <see cref="StepRender.StartedAtMs"/> uses.
-    /// </summary>
-    public List<TimelinePointRender> Timeline { get; init; } = new();
-
-    /// <summary>
     /// Why the scenario failed, when no step accounts for it — an assertion library that threw
     /// between steps, an exception before the first one, a runner verdict Bobcat never saw the cause
     /// of.
@@ -332,16 +326,6 @@ public class SpecRender
 
         return steps;
     }
-}
-
-/// <summary>
-/// A named lifecycle stop point on the scenario's timeline (issue #141).
-/// </summary>
-public class TimelinePointRender
-{
-    public string Name { get; init; } = "";
-    public long StartedAtMs { get; init; }
-    public long DurationMs { get; init; }
 }
 
 /// <summary>
