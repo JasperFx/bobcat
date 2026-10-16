@@ -339,7 +339,8 @@ step produced a grid with no headings and rendered its extra rows under nothing.
 ## One object against one row
 
 The mechanisms above are about *many* rows. This one is about a single object, and the columns the
-row names are compared against the properties of those names -- Storyteller's `VerifyObject`:
+row names are compared against the public properties or fields of those names -- Storyteller's
+`VerifyObject`:
 
 ```csharp
 [Then("the address should be")]

@@ -573,7 +573,9 @@ matches by key columns so one wrong value becomes a missing row beside an extra 
 subject is known and the columns *are* the claim.
 
 **A column may be a dotted path into a nested object (issue #411).** `Customer.Address.City` resolves
-left to right over public instance properties, with `[Header]` titling applied **per segment** so a
+left to right over public instance properties **and fields** (bobcat#548 — partial objects already
+addressed fields, so a property check now reads what a `Specify<T>()` can name; a property wins a name
+a field also claims), with `[Header]` titling applied **per segment** so a
 renamed property stays addressable at every depth. Put in the shared lookup rather than in any one
 grammar because several callers share it — `PropertyCells.Verify` and the Wolverine side's event and
 HTTP-response assertions (wolverine#4835/#4836) among them — and solving it in one would leave the
@@ -737,7 +739,7 @@ attribute, so a downstream wrapper (Wolverine's `Verify(state, table)`) is cover
 
 | Call shape | Type checked | Rule (`TableColumns.ColumnRule`) |
 |---|---|---|
-| `(object subject, StepTable expected)` — `PropertyCells.Verify`, any such pair | subject's static type | `Property`: properties by `[Header]` title (which REPLACES the name), dotted |
+| `(object subject, StepTable expected)` — `PropertyCells.Verify`, any such pair | subject's static type | `Property`: properties and fields by `[Header]` title (which REPLACES the name), dotted |
 | `(IEnumerable actual, StepTable expected)` — `SetVerificationComparer.Verify`, any such pair | element type (scalar elements skipped) | `Set`: same titles, top level only; constant `keyColumns` checked too |
 | `PartialObjects.FromTable(typeof(T), table)` | `T` | `Partial`: property/field by name or title, or a public constructor parameter, dotted |
 | `Specified<T>.With("path", value)` | `T` | `Partial` |
