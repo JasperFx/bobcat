@@ -59,8 +59,10 @@ public class CalculatorGrammar
     /// Storyteller's assertion sentence — <c>[FormatAs("The value should be {value}")]</c> over a
     /// <c>double</c>-returning method.
     /// </summary>
+    // #region then-value-should-be
     [Then("The value should be {value}")]
     internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
+    // #endregion then-value-should-be
 
     /// <summary>
     /// Storyteller's multi-input assertion sentence — <c>[FormatAs("Adding {x} to {y} should equal

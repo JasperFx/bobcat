@@ -260,6 +260,10 @@ takes:
 | TUnit | `--treenode-filter "/*/Ns/Class/method"` -- the namespace is one segment with its dots kept, a nested class is `Outer+Inner` |
 | NUnit, MSTest | refused, see below |
 
+[`bobcat run`](bobcat-tool.md) does this translation for you: `--feature`/`--scenario`, the
+[Event Model coordinates](bobcat-tool.md#selecting-by-coordinates) and `--failed` all resolve to
+identities first, then go through `SpecFilterArguments`.
+
 It **refuses rather than guesses**: an unknown framework, an unbound entry, or an identity the
 manifest lacks all throw.
 
@@ -298,32 +302,32 @@ the suite's framework filter, and the run arrives on the ordinary run board.
 
 ## Checking identities against the model
 
-Nothing checked the identity against the design. A projected spec added under a scenario name the model did
-not declare produced a green suite, a clean build, no diagnostic, and no warning; it survived four
-commits. The retired `BOBCAT025`/`BOBCAT026` manifest checks compared **slice names**, so a test
-bound to the right slice under a scenario nobody designed passed both (issue #338) -- which is why
-this gate was needed even while they existed, and why retiring them in #406 took nothing away from
-it.
+Nothing checks the identity against the design on its own. A projected spec added under a scenario
+name the model did not declare produces a green suite, a clean build, no diagnostic, and no warning
+(issue #338) -- and a check on slice names alone would pass it too, since the spec is bound to a real
+slice.
 
 `SpecIdentityAudit` is the join. Both facts already exist:
 
 | artifact | says |
 |---|---|
 | the generated `BobcatEventModelSource` | every `{Feature}/{Scenario}` the compiled tests declare |
-| the curated model | every `{Feature}/{Scenario}` the design declares |
+| your design-time Event Model | every `{Feature}/{Scenario}` the design declares |
 
 ### The gate
 
-It is not a build diagnostic -- the generator holds the compiled identities but not the curated
+It is not a build diagnostic -- the generator holds the compiled identities but not the design
 model, which may not even live in the spec project. The spec assembly's **own test run** is where
-both are already loaded, so the whole thing is one assertion:
+both can be loaded, so the whole thing is one assertion. Here the design is an `EventModelDefinition`
+whose slices name the scenarios they expect with `LinksToSpecification("{Feature}/{Scenario}")`:
 
 ```csharp
 [Fact]
 public void the_model_and_the_specs_declare_the_same_scenarios()
 {
-    var design = CuratedModelMapper.ToDescriptor(
-        CuratedModelReader.Read(File.ReadAllText("../../../../model/critter-crush.yml")).File!);
+    var builder = new EventModelBuilder();
+    new BookingModel().Configure(builder);   // your EventModelDefinition
+    var design = builder.Build("Booking");
 
     var audit = SpecIdentityAudit.Compare(design, typeof(BookingAppointments).Assembly);
 
@@ -331,9 +335,9 @@ public void the_model_and_the_specs_declare_the_same_scenarios()
 }
 ```
 
-`CuratedModelMapper` and `CuratedModelReader` come from `Bobcat.EventModel`; the audit itself is in
-core `Bobcat`, and takes two `EventModelDescriptor`s -- so any design-time source works, not just a
-curated file.
+`SpecIdentityAudit` is in core `Bobcat` and compares `EventModelDescriptor`s, so any design-time
+source works -- a hand-written definition as above, or an imported eventmodelers.ai board through
+`Bobcat.EventModel`'s `ImportedModelMapper.ToDescriptor`.
 
 ### What it reports
 
@@ -374,6 +378,6 @@ Orphans — a test declares this identity and the model does not:
 
 `Compare(design, assembly)` throws when no assembly you passed has a generated Event Model source.
 The generator emits one only for an assembly whose specs declare slices, so the usual causes are
-naming the wrong assembly or having no `[BobcatSpec]` or `[BobcatSlice]` binding anywhere -- and reporting every declared
+naming the wrong assembly or having no `[BobcatSpec]`, `[BobcatTheory]` or `[BobcatSlice]` binding anywhere -- and reporting every declared
 scenario as uncovered would be a confident lie, the same failure as zero-filling an unmeasured
 duration.

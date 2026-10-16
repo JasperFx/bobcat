@@ -15,6 +15,7 @@ Nothing is rewritten and the tests keep their own runner. For writing new specif
 Put `[BobcatScenario]` on the test fixture, and name the feature it belongs to:
 
 ```csharp
+using Bobcat;
 using Bobcat.NUnit;
 
 [BobcatFeature("Booking"), BobcatScenario]
@@ -59,13 +60,13 @@ it covers, in parallel when the fixture is `[Parallelizable]` -- so parallel fix
 **`[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`** (bobcat#545) marks a spec written before its
 behaviour is finished: a failure is recorded in full as `acceptance: failing` and NUnit reports the test
 ignored, so the build stays green. See
-[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+[not yet passing](marker-steps.md#acceptance).
 
 ## Versions
 
-Built against NUnit 4.3.2 and checked against NUnit 4.6 and 5.0 with `NUnit3TestAdapter` 6.x. The
-package references the NUnit framework only, never the adapter, so which runner and test platform
-you use is yours to choose.
+Built against NUnit 4.3.2, and tested here on `NUnit3TestAdapter` 5.2. The package references the
+NUnit framework only, never the adapter, so which runner and test platform you use is yours to
+choose. See [Version Compatibility](/compatibility).
 
 ## What it renders
 

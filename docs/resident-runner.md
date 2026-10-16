@@ -72,9 +72,7 @@ The run bracket closes *inside* the run, a hair before the in-flight slot clears
 the instant `run_finished` arrives can still come back `busy`, and a client that wants a second run
 **sends again** rather than assuming the first answer was yes.
 
-That is the contract working, not a defect. It is invisible on a fast machine, which is exactly why
-it is written down: Bobcat's own end-to-end test failed on CI three tags in a row over it, with the
-product behaving as specified.
+That is the contract working, not a defect, and it is easy to miss on a fast machine.
 :::
 
 The split between `busy` and the other three is the reason `refusal` exists at all. With only the
@@ -126,27 +124,6 @@ does have to tell "relaunch me" from "I'm done", and **0 could not** -- 0 is als
 test host returns after running its whole suite, so a parent relaunching on 0 would run
 such a suite in a loop forever.
 
-Signals go through `PosixSignalRegistration`, not `ProcessExit`. A `ProcessExit` handler runs after
-the runner has returned and disposed the token source it would cancel, and the resulting
-`ObjectDisposedException` aborts the process: **exit 134 from a runner that had done everything
-right**.
-
-## `BOBCAT_RUNNER_ID` -- a parent owns the runner's identity
-
-When it is set, it **is** the runner's id; otherwise the runner mints a GUID.
-
-A resident runner lives under a watch and is relaunched on every source change, so a minted id meant
-a *new runner per rebuild*. Three things followed from that, all of them bad: a command a person
-pressed while the runner was rebuilding waited on an id that never came back, the monitor's picker
-filled with dead runners, and a parent's status reports named an id the runner never registered
-under. Handing the id over fixes all three, and re-registering is idempotent -- which is what makes a
-stable id safe. A monitor holding a stream open to a dead process of the same id simply has it
-replaced by the live one's registration.
-
-**One runner per checkout** is the rule that makes a command mean "run against the code in that
-worktree", which is why the registration declares the repository and branch rather than leaving a
-monitor to infer them from a run's events.
-
 ## `BOBCAT_RUNNER_ID` -- a parent owns the runner's identity
 
 When it is set (or `--id` is passed), it **is** the runner's id; otherwise the runner mints a GUID.
@@ -164,8 +141,8 @@ monitor to infer them from a run's events.
 
 ## What the child does *not* inherit
 
-Four variables a parent routinely sets break a
-commanded run silently, so they are cleared for the child:
+Five variables a parent routinely sets break a commanded run silently, so they are cleared for the
+child:
 
 | | |
 |---|---|
@@ -173,12 +150,12 @@ commanded run silently, so they are cleared for the child:
 | `BOBCAT_RUN_OWNER` | would stop the child publishing a run bracket at all |
 | `BOBCAT_LIST_SPECS` | would turn a run into a listing |
 | `BOBCAT_RESIDENT` | would have the child register itself instead of running |
+| `BOBCAT_RUN_COMMAND_FILE` | a parent's stale command file would be read as this command (a warm session writes its own, see [Warm Runs](warm-projected-runs.md)) |
 
 And two are forced on: `BOBCAT_MONITOR=1`, because a resident runner exists to serve a console and
 `BOBCAT_MONITOR=0` is the kind of thing a CI job sets for a whole box (an explicit `1` also tells
-the child's probe a console is expected, so it waits up to 5s rather than 250ms for the answer --
-bobcat#589, where a slow first request on a loaded CI machine left a commanded run publishing
-nothing); and `BOBCAT_MONITOR_URL` from
+the child's probe a console is expected, so it waits up to 5s rather than 250ms for the answer, which
+a loaded CI machine can need); and `BOBCAT_MONITOR_URL` from
 the runner's own `--url`, because a runner pointed at a second console would otherwise take that
 console's commands and publish the runs to the default one.
 
@@ -206,13 +183,6 @@ CloudEvents in structured mode, hand-written, on the same origin as the run even
 in [What a Run Publishes](monitor-design.md#the-resident-runner-wire-issue-390-built-2026-10-02), which is the
 contract of record: a monitor reads these with no assembly reference to warn it, so the wire shape is
 the contract and not an internal detail.
-
-## The wire
-
-CloudEvents in structured mode, hand-written, on the same origin as the run events. The shapes are
-in [What a Run Publishes](monitor-design.md#the-resident-runner-wire-issue-390-built-2026-10-02), which
-is the contract of record: a monitor reads these with no assembly reference to warn it, so the wire
-shape is the contract and not an internal detail.
 
 ## See also
 

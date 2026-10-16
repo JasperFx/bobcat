@@ -110,13 +110,16 @@ exception is captured on `LastAct`, so a refusal can be asserted afterwards.
 
 | Step | |
 |---|---|
-| `WhenReceived(message, configureTracking?)` | `message` arrives at the application through Wolverine, and the scenario waits for everything it caused to settle -- cascades, forwarded events, local queues |
-| `WhenPublished(message, configureTracking?)` | published to every subscriber, and the scenario waits for what it caused |
+| `WhenReceived(message, configureTracking?, options?)` | `message` arrives at the application through Wolverine, and the scenario waits for everything it caused to settle -- cascades, forwarded events, local queues. `options` is Wolverine's `DeliveryOptions`, so `new DeliveryOptions { TenantId = "red" }` sends it for a tenant |
+| `WhenPublished(message, configureTracking?, options?)` | published to every subscriber, and the scenario waits for what it caused |
 | `WhenTracked(description, act, configureTracking?)` | any act that reaches the application from outside -- an HTTP call, a client SDK, a hosted service poke -- run inside the tracked session |
 | `WhenActing(description, services => …)` | any act at all, handed a fresh service scope. In a `WolverineScenario` it runs inside the tracked session too, so it waits for what it caused and carries the messages it sent |
 | `WhenActingOn<T>(id, description?, act, params events)` | one paragraph of three sentences: capture the stream's version, run the act, and check the stream gained exactly `events` past that version |
 | `WhenPosted(command, configure?)` (`WolverineHttpSpec`) | POST `command` to the one Wolverine.HTTP endpoint that accepts its type, filling route parameters from its properties. Several candidates are refused rather than guessed |
-| `WhenPosted(command, route, configure?)` / `WhenPosted<TResponse>(…)` | POST to a named route; the generic form hands back the response body |
+| `WhenPosted(command, route, configure?)` / `WhenPosted<TResponse>(…)` | POST to a route template; the generic form hands back the response body |
+| `WhenPostedToRoute(command, routeName, configure?)` | POST to the endpoint with that ASP.NET Core route name (`[WolverinePost("/api/orders", RouteName = "PlaceOrder")]`) |
+| `WhenPut` / `WhenPatched` / `WhenDeleted` (and `…ToRoute`) | the same three forms for PUT, PATCH and DELETE. A DELETE sends the command as its JSON body |
+| `WhenReading<T>(route, params routeValues)` / `WhenReadingRoute<T>(routeName, …)` | GET a route template, its values after it in order, and hand back the 2xx body as a `T` -- null for a 4xx. A spec whose last act is a read describes a **Query** slice |
 
 `configureTracking` adjusts the `TrackedSessionConfiguration` for one act. Over HTTP, any 2xx is
 success, a 4xx is a *refusal* -- an answer, captured for `ThenRefusedWith` and `ThenResponseIs` --
@@ -225,6 +228,7 @@ object back for further checks.
 | `ThenCommandRefused()` | a *clean* refusal: the act ran, nothing threw, and it appended nothing -- a handler that stops without throwing, or an HTTP 4xx |
 | `ThenRefusedWithProblem(expected?)` (`WolverineHttpSpec`) | the last HTTP act answered with a ProblemDetails body matching `Specify<ProblemDetails>()…` |
 | `ThenResponseIs(status)` (`WolverineHttpSpec`) | the last HTTP act answered `status` |
+| `ThenNotFound()` (`WolverineHttpSpec`) | the last HTTP act answered 404 -- a read of something that does not exist |
 
 A reason is found in an HTTP refusal's body, or in the exception the act raised **and every inner
 exception** (each of an `AggregateException`'s too), so a refusal wrapped by the act's plumbing is
@@ -303,6 +307,15 @@ ThenAConcurrentEventWouldNotConflict<SessionProposed>(theConference);
 They're judged whether the act succeeded or was refused, because a refusal is decided over the same
 boundary. `LastAct.Boundaries` holds what was loaded, in load order; a cascade's loads are not there.
 
+### A concurrent writer
+
+`WhileActing(params events)` arranges a real concurrent append (wolverine#4940): while the next act runs,
+another writer appends these events between the act's read and its write, on a new stream. Tag them to put
+them inside or outside a boundary. Inside, the act's save fails with a `DcbConcurrencyException`
+(`ThenRefusedWith<DcbConcurrencyException>()`), or an error policy retries it and `ThenRetried()` passes;
+outside, the act is not disturbed. It needs the store integrated with Wolverine (`IntegrateWithWolverine()`).
+An act that saves nothing never gives the append a moment to land, and fails saying so.
+
 ## What the act eventually caused
 
 The tracked session sees what happens inside the act. `ThenEventuallyCaused` (wolverine#4965) reaches
@@ -332,7 +345,9 @@ Three things it needs from you:
 - **An HTTP act sends the id as the `X-Correlation-ID` header.** For Wolverine.HTTP to apply it,
   turn on `WolverineHttpOptions.ApplyCorrelationIdHeaderToAllEndpoints`.
 
-One database only, for now: a store that spreads its tenants across several databases is refused.
+An act sent for a tenant is looked for within that tenant: filtered by it on a conjoined store, and in the
+tenant's own database on a store that spreads its tenants across several. An act with no tenant on such a
+store is looked for in every database.
 
 ## Reading what happened
 
@@ -340,7 +355,7 @@ None of these is a step: each reads the capture, and the assertion that follows 
 
 | | |
 |---|---|
-| `LastAct` | what the last act did: `Session` (the tracked session), `NewEvents`, `AllNewEvents`, `Error`, `Refusal`, `Appended` (each committing session with the message it handled), `Boundaries`, `CorrelationId` |
+| `LastAct` | what the last act did: `Session` (the tracked session), `NewEvents`, `AllNewEvents`, `Error`, `Refusal`, `Appended` (each committing session with the message it handled), `Boundaries`, `CorrelationId`, `Attempts`, `TenantId` |
 | `TheEvent<T>()` | the one `T` the act appended; throws unless exactly one was |
 | `TheEvents` | every event the act appended |
 | `TheMessagesSent` | every message the act sent or published |
@@ -403,18 +418,9 @@ spelling of one. Write it on your base spec class, run it through `WhenActing`, 
 attributes** -- the generator reads them off the method a test calls, never off what that method's
 body calls. From `samples/BankAccountES`:
 
-```csharp
-[EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
-public Task WhenPosted(object command, string route, params object[] routeValues)
-    => send("POST", command, route, routeValues);
+<<< ../../samples/BankAccountES/Tests/BankAccountSpec.cs#when-posted{cs}
 
-[EventModelRole(SliceRole.Command, nameof(message))]
-[EventModelTrigger(TriggerKind.MessageHandler)]
-public Task WhenReceived(object message)
-    => WhenActing($"{message.GetType().Name} is received",
-        services => services.GetRequiredService<IMessageBus>().InvokeAsync(message));
-```
+<<< ../../samples/BankAccountES/Tests/BankAccountSpec.cs#when-received{cs}
 
 An act can also address an endpoint by its route name: `[WolverinePut("/api/clients/{clientId}", RouteName =
 "UpdateClient")]` on the endpoint, and `[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName))]` on

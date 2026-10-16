@@ -100,7 +100,8 @@ tables as grids, and an exception in a panel at the foot of the page with Bobcat
 
 ### Run buttons
 
-The **Run again**, **Re-run failed** and **Run *feature*** buttons work when a
+The **Run again**, **Re-run failed**, **Run *feature*** and (on the canvas) **Run this slice**
+buttons work when a
 [resident runner](resident-runner.md) is attached for that suite:
 
 ```bash
@@ -198,9 +199,14 @@ variables. Keep or drop the keys as you see fit. -->
 
 ## Querying it from the command line
 
+
 The same runs and model are readable as JSON from the `bobcat` tool, which is how an AI agent reads
 them: `bobcat failing-tests`, `bobcat failing-spec`, `bobcat slice-coverage` and the rest. See
 [Querying Runs from the Command Line](agent-queries.md).
+
+For a run kept as a file rather than watched live -- a CI artifact, say -- see the
+[JSON results file](bobcat-tool.md#results-file) and the [HTML results page](bobcat-tool.md#results-page),
+which renders a scenario with the same components the UI uses.
 
 ## Troubleshooting
 

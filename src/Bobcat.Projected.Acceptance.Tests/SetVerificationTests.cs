@@ -10,9 +10,11 @@ public record Detail(string Name, decimal Amount);
 /// A set's columns are its result type's properties, so a title goes on the property. On a record
 /// that means targeting the property explicitly.
 /// </summary>
+// #region ledger-record
 public record Ledger(
     [property: Header("Line Item")] string Name,
     [property: Header("The Amount")] decimal Amount);
+// #endregion ledger-record
 
 public enum Grade
 {

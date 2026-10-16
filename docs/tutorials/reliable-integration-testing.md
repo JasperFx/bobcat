@@ -46,6 +46,11 @@ does need to be an MTP host rather than an xUnit native runner:
 Check with `./YourTests --list-tests`. If that errors with `unknown option`, you still have the
 native runner and the supervisor cannot drive it.
 
+The quickest way to try it is the `bobcat` tool: `bobcat run --workers 4` drives the spec project's own
+test host as four worker processes ([Supervised runs](../bobcat-tool.md#supervised)). Per-worker
+resources (Step 2) need a supervisor host of your own -- a small console app around `Supervisor` and
+`MtpWorkerFactory`.
+
 This changes only the entry point -- `dotnet test`, `--filter`, TRX and coverlet keep working.
 
 > **Put the property in `Directory.Build.props`, not a per-job `-p:` override.** Same output path,
@@ -75,16 +80,16 @@ database from landing in different workers. So each worker needs its own:
 ```csharp
 new MtpWorkerFactory(path)
 {
-    EnvironmentFor = worker => new Dictionary<string, string>
-    {
-        ["POLECAT_TESTING_DATABASE"] = connectionStringFor($"polecat_w{worker.Lane}")
-    }
+    ConnectionStrings = new WorkerConnectionStrings()
+        .Add("postgres", worker => $"Host=localhost;Port=5433;Database=specs_w{worker.Lane};Username=postgres;Password=postgres")
 }
 ```
 
-`Lane` is bounded by `MaxParallelWorkers`, so you provision as many databases as workers you asked
-for. This requires the suite to read its connection string from an environment variable -- most
-already do.
+Each worker is launched with `ConnectionStrings__postgres`, the .NET Aspire convention, so the suite
+reads it with `configuration.GetConnectionString("postgres")` -- always a whole connection string,
+never a fragment to stitch onto a base one. `Lane` is bounded by `MaxParallelWorkers`, so you
+provision as many databases as workers you asked for. `EnvironmentFor` covers anything that is not a
+connection string ([Step 2 in full](../parallel-ready-suites.md#step-2-per-worker-resource-isolation)).
 
 **Check first whether you already have this for free.** A suite that starts its own container per
 process -- Testcontainers from a `[ModuleInitializer]`, say -- already gets a private broker per
@@ -116,8 +121,12 @@ Two mechanisms, and the difference between them matters.
 pass-on-retry is reported separately rather than folded into the pass count:
 
 ```csharp
-supervisor.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };
+supervisor.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };   // bobcat run --retries 1
 ```
+
+The budget is a ceiling, not a switch: only a test carrying a `Retry` trait (`[Trait("Retry", "2")]`)
+or a recovery hint matching the failure (`[ClearsOnRetry(typeof(TimeoutException))]`) is ever
+retried, and a `SpecCatastrophicException` never is.
 
 Watch the pass-on-retry number, not the pass number. A retry budget will mask a rising failure
 count if nobody is looking at it.

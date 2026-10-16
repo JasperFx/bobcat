@@ -32,6 +32,8 @@ public class ObjectsGrammar
     [Given("the address is")]
     internal void TheAddressIs(StepTable table) => _address = TableRunner.BuildRows<Address>(table).Single();
 
+    // #region address-should-be
     [Then("the address should be")]
     internal void TheAddressShouldBe(StepTable expected) => PropertyCells.Verify(_address, expected);
+    // #endregion address-should-be
 }

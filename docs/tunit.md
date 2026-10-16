@@ -15,6 +15,7 @@ Nothing is rewritten and the tests keep their own runner. For writing new specif
 Put `[BobcatScenario]` on the test class, and name the feature it belongs to:
 
 ```csharp
+using Bobcat;
 using Bobcat.TUnit;
 
 [BobcatFeature("Booking"), BobcatScenario]
@@ -35,7 +36,11 @@ public class BookingSpecs
 }
 ```
 
-It works on a single method too, when only part of a class should project.
+It works on a single method too, when only part of a class should project. `[BobcatSpec]` and
+`[BobcatTheory]` are xUnit attributes; on TUnit, bind a test to an Event Model slice with
+`[BobcatSlice]` beside `[BobcatScenario]` (see [Writing Specifications](marker-steps.md#bobcatspec)).
+Each `[Arguments]` row records as its own specification
+([each data row is its own specification](spec-identities.md#each-data-row-is-its-own-specification)).
 
 ## What the attribute does
 
@@ -47,7 +52,12 @@ published as a failure, a skipped one is withdrawn.
 **`[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`** (bobcat#545) marks a spec written before its
 behaviour is finished: a failure is recorded in full as `acceptance: failing` and TUnit reports the test
 skipped (`OverrideResult`), so the build stays green. See
-[not yet passing](marker-steps.md#not-yet-passing-lifecycle--lifecycleacceptance-bobcat545).
+[not yet passing](marker-steps.md#acceptance).
+
+## Versions
+
+Built against `TUnit.Core` 1.74.0. The package takes no test-platform reference; your own `TUnit`
+package brings the platform. See [Version Compatibility](/compatibility).
 
 ## What it renders
 
@@ -65,8 +75,8 @@ any set.
 
 ## Use this package rather than writing your own
 
-The adapter carries four things only Bobcat knows -- the verdict, run-id and `BOBCAT_RUN_TAG`
-attribution, the `RunStarted`/`RunFinished` pair, and the interceptor opt-in. A hand-rolled
+The adapter carries things only Bobcat knows -- the verdict, run-id and `BOBCAT_RUN_TAG`
+attribution, and the `RunStarted`/`RunFinished` pair, closed once the session's last scenario ends. A hand-rolled
 adapter that gets the verdict wrong publishes **every scenario as a clean pass**, including the
 failing ones, and a suite in that state looks exactly like a correct one. That has happened; see
 [Bobcat with xUnit.net](xunit.md) for the full account.

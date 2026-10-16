@@ -24,12 +24,14 @@ public class SentenceGrammar
     [Step("Start with the number {number}")]
     internal void StartWithTheNumber(int number = 5) => _number = number;
 
+    // #region keywordless-step
     [Step("Multiply by {multiplier} then add {delta}")]
     internal void MultiplyThenAdd(int multiplier, int delta)
     {
         _number *= multiplier;
         _number += delta;
     }
+    // #endregion keywordless-step
 
     [Step("Subtract {operand}")]
     internal void Subtract(int operand) => _number -= operand;

@@ -182,8 +182,10 @@ public class ProductSpecs(EcommerceMicroservicesHost app) : EcommerceMicroservic
         _lastStatusCode = result.StatusCode;
     }
 
+    // #region response-status
     [Then("the response status is {status}")]
     public void ThenTheResponseStatusIs(int status) => SpecAssert.Check("status", _lastStatusCode, status);
+    // #endregion response-status
 
     [Then("the product id is returned")]
     public void ThenTheProductIdIsReturned() => SpecAssert.Fact(_productId != Guid.Empty, "No product id came back.");
