@@ -635,6 +635,10 @@ obvious. An unreachable console is reported plainly:
 Could not reach http://localhost:5999/api/event-model: Connection refused (localhost:5999)
 ```
 
+The push also says where the model came from: `root`, `repository` and `branch` query parameters
+naming the git checkout of the `--out` directory (#532). A console uses them to tell a model pushed
+from this checkout apart from a stale one pushed from another; one that predates them ignores them.
+
 ## `resident`
 
 ```bash

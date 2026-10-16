@@ -92,6 +92,41 @@ public class SpecEventModelPublishingTests : IDisposable
     }
 
     /// <summary>
+    /// bobcat#532: the half says which checkout it came from, so a console can tell a stale half
+    /// from another repository or checkout apart from the newest one.
+    /// </summary>
+    [Fact]
+    public async Task the_half_carries_its_checkout_root_repository_and_branch()
+    {
+        using var host = new FakeMonitorHost();
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        await SpecEventModelPublisher.PublishAll(
+            publisher, [half()], provenance: new CheckoutProvenance("/code/bank account", "JasperFx/bank", "main"));
+
+        host.EventModelPushQueries.ShouldHaveSingleItem()
+            .ShouldBe("?root=%2Fcode%2Fbank%20account&repository=JasperFx%2Fbank&branch=main");
+    }
+
+    /// <summary>
+    /// Left to itself, the run reads the working directory's checkout — the same one it reports as
+    /// its repository. A test host runs inside this repository, so there is always a root.
+    /// </summary>
+    [Fact]
+    public async Task with_no_provenance_given_the_working_directorys_checkout_is_sent()
+    {
+        using var host = new FakeMonitorHost();
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        await SpecEventModelPublisher.PublishAll(publisher, [half()]);
+
+        var expected = CheckoutProvenance.Discover(Directory.GetCurrentDirectory()).ShouldNotBeNull();
+        host.EventModelPushQueries.ShouldHaveSingleItem().ShouldBe(expected.ToQueryString());
+    }
+
+    /// <summary>
     /// The rule issue #294 says nothing checks. <c>GET /api/event-model</c> merges only the
     /// sources naming the CURRENT model, and the current name is whatever was pushed last — so
     /// pushing a differently-named half would hide the other half instead of joining it.
@@ -210,6 +245,23 @@ public class SpecEventModelPublishingTests : IDisposable
 
         first.EventModelPushes.ShouldHaveSingleItem().Source.ShouldBe("BankAccountES-Tests");
         second.EventModelPushes.ShouldHaveSingleItem().Source.ShouldBe("BankAccountES-Tests");
+    }
+
+    /// <summary>bobcat#532 on every target: each console is told the same checkout.</summary>
+    [Fact]
+    public async Task every_target_is_told_which_checkout_the_half_came_from()
+    {
+        using var first = new FakeMonitorHost();
+        using var second = new FakeMonitorHost();
+
+        await using var targets = await MonitorTargets.TryConnect([first.Url, second.Url]);
+        targets.ShouldNotBeNull();
+
+        await SpecEventModelPublisher.PublishAll(targets, [half()]);
+
+        var expected = CheckoutProvenance.Discover(Directory.GetCurrentDirectory()).ShouldNotBeNull().ToQueryString();
+        first.EventModelPushQueries.ShouldHaveSingleItem().ShouldBe(expected);
+        second.EventModelPushQueries.ShouldHaveSingleItem().ShouldBe(expected);
     }
 
     /// <summary>

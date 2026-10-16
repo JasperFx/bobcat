@@ -128,6 +128,17 @@ internal sealed class FakeMonitorHost : IDisposable
         get { lock (_eventModelPushes) return _eventModelPushes.ToArray(); }
     }
 
+    /// <summary>
+    /// The query string of every Event Model PUT this host took, in arrival order and including
+    /// the leading '?' — empty for none. Where bobcat#532's provenance parameters arrive.
+    /// </summary>
+    public IReadOnlyList<string> EventModelPushQueries
+    {
+        get { lock (_eventModelPushes) return _eventModelPushQueries.ToArray(); }
+    }
+
+    private readonly List<string> _eventModelPushQueries = [];
+
     private async Task loop()
     {
         try
@@ -175,7 +186,11 @@ internal sealed class FakeMonitorHost : IDisposable
                     }
                     else
                     {
-                        lock (_eventModelPushes) _eventModelPushes.Add((source, body));
+                        lock (_eventModelPushes)
+                        {
+                            _eventModelPushes.Add((source, body));
+                            _eventModelPushQueries.Add(context.Request.Url?.Query ?? "");
+                        }
                         context.Response.StatusCode = 204;
                     }
                 }

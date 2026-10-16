@@ -1936,6 +1936,17 @@ one, and publishing anyway would hide the other half rather than join it. Both h
 are keyed on the model name, which is why setting it explicitly is load-bearing rather than
 cosmetic.
 
+- **Every Event Model PUT says where its half came from (bobcat#532, stoat#92)**: optional `root`
+  / `repository` / `branch` query parameters from `CheckoutProvenance` (`Monitoring/`), so Stoat can
+  call a half from a different repository or checkout than the newest one stale. The run reads the
+  working directory's checkout; `import-event-model --url` reads its `--out` directory's.
+  **Named `CheckoutProvenance`, not `EventModelProvenance`** — JasperFx.Events already has a type of
+  that name in `JasperFx.Events.EventModeling`, and a file that imports both stops compiling.
+  Read from files, never a `git` process (`GitInfo.FindCheckout`: a worktree's config is in its
+  `commondir`), and a field that can't be read is left off: a detached HEAD sends no `branch`
+  (unlike `run_started`, which reports the short sha), because a sha compared as a branch would call
+  a half stale that is not.
+
 **A supervised suite that is not Bobcat's still gets live progress (issue #195).** Per-scenario
 events come from each *worker's* own recorder, so a plain xUnit worker published
 nothing and a supervised run's card sat at `0 / 1627` for its whole five minutes — the shape of a

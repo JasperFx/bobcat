@@ -548,6 +548,18 @@ model the console serves now, and `PUT /api/event-model/{source}` sends the half
 for the spec assembly, sanitized for a file name (`Bobcat.Xunit.Samples` goes as
 `Bobcat-Xunit-Samples`). A second send under the same source replaces the first one.
 
+**Each send says where the half came from (#532).** Both Event Model PUTs -- this one and
+`bobcat import-event-model --url` -- carry three optional query parameters: `root`, the absolute path
+of the producer's git checkout (or its working directory outside one); `repository`, the `owner/name`
+of the checkout's `origin` remote; and `branch`, when HEAD is on one. Stoat uses them to call a half
+from a different repository or checkout than the newest one stale (stoat#92), which is how halves
+left over from an older build of a model stop merging into the current canvas. They are read from
+files only, as the run's own repository and branch are, and a field Bobcat cannot read is left off
+rather than guessed -- a detached HEAD sends no `branch`, a remote with no `owner/name` no
+`repository`. A console that predates them ignores them. The run reads the working directory's
+checkout, the same one `run_started` reports; the import reads the checkout of its `--out` directory,
+where the stubs it pushes the model for were written.
+
 **A half naming a different model is withheld, never sent.** The console merges only the sources
 naming its current model, so sending `BankAccountES.Tests` to a console serving `BankAccountES`
 would not join the host half, it would hide it. The run prints why and names the fix --

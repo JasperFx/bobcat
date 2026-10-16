@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Bobcat.EventModel;
 using Bobcat.EventModel.Emlang;
+using Bobcat.Monitoring;
 using JasperFx.CommandLine;
 
 namespace Bobcat.Console;
@@ -154,7 +155,9 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             $"Model '{descriptor.Name}': {descriptor.Slices.Count} slice(s), "
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
 
-        var pushed = input.UrlFlag is null || await pushAsync(input.UrlFlag, descriptor, run.Out);
+        // The checkout the stubs were written into is where this half came from (bobcat#532).
+        var provenance = CheckoutProvenance.Discover(outDirectoryOf(input));
+        var pushed = input.UrlFlag is null || await pushAsync(input.UrlFlag, descriptor, provenance, run.Out);
 
         if (input.JsonFlag)
         {
@@ -286,7 +289,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the
         // segmentation report had printed and looked like success (issue #369), so creating it is
         // the friendlier reading of "write the generated code here".
-        var outDirectory = Path.GetFullPath(input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!);
+        var outDirectory = outDirectoryOf(input);
         Directory.CreateDirectory(outDirectory);
 
         // Nothing is overwritten without --force (bobcat#423): these files are where the design is
@@ -411,17 +414,23 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         run.Callouts = run.Callouts.Concat(plan.Callouts).ToList();
     }
 
-    private static async Task<bool> pushAsync(string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor, TextWriter output)
+    private static string outDirectoryOf(ImportEventModelInput input)
+        => Path.GetFullPath(input.OutFlag ?? Path.GetDirectoryName(Path.GetFullPath(input.FilePath))!);
+
+    private static async Task<bool> pushAsync(
+        string baseUrl, JasperFx.Events.EventModeling.EventModelDescriptor descriptor,
+        CheckoutProvenance? provenance, TextWriter output)
     {
         // The PUT goes to the full endpoint, not the console's base URL — the same trap
         // watch-event-model documents (base URL answers 404, endpoint answers 204).
         var url = $"{baseUrl.TrimEnd('/')}/api/event-model";
+        var target = url + provenance?.ToQueryString();
         var json = JsonSerializer.Serialize(descriptor, EventModelWire.Json);
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         try
         {
-            using var response = await client.PutAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
+            using var response = await client.PutAsync(target, new StringContent(json, Encoding.UTF8, "application/json"));
             if (response.IsSuccessStatusCode)
             {
                 output.WriteLine($"Pushed to {url} — open {baseUrl.TrimEnd('/')}/event-model");
