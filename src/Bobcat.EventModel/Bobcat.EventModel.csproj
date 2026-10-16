@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Declared Event Model files for the Critter Stack — a curated YAML format that loads as a Declared-rung IEventModelDefinitionSource, plus an importer for eventmodelers.ai emlang board exports.</Description>
   </PropertyGroup>
 

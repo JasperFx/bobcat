@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Bobcat + NUnit — projects ordinary [Test] methods into the Bobcat model, so an existing suite renders as specifications without changing runners.</Description>
   </PropertyGroup>
 

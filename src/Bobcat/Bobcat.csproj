@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Bobcat runtime — the projected specification engine, verification, rendering, the monitor wire, and the store-agnostic Critter Stack vocabulary (bound to JasperFx.Events, so they serve Marten, Polecat and Fisher alike) for the spec-driven integration testing framework for .NET.</Description>
   </PropertyGroup>
 
