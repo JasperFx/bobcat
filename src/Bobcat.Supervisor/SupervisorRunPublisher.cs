@@ -116,7 +116,9 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
             Failed: results.Failed.Count(t => !t.IsIndeterminate),
             PassedOnRetry: results.PassedOnRetry.Count,
             Indeterminate: results.Indeterminate.Count,
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow,
+            // Never folded into Passed (bobcat#655): nobody ran a skipped test.
+            Skipped: results.Skipped.Count));
     }
 
     /// <summary>

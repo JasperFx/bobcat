@@ -21,7 +21,14 @@ public enum RunOutcome
     Failed,
 
     /// <summary>The run was aborted at this test.</summary>
-    Aborted
+    Aborted,
+
+    /// <summary>
+    /// The framework skipped the test, so nobody ran it (bobcat#655). Neither a pass nor a
+    /// failure: folding it into <see cref="CleanPass"/> makes a run that skipped work read as more
+    /// green than it is, which is the same dishonesty <see cref="PassOnRetry"/> exists to prevent.
+    /// </summary>
+    Skipped
 }
 
 /// <summary>One attempt at one test, and what the policy decided afterwards.</summary>

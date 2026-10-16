@@ -77,9 +77,17 @@ public sealed class TestReport
         {
             if (Attempts.Any(a => a.Disposition.Kind == DispositionKind.AbortRun)) return RunOutcome.Aborted;
             if (!Final.Succeeded) return RunOutcome.Failed;
+            if (IsSkipped) return RunOutcome.Skipped;
             return WasRetriedForFailure ? RunOutcome.PassOnRetry : RunOutcome.CleanPass;
         }
     }
+
+    /// <summary>
+    /// True when the framework skipped the test on its final attempt (bobcat#655). A skip is
+    /// <see cref="WorkerOutcome.Succeeded"/> to the policy, so it is never retried, but it is
+    /// reported as its own count: nobody ran it, so it is not a pass.
+    /// </summary>
+    public bool IsSkipped => Final.Outcome.State == WorkerTestState.Skipped;
 
     /// <summary>True when the run never established what this test does — a worker died.</summary>
     public bool IsIndeterminate => Final.Outcome.State == WorkerTestState.Indeterminate;
@@ -178,6 +186,14 @@ public sealed class SupervisorResults
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 
+    /// <summary>
+    /// Tests the framework skipped (bobcat#655) — counted on their own, never as passes and never
+    /// as failures, so a run that skipped work cannot read as more green than it is. A skip does
+    /// not change <see cref="ExitCode"/>.
+    /// </summary>
+    public IReadOnlyList<TestReport> Skipped
+        => Tests.Where(t => t.Outcome == RunOutcome.Skipped).ToList();
+
     /// <summary>The run's flakiness ledger — reported separately from clean passes, always.</summary>
     public IReadOnlyList<TestReport> PassedOnRetry
         => Tests.Where(t => t.Outcome == RunOutcome.PassOnRetry).ToList();
@@ -237,6 +253,7 @@ public sealed class SupervisorResults
         if (PassedOnRetry.Count > 0) parts.Add($"{PassedOnRetry.Count} passed on retry");
         if (Failed.Count > 0) parts.Add($"{Failed.Count} failed");
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
+        if (Skipped.Count > 0) parts.Add($"{Skipped.Count} skipped");
         if (StallKills.Count > 0) parts.Add($"{StallKills.Count} stall kill(s)");
 
         var summary = string.Join(", ", parts);

@@ -86,7 +86,10 @@ public record RunFinished(
     DateTimeOffset FinishedAt,
     // Acceptance specs that failed outside strict mode (bobcat#545), counted in neither Passed nor
     // Failed. Null from an older publisher.
-    int? AcceptanceFailing = null) : MonitorEvent(RunId);
+    int? AcceptanceFailing = null,
+    // Tests the framework skipped (bobcat#655), counted in neither Passed nor Failed. Null from an
+    // older publisher or the in-process bracket.
+    int? Skipped = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Attempt is 1-based; a value above 1 marks a retry attempt. TotalSteps is how many steps

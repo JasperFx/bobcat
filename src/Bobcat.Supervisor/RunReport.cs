@@ -257,6 +257,7 @@ public static class RunReport
                 ["passOnRetry"] = results.PassedOnRetry.Count,
                 ["failed"] = results.Failed.Count,
                 ["indeterminate"] = results.Indeterminate.Count,
+                ["skipped"] = results.Skipped.Count,
                 ["retriesPerformed"] = results.RetriesPerformed,
                 ["workersLaunched"] = results.WorkersLaunched
             },

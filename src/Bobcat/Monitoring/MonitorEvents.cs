@@ -70,7 +70,11 @@ public record RunFinished(
     // Acceptance specs that failed outside strict mode (bobcat#545): counted in neither Passed nor
     // Failed, and never the reason for a non-zero ExitCode. Null from an older publisher or a
     // publisher that does not know (the supervisor sees a skip). Optional and additive.
-    int? AcceptanceFailing = null) : MonitorEvent(RunId);
+    int? AcceptanceFailing = null,
+    // Tests the framework skipped (bobcat#655), counted in neither Passed nor Failed. Null from an
+    // older publisher, and from the in-process bracket, which never sees a skipped test open a
+    // scenario. Optional and additive.
+    int? Skipped = null) : MonitorEvent(RunId);
 
 public record ScenarioStarted(
     Guid RunId,

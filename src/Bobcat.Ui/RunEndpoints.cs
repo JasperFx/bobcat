@@ -50,6 +50,9 @@ public record RunSummary(
     public int? Failed { get; init; }
     public int? PassedOnRetry { get; init; }
     public int? Indeterminate { get; init; }
+
+    /// <summary>Skipped tests (bobcat#655): neither passed nor failed. Null when the publisher did not say.</summary>
+    public int? Skipped { get; init; }
 }
 
 /// <summary>
@@ -313,7 +316,8 @@ public static class RunEndpoints
             Passed = r.Passed,
             Failed = r.Failed,
             PassedOnRetry = r.PassedOnRetry,
-            Indeterminate = r.Indeterminate
+            Indeterminate = r.Indeterminate,
+            Skipped = r.Skipped
         };
 
     /// <summary>

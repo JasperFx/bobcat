@@ -306,10 +306,30 @@ describe('runs-store', () => {
     const run = store.runById(RUN)!
     expect(run.finished).toBe(true)
     expect(run.exitCode).toBe(0)
-    expect(run.counts).toEqual({ passed: 10, failed: 0, passedOnRetry: 1, indeterminate: 0 })
+    // An older publisher says nothing about skips, which is not the same as "none" (bobcat#655).
+    expect(run.counts).toEqual({ passed: 10, failed: 0, passedOnRetry: 1, indeterminate: 0, skipped: null })
     expect(store.finishedRuns).toHaveLength(1)
 
     store.removeRun(RUN)
     expect(store.allRuns).toHaveLength(0)
+  })
+
+  it('run_finished keeps skipped tests apart from passed ones (bobcat#655)', () => {
+    const store = useRunsStore()
+    startRun(store)
+    store.handleRunFinished({
+      runId: RUN,
+      exitCode: 0,
+      passed: 8,
+      failed: 0,
+      passedOnRetry: 0,
+      indeterminate: 0,
+      skipped: 2,
+      finishedAt: '2026-07-31T10:05:00Z',
+    })
+
+    expect(store.runById(RUN)!.counts).toEqual({
+      passed: 8, failed: 0, passedOnRetry: 0, indeterminate: 0, skipped: 2,
+    })
   })
 })

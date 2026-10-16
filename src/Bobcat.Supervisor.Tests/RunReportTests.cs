@@ -79,6 +79,41 @@ public class RunReportTests
         json.GetProperty("quarantine").EnumerateArray().Select(e => e.GetString()).ShouldBe(["flaky"]);
     }
 
+    private static Task<SupervisorResults> runWithASkip() => run(
+        [FakeWorkerFactory.Test("solid"), FakeWorkerFactory.Test("ignored")],
+        (uid, _, _) => uid == "solid" ? WorkerTestState.Passed : WorkerTestState.Skipped);
+
+    [Fact]
+    public async Task a_skipped_test_is_its_own_count_and_never_a_clean_pass()
+    {
+        // bobcat#655: nobody ran a skipped test, so counting it as a pass makes a run that
+        // skipped work read as more green than it is.
+        var results = await runWithASkip();
+
+        results.CleanPasses.Select(t => t.Uid).ShouldBe(["solid"]);
+        results.Skipped.ShouldHaveSingleItem().Uid.ShouldBe("ignored");
+        results.Skipped[0].Outcome.ShouldBe(RunOutcome.Skipped);
+        results.Failed.ShouldBeEmpty();
+        results.Quarantine.ShouldBeEmpty();
+        results.ExitCode.ShouldBe(0, "a skip is neither a pass nor a failure, so it does not redden the run");
+
+        results.Summarize().ShouldStartWith("1 passed, 1 skipped");
+    }
+
+    [Fact]
+    public async Task the_json_summary_counts_skips_apart_from_clean_passes()
+    {
+        var json = JsonDocument.Parse(RunReport.ToJson(await runWithASkip())).RootElement;
+
+        var summary = json.GetProperty("summary");
+        summary.GetProperty("cleanPass").GetInt32().ShouldBe(1);
+        summary.GetProperty("skipped").GetInt32().ShouldBe(1);
+
+        json.GetProperty("tests").EnumerateArray()
+            .Single(t => t.GetProperty("uid").GetString() == "ignored")
+            .GetProperty("outcome").GetString().ShouldBe(nameof(RunOutcome.Skipped));
+    }
+
     [Fact]
     public async Task each_attempt_carries_its_placement_and_disposition()
     {

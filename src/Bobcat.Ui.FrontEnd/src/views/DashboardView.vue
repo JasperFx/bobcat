@@ -297,6 +297,9 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
           <span v-if="run.counts.indeterminate > 0" class="bm-failed">
             {{ run.counts.indeterminate }} indeterminate
           </span>
+          <span v-if="(run.counts.skipped ?? 0) > 0" class="bm-skipped">
+            {{ run.counts.skipped }} skipped
+          </span>
         </span>
         <el-tag
           v-if="run.orphaned"
@@ -457,6 +460,10 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
 
 .bm-failed {
   color: var(--bm-state-failed);
+}
+
+.bm-skipped {
+  color: var(--bm-state-unreached);
 }
 
 .bm-eject,

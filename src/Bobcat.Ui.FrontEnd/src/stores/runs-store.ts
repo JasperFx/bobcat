@@ -353,6 +353,8 @@ export interface RunCounts {
   failed: number
   passedOnRetry: number
   indeterminate: number
+  // Skipped tests (bobcat#655): never folded into passed. Null from a publisher that does not say.
+  skipped: number | null
 }
 
 export interface RunState {
@@ -526,6 +528,7 @@ export const useRunsStore = defineStore('runs', () => {
       failed: e.failed,
       passedOnRetry: e.passedOnRetry,
       indeterminate: e.indeterminate,
+      skipped: e.skipped ?? null,
     }
   }
 
