@@ -21,6 +21,28 @@ public class SpecCatastrophicException : Exception
 }
 
 /// <summary>
+/// What every scenario opening after a <see cref="SpecCatastrophicException"/> fails with (bobcat#539):
+/// the environment is gone, so the scenario is not run. Its message names where the environment was
+/// lost and what the catastrophic failure said; that one failure, not this, is what to fix.
+/// </summary>
+/// <remarks>
+/// A <see cref="SpecCatastrophicException"/> itself, so a retry policy refuses it for the same reason
+/// it refuses the original. It carries no inner exception on purpose: a suite of hundreds of halted
+/// tests would otherwise print the same startup stack trace hundreds of times.
+/// </remarks>
+public class SpecEnvironmentLostException : SpecCatastrophicException
+{
+    public SpecEnvironmentLostException(EnvironmentLoss loss)
+        : base($"{loss.Describe()} (this scenario did not run)")
+    {
+        Loss = loss;
+    }
+
+    /// <summary>The catastrophic failure that lost the environment.</summary>
+    public EnvironmentLoss Loss { get; }
+}
+
+/// <summary>
 /// Signals a misconfigured Bobcat test run (wiring footguns) — surfaced with actionable
 /// guidance instead of a cryptic downstream or native failure.
 /// </summary>

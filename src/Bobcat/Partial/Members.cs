@@ -22,7 +22,7 @@ internal sealed class Members
             .Select(p => new Member(p.Name, ColumnNames.Of(p), p.PropertyType, p, null));
 
         var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance)
-            .Select(f => new Member(f.Name, f.GetCustomAttribute<HeaderAttribute>()?.Name ?? f.Name, f.FieldType, null, f));
+            .Select(f => new Member(f.Name, ColumnNames.Of(f), f.FieldType, null, f));
 
         _all = properties.Concat(fields).ToList();
     }

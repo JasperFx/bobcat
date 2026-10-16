@@ -100,8 +100,10 @@ under a `Retry` trait with budget to spare -- the report carries `AbortReason`
 (`catastrophic failure: <your message>`), and the exit code is **2**.
 
 - **It is matched by name, exactly** -- `Bobcat.Engine.SpecCatastrophicException` (or the bare
-  simple name). A subclass, or an exception of your own with the same simple name in another
-  namespace, is an ordinary error.
+  simple name), plus `Bobcat.Engine.SpecEnvironmentLostException`, which is what the worker's later
+  scenarios fail with once its environment is lost
+  ([the in-process halt](marker-steps.md#environment-lost)). Any other subclass, or an exception
+  of your own with the same simple name in another namespace, is an ordinary error.
 - **tUnit erases exception types on the wire**, so under the supervisor a tUnit worker's
   `SpecCatastrophicException` is an ordinary error: the run carries on, and a `Retry` trait retries
   it. If that matters, register an `IFailurePolicy` that aborts on the message instead.

@@ -41,6 +41,10 @@ namespace Bobcat.NUnit;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false)]
 public sealed class BobcatScenarioAttribute : Attribute, ITestAction, IDeclaresLifecycle
 {
+    // Armed when the runner instantiates the attribute, which is during discovery and so before any
+    // fixture or host startup can throw (bobcat#539).
+    static BobcatScenarioAttribute() => SpecEnvironment.Arm();
+
     internal const string Mode = "nunit";
 
     /// <summary>

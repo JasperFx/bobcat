@@ -252,3 +252,90 @@ public class NestedPropertyCellsTests
         result.Value.ShouldBe("ORD-1");
     }
 }
+
+/// <summary>
+/// A property check reads public fields as well as properties, at every depth and under the same
+/// <c>[Header]</c> titling (bobcat#548) — partial objects already address fields, so a column a
+/// <c>Specify&lt;T&gt;()</c> can name must be one a property check can read.
+/// </summary>
+public class FieldPropertyCellsTests
+{
+    public class Location
+    {
+        public string City = "";
+        [Header("zip")] public string Postcode = "";
+    }
+
+    public class Shipment
+    {
+        public string Id = "";
+        public int Count { get; set; }
+        public Location Destination = new();
+        public Location? Origin;
+    }
+
+    private static readonly Shipment _shipment = new()
+    {
+        Id = "SHP-1", Count = 3, Destination = new Location { City = "Austin", Postcode = "78701" }
+    };
+
+    private static TableRun compare(Shipment shipment, string table)
+        => PropertyCells.Cells(shipment, StepTable.Parse(table));
+
+    [Fact]
+    public void a_public_field_is_a_column_beside_a_property()
+    {
+        var run = compare(_shipment, """
+            | Id    | Count |
+            | SHP-1 | 3     |
+            """);
+
+        run.Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_field_that_disagrees_reads_like_any_other_cell()
+    {
+        compare(_shipment, """
+            | Id    |
+            | SHP-2 |
+            """)
+            .Cells.ShouldHaveSingleItem().DisplayText.ShouldBe("expected 'SHP-2', got 'SHP-1'");
+    }
+
+    [Fact]
+    public void a_dotted_path_follows_fields_at_every_depth_with_header_titling()
+    {
+        var run = compare(_shipment, """
+            | Destination.City | Destination.zip |
+            | Austin           | 78701           |
+            """);
+
+        run.Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_titled_field_is_addressed_by_its_title_and_the_message_lists_fields()
+    {
+        var cell = compare(_shipment, """
+            | Destination.Postcode |
+            | 78701                |
+            """).Cells.ShouldHaveSingleItem();
+
+        // The title REPLACES the name, for a field exactly as for a property.
+        cell.Status.ShouldBe(ResultStatus.invalid);
+        cell.DisplayText.ShouldBe("no 'Postcode' on Location — it has City, zip");
+    }
+
+    [Fact]
+    public void a_null_field_partway_along_the_path_is_the_subject_disagreeing()
+    {
+        var cell = compare(_shipment, """
+            | Origin.City |
+            | Austin      |
+            """).Cells.ShouldHaveSingleItem();
+
+        cell.Status.ShouldBe(ResultStatus.failed);
+        cell.Note.ShouldBe("Origin was null");
+    }
+}

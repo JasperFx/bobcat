@@ -143,6 +143,8 @@ public class CheckAttribute : StepAttribute
 /// <c>_.Compare(o =&gt; o.Amount).Header("The Amount")</c>; a set's columns are the result type's
 /// properties, so a property is the only thing there is to put it on. On a record, target the
 /// property explicitly: <c>record Detail([property: Header("The Amount")] decimal Amount)</c>.
+/// <b>On a public field</b> it titles the field the way it titles a property, for a property check
+/// (<c>PropertyCells</c>) and a partial object (bobcat#548).
 /// </para>
 /// <para>
 /// <b>The title replaces the name — it is not an alias.</b> A document that titles a column writes
@@ -155,7 +157,7 @@ public class CheckAttribute : StepAttribute
 /// named there by its title.
 /// </para>
 /// </remarks>
-[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property | AttributeTargets.Field)]
 public class HeaderAttribute : Attribute
 {
     public HeaderAttribute(string name) => Name = name;

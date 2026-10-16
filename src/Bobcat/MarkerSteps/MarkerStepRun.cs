@@ -81,12 +81,8 @@ public static class MarkerStepRun
 
         // The method itself, not its name: the explicit name (bobcat#489) is on THIS method, and a
         // lookup by name could land on an overload.
-        var recording = ScenarioRecorder.Begin(
-            FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), row, _sink, info.RunId);
-
         // A data-driven row takes its method's lifecycle (bobcat#545): it is the method that declares it.
-        recording.Lifecycle = SpecLifecycle.Of(method);
-        return recording;
+        return begin(FeatureNameFor(method.DeclaringType), ScenarioNameFor(method), row, info, SpecLifecycle.Of(method));
     }
 
     /// <summary>
@@ -114,10 +110,8 @@ public static class MarkerStepRun
 
         var row = SpecRows.Describe(parameterNamesOf(declaringType, methodName, arguments?.Count ?? 0), arguments, label);
 
-        var recording = ScenarioRecorder.Begin(
-            FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), row, _sink, info.RunId);
-        recording.Lifecycle = SpecLifecycle.Of(declaringType, methodName);
-        return recording;
+        return begin(FeatureNameFor(declaringType), ScenarioNameFor(declaringType, methodName), row, info,
+            SpecLifecycle.Of(declaringType, methodName));
     }
 
     private static IReadOnlyList<string> parameterNamesOf(MethodBase method)
@@ -133,6 +127,37 @@ public static class MarkerStepRun
         var candidates = declaringType.GetMethods(everything).Where(m => m.Name == methodName).ToList();
         var method = candidates.FirstOrDefault(m => m.GetParameters().Length == count) ?? candidates.FirstOrDefault();
         return method is null ? [] : parameterNamesOf(method);
+    }
+
+    /// <summary>
+    /// Open the scenario, unless the environment is already lost (bobcat#539): then it is published
+    /// as failed with the reason, closed, and the adapter's opening hook throws, which every runner
+    /// reports as the test failing without its body having run.
+    /// </summary>
+    /// <remarks>
+    /// Closed here rather than left for the adapter's after-test hook, because not every runner calls
+    /// that hook once its before-test hook has thrown. A closed recording is no longer
+    /// <see cref="ScenarioRecorder.Current"/>, so a hook that does run finds nothing to close twice.
+    /// </remarks>
+    private static ScenarioRecorder.Recording begin(
+        string feature, string scenario, string? row, MonitorRunInfo info, Lifecycle lifecycle)
+    {
+        SpecEnvironment.Arm();
+
+        var recording = ScenarioRecorder.Begin(feature, scenario, row, _sink, info.RunId);
+        recording.Lifecycle = lifecycle;
+        if (SpecEnvironment.Lost is not { } loss) return recording;
+
+        var halted = new SpecEnvironmentLostException(loss);
+        recording.Failure = halted;
+
+        // Thrown from the before-test hook, so the runner fails the test and no adapter can report it
+        // skipped: an Acceptance spec halted here is a plain failure on every Bobcat surface too.
+        recording.CannotBeSkipped = true;
+        Interlocked.Increment(ref _failed);
+        recording.Dispose();
+
+        throw halted;
     }
 
     /// <summary>
@@ -197,6 +222,11 @@ public static class MarkerStepRun
         if (recording is null) return ScenarioClose.Nothing;
 
         if (!canSkipAFailedTest && verdict.Kind == ScenarioVerdictKind.Failed) recording.CannotBeSkipped = true;
+
+        // A lost environment (bobcat#539) is never softened by Acceptance: the scenario that threw the
+        // SpecCatastrophicException is the cause every halted scenario after it names, so it stays a
+        // failure rather than reading as a skip.
+        if (SpecEnvironment.Lost is { Spec: { } lostIn } && lostIn == recording.Uid) recording.CannotBeSkipped = true;
 
         switch (verdict.Kind)
         {

@@ -78,11 +78,17 @@ public class TUnitResidentSuiteTests : IDisposable
 
         suite.Suite.ShouldBe("Bobcat.TUnit.Tests");
         suite.Manifest.Framework.ShouldBe(SpecManifest.TUnitFramework);
+        // The host's Halt/ probes (bobcat#539, TUnitHaltTests) are projected specifications too, and
+        // [Explicit] keeps them out of an unfiltered run, not out of the listing.
         suite.SpecIdentities.ShouldBe(
-            [auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening,
+            [
+                auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening,
+                "Halt after a fixture/needs the app", "Halt after a fixture/a later scenario",
+                "Halt after a scenario/loses the database", "Halt after a scenario/a later scenario",
                 // bobcat#545's Acceptance specs, which list like any other.
                 "Acceptance on TUnit/the behaviour throws because it does not exist yet",
-                "Acceptance on TUnit/an acceptance spec that passes is ready to promote"],
+                "Acceptance on TUnit/an acceptance spec that passes is ready to promote"
+            ],
             ignoreOrder: true);
         suite.Modes.ShouldBe([RunnerWire.ColdMode]);
 

@@ -673,6 +673,9 @@ public class SupervisorTests
     [Theory]
     [InlineData("Bobcat.Engine.SpecCatastrophicException", true)]
     [InlineData("SpecCatastrophicException", true)]
+    // What a worker's later scenarios fail with once its environment is lost (bobcat#539).
+    [InlineData("Bobcat.Engine.SpecEnvironmentLostException", true)]
+    [InlineData("SpecEnvironmentLostException", true)]
     [InlineData("Bobcat.Engine.SpecCriticalException", false)]
     [InlineData("MyApp.SpecCatastrophicException", false)]
     [InlineData(null, false)]

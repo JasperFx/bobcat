@@ -58,6 +58,10 @@ namespace Bobcat.Xunit;
 [XunitTestCaseDiscoverer(typeof(BobcatSpecDiscoverer))]
 public class BobcatSpecAttribute : FactAttribute, IBeforeAfterTestAttribute, IExplicitScenarioName, IDeclaresLifecycle
 {
+    // Armed when the runner instantiates the attribute, which is during discovery and so before any
+    // fixture or host startup can throw (bobcat#539).
+    static BobcatSpecAttribute() => SpecEnvironment.Arm();
+
     /// <param name="sourceFilePath">Filled in by the compiler; never pass this.</param>
     /// <param name="sourceLineNumber">Filled in by the compiler; never pass this.</param>
     public BobcatSpecAttribute(
