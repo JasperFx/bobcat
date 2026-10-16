@@ -37,8 +37,19 @@ public static class EventStoreAuthoring
     /// <paramref name="aggregateType"/> stream) when it does not exist yet and appending when it does.
     /// This is the arrange half of an event-sourcing spec — the prior events a command runs against.
     /// </summary>
-    public static async Task AppendAsync(IEventStore store, Type aggregateType, object streamIdentity,
+    public static Task AppendAsync(IEventStore store, Type aggregateType, object streamIdentity,
         IReadOnlyList<object> events, CancellationToken token = default)
+        => AppendAsync(store, aggregateType, streamIdentity, events, null, token);
+
+    /// <summary>
+    /// bobcat#536. <see cref="AppendAsync(IEventStore, Type, object, IReadOnlyList{object}, CancellationToken)"/> for
+    /// one tenant: the stream is read and written through a session opened for <paramref name="tenantId"/> on the
+    /// database that tenant lives in (<see cref="EventStores.OpenTenantSessionAsync"/>). A null tenant is the store's
+    /// default session. Internal, so the public surface keeps the one <c>AppendAsync</c> a plain test looks up by
+    /// name; outside Bobcat, open the tenant's session with <see cref="EventStores.OpenTenantSessionAsync"/>.
+    /// </summary>
+    internal static async Task AppendAsync(IEventStore store, Type aggregateType, object streamIdentity,
+        IReadOnlyList<object> events, string? tenantId, CancellationToken token = default)
     {
         if (events.Count == 0) return;
 
@@ -47,13 +58,13 @@ public static class EventStoreAuthoring
         // (Stoat, CritterWatch) the streamKey overloads. Anything else is a wiring mistake.
         var existing = streamIdentity switch
         {
-            Guid guid => await EventStores.FetchStreamAsync(store, guid, token).ConfigureAwait(false),
-            string key => await EventStores.FetchStreamAsync(store, key, token).ConfigureAwait(false),
+            Guid guid => await EventStores.FetchStreamAsync(store, guid, tenantId, token).ConfigureAwait(false),
+            string key => await EventStores.FetchStreamAsync(store, key, tenantId, token).ConfigureAwait(false),
             _ => throw new ArgumentException(
                 $"A stream identity must be a Guid or a string, not {streamIdentity.GetType().Name}.", nameof(streamIdentity)),
         };
 
-        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        var session = await EventStoreSessions.OpenAsync(store, tenantId, token).ConfigureAwait(false);
         await using (session.ConfigureAwait(false))
         {
             var operations = eventOperationsOf(session);
@@ -88,10 +99,20 @@ public static class EventStoreAuthoring
     /// session's <c>LoadAsync&lt;T&gt;(id, ct)</c>. <paramref name="id"/> may be a <see cref="Guid"/> or a
     /// string key. Returns null when no such document exists.
     /// </summary>
-    public static async Task<T?> LoadDocumentAsync<T>(IEventStore store, object id, CancellationToken token = default)
+    public static Task<T?> LoadDocumentAsync<T>(IEventStore store, object id, CancellationToken token = default)
+        where T : class
+        => LoadDocumentAsync<T>(store, id, null, token);
+
+    /// <summary>
+    /// bobcat#536. <see cref="LoadDocumentAsync{T}(IEventStore, object, CancellationToken)"/> as
+    /// <paramref name="tenantId"/> sees it. A null tenant is the store's default session. Internal for the reason the
+    /// tenant <c>AppendAsync</c> is.
+    /// </summary>
+    internal static async Task<T?> LoadDocumentAsync<T>(IEventStore store, object id, string? tenantId,
+        CancellationToken token = default)
         where T : class
     {
-        var session = await EventStoreSessions.OpenAsync(store).ConfigureAwait(false);
+        var session = await EventStoreSessions.OpenAsync(store, tenantId, token).ConfigureAwait(false);
         await using (session.ConfigureAwait(false))
         {
             var load = loadMethod(session.GetType(), typeof(T), id.GetType());

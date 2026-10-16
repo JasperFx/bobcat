@@ -68,6 +68,82 @@ public class EventStoresTests
         await session.Received(1).DisposeAsync();
     }
 
+    // --- a tenant's session (bobcat#536) ------------------------------------------------------
+
+    [Fact]
+    public async Task a_tenant_session_is_opened_for_the_tenant_on_the_database_the_store_finds_for_it()
+    {
+        var id = Guid.NewGuid();
+        var expected = new Account { Id = id };
+
+        var events = Substitute.For<IQueryEventStore>();
+        events.AggregateStreamAsync<Account>(id, token: Arg.Any<CancellationToken>()).Returns(expected);
+        var session = Substitute.For<IFakeSession>();
+        session.Events.Returns(events);
+
+        var first = Substitute.For<IEventDatabase>();
+        var second = Substitute.For<IEventDatabase>();
+        var store = Substitute.For<IEventStore<IFakeSession, IFakeSession>>();
+        store.AllDatabases().Returns(new ValueTask<IReadOnlyList<IEventDatabase>>([first, second]));
+        store.FindDatabaseForTenantAsync("red", Arg.Any<CancellationToken>()).Returns(new ValueTask<IEventDatabase?>(second));
+        store.OpenSession(second, "red").Returns(session);
+
+        var aggregate = await EventStores.AggregateStreamAsync<Account>(store, id, "red");
+
+        aggregate.ShouldBeSameAs(expected);
+        store.DidNotReceive().OpenSession(Arg.Any<IEventDatabase>());
+        store.DidNotReceive().OpenSession(first, Arg.Any<string>());
+        await session.Received(1).DisposeAsync();
+    }
+
+    [Fact]
+    public async Task a_tenant_on_a_store_with_one_database_is_opened_on_that_database()
+    {
+        var only = Substitute.For<IEventDatabase>();
+        var session = Substitute.For<IFakeSession>();
+        session.Events.Returns(Substitute.For<IQueryEventStore>());
+        var store = Substitute.For<IEventStore<IFakeSession, IFakeSession>>();
+        store.AllDatabases().Returns(new ValueTask<IReadOnlyList<IEventDatabase>>([only]));
+        store.FindDatabaseForTenantAsync("red", Arg.Any<CancellationToken>()).Returns(new ValueTask<IEventDatabase?>((IEventDatabase?)null));
+        store.OpenSession(only, "red").Returns(session);
+
+        await EventStores.FetchStreamAsync(store, Guid.NewGuid(), "red");
+
+        store.Received(1).OpenSession(only, "red");
+    }
+
+    [Fact]
+    public async Task a_tenant_no_database_can_be_found_for_is_refused_rather_than_guessed()
+    {
+        var store = Substitute.For<IEventStore<IFakeSession, IFakeSession>>();
+        store.AllDatabases().Returns(new ValueTask<IReadOnlyList<IEventDatabase>>(
+            [Substitute.For<IEventDatabase>(), Substitute.For<IEventDatabase>()]));
+        store.FindDatabaseForTenantAsync("green", Arg.Any<CancellationToken>()).Returns(new ValueTask<IEventDatabase?>((IEventDatabase?)null));
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => EventStores.FetchStreamAsync(store, Guid.NewGuid(), "green"));
+
+        ex.Message.ShouldContain("'green'");
+        ex.Message.ShouldContain("2 databases");
+        store.DidNotReceive().OpenSession(Arg.Any<IEventDatabase>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task no_tenant_opens_the_default_session_as_before()
+    {
+        var database = Substitute.For<IEventDatabase>();
+        var session = Substitute.For<IFakeSession>();
+        session.Events.Returns(Substitute.For<IQueryEventStore>());
+        var store = Substitute.For<IEventStore<IFakeSession, IFakeSession>>();
+        store.AllDatabases().Returns(new ValueTask<IReadOnlyList<IEventDatabase>>([database]));
+        store.OpenReadOnlyEventStore().Returns(Substitute.For<IReadOnlyEventStore>());
+
+        await EventStores.FetchStreamAsync(store, Guid.NewGuid(), (string?)null);
+
+        store.Received(1).OpenReadOnlyEventStore();
+        store.DidNotReceive().OpenSession(Arg.Any<IEventDatabase>(), Arg.Any<string>());
+    }
+
     [Fact]
     public async Task explains_when_no_session_can_be_opened()
     {
