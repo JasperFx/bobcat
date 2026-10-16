@@ -58,3 +58,38 @@ public class RunnerCommandEndpointTests
         runners.Find("r-1")!.Commands.ShouldBeEmpty();
     }
 }
+
+/// <summary>
+/// bobcat#644: a runner's specifications, with the planned steps it registered, are what the runner
+/// page lists before anything has run.
+/// </summary>
+public class RunnerSpecificationsTests
+{
+    [Fact]
+    public void each_spec_is_listed_by_feature_with_the_steps_its_runner_registered()
+    {
+        var runners = new RunnerRegistry();
+        runners.Register(new RunnerRegistered("r-1", "/code/bank", "main", "Bank.Tests", "projected", null,
+            ["Withdrawals/an overdraft is refused", "Accounts/an account is opened", "Accounts/a row (amount: 5)"],
+            [new RunnerSpecOutline("Accounts/an account is opened", ["Given a customer", "When they open an account"])]), null);
+
+        var specs = RunnerEndpoints.Specifications("r-1", runners) as Microsoft.AspNetCore.Http.IValueHttpResult;
+        var listed = specs!.Value.ShouldBeAssignableTo<IReadOnlyList<RunnerSpecView>>()!;
+
+        listed.Select(x => x.Identity).ShouldBe(
+            ["Accounts/a row (amount: 5)", "Accounts/an account is opened", "Withdrawals/an overdraft is refused"]);
+        listed[1].Feature.ShouldBe("Accounts");
+        listed[1].Scenario.ShouldBe("an account is opened");
+        listed[1].Steps.ShouldBe(["Given a customer", "When they open an account"]);
+
+        // A runner that predates the outline still lists what it can run
+        listed[2].Steps.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void an_unknown_runner_is_a_404()
+    {
+        (RunnerEndpoints.Specifications("nobody", new RunnerRegistry()) as Microsoft.AspNetCore.Http.IStatusCodeHttpResult)!
+            .StatusCode.ShouldBe(404);
+    }
+}

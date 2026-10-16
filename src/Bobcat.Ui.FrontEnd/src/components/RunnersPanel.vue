@@ -37,7 +37,9 @@ function where(runner: RunnerView): string {
 <template>
   <div v-if="runners && runners.length > 0" class="bm-runners" data-testid="runners-panel">
     <div v-for="runner in runners" :key="runner.runnerId" class="bm-runner" data-testid="runner-row">
-      <span class="bm-runner-name">{{ runner.suite ?? runner.runnerId }}</span>
+      <router-link :to="`/runners/${encodeURIComponent(runner.runnerId)}`" class="bm-runner-name" data-testid="runner-link">
+        {{ runner.suite ?? runner.runnerId }}
+      </router-link>
       <span class="bm-runner-where" :title="runner.repository">{{ where(runner) }}</span>
       <span class="bm-runner-state" :data-tone="runnerState(runner).tone" :title="runner.statusDetail ?? undefined">
         {{ runnerState(runner).label }}

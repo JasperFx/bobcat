@@ -19,6 +19,13 @@ public record RunnerView(
     DateTimeOffset LastSeenAt,
     IReadOnlyList<RunnerCommandView> Commands);
 
+/// <summary>
+/// One specification a runner can run (bobcat#644): its identity split into feature and scenario,
+/// and its planned steps when the runner registered them — empty for a runner that predates the
+/// outline, or a data row whose steps are its method's.
+/// </summary>
+public record RunnerSpecView(string Identity, string Feature, string Scenario, IReadOnlyList<string> Steps);
+
 /// <summary>One command and where it got to. <c>State</c> is queued / sent / accepted / rejected.
 /// <c>RunId</c> is the run it produced, once that run's <c>run_started</c> names it.</summary>
 public record RunnerCommandView(
@@ -407,6 +414,39 @@ public sealed class RunnerRegistry
                 .OrderByDescending(x => x.Streams > 0)
                 .ThenByDescending(x => x.LastSeenAt)
                 .Select(x => view(x, runFor))
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// What the runner can run, spec by spec with its planned steps (bobcat#644) — the runner page's
+    /// list, before anything has run. Null for a runner nobody registered.
+    /// </summary>
+    public IReadOnlyList<RunnerSpecView>? SpecificationsOf(string runnerId)
+    {
+        lock (_gate)
+        {
+            if (find(runnerId) is not { } runner) return null;
+
+            var steps = (runner.Registration.Outline ?? [])
+                .GroupBy(x => x.Identity, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Steps, StringComparer.Ordinal);
+
+            return runner.Registration.Specs
+                .Distinct(StringComparer.Ordinal)
+                .Select(identity =>
+                {
+                    // The identity cannot be parsed in general (a feature title may hold a '/'), but a
+                    // display split at the last one is what the rest of the board already does.
+                    var slash = identity.LastIndexOf('/');
+                    return new RunnerSpecView(
+                        identity,
+                        slash > 0 ? identity[..slash] : "",
+                        slash > 0 ? identity[(slash + 1)..] : identity,
+                        steps.TryGetValue(identity, out var planned) ? planned : []);
+                })
+                .OrderBy(x => x.Feature, StringComparer.Ordinal)
+                .ThenBy(x => x.Scenario, StringComparer.Ordinal)
                 .ToList();
         }
     }

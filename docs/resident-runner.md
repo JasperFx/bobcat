@@ -21,6 +21,11 @@ identities with the console, and runs a command by driving **the suite's own tes
 that framework's filter. It ships from the tool because the console at the other end references
 nothing else in this repository and so cannot be handed a class to host.
 
+The registration also carries each specification's **planned steps** (its marker comments and step
+calls, as `bobcat preview` shows them), read from the same listing run at its exit
+(`BOBCAT_LIST_OUTLINE`). That is what lets a console list a suite's specifications before any of them
+has run -- `bobcat ui`'s runner page. A runner from an older Bobcat registers identities only.
+
 **A wiring mistake is refused at launch, not at the first button press**: a host that is not built, a
 suite that lists no specifications (usually a spec project with no runner adapter referenced), or a
 framework whose filter spelling Bobcat will not guess at. A runner that registered and then refused

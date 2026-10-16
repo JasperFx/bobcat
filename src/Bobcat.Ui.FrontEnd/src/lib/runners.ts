@@ -39,6 +39,28 @@ export interface RunnerView {
 }
 
 /**
+ * One specification a runner can run, with the planned steps it registered (bobcat#644). Steps are
+ * empty from a runner that predates the outline.
+ */
+export interface RunnerSpecView {
+  identity: string
+  feature: string
+  scenario: string
+  steps: string[]
+}
+
+/** What a runner can run, spec by spec: the runner page, before anything has run (bobcat#644). */
+export async function loadRunnerSpecs(runnerId: string, fetchImpl: typeof fetch = fetch): Promise<RunnerSpecView[] | null> {
+  try {
+    const response = await fetchImpl(`/api/runners/${encodeURIComponent(runnerId)}/specs`)
+    const body = response.ok ? await response.json() : null
+    return Array.isArray(body) ? (body as RunnerSpecView[]) : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * What a button runs: named specs, a whole feature, or a whole project (bobcat#645). `all` may name
  * the one runner it is for, when the button sits beside that runner.
  */

@@ -379,6 +379,25 @@ public class ProjectedResidentRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task the_listing_carries_each_specifications_planned_steps_for_a_console_to_preview()
+    {
+        // bobcat#644: a console shows what a suite specifies before anything has run. The planned steps of
+        // [BobcatStep] calls register from a second module initializer, so they are read at the listing's
+        // exit rather than beside the manifest.
+        var suite = await OutOfProcessResidentSuite.For(projectedHost, listingDirectory: _directory);
+
+        var outline = suite.Outline.ShouldNotBeNull().Single(x => x.Identity == knownSpec);
+        outline.Steps.ShouldNotBeEmpty();
+        outline.Steps.ShouldContain(step => step.Contains("{"), "a preview shows templates, not evaluated arguments");
+
+        var narrated = suite.Outline!.Where(x => x.Steps.Any(step => step == "Given a calculator starting with 3")).ToList();
+        narrated.ShouldNotBeEmpty("marker comments are part of the plan");
+
+        await using var runner = new ResidentRunner(suite, new ResidentRunnerOptions { RunnerId = "r1" });
+        runner.Registration().Outline.ShouldBeSameAs(suite.Outline);
+    }
+
+    [Fact]
     public async Task an_unbuilt_host_is_refused_at_launch_rather_than_registered_and_useless()
     {
         var missing = Path.Combine(_directory, "NotBuilt");

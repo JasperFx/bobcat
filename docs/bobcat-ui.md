@@ -113,7 +113,10 @@ A runner registers what its suite specifies, and the buttons send it the identit
 runner attached, the button says how to start one.
 
 The board lists every attached runner above the run cards, before anything has run, with its state
-and a **Run all** button that runs its whole project. A run page's **Run again** runs every
+and a **Run all** button that runs its whole project. A runner's name opens its page, at
+`/runners/{runnerId}`: every specification it can run, by feature, with the steps each one plans,
+and a run button for each feature and each specification. It is the UI's `bobcat preview`, and like
+it shows templates (`{amount}`) rather than values, because nothing has run. A run page's **Run again** runs every
 specification that run ran, whatever happened to them. Over the API, a command can name `"all": true`
 in place of `specs` or `feature`: the UI resolves it to every identity the runner registered.
 

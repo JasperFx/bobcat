@@ -14,10 +14,16 @@ namespace Bobcat.Ui.Runners;
 /// <param name="Lane"><c>gherkin</c> or <c>projected</c>.</param>
 /// <param name="Modes">What it can do: <c>cold</c>, and <c>warm</c> where its lane allows.</param>
 /// <param name="Specs">Every spec identity it can run, <c>{Feature}/{Scenario}</c>.</param>
+/// <param name="Outline">Each spec's planned steps, from Bobcat with bobcat#644: what the runner page
+/// shows before anything has run. Null from a runner that predates it.</param>
 [MessageIdentity("bobcat.runner.registered")]
 public record RunnerRegistered(
     string RunnerId, string Repository, string? Branch, string? Suite, string Lane,
-    IReadOnlyList<string>? Modes, IReadOnlyList<string> Specs);
+    IReadOnlyList<string>? Modes, IReadOnlyList<string> Specs,
+    IReadOnlyList<RunnerSpecOutline>? Outline = null);
+
+/// <summary>One specification's planned steps, each a line (<c>Given a customer</c>), as a runner registers it.</summary>
+public record RunnerSpecOutline(string Identity, IReadOnlyList<string> Steps);
 
 /// <summary>The runner took a command, or refused it and said why.</summary>
 /// <param name="Reason">The human sentence.</param>

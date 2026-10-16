@@ -186,6 +186,16 @@ public static class RunnerEndpoints
     public static RunnerView? Find(string runnerId, RunnerRegistry runners, MonitorRunRegistry runs)
         => runners.Find(runnerId, runLookup(runs));
 
+    /// <summary>
+    /// What a runner can run, spec by spec with its planned steps (bobcat#644): the runner page, which
+    /// is how a suite is previewed in the UI before anything has run.
+    /// </summary>
+    [WolverineGet("/api/runners/{runnerId}/specs")]
+    public static IResult Specifications(string runnerId, RunnerRegistry runners)
+        => runners.SpecificationsOf(runnerId) is { } specs
+            ? Results.Ok(specs)
+            : Results.NotFound(new { errors = new[] { $"no runner '{runnerId}'" } });
+
     private static Func<Guid, Guid?> runLookup(MonitorRunRegistry runs)
     {
         var byCommand = runs.All()
