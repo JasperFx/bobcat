@@ -6,6 +6,7 @@ import { useRunners } from '@/composables/useRunners'
 import { commandForRun, describeCommand } from '@/lib/runners'
 import LaneStrip from '@/components/LaneStrip.vue'
 import RunnersPanel from '@/components/RunnersPanel.vue'
+import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/composables/time'
 import { loadRunLimit, RUN_LIMIT_CHOICES, saveRunLimit, visibleRuns } from '@/lib/runBoard'
 
@@ -296,6 +297,7 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
         </el-button>
       </div>
     </div>
+    <BuildStatusBanner />
     <RunnersPanel />
     <el-empty v-if="runs.allRuns.length === 0" description="No runs yet — waiting for a publisher" />
     <el-card v-for="run in board.shown" :key="run.runId" class="bm-run-card" :data-live="isLive(run)">

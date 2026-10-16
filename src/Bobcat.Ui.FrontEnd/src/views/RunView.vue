@@ -6,6 +6,7 @@ import { useRunsStore, visibleScenarios } from '@/stores/runs-store'
 import SupervisorTopology from '@/components/SupervisorTopology.vue'
 import RunButton from '@/components/RunButton.vue'
 import MissingRun from '@/components/MissingRun.vue'
+import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref, specHref } from '@/lib/specLinks'
 
@@ -58,6 +59,7 @@ function sliceOf(uid: string) {
     <div class="bm-run-meta">
       {{ run.repository }}<span v-if="run.branch"> @ {{ run.branch }}</span>
     </div>
+    <BuildStatusBanner :suite="run.suite" />
 
     <SupervisorTopology :run="run" />
 

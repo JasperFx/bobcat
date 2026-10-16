@@ -48,6 +48,9 @@ Each takes the spec project (a `.csproj`, or a directory holding one; found from
 directory when omitted), builds it, and drives its test host. The host's own output goes to a file
 and the terminal gets the Feature / scenario / step tree. `watch` reruns on every change to the spec
 project or anything it references: Enter reruns, `p` picks, `a` goes back to everything, `q` quits.
+It tells a running `bobcat ui` how each rebuild went (`POST /api/build-status`, to every console
+`BOBCAT_MONITOR_URL` names), so a build that fails shows on the board with its compiler errors
+instead of leaving the last green run in view.
 
 | Flag | What it does |
 |---|---|

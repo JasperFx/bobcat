@@ -90,6 +90,10 @@ its counts, and its age.
   rather than "running" forever.
 - **Several repositories on one box** are told apart by a repository filter, and a supervised run
   across several worker processes is one card, not one per worker.
+- **A project that no longer compiles says so**, above the cards and on its runs' pages, with its
+  first compiler errors: `bobcat watch` reports each rebuild to the UI, and so does `stoat runner`
+  for a resident runner it rebuilds. Until the build is fixed, the runs below are of the code before
+  the change that broke it.
 
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
 paste into a pull request -- that renders the specification the test produced: each step with its

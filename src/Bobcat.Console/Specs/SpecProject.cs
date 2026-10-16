@@ -66,6 +66,9 @@ internal sealed class SpecProject
     /// <c>dotnet build</c>, quietly; its output is shown only when it fails. Then the host path, which
     /// MSBuild reports rather than this guessing at <c>bin/</c> layouts.
     /// </summary>
+    /// <summary>The output of the last build that failed, for a caller that reports it (bobcat#651).</summary>
+    public string? LastBuildFailure { get; private set; }
+
     public async Task<bool> BuildAsync(bool skipBuild = false)
     {
         if (!skipBuild)
@@ -73,6 +76,8 @@ internal sealed class SpecProject
             var (code, output) = await AnsiConsole.Status().StartAsync($"Building {Name} ({Framework})…",
                 _ => Shell.RunAsync("dotnet",
                     ["build", ProjectPath, "-f", Framework, "-c", Configuration, "-nologo", "-v", "q", "-clp:NoSummary"]));
+
+            LastBuildFailure = code == 0 ? null : output;
 
             if (code != 0)
             {
