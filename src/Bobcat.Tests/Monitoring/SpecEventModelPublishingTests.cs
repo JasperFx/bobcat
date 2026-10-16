@@ -150,6 +150,49 @@ public class SpecEventModelPublishingTests : IDisposable
         notice.ShouldContain("EventModelName");
     }
 
+    /// <summary>
+    /// bobcat#621: on a shared machine the console on 5525 is routinely another application's, and
+    /// a notice offering only the rename told the author to name their model after it.
+    /// </summary>
+    [Fact]
+    public async Task a_half_refused_by_an_unrelated_application_leads_with_pointing_the_run_elsewhere()
+    {
+        using var host = new FakeMonitorHost { CurrentEventModelName = "CritterCrush" };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        var notices = new List<string>();
+        await SpecEventModelPublisher.PublishAll(
+            publisher, [half(assembly: "CqrsMinimalApi.Tests", model: "CqrsMinimalApi")], notices.Add);
+
+        var notice = notices.ShouldHaveSingleItem();
+        notice.ShouldContain("BOBCAT_MONITOR_URL");
+        notice.ShouldContain("BOBCAT_MONITOR=0");
+        notice.ShouldContain("[assembly: EventModelName(\"CritterCrush\")]");
+        notice.IndexOf("BOBCAT_MONITOR_URL", StringComparison.Ordinal)
+            .ShouldBeLessThan(notice.IndexOf("EventModelName(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void a_related_model_name_leads_with_the_rename()
+    {
+        var notice = SpecEventModelPublisher.MismatchNotice(
+            half(model: "BankAccountES.Tests"), "BankAccountES", "http://localhost:5525");
+
+        notice.IndexOf("EventModelName(\"BankAccountES\")", StringComparison.Ordinal)
+            .ShouldBeLessThan(notice.IndexOf("BOBCAT_MONITOR_URL", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("BankAccountES", "BankAccountES.Tests", true)]
+    [InlineData("Wallet", "WalletService", true)]
+    [InlineData("MeetingGroupMonolith", "meeting-groups", true)]
+    [InlineData("CritterCrush", "CqrsMinimalApi", false)]
+    [InlineData("ProjectManagement", "CritterCrush", false)]
+    [InlineData("OrdersApi", "PaymentsApi", false)]
+    public void model_names_are_related_when_they_share_a_word(string left, string right, bool related)
+        => SpecEventModelPublisher.NamesShareAWord(left, right).ShouldBe(related);
+
     [Fact]
     public async Task a_half_naming_the_model_already_on_the_console_is_published()
     {

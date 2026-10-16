@@ -594,9 +594,14 @@ where the stubs it pushes the model for were written.
 
 **A half naming a different model is withheld, never sent.** The console merges only the sources
 naming its current model, so sending `BankAccountES.Tests` to a console serving `BankAccountES`
-would not join the host half, it would hide it. The run prints why and names the fix --
-`[assembly: EventModelName("BankAccountES")]` on the spec assembly -- on standard error, since the
-test platform owns standard output.
+would not join the host half, it would hide it. The run prints why on standard error, since the
+test platform owns standard output, and names both fixes, because a mismatch has two causes
+(bobcat#621): the halves are one application spelled differently -- `[assembly:
+EventModelName("BankAccountES")]` on the spec assembly -- or the console answering is another
+application's, which is routine on a shared machine -- point `BOBCAT_MONITOR_URL` at your own console
+or set `BOBCAT_MONITOR=0`, which also stops the run's events going to it. When the two model names
+share no word (`CritterCrush` against `CqrsMinimalApi`) the second fix is named first; never rename a
+model after an unrelated application to silence the notice.
 
 **When it goes.** The Gherkin runner sent it from the same place it attached to the console, once per
 run, and a resident runner ran one run per command, cold or warm. That lane is gone (#471), and since
