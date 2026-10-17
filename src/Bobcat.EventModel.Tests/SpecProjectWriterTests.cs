@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using System.Xml.Linq;
 using Bobcat.EventModel;
@@ -130,7 +131,13 @@ public sealed class SpecProjectWriterTests : IDisposable
     [Fact]
     public void the_tool_version_is_the_assemblys_own()
     {
-        SpecProjectWriter.ToolVersion.ShouldBe(typeof(SpecProjectWriter).Assembly.GetName().Version!.ToString(3));
+        // The package version, prerelease suffix included: a 1.0.0-alpha.1 tool pins its spec
+        // project to 1.0.0-alpha.1, because no 1.0.0 exists yet to restore.
+        var assembly = typeof(SpecProjectWriter).Assembly;
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+
+        SpecProjectWriter.ToolVersion.ShouldBe(informational.Split('+')[0]);
+        SpecProjectWriter.ToolVersion.ShouldStartWith(assembly.GetName().Version!.ToString(3));
     }
 
     [Fact]
