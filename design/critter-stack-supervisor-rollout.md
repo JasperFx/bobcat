@@ -180,8 +180,8 @@ Wolverine's `The runner has received a shutdown signal`. Stalls appeared only in
    discovery and planning, and matched 2,521 of 2,525 and 1,513 of 1,550 afterwards. The misses
    are theories with duplicate display names. Weasel and Polecat fold the ledger from CI artifacts
    only. A uid that depends on the environment is the failure class of Wolverine's lesson 6, at the
-   level of the ledger. The open question is the key itself, and whether committing the ledger
-   should be the default at all. That is Jeremy's decision (see below).
+   level of the ledger. Decided 2026-10-18: key on the display name with a uid fallback, and keep
+   the ledger as a CI artifact by default with committing opt-in (#730, see below).
 
 2. **A theory whose data xUnit cannot serialize collapses into one uid, and the last row's verdict
    won.** Every row reports under the theory's single uid with a different display name, and
@@ -375,12 +375,18 @@ merged 2026-10-16, one commit per issue):
 - **[#566](https://github.com/JasperFx/bobcat/issues/566)**, the local commit-and-push gate. #565
   named this rollout as its input.
 
-**Open, and Jeremy's decision: the ledger's key, and whether committing it is the default
-(lessons 1 and 14).** Nothing is decided here. The evidence is above. Three repositories measured 0
-matches between a local ledger and CI. The workarounds are re-keying by display name (Marten) or
-folding from CI artifacts only (Weasel, Polecat). The files run to tens of MB at the documented
-default retention. `ledger-design.md` still describes the uid as the key and recommends committing
-the ledger, and it should be updated once the decision is made.
+**Decided (Jeremy, 2026-10-18): the ledger's key, and whether committing it is the default
+(lessons 1 and 14).** The ledger keys an observation on the test's **display name**, which is stable
+across machines (Marten matched 2521/2525 this way), and falls back to the uid only where two tests
+share a display name. Projected specs key on their spec identity, which is their display name. It
+is **not committed by default**: CI uploads it as an artifact and the next run downloads it.
+Committing is opt-in, and the default retention drops to about 5 runs. Tracked as
+[#730](https://github.com/JasperFx/bobcat/issues/730), which also updates `ledger-design.md` (it
+still says uid key and recommends committing). [#698](https://github.com/JasperFx/bobcat/issues/698)'s
+compact format builds on it. Same day: [#693](https://github.com/JasperFx/bobcat/issues/693), the
+dependency-light Supervisor, moved into 1.0, and [#566](https://github.com/JasperFx/bobcat/issues/566)
+ships its design note in 1.0 with the build in [#729](https://github.com/JasperFx/bobcat/issues/729)
+(Post-1.0).
 
 **Not yet filed, in Bobcat.** Each was reported in a PR body and has no issue. A person should
 decide whether each is worth one:

@@ -370,3 +370,14 @@ User docs: `docs/marker-steps.md` ("Not yet passing"); wire: `docs/monitor-desig
   results directory was not kept.
 - The page's TypeScript types are generated from the results file's schema (`results-file.ts`,
   `./build.sh UiContracts`), so the page reads the shape the file publishes.
+
+### 2026-10-16/18: placeholder binding, value aliases, Event Model inference (Jeremy)
+
+- **Step placeholders bind by parameter name only** (#602, #608). Storyteller-style named templates
+  (`{sum}`) are the one syntax; Cucumber type words (`{int}`, `{string}`) don't capture.
+- **A value alias reads with a hash: `#Product`, `#Product2`** (#618 → #640, #643). Angle brackets
+  (`<Product>`) were rejected because they read as generics beside `List<Account>`. The named-values
+  report keeps the bare names.
+- **A body-less write over HTTP is a Command slice** (#681 item 3): an unstamped act with a
+  POST/PUT/PATCH/DELETE trigger gets `Pattern = Command` with no `CommandType`. This **revises #615**,
+  which had left such an act with a null pattern.

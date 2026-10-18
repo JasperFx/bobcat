@@ -303,3 +303,24 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
   from Jeremy's 2024 "My Recommendations for a Test Automation Strategy" and 2015 "Succeeding with
   Automated Integration Tests" posts, inlining *some* Bobcat examples and linking to the rest. The
   ai-skills section still ships alongside.
+
+### 2026-10-16/18: decisions taken while driving bobcat-1-0 (Jeremy)
+
+- **The run board and the Event Model canvas live in Bobcat for good** (`bobcat ui`); Stoat is
+  coordination only and stopped binding 5525 (stoat#128). Epic #524 closed.
+- **Generated contracts are built, not committed** (#604, #609). **CLAUDE.md is an index** of
+  `docs/agents/*.md` imports, with no feature write-ups (#605, #606).
+- **Every Bobcat bug found while proving Bobcat on real suites** (#565's rollout, dogfooding) goes into
+  milestone 1.0 and onto the plan as a node gating rc.1.
+- **#562 closes via marten#5690**: Marten's DaemonTests on 1.0.0-alpha.1, merged, *is* the review, so
+  it no longer waits for rc.1.
+- **#566 ships its design note in 1.0**; building the gate is #729 (Post-1.0).
+- **#693, a dependency-light `Bobcat.Supervisor`, is in 1.0**, while package boundaries can still move.
+- **Ledger** (#730, from #565's lessons 1 and 14): key on the **display name** with a uid fallback for
+  duplicates, since xUnit v3 uids hash the assembly path and matched 0 tests across machines.
+  **CI artifact by default; committing is opt-in**, and retention drops to about 5 runs.
+- **`CritterStackScenario.Store` / `CritterStackSpec.Store` is renamed before 1.0**, with no obsolete
+  alias (#709): a spec base class's own `Store` hid it with only CS0108.
+- **Fixes that belong in WolverineFx.Bobcat go to the Wolverine repo**, with Bobcat documenting the
+  limit: #683's Wolverine half (wolverine#5076), #674's timeout-message reschedule (wolverine#5077),
+  #670's observer feed (wolverine#5078), plus #675 and #677 as Bobcat docs.
