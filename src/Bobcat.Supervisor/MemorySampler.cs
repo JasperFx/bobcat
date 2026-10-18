@@ -25,6 +25,21 @@ public sealed record WorkerMemory(WorkerLaunchContext Worker, long FirstBytes, l
 public sealed record TestMemory(string Uid, string DisplayName, long? RetainedBytes, WorkerLaunchContext Worker);
 
 /// <summary>
+/// One extra sampling target's memory story (bobcat#702) — the database container beside the
+/// workers. Unlike <see cref="WorkerMemory"/>, a target is reported even when it never produced
+/// a sample, because somebody asked for it by name: every figure is then null, never zero, so
+/// "docker was not reachable" reads differently from "the database used nothing".
+/// </summary>
+public sealed record TargetMemory(string Name, long? FirstBytes, long? PeakBytes, long? LastBytes)
+{
+    /// <summary>True once the target produced at least one sample.</summary>
+    public bool IsMeasured => FirstBytes is not null;
+
+    /// <summary>What the target grew over the run; null when unmeasured.</summary>
+    public long? GrowthBytes => LastBytes - FirstBytes;
+}
+
+/// <summary>
 /// Samples worker resident sets and attributes deltas per attempt — RunTiming for RSS
 /// (issue #149). Boundary samples ride the same test-update stream the in-flight ledger reads
 /// (start and verdict bracket the attempt); the run ticker adds periodic samples in between so
@@ -37,7 +52,27 @@ internal sealed class MemorySampler
     private readonly object _gate = new();
     private readonly Dictionary<IWorkerClient, WorkerState> _workers = new(ReferenceEqualityComparer.Instance);
     private readonly List<TestMemory> _tests = [];
+    private readonly List<(IMemorySampleTarget Target, Reading Reading)> _targets;
+    private Task _targetPass = Task.CompletedTask;
+    private bool _targetsStarted;
     private long _lastSample;
+
+    /// <summary>First, peak and last of one sampled series.</summary>
+    private sealed class Reading
+    {
+        public long? First;
+        public long? Peak;
+        public long? Last;
+
+        public void Record(long? bytes)
+        {
+            if (bytes is not { } sampled) return;
+
+            First ??= sampled;
+            Last = sampled;
+            if (Peak is not { } peak || sampled > peak) Peak = sampled;
+        }
+    }
 
     private sealed class WorkerState(WorkerLaunchContext launch)
     {
@@ -62,9 +97,10 @@ internal sealed class MemorySampler
         public bool Alone { get; set; } = alone;
     }
 
-    public MemorySampler(TimeProvider time)
+    public MemorySampler(TimeProvider time, IEnumerable<IMemorySampleTarget>? targets = null)
     {
         _time = time;
+        _targets = (targets ?? []).Select(target => (target, new Reading())).ToList();
         _lastSample = time.GetTimestamp();
     }
 
@@ -133,6 +169,68 @@ internal sealed class MemorySampler
         }
     }
 
+    /// <summary>
+    /// Samples every extra target once (bobcat#702). Awaited for the run's first and last
+    /// samples; the ticker uses <see cref="BeginTargetPass"/> instead. A target that throws or
+    /// overruns is unmeasured for that pass — a sampler must never fail a run.
+    /// </summary>
+    public async Task SampleTargets(CancellationToken ct = default)
+    {
+        if (_targets.Count == 0) return;
+
+        lock (_gate) _targetsStarted = true;
+
+        var samples = await Task.WhenAll(_targets.Select(async entry =>
+        {
+            try
+            {
+                return await entry.Target.SampleBytes(ct);
+            }
+            catch
+            {
+                return null;
+            }
+        }));
+
+        lock (_gate)
+        {
+            for (var i = 0; i < _targets.Count; i++) _targets[i].Reading.Record(samples[i]);
+        }
+    }
+
+    /// <summary>
+    /// The ticker's pass over the targets, off the timer thread: a target is usually a
+    /// <c>docker</c> process taking a second or two, and the same tick checks for stalls. A
+    /// pass still running when the next is due is not doubled up.
+    /// </summary>
+    public void BeginTargetPass()
+    {
+        if (_targets.Count == 0) return;
+
+        lock (_gate)
+        {
+            if (!_targetPass.IsCompleted) return;
+            _targetPass = Task.Run(() => SampleTargets());
+        }
+    }
+
+    /// <summary>
+    /// The run's last target sample, after any pass still in flight. Nothing at all when no
+    /// pass ever started — a run that never got as far as testing samples nothing.
+    /// </summary>
+    public async Task FinishTargets()
+    {
+        Task pending;
+        lock (_gate)
+        {
+            if (!_targetsStarted) return;
+            pending = _targetPass;
+        }
+
+        await pending;
+        await SampleTargets();
+    }
+
     /// <summary>True once per interval — same consume-the-beat contract as the heartbeat's.</summary>
     public bool SampleDue(TimeSpan interval)
     {
@@ -185,6 +283,21 @@ internal sealed class MemorySampler
                     .Where(state => state.First is not null)
                     .Select(state => new WorkerMemory(
                         state.Launch, state.First!.Value, state.Peak!.Value, state.Last!.Value))
+                    .ToList();
+            }
+        }
+    }
+
+    /// <summary>Every configured extra target, measured or not, in registration order.</summary>
+    public IReadOnlyList<TargetMemory> Targets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _targets
+                    .Select(entry => new TargetMemory(
+                        entry.Target.Name, entry.Reading.First, entry.Reading.Peak, entry.Reading.Last))
                     .ToList();
             }
         }

@@ -601,6 +601,16 @@ Everything here is off by default and reporting-first -- the same guardrail as t
 - **`ResourceSampleInterval`** brackets every attempt with worker RSS samples; per-test retained
   deltas are attributed only when the attempt had the process to itself, and unmeasured is never
   zero-filled.
+- **`AddMemorySampleTarget`** samples something besides the workers at the same cadence -- on a
+  hosted runner the database container is often the larger consumer, and what kills the runner is
+  the total. `MemorySampleTargets.Container("myapp-postgres-1", "postgres")` reads
+  `docker stats --no-stream` (the container's whole cgroup, so every Postgres backend counts, and it
+  works under Docker Desktop's VM); `MemorySampleTargets.Process("sqlserver", () => pid)` reads one
+  host process's resident set by a pid fetched on every sample. Each target is reported beside the
+  worker peaks -- `• postgres: 300 MB → 2000 MB peak (+900 MB)` in the text report, a `targets`
+  array in the JSON `memory` block. A target that cannot be measured (no `docker` on the PATH, the
+  container gone) reads `not measured` with null figures, never zero. Only sampled while
+  `ResourceSampleInterval` is set.
 - **`Supervisor.Snapshot()`** is what a cancelled run leaves behind: wire your CI job's SIGTERM to
   it and write the flakiness ledger from a result stamped `IsPartial`, instead of losing the whole
   run to a capped job.

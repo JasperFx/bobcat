@@ -22,6 +22,12 @@ public sealed class RunResources
     /// <summary>Every worker that produced at least one sample.</summary>
     public IReadOnlyList<WorkerMemory> Workers { get; private init; } = [];
 
+    /// <summary>
+    /// The extra sampling targets — the database container beside the workers (bobcat#702).
+    /// Every configured target, with null figures where it could not be measured.
+    /// </summary>
+    public IReadOnlyList<TargetMemory> Targets { get; private init; } = [];
+
     /// <summary>Attributed attempts, most memory retained first.</summary>
     public IReadOnlyList<TestMemory> Attributed { get; private init; } = [];
 
@@ -33,7 +39,7 @@ public sealed class RunResources
     public int Unattributed { get; private init; }
 
     /// <summary>False when nothing was sampled — sampling off, or nothing measurable.</summary>
-    public bool IsMeasured => Workers.Count > 0;
+    public bool IsMeasured => Workers.Count > 0 || Targets.Any(target => target.IsMeasured);
 
     /// <summary>The highest resident set any worker ever showed. Null when unmeasured.</summary>
     public long? PeakBytes => Workers.Count == 0 ? null : Workers.Max(w => w.PeakBytes);
@@ -44,6 +50,7 @@ public sealed class RunResources
     public static RunResources For(SupervisorResults results) => new()
     {
         Workers = results.WorkerMemory,
+        Targets = results.TargetMemory,
         Attributed = results.TestMemory
             .Where(test => test.RetainedBytes is not null)
             .OrderByDescending(test => test.RetainedBytes)
