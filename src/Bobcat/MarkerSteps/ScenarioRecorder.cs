@@ -867,13 +867,20 @@ public static class ScenarioRecorder
                     {
                         foreach (var cell in step.Cells) counts.Read(cell.Status);
 
-                        // The failure counts only when no cell already reports one. A projected assertion
-                        // produces both — a cell built from the call site and the exception it threw — and
-                        // they are one disagreement, not two.
-                        if (step.Failure is not null
-                            && step.Cells.All(x => x.Status is ResultStatus.success or ResultStatus.ok))
+                        // An assertion failure counts only when no cell already reports one. A projected
+                        // assertion produces both — a cell built from the call site and the exception it
+                        // threw — and they are one disagreement, not two. A thrown error always counts
+                        // (bobcat#669): a step that gathers its wrongs and then throws
+                        // SpecCriticalException made two claims of different sizes, and its status is
+                        // `error`, so counting only the wrongs left `errors: 0` under an error step.
+                        if (step.Failure is not null)
                         {
-                            counts.Read(ProjectedFailure.StatusOf(step.Failure));
+                            var status = ProjectedFailure.StatusOf(step.Failure);
+                            if (status is ResultStatus.error
+                                || step.Cells.All(x => x.Status is ResultStatus.success or ResultStatus.ok))
+                            {
+                                counts.Read(status);
+                            }
                         }
                     }
                     else

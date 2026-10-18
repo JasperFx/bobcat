@@ -553,6 +553,26 @@ A failure comes in one of three sizes:
 | `SpecCriticalException`, or any other exception | this scenario can't go on | the scenario stops; the next one runs |
 | **`SpecCatastrophicException`** | **nothing after this can pass** | **every scenario that opens afterwards in the process fails without running** |
 
+### Report everything, then stop -- one step, two sizes (bobcat#669) {#gather-then-stop}
+
+A wait step that gives up can do both: gather a wrong for each thing it waited for, so every
+disagreement is reported, then throw `SpecCriticalException` because the rest of the scenario
+depends on it. That's the intended pattern:
+
+```csharp
+SpecAssert.Check("agents running on more than one node", duplicated, "none");   // fails
+SpecAssert.Check("agents not running anywhere", missing, "none");              // passes
+throw new SpecCriticalException("the agents did not settle; the rest of the scenario depends on it");
+```
+
+The step's status is `error`, and the counts carry both: each check is a right or a wrong, and the
+exception is one error. Here that's `Rights: 1, Wrongs: 1, Errors: 1` for the step. So `errors`
+tells "the scenario couldn't go on" apart from "the system gave a wrong answer" even when one step
+says both. An *assertion* exception beside its own failed cell (a projected Shouldly assertion
+records both) is still one wrong, not two.
+
+### An environment that's gone
+
 The last row is for an environment that's gone. The usual case is a Playwright suite whose
 application won't start. Every test needs the app, so every test would wait out its own timeout to
 find that out, and the run ends with hundreds of timeouts and the real cause buried somewhere in
