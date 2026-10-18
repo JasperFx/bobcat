@@ -8,11 +8,14 @@ namespace Bobcat.CritterStack;
 /// what was being read; the store's own exception is the <see cref="Exception.InnerException" />.
 /// </summary>
 /// <remarks>
-/// A <see cref="TimeoutException" />, so code that caught the store's timeout before still catches this one.
+/// A <see cref="TimeoutException" />, so code that caught the store's timeout before still catches this one. A wait
+/// that reads nothing afterwards (<see cref="CritterStackScenario.AfterAsyncDaemonsCatchUpAsync()" />, a shard-level
+/// wait in a suite's own code) has no <see cref="ReadType" /> (bobcat#685). Any suite builds one for its own wait
+/// through <see cref="EventStores.DiagnoseCatchUpTimeoutAsync" />.
 /// </remarks>
 public sealed class ProjectionCatchUpTimeoutException : TimeoutException
 {
-    public ProjectionCatchUpTimeoutException(string wait, IReadOnlyList<string> behind, TimeSpan timeout, Type readType,
+    public ProjectionCatchUpTimeoutException(string wait, IReadOnlyList<string> behind, TimeSpan timeout, Type? readType,
         object? identity, Exception inner)
         : this(wait, new ProjectionsBehind(behind, null), timeout, readType, identity, inner)
     {
@@ -22,7 +25,7 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
     /// bobcat#686. As above, carrying why the store could not say which projections were behind
     /// (<see cref="ProjectionsBehind.Failure" />) into the message and <see cref="BehindFailure" />.
     /// </summary>
-    public ProjectionCatchUpTimeoutException(string wait, ProjectionsBehind behind, TimeSpan timeout, Type readType,
+    public ProjectionCatchUpTimeoutException(string wait, ProjectionsBehind behind, TimeSpan timeout, Type? readType,
         object? identity, Exception inner)
         : base(describe(wait, behind, timeout, readType, identity, inner), inner)
     {
@@ -53,16 +56,19 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
     /// <summary>How long the wait was given (<see cref="CritterStackScenario.ProjectionTimeout" />).</summary>
     public TimeSpan Timeout { get; }
 
-    /// <summary>The type the read after the wait was for.</summary>
-    public Type ReadType { get; }
+    /// <summary>The type the read after the wait was for, or null for a wait that reads nothing afterwards.</summary>
+    public Type? ReadType { get; }
 
     /// <summary>The identity being read, or null for a read with none (every document of a type, the scenario's stream).</summary>
     public object? Identity { get; }
 
-    private static string describe(string wait, ProjectionsBehind behind, TimeSpan timeout, Type readType, object? identity,
+    private static string describe(string wait, ProjectionsBehind behind, TimeSpan timeout, Type? readType, object? identity,
         Exception inner)
     {
-        var reading = identity is null ? $"the {readType.Name}" : $"the {readType.Name} with id {identity}";
+        var reading = readType is null
+            ? ""
+            : identity is null ? $", before reading the {readType.Name}" : $", before reading the {readType.Name} with id {identity}";
+        var about = readType is null ? "any read model" : $"the {readType.Name} itself";
         var why = behind.Failure is { } failure ? $" ({failure.GetType().Name}: {failure.Message})" : "";
         var shards = (behind.Shards.Count, behind.Failure) switch
         {
@@ -71,8 +77,8 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
             (_, null) => $"Behind: {string.Join(", ", behind.Shards)}.",
             _ => $"Behind: {string.Join(", ", behind.Shards)}; the rest could not be read{why}."
         };
-        return $"Waiting for '{wait}' timed out after {timeout.TotalSeconds:0.###}s, before reading {reading}. {shards} "
-               + "This is the environment (a daemon behind, stopped or not running), not evidence about the "
-               + $"{readType.Name} itself. The store said: {inner.GetType().Name}: {inner.Message}";
+        return $"Waiting for '{wait}' timed out after {timeout.TotalSeconds:0.###}s{reading}. {shards} "
+               + $"This is the environment (a daemon behind, stopped or not running), not evidence about {about}. "
+               + $"The store said: {inner.GetType().Name}: {inner.Message}";
     }
 }

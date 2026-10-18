@@ -1224,6 +1224,113 @@ public class a_catch_up_timeout_before_a_read
     }
 }
 
+/// <summary>
+/// bobcat#685: the #497 diagnosis outside a read — <see cref="CritterStackScenario.AfterAsyncDaemonsCatchUpAsync()" />,
+/// which reads nothing, and <see cref="EventStores.DiagnoseCatchUpTimeoutAsync" /> for a suite's own wait.
+/// </summary>
+public class a_catch_up_timeout_with_no_read
+{
+    private static readonly TimeoutException storeTimeout = new("No event activity was detected within the timeout span");
+
+    private static FakeEventStore lagging()
+    {
+        var database = NSubstitute.Substitute.For<JasperFx.Events.IEventDatabase>();
+        NSubstitute.SubstituteExtensions.Returns(database.WaitForNonStaleProjectionDataAsync(NSubstitute.Arg.Any<TimeSpan>()),
+            Task.FromException(storeTimeout));
+        NSubstitute.SubstituteExtensions.Returns(database.FetchHighestEventSequenceNumber(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromResult(12L));
+        NSubstitute.SubstituteExtensions.Returns(database.AllProjectionProgress(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromResult<IReadOnlyList<JasperFx.Events.Projections.ShardState>>(
+            [
+                new(JasperFx.Events.Projections.ShardState.HighWaterMark, 12),
+                new("WalletSummary:All", 7)
+            ]));
+        return new FakeEventStore { Databases = [database] };
+    }
+
+    private static CritterStackScenario scenarioOver(FakeEventStore store)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<JasperFx.Events.IEventStore>(
+            services, store);
+        return new CritterStackScenario(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services))
+        {
+            ProjectionTimeout = TimeSpan.FromSeconds(3)
+        };
+    }
+
+    [Fact]
+    public async Task after_async_daemons_catch_up_names_the_lagging_projection_and_reads_nothing()
+    {
+        var scenario = scenarioOver(lagging());
+
+        var ex = await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.AfterAsyncDaemonsCatchUpAsync());
+
+        ex.InnerException.ShouldBeSameAs(storeTimeout);
+        ex.Wait.ShouldBe("the async daemons have caught up");
+        ex.Behind.ShouldBe(["'WalletSummary:All' at 7 of 12"]);
+        ex.Timeout.ShouldBe(TimeSpan.FromSeconds(3));
+        ex.ReadType.ShouldBeNull();
+        ex.Identity.ShouldBeNull();
+        ex.Message.ShouldBe(
+            "Waiting for 'the async daemons have caught up' timed out after 3s. Behind: 'WalletSummary:All' at 7 of 12. "
+            + "This is the environment (a daemon behind, stopped or not running), not evidence about any read model. "
+            + "The store said: TimeoutException: No event activity was detected within the timeout span");
+
+        // Inside a recording the step errors on its own line
+        var recording = await Recordings.RecordAsync(async () =>
+            await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.AfterAsyncDaemonsCatchUpAsync()));
+        recording.Steps.Single().Text.ShouldBe("the async daemons have caught up");
+        recording.Steps.Single().Status.ShouldBe(ResultStatus.error);
+    }
+
+    [Fact]
+    public async Task after_async_daemons_catch_up_for_a_tenant_is_diagnosed_too()
+    {
+        var scenario = scenarioOver(lagging());
+
+        var ex = await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.AfterAsyncDaemonsCatchUpAsync("red"));
+
+        ex.Wait.ShouldBe("the async daemons have caught up for tenant \"red\"");
+        ex.Behind.ShouldBe(["'WalletSummary:All' at 7 of 12"]);
+        ex.ReadType.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task a_suites_own_wait_gets_the_same_diagnosis()
+    {
+        var store = lagging();
+
+        var ex = await EventStores.DiagnoseCatchUpTimeoutAsync(store, "the daemon has caught up", TimeSpan.FromSeconds(2),
+            storeTimeout, token: TestContext.Current.CancellationToken);
+
+        ex.InnerException.ShouldBeSameAs(storeTimeout);
+        ex.Wait.ShouldBe("the daemon has caught up");
+        ex.Behind.ShouldBe(["'WalletSummary:All' at 7 of 12"]);
+        ex.Timeout.ShouldBe(TimeSpan.FromSeconds(2));
+        ex.ReadType.ShouldBeNull();
+        ex.Message.ShouldStartWith("Waiting for 'the daemon has caught up' timed out after 2s. Behind:");
+
+        var reading = await EventStores.DiagnoseCatchUpTimeoutAsync(store, "the daemon has caught up", TimeSpan.FromSeconds(2),
+            storeTimeout, typeof(Customer), 42, TestContext.Current.CancellationToken);
+        reading.ReadType.ShouldBe(typeof(Customer));
+        reading.Message.ShouldContain("timed out after 2s, before reading the Customer with id 42.");
+        reading.Message.ShouldContain("not evidence about the Customer itself.");
+    }
+
+    [Fact]
+    public async Task an_already_diagnosed_timeout_is_returned_as_it_is()
+    {
+        var store = lagging();
+        var first = await EventStores.DiagnoseCatchUpTimeoutAsync(store, "inner wait", TimeSpan.FromSeconds(1), storeTimeout, token: TestContext.Current.CancellationToken);
+
+        var second = await EventStores.DiagnoseCatchUpTimeoutAsync(store, "outer wait", TimeSpan.FromSeconds(5), first, token: TestContext.Current.CancellationToken);
+
+        second.ShouldBeSameAs(first);
+    }
+}
+
 public class resetting_a_scenario_on_marten(MartenStoreHost store)
     : resetting_a_scenario<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
 

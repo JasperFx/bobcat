@@ -199,6 +199,9 @@ or not running says nothing about the document, so the step errors with a
 shards that were behind (`'WalletSummary:All' at 7 of 12`, when the store can say), the timeout, and the
 type and id being read. The store's own exception is the `InnerException`. A store with no events at
 all has nothing to be stale, so the wait returns at once there.
+`AfterAsyncDaemonsCatchUpAsync()` times out the same way, with no read named (`ReadType` is null), and
+your own waits outside the vocabulary get the same diagnosis from `EventStores.DiagnoseCatchUpTimeoutAsync`
+([below the vocabulary](marten.md#below-the-vocabulary)).
 
 - **`at N of M`: M is the highest event sequence number, not a count of events.** N is how far the shard
   has got. Deleting event data (Marten's `DeleteAllEventDataAsync`, say) does not reset the sequence, so

@@ -2149,21 +2149,38 @@ public class CritterStackScenario
             return;
         }
 
-        await inStep(ScenarioRecorder.Step("Given", "the async daemons have caught up"), async () =>
+        const string text = "the async daemons have caught up";
+        await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             foreach (var store in storesToWaitOn())
-                await EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout);
+                await diagnosingTimeout(store, text, () => EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout));
         });
     }
 
     /// <summary><see cref="AfterAsyncDaemonsCatchUpAsync()" /> for one tenant's database, on every store or the view's.</summary>
     public async Task AfterAsyncDaemonsCatchUpAsync(string tenantId)
     {
-        await inStep(ScenarioRecorder.Step("Given", $"the async daemons have caught up for tenant \"{tenantId}\""), async () =>
+        var text = $"the async daemons have caught up for tenant \"{tenantId}\"";
+        await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
             foreach (var store in storesToWaitOn())
-                await EventStores.WaitForNonStaleProjectionsAsync(store, tenantId, ProjectionTimeout);
+                await diagnosingTimeout(store, text,
+                    () => EventStores.WaitForNonStaleProjectionsAsync(store, tenantId, ProjectionTimeout));
         });
+    }
+
+    // bobcat#685: a wait that reads nothing afterwards still says which projections were behind
+    private async Task diagnosingTimeout(IEventStore store, string wait, Func<Task> waiting, Type? read = null,
+        object? identity = null)
+    {
+        try
+        {
+            await waiting();
+        }
+        catch (TimeoutException e)
+        {
+            throw await EventStores.DiagnoseCatchUpTimeoutAsync(store, wait, ProjectionTimeout, e, read, identity);
+        }
     }
 
     // bobcat#504: the view's store; or, with several, the default store and every store the specification touched
@@ -2272,17 +2289,11 @@ public class CritterStackScenario
     {
         // bobcat#504: the store being read
         var store = await storeForAsync(wait, read);
-        try
-        {
-            // bobcat#536: a tenant view reads its tenant's database, so that is the one to wait on
-            if (_tenant is null) await EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout);
-            else await EventStores.WaitForNonStaleProjectionsAsync(store, _tenant, ProjectionTimeout);
-        }
-        catch (TimeoutException e) when (e is not ProjectionCatchUpTimeoutException)
-        {
-            var behind = await EventStores.DescribeProjectionsBehindAsync(store);
-            throw new ProjectionCatchUpTimeoutException(wait, behind, ProjectionTimeout, read, identity, e);
-        }
+
+        // bobcat#536: a tenant view reads its tenant's database, so that is the one to wait on
+        await diagnosingTimeout(store, wait, () => _tenant is null
+            ? EventStores.WaitForNonStaleProjectionsAsync(store, ProjectionTimeout)
+            : EventStores.WaitForNonStaleProjectionsAsync(store, _tenant, ProjectionTimeout), read, identity);
     }
 
     /// <summary>

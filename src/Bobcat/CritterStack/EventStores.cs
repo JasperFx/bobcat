@@ -470,6 +470,39 @@ public static class EventStores
         return new ProjectionsBehind(behind, null);
     }
 
+    /// <summary>
+    /// bobcat#685. The diagnosis <see cref="CritterStackScenario" /> gives its own catch-up timeouts, for any wait: a
+    /// suite's own <c>WaitForNonStaleProjectionDataAsync</c>, a daemon's <c>WaitForNonStaleData</c>, a shard-state
+    /// wait, or <see cref="WaitForNonStaleProjectionsAsync(IEventStore, TimeSpan?, IProjectionCoordinator?, CancellationToken)"/>.
+    /// Returns a <see cref="ProjectionCatchUpTimeoutException" /> naming the wait, the shards that were behind
+    /// (<see cref="DescribeProjectionsBehindAsync" />, with why the store could not say when it could not), the timeout
+    /// and, when given, what was about to be read, with
+    /// <paramref name="inner" /> as its <see cref="Exception.InnerException" />. An <paramref name="inner" /> that is
+    /// already one is returned as it is.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// catch (TimeoutException e)
+    /// {
+    ///     throw await EventStores.DiagnoseCatchUpTimeoutAsync(store, "the daemon has caught up", timeout, e);
+    /// }
+    /// </code>
+    /// </example>
+    public static async Task<ProjectionCatchUpTimeoutException> DiagnoseCatchUpTimeoutAsync(
+        IEventStore store,
+        string wait,
+        TimeSpan timeout,
+        TimeoutException inner,
+        Type? readType = null,
+        object? identity = null,
+        CancellationToken token = default)
+    {
+        if (inner is ProjectionCatchUpTimeoutException diagnosed) return diagnosed;
+
+        var behind = await DescribeProjectionsBehindAsync(store, token).ConfigureAwait(false);
+        return new ProjectionCatchUpTimeoutException(wait, behind, timeout, readType, identity, inner);
+    }
+
     // The database a tenant's events live in: the store's own answer through FindDatabaseForTenantAsync first
     // (jasperfx#1005), then Storage.FindOrCreateDatabase(string) where the store has one; null when neither can say
     internal static async Task<IEventDatabase?> TenantDatabaseAsync(IEventStore store, string tenantId, CancellationToken token)
