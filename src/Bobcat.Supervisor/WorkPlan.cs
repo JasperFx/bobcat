@@ -197,16 +197,26 @@ public static class WorkPlan
     /// </summary>
     private static Dictionary<string, TimeSpan> durationsOf(
         IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
+        => KnownDurationsByUid(tests.Select(t => (t.Uid, t.DisplayName)), known);
+
+    /// <summary>
+    /// The one join between a run's tests and a set of known durations (bobcat#748), shared by
+    /// the planner and <see cref="RunTiming"/> so the two can never disagree about which tests
+    /// have a history: each test's ledger key first, then its uid. Keyed by uid.
+    /// </summary>
+    internal static Dictionary<string, TimeSpan> KnownDurationsByUid(
+        IEnumerable<(string Uid, string DisplayName)> tests, IReadOnlyDictionary<string, TimeSpan>? known)
     {
         var durations = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
         if (known is null || known.Count == 0) return durations;
 
-        var keys = LedgerKeys.For(tests.Select(t => (t.Uid, t.DisplayName)));
-        foreach (var test in tests)
+        var list = tests.ToList();
+        var keys = LedgerKeys.For(list);
+        foreach (var (uid, _) in list)
         {
-            if (known.TryGetValue(keys[test.Uid], out var duration) || known.TryGetValue(test.Uid, out duration))
+            if (known.TryGetValue(keys[uid], out var duration) || known.TryGetValue(uid, out duration))
             {
-                durations[test.Uid] = duration;
+                durations[uid] = duration;
             }
         }
 
