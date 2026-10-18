@@ -41,7 +41,7 @@ public abstract class a_spec_class<THost>(THost store) : CritterStackSpec(store.
         await WhenActing("the wallet is credited",
             services => EventStoreAuthoring.AppendAsync(services.EventStore(), typeof(Wallet), id, [new WalletCredited(id, 2)]));
 
-        In("main").Store.ShouldBeSameAs(Store);
+        In("main").EventStore.ShouldBeSameAs(EventStore);
         LastAct.NewEvents.ShouldHaveSingleItem();
         LastAct.ForeignEvents.ShouldBeEmpty();
     }

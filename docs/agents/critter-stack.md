@@ -161,7 +161,7 @@ the DCB boundary steps and correlation.
   `IDocumentStoreUsageSource.TryCreateUsage` (`Documents`); a store that returns null or throws owns nothing.
   Catalogs and decisions are cached per specification (`StoreRouter`). Stores register some types lazily (an
   event type on first append, a document mapping on first store or load), so ownership can grow during a run.
-  **A single-store host never reaches the router**: `storeForAsync` returns `Store` before anything is read.
+  **A single-store host never reaches the router**: `storeForAsync` returns `EventStore` before anything is read.
   A raw stream addressed by id alone (`TheStreamVersion(id)`) has no type and goes to the default store.
 - **B, explicit addressing.** `In<TStore>()` resolves the marker from DI. If that is not itself an `IEventStore`
   (Fisher registers a `DispatchProxy` under the marker and the unwrapped store as `IEventStore`), it falls back to
@@ -188,7 +188,7 @@ the DCB boundary steps and correlation.
   spec host had two stores and every unqualified step was refused. Now, with no `storeName`,
   `CritterStackHostExtensions.EventStore()` / `DefaultEventStore` take the only store, else the **one main
   store**, else throw (message lists each store as `[main]`/`[ancillary]` and names `storeName`, `In<TStore>()`,
-  `In("name")`). The router's default and `Store` use the same rule. **The signal is the registration, not the
+  `In("name")`). The router's default and `EventStore` use the same rule. **The signal is the registration, not the
   name:** `IsMainEventStore` finds the non-generic interface named `IDocumentStore` on the store's own type
   (Marten's, Polecat's, Fisher's) and checks that the container resolves it to that very instance. All three
   register their main store under `IDocumentStore` and an ancillary store under its marker only, so for an
@@ -213,6 +213,6 @@ the DCB boundary steps and correlation.
   surface but needs SQL Server, so it is a manual run, as elsewhere.
 - **WolverineFx.Bobcat follow-ups (wolverine#4977):** `WolverineScenario.runActAsync`'s high-water fallback
   still reads one store and should use `highWaterMarksAsync` / `readBackSinceAsync`. Its tracked-session
-  outcome cannot fill `StoreByEvent`. `ThenEventuallyCaused` and its other own steps still read `Store`. Views
+  outcome cannot fill `StoreByEvent`. `ThenEventuallyCaused` and its other own steps still read `Store` (`EventStore` since bobcat#709). Views
   are plain `CritterStackScenario`s, so its message and boundary steps are not on them until it overrides
   `createView`. `WolverineSpec` needs `In`.

@@ -125,7 +125,7 @@ public class main_store_default_on_marten(MartenMainAndConsoleHost host) : IClas
 
         host.Host.Services.EventStores().Count.ShouldBe(2);
         host.Host.Services.EventStore().ShouldBeSameAs(main);
-        scenario.Store.ShouldBeSameAs(main);
+        scenario.EventStore.ShouldBeSameAs(main);
 
         var wallet = Guid.NewGuid();
         var stray = Guid.NewGuid();

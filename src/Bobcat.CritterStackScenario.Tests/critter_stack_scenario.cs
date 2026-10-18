@@ -576,7 +576,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         (await scenario.TheStreamVersion(id)).ShouldBe(2);
 
         // Whatever appends next is not this scenario's act, and does not have to be
-        await EventStoreAuthoring.AppendAsync(scenario.Store, typeof(Wallet), id, [new WalletCredited(id, 25)]);
+        await EventStoreAuthoring.AppendAsync(scenario.EventStore, typeof(Wallet), id, [new WalletCredited(id, 25)]);
 
         await scenario.ThenEventsOn<Wallet>(id, 2, new WalletCredited(id, 25));
         await scenario.ThenEventsOn<Wallet>(id, 2, Specifications.Specify<WalletCredited>().With(x => x.Amount, 25m));
@@ -1065,8 +1065,8 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         var id = Guid.NewGuid();
         await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Kai"), new WalletCredited(id, 1));
 
-        var all = await EventStores.QueryEventsSinceAsync(scenario.Store, 0);
-        (await EventStores.HighWaterSequenceAsync(scenario.Store)).ShouldBe(all.Max(x => x.Sequence));
+        var all = await EventStores.QueryEventsSinceAsync(scenario.EventStore, 0);
+        (await EventStores.HighWaterSequenceAsync(scenario.EventStore)).ShouldBe(all.Max(x => x.Sequence));
     }
 
     [Fact]
@@ -1153,7 +1153,7 @@ public abstract class reading_an_empty_store<THost>(THost store) where THost : S
     {
         Assert.SkipUnless(store.IsAvailable, store.SkipReason);
         var scenario = new CritterStackScenario(store.Host);
-        (await EventStores.HighWaterSequenceAsync(scenario.Store)).ShouldBe(0, "this class's store must start empty");
+        (await EventStores.HighWaterSequenceAsync(scenario.EventStore)).ShouldBe(0, "this class's store must start empty");
 
         await Should.ThrowAsync<SpecAssertionException>(() => scenario.ThenDocument<Customer>(Guid.NewGuid()));
         await scenario.ThenNoReadModel<Ghost>();

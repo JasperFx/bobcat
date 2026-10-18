@@ -60,8 +60,8 @@ public abstract class CritterStackSpec
     /// <inheritdoc cref="CritterStackScenario.Services" />
     public IServiceProvider Services => Scenario.Services;
 
-    /// <inheritdoc cref="CritterStackScenario.Store" />
-    public IEventStore Store => Scenario.Store;
+    /// <inheritdoc cref="CritterStackScenario.EventStore" />
+    public IEventStore EventStore => Scenario.EventStore;
 
     /// <inheritdoc cref="CritterStackScenario.UnspecifiedValues" />
     public IUnspecifiedValues? UnspecifiedValues

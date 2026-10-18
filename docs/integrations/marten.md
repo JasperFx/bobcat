@@ -127,7 +127,7 @@ registered; `TheDcbModel<T>` goes by `T`, then by the query's event and tag type
 
 **The main store is the default.** With no `storeName`, a host whose stores include exactly one *main*
 store -- the one `AddMarten`, `AddPolecat` or `AddFisher` registered, beside any number of
-`AddMartenStore<T>()`-style ancillary ones -- uses that store as the default, for `Store`, for
+`AddMartenStore<T>()`-style ancillary ones -- uses that store as the default, for `EventStore`, for
 `services.EventStore()` and for every step that falls back to the default. That is what makes an application
 that embeds CritterWatch (`opts.AddCritterWatchEmbedded(...)`, which registers the console's own ancillary
 store) specifiable unchanged. Bobcat tells a main store from an ancillary one by its registration, not its
@@ -135,6 +135,10 @@ name: a main store is the instance its product's `IDocumentStore` service resolv
 store is registered under its marker interface only. With no main store, or more than one (say `AddMarten`
 and `AddFisher` in one host), there is no default: name it with `storeName`, or address each step with
 `In<TStore>()` / `In("name")`.
+
+The default store is the scenario's (and `CritterStackSpec`'s) `EventStore` property. It was called `Store`
+before 1.0 (bobcat#709), and was renamed because a spec base class with its own `Store` (a Polecat or Marten
+`IDocumentStore`, say) hid it with nothing louder than warning CS0108, so the spec read the wrong store.
 
 What a store registers is read once per scenario. Stores register some types lazily -- an event type the
 first time it is appended, a document type the first time it is stored or loaded -- so a type you only ever

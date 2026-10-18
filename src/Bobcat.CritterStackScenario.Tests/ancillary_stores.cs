@@ -64,7 +64,7 @@ public abstract class ancillary_stores<THost, TMarker>(THost host) where THost :
     {
         // No storeName: of the two stores only one is the application's main store, so it is the default
         var scenario = newScenario();
-        scenario.Store.ShouldBeSameAs(main);
+        scenario.EventStore.ShouldBeSameAs(main);
 
         var note = Guid.NewGuid();
         var stray = Guid.NewGuid();
@@ -161,8 +161,8 @@ public abstract class ancillary_stores<THost, TMarker>(THost host) where THost :
 
         (await EventStoreAuthoring.LoadDocumentAsync<SharedNote>(main, other))!.Text.ShouldBe("main");
         (await scenario.In<TMarker>().TheStreamVersion(invoice)).ShouldBe(1);
-        scenario.In<TMarker>().Store.ShouldBeSameAs(invoicing);
-        scenario.In(host.AncillaryName).Store.ShouldBeSameAs(invoicing);
+        scenario.In<TMarker>().EventStore.ShouldBeSameAs(invoicing);
+        scenario.In(host.AncillaryName).EventStore.ShouldBeSameAs(invoicing);
         scenario.In<TMarker>().LastAct.ShouldBeSameAs(scenario.LastAct);
 
         var unknown = Should.Throw<InvalidOperationException>(() => scenario.In("nope"));
