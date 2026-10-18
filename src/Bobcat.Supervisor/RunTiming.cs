@@ -268,7 +268,8 @@ public sealed class RunTiming
 
         return new RunTiming
         {
-            RunnerSpeed = speedOf(firstAttempts, results.KnownTestDurations),
+            RunnerSpeed = speedOf(firstAttempts,
+                WorkPlan.KnownDurationsByUid(results.Tests.Select(t => (t.Uid, t.DisplayName)), results.KnownTestDurations)),
             LanePlan = lanesOf(results, firstAttempts),
             Tests = timings,
             WallClock = results.Duration,
@@ -282,10 +283,11 @@ public sealed class RunTiming
         };
     }
 
+    /// <param name="known">The known durations already joined to this run's tests, by uid.</param>
     private static RunnerSpeed? speedOf(
-        IReadOnlyDictionary<string, TimeSpan> firstAttempts, IReadOnlyDictionary<string, TimeSpan>? known)
+        IReadOnlyDictionary<string, TimeSpan> firstAttempts, IReadOnlyDictionary<string, TimeSpan> known)
     {
-        if (known is null || known.Count == 0) return null;
+        if (known.Count == 0) return null;
 
         var matched = 0;
         var thisRun = TimeSpan.Zero;

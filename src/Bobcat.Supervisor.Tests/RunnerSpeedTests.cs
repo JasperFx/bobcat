@@ -60,6 +60,40 @@ public class RunnerSpeedTests
     }
 
     [Fact]
+    public void known_durations_keyed_by_display_name_as_the_ledger_writes_them_join_a_uid_that_differs()
+    {
+        // bobcat#748: xUnit's uid is a hash, never the display name, and since #730 the ledger
+        // keys by display name, so a uid-only lookup matched nothing and the speed line vanished.
+        static TestReport named(string uid, string displayName, double seconds) => new()
+        {
+            Uid = uid,
+            DisplayName = displayName,
+            Attempts =
+            [
+                new(1, new WorkerOutcome(uid, displayName, WorkerTestState.Passed)
+                {
+                    Duration = TimeSpan.FromSeconds(seconds)
+                }, AttemptPlacement.Batched, Disposition.Pass)
+            ]
+        };
+
+        var results = new SupervisorResults
+        {
+            Tests = [named("a1b2c3", "A.one", 15), named("d4e5f6", "B.one", 15), named("070809", "C.legacy", 6)],
+            // Two by display name, as TestLedger.KnownDurations() writes them; one by uid, a
+            // hand-built dictionary's spelling, which still joins.
+            KnownTestDurations = seconds(("A.one", 10), ("B.one", 10), ("070809", 4)),
+            Duration = TimeSpan.FromSeconds(40)
+        };
+
+        var speed = RunTiming.For(results).RunnerSpeed.ShouldNotBeNull();
+        speed.Matched.ShouldBe(3);
+        speed.ThisRun.ShouldBe(TimeSpan.FromSeconds(36));
+        speed.Known.ShouldBe(TimeSpan.FromSeconds(24));
+        speed.Index.ShouldBe(1.5, 0.0001);
+    }
+
+    [Fact]
     public void no_known_durations_or_none_matching_means_no_speed_index()
     {
         var none = new SupervisorResults { Tests = [test("A.one", 3)], Duration = TimeSpan.FromSeconds(5) };
