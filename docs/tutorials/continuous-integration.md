@@ -141,6 +141,43 @@ is the pass-on-retry count, not the pass count.
 When flakiness is the actual problem rather than a nuisance, that is a bigger subject with its own
 tutorial: [Reliable Integration Testing](reliable-integration-testing.md).
 
+### In a supervisor host of your own: the job summary, annotations and an empty run
+
+`Bobcat.Supervisor` ships the reporting every adopter used to write by hand (bobcat#700):
+
+```csharp
+var supervisor = new Supervisor(factory)
+{
+    MaxParallelWorkers = workers,
+    TestFilter = shardFilter,
+
+    // A run with no test left to run aborts (exit code 2) instead of passing:
+    // a renamed namespace or a stale filter must not read as a green job
+    FailWhenNoTests = true
+};
+
+var results = await supervisor.Run();
+
+// One row per project in $GITHUB_STEP_SUMMARY, with the failures, retries, stalls and
+// worker faults under each project. Does nothing off GitHub Actions.
+new GitHubSummary("Supervised tests").Add("MyApp.Tests (net10.0)", results).Write();
+
+// ::error per failed or indeterminate test and for an aborted run, ::warning for a pass on
+// retry, a stall or a partial run, so they reach the Annotations panel of a green run too
+GitHubAnnotations.Write(results, "MyApp.Tests (net10.0)");
+```
+
+- **Collect every project, then write once.** A Markdown table is only a table while its rows are
+  contiguous, so `GitHubSummary.Add` each project's results and call `Write()` at the end; the static
+  `GitHubSummary.Write(results, project)` is the one-project form. `ToMarkdown()` gives you the text.
+- **Neither can fail a run.** `Write()` returns the path it appended to, or null when there is no
+  `$GITHUB_STEP_SUMMARY` or the file cannot be written.
+- **GitHub shows ten annotations of each kind per step**, so `GitHubAnnotations` names the first ten
+  failures and counts the rest in one more `::error`. Messages are escaped, so a multi-line error stays
+  one annotation. `GitHubAnnotations.For(results, project)` returns the lines without writing them.
+- `FailWhenNoTests` is off by default, because an empty run is sometimes intended. Its abort reason
+  says how many tests were discovered and how many the selection kept.
+
 ## 7. Segment a heavy pipeline
 
 A large suite in one job hits timeouts that have nothing to do with your diff -- a loaded runner looks
