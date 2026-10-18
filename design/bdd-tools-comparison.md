@@ -330,7 +330,8 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
 - **Reverses #63 and #103, and supersedes #693's "no split".** Bobcat's JasperFx floor leaked into every
   consumer's restore (NU1605, NU1109, low pins that resolved silently in #740, and `VersionOverride`s in six repos).
   A test framework should not pin its users' application framework.
-- The Critter Stack vocabulary and the Event Model reading move to a new package. The resilience vocabulary
+- The Critter Stack vocabulary and the Event Model reading move into **WolverineFx.Bobcat**, which may be renamed
+  later. `Bobcat.Ui` keeps its JasperFx coupling. The resilience vocabulary
   (`DispositionKind`, recovery-hint attributes) and Preflight's result type become Bobcat's own, in core.
-- Design note: `design/jasperfx-decoupling.md`. It also holds the open questions (package name, trigger enum,
-  publishing seam).
+- Design note: `design/jasperfx-decoupling.md`. It also holds the open questions (samples, trigger enum, publishing
+  seam).
