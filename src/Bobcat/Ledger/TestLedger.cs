@@ -9,9 +9,14 @@ namespace Bobcat.Ledger;
 /// fact the run already established; nothing is derived, so folding observations in any order
 /// always produces the same ledger.
 /// </summary>
-/// <param name="RunId">The run this was observed in — the dedup key alongside <paramref name="Uid"/>.</param>
+/// <param name="RunId">The run this was observed in — the dedup key alongside <see cref="Key"/>.</param>
 /// <param name="At">When the run happened, supplied by the caller that owned the run's clock.</param>
-/// <param name="Uid">The spec identity <c>{Feature}/{Scenario}</c> — the same key everything else uses.</param>
+/// <param name="Uid">
+/// The platform's uid for the test in the run that observed it. Not the ledger's key: xUnit v3's
+/// uid hashes the assembly path, so it changes across machines, configurations and TFMs. A ledger
+/// read back from a file has no uid for a test keyed by display name, and carries the key here.
+/// </param>
+/// <param name="DisplayName">The test's display name — the ledger's key (issue #730), see <see cref="Key"/>.</param>
 public sealed record LedgerRun(
     string RunId,
     DateTimeOffset At,
@@ -20,6 +25,20 @@ public sealed record LedgerRun(
     string Outcome,
     int Attempts)
 {
+    private readonly string? _key;
+
+    /// <summary>
+    /// What the ledger files this observation under: the display name, which is stable across
+    /// machines, unless two tests shared it in the run (then the uid, so two tests' durations are
+    /// never merged) or it is blank. <see cref="LedgerKeys.For"/> decides it for a whole run;
+    /// left unset it is the display name, or the uid when that is blank.
+    /// </summary>
+    public string Key
+    {
+        get => _key ?? (string.IsNullOrWhiteSpace(DisplayName) ? Uid : DisplayName);
+        init => _key = value;
+    }
+
     /// <summary>
     /// What the test cost the run across every attempt, in milliseconds. Null when the
     /// framework reported no duration (tUnit erases them on the MTP wire) — unmeasured is
@@ -50,9 +69,41 @@ public sealed record LedgerRun(
     public bool StallInduced { get; init; }
 }
 
+/// <summary>
+/// The ledger's key rule (issue #730), shared by the feeds that record observations and by the
+/// scheduler that looks durations up, so both sides of the join name a test the same way.
+/// </summary>
+public static class LedgerKeys
+{
+    /// <summary>
+    /// Each test's ledger key, by uid: its display name, which survives a change of machine,
+    /// configuration or target framework where a uid does not — except where two of
+    /// <paramref name="tests"/> share a display name, or it is blank, when the key is the uid.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> For(IEnumerable<(string Uid, string DisplayName)> tests)
+    {
+        var list = tests.ToList();
+        var shared = list
+            .Where(t => !string.IsNullOrWhiteSpace(t.DisplayName))
+            .GroupBy(t => t.DisplayName, StringComparer.Ordinal)
+            .Where(g => g.Select(t => t.Uid).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var keys = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (uid, displayName) in list)
+        {
+            keys[uid] = string.IsNullOrWhiteSpace(displayName) || shared.Contains(displayName) ? uid : displayName;
+        }
+
+        return keys;
+    }
+}
+
 /// <summary>A test whose recorded cost grew — invisible in any single run, obvious in a trend.</summary>
+/// <param name="Key">The test's ledger key: its display name, or its uid where the name was shared.</param>
 public sealed record DurationTrend(
-    string Uid, string DisplayName, TimeSpan Then, TimeSpan Now, double GrowthFactor);
+    string Key, string DisplayName, TimeSpan Then, TimeSpan Now, double GrowthFactor);
 
 /// <summary>
 /// A recovery hint the ledger's evidence supports — <b>a proposal, never a policy</b>. The
@@ -70,7 +121,7 @@ public sealed record HintProposal(
     IReadOnlyList<string> Tests);
 
 /// <summary>
-/// The committed, cross-run test ledger — the "one store, not two" issues #44 (layer 2) and
+/// The cross-run test ledger — the "one store, not two" issues #44 (layer 2) and
 /// #56/#142 (layers 2–3) both deferred to, and the third consumer's data source:
 /// <c>Supervisor.KnownTestDurations</c> feeds <c>WorkPlan</c>'s longest-processing-time-first
 /// balancer, which without history falls back to test count on every first run.
@@ -88,9 +139,15 @@ public sealed record HintProposal(
 /// no judgement calls, and a custom merge driver could automate exactly that later.
 /// </para>
 /// <para>
-/// <b>The file is compact</b> (issue #698): unindented, the uid written once as the test's key,
-/// and the display name once per test rather than on every observation. A test's display name
-/// is its newest observation's; the older ones take it too, in memory as on disk.
+/// <b>Keyed by display name</b> (issue #730). xUnit v3's uid hashes the assembly path, so a
+/// uid-keyed ledger matched 0 tests on another machine, configuration or TFM; the display name
+/// matched Marten's 2521 of 2525. Where two tests share a display name in a run, both fall back
+/// to their uids (<see cref="LedgerKeys"/>), and <see cref="SharedDisplayNames"/> says so.
+/// </para>
+/// <para>
+/// <b>The file is compact</b> (issue #698): unindented, the key written once per test, and the
+/// display name written only for a test keyed by its uid. Such a test's display name is its
+/// newest observation's; the older ones take it too, in memory as on disk.
 /// </para>
 /// <para>
 /// <b>Derived, never primary.</b> The primary record of a run is its report artifact (the
@@ -111,10 +168,18 @@ public sealed record HintProposal(
 public sealed class TestLedger
 {
     /// <summary>
-    /// The current on-disk schema version. 2 is the compact form (issue #698); a version 1 file
-    /// still loads, and is written back as version 2.
+    /// The current on-disk schema version. 3 keys tests by display name (issue #730); 2 was the
+    /// compact form keyed by uid (issue #698). Version 1 and 2 files still load — re-keyed by
+    /// display name where it is present and no two of their tests shared it in one run — and
+    /// are written back as version 3.
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
+
+    /// <summary>
+    /// The default retention. Small, because the ledger is a CI artifact downloaded and
+    /// uploaded every run (issue #730): five runs give a stable median and a usable trend.
+    /// </summary>
+    public const int DefaultMaxRunsPerTest = 5;
 
     private readonly SortedDictionary<string, List<LedgerRun>> _tests;
 
@@ -127,25 +192,44 @@ public sealed class TestLedger
     /// <summary>How many observations survive per test — the deterministic aging knob.</summary>
     public int MaxRunsPerTest { get; }
 
-    /// <summary>Every test's retained observations, newest first, keyed and sorted by uid.</summary>
+    /// <summary>Every test's retained observations, newest first, keyed and sorted by <see cref="LedgerRun.Key"/>.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<LedgerRun>> Tests
         => _tests.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<LedgerRun>)pair.Value);
 
-    public static TestLedger Empty(int maxRunsPerTest = 20)
+    /// <summary>
+    /// Display names two tests shared in one run, whose observations are therefore keyed by
+    /// uid — the collision recorded rather than merged, and a reason a duration may not match
+    /// on another machine.
+    /// </summary>
+    public IReadOnlyList<string> SharedDisplayNames
+        => _tests
+            .Where(pair => pair.Value.Count > 0)
+            .Select(pair => (pair.Key, pair.Value[0].DisplayName))
+            .Where(t => !string.IsNullOrWhiteSpace(t.DisplayName) && t.DisplayName != t.Key)
+            .Select(t => t.DisplayName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+    public static TestLedger Empty(int maxRunsPerTest = DefaultMaxRunsPerTest)
         => new(maxRunsPerTest, new SortedDictionary<string, List<LedgerRun>>(StringComparer.Ordinal));
 
-    /// <summary>Fold observations in: union by (uid, run id), then the deterministic prune.</summary>
+    /// <summary>
+    /// Fold observations in: union by (key, run id), then the deterministic prune. Two of the
+    /// incoming observations from one run under one key with different uids are two tests that
+    /// share a display name, and are filed by uid instead — never merged.
+    /// </summary>
     public TestLedger Record(IEnumerable<LedgerRun> observations)
     {
         var tests = new SortedDictionary<string, List<LedgerRun>>(StringComparer.Ordinal);
         foreach (var pair in _tests) tests[pair.Key] = pair.Value.ToList();
 
-        foreach (var observation in observations)
+        foreach (var observation in separateSharedKeys(observations))
         {
-            if (!tests.TryGetValue(observation.Uid, out var runs))
+            if (!tests.TryGetValue(observation.Key, out var runs))
             {
                 runs = [];
-                tests[observation.Uid] = runs;
+                tests[observation.Key] = runs;
             }
 
             runs.Add(observation);
@@ -157,6 +241,25 @@ public sealed class TestLedger
         }
 
         return new TestLedger(MaxRunsPerTest, tests);
+    }
+
+    /// <summary>
+    /// Freezes each observation's key, and files by uid any that share a key and a run with an
+    /// observation of another uid: a feed that did not use <see cref="LedgerKeys"/> must still
+    /// not have two tests' durations merged.
+    /// </summary>
+    private static List<LedgerRun> separateSharedKeys(IEnumerable<LedgerRun> observations)
+    {
+        var list = observations.ToList();
+        var shared = list
+            .GroupBy(r => (r.Key, r.RunId))
+            .Where(g => g.Select(r => r.Uid).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet();
+
+        return list
+            .Select(r => r with { Key = shared.Contains((r.Key, r.RunId)) ? r.Uid : r.Key })
+            .ToList();
     }
 
     /// <summary>
@@ -251,9 +354,12 @@ public sealed class TestLedger
     /// can show. Report, don't act: whether a slow test is a bug or a genuinely slow
     /// integration test is a judgement, and this is the evidence for making it.
     /// </summary>
-    /// <param name="minRuns">Measured runs required before a trend is worth stating.</param>
+    /// <param name="minRuns">
+    /// Measured runs required before a trend is worth stating — within the default retention
+    /// (<see cref="DefaultMaxRunsPerTest"/>), so a trend can be stated at all without raising it.
+    /// </param>
     /// <param name="factor">How much growth earns a line. Below it, silence.</param>
-    public IReadOnlyList<DurationTrend> Trends(int minRuns = 6, double factor = 2)
+    public IReadOnlyList<DurationTrend> Trends(int minRuns = 4, double factor = 2)
     {
         var trends = new List<DurationTrend>();
         foreach (var pair in _tests)
@@ -309,7 +415,7 @@ public sealed class TestLedger
         {
             var cleared = group.Where(r => r.ClearedBy is not null).ToList();
             var unrecovered = group.Count(r => r.Outcome == nameof(Resilience.RunOutcome.Failed));
-            var tests = group.Select(r => r.Uid).Distinct(StringComparer.Ordinal)
+            var tests = group.Select(r => r.Key).Distinct(StringComparer.Ordinal)
                 .OrderBy(u => u, StringComparer.Ordinal).ToList();
 
             if (cleared.Count >= minOccurrences)
@@ -340,7 +446,7 @@ public sealed class TestLedger
 
     private static string suggest(string failure, string clearedBy, int cleared, int unrecovered)
     {
-        var because = $"Because = \"cleared by retry {cleared} time(s) in the committed ledger" +
+        var because = $"Because = \"cleared by retry {cleared} time(s) in the ledger" +
                       (unrecovered > 0 ? $"; {unrecovered} run(s) never recovered" : "") + "\"";
 
         return clearedBy switch
@@ -374,7 +480,11 @@ public sealed class TestLedger
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    /// <summary>The compact form (version 2): the uid is the key, the display name stored once per test.</summary>
+    /// <summary>
+    /// The compact form: the ledger key names each test once, and the display name is written
+    /// only where it differs from the key (a test keyed by uid). Version 2 had the same shape
+    /// keyed by uid.
+    /// </summary>
     private sealed class Document
     {
         public int Version { get; set; } = TestLedger.Version;
@@ -384,7 +494,7 @@ public sealed class TestLedger
 
     private sealed class DocumentTest
     {
-        /// <summary>Left out when it is the uid itself.</summary>
+        /// <summary>Left out when it is the key itself.</summary>
         public string? DisplayName { get; set; }
 
         public List<DocumentRun> Runs { get; set; } = [];
@@ -413,18 +523,18 @@ public sealed class TestLedger
     }
 
     /// <summary>
-    /// The canonical text: tests sorted by uid, runs newest first, invariant formatting, no
+    /// The canonical text: tests sorted by key, runs newest first, invariant formatting, no
     /// indentation — the same observations always serialize to the same bytes, whoever folded them.
     /// </summary>
     public string ToJson()
     {
         var document = new Document { MaxRunsPerTest = MaxRunsPerTest };
-        foreach (var (uid, runs) in _tests)
+        foreach (var (key, runs) in _tests)
         {
             var displayName = runs.Count > 0 ? runs[0].DisplayName : null;
-            document.Tests[uid] = new DocumentTest
+            document.Tests[key] = new DocumentTest
             {
-                DisplayName = displayName == uid ? null : displayName,
+                DisplayName = displayName == key ? null : displayName,
                 Runs = runs.Select(r => new DocumentRun
                 {
                     RunId = r.RunId,
@@ -455,21 +565,25 @@ public sealed class TestLedger
         {
             var legacy = JsonSerializer.Deserialize<DocumentVersion1>(text, json)!;
             maxRunsPerTest = legacy.MaxRunsPerTest;
-            observations = legacy.Tests.Values.SelectMany(runs => runs);
+            observations = rekeyUidKeyed(legacy.Tests.Values.SelectMany(runs => runs));
         }
-        else if (version == Version)
+        else if (version <= Version)
         {
             var document = JsonSerializer.Deserialize<Document>(text, json)!;
             maxRunsPerTest = document.MaxRunsPerTest;
-            observations = document.Tests.SelectMany(pair => pair.Value.Runs.Select(r =>
+            var read = document.Tests.SelectMany(pair => pair.Value.Runs.Select(r =>
                 new LedgerRun(r.RunId, r.At, pair.Key, pair.Value.DisplayName ?? pair.Key, r.Outcome, r.Attempts)
                 {
+                    Key = pair.Key,
                     TotalMs = r.TotalMs,
                     FirstMs = r.FirstMs,
                     Failure = r.Failure,
                     ClearedBy = r.ClearedBy,
                     StallInduced = r.StallInduced
                 }));
+
+            // Version 2 was keyed by uid, so its key is a uid to re-key from.
+            observations = version == Version ? read : rekeyUidKeyed(read);
         }
         else
         {
@@ -477,7 +591,28 @@ public sealed class TestLedger
                 $"the ledger file is version {version}, newer than this Bobcat reads (version {Version}); upgrade Bobcat to fold it");
         }
 
-        return Empty(maxRunsPerTest > 0 ? maxRunsPerTest : 20).Record(observations);
+        return Empty(maxRunsPerTest > 0 ? maxRunsPerTest : DefaultMaxRunsPerTest).Record(observations);
+    }
+
+    /// <summary>
+    /// A version 1 or 2 file was keyed by uid. Its observations are re-keyed by display name,
+    /// which folds one test's uids from different machines together — except a display name
+    /// two uids carried in one run, which was two tests, and stays keyed by uid.
+    /// </summary>
+    private static IEnumerable<LedgerRun> rekeyUidKeyed(IEnumerable<LedgerRun> observations)
+    {
+        var list = observations.ToList();
+        var shared = list
+            .Where(r => !string.IsNullOrWhiteSpace(r.DisplayName))
+            .GroupBy(r => (r.DisplayName, r.RunId))
+            .Where(g => g.Select(r => r.Uid).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key.DisplayName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return list.Select(r => r with
+        {
+            Key = string.IsNullOrWhiteSpace(r.DisplayName) || shared.Contains(r.DisplayName) ? r.Uid : r.DisplayName
+        });
     }
 
     private sealed class VersionProbe
@@ -485,8 +620,11 @@ public sealed class TestLedger
         public int Version { get; set; } = 1;
     }
 
-    /// <summary>Load a committed ledger; a missing file is an empty ledger, not an error.</summary>
-    public static TestLedger Load(string path, int maxRunsPerTest = 20)
+    /// <summary>
+    /// Load a ledger — typically the previous CI run's artifact, or a committed file; a missing
+    /// file is an empty ledger, not an error.
+    /// </summary>
+    public static TestLedger Load(string path, int maxRunsPerTest = DefaultMaxRunsPerTest)
         => File.Exists(path) ? FromJson(File.ReadAllText(path)) : Empty(maxRunsPerTest);
 
     public void Save(string path)

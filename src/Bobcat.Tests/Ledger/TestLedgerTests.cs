@@ -161,8 +161,8 @@ public class TestLedgerTests
 
         text.ShouldNotContain("\n");
         text.ShouldNotContain("  ");
-        text.ShouldStartWith("{\"version\":2,");
-        // The uid is the key and nothing else; a display name equal to it is not written at all.
+        text.ShouldStartWith("{\"version\":3,");
+        // The key is written once and nothing else; a display name equal to it is not written at all.
         countOf(text, "A/one").ShouldBe(1);
         text.ShouldNotContain("displayName");
         text.ShouldNotContain("uid");
@@ -171,13 +171,13 @@ public class TestLedgerTests
     }
 
     [Fact]
-    public void the_display_name_is_stored_once_per_test_and_is_the_newest_observations()
+    public void a_test_keyed_by_uid_stores_its_display_name_once_and_it_is_the_newest_observations()
     {
         var ledger = TestLedger.Empty().Record(
         [
-            run("r1", 1, "A/one") with { DisplayName = "Old.Name.one" },
-            run("r2", 2, "A/one") with { DisplayName = "Ns.Class.one" },
-            run("r3", 3, "A/one") with { DisplayName = "Ns.Class.one" }
+            run("r1", 1, "A/one") with { DisplayName = "Old.Name.one", Key = "A/one" },
+            run("r2", 2, "A/one") with { DisplayName = "Ns.Class.one", Key = "A/one" },
+            run("r3", 3, "A/one") with { DisplayName = "Ns.Class.one", Key = "A/one" }
         ]);
 
         var text = ledger.ToJson();
@@ -198,7 +198,10 @@ public class TestLedgerTests
 
         var loaded = TestLedger.FromJson(TestLedger.Empty().Record([observation]).ToJson());
 
-        loaded.Tests["A/one"].ShouldHaveSingleItem().ShouldBe(observation);
+        // The uid is not kept for a test keyed by display name: it is the per-machine hash the
+        // key exists to get away from, so the key stands in for it.
+        loaded.Tests["Ns.Class.one"].ShouldHaveSingleItem()
+            .ShouldBe(observation with { Uid = "Ns.Class.one", Key = "Ns.Class.one" });
     }
 
     [Fact]
@@ -229,10 +232,110 @@ public class TestLedgerTests
         var ledger = TestLedger.FromJson(version1);
 
         ledger.MaxRunsPerTest.ShouldBe(3);
-        var observation = ledger.Tests["A/one"].ShouldHaveSingleItem();
+        // Re-keyed by display name (issue #730).
+        var observation = ledger.Tests["Ns.Class.one"].ShouldHaveSingleItem();
         observation.DisplayName.ShouldBe("Ns.Class.one");
         observation.TotalMs.ShouldBe(120);
-        ledger.ToJson().ShouldStartWith("{\"version\":2,");
+        ledger.ToJson().ShouldStartWith("{\"version\":3,");
+    }
+
+    // ---- the display-name key (issue #730) -----------------------------------------------------
+
+    private static LedgerRun observed(string runId, int day, string uid, string displayName, long totalMs = 100)
+        => new(runId, t0.AddDays(day), uid, displayName, "CleanPass", 1) { TotalMs = totalMs, FirstMs = totalMs };
+
+    [Fact]
+    public void one_test_observed_under_different_uids_on_different_machines_is_one_test()
+    {
+        // xUnit v3's uid hashes the assembly path: a laptop and a CI runner disagree on every uid.
+        var laptop = TestLedger.Empty().Record([observed("r1", 1, "hash-laptop", "Ns.Class.one", 100)]);
+        var ci = TestLedger.Empty().Record([observed("r2", 2, "hash-ci", "Ns.Class.one", 300)]);
+
+        var merged = laptop.Merge(ci);
+
+        merged.Tests.Keys.ShouldBe(["Ns.Class.one"]);
+        merged.Tests["Ns.Class.one"].Count.ShouldBe(2);
+        merged.KnownDurations()["Ns.Class.one"].ShouldBe(TimeSpan.FromMilliseconds(200));
+        merged.SharedDisplayNames.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void two_tests_sharing_a_display_name_in_one_run_are_keyed_by_uid_and_never_merged()
+    {
+        var keys = LedgerKeys.For([("u1", "Ns.Class.same"), ("u2", "Ns.Class.same"), ("u3", "Ns.Class.other")]);
+        keys["u1"].ShouldBe("u1");
+        keys["u2"].ShouldBe("u2");
+        keys["u3"].ShouldBe("Ns.Class.other");
+
+        var ledger = TestLedger.Empty().Record(
+        [
+            observed("r1", 1, "u1", "Ns.Class.same", 100) with { Key = keys["u1"] },
+            observed("r1", 1, "u2", "Ns.Class.same", 9_000) with { Key = keys["u2"] },
+            observed("r1", 1, "u3", "Ns.Class.other") with { Key = keys["u3"] }
+        ]);
+
+        ledger.Tests.Keys.ShouldBe(["Ns.Class.other", "u1", "u2"]);
+        ledger.KnownDurations()["u1"].ShouldBe(TimeSpan.FromMilliseconds(100));
+        ledger.KnownDurations()["u2"].ShouldBe(TimeSpan.FromMilliseconds(9_000));
+        // The collision is recorded, in memory and in the file.
+        ledger.SharedDisplayNames.ShouldBe(["Ns.Class.same"]);
+        TestLedger.FromJson(ledger.ToJson()).SharedDisplayNames.ShouldBe(["Ns.Class.same"]);
+        TestLedger.FromJson(ledger.ToJson()).ToJson().ShouldBe(ledger.ToJson());
+    }
+
+    [Fact]
+    public void observations_recorded_without_keys_still_never_merge_two_tests()
+    {
+        // A feed that did not use LedgerKeys: two uids under one display name in one run.
+        var ledger = TestLedger.Empty().Record(
+        [
+            observed("r1", 1, "u1", "Ns.Class.same", 100),
+            observed("r1", 1, "u2", "Ns.Class.same", 9_000)
+        ]);
+
+        ledger.Tests.Keys.ShouldBe(["u1", "u2"]);
+        ledger.SharedDisplayNames.ShouldBe(["Ns.Class.same"]);
+    }
+
+    [Fact]
+    public void a_blank_display_name_keys_on_the_uid()
+    {
+        var keys = LedgerKeys.For([("u1", ""), ("u2", " ")]);
+        keys["u1"].ShouldBe("u1");
+        keys["u2"].ShouldBe("u2");
+
+        TestLedger.Empty().Record([observed("r1", 1, "u1", "")]).Tests.Keys.ShouldBe(["u1"]);
+    }
+
+    [Fact]
+    public void a_uid_keyed_version_2_file_is_re_keyed_by_display_name()
+    {
+        // Two machines' uids for one test fold into one; two uids sharing a display name in the
+        // same run were two tests and stay apart.
+        const string version2 = """
+            {"version":2,"maxRunsPerTest":5,"tests":{
+              "hash-a":{"displayName":"Ns.Class.one","runs":[{"runId":"r1","at":"2026-08-02T12:00:00+00:00","outcome":"CleanPass","attempts":1,"totalMs":100}]},
+              "hash-b":{"displayName":"Ns.Class.one","runs":[{"runId":"r2","at":"2026-08-03T12:00:00+00:00","outcome":"CleanPass","attempts":1,"totalMs":300}]},
+              "hash-c":{"displayName":"Ns.Class.same","runs":[{"runId":"r1","at":"2026-08-02T12:00:00+00:00","outcome":"CleanPass","attempts":1,"totalMs":10}]},
+              "hash-d":{"displayName":"Ns.Class.same","runs":[{"runId":"r1","at":"2026-08-02T12:00:00+00:00","outcome":"CleanPass","attempts":1,"totalMs":20}]},
+              "A/spec":{"runs":[{"runId":"r1","at":"2026-08-02T12:00:00+00:00","outcome":"CleanPass","attempts":1,"totalMs":50}]}
+            }}
+            """;
+
+        var ledger = TestLedger.FromJson(version2);
+
+        ledger.Tests.Keys.ShouldBe(["A/spec", "Ns.Class.one", "hash-c", "hash-d"]);
+        ledger.Tests["Ns.Class.one"].Select(r => r.RunId).ShouldBe(["r2", "r1"]);
+        ledger.SharedDisplayNames.ShouldBe(["Ns.Class.same"]);
+        ledger.ToJson().ShouldStartWith("{\"version\":3,");
+        TestLedger.FromJson(ledger.ToJson()).ToJson().ShouldBe(ledger.ToJson());
+    }
+
+    [Fact]
+    public void the_default_retention_is_small_because_the_ledger_travels_as_a_ci_artifact()
+    {
+        TestLedger.Empty().MaxRunsPerTest.ShouldBe(5);
+        TestLedger.Load(Path.Combine(Path.GetTempPath(), $"no-such-{Guid.NewGuid():N}.json")).MaxRunsPerTest.ShouldBe(5);
     }
 
     [Fact]
@@ -271,7 +374,7 @@ public class TestLedgerTests
     [Fact]
     public void a_test_that_quietly_grew_shows_as_a_trend_no_single_run_can_see()
     {
-        var ledger = TestLedger.Empty().Record(
+        var ledger = TestLedger.Empty(maxRunsPerTest: 20).Record(
         [
             run("r1", 1, totalMs: 2_000), run("r2", 2, totalMs: 2_100), run("r3", 3, totalMs: 1_900),
             run("r4", 4, totalMs: 39_000), run("r5", 5, totalMs: 41_000), run("r6", 6, totalMs: 40_000),
@@ -281,10 +384,22 @@ public class TestLedgerTests
         ]);
 
         var trend = ledger.Trends().ShouldHaveSingleItem();
-        trend.Uid.ShouldBe("F/spec");
+        trend.Key.ShouldBe("F/spec");
         trend.Then.ShouldBe(TimeSpan.FromMilliseconds(2_000));
         trend.Now.ShouldBe(TimeSpan.FromMilliseconds(40_000));
         trend.GrowthFactor.ShouldBe(20);
+    }
+
+    [Fact]
+    public void a_trend_can_be_stated_within_the_default_retention()
+    {
+        var ledger = TestLedger.Empty().Record(
+        [
+            run("r1", 1, totalMs: 2_000), run("r2", 2, totalMs: 2_000),
+            run("r3", 3, totalMs: 40_000), run("r4", 4, totalMs: 40_000), run("r5", 5, totalMs: 40_000)
+        ]);
+
+        ledger.Trends().ShouldHaveSingleItem().Key.ShouldBe("F/spec");
     }
 
     [Fact]

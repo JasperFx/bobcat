@@ -3,7 +3,7 @@ using Bobcat.Ledger;
 namespace Bobcat.Supervisor;
 
 /// <summary>
-/// The supervisor's feed into the committed ledger (<see cref="TestLedger"/>) — the richer of
+/// The supervisor's feed into the ledger (<see cref="TestLedger"/>) — the richer of
 /// the two, because a supervised run keeps every attempt's outcome: the failure type a
 /// pass-on-retry recovered from, the first attempt's own duration, and whether the attempts
 /// were the stall escalation's doing.
@@ -14,10 +14,16 @@ public static class SupervisorLedger
     /// Extract one run's observations. <paramref name="runId"/> and <paramref name="at"/> are
     /// the caller's facts — the monitor run id when publishing, a fresh guid otherwise — and
     /// deliberately not read from a clock here, because the fold must stay deterministic.
+    /// Each observation is keyed by the test's display name, or by its uid where two of the
+    /// run's tests shared a display name (<see cref="LedgerKeys"/>).
     /// </summary>
     public static IReadOnlyList<LedgerRun> From(SupervisorResults results, string runId, DateTimeOffset at)
     {
         var observations = new List<LedgerRun>();
+
+        // Keyed by display name, the uid only where two tests shared one (issue #730) — the same
+        // rule WorkPlan joins KnownDurations on.
+        var keys = LedgerKeys.For(results.Tests.Select(t => (t.Uid, t.DisplayName)));
 
         foreach (var test in results.Tests)
         {
@@ -34,6 +40,7 @@ public static class SupervisorLedger
             observations.Add(new LedgerRun(
                 runId, at, test.Uid, test.DisplayName, test.Outcome.ToString(), test.AttemptCount)
             {
+                Key = keys[test.Uid],
                 TotalMs = measured
                     ? (long)durations.Sum(d => d?.TotalMilliseconds ?? 0)
                     : null,

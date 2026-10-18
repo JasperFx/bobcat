@@ -1,3 +1,5 @@
+using Bobcat.Ledger;
+
 namespace Bobcat.Supervisor;
 
 /// <summary>
@@ -5,9 +7,10 @@ namespace Bobcat.Supervisor;
 /// difference between a plan balanced by duration and one that quietly fell back to test count.
 /// </summary>
 /// <remarks>
-/// The durations are keyed by uid, and xUnit v3's uid hashes the assembly path, so a ledger
-/// recorded on another machine, configuration or TFM can match nothing at all. Marten's committed
-/// ledger matched 0 of 2525 tests on CI while the run read exactly like a balanced one.
+/// xUnit v3's uid hashes the assembly path, so durations keyed by uid can match nothing on another
+/// machine, configuration or TFM: Marten's committed ledger matched 0 of 2525 tests on CI while the
+/// run read exactly like a balanced one. The ledger keys by display name since issue #730, and a
+/// duration is looked up by that key first and by uid second.
 /// </remarks>
 public sealed record DurationCoverage(int Matched, int Tests)
 {
@@ -111,7 +114,8 @@ public static class WorkPlan
     /// Plans <paramref name="laneCount"/> lanes over <paramref name="tests"/>.
     /// </summary>
     /// <param name="knownDurations">
-    /// Previously observed per-test durations, keyed by uid. Optional — a first run has none, and
+    /// Previously observed per-test durations, keyed as the ledger keys them — display name, or
+    /// uid where two tests share a display name (<see cref="LedgerKeys"/>) — or by uid. Optional — a first run has none, and
     /// then partitions are weighted by test count instead. Partial data is fine: tests with no
     /// entry are charged the median of the ones that have, so adding a test does not skew a plan.
     /// </param>
@@ -129,20 +133,22 @@ public static class WorkPlan
 
         // One lane means no partitioning decision to make. Returning discovery order verbatim
         // keeps the single-worker path byte-for-byte what it was before parallelism existed.
+        var durations = durationsOf(tests, knownDurations);
+
         if (laneCount <= 1)
         {
-            return [new WorkLane(0, tests.Select(t => t.Uid).ToList(), total(tests, knownDurations))];
+            return [new WorkLane(0, tests.Select(t => t.Uid).ToList(), total(tests, durations))];
         }
 
         var key = partitionKey ?? ClassOf;
-        var fallback = medianOf(tests, knownDurations);
+        var fallback = medianOf(durations);
 
         var partitions = tests
             .GroupBy(key, StringComparer.Ordinal)
             .Select(group => (
                 Key: group.Key,
                 Uids: group.Select(t => t.Uid).ToList(),
-                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, knownDurations, fallback))))
+                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, durations, fallback))))
             // Longest first, then by key so ties never reorder between runs.
             .OrderByDescending(p => p.Estimate)
             .ThenBy(p => p.Key, StringComparer.Ordinal)
@@ -182,35 +188,50 @@ public static class WorkPlan
         IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? knownDurations)
         => knownDurations is null
             ? null
-            : new DurationCoverage(tests.Count(t => knownDurations.ContainsKey(t.Uid)), tests.Count);
+            : new DurationCoverage(durationsOf(tests, knownDurations).Count, tests.Count);
+
+    /// <summary>
+    /// Each test's known duration, by uid — looked up by its ledger key (display name, or uid
+    /// where two of <paramref name="tests"/> share one), then by uid, so a ledger from another
+    /// machine and a hand-built uid dictionary both join. Tests with neither are absent.
+    /// </summary>
+    private static Dictionary<string, TimeSpan> durationsOf(
+        IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
+    {
+        var durations = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+        if (known is null || known.Count == 0) return durations;
+
+        var keys = LedgerKeys.For(tests.Select(t => (t.Uid, t.DisplayName)));
+        foreach (var test in tests)
+        {
+            if (known.TryGetValue(keys[test.Uid], out var duration) || known.TryGetValue(test.Uid, out duration))
+            {
+                durations[test.Uid] = duration;
+            }
+        }
+
+        return durations;
+    }
 
     private static TimeSpan estimate(
-        WorkerTest test, IReadOnlyDictionary<string, TimeSpan>? known, TimeSpan fallback)
-        => known is not null && known.TryGetValue(test.Uid, out var duration) ? duration : fallback;
+        WorkerTest test, IReadOnlyDictionary<string, TimeSpan> durations, TimeSpan fallback)
+        => durations.TryGetValue(test.Uid, out var duration) ? duration : fallback;
 
-    private static TimeSpan total(IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
+    private static TimeSpan total(IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan> durations)
     {
-        var fallback = medianOf(tests, known);
-        return tests.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, known, fallback));
+        var fallback = medianOf(durations);
+        return tests.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, durations, fallback));
     }
 
     /// <summary>
     /// What to charge a test we have never timed. The median of what we do know beats a constant:
     /// a suite of 30-second integration tests should not have its one new test costed at a second.
     /// </summary>
-    private static TimeSpan medianOf(
-        IReadOnlyList<WorkerTest> tests, IReadOnlyDictionary<string, TimeSpan>? known)
+    private static TimeSpan medianOf(IReadOnlyDictionary<string, TimeSpan> durations)
     {
-        if (known is null || known.Count == 0) return unknownTestEstimate;
+        if (durations.Count == 0) return unknownTestEstimate;
 
-        var observed = tests
-            .Where(t => known.ContainsKey(t.Uid))
-            .Select(t => known[t.Uid])
-            .OrderBy(d => d)
-            .ToList();
-
-        if (observed.Count == 0) return unknownTestEstimate;
-
+        var observed = durations.Values.OrderBy(d => d).ToList();
         return observed[observed.Count / 2];
     }
 }
