@@ -206,7 +206,7 @@ internal sealed class ShouldlyDialect : IAssertionDialect
     /// </summary>
     public string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation)
         => invocation.Expression is MemberAccessExpressionSyntax access
-            ? access.Expression.ToString()
+            ? ArgumentText.OneLine(access.Expression)
             : method.Name;
 
     /// <summary>
@@ -311,7 +311,55 @@ internal static class ArgumentText
                 return SymbolDisplay.FormatLiteral(text, quote: true);
         }
 
-        return expression.ToString();
+        return OneLine(expression);
+    }
+
+    /// <summary>
+    /// The source text of <paramref name="node"/> on one line (bobcat#684): a line break between two
+    /// tokens, with the indentation around it, becomes one space — or nothing beside a <c>.</c>, a
+    /// bracket or a comma, so a chain split across lines reads <c>items.Where(…).Select(…)</c>. A
+    /// sentence is one line wherever it renders, and the generated string literal it lands in could
+    /// not hold the break. A token that is itself several lines (a raw string) is left as written;
+    /// <see cref="StepInterceptors.Quote"/> escapes its breaks.
+    /// </summary>
+    public static string OneLine(SyntaxNode node)
+    {
+        var text = new StringBuilder();
+        SyntaxToken previous = default;
+
+        foreach (var token in node.DescendantTokens())
+        {
+            if (previous.RawKind != 0)
+            {
+                var between = previous.TrailingTrivia.Concat(token.LeadingTrivia).ToList();
+                if (between.Any(t => t.IsKind(SyntaxKind.EndOfLineTrivia)))
+                {
+                    if (needsSpace(previous, token)) text.Append(' ');
+                }
+                else
+                {
+                    foreach (var trivia in between) text.Append(trivia.ToFullString());
+                }
+            }
+
+            text.Append(token.Text);
+            previous = token;
+        }
+
+        return text.ToString();
+    }
+
+    private static bool needsSpace(SyntaxToken previous, SyntaxToken next)
+    {
+        if (previous.Kind() is SyntaxKind.OpenParenToken or SyntaxKind.OpenBracketToken or SyntaxKind.DotToken)
+            return false;
+
+        // `?.` is two tokens; a break before it is a conditional access, not a ternary.
+        if (next.IsKind(SyntaxKind.QuestionToken) && next.GetNextToken().IsKind(SyntaxKind.DotToken))
+            return false;
+
+        return next.Kind() is not (SyntaxKind.DotToken or SyntaxKind.CloseParenToken or SyntaxKind.CloseBracketToken
+            or SyntaxKind.CommaToken or SyntaxKind.SemicolonToken);
     }
 
     private static bool containsNameof(ExpressionSyntax expression)

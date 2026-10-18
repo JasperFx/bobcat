@@ -958,7 +958,7 @@ internal static class MarkerCommentSpecs
         => scenario.OpensRecording && !spec.IsAbstract && spec.TestClass.Length > 0 && scenario.TestMethod.Length > 0;
 
     private static string Quote(string value)
-        => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
 
     private static string quoteOrNull(string? value) => value == null ? "null" : Quote(value);
 
