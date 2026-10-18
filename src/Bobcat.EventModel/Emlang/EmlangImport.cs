@@ -374,7 +374,7 @@ public static class EmlangImport
             // board's spelling of it: a projected test's title IS its method name read back as a
             // sentence, so "AppointmentConfirmed" runs as "appointment confirmed". Naming it
             // anything else links the definition to an identity no run ever reports.
-            var scenario = EmlangSpecWriter.ScenarioTitle(test.Name);
+            var scenario = ProjectedSpecNaming.ExampleScenarioTitle(test.Name);
 
             target.Specifications ??= new CuratedSpecifications();
             if (target.Specifications.Scenarios.Any(x => x.Name == scenario))

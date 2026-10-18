@@ -126,7 +126,7 @@ public static class CSharpModelWriter
     /// <inheritdoc cref="Write(ImportedEventModel, string?, StubAdditions?, bool, bool)"/>
     /// <param name="identities">
     /// The strong-typed identifiers to write, already decided — what a caller that has also handed them
-    /// to <c>EmlangSpecWriter</c> passes, so the stubs and the specifications cannot be written against
+    /// to the spec writer (in the Wolverine repo since bobcat#744) passes, so the stubs and the specifications cannot be written against
     /// two different answers.
     /// </param>
     public static Output Write(ImportedEventModel model, string? namespaceName, StubAdditions? additions, bool perChapter,

@@ -39,6 +39,29 @@ public static partial class ProjectedSpecNaming
         return char.IsDigit(name[0]) ? "_" + name : name;
     }
 
+    /// <summary>
+    /// A board example's specification method name: the example's words, snake case. The spec writer that
+    /// moved to the Wolverine repo (bobcat#744) names the method this way, and <c>EmlangImport</c> names the
+    /// model's scenario after <see cref="ExampleScenarioTitle"/>, so the two always agree.
+    /// </summary>
+    public static string ExampleMethodName(string example)
+    {
+        var words = Regex.Matches(example, "[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+            .Select(x => x.Value.ToLowerInvariant())
+            .ToList();
+
+        var name = string.Join("_", words);
+        if (name.Length == 0) return "unnamed";
+        return char.IsDigit(name[0]) ? "_" + name : name;
+    }
+
+    /// <summary>
+    /// The scenario title a board example's generated specification reports: its
+    /// <see cref="ExampleMethodName"/> read back as a sentence, the way the projected lane titles every test
+    /// (bobcat#435).
+    /// </summary>
+    public static string ExampleScenarioTitle(string example) => ScenarioTitleFor(ExampleMethodName(example));
+
     /// <summary>Whether the scenario name survives the trip through a method name and back.</summary>
     public static bool RoundTrips(string scenarioName)
         => ScenarioTitleFor(MethodNameFor(scenarioName)) == scenarioName;

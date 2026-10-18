@@ -5,7 +5,7 @@ namespace Bobcat.EventModel.Tests;
 
 /// <summary>
 /// bobcat#512 and #433: <c>--strong-typed-ids</c> gives each aggregate an identity type, and every
-/// member, specification and declaration that addresses that stream takes it.
+/// member and declaration that addresses that stream takes it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,9 +15,8 @@ namespace Bobcat.EventModel.Tests;
 /// <see cref="CSharpModelWriterTests.compile"/> and the compiled descriptor, as #405's own tests do.
 /// </para>
 /// <para>
-/// <b>The specifications matter as much as the stubs.</b> Typing a stub's member without teaching the
-/// spec writer would produce a <c>Guid</c> local handed to an <c>OrderId</c> member — an import whose
-/// two halves do not compile together, which is worse than no option at all.
+/// The specification half (a <c>Guid</c> local handed to an <c>OrderId</c> member would not compile) is
+/// pinned beside the spec writer, which moved to the Wolverine repo in bobcat#744.
 /// </para>
 /// </remarks>
 public class StrongTypedIdentityTests
@@ -47,19 +46,18 @@ public class StrongTypedIdentityTests
     private static ImportedEventModel model(string yaml = Ordering)
         => EmlangImport.ToCurated(board(yaml), "Shop").Model;
 
-    private static (CSharpModelWriter.Output Stubs, GeneratedSpecs Specs) imported(string yaml = Ordering, bool typed = true)
+    private static CSharpModelWriter.Output imported(string yaml = Ordering, bool typed = true)
     {
         var imported = model(yaml);
         var ids = typed ? StrongTypedIds.For(imported, CSharpModelWriter.StubNames(imported)) : StrongTypedIds.None;
-        var specs = EmlangSpecWriter.Write(board(yaml), imported, "Shop", "Shop.Specs", null, ids);
 
-        return (CSharpModelWriter.Write(imported, "Shop", specs.Additions, perChapter: true, ids), specs);
+        return CSharpModelWriter.Write(imported, "Shop", null, perChapter: true, ids);
     }
 
     [Fact]
     public void each_aggregate_gets_one_identity_type_in_the_root_namespace()
     {
-        var identities = imported().Stubs.StubFiles.Single(x => x.Path == "Identities.cs");
+        var identities = imported().StubFiles.Single(x => x.Path == "Identities.cs");
 
         // Marten considers a type a strong-typed identity only when its name ends in Id, so
         // {Aggregate}Id is a requirement rather than a style; Value and the constructor are what
@@ -73,7 +71,7 @@ public class StrongTypedIdentityTests
     [Fact]
     public void an_identity_carries_what_an_imported_model_actually_does_with_it()
     {
-        var identities = imported().Stubs.StubFiles.Single(x => x.Path == "Identities.cs").Content;
+        var identities = imported().StubFiles.Single(x => x.Path == "Identities.cs").Content;
 
         // An HTTP slice posts the command and reads the id back, so a bare struct would be a type
         // the first endpoint breaks on: ToString is the value, IParsable binds a route parameter,
@@ -87,7 +85,7 @@ public class StrongTypedIdentityTests
     [Fact]
     public void every_member_that_addresses_the_stream_takes_the_identity_type()
     {
-        var stubs = imported().Stubs.AllStubs();
+        var stubs = imported().AllStubs();
 
         // The aggregate's own id, the command's {Aggregate}Id, the event's, and the read model's --
         // the last is a correctness claim, not a convenience: a single-stream projection's document
@@ -101,7 +99,7 @@ public class StrongTypedIdentityTests
     [Fact]
     public void the_generated_code_compiles_and_declares_the_identity_type()
     {
-        var generated = imported().Stubs;
+        var generated = imported();
 
         CSharpModelWriterTests.compile(generated).ShouldBeEmpty();
 
@@ -113,24 +111,13 @@ public class StrongTypedIdentityTests
     }
 
     [Fact]
-    public void a_generated_specification_declares_the_identity_as_the_typed_value()
-    {
-        var code = imported().Specs.AllCode();
-
-        // The half that would otherwise not compile: a Guid local handed to an OrderId member
-        code.ShouldContain("var theOrder = new OrderId(Guid.CreateVersion7());");
-        code.ShouldContain(".With(x => x.OrderId, theOrder)");
-    }
-
-    [Fact]
     public void nothing_changes_without_the_flag()
     {
         var plain = imported(typed: false);
 
-        plain.Stubs.StubFiles.ShouldNotContain(x => x.Path == "Identities.cs");
-        plain.Stubs.AllStubs().ShouldContain("public class Order { public Guid Id { get; set; } }");
-        plain.Stubs.Definition.ShouldNotContain("IdentifiedBy");
-        plain.Specs.AllCode().ShouldContain("var theOrder = Guid.CreateVersion7();");
+        plain.StubFiles.ShouldNotContain(x => x.Path == "Identities.cs");
+        plain.AllStubs().ShouldContain("public class Order { public Guid Id { get; set; } }");
+        plain.Definition.ShouldNotContain("IdentifiedBy");
     }
 
     [Fact]
@@ -141,15 +128,13 @@ public class StrongTypedIdentityTests
         var board = EventModelersJsonReader.Read(NaturalKey);
         var imported = EmlangImport.ToCurated(board, "Customers", "Customers").Model;
         var ids = StrongTypedIds.For(imported, CSharpModelWriter.StubNames(imported));
-        var specs = EmlangSpecWriter.Write(board, imported, "Customers", "Customers.Specs", null, ids);
-        var generated = CSharpModelWriter.Write(imported, "Customers", specs.Additions, perChapter: true, ids);
+        var generated = CSharpModelWriter.Write(imported, "Customers", null, perChapter: true, ids);
 
         generated.StubFiles.Single(x => x.Path == "Identities.cs").Content
             .ShouldContain("public readonly record struct CustomerId(string Value) : IParsable<CustomerId>");
 
-        // The command carries the key, now as the identity type, and the spec declares it as one
+        // The command carries the key, now as the identity type
         generated.AllStubs().ShouldContain("public record RegisterCustomer(CustomerId Id, string Name);");
-        specs.AllCode().ShouldContain("""var theCustomer = new CustomerId("customer-1");""");
 
         CSharpModelWriterTests.compile(generated).ShouldBeEmpty();
     }
@@ -190,15 +175,10 @@ public class StrongTypedIdentityTests
         var board = EmlangReader.Read(AggregateInferenceTests.Shelter);
         var imported = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
         var ids = StrongTypedIds.For(imported, CSharpModelWriter.StubNames(imported));
-        var specs = EmlangSpecWriter.Write(board, imported, "Shelter", "Shelter.Specs", null, ids);
-        var generated = CSharpModelWriter.Write(imported, "Shelter", specs.Additions, perChapter: true, ids);
+        var generated = CSharpModelWriter.Write(imported, "Shelter", null, perChapter: true, ids);
 
         generated.AllStubs().ShouldContain(
             "public record AcceptHomeCheckAssignment(HomeCheckId HomeCheckId, VolunteerApplicationId VolunteerApplicationId);");
-
-        var code = specs.AllCode();
-        code.ShouldContain("var theHomeCheck = new HomeCheckId(Guid.CreateVersion7());");
-        code.ShouldContain(".With(x => x.VolunteerApplicationId, theVolunteerApplication)");
 
         CSharpModelWriterTests.compile(generated).ShouldBeEmpty();
     }
