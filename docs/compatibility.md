@@ -115,7 +115,7 @@ spec project fails, so run the spec project another way:
 
 If CI runs `dotnet test` over a solution, make sure the spec project isn't part of that run.
 
-### A build tool that references `Bobcat.Supervisor` gets Bobcat's JasperFx minimum
+### A build tool that references `Bobcat.Supervisor` gets Bobcat's JasperFx minimum {#build-tool-jasperfx}
 
 `Bobcat.Supervisor` depends on `Bobcat`, and `Bobcat` requires `JasperFx` and `JasperFx.Events` at
 the minimum in [the table above](#bobcat-1-0). That minimum applies to the build project too, even

@@ -91,7 +91,7 @@ outcome for every case the supervisor reports, so some are written out in text:
 ### Running the supervisor from Nuke
 
 The Critter Stack repositories host the supervisor in their Nuke build (`build/`), one target per
-suite, and CI runs `./build.sh <Target>`. Two things to know before you do the same.
+suite, and CI runs `./build.sh <Target>`. Three things to know before you do the same.
 
 **A Nuke bootstrap is not free, so a tiny suite is not worth supervising on its own.** Weasel
 measured 7–11 s per job just to restore, compile and start the build project. Its Core, SQLite and
@@ -151,6 +151,23 @@ only on CI, so check it before the first push. Either fix works:
     <!-- Stops MSBuild importing the repository's Directory.Build.props into the build project. -->
   </Project>
   ```
+
+**The build project needs Bobcat's JasperFx, not the product's.** `Bobcat.Supervisor` depends on
+`Bobcat`, which requires `JasperFx` and `JasperFx.Events` at the minimum in
+[the compatibility table](compatibility.md#bobcat-1-0). A build project that pins `JasperFx` lower
+(often through the repository's central `Directory.Packages.props`) fails restore with **NU1605**,
+a detected package downgrade, even though the supervisor only uses the retry and isolation types.
+Marten hit this (JasperFx/marten#5690). The build ships nothing, so raise the pin in the build
+project only, with `VersionOverride`, and leave the product's own JasperFx dependency alone:
+
+```xml
+<!-- build/build.csproj -->
+<PackageReference Include="Bobcat.Supervisor" />
+<PackageReference Include="JasperFx" VersionOverride="2.90.2" />
+```
+
+Don't silence NU1605 with `NoWarn`. That runs Bobcat on a JasperFx older than it was built against.
+[Compatibility](compatibility.md#build-tool-jasperfx) has the details.
 
 ### Durations from the last run: the ledger as a CI artifact
 
