@@ -1319,6 +1319,35 @@ public class CritterStackScenario
     /// </summary>
     public void ThenNotEmitted(params object[] events) => verifyAbsent(flatten(events));
 
+    /// <summary>
+    /// bobcat#683. The act <em>or the work it cascaded into</em> appended these events, among whatever else was
+    /// appended — read from <see cref="CritterStackActOutcome.AllNewEvents" />, where <c>ThenEmitted</c> reads only
+    /// the act's own <see cref="CritterStackActOutcome.NewEvents" />. For an event a cascaded handler appended, such as
+    /// one on a durable local queue that a tracked session waited for. Needs no correlation ids, unlike
+    /// WolverineFx.Bobcat's <c>ThenEventuallyCaused</c>, but sees only what the act's outcome saw: for a store-only act
+    /// the two lists are the same.
+    /// </summary>
+    /// <remarks>
+    /// Stamps no Event Model role: a cascaded event usually belongs to another slice, the one whose handler appended it.
+    /// </remarks>
+    public void ThenCaused(params object[] events) => verifyCaused(flatten(events));
+
+    /// <summary>bobcat#683. The act or its cascades appended a <typeparamref name="T" />, whatever its values — see <see cref="ThenCaused(object[])" />.</summary>
+    public void ThenCaused<T>() => verifyCaused([anyOf(typeof(T))]);
+
+    private void verifyCaused(object[] expected)
+    {
+        using var step = ScenarioRecorder.Step("Then",
+            $"{describeTypes(expected.Select(PartialMatching.ExpectedType).ToArray())} {(expected.Length == 1 ? "is" : "are")} caused");
+        if (!actSucceeded() || !tagsCanBeJudged(expected)) return;
+
+        var run = ObjectSetVerification.Verify(LastAct.AllNewEvents.Select(x => x.Data).ToArray(), expected, "event",
+            SetMode.Contains, tagsOf(LastAct.AllNewEvents));
+        if (recording) run.Report();
+
+        fact(run.Succeeded, string.Join(Environment.NewLine, ObjectSetVerification.Problems(run, "event")) + storesSuffix() + crossTalkSuffix());
+    }
+
     private void verifyEvents(object[] expected, SetMode mode, string format)
     {
         var text = string.Format(CultureInfo.InvariantCulture, format,
@@ -1820,6 +1849,18 @@ public class CritterStackScenario
             ScenarioValues.DescribeAll(LastAct.NewEvents.Select(e => e.Data)) + storesSuffix() + crossTalkSuffix());
     }
 
+    /// <summary>
+    /// bobcat#683. The act succeeded: it ran, threw nothing and was not refused. The guard against a false green — a
+    /// specification whose only Then steps look for something <em>absent</em> (<c>ThenNoEvents</c>,
+    /// <c>ThenNotEmitted</c>) already fails on a failed act, but one with no event step at all says nothing about
+    /// whether the act worked unless it says so.
+    /// </summary>
+    public void ThenTheActSucceeded()
+    {
+        using var step = ScenarioRecorder.Step("Then", "the act succeeds");
+        actSucceeded();
+    }
+
     private void assertRefusal(string text, string reason)
     {
         requireReason(reason);
@@ -2130,6 +2171,48 @@ public class CritterStackScenario
             return documents[0];
         });
     }
+
+    /// <summary>
+    /// bobcat#683. Every <typeparamref name="T" /> document in the store — for the tenant, on a tenant view — once the
+    /// async daemons that build it have caught up. A query, not a step: it records nothing and judges nothing. For the
+    /// documents an act created under ids the system chose, when there may be more than one; with exactly one,
+    /// <see cref="ThenSingleDocument{T}" /> says so as a step. Queried through <c>JasperFx.Events.Documents</c>, so it
+    /// works on every store.
+    /// </summary>
+    public async Task<IReadOnlyList<T>> TheDocuments<T>() where T : class
+    {
+        await projectionsCaughtUpBefore(typeof(T), null);
+        var documents = await allDocuments<T>(documentsText<T>([]));
+        recordTouched(typeof(T));
+        return documents;
+    }
+
+    /// <summary>
+    /// bobcat#683. The <typeparamref name="T" /> documents in the store are exactly these, in any order, once the async
+    /// daemons have caught up — whole objects, <see cref="Expect.Value{T}" />s or partial objects, judged as a set: one
+    /// row per document, MISSING and EXTRA named. No expectations at all means there are none. Every
+    /// <typeparamref name="T" /> in the store counts, as for <see cref="ThenSingleDocument{T}" /> without a stream, so on a
+    /// store other tests share, give the documents a value only this specification uses and name it in a partial.
+    /// </summary>
+    [EventModelRole(SliceRole.Document, nameof(T))]
+    public async Task<IReadOnlyList<T>> ThenDocuments<T>(params object[] expected) where T : class
+    {
+        await projectionsCaughtUpBefore(typeof(T), null);
+        var items = flatten(expected);
+
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(documentsText<T>(items))), async () =>
+        {
+            var documents = await allDocuments<T>(documentsText<T>(items));
+            recordTouched(typeof(T));
+            verifySet(nameOf(typeof(T)), documents.Cast<object>().ToList(), items, SetMode.AnyOrder);
+            return documents;
+        });
+    }
+
+    private static string documentsText<T>(object[] expected)
+        => expected.Length == 0
+            ? $"there are no {nameOf(typeof(T))} documents"
+            : $"the {nameOf(typeof(T))} documents are {ScenarioValues.DescribeAll(expected.Select(unwrap).ToList())}";
 
     /// <summary>
     /// Wait until every asynchronous projection on every database has caught up, so a read model reflects the

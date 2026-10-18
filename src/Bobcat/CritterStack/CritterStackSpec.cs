@@ -305,6 +305,12 @@ public abstract class CritterStackSpec
     /// <inheritdoc cref="CritterStackScenario.ThenNotEmitted(object[])" />
     public void ThenNotEmitted(params object[] events) => Scenario.ThenNotEmitted(events);
 
+    /// <inheritdoc cref="CritterStackScenario.ThenCaused(object[])" />
+    public void ThenCaused(params object[] events) => Scenario.ThenCaused(events);
+
+    /// <inheritdoc cref="CritterStackScenario.ThenCaused{T}" />
+    public void ThenCaused<T>() => Scenario.ThenCaused<T>();
+
     /// <inheritdoc cref="CritterStackScenario.ThenNoEvents" />
     public void ThenNoEvents() => Scenario.ThenNoEvents();
 
@@ -417,6 +423,9 @@ public abstract class CritterStackSpec
     /// <inheritdoc cref="CritterStackScenario.ThenCommandRefused" />
     public void ThenCommandRefused() => Scenario.ThenCommandRefused();
 
+    /// <inheritdoc cref="CritterStackScenario.ThenTheActSucceeded" />
+    public void ThenTheActSucceeded() => Scenario.ThenTheActSucceeded();
+
     /// <inheritdoc cref="CritterStackScenario.ThenMessagesSent{T}" />
     [EventModelRole(SliceRole.Message, nameof(T))]
     public void ThenMessagesSent<T>(int count = 1) => Scenario.ThenMessagesSent<T>(count);
@@ -488,6 +497,13 @@ public abstract class CritterStackSpec
     /// <inheritdoc cref="CritterStackScenario.ThenSingleDocument{T}(object?)" />
     [EventModelRole(SliceRole.Document, nameof(T))]
     public Task<T> ThenSingleDocument<T>(object? expected = null) where T : class => Scenario.ThenSingleDocument<T>(expected);
+
+    /// <inheritdoc cref="CritterStackScenario.TheDocuments{T}" />
+    public Task<IReadOnlyList<T>> TheDocuments<T>() where T : class => Scenario.TheDocuments<T>();
+
+    /// <inheritdoc cref="CritterStackScenario.ThenDocuments{T}" />
+    [EventModelRole(SliceRole.Document, nameof(T))]
+    public Task<IReadOnlyList<T>> ThenDocuments<T>(params object[] expected) where T : class => Scenario.ThenDocuments<T>(expected);
 
     /// <inheritdoc cref="CritterStackScenario.ThenProjectionsAreCaughtUp" />
     [EventModelRole(SliceRole.ReadModel, nameof(readModel))]
