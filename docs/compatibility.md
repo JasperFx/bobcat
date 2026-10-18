@@ -31,7 +31,7 @@ In practice:
 | Fisher | a release built on JasperFx.Events 2.80 or later | 1.19.0 |
 | Polecat | a release built on JasperFx.Events 2.80 or later | 5.36.0 (not run in CI; it needs SQL Server) |
 | WolverineFx | through `WolverineFx.Bobcat`, below | 6.46.0 |
-| Alba | any; Bobcat does not reference it | 8.5.2 |
+| Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 requires **9.0.0-rc.2** (below) | 8.5.2 |
 
 The "built and tested against" column is what this repository's own suites and samples run on,
 against real Postgres (Marten) and SQLite (Fisher).
@@ -155,6 +155,12 @@ only sets a minimum, so there is no NU1608). This pairing has run in
 `WolverineSpec` (`WhenReceived`, `WhenTracked`, `ThenMessageSent`, `ThenNoMessageSent`,
 `GivenReadModel`, `ThenDocument`, `ThenSingleDocument`, `ThenEvents`, `ThenStreamIsStarted`)
 compiled and passed on net9.0 and net10.0.
+
+**`WolverineFx.Bobcat.Http` 6.51.0-alpha.1 depends on Alba 9.0.0-rc.2** (bobcat#675). A test project
+that references Alba 8.x gets NU1605 (a package downgrade) and has to move to the prerelease Alba
+to take it, which also drops Alba 8's `ConfigurationOverride`. If you have to stay on Alba 8.x,
+leave `WolverineFx.Bobcat.Http` out and act over HTTP through `WhenTracked`, knowing its two limits
+in [Bobcat with Wolverine](integrations/wolverine.md#http-without-wolverinefx-bobcat-http).
 
 Otherwise, use a `WolverineFx.Bobcat` whose minimum Bobcat is the release you are on, or the closest one
 below it. A `WolverineFx.Bobcat` built against an older Bobcat may compile against a newer one but
