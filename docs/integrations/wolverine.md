@@ -154,6 +154,32 @@ Wolverine repository; until then, the `WolverineFx.Bobcat.Http` acts are the one
 committed. When it heard no commit at all -- the act appended through a session Wolverine didn't
 open -- it falls back to the store's high-water read, as the store-only act does.
 
+::: warning WhenReceived of a scheduled message only schedules it again
+A `TimeoutMessage` -- or any message whose `DeliveryOptions` carry a delay -- is handed to
+Wolverine, which honours the delay and puts it back on the schedule (bobcat#674). Its handler
+never runs, and the act still counts as a success. So a spec of a saga's timeout handler goes
+green with nothing run whenever its claims are about what is *absent*: `ThenNoMessageSent<T>()`,
+`ThenNoEvents()`, `ThenTheActSucceeded()`. **`ThenTheActSucceeded` does not catch it**, because
+scheduling the message did succeed. Only a positive claim exposes it, and the failure names the
+reschedule:
+
+```
+Expected a EscalateLateShipment to be sent, but none was. Sent: DeliverySlaExpired(ShipmentId: #id, DelayTime: 5.00:00:00) to local://shipmenttracking.messages.deliveryslaexpired/
+```
+
+Until [wolverine#5077](https://github.com/JasperFx/wolverine/issues/5077) is fixed, invoke the message yourself inside the tracked session, which
+runs the handler now whatever its delay. Then check that the handler ran, so the spec can't pass
+without it:
+
+```csharp
+await WhenActing("the delivery SLA expires",
+    services => services.GetRequiredService<IMessageBus>().InvokeAsync(new DeliverySlaExpired(id)));
+
+LastAct.Session!.Executed.MessagesOf<DeliverySlaExpired>().ShouldNotBeEmpty();
+ThenNoMessageSent<EscalateLateShipment>();
+```
+:::
+
 ## Assert: events
 
 | Step | |
