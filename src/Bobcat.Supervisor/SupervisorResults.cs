@@ -195,6 +195,13 @@ public sealed class SupervisorResults
     public IReadOnlyList<WorkerMemory> WorkerMemory { get; init; } = [];
 
     /// <summary>
+    /// Each extra sampling target's memory story (bobcat#702) — the database container beside
+    /// the workers, from <c>Supervisor.AddMemorySampleTarget</c>. Every configured target is
+    /// here once sampling ran, with null figures where it could not be measured.
+    /// </summary>
+    public IReadOnlyList<TargetMemory> TargetMemory { get; init; } = [];
+
+    /// <summary>
     /// The RSS delta across each measured attempt (issue #149), null where overlapping tests
     /// made the delta unattributable. <see cref="RunResources.For"/> is the reporting view.
     /// </summary>

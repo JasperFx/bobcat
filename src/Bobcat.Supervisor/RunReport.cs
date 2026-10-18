@@ -222,16 +222,28 @@ public static partial class RunReport
     private static void memory(StringBuilder report, SupervisorResults results)
     {
         var resources = RunResources.For(results);
-        if (!resources.IsMeasured) return;
 
-        report.AppendLine().AppendLine(
-            $"Memory (peak worker RSS {RunResources.Humanize(resources.PeakBytes!.Value)}):");
+        // A target somebody named is worth a line even unmeasured: "not measured" is the clue
+        // that docker was not reachable, where silence would read as "nothing to report".
+        if (!resources.IsMeasured && resources.Targets.Count == 0) return;
+
+        report.AppendLine().AppendLine(resources.PeakBytes is { } peak
+            ? $"Memory (peak worker RSS {RunResources.Humanize(peak)}):"
+            : "Memory (no worker measured):");
 
         foreach (var worker in resources.Workers)
         {
             report.AppendLine(
                 $"  • {describeWorker(worker.Worker)}: {RunResources.Humanize(worker.FirstBytes)} → " +
                 $"{RunResources.Humanize(worker.PeakBytes)} peak ({RunResources.Delta(worker.GrowthBytes)})");
+        }
+
+        foreach (var target in resources.Targets)
+        {
+            report.AppendLine(target is { FirstBytes: { } first, PeakBytes: { } targetPeak, GrowthBytes: { } growth }
+                ? $"  • {target.Name}: {RunResources.Humanize(first)} → " +
+                  $"{RunResources.Humanize(targetPeak)} peak ({RunResources.Delta(growth)})"
+                : $"  • {target.Name}: not measured");
         }
 
         if (resources.Attributed.Count > 0)
@@ -439,6 +451,14 @@ public static partial class RunReport
             ["peakBytes"] = worker.PeakBytes,
             ["lastBytes"] = worker.LastBytes,
             ["growthBytes"] = worker.GrowthBytes
+        }).ToArray()),
+        ["targets"] = new JsonArray(resources.Targets.Select(target => (JsonNode)new JsonObject
+        {
+            ["name"] = target.Name,
+            ["firstBytes"] = target.FirstBytes,
+            ["peakBytes"] = target.PeakBytes,
+            ["lastBytes"] = target.LastBytes,
+            ["growthBytes"] = target.GrowthBytes
         }).ToArray()),
         ["topRetainers"] = new JsonArray(resources.TopRetainers(RetainersReported)
             .Select(test => (JsonNode)new JsonObject

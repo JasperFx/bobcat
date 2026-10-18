@@ -54,6 +54,7 @@ public sealed class Supervisor
     // RSS sampling and attribution (issue #149). Null unless ResourceSampleInterval is set —
     // "off" means not a single sample is ever taken.
     private MemorySampler? _sampler;
+    private readonly List<IMemorySampleTarget> _memoryTargets = [];
     private int _ticking;
 
     // The run's attempt history, shared with Snapshot() (issue #150). Recording is serial on
@@ -261,6 +262,26 @@ public sealed class Supervisor
     /// the test host.
     /// </remarks>
     public TimeSpan? ResourceSampleInterval { get; set; }
+
+    /// <summary>
+    /// Sample something besides the workers — the database container — and report it beside
+    /// the worker peaks (bobcat#702). On a hosted runner Postgres or SQL Server is often the
+    /// larger consumer, and what kills a runner is the total. Use
+    /// <see cref="MemorySampleTargets.Container"/> or <see cref="MemorySampleTargets.Process"/>.
+    /// </summary>
+    /// <remarks>
+    /// Sampled only while <see cref="ResourceSampleInterval"/> is set: once before the first
+    /// test, at every interval, and once after the last. Reported, never acted on; a target
+    /// that cannot be measured reports null, never zero.
+    /// </remarks>
+    public Supervisor AddMemorySampleTarget(IMemorySampleTarget target)
+    {
+        _memoryTargets.Add(target);
+        return this;
+    }
+
+    /// <summary>The extra sampling targets, in registration order.</summary>
+    public IReadOnlyList<IMemorySampleTarget> MemoryTargets => _memoryTargets;
 
     /// <summary>
     /// Publish this run to a Bobcat.Console host. Opt-in: a unit test driving a supervisor must
@@ -535,6 +556,7 @@ public sealed class Supervisor
             StalledTests = ledger.Stalled,
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
+            TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
             DurationCoverage = _durationCoverage,
             Duration = live.Elapsed,
@@ -551,7 +573,7 @@ public sealed class Supervisor
 
         _attempts = attempts;
         _ledger = new InFlightLedger(Time);
-        _sampler = ResourceSampleInterval is null ? null : new MemorySampler(Time);
+        _sampler = ResourceSampleInterval is null ? null : new MemorySampler(Time, _memoryTargets);
         ITimer? ticker = null;
 
         try
@@ -640,6 +662,9 @@ public sealed class Supervisor
 
             Log?.Invoke($"{tests.Count} test(s): {batched.Count} batched, {isolated.Count} isolated");
 
+            // The extra targets' baseline (bobcat#702), before the first test touches them.
+            if (_sampler is { } baseline) await baseline.SampleTargets(ct);
+
             ticker = startTicker();
 
             abortReason = await firstPass(batched, isolated, traits, attempts, ct);
@@ -653,6 +678,7 @@ public sealed class Supervisor
         {
             ticker?.Dispose();
             await disposeLanes();
+            if (_sampler is { } sampler) await sampler.FinishTargets();
         }
 
         return new SupervisorResults
@@ -673,6 +699,7 @@ public sealed class Supervisor
             StalledTests = _ledger.Stalled,
             StallKills = stallKills(),
             WorkerMemory = _sampler?.Workers ?? [],
+            TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
             DurationCoverage = _durationCoverage
         };
@@ -1383,6 +1410,7 @@ public sealed class Supervisor
                 _sampler is { } sampler && sampler.SampleDue(sampleInterval))
             {
                 sampler.SamplePeaks();
+                sampler.BeginTargetPass();
             }
         }
         finally

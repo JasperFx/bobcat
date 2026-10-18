@@ -182,6 +182,155 @@ public class MemorySamplingTests
         results.TestMemory.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task a_database_target_is_sampled_beside_the_workers_and_reported_with_them()
+    {
+        // bobcat#702: on a hosted runner the database container is often the larger consumer,
+        // and what kills the runner is the total.
+        var time = new FakeTimeProvider();
+        var hold = new Hold();
+        var database = new FakeTarget("postgres", 300 * MB);
+
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Heavy/queries")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            HoldAfterStart = (_, _) => hold.Enter(),
+            WorkingSet = _ => 100 * MB
+        };
+
+        var supervisor = new Supervisor(factory)
+        {
+            Time = time,
+            ResourceSampleInterval = TimeSpan.FromSeconds(15)
+        }.AddMemorySampleTarget(database);
+
+        var run = supervisor.Run();
+        await hold.Started;
+
+        database.Bytes = 2000 * MB;
+        time.Advance(TimeSpan.FromSeconds(15));
+        await database.WaitForSamples(2).WaitAsync(waitBudget);
+
+        database.Bytes = 1200 * MB;
+        hold.Release();
+
+        var results = await run.WaitAsync(waitBudget);
+
+        var target = results.TargetMemory.ShouldHaveSingleItem();
+        target.Name.ShouldBe("postgres");
+        target.FirstBytes.ShouldBe(300 * MB);
+        target.PeakBytes.ShouldBe(2000 * MB);
+        target.LastBytes.ShouldBe(1200 * MB);
+        target.GrowthBytes.ShouldBe(900 * MB);
+
+        // Beside the worker, not instead of it.
+        results.WorkerMemory.ShouldHaveSingleItem().PeakBytes.ShouldBe(100 * MB);
+        RunResources.For(results).Targets.ShouldHaveSingleItem().ShouldBe(target);
+
+        var text = RunReport.ToText(results);
+        text.ShouldContain("Memory (peak worker RSS 100 MB):");
+        text.ShouldContain("• postgres: 300 MB → 2000 MB peak (+900 MB)");
+
+        var json = RunReport.ToJson(results);
+        json.ShouldContain("\"name\": \"postgres\"");
+        json.ShouldContain($"\"peakBytes\": {2000 * MB}");
+    }
+
+    [Fact]
+    public async Task a_target_that_cannot_be_measured_is_reported_as_not_measured_and_null()
+    {
+        // docker not on PATH, the container gone: the target is named, its figures are null.
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Quick/passes")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = new Supervisor(factory)
+        {
+            Time = new FakeTimeProvider(),
+            ResourceSampleInterval = TimeSpan.FromSeconds(15)
+        }
+            .AddMemorySampleTarget(new FakeTarget("postgres", null))
+            .AddMemorySampleTarget(new ThrowingTarget("sqlserver"));
+
+        var results = await supervisor.Run().WaitAsync(waitBudget);
+
+        results.TargetMemory.Select(t => t.Name).ShouldBe(["postgres", "sqlserver"]);
+        results.TargetMemory.ShouldAllBe(t => !t.IsMeasured && t.PeakBytes == null && t.GrowthBytes == null);
+        RunResources.For(results).IsMeasured.ShouldBeFalse();
+
+        var text = RunReport.ToText(results);
+        text.ShouldContain("Memory (no worker measured):");
+        text.ShouldContain("• postgres: not measured");
+        text.ShouldContain("• sqlserver: not measured");
+
+        var json = RunReport.ToJson(results);
+        json.ShouldContain("\"name\": \"sqlserver\"");
+        json.ShouldNotContain("\"peakBytes\": 0");
+    }
+
+    [Fact]
+    public async Task a_target_is_never_sampled_while_sampling_is_off()
+    {
+        var database = new FakeTarget("postgres", 300 * MB);
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Quick/passes")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = new Supervisor(factory) { Time = new FakeTimeProvider() }
+            .AddMemorySampleTarget(database);
+
+        var results = await supervisor.Run().WaitAsync(waitBudget);
+
+        database.SamplesTaken.ShouldBe(0);
+        results.TargetMemory.ShouldBeEmpty();
+        RunReport.ToText(results).ShouldNotContain("Memory (");
+    }
+
+    private sealed class FakeTarget(string name, long? bytes) : IMemorySampleTarget
+    {
+        private int _samples;
+        private readonly List<(int Count, TaskCompletionSource Done)> _waiters = [];
+
+        public string Name { get; } = name;
+        public long? Bytes { get; set; } = bytes;
+        public int SamplesTaken => Volatile.Read(ref _samples);
+
+        public Task<long?> SampleBytes(CancellationToken ct)
+        {
+            var value = Bytes;
+            var count = Interlocked.Increment(ref _samples);
+            lock (_waiters)
+            {
+                foreach (var waiter in _waiters.Where(w => count >= w.Count)) waiter.Done.TrySetResult();
+            }
+
+            return Task.FromResult(value);
+        }
+
+        public Task WaitForSamples(int count)
+        {
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_waiters)
+            {
+                if (SamplesTaken >= count) return Task.CompletedTask;
+                _waiters.Add((count, done));
+            }
+
+            return done.Task;
+        }
+    }
+
+    private sealed class ThrowingTarget(string name) : IMemorySampleTarget
+    {
+        public string Name { get; } = name;
+        public Task<long?> SampleBytes(CancellationToken ct) => throw new InvalidOperationException("no docker");
+    }
+
     private sealed class StubClient(Func<long?> workingSet) : IWorkerClient
     {
         public long? SampleWorkingSet() => workingSet();
