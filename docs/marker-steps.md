@@ -195,6 +195,19 @@ the property that makes this usable on a real suite full of explanatory comments
 reach the runtime through a module initializer, so an assembly with no marked class gains no
 initializer and no startup cost.
 
+**A marker may wrap onto more `//` lines (bobcat#687).** The comment lines directly below a marker
+are part of its sentence, joined with spaces, up to a blank line, a line of code, or a line that is
+a marker of its own (`// And …`, `// * …`, `// Note: …`):
+
+```csharp
+// Then every event at or below the committed mark is in a document already; nothing past the
+// failing event is in one
+await CheckDocuments();
+```
+
+renders as one step with the whole sentence. To keep an ordinary comment out of the step, put a
+blank line between them or move it below the code.
+
 The two compose. Comments give a test its narrative; decorated helpers give real per-step timing
 across every test in the suite that touches them.
 
