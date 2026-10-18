@@ -73,6 +73,11 @@ public sealed class Supervisor
     private int _lanesPlanned;
     private bool _lanesReleased;
 
+    // The first pass's lane plan and what each lane took to run it (bobcat#705), so a report can
+    // set what the planner expected against what happened.
+    private IReadOnlyList<WorkLane> _lanePlan = [];
+    private readonly Dictionary<int, TimeSpan> _laneElapsed = [];
+
     // The stall escalation's books (issue #173), all behind _recordGate: written from the
     // ticker's thread when a stall fires, consumed on the run's own flow when the killed
     // worker's result is recorded.
@@ -572,6 +577,9 @@ public sealed class Supervisor
             TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
             DurationCoverage = _durationCoverage,
+            KnownTestDurations = KnownTestDurations,
+            LanePlan = _lanePlan,
+            LaneElapsed = laneElapsed(),
             Duration = live.Elapsed,
             WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
             WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
@@ -720,7 +728,10 @@ public sealed class Supervisor
             WorkerMemory = _sampler?.Workers ?? [],
             TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
-            DurationCoverage = _durationCoverage
+            DurationCoverage = _durationCoverage,
+            KnownTestDurations = KnownTestDurations,
+            LanePlan = _lanePlan,
+            LaneElapsed = laneElapsed()
         };
     }
 
@@ -911,6 +922,7 @@ public sealed class Supervisor
         {
             var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
             _lanesPlanned = Math.Max(_lanesPlanned, plan.Count);
+            _lanePlan = plan;
 
             // Said out loud (bobcat#663): a ledger keyed by uids from another machine or TFM can
             // match nothing, and the run then reads exactly like a duration-balanced one.
@@ -939,8 +951,9 @@ public sealed class Supervisor
             // Recording is deliberately serial and in lane order: it mutates the attempt history
             // and consults the policy, and a run's report should not depend on which worker
             // happened to finish first.
-            foreach (var (index, result) in results.OrderBy(r => r.Index))
+            foreach (var (index, result, elapsed) in results.OrderBy(r => r.Index))
             {
+                lock (_recordGate) _laneElapsed[index] = elapsed;
                 if (result.Crashed) invalidateLane(index, result.Fault!);
 
                 // A death the supervisor ordered over a stall (issue #173) is not a worker
@@ -1039,7 +1052,7 @@ public sealed class Supervisor
 
                 var results = await Task.WhenAll(byLane.Select(g => runLane(g.Key, g.ToList(), ct)));
 
-                foreach (var (index, result) in results.OrderBy(r => r.Index))
+                foreach (var (index, result, _) in results.OrderBy(r => r.Index))
                 {
                     if (result.Crashed) invalidateLane(index, result.Fault!);
 
@@ -1629,7 +1642,7 @@ public sealed class Supervisor
     }
 
     /// <summary>Runs one lane's tests in that lane's own long-lived worker.</summary>
-    private async Task<(int Index, WorkerRunResult Result)> runLane(
+    private async Task<(int Index, WorkerRunResult Result, TimeSpan Elapsed)> runLane(
         int index, IReadOnlyList<string> uids, CancellationToken ct)
     {
         var worker = await laneWorker(index, ct);
@@ -1638,6 +1651,7 @@ public sealed class Supervisor
 
         WorkerRunResult result;
         var started = Stopwatch.GetTimestamp();
+        TimeSpan elapsed;
         try
         {
             result = await worker.Run(uids, ct);
@@ -1646,12 +1660,18 @@ public sealed class Supervisor
         {
             // Busy time, not lifetime: what the lanes ran side by side is what lane concurrency
             // is measured against (bobcat#664).
-            Interlocked.Add(ref _busyTicks, Stopwatch.GetElapsedTime(started).Ticks);
+            elapsed = Stopwatch.GetElapsedTime(started);
+            Interlocked.Add(ref _busyTicks, elapsed.Ticks);
         }
 
         notify(observer => observer.LaneFinished(index, result));
 
-        return (index, result);
+        return (index, result, elapsed);
+    }
+
+    private IReadOnlyDictionary<int, TimeSpan> laneElapsed()
+    {
+        lock (_recordGate) return new Dictionary<int, TimeSpan>(_laneElapsed);
     }
 
     private async Task<IWorkerClient> laneWorker(int index, CancellationToken ct)
