@@ -71,6 +71,35 @@ public class SpecAssertTests
     }
 
     [Fact]
+    public void a_step_that_gathers_a_wrong_and_then_throws_counts_both()
+    {
+        // bobcat#669: report everything, then stop. The step's status is `error`, so the counts must
+        // say so as well as carrying the wrong — `errors: 0` under an error step told a dashboard the
+        // scenario merely disagreed when it could not go on.
+        using var recording = begin();
+        var step = ScenarioRecorder.Step("Then", "every agent runs exactly once");
+        SpecAssert.Check("agents running on more than one node", "fake://one/", "none");
+        SpecAssert.Check("agents not running anywhere", "none", "none");
+        ((IStepHandle)step).Fail(new SpecCriticalException("the agents did not settle"));
+
+        recording.Steps.Single().Status.ShouldBe(ResultStatus.error);
+        recording.Counts.ShouldBe(new Counts(1, 1, 1));
+    }
+
+    [Fact]
+    public void an_assertion_beside_its_own_failed_cell_is_one_wrong()
+    {
+        // The other half of the rule: a projected assertion records a cell AND fails the step with
+        // its exception, and those are one disagreement.
+        using var recording = begin();
+        var step = ScenarioRecorder.Step("Then", "the value should be 7");
+        SpecAssert.Check("value", 6, 7);
+        ((IStepHandle)step).Fail(new SpecAssertionException("value should be 7 but was 6"));
+
+        recording.Counts.ShouldBe(new Counts(0, 1, 0));
+    }
+
+    [Fact]
     public void a_false_fact_is_a_wrong_and_the_scenario_keeps_going()
     {
         using var recording = begin();
