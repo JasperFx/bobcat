@@ -102,7 +102,9 @@ Marten's hand-rolled copy got all four wrong:
 
 `Bobcat.Xunit` builds against xunit.v3 4.0.2 and Microsoft.Testing.Platform 2.5.1 (TUnit.Engine
 1.74.0 runs on the same platform) since Bobcat 0.60.0; [Version Compatibility](/compatibility) has the
-full table. What changes in a consuming test project:
+full table. If only one project in your repository moves, see
+[Adopting Bobcat in one project of a larger repository](/compatibility#partial-adoption). What
+changes in a consuming test project:
 
 - **Move `xunit.v3` to 4.x.** The platform and xUnit move together; a 3.x `xunit.v3` beside
   Microsoft.Testing.Platform 2.x fails at run time.

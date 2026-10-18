@@ -51,6 +51,89 @@ Each runner adapter depends on its framework at the version below as a minimum.
 Microsoft.Testing.Platform 1.9. The two don't mix in one test project: if you upgrade Bobcat from a
 release before 0.60.0, upgrade `xunit.v3` to 4.x in the same change.
 
+## Adopting Bobcat in one project of a larger repository {#partial-adoption}
+
+A large repository usually can't move every test project to xUnit v3 4.x at once. You can adopt
+`Bobcat.Xunit` in one project and leave the rest on xUnit v3 3.x. Marten did this: its
+`DaemonTests` takes Bobcat 1.0 and its other 24 test projects stay on `xunit.v3` 3.2.2
+(JasperFx/marten#5690). Three things need care.
+
+### Move only the Bobcat projects to xUnit v3 4.x
+
+With Central Package Management, keep the repository's `xunit.v3` pin as it is and override it in
+the projects that reference `Bobcat.Xunit`:
+
+```xml
+<!-- Directory.Packages.props -->
+<PropertyGroup>
+  <BobcatXunitV3Version>4.0.2</BobcatXunitV3Version>
+  <BobcatXunitRunnerVersion>4.0.1</BobcatXunitRunnerVersion>
+</PropertyGroup>
+```
+
+```xml
+<!-- the spec project's .csproj -->
+<PackageReference Include="xunit.v3" VersionOverride="$(BobcatXunitV3Version)" />
+<PackageReference Include="xunit.runner.visualstudio" VersionOverride="$(BobcatXunitRunnerVersion)">
+  <PrivateAssets>all</PrivateAssets>
+</PackageReference>
+```
+
+Then **check every `ProjectReference` into the spec project.** A test project that references it
+gets xUnit v3 4.x through that reference. That project then has two xUnit lines in one graph, and
+3.x and 4.x can't share a test project. In Marten, `CoreTests` referenced `DaemonTests` only for a
+transitive package. The fix was to remove the reference and add that package directly. A
+non-test project that references the spec project (a shared test-support library, say) also needs
+`IsTestingPlatformApplication=false` (see [Moving to xUnit v3 4.x](/xunit#moving-to-xunit-4)).
+
+The rest of the [xUnit 4 move](/xunit#moving-to-xunit-4) applies to the spec project only. For
+example, `[assembly: CollectionBehavior(DisableTestParallelization = true)]` is a compile error
+there, and the other projects keep theirs.
+
+### Run the spec project directly or through the supervisor, not with `dotnet test`
+
+On the .NET 10 SDK, `dotnet test` runs an xUnit v3 4.x project only when `global.json` selects
+Microsoft.Testing.Platform:
+
+```json
+{
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
+```
+
+That setting covers **every project under that `global.json`**, so it moves the whole repository
+off VSTest. In a partial adoption you will usually leave it out. Without it, `dotnet test` on the
+spec project fails, so run the spec project another way:
+
+- **Run the built test host.** A Microsoft.Testing.Platform test project is an executable:
+  `./src/MySpecs/bin/Release/net10.0/MySpecs --filter-class "*Wallet*"`.
+- **Run it through `Bobcat.Supervisor`**, for example from a Nuke target. The supervisor launches
+  the built host itself, so it doesn't depend on `dotnet test` at all. Marten's CI runs
+  `DaemonTests` this way.
+
+If CI runs `dotnet test` over a solution, make sure the spec project isn't part of that run.
+
+### A build tool that references `Bobcat.Supervisor` gets Bobcat's JasperFx minimum
+
+`Bobcat.Supervisor` depends on `Bobcat`, and `Bobcat` requires `JasperFx` and `JasperFx.Events` at
+the minimum in [the table above](#bobcat-1-0). That minimum applies to the build project too, even
+though the supervisor only uses the retry and isolation types. If the build pins `JasperFx` below
+that minimum, restore fails with **NU1605** (a detected package downgrade).
+
+The build ships nothing, so raise its pin there and leave the product's own JasperFx dependency
+alone:
+
+```xml
+<!-- build/build.csproj -->
+<PackageReference Include="Bobcat.Supervisor" />
+<PackageReference Include="JasperFx" VersionOverride="2.90.2" />
+```
+
+Don't silence NU1605 with `NoWarn`. That runs Bobcat on a JasperFx older than it was built against,
+which is what the table above warns about.
+
 ## WolverineFx.Bobcat
 
 `WolverineScenario`, `WolverineSpec` and `WolverineHttpSpec` ship from the Wolverine repository as
