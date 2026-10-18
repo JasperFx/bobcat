@@ -142,11 +142,21 @@ against as its minimum:
 
 | WolverineFx.Bobcat | Requires Bobcat | Requires WolverineFx |
 |---|---|---|
-| 6.50.0-alpha.1 and later | 0.60.4 or later | the same version |
+| 6.50.0-alpha.1 – 6.51.0-alpha.1 | 0.60.4 or later | the same version |
 | 6.49.0-alpha.3 | 0.38.0 or later | 6.49.0 |
 | 6.48.x | 0.32.0 or later | the same version |
 
-Use a `WolverineFx.Bobcat` whose minimum Bobcat is the release you are on, or the closest one
+**No `WolverineFx.Bobcat` is built against Bobcat 1.0 yet.** For Bobcat 1.0.0-alpha.1, use
+**WolverineFx.Bobcat 6.51.0-alpha.1**: it is the supported pairing until a release built against
+1.0 ships, and this table gains its row then. Reference `Bobcat`, `Bobcat.Generators` and your
+runner adapter at 1.0.0-alpha.1 directly. NuGet takes the higher Bobcat without a warning (6.51.0
+only sets a minimum, so there is no NU1608). This pairing has run in
+[CritterStackSamples](https://github.com/JasperFx/CritterStackSamples): 12 spec projects using
+`WolverineSpec` (`WhenReceived`, `WhenTracked`, `ThenMessageSent`, `ThenNoMessageSent`,
+`GivenReadModel`, `ThenDocument`, `ThenSingleDocument`, `ThenEvents`, `ThenStreamIsStarted`)
+compiled and passed on net9.0 and net10.0.
+
+Otherwise, use a `WolverineFx.Bobcat` whose minimum Bobcat is the release you are on, or the closest one
 below it. A `WolverineFx.Bobcat` built against an older Bobcat may compile against a newer one but
 is not tested with it. `bobcat import-event-model --specs` writes the version into the spec
 project it generates. Pass `--wolverine-version` to choose a different one (see
