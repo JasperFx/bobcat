@@ -127,6 +127,34 @@ public static class ScenarioValues
     }
 
     /// <summary>
+    /// A duration as a sentence says it (bobcat#682): <c>5 days</c>, <c>1 hour 30 minutes</c>,
+    /// <c>250 milliseconds</c> — not <c>5.00:00:00</c>. For step text; a cell compares on the value's own format.
+    /// </summary>
+    public static string FormatDuration(TimeSpan span)
+    {
+        if (span == TimeSpan.Zero) return "0 seconds";
+
+        var sign = span < TimeSpan.Zero ? "-" : "";
+        var magnitude = span.Duration();
+        var parts = new List<string>();
+        add(parts, magnitude.Days, "day");
+        add(parts, magnitude.Hours, "hour");
+        add(parts, magnitude.Minutes, "minute");
+        add(parts, magnitude.Seconds, "second");
+        add(parts, magnitude.Milliseconds, "millisecond");
+
+        // Below a millisecond there is still something to say rather than nothing
+        if (parts.Count == 0) return sign + magnitude.TotalMilliseconds.ToString("0.###", CultureInfo.InvariantCulture) + " milliseconds";
+        return sign + string.Join(" ", parts);
+
+        static void add(List<string> parts, int count, string unit)
+        {
+            if (count == 0) return;
+            parts.Add(count.ToString(CultureInfo.InvariantCulture) + " " + unit + (count == 1 ? "" : "s"));
+        }
+    }
+
+    /// <summary>
     /// <paramref name="value"/> on one line: <c>Type(Property: value, …)</c>, nested objects the same
     /// way, collections in brackets, a property-less stub as its type name. Learns names as it goes.
     /// </summary>
@@ -139,16 +167,28 @@ public static class ScenarioValues
     /// (<c>record BookReturned;</c>) has nothing to say, so it is empty rather than its type name again
     /// beside the column that already names it (bobcat#618).
     /// </summary>
-    public static string DescribeProperties(object? value)
+    public static string DescribeProperties(object? value) => describeProperties(value, omitUnassignedId: false);
+
+    /// <summary>
+    /// A document's properties as <see cref="DescribeProperties"/> reads them, leaving out an <c>Id</c> the
+    /// store has yet to assign (bobcat#682): a HiLo id is still <c>0</c>, a Guid id <c>Guid.Empty</c>, until
+    /// the document is stored, so <c>Id: 0</c> would describe a value the document never has.
+    /// </summary>
+    public static string DescribeDocument(object? value) => describeProperties(value, omitUnassignedId: true);
+
+    private static string describeProperties(object? value, bool omitUnassignedId)
     {
         if (value is not null && !isScalar(value.GetType()) && value is not IEnumerable
             && readable(value.GetType()).Length == 0) return "";
 
-        var described = describe(value, 0, learnOnly: false);
+        var described = describe(value, 0, learnOnly: false, omitUnassignedId);
         if (value is null || isScalar(value.GetType()) || value is IEnumerable) return described;
 
         if (isAnonymous(value.GetType()) && described.StartsWith("{ ", StringComparison.Ordinal))
             return described[2..^2];
+
+        // Every property left out: nothing to say beside the type that is already named
+        if (omitUnassignedId && described == displayName(value.GetType())) return "";
 
         var prefix = displayName(value.GetType()) + "(";
         return described.StartsWith(prefix, StringComparison.Ordinal) && described.EndsWith(')')
@@ -166,11 +206,12 @@ public static class ScenarioValues
     /// <summary>Whether <paramref name="value"/> prints as a single token rather than as its properties.</summary>
     public static bool IsScalar(object? value) => value is null || isScalar(value.GetType());
 
-    private static string describe(object? value, int depth, bool learnOnly)
+    private static string describe(object? value, int depth, bool learnOnly, bool omitUnassignedId = false)
     {
         if (value is null) return "null";
 
         var type = value.GetType();
+        if (value is TimeSpan span) return FormatDuration(span);
         if (isScalar(type)) return value is string s ? quote(s) : Format(value);
 
         if (value is IEnumerable enumerable)
@@ -180,6 +221,8 @@ public static class ScenarioValues
         }
 
         var properties = readable(type);
+        if (omitUnassignedId && depth == 0)
+            properties = properties.Where(x => !(x.Name == "Id" && isUnassignedId(read(x, value)))).ToArray();
 
         // bobcat#618: an anonymous object has no name worth printing, so it reads as its members
         if (isAnonymous(type) && properties.Length == 0) return "an empty object";
@@ -242,6 +285,15 @@ public static class ScenarioValues
     }
 
     private static bool isNameable(object value) => value is Guid g && g != Guid.Empty;
+
+    private static bool isUnassignedId(object? id) => id switch
+    {
+        null => true,
+        Guid guid => guid == Guid.Empty,
+        int number => number == 0,
+        long number => number == 0,
+        _ => false
+    };
 
     private static string quote(string value) => "\"" + value + "\"";
 

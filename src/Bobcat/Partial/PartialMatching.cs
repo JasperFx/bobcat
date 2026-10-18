@@ -132,9 +132,13 @@ public static class PartialMatching
         return string.Join(", ", partial.Values.Select(v =>
         {
             var resolved = PropertyCells.Resolve(actual, v.Path);
-            var shown = resolved.Kind == PropertyCells.PathResultKind.Found
-                ? ScenarioValues.Format(ObjectComparison.Unwrap(resolved.Value))
-                : "?";
+            // Read as the expected side reads (bobcat#682): a typed value as describing it would, a string
+            // quoted; beside cell text, as the plain text the cell holds
+            var shown = resolved.Kind != PropertyCells.PathResultKind.Found
+                ? "?"
+                : v.IsText
+                    ? ScenarioValues.Format(ObjectComparison.Unwrap(resolved.Value))
+                    : ScenarioValues.Describe(ObjectComparison.Unwrap(resolved.Value));
             return $"{v.Path}: {shown}";
         }));
     }

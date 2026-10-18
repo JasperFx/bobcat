@@ -100,6 +100,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
             // Numbered before either output: the interceptor writes each call's ordinal into the
             // recorder, and the plan is the list that ordinal indexes into. They have to agree.
+            StepInterceptors.EndRegions(calls);
             StepInterceptors.Number(calls);
 
             spc.AddSource("BobcatStepInterceptors.g.cs", StepInterceptors.Emit(calls));

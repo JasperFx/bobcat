@@ -290,4 +290,34 @@ public class DeclaredValueNamesTests
         var theOrder = ScenarioValues.Declare(Guid.NewGuid(), "theOrder");
         ScenarioValues.Format(theOrder).ShouldBe(theOrder.ToString()[..8] + "…");
     }
+
+    public class Todo
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+    }
+
+    [Fact]
+    public void a_document_leaves_out_an_id_the_store_has_yet_to_assign()
+    {
+        // bobcat#682: a HiLo id is 0 until the document is stored, so "Id: 0" described a value it never has
+        using var _ = scenario();
+        ScenarioValues.DescribeDocument(new Todo { Title = "Duplicate" }).ShouldBe("Title: \"Duplicate\"");
+        ScenarioValues.DescribeDocument(new Todo { Id = 2, Title = "Duplicate" }).ShouldBe("Id: 2, Title: \"Duplicate\"");
+        ScenarioValues.DescribeDocument(new Ghost()).ShouldBe("");
+        ScenarioValues.DescribeProperties(new Todo { Title = "Duplicate" }).ShouldBe("Id: 0, Title: \"Duplicate\"");
+    }
+
+    public class Ghost
+    {
+        public Guid Id { get; set; }
+    }
+
+    [Fact]
+    public void a_duration_inside_a_value_reads_as_words()
+    {
+        ScenarioValues.Describe(new Reminder(TimeSpan.FromDays(5))).ShouldBe("Reminder(Delay: 5 days)");
+    }
+
+    public record Reminder(TimeSpan Delay);
 }

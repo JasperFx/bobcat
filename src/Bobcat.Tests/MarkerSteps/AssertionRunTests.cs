@@ -116,6 +116,24 @@ public class AssertionRunTests
     }
 
     [Fact]
+    public void an_empty_expected_value_still_reads_in_the_cell()
+    {
+        using var recording = begin();
+
+        // bobcat#682: an empty list rendered as nothing at all -- "exceptions: " -- because a sentence leaves
+        // such a value as its placeholder
+        Should.Throw<ShouldAssertException>(() => AssertionRun.Gather(
+            () => throw new ShouldAssertException("exceptions should be []"),
+            ScenarioRecorder.Step("Then", "exceptions should be []"),
+            flush: true,
+            subject: "exceptions", actual: new List<string> { "boom" }, expected: new List<string>()));
+
+        var cell = recording.Steps.Single().Cells.ShouldHaveSingleItem();
+        cell.Expected.ShouldBe("[]");
+        cell.DisplayText.ShouldBe("expected '[]', got 'boom'");
+    }
+
+    [Fact]
     public void the_cell_states_the_comparison_the_assertion_actually_made()
     {
         using var recording = begin();

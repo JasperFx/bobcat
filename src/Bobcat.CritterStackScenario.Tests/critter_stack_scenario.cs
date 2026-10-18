@@ -126,8 +126,18 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         });
 
         recording.GatheredFailures().ShouldBeNull();
-        recording.Steps[0].Text.ShouldStartWith("the Customer read model is ");
-        recording.Steps[1].Text.ShouldStartWith("the Customer read model is Customer(");
+
+        // bobcat#682: "there is a Customer with ...", not "the Customer read model is Customer(...)"
+        recording.Steps[0].Text.ShouldStartWith("there is a Customer with Id: #");
+        recording.Steps[0].Text.ShouldContain("Name: \"Ann\"");
+        recording.Steps[1].Text.ShouldStartWith("there is a Customer with Id: #");
+        recording.Steps[1].Text.ShouldContain("Name: \"Bo\"");
+
+        // ...and two documents checked side by side say which is which
+        var checks = recording.Steps.Select(x => x.Text).Where(x => x.EndsWith(" matches")).ToList();
+        checks.Count.ShouldBe(2);
+        checks.ShouldAllBe(x => x.StartsWith("the Customer #"));
+        checks[0].ShouldNotBe(checks[1]);
     }
 
     [Fact]
@@ -146,7 +156,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         });
 
         recording.GatheredFailures().ShouldBeNull();
-        recording.Steps[0].Text.ShouldStartWith("the Customer read model is Customer(");
+        recording.Steps[0].Text.ShouldStartWith("there is a Customer with Id: #");
 
         // A document that is not there is a wrong, not a pass
         // A recording of its own starts with no names, so the id is named as the arranged document named it
@@ -161,7 +171,8 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
     [Fact]
     public async Task a_read_model_too_long_for_the_line_keeps_its_values_and_reads_back_by_a_readable_id()
     {
-        // bobcat#618: a class read model rendered "the Customer read model is Customer" with none of its values,
+        // bobcat#618: a class read model rendered "the Customer read model is Customer" with none of its values
+        // ("there is a Customer" since bobcat#682),
         // and a document named after its own type read "there is no Customer Customer" (#Customer since bobcat#640)
         var scenario = newScenario();
         var id = Guid.NewGuid();
@@ -174,7 +185,7 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         });
 
         recording.GatheredFailures().ShouldBeNull();
-        recording.Steps[0].Text.ShouldBe("the Customer read model is Customer");
+        recording.Steps[0].Text.ShouldBe("there is a Customer");
         recording.Steps[0].Cells.Single(x => x.Name == "values").DisplayText.ShouldContain("City: \"a city with a long enough name\"");
         recording.Steps.Select(x => x.Text).ShouldContain("there is a Customer #Customer");
 

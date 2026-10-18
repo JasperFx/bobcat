@@ -200,11 +200,16 @@ public sealed partial class SuiteTiming
 
     /// <summary>
     /// Fold the rendered argument values out of a step's text so occurrences of one grammar
-    /// step group together: quoted strings become {string}, bare numbers {number}. Word-embedded
-    /// digits (sha256, utf8) are left alone, as is anything already in braces.
+    /// step group together: quoted strings become {string}, Guids {guid} (whole, or shortened to eight
+    /// characters and an ellipsis), bare numbers {number}. Word-embedded digits (sha256, utf8) are left
+    /// alone, as is anything already in braces.
     /// </summary>
     public static string NormalizeStepText(string text)
-        => bareNumber().Replace(quotedString().Replace(text, "{string}"), "{number}");
+        => bareNumber().Replace(guid().Replace(quotedString().Replace(text, "{string}"), "{guid}"), "{number}");
+
+    // bobcat#682: a Guid route (DELETE /api/todolists/ffb2ea15-…) was one group per spec
+    [GeneratedRegex(@"(?<![\w-])[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}(?![\w-])|(?<![\w-])[0-9a-fA-F]{8}…")]
+    private static partial Regex guid();
 
     [GeneratedRegex("\"[^\"]*\"")]
     private static partial Regex quotedString();

@@ -99,9 +99,9 @@ public class PartialMatchingTests
         var actual = new Shipped(Order, "UPS", "1Z999", 2.5m);
 
         PartialMatching.DescribeActual(actual, Specify<Shipped>().With(x => x.TrackingNumber, "1Z999"))
-            .ShouldBe("TrackingNumber: 1Z999");
+            .ShouldBe("TrackingNumber: \"1Z999\"");
         PartialMatching.DescribeExpected(Specify<Shipped>().With(x => x.TrackingNumber, "1Z999"))
-            .ShouldBe("TrackingNumber: 1Z999");
+            .ShouldBe("TrackingNumber: \"1Z999\"");
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class PartialMatchingTests
         var run = ObjectSetVerification.Verify(Stream,
             [Specify<Shipped>().With(x => x.TrackingNumber, "FX2")], "event", SetMode.Contains);
 
-        run.Cells.Single(c => c.Name == ObjectSetVerification.ValuesColumn).Actual.ShouldBe("TrackingNumber: FX2");
+        run.Cells.Single(c => c.Name == ObjectSetVerification.ValuesColumn).Actual.ShouldBe("TrackingNumber: \"FX2\"");
     }
 
     [Fact]

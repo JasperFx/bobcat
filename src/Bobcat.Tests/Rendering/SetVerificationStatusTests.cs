@@ -179,10 +179,22 @@ public class SetVerificationStatusTests
     }
 
     [Fact]
-    public void the_verdict_column_is_headed_status_when_nothing_else_is()
+    public void the_verdict_column_is_headed_verdict_whether_or_not_the_type_has_a_status()
     {
+        // bobcat#682: it was Status here and Verdict beside a type with its own Status member
         CommandLineRenderer.VerdictColumnHeader(compare([new Row("Cord", 100)], [("Cord", "100")], ordered: false))
-            .ShouldBe("Status");
+            .ShouldBe("Verdict");
+        CommandLineRenderer.VerdictColumnHeader(ticketGrid()).ShouldBe("Verdict");
+    }
+
+    public record Judged(string Name, string Verdict);
+
+    [Fact]
+    public void a_type_with_its_own_verdict_column_gets_a_bobcat_verdict_column()
+    {
+        var rows = new List<Dictionary<string, string>> { new() { ["Name"] = "T-1", ["Verdict"] = "guilty" } };
+        var run = SetVerificationComparer.Cells(new[] { new Judged("T-1", "innocent") }, rows, ["Name"], false);
+        CommandLineRenderer.VerdictColumnHeader(SetVerificationRender.FromCells(run.Columns, run.Cells)).ShouldBe("Bobcat verdict");
     }
 
     [Fact]

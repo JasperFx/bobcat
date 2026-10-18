@@ -330,7 +330,9 @@ public static class PartialObjects
         if (value.IsText) return ((string?)value.Value ?? "").Trim();
         if (value.Value is MemberCheck check) return check.Description;
 
+        // bobcat#682: a typed value reads as describing the whole object reads it -- a string quoted
+        // (UserName: "alice", as a Given shows it), an object as its members rather than its ToString
         ScenarioValues.LearnMember(root, value.Path, value.Value);
-        return ScenarioValues.Format(value.Value);
+        return ScenarioValues.Describe(value.Value);
     }
 }
