@@ -152,6 +152,91 @@ only on CI, so check it before the first push. Either fix works:
   </Project>
   ```
 
+### Durations from the last run: the ledger as a CI artifact
+
+Lanes balance by test count until the supervisor knows what each test costs. `TestLedger` carries
+those durations from one run to the next, and the usual way to carry it is **as a CI artifact**:
+each run downloads the previous run's ledger, balances on it, folds its own results in, and uploads
+it again. Nothing is committed, so no commit or merge conflict comes out of a test run.
+
+```csharp
+using Bobcat.Ledger;
+using Bobcat.Supervisor;
+
+const string ledgerPath = "artifacts/ledger/ledger.json";
+
+// A missing file is an empty ledger: the first run balances by count.
+var ledger = TestLedger.Load(ledgerPath);
+
+var supervisor = new Supervisor(new MtpWorkerFactory("path/to/MySpecs"))
+{
+    MaxParallelWorkers = 4,
+    KnownTestDurations = ledger.KnownDurations()
+};
+
+var results = await supervisor.Run();
+
+// The run id and stamp are yours to supply, so the fold never reads a clock.
+var runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? Guid.NewGuid().ToString("N");
+ledger.Record(SupervisorLedger.From(results, runId, DateTimeOffset.UtcNow)).Save(ledgerPath);
+
+return results.ExitCode;
+```
+
+In GitHub Actions, fetch the ledger from the newest successful run on `main` with the `gh` CLI, and
+upload it whatever the outcome (a red run's durations are still durations):
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+
+  - name: Download the previous run's ledger
+    env:
+      GH_TOKEN: ${{ github.token }}
+    run: |
+      run_id=$(gh run list --workflow "${{ github.workflow }}" --branch main --status success \
+        --limit 1 --json databaseId --jq '.[0].databaseId')
+      if [ -n "$run_id" ]; then
+        gh run download "$run_id" --name bobcat-ledger --dir artifacts/ledger || echo "no ledger yet"
+      fi
+
+  - run: dotnet run --project build/SupervisedSpecs   # the host above
+
+  - uses: actions/upload-artifact@v4
+    if: always()
+    with:
+      name: bobcat-ledger
+      path: artifacts/ledger/ledger.json
+      retention-days: 30
+```
+
+What the ledger needs to know:
+
+- **Tests are keyed by display name**, which stays the same across machines, configurations and
+  target frameworks. The uid does not: xUnit v3's uid hashes the assembly path, so a ledger keyed by
+  uid matched 0 of 2525 tests on another machine, and 2521 once re-keyed by display name. Where two
+  tests share a display name, both are keyed by their uid instead, so two tests' durations are never
+  merged into one. `ledger.SharedDisplayNames` lists those names; their durations only match on the
+  machine that recorded them.
+- **The run says how many durations matched**: `Known durations matched 2521/2525 test(s)`, or
+  `Known durations matched 0/2525 test(s): lanes balanced by test count`. These are the first lines
+  of the report, and `knownDurations` in the JSON. A durations dictionary you build yourself can be
+  keyed by uid or by the ledger's key; both are looked up.
+- **It keeps the newest 5 runs per test by default** (`TestLedger.DefaultMaxRunsPerTest`). That is
+  enough for a median and a trend, and keeps the artifact small. Choose another number with
+  `TestLedger.Empty(n)`, or `TestLedger.Empty(n).Merge(ledger)` to change an existing file.
+- **A ledger written before Bobcat keyed by display name (a version 1 or 2 file) still loads.** It
+  is re-keyed by display name, folding one test's uids from different machines into one test. Tests
+  that shared a display name in one of its runs stay keyed by uid. The ledger is written back as
+  version 3.
+- **Committing the ledger is opt-in.** Commit it if you want a laptop's first run to balance by
+  duration too. When two branches change it and conflict, load both sides, `Merge` them, and save.
+  The merge always gives the same file, so the conflict can't be resolved wrongly.
+
 ## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never
@@ -664,14 +749,12 @@ isolation -- report, don't act, so whether a slow test is a bug or honestly slow
 Parallel efficiency is split by where the overlap came from: the lanes running side by side, or the
 test framework's own parallelism inside one worker. A single-lane run above 1x is the second kind,
 which more workers would not add to.
-Across runs, the committed ledger (`TestLedger`, see
+Across runs, the ledger (`TestLedger`, see
 [ledger-design.md](https://github.com/JasperFx/bobcat/blob/main/design/ledger-design.md)) carries duration trends,
 and `ledger.KnownDurations()` feeds the lane balancer so a second run balances on measured
-durations instead of test counts. The durations are keyed by test uid, and xUnit v3's uid hashes the
-assembly path, so a ledger recorded on another machine, configuration or target framework can match
-nothing. The run says how many matched: `Known durations matched 2521/2525 test(s)`, or
-`Known durations matched 0/2525 test(s): lanes balanced by test count` (the report's first lines,
-and `knownDurations` in the JSON). Keep one ledger per framework, recorded where the run happens.
+durations instead of test counts. It is keyed by display name, so a ledger from another machine,
+configuration or target framework still matches, and the run says how many durations matched (see
+[the ledger as a CI artifact](#durations-from-the-last-run-the-ledger-as-a-ci-artifact)).
 
 And it does not shorten a CI run whose wall clock is set by a *different* job. Wolverine's matrix
 runs ~30 jobs concurrently, so the workflow takes as long as its slowest; parallelising the Redis

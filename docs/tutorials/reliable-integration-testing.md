@@ -141,7 +141,7 @@ count if nobody is looking at it.
 reported are not silently dropped and not counted as passes -- they come back as indeterminate, with
 their display names. A suite that cannot tell you what happened should say so.
 
-**The committed ledger** is where flake and duration history lives across runs, so "this test is
+**The ledger** (`TestLedger`) is where flake and duration history lives across runs, so "this test is
 flaky" becomes a claim with evidence behind it rather than a memory. It is derived, never primary.
 
 ## What this does not buy you

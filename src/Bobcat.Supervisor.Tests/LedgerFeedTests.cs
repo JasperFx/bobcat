@@ -77,4 +77,60 @@ public class LedgerFeedTests
         observed.FirstMs.ShouldBeNull();
         TestLedger.Empty().Record([observed]).KnownDurations().ShouldBeEmpty();
     }
+
+    private static FakeWorkerFactory machine(string uidPrefix) => new()
+    {
+        // The same four tests, under the uids another machine's assembly path hashes to.
+        Tests =
+        [
+            new WorkerTest($"{uidPrefix}-1", "A.one"), new WorkerTest($"{uidPrefix}-2", "A.two"),
+            new WorkerTest($"{uidPrefix}-3", "B.one"), new WorkerTest($"{uidPrefix}-4", "B.two")
+        ],
+        Outcome = (_, _, _) => WorkerTestState.Passed,
+        Duration = (uid, _) => uid.EndsWith("-1") ? TimeSpan.FromSeconds(30) : TimeSpan.FromSeconds(1)
+    };
+
+    [Fact]
+    public async Task a_ledger_recorded_on_one_machine_matches_every_test_on_another()
+    {
+        // Issue #730: keyed by uid, this matched 0 of 4 — Marten's 0 of 2525 in miniature.
+        var laptop = await new Supervisor(machine("laptop")).Run();
+        var ledger = TestLedger.Empty().Record(SupervisorLedger.From(laptop, "run-1", t0));
+
+        ledger.Tests.Keys.ShouldBe(["A.one", "A.two", "B.one", "B.two"]);
+
+        var ci = await new Supervisor(machine("ci"))
+        {
+            MaxParallelWorkers = 2,
+            KnownTestDurations = TestLedger.FromJson(ledger.ToJson()).KnownDurations()
+        }.Run();
+
+        ci.DurationCoverage.ShouldBe(new DurationCoverage(4, 4));
+    }
+
+    [Fact]
+    public async Task two_tests_sharing_a_display_name_are_recorded_and_looked_up_by_uid()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [new WorkerTest("u1", "Ns.Class.same"), new WorkerTest("u2", "Ns.Class.same")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            Duration = (uid, _) => uid == "u1" ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(9)
+        };
+
+        var results = await new Supervisor(factory).Run();
+        var observations = SupervisorLedger.From(results, "run-1", t0);
+
+        // Never one test with two tests' durations folded into it.
+        observations.Select(o => o.Key).OrderBy(k => k).ShouldBe(["u1", "u2"]);
+        var ledger = TestLedger.Empty().Record(observations);
+        ledger.SharedDisplayNames.ShouldBe(["Ns.Class.same"]);
+
+        var next = await new Supervisor(factory)
+        {
+            MaxParallelWorkers = 2,
+            KnownTestDurations = ledger.KnownDurations()
+        }.Run();
+        next.DurationCoverage.ShouldBe(new DurationCoverage(2, 2));
+    }
 }

@@ -187,13 +187,14 @@ public sealed class Supervisor
     public bool FailWhenNoTests { get; set; }
 
     /// <summary>
-    /// Previously observed per-test durations, keyed by uid, used to balance the lanes.
+    /// Previously observed per-test durations, used to balance the lanes — keyed as the ledger
+    /// keys them (display name, or uid where two tests share one; issue #730), or by uid.
     /// </summary>
     /// <remarks>
     /// Optional, and a first run has none — then partitions are weighted by test count, which is
     /// a poor proxy. Measured on Wolverine's <c>PersistenceTests</c>: count-balanced lanes finished
     /// at 101.5s and 11.4s, so nearly a quarter of the fleet sat idle. The natural source is the
-    /// committed ledger (<c>docs/ledger-design.md</c>):
+    /// ledger (<c>design/ledger-design.md</c>), carried between CI runs as an artifact:
     /// <c>TestLedger.Load(path).KnownDurations()</c> is this exact shape, fed back from prior
     /// runs' <c>SupervisorLedger.From(results, …)</c> observations. Deliberately not read
     /// implicitly — an implicit file read is the same kind of side effect as an implicit write.

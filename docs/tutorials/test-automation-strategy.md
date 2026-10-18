@@ -95,7 +95,7 @@ than a broad one nobody believes.
 - **Retries are opt-in.** A test with no `Retry` trait is never retried, even when a budget is
   configured. When a test does pass on a retry, that is reported as `PassOnRetry`, never folded into
   the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
-- **Flakiness has a memory.** The committed ledger keeps every attempt across runs, so "this test is
+- **Flakiness has a memory.** The ledger keeps every attempt across runs, so "this test is
   flaky" is a claim with evidence behind it.
 - **A hang is reported, not just suffered.** Stall detection names the test that stopped making
   progress, and can kill and retry it if you opt in

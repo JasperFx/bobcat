@@ -99,7 +99,11 @@ public class OrderSpecs;
 settled by making the merge strategy the design: a grow-only set of per-(test, run) observations
 plus a deterministic clock-free prune — `Record`/`Merge` commutative, associative, idempotent;
 serialization canonical (byte-identical for the same observations, whoever folds) — so a git
-conflict always resolves by load-both-sides → `Merge` → save, no artifacts needed. Failure classes
+conflict always resolves by load-both-sides → `Merge` → save, no artifacts needed. **Tests are
+keyed by display name, not uid (#730)** — xUnit v3's uid hashes the assembly path, so a uid key
+matched 0 tests across machines — falling back to the uid only for display names two tests share
+in a run (`LedgerKeys`, which `WorkPlan` joins `KnownTestDurations` on too); and the default home
+is a CI artifact (retention 5), with committing opt-in. Failure classes
 are keyed by type *name* (the `FailureSignature` rule); aging is newest `MaxRunsPerTest` per test
 plus explicit `PruneTestsNotSeenSince(cutoff)` for deleted tests. Fed by
 `SupervisorLedger.From(SupervisorResults, runId, at)` (every attempt survives). Nothing writes the
