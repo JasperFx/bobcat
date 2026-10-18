@@ -133,4 +133,39 @@ public class LedgerFeedTests
         }.Run();
         next.DurationCoverage.ShouldBe(new DurationCoverage(2, 2));
     }
+
+    private static FakeWorkerFactory collapsing(string reportedRow) => new()
+    {
+        // Discovery names the theory by its method; the worker reports a row's name under its one
+        // uid (bobcat#649), and which row decides the fold moves from run to run.
+        Tests = [new WorkerTest("theory-uid", "Ns.Conformance.kept_or_refused"), new WorkerTest("plain-uid", "Ns.Conformance.plain")],
+        ReportedName = uid => uid == "theory-uid" ? reportedRow : null,
+        CollapsedRows = uid => uid == "theory-uid"
+            ? ["Ns.Conformance.kept_or_refused(provider: \"Postgres\")", "Ns.Conformance.kept_or_refused(provider: \"SqlServer\")"]
+            : null,
+        Outcome = (_, _, _) => WorkerTestState.Passed,
+        Duration = (_, _) => TimeSpan.FromSeconds(3)
+    };
+
+    [Fact]
+    public async Task a_collapsed_theory_is_recorded_under_the_name_the_planner_looks_it_up_by()
+    {
+        // Issue #747: recorded under one row's name, the planner's method-name lookup missed it,
+        // and a new key was added whenever the deciding row changed.
+        var first = await new Supervisor(collapsing("Ns.Conformance.kept_or_refused(provider: \"Postgres\")")).Run();
+        var ledger = TestLedger.Empty().Record(SupervisorLedger.From(first, "run-1", t0));
+
+        var second = await new Supervisor(collapsing("Ns.Conformance.kept_or_refused(provider: \"SqlServer\")")).Run();
+        ledger = ledger.Record(SupervisorLedger.From(second, "run-2", t0.AddHours(1)));
+
+        ledger.Tests.Keys.ShouldBe(["Ns.Conformance.kept_or_refused", "Ns.Conformance.plain"]);
+
+        var next = await new Supervisor(collapsing("anything"))
+        {
+            MaxParallelWorkers = 2,
+            KnownTestDurations = TestLedger.FromJson(ledger.ToJson()).KnownDurations()
+        }.Run();
+
+        next.DurationCoverage.ShouldBe(new DurationCoverage(2, 2));
+    }
 }
