@@ -58,6 +58,15 @@ arranged, `WhenActingOn` addressed, or one of its acts wrote to or started (bobc
 `LastAct.ForeignEvents`. An exception it throws is captured, not rethrown, so a refusal can be asserted
 with `ThenValidationFails` or `ThenRefusedWith`.
 
+**An act that times out is the one exception: its own When step goes red** (bobcat#673). When what the
+act threw is, or wraps, a `TimeoutException`, the When step reads `error` with an `ActTimedOutException`
+-- `The act timed out: …`, the timeout as its inner exception -- so the report starts at the act instead
+of at the Then steps that found nothing to judge. The scenario still carries on, `LastAct.Error` still
+holds what the act threw, and the Then steps still say "The act failed". Every other exception leaves
+the When green, because a refusal that throws is exactly what a Then step asserts. A scenario deriving
+from `CritterStackScenario` (a tracked session's) gets this for free, since its act sets `LastAct` with
+its When step open, and overrides `actTimeoutHint` to add a sentence on what to raise.
+
 Two consequences of reading by sequence, worth designing around:
 
 - **Whole-store assertions on a store-only act need serial execution on a shared store, or a store or

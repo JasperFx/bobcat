@@ -191,8 +191,32 @@ public class CritterStackScenario
         {
             _state.LastAct = value ?? CritterStackActOutcome.None;
             _state.Acted = !ReferenceEquals(_state.LastAct, CritterStackActOutcome.None);
+            recordTimedOutAct(_state.LastAct);
         }
     }
+
+    /// <summary>
+    /// bobcat#673. An act that timed out fails its own When step, as an error naming the timeout. Every act sets
+    /// <see cref="LastAct" /> while its When step is open — this scenario's and a derived one's (a tracked session's
+    /// timeout) alike — so the step open now is the act's. Any other failure stays captured on the outcome only, for
+    /// a Then step to judge: a refusal that throws is what <see cref="ThenRefusedWith(string)" /> asserts, and a red
+    /// When there would fail the specification that expects it. A timeout is nothing a specification expects.
+    /// </summary>
+    private void recordTimedOutAct(CritterStackActOutcome outcome)
+    {
+        if (outcome.Error is not { } error) return;
+        if (exceptionsIn(error).OfType<TimeoutException>().FirstOrDefault() is not { } timeout) return;
+        if (ScenarioRecorder.CurrentStep is not { Failure: null } step) return;
+
+        step.Failure = timeout as ActTimedOutException ?? new ActTimedOutException(timeout, actTimeoutHint(timeout));
+    }
+
+    /// <summary>
+    /// bobcat#673. A sentence on why an act of this scenario may have run out of time, appended to the
+    /// <see cref="ActTimedOutException" /> its When step carries, or null for none. A derived scenario whose act runs
+    /// under a timeout of its own says which setting raises it, and what commonly costs the time.
+    /// </summary>
+    protected virtual string? actTimeoutHint(TimeoutException timeout) => null;
 
     /// <summary>
     /// The application's event store — the default one, when it has several (the constructor's <c>storeName</c>,
