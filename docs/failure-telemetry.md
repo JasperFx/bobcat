@@ -118,15 +118,17 @@ var timeline = ScenarioReports.Current?.Reports.OfType<AssignmentTimeline>().Fir
 
 Wolverine's leadership-election tests fail in ways only the cluster's assignment history explains:
 which node held which agent, what the leader decided, and whether the assignment table matches what's
-actually running. Today that history goes to test output on every run, untimed. The state at the
-moment of failure is in a `TimeoutException`'s message.
+actually running. Today the suite records none of that history. The state at the moment of failure is
+in a `TimeoutException`'s message.
 
 [`spikes/leadership-telemetry`](https://github.com/JasperFx/bobcat/tree/main/spikes/leadership-telemetry)
 reproduces the suite with no database and moves that telemetry into Bobcat's model:
 
 - **a timeline report**: every node event and every agent the leader moved, with runs of evaluations
   that changed nothing folded into one row. It's fed from each node's background loop, so it's the
-  buffered, lazily-built report above.
+  buffered, lazily-built report above. In Wolverine the feed is an `IWolverineObserver` decorator over
+  `runtime.Observer` (`AssignmentsChanged`, `AgentStarted` / `AgentStopped`), installed between `Build()`
+  and `StartAsync()` and forwarding every member, not `runtime.Tracker`, which carries no assignment events.
 - **a placement report**, built inside the step that gave up: for every agent, the node its row names
   against the nodes running it, with the disagreements as red rows.
 - **step logs** from the waits: one line each time what they see changes.
