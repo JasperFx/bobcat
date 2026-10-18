@@ -312,9 +312,18 @@ specifications, so printing them twice would read as two reports of one run.
 | `BOBCAT_SPEC_CONSOLE=1` | print anyway -- into a captured stream, with a console listening |
 | `BOBCAT_SPEC_CONSOLE=0` | stay silent -- in a terminal, with nothing listening |
 | unset | the default above decides |
+| `BOBCAT_SPEC_CONSOLE_FILE=spec.txt` | write the report to that file instead of standard output (colour, laid out at `BOBCAT_SPEC_CONSOLE_WIDTH` columns, default 140) |
 
 The variable is deliberately a **tri-state**. Collapsed to a bool, "somebody said no" and "nobody
 said" are the same value, and `BOBCAT_SPEC_CONSOLE=0` would have printed anyway.
+
+The report is written as the process exits. Into a captured stream it goes through standard output
+itself rather than through whatever `Console.Out` the process holds by then, because a test, a logger
+or the test platform may have swapped that writer and closed it -- which used to lose the whole report
+without a word while a terminal printed it fine (bobcat#676). If the write still fails, a line on
+standard error says why. **`BOBCAT_SPEC_CONSOLE_FILE` is the route to rely on in CI**: it depends on
+no stream at all, keeps the report out of the test platform's own output, and is what the `bobcat`
+tool reads.
 
 `BOBCAT_SPEC_PREVIEW=1` is the other half -- every specification **without** its results, including
 which helper each step binds to. Pair it with the platform's own `--list-tests` to preview without

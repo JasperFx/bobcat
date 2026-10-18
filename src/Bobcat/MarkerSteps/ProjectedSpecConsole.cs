@@ -39,6 +39,16 @@ namespace Bobcat;
 /// last one — the runner does, and it does not say. The same reason
 /// <see cref="MarkerStepRun"/> closes its run bracket there.
 /// </para>
+/// <para>
+/// <b>A redirected stdout is written through a stream this class opens itself (bobcat#676).</b> By
+/// process exit, <see cref="Console.Out"/> — and the <see cref="AnsiConsole.Console"/> singleton,
+/// which binds to whatever <see cref="Console.Out"/> was the first time anything touched it — may
+/// be a writer some test, logger or test platform swapped in and has since closed or stopped
+/// flushing. In a terminal that cost nothing visible, which is why it read as "works locally"; with
+/// stdout captured (CI, the supervisor, a pipe) the whole report was lost without a word. A
+/// failure to write is reported on standard error rather than swallowed, and
+/// <see cref="OutputFileEnvironmentVariable"/> stays the route that depends on no stream at all.
+/// </para>
 /// </remarks>
 public static class ProjectedSpecConsole
 {
@@ -76,7 +86,10 @@ public static class ProjectedSpecConsole
     private static (IAnsiConsole Console, IDisposable? Owner) target()
     {
         var path = Environment.GetEnvironmentVariable(OutputFileEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(path)) return (AnsiConsole.Console, null);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return OutputRedirected() ? standardOutput() : (AnsiConsole.Console, null);
+        }
 
         var writer = new StreamWriter(path, append: true) { AutoFlush = true };
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -91,6 +104,49 @@ public static class ProjectedSpecConsole
             int.TryParse(Environment.GetEnvironmentVariable(WidthEnvironmentVariable), out var width) && width > 20
                 ? width
                 : 140;
+
+        return (console, writer);
+    }
+
+    /// <summary>Test seam: whether standard output is captured rather than a terminal.</summary>
+    internal static Func<bool> OutputRedirected = () => Console.IsOutputRedirected;
+
+    /// <summary>Test seam: the process's standard output, as a raw stream.</summary>
+    internal static Func<Stream> OpenStandardOutput = Console.OpenStandardOutput;
+
+    /// <summary>
+    /// A console over the raw standard output stream rather than <see cref="Console.Out"/>, so the
+    /// report does not depend on which writer the process holds at exit (bobcat#676). Laid out as a
+    /// captured stream always was — no ANSI, Spectre's default width — unless
+    /// <see cref="WidthEnvironmentVariable"/> says otherwise.
+    /// </summary>
+    private static (IAnsiConsole Console, IDisposable? Owner) standardOutput()
+    {
+        // Whatever the process already wrote through Console.Out goes first, so the report still
+        // follows the test platform's summary rather than overtaking it.
+        try
+        {
+            Console.Out.Flush();
+        }
+        catch
+        {
+            // A closed writer is exactly the case this route exists for.
+        }
+
+        // leaveOpen: the stream is the process's standard output, which is not ours to close.
+        var writer = new StreamWriter(OpenStandardOutput(), new System.Text.UTF8Encoding(false), 4096, leaveOpen: true);
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
+            Out = new AnsiConsoleOutput(writer)
+        });
+
+        if (int.TryParse(Environment.GetEnvironmentVariable(WidthEnvironmentVariable), out var width) && width > 20)
+        {
+            console.Profile.Width = width;
+        }
 
         return (console, writer);
     }
@@ -136,7 +192,7 @@ public static class ProjectedSpecConsole
             if (!_atExitRegistered)
             {
                 _atExitRegistered = true;
-                AppDomain.CurrentDomain.ProcessExit += (_, _) => Render();
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => atExit(Render);
             }
         }
     }
@@ -217,7 +273,7 @@ public static class ProjectedSpecConsole
             if (_previewAtExit) return;
             _previewAtExit = true;
 
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => RenderPreview();
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => atExit(RenderPreview);
         }
     }
 
@@ -311,6 +367,32 @@ public static class ProjectedSpecConsole
         // Where the time went (issues #142, #466) -- from the projected recordings, with the lifecycle reported as not measured rather than as zero.
         renderer.RenderTimingSummary(Runtime.SuiteTiming.ForProjected(timings));
         console.WriteLine();
+    }
+
+    /// <summary>
+    /// Run an exit-time write so that a failure says so on standard error. A throw out of a
+    /// <c>ProcessExit</c> handler loses the report with nothing to show why, which is how bobcat#676
+    /// went unexplained.
+    /// </summary>
+    private static void atExit(Action write)
+    {
+        try
+        {
+            write();
+        }
+        catch (Exception e)
+        {
+            try
+            {
+                Console.Error.WriteLine(
+                    $"Bobcat could not write the specification report at process exit: {e.GetType().Name}: {e.Message}. "
+                    + $"Set {OutputFileEnvironmentVariable} to write it to a file instead.");
+            }
+            catch
+            {
+                // Nowhere left to say it.
+            }
+        }
     }
 
     private static void capture(ScenarioRecorder.Recording recording)

@@ -62,7 +62,9 @@ failed CalculatorSpecs.asserting_values
 ```
 
 A CI job's output is captured, so the rendered specification isn't printed by default. Set
-`BOBCAT_SPEC_CONSOLE=1` to print every specification at the end of the run anyway -- see
+`BOBCAT_SPEC_CONSOLE=1` to print every specification at the end of the run anyway, or -- better in
+CI -- `BOBCAT_SPEC_CONSOLE_FILE` to write it to a file you archive, which depends on no output stream
+and stays out of the test platform's own log -- see
 [Reading the specification the run produced](../marker-steps.md#reading-the-specification-the-run-produced).
 
 To keep the whole run -- every scenario's steps, cells and tables -- set `BOBCAT_RESULTS` to a
