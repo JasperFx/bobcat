@@ -145,7 +145,9 @@ What else the conversion takes:
   `protected` step helper is BOBCAT039 (#535).
 - `Wolverine.ComplianceTests` references Bobcat, Bobcat.Xunit and Bobcat.Generators (with the
   `Bobcat.Generated` interceptor opt-in), and each `*Tests.LeaderElection` host gets the
-  `Bobcat.Xunit` session hook, as `spikes/leadership-telemetry/Providers` does.
+  `Bobcat.Xunit` session hook **and the generator**, as `spikes/leadership-telemetry/Providers` does:
+  the inherited specs are bound in the subclass's compilation (#600). The library's `PrivateAssets`
+  and `IsTestingPlatformApplication=false` are in `docs/spec-identities.md#base-in-a-library` (#671).
 - `XUnitEventObserver` can stay for test output while the suite moves over: the transcript keeps its
   format.
 - Unrelated to Bobcat, but found while reading: `XUnitLogger.IsEnabled` drops `LogLevel.Error`, which

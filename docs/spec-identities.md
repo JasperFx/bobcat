@@ -238,6 +238,60 @@ public class RabbitMqTransportCompliance : TransportCompliance<RabbitFixture>;
   two Fact-derived attributes and xUnit fails it at run time ("has multiple [Fact]-derived
   attributes"). **BOBCAT040** (error) refuses that at build time.
 
+#### Shipping the base in a library {#base-in-a-library}
+
+When the base lives in a **class library** that other projects reference -- Wolverine's
+`Wolverine.ComplianceTests`, published as `WolverineFx.ComplianceTests`, holds the leadership-election
+base that about ten test projects subclass, and some forty more reference it without running a single
+Bobcat spec -- each package's build assets reach further than you want. Reference them like this.
+
+**The library** (the abstract `[BobcatSpec]` base and its step vocabulary):
+
+```xml
+<PropertyGroup>
+  <!-- Bobcat.Xunit brings in Microsoft.Testing.Platform, whose buildTransitive targets turn this on.
+       Left on, `dotnet test` in the platform's mode treats the library as a test host and refuses
+       the solution. -->
+  <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+</PropertyGroup>
+
+<ItemGroup>
+  <PackageReference Include="Bobcat" />
+  <!-- Compile against it, but keep its session hook and [assembly: RecordBobcatFeatures] here. -->
+  <PackageReference Include="Bobcat.Xunit" PrivateAssets="build;buildtransitive;analyzers;contentfiles" />
+  <!-- The generator runs here, because the step calls are in this compilation. -->
+  <PackageReference Include="Bobcat.Generators" PrivateAssets="all" />
+</ItemGroup>
+```
+
+**Each project that subclasses it** (a test host):
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\Wolverine.ComplianceTests\Wolverine.ComplianceTests.csproj" />
+  <PackageReference Include="Bobcat.Xunit" />
+  <PackageReference Include="Bobcat.Generators" />
+</ItemGroup>
+```
+
+What each line is for:
+
+- **`IsTestingPlatformApplication=false` on the library.** `Bobcat.Xunit` sets it on itself for the
+  same reason; a library referencing it has to say it again, because the platform's targets flow to it.
+- **`Bobcat.Xunit`'s `buildTransitive` props would otherwise reach every consumer of the library**: the
+  `TestingPlatformBuilderHook` session hook and `[assembly: RecordBobcatFeatures]`, in every project
+  that references the library, specs or not. Keep them in the library with `PrivateAssets`, and let the
+  projects that run specs take them from their own `Bobcat.Xunit` reference.
+- **`Bobcat.Generators` is a development dependency, so its analyzer never leaves the library, but its
+  `buildTransitive` props and targets still flow** unless the reference says `PrivateAssets="all"`. That
+  is deliberate for one test project referencing another, and wrong for a library: every consumer gets
+  `Bobcat.Generated` in its `InterceptorsNamespaces` and runs the BOBCAT033 check, which fails the build
+  of any test project without `Microsoft.NET.Test.Sdk` under `TreatWarningsAsErrors`.
+- **Each subclassing project needs `Bobcat.Generators` itself.** At run time an inherited spec is the
+  subclass's either way, but the binding above -- the manifest, `--list-tests`, running by identity and
+  BOBCAT036 -- comes from the generator running in the **subclass's** compilation. Without it the specs
+  still run and render, and the suite lists none of them.
+
 ### Asking for a subset
 
 `SpecSelection` is the set a run was asked for, and **empty means everything**, so a run path takes
