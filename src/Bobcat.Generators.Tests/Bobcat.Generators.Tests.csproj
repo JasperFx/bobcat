@@ -14,6 +14,9 @@
          individual generator sources to stay Roslyn-free, while these tests need the real
          analyzer assembly and a GeneratorDriver. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <!-- The Event Model the generator emits is compiled and read back against the real JasperFx.Events.
+         Core carried it transitively until bobcat#744; a consumer gets it through WolverineFx.Bobcat. -->
+    <PackageReference Include="JasperFx.Events" />
   </ItemGroup>
 
   <ItemGroup>

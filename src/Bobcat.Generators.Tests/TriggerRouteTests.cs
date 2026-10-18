@@ -50,25 +50,25 @@ public class TriggerRouteTests
             public abstract class ScenarioBase
             {
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "POST")]
                 public Task WhenPosted(object command, string route, params object[] routeValues) => Task.CompletedTask;
 
                 // No verb declared: a matched endpoint's own verb is taken
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route))]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route))]
                 public Task WhenSent(object command, string route) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName), HttpMethod = "POST")]
+                [EventModelTrigger(ActTrigger.Http, RouteName = nameof(routeName), HttpMethod = "POST")]
                 public Task WhenPostedTo(object command, string routeName, params object[] routeValues) => Task.CompletedTask;
 
                 // bobcat#613: by type -- no route at all, the vocabulary fills it from the command at run time
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http)]
+                [EventModelTrigger(ActTrigger.Http)]
                 public Task WhenPosted(object command) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, HttpMethod = "PUT")]
+                [EventModelTrigger(ActTrigger.Http, HttpMethod = "PUT")]
                 public Task WhenPut(object command) => Task.CompletedTask;
 
                 protected static string RouteFor(Guid id) => "/api/accounts/" + id + "/deposits";
@@ -739,7 +739,7 @@ public class TriggerRouteTests
                 public abstract class Broken
                 {
                     [EventModelRole(SliceRole.Command, nameof(command))]
-                    [EventModelTrigger(TriggerKind.Http, RouteName = "name")]
+                    [EventModelTrigger(ActTrigger.Http, RouteName = "name")]
                     public Task WhenPostedTo(object command, string routeName) => Task.CompletedTask;
                 }
             }

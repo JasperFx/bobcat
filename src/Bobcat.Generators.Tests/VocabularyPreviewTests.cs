@@ -4,7 +4,8 @@ namespace Bobcat.Generators.Tests;
 
 /// <summary>
 /// bobcat#625: a projected spec written in the scenario vocabulary — <c>CritterStackSpec</c>'s, read from
-/// the Bobcat assembly's metadata, and a derived scenario's the way WolverineFx.Bobcat's is — registers
+/// another assembly's metadata (<see cref="CritterStackStandIn"/>, since bobcat#744 moved the real one to
+/// WolverineFx.Bobcat), and a derived scenario's — registers
 /// its vocabulary calls for the preview, which previously showed only <c>[Then]</c> helpers and marker
 /// comments.
 /// </summary>
@@ -71,7 +72,7 @@ public class VocabularyPreviewTests
     [Fact]
     public void vocabulary_calls_are_registered_for_the_preview_in_source_order()
     {
-        var outcome = GeneratorHarness.Run(Source);
+        var outcome = GeneratorHarness.Run(Source, null, [CritterStackStandIn.Reference]);
         outcome.CompilationErrors.ShouldBeEmpty();
 
         var registration = outcome.GeneratedSource("BobcatDeclaredSteps");

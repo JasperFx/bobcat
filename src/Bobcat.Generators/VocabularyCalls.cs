@@ -21,8 +21,8 @@ namespace Bobcat.Generators;
 /// </para>
 /// <para>
 /// <b>What counts as vocabulary.</b> A method declared on <c>CritterStackScenario</c> or
-/// <c>CritterStackSpec</c> or anything deriving from them (so WolverineFx.Bobcat's scenarios and specs,
-/// by metadata, in another repository), or one carrying <c>[EventModelRole]</c>, <c>[EventModelTrigger]</c>
+/// <c>CritterStackSpec</c> or anything deriving from them — all WolverineFx.Bobcat's since bobcat#744,
+/// recognised by metadata name with no reference, the way the Wolverine.Http endpoint attributes are — or one carrying <c>[EventModelRole]</c>, <c>[EventModelTrigger]</c>
 /// or <c>[EventModelAct]</c> — and whose name opens with Given, When or Then, which is the keyword shown.
 /// A method with a step attribute is a planned step already and is left to that.
 /// </para>

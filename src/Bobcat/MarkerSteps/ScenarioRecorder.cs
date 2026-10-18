@@ -203,7 +203,7 @@ public static class ScenarioRecorder
     /// <remarks>
     /// <para>
     /// <b>Ambient and static for the reason <see cref="Bobcat.Engine.SpecReport"/> is (issue #408):</b> the
-    /// producer — <c>CritterStackScenario</c>, or a vocabulary in another package that derives from it — has
+    /// producer — a scenario vocabulary in another package, such as WolverineFx.Bobcat's — has
     /// no context to be handed, and must compile once against one static surface.
     /// </para>
     /// <para>

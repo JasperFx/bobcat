@@ -1,5 +1,3 @@
-using JasperFx.Environment;
-
 namespace Bobcat.Runtime;
 
 /// <summary>
@@ -8,12 +6,11 @@ namespace Bobcat.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>There is no Bobcat <c>IEnvironmentCheck</c>.</strong> JasperFx already owns this
-/// concept — <see cref="EnvironmentCheckResults"/>, <see cref="EnvironmentChecker"/>,
-/// <see cref="EnvironmentCheckException"/> — and it collects checks from
-/// <c>JasperFx.Resources.IStatefulResource.Check</c>, <c>ISystemPart.AssertEnvironmentAsync</c>
-/// and Microsoft's <c>IHealthCheck</c>. Inventing a parallel interface would have meant Critter
-/// Stack users writing their checks twice.
+/// <strong>There is no Bobcat <c>IEnvironmentCheck</c>.</strong> A check is a delegate that throws to
+/// fail, and <see cref="ITestResource.Check"/> mirrors JasperFx's <c>IStatefulResource.Check</c> by
+/// shape, so one resource can satisfy both. The results are Bobcat's own <see cref="PreflightResults"/>
+/// since bobcat#744, when core stopped referencing JasperFx; the checks JasperFx collects from a
+/// container (<c>AddContainerChecks</c>) moved to WolverineFx.Bobcat.
 /// </para>
 /// <para>
 /// The contract everywhere is "throw to fail": a check that returns has passed.
@@ -24,8 +21,8 @@ public sealed class Preflight
     private readonly List<(string Description, Func<CancellationToken, Task> Check)> _checks = new();
 
     /// <summary>
-    /// Adds an ad-hoc check. Equivalent to JasperFx's <c>LambdaCheck</c>, minus the
-    /// <c>IServiceProvider</c> that a supervisor running outside any host does not have.
+    /// Adds an ad-hoc check: a delegate that throws to fail. No <c>IServiceProvider</c>, because a
+    /// supervisor running outside any host does not have one.
     /// </summary>
     public Preflight Add(string description, Func<CancellationToken, Task> check)
     {
@@ -42,9 +39,9 @@ public sealed class Preflight
     /// Runs every check, gathering results rather than stopping at the first failure — the point
     /// of a preflight is to tell you everything that is wrong in one go.
     /// </summary>
-    public async Task<EnvironmentCheckResults> Run(CancellationToken token = default)
+    public async Task<PreflightResults> Run(CancellationToken token = default)
     {
-        var results = new EnvironmentCheckResults();
+        var results = new PreflightResults();
 
         foreach (var (description, check) in _checks)
         {
@@ -76,19 +73,8 @@ public sealed class Preflight
         return this;
     }
 
-    /// <summary>
-    /// Adds every check the container knows about — <c>ISystemPart</c>, <c>IStatefulResource</c>
-    /// and <c>IHealthCheck</c> — by delegating to JasperFx's own executor.
-    /// </summary>
-    public Preflight AddContainerChecks(string description, IServiceProvider services)
-        => Add(description, async token =>
-        {
-            var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services, token);
-            results.Assert(); // throws EnvironmentCheckException listing every failure
-        });
-
     /// <summary>A short, readable account of a failed preflight.</summary>
-    public static string Describe(EnvironmentCheckResults results)
+    public static string Describe(PreflightResults results)
     {
         var lines = results.Failures
             .Select(f => $"  ✗ {f.Description}: {f.Exception.Message}")

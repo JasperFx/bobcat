@@ -1,7 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using JasperFx.Events.EventModeling;
 
 namespace Bobcat.Monitoring;
 
@@ -56,6 +53,12 @@ namespace Bobcat.Monitoring;
 /// pointing the run at its own console when the one answering serves another (bobcat#621).
 /// </para>
 /// <para>
+/// <b>It never touches a descriptor (bobcat#744).</b> Core references no JasperFx, so the spec assembly
+/// serializes its own half: the generator emits a <see cref="SpecEventModels.Register"/> call whose JSON
+/// producer describes the generated source, stamps its provenance and serializes it with the web defaults
+/// and PascalCase enum names. This class decides only whether, and under which source name, to send it.
+/// </para>
+/// <para>
 /// <b>What is deliberately NOT here: the host half.</b> A runner cannot export the host's chains
 /// without referencing Wolverine, which Bobcat's core will not do, and the host half already has
 /// a producer — <c>event-model --url</c>, wrapped by <c>bobcat watch-event-model</c>. This closes
@@ -64,23 +67,8 @@ namespace Bobcat.Monitoring;
 /// </remarks>
 internal static class SpecEventModelPublisher
 {
-    /// <summary>
-    /// The one type the generator emits per spec assembly. The lookup itself is
-    /// <see cref="GeneratedEventModel"/>, shared with issue #338's identity audit.
-    /// </summary>
-    internal const string GeneratedSourceTypeName = GeneratedEventModel.GeneratedSourceTypeName;
-
     /// <summary>The route both halves of the Event Model wire are published on (issue #268).</summary>
     internal const string Route = "/api/event-model";
-
-    /// <summary>
-    /// The wire shape the console's <c>EventModelStore</c> reads and every consumer of
-    /// <c>@jasperfx/event-model-vue</c> renders: camelCase members, PascalCase enum values.
-    /// </summary>
-    internal static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter(namingPolicy: null) }
-    };
 
     /// <summary>
     /// The hard ceiling on the whole exchange — one GET plus one PUT per spec assembly.
@@ -191,13 +179,23 @@ internal static class SpecEventModelPublisher
 
         foreach (var half in halves)
         {
-            if (current is not null && !string.Equals(current, half.Descriptor.Name, StringComparison.Ordinal))
+            if (current is not null && !string.Equals(current, half.ModelName, StringComparison.Ordinal))
             {
                 notify?.Invoke(MismatchNotice(half, current, publisher.Url));
                 continue;
             }
 
-            var json = JsonSerializer.Serialize(half.Descriptor, Wire);
+            string json;
+            try
+            {
+                json = half.Json();
+            }
+            catch
+            {
+                // A spec half that will not describe itself is not a reason to disturb a run
+                continue;
+            }
+
             var push = await publisher.PublishEventModel(half.Source, json, cts.Token, provenance);
 
             if (push.Published)
@@ -209,7 +207,7 @@ internal static class SpecEventModelPublisher
                 // same rule the console would hold it to on the next one. Without this, a run
                 // spanning two differently-named spec assemblies would end with the second having
                 // hidden the first.
-                current ??= half.Descriptor.Name;
+                current ??= half.ModelName;
             }
             else if (push.Refusal is not null)
             {
@@ -237,7 +235,7 @@ internal static class SpecEventModelPublisher
         var lead =
             $"Bobcat did not publish the Event Model half of '{half.Assembly}': the console "
             + $"at {url} is serving a model named '{current}' and the half is "
-            + $"named '{half.Descriptor.Name}'. "
+            + $"named '{half.ModelName}'. "
             + $"{Route} merges only the sources naming the CURRENT model, so publishing this one "
             + "would hide the other half rather than join it. ";
 
@@ -250,7 +248,7 @@ internal static class SpecEventModelPublisher
             "If the two halves belong to one application, name them alike with "
             + $"[assembly: EventModelName(\"{current}\")] on {half.Assembly}.";
 
-        return NamesShareAWord(current, half.Descriptor.Name)
+        return NamesShareAWord(current, half.ModelName)
             ? lead + sameApplication + " " + otherApplication
             : lead + otherApplication + " " + sameApplication;
     }
@@ -305,14 +303,17 @@ internal static class SpecEventModelPublisher
         return words;
     }
 
-    /// <summary>One spec assembly's contribution: what to push, and the source name to push it as.</summary>
-    internal sealed record Half(string Assembly, string Source, EventModelDescriptor Descriptor);
+    /// <summary>
+    /// One spec assembly's contribution: the model it names, the source name to push it as, and the JSON
+    /// to push, produced only when it is about to be sent.
+    /// </summary>
+    internal sealed record Half(string Assembly, string Source, string ModelName, Func<string> Json);
 
     /// <summary>
-    /// The generated Event Model half of each assembly that has one. An assembly whose specs
-    /// declare no slices has no generated source at all (the generator emits it only when
-    /// <c>slices.Count > 0</c>), and a descriptor that came back empty or unnamed is skipped —
-    /// pushing one would claim the console's current model name for a document saying nothing.
+    /// The registered Event Model half (<see cref="SpecEventModels"/>) of each assembly that has one. An
+    /// assembly whose specs declare no slices registers nothing (the generator emits the source and its
+    /// registration only when <c>slices.Count > 0</c>), and an unnamed half is skipped — pushing one would
+    /// claim the console's current model name for a document saying nothing.
     /// </summary>
     internal static IReadOnlyList<Half> Discover(IEnumerable<Assembly> assemblies)
     {
@@ -323,29 +324,25 @@ internal static class SpecEventModelPublisher
         {
             if (!seen.Add(assembly)) continue;
 
-            var descriptor = describe(assembly);
-            if (descriptor is null || descriptor.Slices.Count == 0) continue;
-            if (string.IsNullOrWhiteSpace(descriptor.Name)) continue;
+            var registration = registered(assembly);
+            if (registration is null || string.IsNullOrWhiteSpace(registration.ModelName)) continue;
 
-            var name = assembly.GetName().Name ?? "specs";
-            halves.Add(new Half(name, SourceNameFor(name), descriptor));
+            halves.Add(new Half(registration.Source, SourceNameFor(registration.Source), registration.ModelName,
+                registration.Json));
         }
 
         return halves;
     }
 
     /// <summary>
-    /// The assembly's generated descriptor, or null when it has none — or when reading it
-    /// failed, because a spec assembly that will not give up its model is not a reason to disturb
-    /// a run. That swallow is this caller's, not <see cref="GeneratedEventModel"/>'s: the same
-    /// failure has to be loud for an audit, which would otherwise report every declared scenario
-    /// as uncovered.
+    /// The assembly's registered half, or null when it has none — or when finding it failed, because a spec
+    /// assembly that will not give up its model is not a reason to disturb a run.
     /// </summary>
-    private static EventModelDescriptor? describe(Assembly assembly)
+    private static SpecEventModels.Registration? registered(Assembly assembly)
     {
         try
         {
-            return GeneratedEventModel.For(assembly);
+            return SpecEventModels.For(assembly);
         }
         catch
         {

@@ -41,6 +41,9 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <!-- Probes.cs reads connection strings through IConfiguration (issue #414). Core brought this
+         transitively through JasperFx until bobcat#744. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
   </ItemGroup>
 
   <ItemGroup>

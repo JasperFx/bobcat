@@ -1,4 +1,3 @@
-using JasperFx.Testing;
 using Bobcat.Engine;
 using Bobcat.Resilience;
 using Bobcat.Runtime;

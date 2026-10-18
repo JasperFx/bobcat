@@ -6,16 +6,18 @@
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Description>Bobcat runtime — the projected specification engine, verification, rendering, the monitor wire, and the store-agnostic Critter Stack vocabulary (bound to JasperFx.Events, so they serve Marten, Polecat and Fisher alike) for the spec-driven integration testing framework for .NET.</Description>
+    <Description>Bobcat runtime — the projected specification engine, verification, rendering, the monitor wire, the resident runner and the resilience vocabulary for the spec-driven integration testing framework for .NET. Takes no JasperFx or Wolverine dependency; the Critter Stack vocabulary ships in WolverineFx.Bobcat.</Description>
   </PropertyGroup>
 
+  <!--
+    No JasperFx and no Wolverine, by design (bobcat#744): a test framework must not pin its users'
+    application framework. These three came transitively through JasperFx until then.
+    BobcatAssemblyReferenceTests guards it.
+  -->
   <ItemGroup>
-    <PackageReference Include="JasperFx" />
-    <!-- JasperFx.Events 2.56.0 — IEventModelDefinitionSource, which the generator's emitted
-         BobcatEventModelSource implements, moved out of the JasperFx package and into this one.
-         Bobcat carries the reference so it flows transitively to every project the generator
-         emits into; without it that generated file does not compile in a consumer. -->
-    <PackageReference Include="JasperFx.Events" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
   </ItemGroup>
 
   <!--

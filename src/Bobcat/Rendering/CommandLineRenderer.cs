@@ -1,7 +1,6 @@
 using Bobcat.Engine;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
-using JasperFx.Core;
 using Spectre.Console;
 
 namespace Bobcat.Rendering;
@@ -826,7 +825,7 @@ public class CommandLineRenderer
 
     public void Render(Line line)
     {
-        output.MarkupLine(line.Cells.Select(ToMarkup).Join(""));
+        output.MarkupLine(string.Concat(line.Cells.Select(ToMarkup)));
     }
 
     public static string ToMarkup(Cell cell)

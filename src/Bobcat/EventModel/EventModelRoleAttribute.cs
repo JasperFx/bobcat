@@ -1,5 +1,3 @@
-using JasperFx.Events.EventModeling;
-
 namespace Bobcat;
 
 /// <summary>
@@ -33,7 +31,7 @@ public enum SliceRole
 
     /// <summary>
     /// A read model the specification asserts on (an arranged one is <see cref="ArrangedReadModel"/>). On a method that also declares a read-only HTTP
-    /// trigger (<c>[EventModelTrigger(TriggerKind.Http, HttpMethod = "GET")]</c> or <c>"HEAD"</c>) it is what the
+    /// trigger (<c>[EventModelTrigger(ActTrigger.Http, HttpMethod = "GET")]</c> or <c>"HEAD"</c>) it is what the
     /// act <em>reads</em>, and makes the slice a Query (bobcat#501): the type goes to <c>ReadsFrom</c>, not to the
     /// read models the slice produces.
     /// </summary>
@@ -144,7 +142,7 @@ public sealed class EventModelRoleAttribute : Attribute
 
 /// <summary>
 /// Declares how a scenario act reaches the application (bobcat#462, bobcat#463): stamped as the slice's
-/// <c>TriggerKind</c> — and, for HTTP, its route and verb — when this method is the specification's act.
+/// JasperFx <c>TriggerKind</c> of the same name — and, for HTTP, its route and verb — when this method is the specification's act.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -164,17 +162,17 @@ public sealed class EventModelRoleAttribute : Attribute
 /// </para>
 /// <code>
 /// [EventModelRole(SliceRole.Command, nameof(command))]
-/// [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
+/// [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "POST")]
 /// public Task WhenPosted(object command, string route, Action&lt;Scenario&gt;? configure = null)
 /// </code>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
 public sealed class EventModelTriggerAttribute : Attribute
 {
-    public EventModelTriggerAttribute(TriggerKind kind) => Kind = kind;
+    public EventModelTriggerAttribute(ActTrigger kind) => Kind = kind;
 
     /// <summary>How the act reaches the application.</summary>
-    public TriggerKind Kind { get; }
+    public ActTrigger Kind { get; }
 
     /// <summary>
     /// The value parameter carrying the HTTP route — write it with <c>nameof</c>. A non-empty compile-time
@@ -186,7 +184,7 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// it. Anything else — a helper call, a variable — leaves the kind certain and the route unknown, which is
     /// better on a canvas than a wrong route, and is reported as BOBCAT038 (info). When several specifications of
     /// one slice disagree, a known route wins over an unknown one whatever order they are read in. Ignored on
-    /// any kind but <see cref="TriggerKind.Http"/>.
+    /// any kind but <see cref="ActTrigger.Http"/>.
     /// </summary>
     public string? Route { get; set; }
 
@@ -199,12 +197,12 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// the host runs: the route stays unknown, and BOBCAT038 (info) says so. Either way the name is stamped as the
     /// slice's <c>PublisherOrigin.HttpRouteName</c> (JasperFx 2.85.0). A method may declare both
     /// <see cref="Route"/> and <see cref="RouteName"/>; a route argument that can be known wins. Ignored on any
-    /// kind but <see cref="TriggerKind.Http"/>.
+    /// kind but <see cref="ActTrigger.Http"/>.
     /// </summary>
     public string? RouteName { get; set; }
 
     /// <summary>
-    /// The HTTP verb, for an <see cref="TriggerKind.Http"/> act; <c>POST</c> when not set. It travels with
+    /// The HTTP verb, for an <see cref="ActTrigger.Http"/> act; <c>POST</c> when not set. It travels with
     /// the route it was declared beside.
     /// </summary>
     /// <remarks>
@@ -214,6 +212,39 @@ public sealed class EventModelTriggerAttribute : Attribute
     /// tells a read act from an assertion such as <c>ThenReadModel&lt;T&gt;</c>, which carries the same role.
     /// </remarks>
     public string? HttpMethod { get; set; }
+}
+
+/// <summary>
+/// How a scenario act reaches the application: the value of <see cref="EventModelTriggerAttribute.Kind"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Bobcat's own since bobcat#744, replacing JasperFx's <c>TriggerKind</c> on the attribute so core references no
+/// JasperFx. The members are <c>TriggerKind</c>'s, with the same names: the generator reads the member by NAME and
+/// stamps the JasperFx member of that name onto the slice, so the descriptor is unchanged. A distinct type name
+/// rather than a second <c>TriggerKind</c> keeps a vocabulary file that also imports
+/// <c>JasperFx.Events.EventModeling</c> free of an ambiguous reference (CS0104).
+/// </para>
+/// </remarks>
+public enum ActTrigger
+{
+    /// <summary>An HTTP endpoint (e.g. a Wolverine.Http route). Route and verb travel on the attribute.</summary>
+    Http,
+
+    /// <summary>A gRPC service method.</summary>
+    Grpc,
+
+    /// <summary>An inbound message handled by a message handler; the command type is the trigger.</summary>
+    MessageHandler,
+
+    /// <summary>A scheduled or recurring job.</summary>
+    JobScheduler,
+
+    /// <summary>A person acting through a UI.</summary>
+    Human,
+
+    /// <summary>An external system pushing into the model.</summary>
+    External
 }
 
 /// <summary>

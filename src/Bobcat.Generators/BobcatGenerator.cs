@@ -392,6 +392,7 @@ public class BobcatGenerator : IIncrementalGenerator
                         {
                             Query = compilation.GetTypeByMetadataName("JasperFx.Events.EventModeling.SlicePattern")?.GetMembers("Query").Length > 0,
                             RouteName = compilation.GetTypeByMetadataName("JasperFx.Events.EventModeling.PublisherOrigin")?.GetMembers("HttpRouteName").Length > 0,
+                            Bridge = compilation.GetTypeByMetadataName(EventModelEmitter.BridgeTypeName) != null,
                         }));
             }
         });

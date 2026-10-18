@@ -1,14 +1,10 @@
-using JasperFx.Testing;
 
 namespace Bobcat.Resilience;
 
-// DispositionKind used to be declared here. It now lives in JasperFx (JasperFx.Testing), along
-// with the recovery-hint attributes that declare against it, so a test project can annotate itself
-// without referencing Bobcat — see issue #63. Bobcat keeps everything that *acts* on a disposition:
-// the record below, IFailurePolicy, the chain, and the budget.
-//
-// One enum rather than a Bobcat copy mapped at a seam. Two enums meaning the same thing is how the
-// vocabulary drifts, and the drift would be invisible until a hint silently stopped matching.
+// DispositionKind and the recovery-hint attributes are Bobcat's own again (DispositionKind.cs,
+// RecoveryHintAttributes.cs): #63 moved them to JasperFx so a suite could annotate itself without
+// referencing Bobcat, and #744 brought them back, because nobody did and the price was a JasperFx
+// floor in every consumer's restore.
 //
 // Kept in mind for whoever reads Disposition next: this is IContinuationRule grown up. That
 // interface answers a binary ShouldStop at the wrong altitude — inside the process that may need

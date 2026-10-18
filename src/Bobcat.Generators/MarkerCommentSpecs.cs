@@ -514,7 +514,7 @@ internal static class MarkerCommentSpecs
         return $"'{helper}' declares no Event Model role, but it calls '{wrapped}', which is an act, so this call is read "
                + $"as the test's act and {found}. Its trigger (an HTTP verb and route) is not read through it. Declare "
                + $"[EventModelRole(SliceRole.Command, nameof(command))] on '{helper}', naming the parameter that carries "
-               + "the command, and for an HTTP act [EventModelTrigger(TriggerKind.Http, Route = nameof(url), "
+               + "the command, and for an HTTP act [EventModelTrigger(ActTrigger.Http, Route = nameof(url), "
                + "HttpMethod = \"POST\")] naming its route parameter.";
     }
 

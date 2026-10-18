@@ -1,5 +1,4 @@
 using Bobcat.Monitoring;
-using JasperFx.Events.EventModeling;
 using Shouldly;
 
 namespace Bobcat.Tests.Monitoring;
@@ -39,12 +38,15 @@ public class SpecEventModelPublishingTests : IDisposable
         => new(
             assembly,
             SpecEventModelPublisher.SourceNameFor(assembly),
-            new EventModelDescriptor(model, [
-                new EventModelSliceDescriptor(slice, null, null, null, null, [], [], [])
-                {
-                    Specifications = [new SpecificationDescriptor(specIdentity)]
-                }
-            ]));
+            model,
+            () => HalfJson(model, slice, specIdentity));
+
+    /// <summary>
+    /// A spec half as the generated bridge serializes one (bobcat#744): core never sees the descriptor, only
+    /// this JSON, so the shape here only has to carry what the assertions read.
+    /// </summary>
+    internal static string HalfJson(string model, string slice, string specIdentity)
+        => $$"""{"name":"{{model}}","slices":[{"name":"{{slice}}","specifications":[{"identity":"{{specIdentity}}"}]}]}""";
 
     [Fact]
     public async Task the_half_is_published_under_the_spec_assemblys_own_source()

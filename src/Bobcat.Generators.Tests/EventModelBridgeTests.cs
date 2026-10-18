@@ -6,6 +6,11 @@ using static Bobcat.Generators.Tests.ProjectedEventModelRoleTests;
 
 namespace Bobcat.Generators.Tests;
 
+/// <summary>
+/// bobcat#744's publishing bridge: core no longer references JasperFx, so the generated code serializes the spec
+/// assembly's Event Model half itself and registers it with <c>Bobcat.Monitoring.SpecEventModels</c>. The JSON is
+/// pinned against what core's publisher sent before the change.
+/// </summary>
 public class EventModelBridgeTests
 {
     internal const string Fixture =
@@ -44,7 +49,7 @@ public class EventModelBridgeTests
                 public Task GivenContext<TContext>(Guid id, params object[] events) where TContext : class => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TRIGGER.Http, Route = nameof(route))]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route))]
                 public Task WhenPosted(object command, string route) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Event, nameof(events))]
@@ -104,22 +109,78 @@ public class EventModelBridgeTests
     private static string fixtureFile([CallerFilePath] string here = "")
         => Path.Combine(Path.GetDirectoryName(here)!, "Fixtures", "bridge-event-model.json");
 
+    private static System.Reflection.Assembly compiled()
+    {
+        var outcome = GeneratorHarness.Run(Fixture);
+        outcome.CompilationErrors.ShouldBeEmpty();
+        return load(outcome);
+    }
+
     /// <summary>
-    /// The JSON the publisher put on the wire before bobcat#744, captured from <c>GeneratedEventModel.For</c>
-    /// plus the publisher's own serializer options, and committed as the pin the bridge is held to.
+    /// The pin itself: what core's publisher put on the wire before bobcat#744 — <c>GeneratedEventModel.For</c>
+    /// (describe with an empty service provider, stamp the source's provenance) serialized with the publisher's
+    /// options — captured into <c>Fixtures/bridge-event-model.json</c> from the pre-#744 code and still true of
+    /// that path.
     /// </summary>
     [Fact]
     public void the_publisher_json_matches_the_pin()
     {
-        var outcome = GeneratorHarness.Run(Fixture.Replace("TRIGGER", "TriggerKind"));
-        outcome.CompilationErrors.ShouldBeEmpty();
-
         var wire = new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
             Converters = { new JsonStringEnumConverter(namingPolicy: null) }
         };
 
-        var json = JsonSerializer.Serialize(GeneratedEventModel.For(load(outcome)), wire);
+        var json = JsonSerializer.Serialize(GeneratedEventModel.For(compiled()), wire);
         json.ShouldBe(File.ReadAllText(fixtureFile()));
+    }
+
+    /// <summary>
+    /// bobcat#744: the generated bridge registers the half with core and its JSON is byte-identical to what the
+    /// publisher used to send, so a console sees no difference.
+    /// </summary>
+    [Fact]
+    public void the_bridge_registers_json_byte_identical_to_the_pin()
+    {
+        var assembly = compiled();
+        System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(assembly.ManifestModule.ModuleHandle);
+
+        var registration = Bobcat.Monitoring.SpecEventModels.All.Last(x => x.Source == "SpecProject");
+        registration.ModelName.ShouldBe("BankAccountES");
+        registration.Json().ShouldBe(File.ReadAllText(fixtureFile()));
+    }
+
+    [Fact]
+    public void the_bridge_is_emitted_beside_the_source_and_names_the_model_and_the_assembly()
+    {
+        var outcome = GeneratorHarness.Run(Fixture);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var source = outcome.GeneratedSource("BobcatEventModelSource");
+        source.ShouldContain("[global::System.Runtime.CompilerServices.ModuleInitializer]");
+        source.ShouldContain("global::Bobcat.Monitoring.SpecEventModels.Register(\"BankAccountES\", \"SpecProject\", static () => Json());");
+    }
+
+    [Fact]
+    public void a_suite_that_models_nothing_registers_no_half()
+    {
+        var outcome = GeneratorHarness.Run(
+            """
+            using Bobcat;
+            using Xunit;
+
+            [BobcatFeature("Plain")]
+            public class plain
+            {
+                [Fact]
+                public void nothing_modelled()
+                {
+                    // Given nothing
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        outcome.Result.Results.SelectMany(x => x.GeneratedSources)
+            .ShouldNotContain(x => x.HintName.Contains("BobcatEventModelSource"));
     }
 }

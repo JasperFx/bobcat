@@ -2,242 +2,50 @@
 
   <!--
     Central Package Management for the Bobcat source tree (src/). One pinned version per
-    package so the Bobcat.* projects can never drift apart. The Critter Stack set is the
-    canonical, mutually-compatible alignment, and samples/Directory.Packages.props must hold the
-    SAME numbers — a sample project-references Bobcat, so it resolves this JasperFx.Events
-    whatever its own store says:
+    package so the Bobcat.* projects can never drift apart.
 
-      WolverineFx 6.46.0  ↔  Marten 9.46.0  ↔  Fisher 1.19.0  ↔  Polecat 5.36.0
-      └─ all four BUILT against JasperFx(.Events) 2.80.2
-      JasperFx(.Events) is PINNED AT 2.81.0 — one minor AHEAD of them, deliberately. Read
-      "The 2.81.0 exception" below before touching it.
+    Since bobcat#744 the runtime packages a consumer restores (Bobcat, Bobcat.Supervisor once #745
+    lands, the runner adapters, Bobcat.Generators) take NO JasperFx or Wolverine dependency, so
+    nothing below decides what a consumer's Critter Stack resolves to. JasperFx and JasperFx.Events
+    are pinned for the tools and their tests only: Bobcat.EventModel (the board import writes
+    JasperFx.Events' fluent EventModelDefinition), the `bobcat` tool, and Bobcat.Ui, which also
+    keeps its WolverineFx.Http / SignalR / RuntimeCompilation host. The Critter Stack alignment
+    notes and the store pins (Marten, Fisher, Polecat, WolverineFx.Marten/Fisher, the bundled
+    JasperFx.Events.SourceGenerator) left with the vocabulary, its tests and the samples for the
+    Wolverine repo; git history before #744 has them.
 
-    ⚠️ READ THIS BEFORE MOVING JasperFx(.Events) ON ITS OWN. It was tried, on 2026-09-09, and
-    it does not work. The reasoning was that every store declares JasperFx(.Events) only as a
-    FLOOR (>= 2.56.0), so raising that one package satisfies them all and preserves the property
-    that matters — every package resolving the SAME JasperFx.Events, so the event types unify.
-    The resolution is indeed fine. The RUNTIME is not:
-
-      System.TypeLoadException: Method 'QueryStreamStates' in type
-      'Marten.Events.QueryEventStore' from assembly 'Marten, Version=9.30.0.0' does not have
-      an implementation.
-        at Marten.Internal.Sessions.QuerySession.CreateEventStore(...)
-
-    JasperFx.Events 2.67 added `QueryStreamStates` to `IReadOnlyEventStore` as an ABSTRACT
-    member. A store compiled against 2.56.0 has no slot for it, so the type fails to load the
-    first time anything opens a session — which for Bobcat is `EventStores.fetchStreamAsync`,
-    i.e. every arrange step. It took out Marten 9.30.0 and Fisher 1.0.4 identically: 13
-    failures in Bobcat.CritterStack.Tests, 3 in Bobcat.Marten.Tests, 9 in
-    Bobcat.CodeFirst.Samples, and the BankAccountES Fisher leg in the samples build.
-
-    The general rule this leaves behind: **a floor constrains resolution, not the vtable.**
-    `>= 2.56.0` says the store can RUN against 2.67.1 only for members that existed when it was
-    compiled. An interface that gains an abstract member is a runtime break for every
-    implementer, and no amount of nuspec reading predicts it — the only safe signal is that the
-    store itself was BUILT against the JasperFx you are pinning. The set above satisfies that:
-    Marten 9.46.0, Fisher 1.19.0, Polecat 5.36.0 and WolverineFx 6.46.0 each declare
-    JasperFx(.Events) at EXACTLY 2.80.2, the pin, rather than merely at or below it, so each was
-    built against the runtime it will load.
-
-    ╔═════════════════════════════════════════════════════════════════════════════
-    ║ THE 2.81.0 EXCEPTION — the rule above still stands; this is a reasoned exception to it.
-    ╚═════════════════════════════════════════════════════════════════════════════
-
-    **JasperFx and JasperFx.Events are pinned at 2.81.0 while every store is built against
-    2.80.2.** That breaks the rule stated immediately above. **Decided by Jeremy on 2026-10-06**
-    ("let's move to the latest JasperFx.Events now anyway — I think that's low risk"), for
-    jasperfx#955's first train: issue #405 cannot be written at all without it. Checked in the
-    nupkgs rather than inferred — `SourceWriterDirective` (jasperfx#956, the SourceWriter fixes
-    #405 must write its output through) and `DomainPolicyBuilder` / `EventModelDomains` /
-    `InChapter` / `StartsStream` (jasperfx#957, the fluent API that declares roles) are **absent
-    from 2.80.2 and present in 2.81.0**; `git tag` reports both commits (b5a0eae, 2bfa916) as contained
-    in V2.81.0 alone. 2.80.2's `EventModelBuilder` offers only `InDomain`/`Hotspot`/`Slice` and
-    cannot state a pattern, a chapter or any role, which is the whole output #405 specifies.
-
-    WHY THIS IS SAFE, AND WHAT THAT ARGUMENT DOES NOT COVER — the asymmetry is the point:
-
-    1. The hazard the rule above is NAMED for is the 2.67-class `TypeLoadException`: an existing
-       interface gaining an ABSTRACT member, which no store compiled earlier has a slot for. For
-       this bump that is **positively excluded, not merely untripped.** jasperfx#933/#937 added a
-       ratchet — `src/EventStoreTests/ContractGrowth/abstract-interface-members.txt`, the record of
-       every abstract member as of the last release — built for exactly this failure, and it is
-       **byte-identical between V2.80.1 and V2.81.0** (md5 c3e45382b62d9b6843a3c6caba1a76fe, 809
-       lines, both). Upstream's policy now is that a member added to an existing interface in a
-       minor carries a default implementation.
-
-    2. Measured on the real stores, not reasoned about. On this pin: `CI=true ./build.sh CI` green,
-       with `Bobcat.CritterStack.Tests` 41/41 against real Marten on Postgres 5445 and real Fisher
-       and nothing skipped; `./build.sh Samples` green across CompileSamples / TestSamples /
-       TestSamplesOnFisher, including BankAccountES on BOTH legs (Marten 20/20, Fisher 20/20). The
-       2026-09 failure surfaced as a TypeLoadException on the first session open, which every
-       arrange step hits, so these suites genuinely detect it.
-
-    3. **The residual hazard the ratchet does NOT cover, and this half is weaker.** It is the
-       mirror-image failure the block below describes: a new member in an enum-backed capability
-       set (`EventQuery.TagValues` joining `EventQueryFilters.All` is the example) makes a store
-       CLAIM a capability it does not implement and **return wrong results silently** rather than
-       throwing. Enum constants inline at compile time, so a store built against 2.80.2 cannot
-       claim a 2.81.0 addition — which is the same way being old protected the stores in 2026-09.
-       No such addition was found in the 2.80.1..2.81.0 diff, which is confined to the EventModeling
-       descriptors, the fluent builders and SourceWriter.
-
-       **"No such addition was found" is an argument from absence, and it is strictly weaker than
-       the ratchet's positive guarantee in (1).** A future reader needs that distinction more than
-       the conclusion: if something starts returning too much rather than throwing, this is the
-       paragraph that was the weak link — not (1), and not (2), since neither an exception-shaped
-       break nor a wrong-results break on a path the suites exercise would have survived them.
-
-    2026-10-09, MOVED TO 2.82.0 under the same exception, for bobcat#448/#449: the per-chapter
-    definitions write `ForAggregate<T>()` (jasperfx#994), and the spec manifest emits
-    `SpecificationBindingDescriptor` (jasperfx#995), both absent before 2.82.0. The ratchet in (1)
-    is byte-identical again — V2.81.0, V2.82.0 and main all md5 c3e45382b62d9b6843a3c6caba1a76fe —
-    and the 2.81.0..2.82.0 source diff outside tests is confined to the event-modeling descriptors
-    and builders, the source generators, the in-memory store and one replay fix (#989): no
-    capability enum gained a member, so the weaker argument in (3) holds for the same reason.
-    Marten 9.47.0 and WolverineFx 6.48.3 are now built against 2.81.0; Fisher and Polecat still
-    against 2.80.2.
-
-    2026-10-11, MOVED TO 2.84.1 under the same exception, for jasperfx#1002: the reflection command
-    parser now binds `string[]` flags (import-event-model's flags were List<string> to dodge it). The
-    ratchet in (1) changed this time — V2.82.0 c3e45382…, V2.84.0 and V2.84.1 8a1981df… — by ONE line,
-    `JasperFx.Linq.IDynamicQueryShapeRule :: Refuse(Expression)`, the sole member of an interface
-    that is itself new in 2.84.0 (Dynamic LINQ, jasperfx#869), so no store compiled earlier implements
-    it and none can be missing a slot. No existing interface gained a member. For (3): the only new
-    enum is `ViewProjection`, an event-model descriptor value, not a capability set; EventQueryFilters
-    is unchanged. 2.84.0 also adds a JasperFx dependency on System.Linq.Dynamic.Core.
-
-    2026-10-12, MOVED TO 2.85.0 under the same exception, for bobcat#501: `SlicePattern.Query`,
-    `PublisherOrigin.HttpRouteName` and `IEventStore.FindDatabaseForTenantAsync` (jasperfx#1003/#1005).
-    The ratchet in (1) is byte-identical to V2.84.1 (md5 8a1981df…): the one interface member 2.85.0 adds,
-    `FindDatabaseForTenantAsync`, is a DEFAULT member, so no store compiled earlier misses a slot. For (3):
-    the new enum members are `SlicePattern.Query` and `HotspotOrigin.PatternViolation`, both event-model
-    descriptor values appended last for the wire, not capability sets; EventQueryFilters is unchanged.
-
-    2026-10-13, MOVED TO 2.87.0 under the same exception, for bobcat#528: the generator writes JasperFx's
-    `SpecificationManifestAttribute` and `SpecificationBindings.In` forwards to `SpecificationManifest.In`
-    (jasperfx#1011). 2.87.0 is the release expected to carry #1011; correct the number if it ships as
-    another. For (1): the one interface member since 2.85.0, `IProjectionDaemon.IsRebuilding`
-    (jasperfx#1009), is a DEFAULT member, so no store compiled earlier misses a slot. For (3): the new enum
-    member is `ShardStartFailureReason.Rebuilding`, appended last, not a capability set; EventQueryFilters
-    is unchanged.
-
-    2026-10-16, MOVED TO 2.90.2 under the same exception, for jasperfx#1022: a gracefully stopped
-    subscription agent now releases its 10s heartbeat Timer, which used to root the agent and, through
-    it, the whole store and host — a process that boots and stops many hosts (any test suite) leaked
-    every one. For (1): the ratchet is byte-identical to V2.87.0 (md5 8a1981df…, V2.87.0, V2.90.1 and
-    v2.90.2). The interface members added since 2.87.0 — `IProjectionDaemon.StartAgentInRebuildModeAsync`,
-    `IEventStore.TryDescribeDatabasesAsync` and `IEventStoreOperations.TombstoneStream(Guid|string)`
-    (jasperfx#1014/#1017) — are all DEFAULT members, so no store compiled earlier misses a slot. For
-    (3): no enum gained a member and EventQuery.cs (EventQueryFilters) is unchanged.
-
-    WHEN THIS EXCEPTION ENDS: as soon as Marten / Fisher / Polecat / WolverineFx ship builds that
-    declare JasperFx(.Events) 2.81.0 or later, move the stores onto them and delete this block —
-    the exception exists only to bridge that gap, and leaving it standing past its reason is how a
-    one-off becomes a habit.
-
-    Why JasperFx had to move to 2.81.0: jasperfx#955's first train. Issue #405 writes the emlang
-    import out as C# — stub records plus one `EventModelDefinition` — and that needs two things
-    that only exist from 2.81.0: the fluent event-model API that declares roles by string or by
-    type (jasperfx#957) and `SourceWriter`'s whitespace fixes, which #405 is required to write
-    its output through (jasperfx#956). The stores moved to 2.80.2's generation to keep the set
-    coherent underneath it — as close as a released store gets — and the one-minor gap that leaves
-    is the exception documented above. The earlier 2.67.1 jump was CritterWatch#1212 — the Event Model wire needs
-    partial descriptors from several producers to round-trip, and slice constructor collections
-    arriving null from System.Text.Json threw `ArgumentNullException` during serialization
-    (jasperfx#807).
-
-    ⚠️ The mirror-image hazard is still live and is why the set must move as a UNIT. On
-    CritterWatch's own bump, `EventQuery.TagValues` joined `EventQueryFilters.All`: a store
-    REBUILT against the newer JasperFx without implementing the filter would CLAIM it and
-    silently return unfiltered results. Enum constants are inlined at compile time, so the old
-    stores were safe from that one precisely because they were old — the exact property this
-    bump gives up. Now that the stores ARE rebuilt against 2.67, a filter they claim is a filter
-    they must honour; that is upstream's contract to keep, but a silent wrong-results failure is
-    the shape to look for if event queries start returning too much.
-
-    Re-read from the packages' own nuspecs on 2026-10-06, because this block had gone stale
-    against the pins below once before and a stale "canonical set" note is exactly the hazard it
-    exists to prevent:
-      WolverineFx 6.46.0        requires JasperFx and JasperFx.Events >= 2.80.2
-      WolverineFx.Marten 6.46.0 requires Marten >= 9.46.0, Weasel.Storage >= 9.41.0
-      WolverineFx.Fisher 6.46.0 requires Fisher >= 1.19.0, Weasel.Storage >= 9.41.0
-      Marten 9.46.0             requires JasperFx(.Events) >= 2.80.2, Weasel.Postgresql >= 9.41.0
-      Fisher 1.19.0             requires JasperFx(.Events) >= 2.80.2, Weasel.Sqlite >= 9.41.0
-      Polecat 5.36.0            requires JasperFx(.Events) >= 2.80.2, Weasel.SqlServer >= 9.41.0
-
-    Every floor is 2.80.2 and the pin is 2.81.0, so the pin is ABOVE every floor rather than
-    equal to it — see the exception above for why that is deliberate here. What still holds, and
-    is the property that actually matters, is that every package resolves ONE JasperFx.Events, so
-    the event types (IEvent, etc.) unify. Confirmed in the resolved graph rather than inferred:
-    Bobcat.CritterStack.Tests references Marten AND Fisher and restores a single JasperFx.Events
-    2.81.0, with Weasel.Storage unifying at 9.41.0.
-
-    One consequence of Marten + Fisher together: both nupkgs bundle the IDENTICAL
-    JasperFx.Events.SourceGenerator (byte-for-byte), so a project referencing both stores loads
-    the generator twice and every projection's Evolver partial is emitted twice (CS0433/CS0111 —
-    jasperfx#462, the same trap CritterWatch documents). Fix, ported from CritterWatch: drop ALL
-    store-bundled copies via a DropDuplicateBundledEventSourceGenerator target and compile with
-    the explicit JasperFx.Events.SourceGenerator pinned below, so the generator always matches
-    the JasperFx.Events runtime whatever the stores happen to bundle.
-
-    On THIS set all three stores' bundled copies are byte-identical (Marten 9.46.0, Fisher 1.19.0
-    and Polecat 5.36.0 each ship SHA-256 3b9551b7…), so they dedupe themselves and the target is
-    currently belt-and-braces. That is the trap, not the all-clear: a project without the target
-    compiles fine today and starts failing CS0433 the moment a bump puts two stores on different
-    JasperFx builds.
-
-    JasperFx.Events.EventModeling is what issues #106/#107/#108 implement against; the semantic
-    model (SpecificationDescriptor, HotspotDescriptor.PendingSpecification, SlicePattern,
-    EventModelDiscovery, the element/lane/palette model) arrived in 2.54.0 via
-    JasperFx/jasperfx#687 and #689, and has been reshaped since. A consuming sample pinned below
-    2.54.0 cannot see it at all.
-
-    See versions.md for the full matrix and the samples' target set.
+    The Spectre.Console and Microsoft.Extensions.*.Abstractions pins are core's own references,
+    which it used to receive transitively through JasperFx. They are held at the lowest version
+    that serves both target frameworks, because a test framework's floor becomes every
+    consumer's floor.
   -->
+
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Critter Stack — mutually-compatible aligned set -->
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
-    <PackageVersion Include="WolverineFx.Marten" Version="6.46.0" />
-    <PackageVersion Include="WolverineFx.Fisher" Version="6.46.0" />
-    <PackageVersion Include="Marten" Version="9.46.0" />
+    <!-- The tools only (Bobcat.EventModel, Bobcat.Console, Bobcat.Ui) and the tests that drive them: see the header. -->
     <PackageVersion Include="JasperFx" Version="2.90.2" />
-    <!--
-      Bobcat.CritterStack binds to the JasperFx.Events abstractions (IEventStore, IEventDatabase,
-      IProjectionCoordinator, ProjectionScenario) rather than to Marten, so one package serves
-      Marten, Polecat and Fisher. Same version as JasperFx — the two ship together.
-
-      Fisher (SQLite, the inner-loop store) and Polecat (SQL Server) are pinned here so that the
-      moment a project references them it lands on this JasperFx and no other. Fisher coverage in
-      Bobcat.CritterStack.Tests (a temp SQLite file, no docker) and the BankAccountES-on-Fisher
-      acceptance are issue #103's follow-on to this bump; Polecat needs SQL Server and is a
-      documented manual path (docs/agents/critter-stack.md, "The Critter Stack helpers are store-agnostic").
-    -->
     <PackageVersion Include="JasperFx.Events" Version="2.90.2" />
-    <!-- Referenced explicitly (as an analyzer) by any project referencing MORE than one store,
-         with the store-bundled copies dropped — see the dual-store note in the header. -->
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.90.2" />
-    <PackageVersion Include="Fisher" Version="1.19.0" />
-    <PackageVersion Include="Polecat" Version="5.36.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
+
+    <!-- Core's own references, received transitively through JasperFx before bobcat#744. -->
+    <PackageVersion Include="Spectre.Console" Version="0.55.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
+    <!-- Bobcat.Supervisor.ProjectedWorker only (a test host): its connection-string probe. -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
+
     <PackageVersion Include="Alba" Version="8.5.2" />
     <!-- Bobcat.Tests only. AlbaContentRoot reads [WebApplicationFactoryContentRoot] reflectively
          by type name so the shipped package needs no ASP.NET reference; the test assembly carries
          the real attribute so the reflective read is proved against the real type. -->
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
 
-    <!--
-      Wolverine host packages. Same 6.46.0 as the aligned set above — the earlier monitor-only
-      version split existed only while the rest of the repo was still on Wolverine 6.5.1, and
-      collapsed when the alignment caught up.
-    -->
+    <!-- Bobcat.Ui's host (bobcat#744 leaves the UI its Wolverine coupling: it is a tool). -->
     <PackageVersion Include="WolverineFx.Http" Version="6.46.0" />
     <PackageVersion Include="WolverineFx.SignalR" Version="6.46.0" />
-    <!-- Test-only: the real broker issue #282's transport-isolation tests need. No Bobcat.* library
-         references it — the reset seam is transport-agnostic; only the proof is RabbitMQ-shaped. -->
-    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.46.0" />
         <!--
       TypeScript contract codegen for the monitor's Vue SPA (CritterWatch's GenerateCommand
       pattern): NJsonSchema reflects the MonitorEvents.cs records through the same STJ settings

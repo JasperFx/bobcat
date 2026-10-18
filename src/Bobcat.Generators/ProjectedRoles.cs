@@ -137,7 +137,7 @@ internal static class ProjectedRoles
             Roles.Add((EventModelEmitter.Command, command));
         }
 
-        /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
+        /// <summary>The act's <c>ActTrigger</c> member name, when its method declares one (the JasperFx <c>TriggerKind</c> member of the same name is stamped).</summary>
         public string? TriggerKind;
 
         /// <summary>
@@ -446,7 +446,7 @@ internal static class ProjectedRoles
     }
 
     /// <summary>
-    /// bobcat#501: whether the method declares a read-only HTTP trigger — <c>[EventModelTrigger(TriggerKind.Http,
+    /// bobcat#501: whether the method declares a read-only HTTP trigger — <c>[EventModelTrigger(ActTrigger.Http,
     /// HttpMethod = "GET")]</c> or <c>"HEAD"</c>. An unset verb is POST, so it is not a read.
     /// </summary>
     private static bool isReadTrigger(IMethodSymbol method)
