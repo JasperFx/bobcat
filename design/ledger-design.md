@@ -96,7 +96,9 @@ edit rather than arbitrating one:
   Keeping the larger, as the first cut did, meant one artifact written at the old default 20 grew a
   committed file kept at 3 for good (lesson 14 of `critter-stack-supervisor-rollout.md`; Weasel
   worked around it with `Record`). The committed file's retention is the one somebody chose;
-  to change it, merge the ledger into `TestLedger.Empty(n)`. `Merge` is therefore commutative
+  to change it, merge the ledger into `TestLedger.Empty(n)`, or load it with
+  `TestLedger.Load(path, n)`, which does exactly that for an existing file (#746; left out, the
+  file's own retention stands). `Merge` is therefore commutative
   between ledgers of the same retention, which is the git-conflict case: both sides of one file.
 
 ## Aging is deterministic and clock-free
