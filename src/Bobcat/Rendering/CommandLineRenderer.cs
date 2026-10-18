@@ -394,6 +394,15 @@ public class CommandLineRenderer
             return;
         }
 
+        if (step.IsNarrative && step.Status == ResultStatus.ok)
+        {
+            // A marker comment nothing observed: no verdict and no duration, and NOT the ○ of a step
+            // the run never reached — in a green scenario that glyph made the narrative read as
+            // partly skipped (bobcat#688).
+            output.MarkupLine($"{indent}[dim]· {kindLabel}{sentenceMarkup} — declared[/]");
+            return;
+        }
+
         output.MarkupLine($"{indent}{icon} {kindLabel}{sentenceMarkup}{duration}");
 
         if (step.Status == ResultStatus.failed && step.ErrorMessage != null)
