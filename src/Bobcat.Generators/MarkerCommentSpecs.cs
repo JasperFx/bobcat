@@ -708,6 +708,9 @@ internal static class MarkerCommentSpecs
             var step = Parse(trivia.ToString());
             if (step is null) continue;
 
+            var continuation = ContinuationOf(trivia);
+            if (continuation.Length > 0) step.Text = step.Text + " " + continuation;
+
             step.Line = trivia.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
             step.Where = trivia.GetLocation();
 
@@ -727,6 +730,51 @@ internal static class MarkerCommentSpecs
 
             yield return step;
         }
+    }
+
+    /// <summary>
+    /// The comment lines that carry on a marker's sentence (bobcat#687), joined with spaces: every
+    /// <c>//</c> line directly below it, up to a blank line, a line of code, or a line that is a
+    /// marker of its own.
+    /// </summary>
+    /// <remarks>
+    /// Existing suites wrap long comments, so adding a keyword to the first line of one turned it
+    /// into a step that rendered as a sentence fragment. A line that parses as a marker still starts
+    /// its own step, so <c>// Given …</c> followed by <c>// And …</c> stays two steps.
+    /// </remarks>
+    internal static string ContinuationOf(SyntaxTrivia marker)
+    {
+        var list = marker.Token.LeadingTrivia.Contains(marker)
+            ? marker.Token.LeadingTrivia
+            : marker.Token.TrailingTrivia;
+
+        var parts = new List<string>();
+        var index = list.IndexOf(marker) + 1;
+        while (index < list.Count)
+        {
+            var lineBreaks = 0;
+            while (index < list.Count && (list[index].IsKind(SyntaxKind.WhitespaceTrivia)
+                                          || list[index].IsKind(SyntaxKind.EndOfLineTrivia)))
+            {
+                if (list[index].IsKind(SyntaxKind.EndOfLineTrivia)) lineBreaks++;
+                index++;
+            }
+
+            // Exactly one line break: the next line, with no blank line between.
+            if (lineBreaks != 1 || index >= list.Count) break;
+
+            var next = list[index];
+            if (!next.IsKind(SyntaxKind.SingleLineCommentTrivia)) break;
+            if (Parse(next.ToString()) is not null) break;
+
+            var text = next.ToString().Trim().TrimStart('/').Trim();
+            if (text.Length == 0) break;
+
+            parts.Add(text);
+            index++;
+        }
+
+        return string.Join(" ", parts);
     }
 
     /// <summary>A keyword that continues the narrative it is in rather than opening one.</summary>

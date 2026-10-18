@@ -83,6 +83,62 @@ public class MarkerCommentSpecTests
         MarkerCommentSpecs.StepsIn(Method("an_ordinary_test_with_no_markers")).ShouldBeEmpty();
     }
 
+    private static List<string> stepsOfBody(string body)
+    {
+        var method = CSharpSyntaxTree.ParseText($"class C {{ [Fact] public void m() {{\n{body}\n}} }}")
+            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single();
+        return MarkerCommentSpecs.StepsIn(method).Select(x => $"{x.Keyword} {x.Text}").ToList();
+    }
+
+    [Fact]
+    public void a_marker_wrapped_onto_more_comment_lines_is_one_step()
+    {
+        // bobcat#687: Marten's DaemonTests wraps long comments, and the first line alone rendered
+        // as a sentence fragment.
+        stepsOfBody(
+            """
+                    // Given the daemon has run
+                    Run();
+                    // Then every event at or below the committed mark is in a document already; nothing past the failing event is
+                    // in one
+                    Check();
+            """).ShouldBe(
+        [
+            "Given the daemon has run",
+            "Then every event at or below the committed mark is in a document already; nothing past the failing event is in one"
+        ]);
+    }
+
+    [Fact]
+    public void a_wrapped_marker_ends_at_a_blank_line_or_code()
+    {
+        stepsOfBody(
+            """
+                    // Given a proposed
+                    // appointment
+
+                    // an ordinary note after a blank line
+                    var id = 1;
+                    // When the owner
+                    // confirms
+                    Post(id);
+                    // not part of the When
+            """).ShouldBe(["Given a proposed appointment", "When the owner confirms"]);
+    }
+
+    [Fact]
+    public void a_marker_on_the_next_line_is_its_own_step_not_a_continuation()
+    {
+        stepsOfBody(
+            """
+                    // Given a proposed appointment
+                    // And a waiting owner
+                    // * a bullet
+                    // Note: a note
+                    Run();
+            """).ShouldBe(["Given a proposed appointment", "And a waiting owner", " a bullet", "Note a note"]);
+    }
+
     [Fact]
     public void every_step_carries_the_line_it_came_from()
     {
