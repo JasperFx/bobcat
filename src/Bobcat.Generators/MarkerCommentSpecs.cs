@@ -263,6 +263,20 @@ internal static class MarkerCommentSpecs
             scenario.Roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
             scenario.Vocabulary = VocabularyCalls.Read(method, ctx.SemanticModel, ct);
 
+            // bobcat#681: [BobcatSpec(typeof(AddBook))] over an act that names no command but passes an AddBook
+            var boundSlice = GeneratorSliceTags.Slice(scenario.Tags.Count > 0 ? scenario.Tags : spec.Tags);
+            scenario.Roles.AdoptBoundCommand(boundSlice);
+            if (scenario.Roles.WrappedAct is { } wrapped)
+            {
+                spec.Problems.Add(new MarkedProblem
+                {
+                    Id = "WrappedAct",
+                    IsError = false,
+                    Where = scenario.Roles.WrappedActLocation,
+                    Message = WrappedActMessage(scenario.Roles, wrapped, boundSlice)
+                });
+            }
+
             // bobcat#500: an HTTP act whose route cannot be known at all says so (BOBCAT038, info)
             if (scenario.Roles.RouteProblem is { } routeProblem)
             {
@@ -488,6 +502,20 @@ internal static class MarkerCommentSpecs
         }
 
         foreach (var tag in tags) yield return tag;
+    }
+
+    /// <summary>BOBCAT045's sentence: what was read through the helper, what was not, and the attributes that fix it.</summary>
+    internal static string WrappedActMessage(ProjectedRoles.Reading roles, string wrapped, string? slice)
+    {
+        var helper = roles.ActMethod;
+        var found = roles.CommandFromBinding
+            ? $"its command is taken from the slice binding, {slice}, because the call passes one"
+            : "which command it sends cannot be known, so the slice gets no command and no pattern";
+        return $"'{helper}' declares no Event Model role, but it calls '{wrapped}', which is an act, so this call is read "
+               + $"as the test's act and {found}. Its trigger (an HTTP verb and route) is not read through it. Declare "
+               + $"[EventModelRole(SliceRole.Command, nameof(command))] on '{helper}', naming the parameter that carries "
+               + "the command, and for an HTTP act [EventModelTrigger(TriggerKind.Http, Route = nameof(url), "
+               + "HttpMethod = \"POST\")] naming its route parameter.";
     }
 
     /// <summary>

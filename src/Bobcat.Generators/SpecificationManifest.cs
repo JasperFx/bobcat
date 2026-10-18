@@ -127,8 +127,11 @@ internal static class SpecificationManifest
             // the fallback for a vocabulary that declares no roles. A test whose act is a read (bobcat#501) sends
             // no command, so an arranging When… must not be inferred as one
             var roles = ProjectedRoles.Read(method, ctx.SemanticModel, ct);
-            // bobcat#615: neither does a test whose last act names no command -- an earlier When… arranged state
-            var command = roles.ReadAct is not null || roles.UnstampedAct is not null
+            // bobcat#681: as the Event Model fold does, an act naming no command sends the binding's type if it passes one
+            if (explicitSlice is not null) roles.AdoptBoundCommand(sliceOf(explicitSlice));
+            // bobcat#615: neither does a test whose last act names no command -- an earlier When… arranged state. An act
+            // found through a helper declaring no role (bobcat#681) keeps the name-based inference it always had
+            var command = roles.ReadAct is not null || (roles.UnstampedAct is not null && roles.WrappedAct is null)
                 ? null
                 : unqualified(roles.Act) ?? inferCommand(method, ctx.SemanticModel, ct);
             var resolved = roles.ResolvedTypes().ToImmutableArray();
@@ -193,8 +196,13 @@ internal static class SpecificationManifest
     {
         TypedConstant arg(string name) => data.NamedArguments.FirstOrDefault(x => x.Key == name).Value;
 
-        var slice = arg("SliceType").Value is INamedTypeSymbol type ? type.Name : arg("SliceName").Value as string;
-        return new Binding(identity, command, slice, arg("Domain").Value as string, null, resolved);
+        return new Binding(identity, command, sliceOf(data), arg("Domain").Value as string, null, resolved);
+    }
+
+    private static string? sliceOf(AttributeData data)
+    {
+        TypedConstant arg(string name) => data.NamedArguments.FirstOrDefault(x => x.Key == name).Value;
+        return arg("SliceType").Value is INamedTypeSymbol type ? type.Name : arg("SliceName").Value as string;
     }
 
     private static bool onlyTriggeredBy(AttributeData data)

@@ -33,7 +33,6 @@ public class EventModel(BankAccountHost app)
         _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.HandlerType, EventModelProvenance.Derived);
         _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.Domain, EventModelProvenance.Declared);
         _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.TriggerLabel, EventModelProvenance.Declared);
-        _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.ReadModelTypes, EventModelProvenance.Declared);
         _model.TheRoleIsClaimedBy("FreezeAccount", EventModelRole.Specifications, EventModelProvenance.Declared);
     }
 

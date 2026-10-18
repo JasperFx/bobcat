@@ -836,7 +836,7 @@ public Task WhenPosted(object command, string route)
 | `Aggregate` | `AggregateTypes`; nothing on a **Query** slice (#501) |
 | `Event` | `EmittedEvents` |
 | `ArrangedEvent` | `ConsumedEvents` on a **View** slice, nothing on a Command slice -- there it is the aggregate's own history (#297) -- and nothing on a Query slice, where it is setup (#501) |
-| `ReadModel` | `ReadModelTypes`; `ReadsFrom` on a **Query** slice (#501) |
+| `ReadModel` | `ReadModelTypes` on a View (or pattern-less) slice; `ReadsFrom` on a **Query** slice (#501); nothing on a **Command**, Automation or Translation slice, where a read model the spec asserts is downstream of the act (#681) |
 | `Document` | the specification's resolved types only, never a slot |
 | `Message` | `PublishedMessages` |
 | `Context` | `ReadsFrom` -- a stream the act only looks up, never an aggregate (#502) |
@@ -910,11 +910,31 @@ is recoverable, a wrong one is believed. So does a type the generated code canno
 contributes its roles, but it is never the act: whether, and when, it runs is not something the generator
 can see.
 
-**A wrapper must re-declare the attributes.** The generator reads the attributes on the method a test
-calls -- walking an `override` back to its base -- and never what that method's body calls. A `new` method
-hiding the vocabulary's, or a helper such as `GivenAccount(id, events) => GivenEvents<Account>(id, events)`,
-stamps nothing unless it carries its own `[EventModelRole]` / `[EventModelTrigger]`, naming its own
-parameters.
+**A wrapper should re-declare the attributes.** The generator reads the attributes on the method a test
+calls -- walking an `override` back to its base. A `new` method hiding the vocabulary's, or a helper such as
+`GivenAccount(id, events) => GivenEvents<Account>(id, events)`, stamps no role unless it carries its own
+`[EventModelRole]` / `[EventModelTrigger]`, naming its own parameters.
+
+**An act behind a helper is still the act (bobcat#681).** One thing is read through a helper of the project's
+own (source in the same compilation, followed up to three calls deep): whether it makes an act. A
+`WhenPosted(object command, string url)` that wraps `WhenActing` or `WhenTracked` and declares nothing is the
+test's act. Before #681 the act vanished with the helper, so `[BobcatSpec(typeof(AddBook))]` over
+`WhenPosted(new AddBook(…), "/books")` followed by a `ThenReadModel<…>` made a **View** slice with no command.
+Now:
+
+- a command the helper's own body names (`OpenTheAccount() => WhenReceived(new OpenAccount(…))`) is the act's
+  command, with the trigger the inner act declares;
+- a command passed through a parameter can't be read through the helper. When the call passes an instance of
+  the type the spec is bound to (`[BobcatSpec(typeof(AddBook))]` and a `new AddBook(…)` argument), that type is
+  the command. Otherwise the act names no command, as below;
+- [**BOBCAT045**](diagnostics.md#bobcat045) (info) at the call says so, because the trigger (HTTP verb and
+  route) still stops at the helper's parameters. Declare the attributes on the helper and it goes away:
+
+```csharp
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(TriggerKind.Http, Route = nameof(url), HttpMethod = "POST")]
+protected Task WhenPosted(object command, string url) => WhenActing(…);
+```
 
 **Why an attribute, read from metadata, and not a list of method names.** The vocabulary lives in
 another package -- `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
@@ -939,14 +959,25 @@ its vocabulary method declares a `Command` role (whether or not the argument nam
 
 When a test's last act names no command:
 
-- **its slice is never inferred a View.** An asserted read model is not what a delete or an accept is about, so
-  the pattern is left **null** -- a null pattern doesn't miscolour the canvas, a wrong one does. A declared
-  `Pattern` still wins;
+- **its slice is never inferred a View.** An asserted read model is not what a delete or an accept is about. When
+  the act is an HTTP write -- `POST` (the default verb), `PUT`, `PATCH` or `DELETE` -- the slice is a **Command**
+  slice with no `CommandType` (bobcat#681 revised #615 here, which left it null): a body-less
+  `POST /books/{id}/return` is a command whatever it carries. Any other such act (`WhenActing`, a non-HTTP
+  `WhenReceived(someObject)`) leaves the pattern **null** -- a null pattern doesn't miscolour the canvas, a wrong
+  one does. A declared `Pattern` still wins;
 - **an earlier command is not taken for the act.** A `WhenReceived(new OpenAccount(…))` that arranged state is
   not the slice's `CommandType`, and the spec manifest doesn't infer one either;
 - **its trigger is kept.** A body-less `DELETE` to `/products/{id}` is still an HTTP slice with that route.
 
-The fix is to name the command: send a typed command, or bind the spec with `[BobcatSpec(typeof(TheCommand))]`.
+The fix is to name the command: send a typed command, or bind the spec with `[BobcatSpec(typeof(TheCommand))]`
+and pass an instance of it to the act (above).
+
+**Receiving an event is an Automation (bobcat#681).** `WhenReceived(new HomeCheckAssignmentAccepted(…))` names
+the type it sends as a command, but when any specification in the compilation emits or arranges that type
+(`ThenEvents`, `ThenEmitted`, `GivenEvents`, …), it is an event, and a slice whose act receives it is the system
+reacting: its pattern is `Automation`, with the event as its `CommandType` -- the shape Wolverine derives for a
+handler of another slice's event, and what JasperFx's `EventTriggers` link joins on. An event no specification
+names can't be told from a command, so that slice stays `Command`; declare `Pattern = "Automation"` for it.
 
 **Unbound specs with different acts are not folded into one slice.** The feature-named slice is a fallback for a
 feature whose unbound specs all make the same act, or none. When they make different ones, a spec whose act is a

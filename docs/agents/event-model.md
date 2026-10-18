@@ -147,7 +147,14 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   - **A test with roles and no `[BobcatSlice]` lands on a slice named after its feature** — unless the feature's
     unbound tests make different acts (bobcat#615): then a command act goes to the slice named for its command, and
     a read act or an act naming no command (`[EventModelAct]`, an anonymous body) goes nowhere, as BOBCAT041. A
-    slice whose act names no command is never inferred a View (`SliceModel.HasUnstampedAct`).
+    slice whose act names no command is never inferred a View (`SliceModel.HasUnstampedAct`). **#681 revised #615
+    (Jeremy, 2026-10-18):** such an act over an HTTP write verb makes the slice `Command` with no `CommandType`
+    (`HasUnstampedWriteAct`); any other stays null.
+  - **bobcat#681:** a project's own source helper declaring no role is read through (≤3 deep) for whether it makes an
+    act, and a command its body names; an act naming no command takes the `[BobcatSpec(typeof(X))]` type when it passes
+    an X (`Reading.AdoptBoundCommand`); BOBCAT045 (info) reports a helper whose command or trigger can't be read. An act
+    whose command some spec emits/arranges as an event is `Automation` (`ActIsEvent`). Command/Automation/Translation
+    slices stamp no `ReadModelTypes` (an asserted read model is downstream; it stays in `ResolvedTypes`).
   - `Specifications[].ResolvedTypes` (#107's join target) is filled here, and the same list
     rides `SpecificationBindingDescriptor.ResolvedTypes` from `SpecificationManifest` — gated on the
     property existing in the consumer's JasperFx. The manifest prefers the role-stamped act over its
