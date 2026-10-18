@@ -180,8 +180,8 @@ Wolverine's `The runner has received a shutdown signal`. Stalls appeared only in
    discovery and planning, and matched 2,521 of 2,525 and 1,513 of 1,550 afterwards. The misses
    are theories with duplicate display names. Weasel and Polecat fold the ledger from CI artifacts
    only. A uid that depends on the environment is the failure class of Wolverine's lesson 6, at the
-   level of the ledger. The open question is the key itself, and whether committing the ledger
-   should be the default at all. That is Jeremy's decision (see below).
+   level of the ledger. Decided 2026-10-18: key on the display name with a uid fallback, and keep
+   the ledger as a CI artifact by default with committing opt-in (#730, see below).
 
 2. **A theory whose data xUnit cannot serialize collapses into one uid, and the last row's verdict
    won.** Every row reports under the theory's single uid with a different display name, and
