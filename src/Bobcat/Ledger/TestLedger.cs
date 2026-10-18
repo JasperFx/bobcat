@@ -88,6 +88,11 @@ public sealed record HintProposal(
 /// no judgement calls, and a custom merge driver could automate exactly that later.
 /// </para>
 /// <para>
+/// <b>The file is compact</b> (issue #698): unindented, the uid written once as the test's key,
+/// and the display name once per test rather than on every observation. A test's display name
+/// is its newest observation's; the older ones take it too, in memory as on disk.
+/// </para>
+/// <para>
 /// <b>Derived, never primary.</b> The primary record of a run is its report artifact (the
 /// supervisor's JSON, the runner's suite JSON, the monitor's archives); the ledger is a
 /// compaction of those, and advisory everywhere it is consumed — a stale or absent ledger
@@ -105,8 +110,11 @@ public sealed record HintProposal(
 /// </remarks>
 public sealed class TestLedger
 {
-    /// <summary>The current on-disk schema version.</summary>
-    public const int Version = 1;
+    /// <summary>
+    /// The current on-disk schema version. 2 is the compact form (issue #698); a version 1 file
+    /// still loads, and is written back as version 2.
+    /// </summary>
+    public const int Version = 2;
 
     private readonly SortedDictionary<string, List<LedgerRun>> _tests;
 
@@ -152,15 +160,21 @@ public sealed class TestLedger
     }
 
     /// <summary>
-    /// Union two ledgers — the whole conflict-resolution story. Commutative and idempotent, so
-    /// merging in either direction, or repeatedly, converges on the same file.
+    /// Union two ledgers — the whole conflict-resolution story. Idempotent, and commutative
+    /// between ledgers of the same retention, so merging two sides of one committed file in
+    /// either direction, or repeatedly, converges on the same file.
     /// </summary>
+    /// <remarks>
+    /// The result keeps <b>this</b> ledger's <see cref="MaxRunsPerTest"/>: the ledger merged
+    /// into is the one being kept, and its retention is the one somebody chose for it. Keeping
+    /// the larger of the two (as before issue #698) meant one artifact written at the default
+    /// retention grew a committed file for good. To change a ledger's retention, merge it into
+    /// <see cref="Empty"/> at the retention wanted.
+    /// </remarks>
     public TestLedger Merge(TestLedger other)
     {
-        // The larger retention wins: shrinking a ledger because the other side was configured
-        // smaller would silently discard history someone chose to keep.
         var merged = new TestLedger(
-            Math.Max(MaxRunsPerTest, other.MaxRunsPerTest),
+            MaxRunsPerTest,
             new SortedDictionary<string, List<LedgerRun>>(StringComparer.Ordinal));
 
         return merged
@@ -187,10 +201,12 @@ public sealed class TestLedger
     /// <summary>
     /// Newest first, deduplicated by run id, capped at <see cref="MaxRunsPerTest"/> — the one
     /// ordering everything else derives from. Fully deterministic: stamp, then run id, so two
-    /// folds of the same observations cannot disagree.
+    /// folds of the same observations cannot disagree. Every observation takes the newest one's
+    /// display name, because the file stores it once per test.
     /// </summary>
     private List<LedgerRun> prune(List<LedgerRun> runs)
-        => runs
+    {
+        var kept = runs
             .OrderByDescending(r => r.At)
             .ThenByDescending(r => r.RunId, StringComparer.Ordinal)
             .GroupBy(r => r.RunId, StringComparer.Ordinal)
@@ -199,6 +215,14 @@ public sealed class TestLedger
             .ThenByDescending(r => r.RunId, StringComparer.Ordinal)
             .Take(MaxRunsPerTest)
             .ToList();
+
+        if (kept.Count == 0) return kept;
+
+        var displayName = kept[0].DisplayName;
+        return kept
+            .Select(r => r.DisplayName == displayName ? r : r with { DisplayName = displayName })
+            .ToList();
+    }
 
     // ---- the three consumers ------------------------------------------------------------------
 
@@ -346,32 +370,119 @@ public sealed class TestLedger
 
     private static readonly JsonSerializerOptions json = new()
     {
-        WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    /// <summary>The compact form (version 2): the uid is the key, the display name stored once per test.</summary>
     private sealed class Document
     {
         public int Version { get; set; } = TestLedger.Version;
         public int MaxRunsPerTest { get; set; }
-        public SortedDictionary<string, List<LedgerRun>> Tests { get; set; } = new(StringComparer.Ordinal);
+        public SortedDictionary<string, DocumentTest> Tests { get; set; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class DocumentTest
+    {
+        /// <summary>Left out when it is the uid itself.</summary>
+        public string? DisplayName { get; set; }
+
+        public List<DocumentRun> Runs { get; set; } = [];
+    }
+
+    private sealed class DocumentRun
+    {
+        public string RunId { get; set; } = "";
+        public DateTimeOffset At { get; set; }
+        public string Outcome { get; set; } = "";
+        public int Attempts { get; set; }
+        public long? TotalMs { get; set; }
+        public long? FirstMs { get; set; }
+        public string? Failure { get; set; }
+        public string? ClearedBy { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool StallInduced { get; set; }
+    }
+
+    /// <summary>Version 1: every observation carried its uid and display name. Read, never written.</summary>
+    private sealed class DocumentVersion1
+    {
+        public int MaxRunsPerTest { get; set; }
+        public Dictionary<string, List<LedgerRun>> Tests { get; set; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>
-    /// The canonical text: tests sorted by uid, runs newest first, invariant formatting — the
-    /// same observations always serialize to the same bytes, whoever folded them.
+    /// The canonical text: tests sorted by uid, runs newest first, invariant formatting, no
+    /// indentation — the same observations always serialize to the same bytes, whoever folded them.
     /// </summary>
     public string ToJson()
-        => JsonSerializer.Serialize(new Document { MaxRunsPerTest = MaxRunsPerTest, Tests = _tests }, json);
+    {
+        var document = new Document { MaxRunsPerTest = MaxRunsPerTest };
+        foreach (var (uid, runs) in _tests)
+        {
+            var displayName = runs.Count > 0 ? runs[0].DisplayName : null;
+            document.Tests[uid] = new DocumentTest
+            {
+                DisplayName = displayName == uid ? null : displayName,
+                Runs = runs.Select(r => new DocumentRun
+                {
+                    RunId = r.RunId,
+                    At = r.At,
+                    Outcome = r.Outcome,
+                    Attempts = r.Attempts,
+                    TotalMs = r.TotalMs,
+                    FirstMs = r.FirstMs,
+                    Failure = r.Failure,
+                    ClearedBy = r.ClearedBy,
+                    StallInduced = r.StallInduced
+                }).ToList()
+            };
+        }
+
+        return JsonSerializer.Serialize(document, json);
+    }
 
     public static TestLedger FromJson(string text)
     {
-        var document = JsonSerializer.Deserialize<Document>(text, json)
-                       ?? throw new BobcatConfigurationException("the ledger file was empty");
+        var version = JsonSerializer.Deserialize<VersionProbe>(text, json)?.Version
+                      ?? throw new BobcatConfigurationException("the ledger file was empty");
 
-        var ledger = Empty(document.MaxRunsPerTest > 0 ? document.MaxRunsPerTest : 20);
-        return ledger.Record(document.Tests.Values.SelectMany(runs => runs));
+        int maxRunsPerTest;
+        IEnumerable<LedgerRun> observations;
+
+        if (version <= 1)
+        {
+            var legacy = JsonSerializer.Deserialize<DocumentVersion1>(text, json)!;
+            maxRunsPerTest = legacy.MaxRunsPerTest;
+            observations = legacy.Tests.Values.SelectMany(runs => runs);
+        }
+        else if (version == Version)
+        {
+            var document = JsonSerializer.Deserialize<Document>(text, json)!;
+            maxRunsPerTest = document.MaxRunsPerTest;
+            observations = document.Tests.SelectMany(pair => pair.Value.Runs.Select(r =>
+                new LedgerRun(r.RunId, r.At, pair.Key, pair.Value.DisplayName ?? pair.Key, r.Outcome, r.Attempts)
+                {
+                    TotalMs = r.TotalMs,
+                    FirstMs = r.FirstMs,
+                    Failure = r.Failure,
+                    ClearedBy = r.ClearedBy,
+                    StallInduced = r.StallInduced
+                }));
+        }
+        else
+        {
+            throw new BobcatConfigurationException(
+                $"the ledger file is version {version}, newer than this Bobcat reads (version {Version}); upgrade Bobcat to fold it");
+        }
+
+        return Empty(maxRunsPerTest > 0 ? maxRunsPerTest : 20).Record(observations);
+    }
+
+    private sealed class VersionProbe
+    {
+        public int Version { get; set; } = 1;
     }
 
     /// <summary>Load a committed ledger; a missing file is an empty ledger, not an error.</summary>

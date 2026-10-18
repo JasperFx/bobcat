@@ -85,13 +85,35 @@ public class TestLedgerTests
     }
 
     [Fact]
-    public void merging_ledgers_with_different_retention_keeps_the_larger()
+    public void merging_keeps_the_retention_of_the_ledger_merged_into()
     {
-        var small = TestLedger.Empty(maxRunsPerTest: 2).Record([run("r1", 1)]);
-        var large = TestLedger.Empty(maxRunsPerTest: 10).Record([run("r2", 2)]);
+        // Issue #698: keeping the larger retention meant one artifact written at the default 20
+        // grew a committed file kept at 3 for good.
+        var committed = TestLedger.Empty(maxRunsPerTest: 3)
+            .Record(Enumerable.Range(1, 3).Select(day => run($"c{day}", day)));
+        var artifact = TestLedger.Empty(maxRunsPerTest: 20)
+            .Record(Enumerable.Range(4, 5).Select(day => run($"a{day}", day)));
 
-        small.Merge(large).MaxRunsPerTest.ShouldBe(10);
-        large.Merge(small).MaxRunsPerTest.ShouldBe(10);
+        var merged = committed.Merge(artifact);
+        merged.MaxRunsPerTest.ShouldBe(3);
+        merged.Tests["F/spec"].Select(r => r.RunId).ShouldBe(["a8", "a7", "a6"]);
+
+        // Merging again, as the next fold would, does not ratchet it either.
+        merged.Merge(artifact).MaxRunsPerTest.ShouldBe(3);
+        artifact.Merge(committed).MaxRunsPerTest.ShouldBe(20);
+    }
+
+    [Fact]
+    public void a_ledgers_retention_is_changed_by_merging_it_into_an_empty_one()
+    {
+        var ledger = TestLedger.Empty(maxRunsPerTest: 20)
+            .Record(Enumerable.Range(1, 5).Select(day => run($"r{day}", day)));
+
+        var smaller = TestLedger.Empty(maxRunsPerTest: 2).Merge(ledger);
+
+        smaller.MaxRunsPerTest.ShouldBe(2);
+        TestLedger.FromJson(smaller.ToJson()).MaxRunsPerTest.ShouldBe(2);
+        smaller.Tests["F/spec"].Select(r => r.RunId).ShouldBe(["r5", "r4"]);
     }
 
     [Fact]
@@ -123,6 +145,110 @@ public class TestLedgerTests
         {
             try { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); } catch { }
         }
+    }
+
+    // ---- the compact form (issue #698) ----------------------------------------------------------
+
+    [Fact]
+    public void the_file_is_unindented_and_names_each_test_once()
+    {
+        var ledger = TestLedger.Empty().Record(
+        [
+            run("r1", 1, "A/one"), run("r2", 2, "A/one"), run("r3", 3, "A/one")
+        ]);
+
+        var text = ledger.ToJson();
+
+        text.ShouldNotContain("\n");
+        text.ShouldNotContain("  ");
+        text.ShouldStartWith("{\"version\":2,");
+        // The uid is the key and nothing else; a display name equal to it is not written at all.
+        countOf(text, "A/one").ShouldBe(1);
+        text.ShouldNotContain("displayName");
+        text.ShouldNotContain("uid");
+        // A false flag is the default and is left out.
+        text.ShouldNotContain("stallInduced");
+    }
+
+    [Fact]
+    public void the_display_name_is_stored_once_per_test_and_is_the_newest_observations()
+    {
+        var ledger = TestLedger.Empty().Record(
+        [
+            run("r1", 1, "A/one") with { DisplayName = "Old.Name.one" },
+            run("r2", 2, "A/one") with { DisplayName = "Ns.Class.one" },
+            run("r3", 3, "A/one") with { DisplayName = "Ns.Class.one" }
+        ]);
+
+        var text = ledger.ToJson();
+        countOf(text, "Ns.Class.one").ShouldBe(1);
+        text.ShouldNotContain("Old.Name.one");
+
+        var loaded = TestLedger.FromJson(text);
+        loaded.Tests["A/one"].ShouldAllBe(r => r.DisplayName == "Ns.Class.one");
+        loaded.ToJson().ShouldBe(text);
+    }
+
+    [Fact]
+    public void every_field_of_an_observation_survives_the_compact_form()
+    {
+        var observation = run("r1", 1, "A/one", totalMs: 250, outcome: "PassOnRetry", attempts: 2,
+            failure: "System.TimeoutException", clearedBy: "RetryInProcess", stallInduced: true)
+            with { DisplayName = "Ns.Class.one", FirstMs = 50 };
+
+        var loaded = TestLedger.FromJson(TestLedger.Empty().Record([observation]).ToJson());
+
+        loaded.Tests["A/one"].ShouldHaveSingleItem().ShouldBe(observation);
+    }
+
+    [Fact]
+    public void a_version_1_file_still_loads_and_is_written_back_compact()
+    {
+        const string version1 = """
+            {
+              "version": 1,
+              "maxRunsPerTest": 3,
+              "tests": {
+                "A/one": [
+                  {
+                    "runId": "r2",
+                    "at": "2026-08-03T12:00:00+00:00",
+                    "uid": "A/one",
+                    "displayName": "Ns.Class.one",
+                    "outcome": "CleanPass",
+                    "attempts": 1,
+                    "totalMs": 120,
+                    "firstMs": 120,
+                    "stallInduced": false
+                  }
+                ]
+              }
+            }
+            """;
+
+        var ledger = TestLedger.FromJson(version1);
+
+        ledger.MaxRunsPerTest.ShouldBe(3);
+        var observation = ledger.Tests["A/one"].ShouldHaveSingleItem();
+        observation.DisplayName.ShouldBe("Ns.Class.one");
+        observation.TotalMs.ShouldBe(120);
+        ledger.ToJson().ShouldStartWith("{\"version\":2,");
+    }
+
+    [Fact]
+    public void a_file_newer_than_this_bobcat_is_refused_by_name()
+    {
+        var ex = Should.Throw<BobcatConfigurationException>(
+            () => TestLedger.FromJson("""{"version":99,"maxRunsPerTest":3,"tests":{}}"""));
+        ex.Message.ShouldContain("version 99");
+    }
+
+    private static int countOf(string text, string value)
+    {
+        var count = 0;
+        for (var at = text.IndexOf(value, StringComparison.Ordinal); at >= 0;
+             at = text.IndexOf(value, at + value.Length, StringComparison.Ordinal)) count++;
+        return count;
     }
 
     // ---- the three consumers ------------------------------------------------------------------

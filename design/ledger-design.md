@@ -58,14 +58,22 @@ edit rather than arbitrating one:
   union by (uid, run id), newest `MaxRunsPerTest` kept, ordered by the observations' own
   stamps.
 - Serialization is **canonical**: tests sorted by uid, runs newest first, invariant
-  formatting, durations as integral milliseconds. The same observations produce
+  formatting, durations as integral milliseconds. Since #698 it is also **compact** (schema
+  version 2): unindented, the uid written once as the test's key, and the display name once per
+  test (the newest observation's, left out when it equals the uid) rather than on every
+  observation. Version 1 files still load and are written back as version 2; a version newer
+  than the reader is refused by name. The same observations produce
   **byte-identical files** whoever folds them, in whatever order, however many times.
 - A git conflict between two independently-updated ledgers therefore always resolves the same
   way: load both sides, `Merge`, save. No run artifacts needed, no judgement calls, either
   side can do it, and doing it twice is harmless. A custom git merge driver could automate
   exactly that later; it is not required for the file to be livable.
-- Retention disagreements merge to the **larger** `MaxRunsPerTest` — shrinking someone's
-  history because the other side was configured smaller would silently discard a choice.
+- Retention disagreements keep the retention of the ledger **merged into** (#698).
+  Keeping the larger, as the first cut did, meant one artifact written at the default 20 grew a
+  committed file kept at 3 for good (lesson 14 of `critter-stack-supervisor-rollout.md`; Weasel
+  worked around it with `Record`). The committed file's retention is the one somebody chose;
+  to change it, merge the ledger into `TestLedger.Empty(n)`. `Merge` is therefore commutative
+  between ledgers of the same retention, which is the git-conflict case: both sides of one file.
 
 ## Aging is deterministic and clock-free
 
