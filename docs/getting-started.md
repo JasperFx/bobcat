@@ -127,7 +127,8 @@ and no host.
 ::: tip Resetting between specifications
 Mint new ids in every specification and most suites never need a reset between tests. When one does,
 call `ResetAsync()` on the spec (it clears every event store and forgets the last act), or
-`host.ResetEventStoresAsync()` from your own fixture.
+`host.ResetEventStoresAsync()` from your own fixture. Both pause the async daemon while the stores are
+emptied and resume it afterwards, so a host running async projections needs no store-specific reset.
 :::
 
 ## 3. Your first specification

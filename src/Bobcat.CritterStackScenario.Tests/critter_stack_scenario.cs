@@ -1138,6 +1138,27 @@ public abstract class resetting_a_scenario<THost>(THost store) where THost : Sto
         (await scenario.TheStreamVersion(id)).ShouldBe(0);
     }
 
+    // bobcat#680: truncating under the running async daemon left its progression ahead of the emptied store, and
+    // the daemon logged a ProgressionProgressOutOfOrderException per reset. The specs still passed, so the log is
+    // the evidence; and the paused daemon must come back, or the projection after the reset never catches up.
+    [Fact]
+    public async Task reset_pauses_the_async_daemon_and_resumes_it()
+    {
+        var scenario = newScenario();
+
+        for (var round = 0; round < 3; round++)
+        {
+            var id = Guid.NewGuid();
+            await scenario.WhenActing("a wallet is opened and credited",
+                appending(id, new WalletOpened(id, "Hu"), new WalletCredited(id, 5m)));
+            await scenario.ThenReadModel<WalletSummary>(id, Specifications.Specify<WalletSummary>().With(x => x.Credits, 1));
+
+            await scenario.ResetAsync();
+        }
+
+        store.Errors.Entries.ShouldNotContain(e => e.Contains("out of order", StringComparison.OrdinalIgnoreCase));
+    }
+
 }
 
 /// <summary>

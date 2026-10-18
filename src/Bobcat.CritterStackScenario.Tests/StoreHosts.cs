@@ -3,7 +3,9 @@ using JasperFx;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Bobcat.CritterStack.ScenarioTests;
 
@@ -22,6 +24,9 @@ public abstract class StoreHost : IAsyncLifetime
     public virtual bool IsAvailable => true;
 
     public virtual string SkipReason => "";
+
+    /// <summary>Every error the host logged — the async daemon's included (bobcat#680).</summary>
+    public CapturedErrors Errors { get; } = new();
 
     protected abstract IHost Build();
 
@@ -78,6 +83,7 @@ public class MartenStoreHost : StoreHost
     protected override IHost Build()
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+        builder.Logging.AddProvider(Errors);
         builder.Services.AddMarten(opts =>
             {
                 opts.Connection(PostgresEnvironment.ConnectionString);
@@ -134,6 +140,7 @@ public class FisherStoreHost : StoreHost
     protected override IHost Build()
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+        builder.Logging.AddProvider(Errors);
         builder.Services.AddFisher(opts =>
             {
                 opts.Connection($"Data Source={_file}");
@@ -179,4 +186,39 @@ public sealed class InlineOnlyMartenStoreHost : MartenStoreHost
 public sealed class InlineOnlyFisherStoreHost : FisherStoreHost
 {
     protected override SnapshotLifecycle SummaryLifecycle => SnapshotLifecycle.Inline;
+}
+
+/// <summary>A logger provider keeping every error-level entry, with its exception, for a test to assert on.</summary>
+public sealed class CapturedErrors : ILoggerProvider
+{
+    private readonly List<string> _entries = [];
+
+    public IReadOnlyList<string> Entries
+    {
+        get
+        {
+            lock (_entries) return _entries.ToList();
+        }
+    }
+
+    public ILogger CreateLogger(string categoryName) => new Logger(this, categoryName);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class Logger(CapturedErrors errors, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Error;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (!IsEnabled(logLevel)) return;
+
+            lock (errors._entries) errors._entries.Add($"{category}: {formatter(state, exception)} {exception}");
+        }
+    }
 }
