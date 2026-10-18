@@ -686,6 +686,38 @@ first assertion's result, so gathering it would dereference null and report a
 `NullReferenceException` instead of the assertion that failed. A call whose value is used is left
 alone, which also means a fluent chain is safe by construction.
 
+### Loops and branches
+
+A projected assertion is a step **per call, not per line**. The generator plans one step for each
+call site, and at run time every call records its own step, so the render shows what actually
+happened. Two shapes catch people out:
+
+- **An assertion inside a loop renders once per iteration.** A `ShouldBe` inside a `foreach` over 60
+  events gives 60 steps, all reading `And x should be 1`. Nothing collapses them: each one really
+  ran, and a failing iteration needs its own row to show which value was wrong.
+- **An assertion in a branch that did not run renders as `○ … — not run`**, greyed out, even in a
+  green scenario. The call site was planned and never reached, which is the same thing a step after a
+  failure is. It is not a failure and does not change the verdict.
+
+If that is not the specification you want to read, say it once over the whole collection, outside
+the loop:
+
+```csharp
+// 60 steps, one per event
+foreach (var e in events)
+{
+    e.Version.ShouldBe(1);
+}
+
+// one step
+events.ShouldAllBe(e => e.Version == 1);
+```
+
+`ShouldAllBe` has no comparison Bobcat can put in a cell, so the step renders with its verdict and no
+cell. Shouldly's own failure message, which lists the items that did not match, is still reported. A
+branch is the same: put the assertion where it always runs, or leave the `not run` line to show that
+the branch was not taken.
+
 **Shouldly is the dialect Bobcat supports.** `IAssertionDialect` in the generator is the seam, and
 FluentAssertions is the intended second. `Assert.*` is *not* planned: its subject is an argument whose
 position differs per assertion, so a sentence built from one rule reads backwards.
