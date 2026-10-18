@@ -33,6 +33,7 @@
   - **"Published but no route" (`MessageEventType.NoRoutes`)**: no step; `ThenMessageSent` does not see it and `ThenNoMessageSent` passes over it. Raw `LastAct.Session!.AllRecordsInOrder()` helper.
   - **"The act completed with no exceptions"** (`tracked.Status == Completed`, `AllExceptions()` empty): no positive step (there are refusal steps, but nothing like `ThenTheActSucceeded()`). Wrote a `[Then]` helper with `SpecAssert.Check` on `LastAct.Session`.
   - **Playing scheduled messages** (`PlayScheduledMessagesAsync`): no act; the played session is not `LastAct`, so nothing after it is a step. Raw Shouldly on the returned session. (An act like `WhenScheduledMessagesArePlayed()` would fit the SLA-timeout specs exactly.)
+  - **`WhenReceived` of the SLA timeout only reschedules it** (bobcat#674, fix moved to wolverine#5077): `DeliverySlaExpired` is a `TimeoutMessage(5.Days())`, so Wolverine puts it back on the schedule, the handler never runs, and `ThenNoMessageSent<EscalateLateShipment>()` goes green over nothing. Only the positive form failed, naming the reschedule. Wrote `WhenActing` + `IMessageBus.InvokeAsync` and a check over `LastAct.Session!.Executed`; the warning and that workaround are in `docs/integrations/wolverine.md`.
   - **Response headers** (`Location`): no step; raw `LastResponse!.Context.Response.Headers.Location`.
   - **Arranging through the real handler**: the documents-only app has nothing to `GivenEvents` with; the original's `BookShipment()` helper became `GivenABookedShipment()` calling `WhenReceived` — which renders as a **When** step (and every spec now shows two or three "When"s). `GivenReadModel<Shipment>(doc)` exists but bypasses the saga, which several specs depend on. A `Given…Received(message)` arrange form would read correctly.
   - `ThenDocument<T>(id)` returning the document is handy, but reading *arranged* state before the act has no step; wrote a private `TheDocumentAsync` over `IDocumentStore.QuerySession()`.
@@ -58,6 +59,7 @@
 
 ## Candidate issues
 - WolverineFx.Bobcat (wolverine): `ThenMessageExecuted<T>()`, `ThenMessagePublishedWithNoRoute<T>()` (NoRoutes), `ThenTheActSucceeded()`/`ThenNoExceptions()`, and an act for `PlayScheduledMessagesAsync` (e.g. `WhenScheduledMessagesPlay()`), plus a `GivenReceived(message)` arrange that renders as Given.
+- WolverineFx.Bobcat (wolverine#5077, from bobcat#674): `WhenReceived` of a scheduled/timeout message should execute it now or refuse, rather than reschedule it and report success.
 - WolverineFx.Bobcat.Http (wolverine): a response-header step (`ThenResponseHeader("Location", …)`).
 - WolverineFx.Bobcat.Http (wolverine): depending on Alba 9.0.0-rc.2 forces a prerelease Alba major on consumers (ConfigurationOverride removed).
 - Bobcat: `WhenReading<List<T>>` / `IReadOnlyList<T>` should stamp `T` as the read model (or keep the GET trigger) so a collection GET is a Query slice.
