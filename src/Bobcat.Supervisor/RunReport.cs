@@ -36,6 +36,19 @@ public static partial class RunReport
             report.AppendLine(coverage.ToString());
         }
 
+        // Stalls lead, beside the retries (bobcat#704): a stalled test that eventually passed
+        // still exceeded its budget, and in a green run a section below the fold goes unread —
+        // Polecat's flat_table_works_with_async_daemon stalled in 10 of 78 jobs and showed only
+        // as a log line in the green ones.
+        if (results.StalledTests.Count > 0)
+        {
+            report.AppendLine().AppendLine("Stalled (in flight past the stall threshold):");
+            foreach (var stalled in results.StalledTests)
+            {
+                report.AppendLine($"  • {stalled.DisplayName} — {stallOf(stalled, results)}");
+            }
+        }
+
         // What the failed attempt failed WITH is what decides whether a test belongs on retries
         // or is a real bug (bobcat#662), so a pass-on-retry carries it.
         section(report, "Passed on retry (not clean passes)", results.PassedOnRetry,
@@ -79,19 +92,6 @@ public static partial class RunReport
             foreach (var unsupported in results.UnsupportedDispositions)
             {
                 report.AppendLine($"  ! {unsupported}");
-            }
-        }
-
-        // A stalled test that eventually passed still exceeded its budget, and a green run is
-        // exactly where that would otherwise go unnoticed — same reasoning as Quarantine.
-        if (results.StalledTests.Count > 0)
-        {
-            report.AppendLine().AppendLine("Stalled (in flight past the stall threshold):");
-            foreach (var stalled in results.StalledTests)
-            {
-                report.AppendLine(
-                    $"  • {stalled.DisplayName} — {(int)stalled.InFlight.TotalSeconds}s in flight " +
-                    $"on lane {stalled.Worker.Lane}");
             }
         }
 
@@ -316,6 +316,37 @@ public static partial class RunReport
         => type is not null && message?.StartsWith(type + " : ", StringComparison.Ordinal) == true
             ? message[(type.Length + 3)..]
             : message;
+
+    /// <summary>
+    /// One stall: where it ran, how long it had been in flight when it crossed the threshold, and
+    /// how the test ended — a stall that went on to finish is a different story from a wedge.
+    /// </summary>
+    private static string stallOf(StalledTest stalled, SupervisorResults results)
+    {
+        var where = stalled.Worker.Purpose switch
+        {
+            WorkerPurpose.Isolated => "an isolated process",
+            WorkerPurpose.Recycled => "a recycled process",
+            WorkerPurpose.Discovery => "the discovery process",
+            _ => $"lane {stalled.Worker.Lane}"
+        };
+
+        var line = $"{where}, {(int)stalled.InFlight.TotalSeconds}s in flight when it stalled";
+
+        var test = results.Tests.FirstOrDefault(t => t.Uid == stalled.Uid);
+        if (test is null) return $"{line}; never finished (no result recorded)";
+
+        var final = test.Final;
+        var attempts = test.AttemptCount > 1 ? $" on attempt {final.AttemptNumber}" : "";
+
+        if (final.StallInduced || final.Outcome.State == WorkerTestState.Indeterminate)
+        {
+            return $"{line}; never finished{attempts}";
+        }
+
+        var ran = final.Outcome.Duration is { } duration ? $" after {RunTiming.Humanize(duration)}" : "";
+        return $"{line}; finished {final.Outcome.State}{ran}{attempts}";
+    }
 
     private static string placements(TestReport test)
         => string.Join(" → ", test.Attempts.Select(a => a.Placement.ToString()));
