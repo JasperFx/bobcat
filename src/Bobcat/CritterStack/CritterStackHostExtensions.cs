@@ -144,14 +144,54 @@ public static class CritterStackHostExtensions
         => services.GetService<IProjectionCoordinator>();
 
     /// <summary>
+    /// Every projection coordinator the host runs: the main store's, registered as
+    /// <see cref="IProjectionCoordinator"/>, and an ancillary store's, which Marten and Fisher register
+    /// only under their own <c>IProjectionCoordinator&lt;T&gt;</c> and as an <see cref="IHostedService"/>.
+    /// Each appears once, however many registrations reach it.
+    /// </summary>
+    public static IReadOnlyList<IProjectionCoordinator> ProjectionCoordinators(this IServiceProvider services)
+    {
+        var coordinators = new List<IProjectionCoordinator>();
+        var seen = new HashSet<IProjectionCoordinator>(ReferenceEqualityComparer.Instance);
+        var candidates = services.GetServices<IProjectionCoordinator>()
+            .Concat(services.GetServices<IHostedService>().OfType<IProjectionCoordinator>());
+
+        foreach (var coordinator in candidates)
+        {
+            if (seen.Add(coordinator)) coordinators.Add(coordinator);
+        }
+
+        return coordinators;
+    }
+
+    /// <summary>
     /// Delete every event and every document in every event store the host registers, keeping the
     /// schema — the between-scenario reset. Pass this as a host resource's reset hook:
     /// <c>new WebApp(reset: host =&gt; host.ResetEventStoresAsync())</c>.
     /// </summary>
+    /// <remarks>
+    /// bobcat#680: every projection coordinator is paused around the delete and resumed afterwards, as
+    /// Marten's own <c>ResetAllMartenDataAsync</c> does. Truncating under a running async daemon left its
+    /// progression ahead of the emptied store, and the daemon logged a
+    /// <c>ProgressionProgressOutOfOrderException</c> per reset. The coordinators are resumed even when a
+    /// reset throws, so a failed reset does not leave the host's projections stopped.
+    /// </remarks>
     public static async Task ResetEventStoresAsync(this IServiceProvider services, CancellationToken token = default)
     {
-        foreach (var store in services.EventStores())
-            await Bobcat.CritterStack.EventStores.ResetAllDataAsync(store, token).ConfigureAwait(false);
+        var coordinators = services.ProjectionCoordinators();
+        foreach (var coordinator in coordinators)
+            await coordinator.PauseAsync().ConfigureAwait(false);
+
+        try
+        {
+            foreach (var store in services.EventStores())
+                await Bobcat.CritterStack.EventStores.ResetAllDataAsync(store, token).ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var coordinator in coordinators)
+                await coordinator.ResumeAsync().ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc cref="ResetEventStoresAsync(IServiceProvider, CancellationToken)"/>

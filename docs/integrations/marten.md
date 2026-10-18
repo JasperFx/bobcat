@@ -217,7 +217,8 @@ The store helpers the vocabulary is built from are public, and all of them are s
 |---|---|
 | `services.EventStore(storeName?)` / `services.EventStores()` | the registered store: the only one, the one named, or the one main store among several |
 | `services.MainEventStores()` / `services.IsMainEventStore(store)` | the stores registered as an application's main store (`AddMarten`, `AddPolecat`, `AddFisher`), not under a marker interface |
-| `host.ResetEventStoresAsync()` | empty **every** store the host registers -- documents *and* event streams. The snapshots are documents, the events that produced them are not, and deleting one half leaves the other |
+| `host.ResetEventStoresAsync()` | empty **every** store the host registers -- documents *and* event streams. The snapshots are documents, the events that produced them are not, and deleting one half leaves the other. Every async daemon is paused around the delete and resumed after it, as Marten's own `ResetAllMartenDataAsync` does, so a running daemon never sees its store emptied under it |
+| `services.ProjectionCoordinators()` | every projection coordinator the host runs, an ancillary store's included -- what the reset pauses |
 | `host.WaitForNonStaleProjectionsAsync(…)` | wait for the async daemon rather than sleeping |
 | `EventStores.FetchStreamAsync` / `AggregateStreamAsync<T>` / `FetchLatestAsync<T>` | a stream's events, the aggregate rebuilt from them, the latest projected snapshot |
 | `EventStores.QueryEventsSinceAsync` / `HighWaterSequenceAsync` | the store's tail |
