@@ -1189,6 +1189,39 @@ public class a_catch_up_timeout_before_a_read
         recording.Steps.Single().Text.ShouldBe("the Customer read model has caught up");
         recording.Steps.Single().Status.ShouldBe(ResultStatus.error);
     }
+
+    // bobcat#686: a store that cannot say which projection was behind says why, rather than the reason being discarded
+    [Fact]
+    public async Task says_why_the_store_could_not_say_which_projection_was_behind()
+    {
+        var storeTimeout = new TimeoutException("No event activity was detected within the timeout span");
+        var dropped = new InvalidOperationException("42P01: relation \"daemon.mt_event_progression\" does not exist");
+        var database = NSubstitute.Substitute.For<JasperFx.Events.IEventDatabase>();
+        NSubstitute.SubstituteExtensions.Returns(database.WaitForNonStaleProjectionDataAsync(NSubstitute.Arg.Any<TimeSpan>()),
+            Task.FromException(storeTimeout));
+        NSubstitute.SubstituteExtensions.Returns(database.FetchHighestEventSequenceNumber(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromResult(12L));
+        NSubstitute.SubstituteExtensions.Returns(database.AllProjectionProgress(NSubstitute.Arg.Any<CancellationToken>()),
+            Task.FromException<IReadOnlyList<JasperFx.Events.Projections.ShardState>>(dropped));
+
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<JasperFx.Events.IEventStore>(
+            services, new FakeEventStore { Databases = [database] });
+        var scenario = new CritterStackScenario(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services))
+        {
+            ProjectionTimeout = TimeSpan.FromSeconds(3)
+        };
+
+        var ex = await Should.ThrowAsync<ProjectionCatchUpTimeoutException>(() => scenario.ThenDocument<Customer>(Guid.NewGuid()));
+
+        ex.Behind.ShouldBeEmpty();
+        ex.BehindFailure.ShouldBeSameAs(dropped);
+        ex.InnerException.ShouldBeSameAs(storeTimeout);
+        ex.Message.ShouldContain("The store could not say which projection was behind "
+                                 + "(InvalidOperationException: 42P01: relation \"daemon.mt_event_progression\" does not exist).");
+        ex.Message.ShouldContain("No event activity was detected");
+    }
 }
 
 public class resetting_a_scenario_on_marten(MartenStoreHost store)

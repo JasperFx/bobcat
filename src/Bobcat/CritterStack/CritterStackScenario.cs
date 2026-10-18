@@ -2280,7 +2280,7 @@ public class CritterStackScenario
         }
         catch (TimeoutException e) when (e is not ProjectionCatchUpTimeoutException)
         {
-            var behind = await EventStores.ProjectionsBehindAsync(store);
+            var behind = await EventStores.DescribeProjectionsBehindAsync(store);
             throw new ProjectionCatchUpTimeoutException(wait, behind, ProjectionTimeout, read, identity, e);
         }
     }

@@ -14,10 +14,21 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
 {
     public ProjectionCatchUpTimeoutException(string wait, IReadOnlyList<string> behind, TimeSpan timeout, Type readType,
         object? identity, Exception inner)
+        : this(wait, new ProjectionsBehind(behind, null), timeout, readType, identity, inner)
+    {
+    }
+
+    /// <summary>
+    /// bobcat#686. As above, carrying why the store could not say which projections were behind
+    /// (<see cref="ProjectionsBehind.Failure" />) into the message and <see cref="BehindFailure" />.
+    /// </summary>
+    public ProjectionCatchUpTimeoutException(string wait, ProjectionsBehind behind, TimeSpan timeout, Type readType,
+        object? identity, Exception inner)
         : base(describe(wait, behind, timeout, readType, identity, inner), inner)
     {
         Wait = wait;
-        Behind = behind;
+        Behind = behind.Shards;
+        BehindFailure = behind.Failure;
         Timeout = timeout;
         ReadType = readType;
         Identity = identity;
@@ -26,8 +37,18 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
     /// <summary>The wait that timed out, as the step that ran it reads.</summary>
     public string Wait { get; }
 
-    /// <summary>The projection shards that had not caught up, as <c>'shard' at N of M</c>; empty when the store could not say.</summary>
+    /// <summary>
+    /// The projection shards that had not caught up, as <c>'shard' at N of M</c>; empty when the store could not say.
+    /// N is the shard's progress and M the highest event <b>sequence</b> number, not a count of events: deleting
+    /// event data does not reset the sequence, so a few events after a wipe can read as <c>at 0 of 461</c>.
+    /// </summary>
     public IReadOnlyList<string> Behind { get; }
+
+    /// <summary>
+    /// bobcat#686. The exception that stopped the store saying which projections were behind (a schema another
+    /// process dropped, say), or null when it said all it could.
+    /// </summary>
+    public Exception? BehindFailure { get; }
 
     /// <summary>How long the wait was given (<see cref="CritterStackScenario.ProjectionTimeout" />).</summary>
     public TimeSpan Timeout { get; }
@@ -38,13 +59,18 @@ public sealed class ProjectionCatchUpTimeoutException : TimeoutException
     /// <summary>The identity being read, or null for a read with none (every document of a type, the scenario's stream).</summary>
     public object? Identity { get; }
 
-    private static string describe(string wait, IReadOnlyList<string> behind, TimeSpan timeout, Type readType, object? identity,
+    private static string describe(string wait, ProjectionsBehind behind, TimeSpan timeout, Type readType, object? identity,
         Exception inner)
     {
         var reading = identity is null ? $"the {readType.Name}" : $"the {readType.Name} with id {identity}";
-        var shards = behind.Count == 0
-            ? "The store could not say which projection was behind."
-            : $"Behind: {string.Join(", ", behind)}.";
+        var why = behind.Failure is { } failure ? $" ({failure.GetType().Name}: {failure.Message})" : "";
+        var shards = (behind.Shards.Count, behind.Failure) switch
+        {
+            (0, null) => "The store could not say which projection was behind.",
+            (0, _) => $"The store could not say which projection was behind{why}.",
+            (_, null) => $"Behind: {string.Join(", ", behind.Shards)}.",
+            _ => $"Behind: {string.Join(", ", behind.Shards)}; the rest could not be read{why}."
+        };
         return $"Waiting for '{wait}' timed out after {timeout.TotalSeconds:0.###}s, before reading {reading}. {shards} "
                + "This is the environment (a daemon behind, stopped or not running), not evidence about the "
                + $"{readType.Name} itself. The store said: {inner.GetType().Name}: {inner.Message}";
