@@ -592,7 +592,9 @@ Everything here is off by default and reporting-first -- the same guardrail as t
   longest-running test -- a stuck run shows as that figure climbing before any threshold fires.
 - **`StallThreshold`** (and per-test `StallThresholdFor`) fires a `TestStalled` observer callback
   and a `STALLED:` log line once per attempt, collected on `SupervisorResults.StalledTests`.
-  Whether the supervisor then *acts* is the separate, opt-in `StallAction`: `Report` (default),
+  `RunReport.ToText` puts a **Stalled** section at the top, ahead of the retries, whenever there
+  is one -- green runs included -- naming each test, its lane, how long it had been in flight and
+  whether it finished (`finished Passed after 5m 12s`, or `never finished`). Whether the supervisor then *acts* is the separate, opt-in `StallAction`: `Report` (default),
   `KillAndRetry` (kill the wedged worker, give the stalled test one fresh-process retry, resume
   its innocent batch-mates in their lane), or `AbortRun`. Stall-managed outcomes never spend the
   `RetryBudget` and never count as flaky -- a wedge is not a flake.
