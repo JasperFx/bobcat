@@ -6,7 +6,7 @@ name: ui smoke
 # wire, the CLI queries, a second UI refusing the same port, and a Chromium pass over the run board
 # and the Event Model canvas. build/UiSmoke.cs and the script say why each check is there.
 #
-# Every src/** change, like samples.yml: the tool bundles core, the supervisor and the Event Model
+# Every src/** change: the tool bundles core, the supervisor and the Event Model
 # library as well as the UI, so a narrower filter would miss a break that only shows in the pack.
 
 on:

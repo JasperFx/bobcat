@@ -6,7 +6,6 @@
   </Configurations>
   <Folder Name="/src/">
     <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
-    <Project Path="src/Bobcat.CritterStackScenario.Tests/Bobcat.CritterStackScenario.Tests.csproj" />
     <Project Path="src/Bobcat.EventModel.Tests/Bobcat.EventModel.Tests.csproj" />
     <Project Path="src/Bobcat.EventModel/Bobcat.EventModel.csproj" />
     <Project Path="src/Bobcat.Generators.Tests/Bobcat.Generators.Tests.csproj" />

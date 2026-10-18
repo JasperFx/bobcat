@@ -20,8 +20,9 @@ partial class Build : NukeBuild
 
     [Solution] readonly Solution Solution;
 
-    // Not artifacts/ itself: artifacts/local-feed is a hand-maintained NuGet feed that
-    // samples/BankAccountES and the Wolverine CI branch consume, and Clean must never touch it.
+    // Not artifacts/ itself: artifacts/local-feed is a hand-maintained NuGet feed that the
+    // Wolverine repo's samples (moved there in #744) and its CI branch consume, and Clean must
+    // never touch it.
     AbsolutePath PackagesDirectory => RootDirectory / "artifacts" / "packages";
 
     Target Clean => _ => _
