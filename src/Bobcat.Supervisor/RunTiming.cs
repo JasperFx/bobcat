@@ -20,6 +20,38 @@ public sealed record TestTiming(string Uid, string DisplayName)
 }
 
 /// <summary>
+/// How fast this runner was against the ledger's history of the same tests (bobcat#705).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="Index"/> is this run's summed first-attempt duration over every test the known
+/// durations name, divided by the known (median) durations of those same tests. 1.0 is a runner
+/// as fast as the history; 1.3 is one that ran the same tests 30% slower.
+/// </para>
+/// <para>
+/// The first attempt, not the total: a test that flaked in this run cost more because it ran
+/// twice, not because the runner was slow, and folding that in would blame the machine for the
+/// suite. The comparison is over the same tests on both sides, so a plan that moved tests between
+/// lanes cannot change it — which is what lets it separate "the runner was slower that day" from
+/// "the plan was worse" (Polecat, #565 lesson 9).
+/// </para>
+/// </remarks>
+public sealed record RunnerSpeed(int Matched, TimeSpan ThisRun, TimeSpan Known)
+{
+    /// <summary><c>this run / known</c> over the matched tests. Above 1 is slower than the history.</summary>
+    public double Index => ThisRun / Known;
+}
+
+/// <summary>One first-pass lane: what <see cref="WorkPlan"/> expected it to cost, and what it took (bobcat#705).</summary>
+/// <param name="Predicted">
+/// The planner's estimate, in summed test time. Null when the plan was balanced by test count:
+/// the planner then charges each test a nominal second, which is a ratio, not a duration.
+/// </param>
+/// <param name="TestTime">The lane's tests' first-attempt durations added up — the same units as <paramref name="Predicted"/>.</param>
+/// <param name="Elapsed">How long the lane's worker took to run its share — the lane's own wall clock. Null when not timed.</param>
+public sealed record LaneTiming(int Index, int Tests, TimeSpan? Predicted, TimeSpan TestTime, TimeSpan? Elapsed);
+
+/// <summary>
 /// Where a supervised run spent its time — issue #56 layer 1, "describe this run".
 /// </summary>
 /// <remarks>
@@ -83,6 +115,68 @@ public sealed class RunTiming
     /// every figure below quietly wrong.
     /// </summary>
     public int Unmeasured { get; private init; }
+
+    /// <summary>
+    /// This runner's speed against the known durations of the same tests (bobcat#705). Null when
+    /// no durations were supplied, or none named a test this run measured.
+    /// </summary>
+    public RunnerSpeed? RunnerSpeed { get; private init; }
+
+    /// <summary>
+    /// The first pass's lanes, predicted against realised (bobcat#705), in the plan's order.
+    /// Empty unless the run planned more than one lane: one lane has no balance to judge.
+    /// </summary>
+    public IReadOnlyList<LaneTiming> LanePlan { get; private init; } = [];
+
+    /// <summary>True when the lane plan was balanced by measured durations rather than test count.</summary>
+    public bool BalancedByDuration => LanePlan.Count > 0 && LanePlan[0].Predicted is not null;
+
+    /// <summary>What the planner expected the slowest lane to cost. Null when it balanced by count.</summary>
+    public TimeSpan? PredictedMakespan
+        => BalancedByDuration ? LanePlan.Max(l => l.Predicted!.Value) : null;
+
+    /// <summary>
+    /// <see cref="PredictedMakespan"/> scaled by <see cref="RunnerSpeed"/> — what the plan should
+    /// have cost on <em>this</em> runner. The gap between this and the realised lane test time is
+    /// the plan's own error, with the runner's speed taken out.
+    /// </summary>
+    public TimeSpan? SpeedAdjustedMakespan
+        => PredictedMakespan is { } predicted && RunnerSpeed is { } speed ? predicted * speed.Index : null;
+
+    /// <summary>The slowest lane's test time — the realised side of <see cref="PredictedMakespan"/>, in the same units.</summary>
+    public TimeSpan? RealisedMakespan => LanePlan.Count > 0 ? LanePlan.Max(l => l.TestTime) : null;
+
+    /// <summary>The slowest lane's own wall clock. Null when a lane was not timed.</summary>
+    public TimeSpan? RealisedLaneWallClock
+        => LanePlan.Count > 0 && LanePlan.All(l => l.Elapsed is not null) ? LanePlan.Max(l => l.Elapsed!.Value) : null;
+
+    /// <summary>
+    /// The plan's expected imbalance: slowest lane over the mean lane, from the planner's own
+    /// weights (durations, or test counts when it balanced by count). 1.0 is perfectly even.
+    /// </summary>
+    /// <remarks>
+    /// A ratio rather than a time, so it means the same thing on a fast runner and a slow one, and
+    /// for a count-balanced plan whose estimates are not durations at all.
+    /// </remarks>
+    public double? PredictedImbalance
+        => LanePlan.Count > 1 ? imbalance(LanePlan.Select(l => (l.Predicted ?? TimeSpan.FromSeconds(l.Tests)).TotalMilliseconds)) : null;
+
+    /// <summary>
+    /// The realised imbalance: slowest lane over the mean lane, by each lane's wall clock where every
+    /// lane was timed, else by its test time. Set against <see cref="PredictedImbalance"/>, this is
+    /// whether balancing helped — independent of how fast the runner was.
+    /// </summary>
+    public double? RealisedImbalance
+        => LanePlan.Count < 2
+            ? null
+            : imbalance(LanePlan.Select(l => (RealisedLaneWallClock is null ? l.TestTime : l.Elapsed!.Value).TotalMilliseconds));
+
+    private static double? imbalance(IEnumerable<double> loads)
+    {
+        var values = loads.ToList();
+        var mean = values.Average();
+        return mean > 0 ? values.Max() / mean : null;
+    }
 
     /// <summary>True when at least one test reported a duration, so there is anything to say.</summary>
     public bool IsMeasured => Tests.Count > 0;
@@ -168,8 +262,14 @@ public sealed class RunTiming
             .Where(a => a.Placement is AttemptPlacement.IsolatedProcess or AttemptPlacement.RecycledProcess)
             .Aggregate(TimeSpan.Zero, (sum, a) => sum + (a.Outcome.Duration ?? TimeSpan.Zero));
 
+        var firstAttempts = results.Tests
+            .Where(t => t.Attempts.Count > 0 && t.Attempts[0].Outcome.Duration is not null)
+            .ToDictionary(t => t.Uid, t => t.Attempts[0].Outcome.Duration!.Value, StringComparer.Ordinal);
+
         return new RunTiming
         {
+            RunnerSpeed = speedOf(firstAttempts, results.KnownTestDurations),
+            LanePlan = lanesOf(results, firstAttempts),
             Tests = timings,
             WallClock = results.Duration,
             LaunchOverhead = results.WorkerLaunchTime,
@@ -180,6 +280,47 @@ public sealed class RunTiming
             RetryCost = timings.Aggregate(TimeSpan.Zero, (sum, t) => sum + t.RetryCost),
             IsolationCost = isolation
         };
+    }
+
+    private static RunnerSpeed? speedOf(
+        IReadOnlyDictionary<string, TimeSpan> firstAttempts, IReadOnlyDictionary<string, TimeSpan>? known)
+    {
+        if (known is null || known.Count == 0) return null;
+
+        var matched = 0;
+        var thisRun = TimeSpan.Zero;
+        var history = TimeSpan.Zero;
+        foreach (var (uid, duration) in firstAttempts)
+        {
+            if (!known.TryGetValue(uid, out var median)) continue;
+
+            matched++;
+            thisRun += duration;
+            history += median;
+        }
+
+        return matched > 0 && history > TimeSpan.Zero ? new RunnerSpeed(matched, thisRun, history) : null;
+    }
+
+    private static IReadOnlyList<LaneTiming> lanesOf(
+        SupervisorResults results, IReadOnlyDictionary<string, TimeSpan> firstAttempts)
+    {
+        if (results.LanePlan.Count < 2) return [];
+
+        // The planner's estimates are durations only when some known duration named a planned
+        // test; otherwise it charged a nominal second per test, and calling that a prediction
+        // would be inventing one.
+        var byDuration = results.DurationCoverage is { BalancedByCount: false };
+
+        return results.LanePlan
+            .Select(lane => new LaneTiming(
+                lane.Index,
+                lane.Uids.Count,
+                byDuration ? lane.Estimate : null,
+                lane.Uids.Aggregate(TimeSpan.Zero,
+                    (sum, uid) => sum + (firstAttempts.TryGetValue(uid, out var d) ? d : TimeSpan.Zero)),
+                results.LaneElapsed.TryGetValue(lane.Index, out var elapsed) ? elapsed : null))
+            .ToList();
     }
 
     /// <summary>

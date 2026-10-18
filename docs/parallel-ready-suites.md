@@ -534,6 +534,18 @@ Spreading those classes across lanes is the whole gain:
   classes onto one shared SQL Server raised contention. A per-test duration cannot express
   contention, and three runs could not tell the two apart.
 
+The Timing section now separates the two (bobcat#705). With known durations supplied it reports a
+**runner speed index**: this run's first-attempt time for every test the ledger knows, against the
+ledger's median for the same tests. `1.30x` means the runner was 30% slower than the history,
+whatever the plan did. With more than one lane it reports the **lane plan, predicted against
+realised**: what `WorkPlan` expected each lane to cost, what the lane's tests took, and the lane's
+own wall clock. The figure to compare across a count round and a ledger round is the slowest lane
+over the mean, planned and realised. It is a ratio, so a slow runner does not move it. A plan that
+expected `1.00x` and realised `1.40x` balanced badly; a speed index of `1.30x` with an even realised
+spread means the runner was slow, not the plan. A count-balanced plan has no predicted time (the
+planner charges a nominal second per test) but still reports both spreads. The JSON carries the same
+figures as `timing.runnerSpeed` and `timing.lanePlan`. Report, don't act.
+
 Balancing cannot go below the largest class (see the ceiling under "Measured so far"). The Timing
 section names that class, and that is the class to split or speed up.
 

@@ -214,6 +214,26 @@ public sealed class SupervisorResults
     /// </summary>
     public DurationCoverage? DurationCoverage { get; init; }
 
+    /// <summary>
+    /// The per-test durations the lanes were balanced on — <see cref="Supervisor.KnownTestDurations"/>
+    /// as it stood when the run began (bobcat#705). Null when none were supplied. Kept so
+    /// <see cref="RunTiming"/> can say how fast this runner was against the same tests' history.
+    /// </summary>
+    public IReadOnlyDictionary<string, TimeSpan>? KnownTestDurations { get; init; }
+
+    /// <summary>
+    /// The first pass's lane plan, as <see cref="WorkPlan"/> built it (bobcat#705): each lane's
+    /// tests and what the planner expected it to cost. Empty when nothing was batched.
+    /// </summary>
+    public IReadOnlyList<WorkLane> LanePlan { get; init; } = [];
+
+    /// <summary>
+    /// How long each first-pass lane's worker spent running its share, keyed by lane index
+    /// (bobcat#705) — the realised side of <see cref="LanePlan"/>. Launch time is not included;
+    /// retries are not included. A lane missing here was never timed.
+    /// </summary>
+    public IReadOnlyDictionary<int, TimeSpan> LaneElapsed { get; init; } = new Dictionary<int, TimeSpan>();
+
     public IReadOnlyList<TestReport> CleanPasses
         => Tests.Where(t => t.Outcome == RunOutcome.CleanPass).ToList();
 

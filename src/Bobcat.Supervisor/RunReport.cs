@@ -177,6 +177,15 @@ public static partial class RunReport
                               "are a floor, not a total");
         }
 
+        if (timing.RunnerSpeed is { } speed)
+        {
+            report.AppendLine($"  • runner speed {ratio(speed.Index)} the known durations of the same " +
+                              $"{speed.Matched} test(s) ({RunTiming.Humanize(speed.ThisRun)} this run against " +
+                              $"{RunTiming.Humanize(speed.Known)} known; above 1 is slower)");
+        }
+
+        lanePlan(report, timing);
+
         report.AppendLine("  Slowest:");
         foreach (var test in slowest)
         {
@@ -186,6 +195,45 @@ public static partial class RunReport
                 : "";
 
             report.AppendLine($"    • {RunTiming.Humanize(test.Total)} ({share}) {test.DisplayName}{retried}");
+        }
+    }
+
+    private static string ratio(double value) => value.ToString("0.00", CultureInfo.InvariantCulture) + "x";
+
+    /// <summary>
+    /// The first pass's lanes, predicted against realised (bobcat#705). Report, don't act: this is
+    /// the evidence for whether duration balancing helped, with the runner's speed taken out.
+    /// </summary>
+    private static void lanePlan(StringBuilder report, RunTiming timing)
+    {
+        if (timing.LanePlan.Count < 2) return;
+
+        var line = new StringBuilder(timing.BalancedByDuration
+            ? $"  • lane plan (balanced by duration): predicted makespan {RunTiming.Humanize(timing.PredictedMakespan!.Value)}"
+            : "  • lane plan (balanced by test count, so no predicted time)");
+
+        if (timing.SpeedAdjustedMakespan is { } adjusted)
+        {
+            line.Append($" ({RunTiming.Humanize(adjusted)} at this runner's speed)");
+        }
+
+        line.Append($", realised {RunTiming.Humanize(timing.RealisedMakespan!.Value)} of test time");
+        if (timing.RealisedLaneWallClock is { } wall) line.Append($" in {RunTiming.Humanize(wall)} of lane wall clock");
+
+        if (timing.PredictedImbalance is { } predicted && timing.RealisedImbalance is { } realised)
+        {
+            line.Append($"; slowest lane over the mean {ratio(predicted)} planned, {ratio(realised)} realised");
+        }
+
+        report.AppendLine(line.ToString());
+
+        foreach (var lane in timing.LanePlan)
+        {
+            report.AppendLine(
+                $"    • lane {lane.Index}: {lane.Tests} test(s)" +
+                (lane.Predicted is { } p ? $", predicted {RunTiming.Humanize(p)}" : "") +
+                $", test time {RunTiming.Humanize(lane.TestTime)}" +
+                (lane.Elapsed is { } e ? $", wall clock {RunTiming.Humanize(e)}" : ""));
         }
     }
 
@@ -446,6 +494,37 @@ public static partial class RunReport
         ["retryCostMs"] = timing.IsMeasured ? timing.RetryCost.TotalMilliseconds : null,
         ["isolationCostMs"] = timing.IsMeasured ? timing.IsolationCost.TotalMilliseconds : null,
         ["testsWithoutDuration"] = timing.Unmeasured,
+        // bobcat#705: this runner against the known durations of the same tests, and the lane
+        // plan's prediction against what the lanes took. Null where nothing measured it.
+        ["runnerSpeed"] = timing.RunnerSpeed is not { } speed
+            ? null
+            : new JsonObject
+            {
+                ["index"] = speed.Index,
+                ["matched"] = speed.Matched,
+                ["thisRunMs"] = speed.ThisRun.TotalMilliseconds,
+                ["knownMs"] = speed.Known.TotalMilliseconds
+            },
+        ["lanePlan"] = timing.LanePlan.Count < 2
+            ? null
+            : new JsonObject
+            {
+                ["balancedBy"] = timing.BalancedByDuration ? "duration" : "count",
+                ["predictedMakespanMs"] = timing.PredictedMakespan?.TotalMilliseconds,
+                ["speedAdjustedMakespanMs"] = timing.SpeedAdjustedMakespan?.TotalMilliseconds,
+                ["realisedMakespanMs"] = timing.RealisedMakespan?.TotalMilliseconds,
+                ["realisedLaneWallClockMs"] = timing.RealisedLaneWallClock?.TotalMilliseconds,
+                ["predictedImbalance"] = timing.PredictedImbalance,
+                ["realisedImbalance"] = timing.RealisedImbalance,
+                ["lanes"] = new JsonArray(timing.LanePlan.Select(lane => (JsonNode)new JsonObject
+                {
+                    ["index"] = lane.Index,
+                    ["tests"] = lane.Tests,
+                    ["predictedMs"] = lane.Predicted?.TotalMilliseconds,
+                    ["testTimeMs"] = lane.TestTime.TotalMilliseconds,
+                    ["elapsedMs"] = lane.Elapsed?.TotalMilliseconds
+                }).ToArray())
+            },
         ["concentration"] = !timing.IsMeasured
             ? null
             : new JsonObject
