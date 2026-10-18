@@ -187,6 +187,19 @@ public sealed class Supervisor
     public bool FailWhenNoTests { get; set; }
 
     /// <summary>
+    /// Fail a run containing any collapsed theory — several rows reported under one test id —
+    /// even when every row passed (bobcat#752). Off by default.
+    /// </summary>
+    /// <remarks>
+    /// A collapsed theory is already judged by its worst row and named in the report (bobcat#649),
+    /// but a green one leaves the exit code at 0, so a suite can carry it forever: its rows can't
+    /// be selected, retried or timed one by one. Set this and such a run has exit code 1 and a
+    /// <see cref="SupervisorResults.CollapsedFailure"/> naming the fix — make the theory data
+    /// serializable, or pass a row key and look the value up inside the test.
+    /// </remarks>
+    public bool FailOnCollapsed { get; set; }
+
+    /// <summary>
     /// Previously observed per-test durations, used to balance the lanes — keyed as the ledger
     /// keys them (display name, or uid where two tests share one; issue #730), or by uid.
     /// </summary>
@@ -581,6 +594,7 @@ public sealed class Supervisor
             KnownTestDurations = KnownTestDurations,
             LanePlan = _lanePlan,
             LaneElapsed = laneElapsed(),
+            FailOnCollapsed = FailOnCollapsed,
             Duration = live.Elapsed,
             WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
             WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
@@ -732,7 +746,8 @@ public sealed class Supervisor
             DurationCoverage = _durationCoverage,
             KnownTestDurations = KnownTestDurations,
             LanePlan = _lanePlan,
-            LaneElapsed = laneElapsed()
+            LaneElapsed = laneElapsed(),
+            FailOnCollapsed = FailOnCollapsed
         };
     }
 

@@ -263,6 +263,33 @@ public sealed class SupervisorResults
     /// </summary>
     public IReadOnlyList<TestReport> Collapsed => Tests.Where(t => t.IsCollapsed).ToList();
 
+    /// <summary>
+    /// Copied from <see cref="Supervisor.FailOnCollapsed"/>: when true, any
+    /// <see cref="Collapsed"/> theory fails the run, even one whose every row passed (bobcat#752).
+    /// </summary>
+    public bool FailOnCollapsed { get; init; }
+
+    /// <summary>
+    /// Why the run failed over its collapsed theories, with the fix — null unless
+    /// <see cref="FailOnCollapsed"/> is set and something collapsed. Each theory and its rows are
+    /// listed under <see cref="Collapsed"/>.
+    /// </summary>
+    public string? CollapsedFailure
+    {
+        get
+        {
+            if (!FailOnCollapsed) return null;
+
+            var collapsed = Collapsed;
+            if (collapsed.Count == 0) return null;
+
+            return $"{collapsed.Count} collapsed theory(ies) ({string.Join(", ", collapsed.Select(t => t.DisplayName))}) " +
+                   "reported several rows under one test id, so their rows can't be selected, retried or timed " +
+                   "individually. FailOnCollapsed is set, so the run fails. Make the theory data serializable, " +
+                   "or pass a row key and look the value up inside the test.";
+        }
+    }
+
     public int RetriesPerformed => Tests.Sum(t => t.AttemptCount - 1);
 
     /// <summary>
@@ -283,7 +310,10 @@ public sealed class SupervisorResults
     public IReadOnlyList<string> UnsupportedDispositions
         => Tests.SelectMany(t => t.UnsupportedDispositions).Distinct().ToList();
 
-    /// <summary>0 = pass, 1 = failures, 2 = the run was aborted or a result is unknown.</summary>
+    /// <summary>
+    /// 0 = pass, 1 = failures (or a collapsed theory under <see cref="FailOnCollapsed"/>),
+    /// 2 = the run was aborted or a result is unknown.
+    /// </summary>
     /// <remarks>
     /// Indeterminate maps to 2 rather than 1 on purpose: "some tests failed" and "we do not know
     /// what happened" are different operational situations, and the second one should not be
@@ -295,7 +325,7 @@ public sealed class SupervisorResults
         {
             if (AbortReason is not null || Tests.Any(t => t.Outcome == RunOutcome.Aborted)) return 2;
             if (Indeterminate.Count > 0) return 2;
-            return Failed.Count > 0 ? 1 : 0;
+            return Failed.Count > 0 || CollapsedFailure is not null ? 1 : 0;
         }
     }
 
