@@ -1,5 +1,8 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Bobcat.Engine;
 
@@ -39,6 +42,13 @@ public readonly record struct StepArgument(string Name, object? Value);
 /// <b>A sentence, not a dump.</b> Scalars render as their values; anything else renders as its
 /// TYPE name, so <c>new ConfirmAppointment(id)</c> is "ConfirmAppointment" rather than a record's
 /// whole <c>ToString</c>. A step's text is prose on a canvas — the data belongs in a table.
+/// </para>
+/// <para>
+/// <b>Unless the type has said how it reads (bobcat#668).</b> A <c>Uri</c> is a value the way a
+/// <c>Guid</c> is, and a type that writes its own <c>ToString()</c> — a cluster node handle reading
+/// "node 2" — has told us its reader-facing text. Rendering those by type name made a suite take
+/// <c>int</c>s and <c>string</c>s instead of its domain handles. A record's compiler-generated
+/// <c>ToString</c> is the state dump this rule exists to keep out, so it does not count.
 /// </para>
 /// <para>
 /// <b>The placeholder is the floor.</b> A value that renders to nothing — null, an empty sequence
@@ -152,6 +162,7 @@ public static class StepText
             Enum @enum => @enum.ToString(),
             // bobcat#682: an id reads as the scenario's name for it (#meeting), as the tables beside it do
             Guid id => ScenarioValues.Format(id),
+            Uri uri => uri.ToString(),
             DateTime at => at.ToString("O", CultureInfo.InvariantCulture),
             DateTimeOffset at => at.ToString("O", CultureInfo.InvariantCulture),
             DateOnly on => on.ToString("O", CultureInfo.InvariantCulture),
@@ -169,9 +180,51 @@ public static class StepText
             // A strong-typed id reads by its Guid's name, or as ScreeningId(SCR-104) (bobcat#433)
             _ when StrongTypedIds.Is(value.GetType()) => ScenarioValues.Format(value),
 
+            // A type that wrote its own ToString has said how it reads (bobcat#668)
+            _ when ownText(value) is { } own => own,
+
             // Everything else — a command record, an entity, a fixture — by the name of its type.
             _ => value.GetType().Name
         };
+
+    private static readonly ConcurrentDictionary<Type, bool> declaresToString = new();
+
+    /// <summary>
+    /// The value's own <c>ToString()</c>, when its type wrote one: not <c>object</c>'s or
+    /// <c>ValueType</c>'s, not a record's compiler-generated dump, and not an exception's stack
+    /// trace. A rendering that is blank, spans lines, or throws is no sentence, so it is refused too.
+    /// </summary>
+    private static string? ownText(object value)
+    {
+        if (!declaresToString.GetOrAdd(value.GetType(), declaresItsOwnToString)) return null;
+
+        try
+        {
+            var text = value.ToString();
+            if (string.IsNullOrWhiteSpace(text) || text.IndexOfAny(['\r', '\n']) >= 0) return null;
+            return text;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool declaresItsOwnToString(Type type)
+    {
+        if (typeof(Exception).IsAssignableFrom(type) || typeof(Delegate).IsAssignableFrom(type)) return false;
+
+        var method = type.GetMethod("ToString", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
+        if (method is null) return false;
+
+        var declaring = method.DeclaringType;
+        if (declaring == typeof(object) || declaring == typeof(ValueType) || declaring == typeof(Enum)) return false;
+
+        // A record's ToString is generated and prints every member, as an anonymous type's does:
+        // the dump, not a sentence
+        return !method.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false)
+               && !declaring!.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false);
+    }
 
     private static bool isNumeric(object value)
         => value is byte or sbyte or short or ushort or int or uint or long or ulong
