@@ -27,16 +27,12 @@
         "CI",
         "Clean",
         "Compile",
-        "CompileSamples",
         "Docker",
         "Pack",
         "Restore",
         "ResultsSchema",
         "ResultsSchemaCompatibility",
-        "Samples",
         "Test",
-        "TestSamples",
-        "TestSamplesOnFisher",
         "TUnitTests",
         "UiContracts",
         "UiSmoke"
@@ -120,10 +116,6 @@
             "Debug",
             "Release"
           ]
-        },
-        "SamplesPostgres": {
-          "type": "string",
-          "description": "Postgres the sample specs run against, without a database name - each sample gets its own"
         },
         "SchemaBaseline": {
           "type": "string",
