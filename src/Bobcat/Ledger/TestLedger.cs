@@ -624,8 +624,23 @@ public sealed class TestLedger
     /// Load a ledger — typically the previous CI run's artifact, or a committed file; a missing
     /// file is an empty ledger, not an error.
     /// </summary>
-    public static TestLedger Load(string path, int maxRunsPerTest = DefaultMaxRunsPerTest)
-        => File.Exists(path) ? FromJson(File.ReadAllText(path)) : Empty(maxRunsPerTest);
+    /// <param name="path">The ledger file.</param>
+    /// <param name="maxRunsPerTest">
+    /// The retention to load at. Left out, an existing file keeps the retention written in it
+    /// and a missing one gets <see cref="DefaultMaxRunsPerTest"/>. Given, it wins over the
+    /// file's in either direction (issue #746): a smaller one prunes each test to its newest
+    /// runs, a larger one keeps more from the next <see cref="Record"/> on, and
+    /// <see cref="Save"/> writes it back.
+    /// </param>
+    public static TestLedger Load(string path, int? maxRunsPerTest = null)
+    {
+        if (!File.Exists(path)) return Empty(maxRunsPerTest ?? DefaultMaxRunsPerTest);
+
+        var loaded = FromJson(File.ReadAllText(path));
+        return maxRunsPerTest is { } wanted && wanted != loaded.MaxRunsPerTest
+            ? Empty(wanted).Merge(loaded)
+            : loaded;
+    }
 
     public void Save(string path)
     {

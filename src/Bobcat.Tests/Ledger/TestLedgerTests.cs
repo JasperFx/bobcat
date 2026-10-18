@@ -147,6 +147,76 @@ public class TestLedgerTests
         }
     }
 
+    // ---- loading at a retention (issue #746) ----------------------------------------------------
+    private static string savedAt(int maxRunsPerTest, int runs)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"bobcat-ledger-{Guid.NewGuid():N}", "ledger.json");
+        TestLedger.Empty(maxRunsPerTest)
+            .Record(Enumerable.Range(1, runs).Select(i => run($"r{i}", i)))
+            .Save(path);
+        return path;
+    }
+
+    private static void deleteLedger(string path)
+    {
+        try { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void loading_an_existing_file_at_a_larger_retention_raises_it()
+    {
+        var path = savedAt(maxRunsPerTest: 3, runs: 3);
+        try
+        {
+            var ledger = TestLedger.Load(path, 5);
+            ledger.MaxRunsPerTest.ShouldBe(5);
+
+            ledger.Record([run("r4", 4), run("r5", 5)]).Save(path);
+
+            var reloaded = TestLedger.Load(path);
+            reloaded.MaxRunsPerTest.ShouldBe(5);
+            reloaded.Tests["F/spec"].Select(r => r.RunId).ShouldBe(["r5", "r4", "r3", "r2", "r1"]);
+        }
+        finally
+        {
+            deleteLedger(path);
+        }
+    }
+
+    [Fact]
+    public void loading_an_existing_file_at_a_smaller_retention_prunes_to_it()
+    {
+        var path = savedAt(maxRunsPerTest: 5, runs: 5);
+        try
+        {
+            var ledger = TestLedger.Load(path, 3);
+            ledger.MaxRunsPerTest.ShouldBe(3);
+            ledger.Tests["F/spec"].Select(r => r.RunId).ShouldBe(["r5", "r4", "r3"]);
+
+            ledger.Save(path);
+            TestLedger.Load(path).MaxRunsPerTest.ShouldBe(3);
+        }
+        finally
+        {
+            deleteLedger(path);
+        }
+    }
+
+    [Fact]
+    public void loading_without_a_retention_keeps_the_files_own()
+    {
+        var path = savedAt(maxRunsPerTest: 3, runs: 2);
+        try
+        {
+            TestLedger.Load(path).MaxRunsPerTest.ShouldBe(3);
+            TestLedger.Load(Path.Combine(Path.GetDirectoryName(path)!, "missing.json"), 7).MaxRunsPerTest.ShouldBe(7);
+        }
+        finally
+        {
+            deleteLedger(path);
+        }
+    }
+
     // ---- the compact form (issue #698) ----------------------------------------------------------
 
     [Fact]
