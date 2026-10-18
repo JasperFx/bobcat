@@ -268,5 +268,5 @@ internal static class SpecificationManifest
         => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
 
     private static string literal(string text)
-        => "\"" + text.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        => "\"" + text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
 }

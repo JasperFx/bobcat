@@ -32,6 +32,7 @@ public class ProjectedAssertionCompilationTests
     private static string specCalling(string statement) =>
         $$"""
         using System.Collections.Generic;
+        using System.Linq;
         using Bobcat;
         using Shouldly;
 
@@ -88,6 +89,46 @@ public class ProjectedAssertionCompilationTests
         source.ShouldContain("InterceptsLocation");
 
         // CS9144 would show up here and nowhere else in this repository.
+        outcome.CompilationErrors.ShouldBeEmpty();
+    }
+
+    // bobcat#684: a subject written across lines (Marten's DaemonTests) put a raw line break into
+    // the generated string literal — 58 errors in generated files, nowhere near the test.
+    private const string multiLineSubject =
+        """
+        items.Where(x => x > 3 && x != 9)
+                        .Select(x => x * 2).OrderBy(x => x)
+                        .ShouldBe([4, 5, 6]);
+        """;
+
+    [Fact]
+    public void a_subject_written_across_lines_compiles()
+    {
+        var outcome = GeneratorHarness.Run(specCalling(multiLineSubject), _projectedAssertionsOn);
+
+        outcome.GeneratedSource("Interceptors").ShouldContain("InterceptsLocation");
+        outcome.CompilationErrors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_subject_written_across_lines_reads_as_one_line()
+    {
+        var outcome = GeneratorHarness.Run(specCalling(multiLineSubject), _projectedAssertionsOn);
+
+        const string sentence = "items.Where(x => x > 3 && x != 9).Select(x => x * 2).OrderBy(x => x) should be [4, 5, 6]";
+        outcome.GeneratedSource("Interceptors").ShouldContain(sentence);
+        outcome.GeneratedSource("PlannedSteps").ShouldContain(sentence);
+    }
+
+    [Fact]
+    public void an_argument_written_across_lines_compiles()
+    {
+        // A raw string is one token holding its own line breaks, so it is not folded onto one line;
+        // the quoting escapes them instead.
+        var outcome = GeneratorHarness.Run(specCalling(
+            "name.ShouldBe(\"\"\"\n    abc\n    \"\"\");"), _projectedAssertionsOn);
+
+        outcome.GeneratedSource("Interceptors").ShouldContain("InterceptsLocation");
         outcome.CompilationErrors.ShouldBeEmpty();
     }
 
