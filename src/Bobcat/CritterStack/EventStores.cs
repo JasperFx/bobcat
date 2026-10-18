@@ -424,9 +424,22 @@ public static class EventStores
     /// <summary>
     /// bobcat#497. The async projection shards that had not reached the store's newest event, best effort: each as
     /// <c>'shard' at N of M</c>, a configured shard with no progress yet at 0. Empty when the store cannot say —
-    /// it is a diagnosis for a timeout's message, never a decision.
+    /// it is a diagnosis for a timeout's message, never a decision. <see cref="DescribeProjectionsBehindAsync" />
+    /// also says why the store could not say.
     /// </summary>
+    /// <remarks>
+    /// N is the shard's progress and M the database's highest event <b>sequence</b> number, not a count of events:
+    /// the sequence is never reset by deleting event data (Marten's <c>DeleteAllEventDataAsync</c>, say), so 67
+    /// events published after a wipe can read as <c>at 0 of 461</c>.
+    /// </remarks>
     public static async Task<IReadOnlyList<string>> ProjectionsBehindAsync(IEventStore store, CancellationToken token = default)
+        => (await DescribeProjectionsBehindAsync(store, token).ConfigureAwait(false)).Shards;
+
+    /// <summary>
+    /// bobcat#686. <see cref="ProjectionsBehindAsync" />, plus the exception that stopped the store saying — a
+    /// schema dropped by another process, a connection refused — instead of discarding it. Never throws.
+    /// </summary>
+    public static async Task<ProjectionsBehind> DescribeProjectionsBehindAsync(IEventStore store, CancellationToken token = default)
     {
         var behind = new List<string>();
         try
@@ -434,6 +447,7 @@ public static class EventStores
             var configured = EventStoreShards.TryNames(store);
             foreach (var database in await store.AllDatabases().ConfigureAwait(false))
             {
+                // The highest event sequence number, not an event count (see ProjectionsBehindAsync)
                 var target = await database.FetchHighestEventSequenceNumber(token).ConfigureAwait(false);
                 var progress = (await database.AllProjectionProgress(token).ConfigureAwait(false))
                     .Where(x => !isHighWaterShard(x))
@@ -447,12 +461,13 @@ public static class EventStores
                 }
             }
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            // Nothing knowable; the caller says so
+            // Not knowable from here on; the caller says so, and why
+            return new ProjectionsBehind(behind, e);
         }
 
-        return behind;
+        return new ProjectionsBehind(behind, null);
     }
 
     // The database a tenant's events live in: the store's own answer through FindDatabaseForTenantAsync first

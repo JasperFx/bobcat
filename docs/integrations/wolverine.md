@@ -200,6 +200,16 @@ shards that were behind (`'WalletSummary:All' at 7 of 12`, when the store can sa
 type and id being read. The store's own exception is the `InnerException`. A store with no events at
 all has nothing to be stale, so the wait returns at once there.
 
+- **`at N of M`: M is the highest event sequence number, not a count of events.** N is how far the shard
+  has got. Deleting event data (Marten's `DeleteAllEventDataAsync`, say) does not reset the sequence, so
+  67 events published after a wipe can read as `at 0 of 461`. Compare N with M, not M with the events
+  you appended.
+- **"The store could not say which projection was behind (…)"** means reading the shards' progress
+  itself failed, and the parentheses carry that exception's type and message (also on
+  `BehindFailure`, bobcat#686). A `42P01` "relation … does not exist" there usually means another
+  process dropped or rebuilt the schema mid-run (a test sharing the database, a parallel lane), not
+  that a projection is slow.
+
 | Step | |
 |---|---|
 | `ThenAggregate<T>(id, expected?)` | the aggregate as the store serves it through `FetchLatest<T>`: a projected snapshot where there is one, else built from the stream. Throws when there is no such stream |

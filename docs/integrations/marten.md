@@ -99,6 +99,8 @@ Every step that reads a projection waits for the async daemons first, up to `Pro
 **20 seconds** by default, which is what a cold daemon on a loaded CI runner needs. A wait that runs out
 is an error, a `ProjectionCatchUpTimeoutException` naming the projections that were behind and what was
 being read, never a failed spec ([details](wolverine.md#assert-aggregates-documents-and-read-models)).
+In `'shard' at N of M`, M is the highest event sequence number, which `DeleteAllEventDataAsync` does not
+reset, so it can be far above the events the spec appended.
 
 ## Several event stores
 
