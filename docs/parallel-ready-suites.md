@@ -88,6 +88,70 @@ outcome for every case the supervisor reports, so some are written out in text:
 - **A duration nobody measured** is written as zero, because readers require the attribute.
   `RunReport.ToJson` reports it as null.
 
+### Running the supervisor from Nuke
+
+The Critter Stack repositories host the supervisor in their Nuke build (`build/`), one target per
+suite, and CI runs `./build.sh <Target>`. Two things to know before you do the same.
+
+**A Nuke bootstrap is not free, so a tiny suite is not worth supervising on its own.** Weasel
+measured 7–11 s per job just to restore, compile and start the build project. Its Core, SQLite and
+MySQL suites run in 3–10 s, so supervising them made each job slower (10–37 s), and Polecat's small
+AspNetCore and EF Core suites each lost about 0.3 minutes per job. The supervisor pays off on a
+suite whose run time is large next to that fixed cost -- Weasel's SQL Server legs went from about
+100 s to 47–66 s. As a rule of thumb, a suite that already finishes in **under about 10 s** gets
+nothing from lanes or retries that is worth the bootstrap. For those suites, either:
+
+- **Leave them on plain `dotnet test`** (or run the test executable directly) in their own job, with
+  no Nuke involved, or
+- **Run several of them from one build invocation**, so the bootstrap is paid once. Nuke runs every
+  target named on the command line in one process, in dependency order:
+
+  ```bash
+  ./build.sh TestCore TestSqlite TestMySql
+  ```
+
+  Or give them one aggregate target that depends on each, and have CI call that:
+
+  ```csharp
+  Target TestSmallSuites => _ => _
+      .DependsOn(TestCore, TestSqlite, TestMySql);
+  ```
+
+  Keep the large, database-backed suites in jobs of their own -- they are where the lanes pay, and
+  they need their own containers anyway.
+
+**The build project inherits the repository's `Directory.Build.props`.** MSBuild imports the nearest
+`Directory.Build.props` above a project, and `build/build.csproj` is a project like any other. If the
+root file sets the plural `TargetFrameworks` (as most library repositories do), the plural property
+wins over the build project's own singular `TargetFramework`, the build project becomes multi-targeted,
+and `./build.sh` fails with:
+
+```
+Your project targets multiple frameworks. Specify which framework to run using '--framework'.
+```
+
+Polecat hit this, and Wolverine's runner hit the same rule before it. It can pass locally and fail
+only on CI, so check it before the first push. Either fix works:
+
+- **Clear the inherited property in `build/build.csproj`**, next to its own `TargetFramework`:
+
+  ```xml
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+  </PropertyGroup>
+  ```
+
+- **Or stop the import altogether** with a `build/Directory.Build.props` (and, if the root has one,
+  a `build/Directory.Build.targets`) that imports nothing. Wolverine and Weasel do this, which also
+  keeps the root's analyzers, packaging settings and warnings-as-errors out of the build project:
+
+  ```xml
+  <Project>
+    <!-- Stops MSBuild importing the repository's Directory.Build.props into the build project. -->
+  </Project>
+  ```
+
 ## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never
