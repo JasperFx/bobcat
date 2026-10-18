@@ -157,16 +157,23 @@ only on CI, so check it before the first push. Either fix works:
 [the compatibility table](compatibility.md#bobcat-1-0). A build project that pins `JasperFx` lower
 (often through the repository's central `Directory.Packages.props`) fails restore with **NU1605**,
 a detected package downgrade, even though the supervisor only uses the retry and isolation types.
-Marten hit this (JasperFx/marten#5690). The build ships nothing, so raise the pin in the build
-project only, with `VersionOverride`, and leave the product's own JasperFx dependency alone:
+Marten hit this (JasperFx/marten#5690). With `CentralPackageTransitivePinningEnabled`,
+`JasperFx.Events` fails too, with **NU1109**, even though the build never references it directly
+(CritterWatch hit that, JasperFx/CritterWatch#1430). The build ships nothing, so raise both pins in
+the build project only, with `VersionOverride`, and leave the product's own JasperFx dependency
+alone:
 
 ```xml
 <!-- build/build.csproj -->
 <PackageReference Include="Bobcat.Supervisor" />
 <PackageReference Include="JasperFx" VersionOverride="2.90.2" />
+<!-- Here only to carry the override. Without it, transitive pinning fails with NU1109. -->
+<PackageReference Include="JasperFx.Events" VersionOverride="2.90.2" />
 ```
 
-Don't silence NU1605 with `NoWarn`. That runs Bobcat on a JasperFx older than it was built against.
+Override both packages even if restore only names one: a too-low direct `JasperFx` pin can restore
+with no warning at all and fail at run time instead. Don't silence NU1605 or NU1109 with `NoWarn`.
+That runs Bobcat on a JasperFx older than it was built against.
 [Compatibility](compatibility.md#build-tool-jasperfx) has the details.
 
 ### Durations from the last run: the ledger as a CI artifact
