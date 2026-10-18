@@ -192,4 +192,23 @@ public class PlannedStepRenderTests : IDisposable
         CommandLineRenderer.Sentence(SpecRender.FromRecording(recording).Steps.Single())
             .ShouldBe("{event} is emitted");
     }
+
+    [Fact]
+    public void a_declared_step_nothing_observed_reads_as_declared_not_as_never_reached()
+    {
+        DeclaredSteps.Register(Uid,
+            new DeclaredStep("Given", "the names are published", 9),
+            new DeclaredStep("When", "the daemon stops", 12));
+
+        using var recording = begin();
+        using (ScenarioRecorder.Step("Given", "the names are published", 0)) { }
+
+        var lines = PlainSpecText.ScenarioLines(SpecRender.FromRecording(recording));
+
+        // bobcat#688: the empty region is marked `declared`, as docs/marker-steps.md says, and never
+        // gets the ○ a step the run did not reach is drawn with.
+        var declared = lines.Single(x => x.Contains("the daemon stops"));
+        declared.ShouldEndWith("the daemon stops — declared");
+        lines.ShouldNotContain(x => x.Contains("○"));
+    }
 }
