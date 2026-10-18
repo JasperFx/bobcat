@@ -81,7 +81,7 @@ public class default_main_store
         provider.EventStore().ShouldBeSameAs(app);
 
         var scenario = new Probe(provider);
-        scenario.Store.ShouldBeSameAs(app);
+        scenario.EventStore.ShouldBeSameAs(app);
 
         // Unclaimed and untyped steps fall back to the main store; a type the ancillary store claims still goes there
         (await scenario.Route(typeof(Unclaimed))).ShouldBeSameAs(app);
@@ -91,9 +91,9 @@ public class default_main_store
 
         // Explicit addressing is untouched
         provider.EventStore("icritterwatchstore").ShouldBeSameAs(console);
-        new Probe(provider, "icritterwatchstore").Store.ShouldBeSameAs(console);
-        scenario.In("icritterwatchstore").Store.ShouldBeSameAs(console);
-        scenario.In<IFakeAncillaryStore>().Store.ShouldBeSameAs(console);
+        new Probe(provider, "icritterwatchstore").EventStore.ShouldBeSameAs(console);
+        scenario.In("icritterwatchstore").EventStore.ShouldBeSameAs(console);
+        scenario.In<IFakeAncillaryStore>().EventStore.ShouldBeSameAs(console);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class default_main_store
         ex.Message.ShouldContain("In(\"name\")");
 
         var scenario = new Probe(provider);
-        Should.Throw<InvalidOperationException>(() => scenario.Store);
+        Should.Throw<InvalidOperationException>(() => scenario.EventStore);
         var unrouted = await Should.ThrowAsync<SpecCriticalException>(() => scenario.Route(typeof(Unclaimed)));
         unrouted.Message.ShouldContain("names no default store");
     }
@@ -156,7 +156,7 @@ public class default_main_store
         var provider = ancillary(services(), only).BuildServiceProvider();
 
         provider.EventStore().ShouldBeSameAs(only);
-        new Probe(provider).Store.ShouldBeSameAs(only);
+        new Probe(provider).EventStore.ShouldBeSameAs(only);
     }
 
     [Fact]

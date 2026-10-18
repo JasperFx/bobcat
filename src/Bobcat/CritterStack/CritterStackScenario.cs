@@ -204,7 +204,7 @@ public class CritterStackScenario
     /// Since bobcat#504 the steps do not all use it: on a host with several stores each step goes to the store
     /// whose registrations claim its types, and only falls back to this one.
     /// </remarks>
-    public IEventStore Store => _pinned ?? (_store ??= Services.EventStore(_storeName));
+    public IEventStore EventStore => _pinned ?? (_store ??= Services.EventStore(_storeName));
 
     /// <summary>Whether the application has an event store at all. An application with none can still act.</summary>
     protected bool hasStore()
@@ -340,7 +340,7 @@ public class CritterStackScenario
     /// bobcat#504. The store a step about <paramref name="model" /> — an aggregate, projected or document type, or
     /// null — whose values are <paramref name="values" /> should read or write. The pinned store on a view; the only
     /// store on a host with one, exactly as before; otherwise the one store whose registrations claim the model,
-    /// else its events' or tags' types, else the default store (<see cref="Store" />) when it can take them.
+    /// else its events' or tags' types, else the default store (<see cref="EventStore" />) when it can take them.
     /// Throws a <see cref="SpecCriticalException" /> naming the candidates and <see cref="In{TStore}" /> when
     /// nothing decides. Cached for the specification.
     /// </summary>
@@ -352,7 +352,7 @@ public class CritterStackScenario
         IEnumerable<Type>? tagTypes = null)
     {
         if (_pinned is not null) return Task.FromResult(_pinned);
-        if (allStores().Count <= 1) return Task.FromResult(Store);
+        if (allStores().Count <= 1) return Task.FromResult(EventStore);
 
         return routeAsync(step, model, values, tagTypes);
     }
@@ -389,14 +389,14 @@ public class CritterStackScenario
 
     /// <summary>
     /// bobcat#504. The stores an act is observed on: every store the host registers, or — on a host with one or
-    /// none — <see cref="Store" /> when there is one, exactly as before.
+    /// none — <see cref="EventStore" /> when there is one, exactly as before.
     /// </summary>
     protected IReadOnlyList<IEventStore> storesToObserve()
     {
         var root = _root ?? this;
         var stores = root.allStores();
         if (stores.Count > 1) return stores;
-        return root.hasStore() ? [root.Store] : [];
+        return root.hasStore() ? [root.EventStore] : [];
     }
 
     /// <summary>
@@ -2273,7 +2273,7 @@ public class CritterStackScenario
         if (_pinned is not null) return [_pinned];
 
         var stores = allStores();
-        if (stores.Count <= 1) return [Store];
+        if (stores.Count <= 1) return [EventStore];
 
         var fallback = defaultStore();
         if (fallback is null) return stores;

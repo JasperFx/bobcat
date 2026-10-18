@@ -73,7 +73,7 @@ public class store_routing
         store.UsageReads.ShouldBe(0);
 
         // In() still works on a host with one store
-        scenario.In("main").Store.ShouldBeSameAs(store);
+        scenario.In("main").EventStore.ShouldBeSameAs(store);
     }
 
     [Fact]
@@ -182,8 +182,8 @@ public class store_routing
         var scenario = new CritterStackScenario(servicesWith(main, invoicing));
 
         var view = scenario.In("invoicing");
-        view.Store.ShouldBeSameAs(invoicing);
-        view.In("main").Store.ShouldBeSameAs(main);
+        view.EventStore.ShouldBeSameAs(invoicing);
+        view.In("main").EventStore.ShouldBeSameAs(main);
         view.ProjectionTimeout = TimeSpan.FromSeconds(3);
         scenario.ProjectionTimeout.ShouldBe(TimeSpan.FromSeconds(3));
         main.UsageReads.ShouldBe(0);
@@ -206,6 +206,6 @@ public class store_routing
         var ancillary = new FakeEventStore("iinvoicingstore");
         var scenario = new CritterStackScenario(servicesWith(new FakeEventStore("main"), ancillary));
 
-        scenario.In<IInvoicingStore>().Store.ShouldBeSameAs(ancillary);
+        scenario.In<IInvoicingStore>().EventStore.ShouldBeSameAs(ancillary);
     }
 }

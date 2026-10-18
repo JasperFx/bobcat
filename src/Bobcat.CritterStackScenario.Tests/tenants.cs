@@ -45,8 +45,8 @@ public abstract class tenants<THost>(THost host) where THost : StoreHost
         recording.Lines().ShouldContain(x => x.StartsWith("Given ") && x.EndsWith("for tenant \"red\""));
         recording.Lines().Where(x => x.StartsWith("Then ")).ShouldAllBe(x => x.EndsWith("for tenant \"red\""));
 
-        (await EventStores.FetchStreamAsync(scenario.Store, wallet, "red")).Count.ShouldBe(3);
-        (await EventStores.FetchStreamAsync(scenario.Store, wallet, "blue")).Count.ShouldBe(0);
+        (await EventStores.FetchStreamAsync(scenario.EventStore, wallet, "red")).Count.ShouldBe(3);
+        (await EventStores.FetchStreamAsync(scenario.EventStore, wallet, "blue")).Count.ShouldBe(0);
         (await blue.TheAggregate<Wallet>(wallet)).ShouldBeNull();
     }
 
@@ -77,8 +77,8 @@ public abstract class tenants<THost>(THost host) where THost : StoreHost
         recording.GatheredFailures().ShouldBeNull();
         recording.Lines().ShouldContain("Given the async daemons have caught up for tenant \"red\"");
 
-        (await EventStoreAuthoring.LoadDocumentAsync<Customer>(scenario.Store, customer, "red")).ShouldNotBeNull();
-        (await EventStoreAuthoring.LoadDocumentAsync<Customer>(scenario.Store, customer, "blue")).ShouldBeNull();
+        (await EventStoreAuthoring.LoadDocumentAsync<Customer>(scenario.EventStore, customer, "red")).ShouldNotBeNull();
+        (await EventStoreAuthoring.LoadDocumentAsync<Customer>(scenario.EventStore, customer, "blue")).ShouldBeNull();
     }
 
     [Fact]
@@ -89,13 +89,13 @@ public abstract class tenants<THost>(THost host) where THost : StoreHost
         scenario.TenantId.ShouldBeNull();
         var red = scenario.ForTenant("red");
         red.TenantId.ShouldBe("red");
-        red.Store.ShouldBeSameAs(scenario.Store);
+        red.EventStore.ShouldBeSameAs(scenario.EventStore);
         red.ForTenant("blue").TenantId.ShouldBe("blue");
 
         // A store view and a tenant view compose, in either order
-        var name = scenario.Store.Identity.Name;
+        var name = scenario.EventStore.Identity.Name;
         red.In(name).TenantId.ShouldBe("red");
-        scenario.In(name).ForTenant("red").Store.ShouldBeSameAs(scenario.Store);
+        scenario.In(name).ForTenant("red").EventStore.ShouldBeSameAs(scenario.EventStore);
         Should.Throw<ArgumentException>(() => scenario.ForTenant(" "));
     }
 }
