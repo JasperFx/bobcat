@@ -629,12 +629,17 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.ArrangedReadModel, nameof(T))]
     public async Task GivenReadModel<T>(object document) where T : class
     {
-        var (described, inline) = describe([document]);
-        var text = asTenant($"the {nameOf(typeof(T))} read model is {described}");
+        // bobcat#682: "there is a TodoList with Title: ..." -- not "the TodoList read model is TodoList(...)", which
+        // named the type twice and called a plain document (an [Entity] lookup) a read model
+        var values = document is IPartialObject partial ? PartialObjects.DescribeValues(partial) : ScenarioValues.DescribeDocument(document);
+        var inline = values.Length <= ScenarioValues.InlineLimit;
+        var text = asTenant(inline && values.Length > 0
+            ? $"there is a {nameOf(typeof(T))} with {values}"
+            : $"there is a {nameOf(typeof(T))}");
         await inStep(ScenarioRecorder.Step("Given", text), async () =>
         {
-            // bobcat#618: a read model too long for the line keeps its values, as a table under the step
-            if (!inline) recordValues("read model", [document]);
+            // bobcat#618: a document too long for the line keeps its values, as a table under the step
+            if (!inline) recordValues("document", [document]);
 
             var built = Build(document, text);
             if (built is not T)
@@ -1968,7 +1973,7 @@ public class CritterStackScenario
     private Task<T> thenAggregate<T>(object id, object? expected) where T : class
     {
         // The step opens before the load, so a missing aggregate fails a rendered step
-        return inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText(expected))), async () =>
+        return inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText<T>(id))), async () =>
         {
             var store = await storeForAsync(existsText<T>(id), typeof(T));
             var aggregate = StrongTypedIds.StreamIdentity(id) switch
@@ -1986,6 +1991,9 @@ public class CritterStackScenario
     }
 
     private static string existsText<T>(object id) => $"there is a {documentNamed<T>(id)}";
+
+    // bobcat#682: "the Wallet #fromWallet matches", so a from- and a to-wallet checked side by side can be told apart
+    private static string matchesText<T>(object id) => $"the {documentNamed<T>(id)} matches";
 
     // A document by its id: "Product #Product", the alias marked so it cannot read as the type twice (bobcat#640)
     private static string documentNamed<T>(object id) => $"{nameOf(typeof(T))} {ScenarioValues.Format(id)}";
@@ -2026,7 +2034,7 @@ public class CritterStackScenario
         await projectionsCaughtUpBefore(typeof(T), id);
 
         // The step opens before the load, so a missing document fails a rendered step
-        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText(expected))), async () =>
+        return await inStep(ScenarioRecorder.Step("Then", asTenant(expected is null ? existsText<T>(id) : matchesText<T>(id))), async () =>
         {
             var document = await EventStoreAuthoring.LoadDocumentAsync<T>(await storeForAsync(existsText<T>(id), typeof(T)), id, _tenant)
                            ?? throw failureOf(

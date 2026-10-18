@@ -127,6 +127,19 @@ internal static class StepInterceptors
         public int DeclaredIndex = -1;
 
         /// <summary>
+        /// The marker comment the call sits under by line alone, before <see cref="EndRegions"/> ends a
+        /// region at a keyworded helper of another keyword (bobcat#682). Kept apart from
+        /// <see cref="DeclaredIndex"/> so the pass recomputes from the source on every run.
+        /// </summary>
+        public int CommentIndex = -1;
+
+        /// <summary>
+        /// The keyword in force for that comment — Given, When or Then, an <c>And</c>/<c>But</c> carrying
+        /// the one before it — or "" for a bulleted (<c>*</c>) step, which claims no keyword.
+        /// </summary>
+        public string CommentKeyword = "";
+
+        /// <summary>
         /// The <c>{Feature}/{Scenario}</c> identity of the test this call sits in, or null when it
         /// sits somewhere that is not a projected test — a helper calling another helper, a
         /// constructor, a class no <c>[BobcatFeature]</c> marks.
@@ -201,6 +214,7 @@ internal static class StepInterceptors
         // scenario through SteplessWrongs.
         if (typeParameters.Select(t => t.Name).Distinct().Count() != typeParameters.Count) return null;
 
+        var commentIndex = DeclaredIndexOf(invocation, out var commentKeyword);
         var call = new InterceptedCall
         {
 #pragma warning disable RSEXPERIMENTAL002
@@ -225,7 +239,9 @@ internal static class StepInterceptors
             ReturnsBool = returnsBool(signature.ReturnType),
             TypeParameters = typeParameters,
             Keyword = keyword,
-            DeclaredIndex = DeclaredIndexOf(invocation),
+            DeclaredIndex = commentIndex,
+            CommentIndex = commentIndex,
+            CommentKeyword = commentKeyword,
             Uid = UidOf(invocation, ctx.SemanticModel, ct),
             Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             Location = invocation.GetLocation(),
@@ -430,6 +446,7 @@ internal static class StepInterceptors
         // assertion runs as it always did. See CanReproduce for why that is the right failure.
         if (!CanReproduce(definition)) return null;
 
+        var commentIndex = DeclaredIndexOf(invocation, out var commentKeyword);
         var call = new InterceptedCall
         {
 #pragma warning disable RSEXPERIMENTAL002
@@ -444,7 +461,9 @@ internal static class StepInterceptors
             FlushesRun = ProjectedAssertions.IsLastOfRun(statement, ctx.SemanticModel, ct),
             Definition = definition,
             Uid = uid,
-            DeclaredIndex = DeclaredIndexOf(invocation),
+            DeclaredIndex = commentIndex,
+            CommentIndex = commentIndex,
+            CommentKeyword = commentKeyword,
             Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             Location = invocation.GetLocation()
         };
@@ -469,8 +488,11 @@ internal static class StepInterceptors
         return returnType.SpecialType == SpecialType.System_Boolean;
     }
 
-    internal static int DeclaredIndexOf(InvocationExpressionSyntax invocation)
+    internal static int DeclaredIndexOf(InvocationExpressionSyntax invocation) => DeclaredIndexOf(invocation, out _);
+
+    internal static int DeclaredIndexOf(InvocationExpressionSyntax invocation, out string keyword)
     {
+        keyword = "";
         var method = invocation.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method is null || !MarkerCommentSpecs.IsTestMethod(method)) return -1;
 
@@ -478,13 +500,44 @@ internal static class StepInterceptors
 
         var index = -1;
         var found = 0;
+        var inForce = "";
         foreach (var step in MarkerCommentSpecs.StepsIn(method))
         {
-            if (step.Line <= line) index = found;
+            if (step.Line > line) break;
+
+            // And/But carry the keyword before them; a Note claims none of its own
+            if (step.Keyword is "Given" or "When" or "Then" or "") inForce = step.Keyword;
+            index = found;
+            keyword = inForce;
             found++;
         }
 
         return index;
+    }
+
+    /// <summary>
+    /// End a marker comment's region at the first helper called inside it whose keyword is a different one
+    /// (bobcat#682): under <c>// Given the AppHost is running</c>, a <c>[When]</c> helper is not part of the
+    /// Given, and neither is anything after it, so from there on the calls render on their own rather than
+    /// indented under a sentence of another keyword. A keywordless helper, a bulleted (<c>*</c>) comment and
+    /// a projected assertion (a Then nobody wrote a keyword for) end nothing.
+    /// </summary>
+    public static void EndRegions(IReadOnlyList<InterceptedCall> calls)
+    {
+        foreach (var call in calls) call.DeclaredIndex = call.CommentIndex;
+
+        foreach (var region in calls.Where(c => c.Uid != null && c.CommentIndex >= 0 && c.CommentKeyword.Length > 0)
+                     .GroupBy(c => (c.Uid, c.CommentIndex)))
+        {
+            var ended = false;
+            foreach (var call in region.OrderBy(c => c.Location?.SourceSpan.Start ?? 0))
+            {
+                if (!ended && !call.IsProjectedAssertion && call.Keyword is "Given" or "When" or "Then"
+                    && call.Keyword != call.CommentKeyword) ended = true;
+
+                if (ended) call.DeclaredIndex = -1;
+            }
+        }
     }
 
     /// <summary>

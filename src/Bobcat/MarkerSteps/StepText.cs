@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Globalization;
 using System.Text;
+using Bobcat.Engine;
 
 namespace Bobcat;
 
@@ -149,12 +150,13 @@ public static class StepText
             bool flag => flag ? "true" : "false",
             char character => character.ToString(),
             Enum @enum => @enum.ToString(),
-            Guid id => id.ToString(),
+            // bobcat#682: an id reads as the scenario's name for it (#meeting), as the tables beside it do
+            Guid id => ScenarioValues.Format(id),
             DateTime at => at.ToString("O", CultureInfo.InvariantCulture),
             DateTimeOffset at => at.ToString("O", CultureInfo.InvariantCulture),
             DateOnly on => on.ToString("O", CultureInfo.InvariantCulture),
             TimeOnly at => at.ToString("O", CultureInfo.InvariantCulture),
-            TimeSpan span => span.ToString(null, CultureInfo.InvariantCulture),
+            TimeSpan span => ScenarioValues.FormatDuration(span),
             IFormattable number when isNumeric(number) => number.ToString(null, CultureInfo.InvariantCulture),
 
             // A table is the step's data, and a step's text is prose: it renders as a grid under the
@@ -163,6 +165,9 @@ public static class StepText
             StepTable => null,
 
             IEnumerable sequence => sequenceOf(sequence),
+
+            // A strong-typed id reads by its Guid's name, or as ScreeningId(SCR-104) (bobcat#433)
+            _ when StrongTypedIds.Is(value.GetType()) => ScenarioValues.Format(value),
 
             // Everything else — a command record, an entity, a fixture — by the name of its type.
             _ => value.GetType().Name

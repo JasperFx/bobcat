@@ -77,7 +77,8 @@ public class StepValueBindingTests
 
         steps.ShouldBe(
         [
-            $"Given Appointment \"{id}\" has already recorded these events",
+            // bobcat#682: the id reads by the name the test declared it as, as the tables do
+            "Given Appointment \"#id\" has already recorded these events",
             "When ConfirmAppointment is posted to \"/api/scheduling/confirmappointment\"",
             "Then AppointmentConfirmed is emitted",
 

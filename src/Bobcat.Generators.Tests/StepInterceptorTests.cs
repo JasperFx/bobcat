@@ -202,6 +202,67 @@ public class StepInterceptorTests
             .Last().ShouldBe("-1");
     }
 
+    // --- bobcat#682: a keyworded helper of another keyword ends the comment's region ---
+
+    private const string RegionSource =
+        """
+        using System;
+        using System.Threading.Tasks;
+        using Bobcat;
+
+        namespace Specs;
+
+        [AttributeUsage(AttributeTargets.Method)]
+        public sealed class FactAttribute : Attribute;
+
+        public abstract class ContextBase
+        {
+            [BobcatStep("the events are published", Keyword = "Given")]
+            internal Task Publish() => Task.CompletedTask;
+
+            [BobcatStep("the daemon starts", Keyword = "When")]
+            internal Task StartDaemon() => Task.CompletedTask;
+
+            [BobcatStep("the aggregates match", Keyword = "Then")]
+            internal Task CheckAggregates() => Task.CompletedTask;
+
+            [BobcatStep("the clock ticks")]
+            internal Task Tick() => Task.CompletedTask;
+        }
+
+        [BobcatFeature("Regions")]
+        public class region_specs : ContextBase
+        {
+            [Fact]
+            public async Task a_given_comment_does_not_swallow_the_when_after_it()
+            {
+                // Given the AppHost is running
+                await Publish();
+                await Tick();
+                await StartDaemon();
+                await Tick();
+                await CheckAggregates();
+
+                // When the daemon is asked
+                // And it is asked again
+                await StartDaemon();
+
+                // * a bulleted step claims no keyword
+                await CheckAggregates();
+            }
+        }
+        """;
+
+    [Fact]
+    public void a_keyworded_helper_of_another_keyword_ends_the_comments_region()
+    {
+        // The same-keyword helper and the keywordless one stay under the Given; the [When] helper ends the
+        // region, so it and everything after it render on their own. An And carries the When before it, and a
+        // bulleted comment claims no keyword, so neither region is ended.
+        declaredIndexArguments(GeneratorHarness.Run(RegionSource).GeneratedSource("BobcatStepInterceptors"))
+            .ShouldBe(["0", "0", "-1", "-1", "-1", "2", "3"]);
+    }
+
     // --- Issue #339: an argument that is not a literal binds from its runtime VALUE ---
 
     /// <summary>

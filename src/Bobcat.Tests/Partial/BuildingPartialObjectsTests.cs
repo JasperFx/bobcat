@@ -401,7 +401,7 @@ public class BuildingPartialObjectsTests
     public void the_description_names_only_the_specified_members()
     {
         Specify<PositionalOrder>().With(x => x.Customer, "Ann").With(x => x.Total, 12.5m).ToString()
-            .ShouldBe("PositionalOrder(Customer: Ann, Total: 12.5)");
+            .ShouldBe("PositionalOrder(Customer: \"Ann\", Total: 12.5)");
     }
 
     [Fact]

@@ -613,13 +613,14 @@ public class CommandLineRenderer
                               || row.Cells.Any(cell => cell.Status != ResultStatus.ok));
 
     /// <summary>
-    /// The header of the verdict column: <c>Status</c>, unless the grid already has a column of that name — a
-    /// read model with its own <c>Status</c> property, say — when it is <c>Verdict</c> (then
-    /// <c>Bobcat verdict</c>), so the grid never shows two columns with the same header.
+    /// The header of the verdict column: <c>Verdict</c>, unless the grid already has a column of that name, when
+    /// it is <c>Bobcat verdict</c>, so the grid never shows two columns with the same header. Always
+    /// <c>Verdict</c> rather than <c>Status</c> first (bobcat#682): a type with its own <c>Status</c> member got
+    /// a different header from every other grid in the same spec.
     /// </summary>
     public static string VerdictColumnHeader(SetVerificationRender sv)
     {
-        string[] candidates = ["Status", "Verdict", "Bobcat verdict"];
+        string[] candidates = ["Verdict", "Bobcat verdict"];
         return candidates.FirstOrDefault(candidate => !sv.Columns.Any(column =>
                    string.Equals(column.Trim(), candidate, StringComparison.OrdinalIgnoreCase)))
                ?? "Bobcat verdict";

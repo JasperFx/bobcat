@@ -1,3 +1,4 @@
+using Bobcat.Engine;
 using Shouldly;
 
 namespace Bobcat.Tests.MarkerSteps;
@@ -42,8 +43,30 @@ public class StepTextTests
         render("the name is {name}", ("name", "wallet")).ShouldBe("the name is wallet");
         render("the kind is {kind}", ("kind", DayOfWeek.Friday)).ShouldBe("the kind is Friday");
 
+        // bobcat#682: an id reads as the tables beside it read it -- shortened outside a scenario
         var id = Guid.NewGuid();
-        render("stream \"{id}\"", ("id", id)).ShouldBe($"stream \"{id}\"");
+        render("stream \"{id}\"", ("id", id)).ShouldBe($"stream \"{id.ToString()[..8]}…\"");
+    }
+
+    [Fact]
+    public void an_id_reads_by_the_name_the_scenario_gave_it()
+    {
+        // bobcat#682: a Guid in a [Then("meeting {meetingId} ...")] placeholder printed raw while the tables
+        // on the same spec showed #meeting
+        var meeting = Guid.NewGuid();
+        using var recording = ScenarioRecorder.Begin("Step text", "an id reads by its name", null, Guid.NewGuid());
+        ScenarioValues.Name(meeting, "meeting");
+
+        render("meeting {meetingId} has an attendee", ("meetingId", meeting)).ShouldBe("meeting #meeting has an attendee");
+    }
+
+    [Fact]
+    public void a_duration_reads_as_words()
+    {
+        render("scheduled for {delay}", ("delay", TimeSpan.FromDays(5))).ShouldBe("scheduled for 5 days");
+        render("after {delay}", ("delay", new TimeSpan(1, 30, 0))).ShouldBe("after 1 hour 30 minutes");
+        render("after {delay}", ("delay", TimeSpan.FromMilliseconds(250))).ShouldBe("after 250 milliseconds");
+        render("after {delay}", ("delay", TimeSpan.Zero)).ShouldBe("after 0 seconds");
     }
 
     [Fact]

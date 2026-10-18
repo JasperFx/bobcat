@@ -140,13 +140,17 @@ public static class AssertionRun
             // Null when the assertion has no single expectation — ShouldNotBeNull(),
             // ShouldBeEmpty(). The cell then reports only what the value WAS, which is all there
             // is to say, and the comparison below is what says why that is enough.
-            Expected = StepText.Value(expected),
-            Actual = StepText.Value(actual),
+            Expected = comparison.HasExpectedValue() ? cellValue(expected) : null,
+            Actual = cellValue(actual),
 
             // Without this the cell claimed an equality it never checked: ShouldBeGreaterThan(10)
             // against 3 rendered "expected '10', got '3'", and 10 is the bound (issue #384).
             Comparison = comparison
         };
+
+    // bobcat#682: a value a sentence would leave as its placeholder -- null, "", an empty list -- still has
+    // something to say in a cell: "expected '[]'", not "expected ''", which read as a blank
+    private static string cellValue(object? value) => StepText.Value(value) ?? ScenarioValues.Describe(value);
 
     /// <summary>The same for an assertion that returns a value the caller discards.</summary>
     public static T? Gather<T>(Func<T> assertion, IDisposable step, bool flush)

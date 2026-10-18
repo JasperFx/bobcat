@@ -254,6 +254,22 @@ When the projection daemon is running             declared
 A helper called where no comment has been written yet -- before the first marker, or from a method
 that is not a test -- belongs to no sentence and renders on its own.
 
+**A helper of another keyword ends the region (bobcat#682).** Under `// Given the AppHost is running`,
+a `[When]` helper is not part of the Given, so the region ends there: that helper, and every call after it
+up to the next marker comment, renders on its own rather than indented under a sentence of a different
+keyword.
+
+```csharp
+// Given the AppHost is running
+await StartHost();                  // [Given] -- nested under the comment
+await WhenTheAboutPageIsRead();     // [When]  -- ends the region, renders on its own
+ThenTheConsoleAnswers(200);         // [Then]  -- on its own too
+```
+
+An `And`/`But` comment carries the keyword before it, so a `[When]` helper under `// And …` after a
+`// When …` still nests. A keywordless helper (`[Step]`), a bulleted `// * …` comment and a projected
+assertion end nothing.
+
 ### What a declared step can say about itself (issue #304)
 
 A declared step reports **the work observed inside it**: the steps that ran under it, their verdicts,
