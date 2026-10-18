@@ -290,6 +290,33 @@ TCP port a test binds.
 **Schema names do not need this.** They live inside the catalog, so per-worker databases already
 separate them. Polecat has `SchemaName = "doc_usage"` in nine files and it is fine.
 
+**The same shape, read from the other side: server-wide catalogs.** A test does not have to *create*
+anything at server scope to cross lanes. It only has to *look* at a view that shows the whole server:
+`pg_locks`, `pg_stat_activity`, or SQL Server's `sys.dm_*` views. A database per lane does not narrow
+those views. Each lane sees every other lane's sessions in them.
+
+Found on Weasel's Postgres suite. A database per lane isolates advisory locks, because a lock is
+scoped to its database. But `NextLockId()` restarts at the same number in every process, and the
+test helper looked up the holders of a lock id in `pg_locks` and then terminated them. So one lane
+found the other lane's backends holding the same id and **killed their connections**. That failed
+whichever test in the other lane held the lock. Two tests failed at 2 and 4 workers, and never in
+process.
+
+```sql
+-- WRONG: sees every lane's backends
+select pid from pg_locks where locktype = 'advisory' and objid = @id;
+
+-- RIGHT: only this lane's database
+select l.pid from pg_locks l
+join pg_database d on d.oid = l.database
+where l.locktype = 'advisory' and l.objid = @id and d.datname = current_database();
+```
+
+With the filter on `current_database()` there were no failures in 24 local and 8 CI runs. A test
+that **observes** a server-wide catalog gets wrong counts. A test that **acts** on what it sees
+(`pg_terminate_backend`, `KILL`) breaks other lanes. Filter every such query to the lane's own
+database: `current_database()` on Postgres, `database_id = DB_ID()` on SQL Server. Shipped code that runs the same query needs the filter too.
+
 ### Environment-dependent test identities
 
 A theory whose data is computed from the environment gives the same test a **different identity in
@@ -327,6 +354,65 @@ running" (which only means the entrypoint has not exited).
 
 `Recycle()` uses `--force-recreate` rather than `restart`, because recycling means throwing the thing
 away.
+
+## Step 5 -- choosing how many workers
+
+Three measurements decide the worker count. Take them in this order, because each one can make the
+next one unnecessary. They come from running the supervisor on Marten, Polecat, Weasel and Fisher CI
+([lessons of record](https://github.com/JasperFx/bobcat/blob/main/design/critter-stack-supervisor-rollout.md)).
+
+### 1. Measure parallel efficiency first
+
+Run the suite at **one** worker and read parallel efficiency in `RunReport`'s Timing section. The
+figure is split by where the overlap came from: lanes running side by side, or the test framework's
+own parallelism inside one worker. **A single-lane run above 1x means the framework is already
+running tests in parallel**, and more workers compete for the same cores.
+
+Fisher measured this. xUnit already runs Fisher.Tests' collections in parallel in one process, so its
+parallel efficiency read 11–41x locally, and 6.6–7.3x at 2 workers on CI. That predicted, before any tuning, that more workers would buy
+little. Going from 1 to 2 workers gave about 10–15%, and 4 workers was within noise. Fisher commits
+2 workers.
+
+A suite that runs serially in process (a shared database, `DisableTestParallelization`, one big
+collection) reads close to 1x, and that is the suite where workers pay. Marten's EventSourcingTests
+went from 4m36s at 1 worker to 1m27s at 4 locally.
+
+### 2. Measure memory, then decide on a clamp
+
+A common convention in CI build scripts is to clamp the requested workers to
+`Environment.ProcessorCount / 2`. Wolverine adopted it after four Marten hosts beside Postgres
+killed a 4-vCPU/16 GB GitHub-hosted runner (`The runner has received a shutdown signal`, which is
+the runner dying, not a test). Marten, Weasel and Fisher use the same clamp unchanged. On a 4-vCPU
+runner it gives 2 lanes. Marten measured what that costs: 2 workers give about 1.4–1.5x on the
+runner, where the same split gives 1.8x on a developer machine.
+
+**The clamp is a default, not a rule.** Polecat's old runner had bypassed its own clamp and ran 4
+SQL Server-backed workers on the same 4-vCPU runners for 100 of 100 green runs, at about 300 MB RSS
+per worker. Clamping it would have halved its parallelism for no measured reason, so `polecat.yml`
+passes 4 workers explicitly, with the evidence in a comment.
+
+So measure before choosing. Set `ResourceSampleInterval` and read peak worker RSS in the report
+(`RunResources`), then pick the count the runner can hold. Keep the evidence next to the setting.
+One gap: the sampler sees worker processes only. On a database-backed suite the database container
+is often the largest process, and the report cannot see it.
+
+### 3. Duration balancing helps only when a few classes are heavy
+
+`Supervisor.KnownTestDurations` (from the committed ledger) balances lanes by measured duration
+instead of test count. That helps only when the suite has a few classes much heavier than the rest.
+Spreading those classes across lanes is the whole gain:
+
+- **Weasel's SQL Server suite, where it paid:** 54–56 s by count to 25–36 s from the ledger at 4
+  local workers, and 62–67 s to 40–56 s on CI.
+- **Marten's EventSourcingTests, where it did not:** 1m27s by count and 1m29s from the ledger at 4
+  workers. Many classes of similar size balance just as well by count.
+- **Polecat, unresolved:** two ledger rounds measured more summed test time than the count round,
+  with the same plan. That may be runner variance. It may also be that packing the heavy database
+  classes onto one shared SQL Server raised contention. A per-test duration cannot express
+  contention, and three runs could not tell the two apart.
+
+Balancing cannot go below the largest class (see the ceiling under "Measured so far"). The Timing
+section names that class, and that is the class to split or speed up.
 
 ## Environment checks: run under the supervisor
 
@@ -401,6 +487,8 @@ Everything here is off by default and reporting-first -- the same guardrail as t
 1. **Deterministic and database-name-shaped** -- text-rewritten connection strings, or assertions
    naming the database. Fix the suite; these are latent bugs regardless of parallelism.
 2. **Non-deterministic, moves between runs** -- server-scoped name collisions. Scope the names.
+   Connections dropped mid-test, or counts of locks or sessions that are too high, point at a
+   query over a server-wide catalog. Filter it to the lane's database.
 3. **Non-deterministic, same class every time** -- a class split across workers. Report it: the
    partitioner should have prevented this.
 
