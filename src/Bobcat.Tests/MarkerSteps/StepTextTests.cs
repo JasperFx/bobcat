@@ -36,6 +36,34 @@ public class StepTextTests
     }
 
     [Fact]
+    public void a_uri_renders_as_its_text()
+    {
+        // bobcat#668: a Uri is a value the way a Guid is
+        render("{agent} runs once", ("agent", new Uri("fake://one")))
+            .ShouldBe("fake://one/ runs once");
+    }
+
+    [Fact]
+    public void a_type_with_its_own_ToString_renders_as_that_text()
+    {
+        // bobcat#668: a domain handle that wrote its own ToString has said how it reads
+        render("{node} stops", ("node", new ClusterNode(2))).ShouldBe("node 2 stops");
+        render("the agents settle as {placement}", ("placement", new Placement()))
+            .ShouldBe("the agents settle as node 1 runs 6, node 2 runs 6");
+        render("{node} stops", ("node", new NodeRecord(3))).ShouldBe("node 3 stops");
+    }
+
+    [Fact]
+    public void a_ToString_that_is_no_sentence_falls_back_to_the_type_name()
+    {
+        render("{x} happens", ("x", new MultiLine())).ShouldBe("MultiLine happens");
+        render("{x} happens", ("x", new Throwing())).ShouldBe("Throwing happens");
+        render("{x} happens", ("x", new InvalidOperationException("boom"))).ShouldBe("InvalidOperationException happens");
+        render("{x} happens", ("x", new PlainStruct())).ShouldBe("PlainStruct happens");
+        render("{x} happens", ("x", new { Name = "a" })).ShouldStartWith("<>f__AnonymousType");
+    }
+
+    [Fact]
     public void scalars_render_as_their_values()
     {
         render("the response is {status}", ("status", 404)).ShouldBe("the response is 404");
@@ -139,4 +167,32 @@ public class StepTextTests
     }
 
     private sealed record ConfirmAppointment(Guid Id);
+
+    private sealed class ClusterNode(int number)
+    {
+        public override string ToString() => $"node {number}";
+    }
+
+    private sealed class Placement
+    {
+        public override string ToString() => "node 1 runs 6, node 2 runs 6";
+    }
+
+    // A record that writes its own ToString has said how it reads, like any other type
+    private sealed record NodeRecord(int Number)
+    {
+        public override string ToString() => $"node {Number}";
+    }
+
+    private sealed class MultiLine
+    {
+        public override string ToString() => "line one\nline two";
+    }
+
+    private sealed class Throwing
+    {
+        public override string ToString() => throw new InvalidOperationException();
+    }
+
+    private struct PlainStruct;
 }

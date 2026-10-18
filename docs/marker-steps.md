@@ -150,13 +150,18 @@ How a value reads:
 | value | renders as |
 |---|---|
 | `Type` | its short name -- `Appointment` |
-| `string`, number, `bool`, `Guid`, enum, date/time | the value, culture-invariant |
+| `string`, number, `bool`, `Guid`, `Uri`, enum, date/time | the value, culture-invariant |
 | a sequence | its items, comma-joined, capped at five |
+| a type that overrides `ToString()` | that text -- a `ClusterNode` whose `ToString()` is `"node 2"` reads `node 2` |
 | anything else | its **type** name -- `new ConfirmAppointment(id)` is `ConfirmAppointment` |
 | `null`, an empty string, an empty sequence | nothing: `{name}` stays as written |
 
 A step's text is a sentence on a canvas, which is why an object renders as its type rather than its
-`ToString()` -- the data belongs in a table, not in the prose. And a value with nothing to say leaves
+`ToString()` -- the data belongs in a table, not in the prose. A record's compiler-generated
+`ToString()` is exactly that kind of dump, so a record renders by its type name unless it writes its
+own `ToString()`; so does any type whose `ToString()` spans lines, is blank, or throws, and an
+exception. A type that does write its own has said how it reads, so a domain handle can be a step
+argument without converting it to an `int` or a `string` first (bobcat#668). And a value with nothing to say leaves
 the placeholder standing, because a reader can see that something did not resolve, where a blank or
 the word "null" would be believed.
 
