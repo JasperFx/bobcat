@@ -324,3 +324,19 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
 - **Fixes that belong in WolverineFx.Bobcat go to the Wolverine repo**, with Bobcat documenting the
   limit: #683's Wolverine half (wolverine#5076), #674's timeout-message reschedule (wolverine#5077),
   #670's observer feed (wolverine#5078), plus #675 and #677 as Bobcat docs.
+
+### 2026-10-18: Bobcat takes no JasperFx or Wolverine dependency (Jeremy) — **1.0, #744/#745**
+
+- **Reverses #63 and #103 (and #471 Option A's home for the store-only vocabulary), and supersedes #693's "no
+  split".** Bobcat's JasperFx floor leaked into every consumer's restore (NU1605, NU1109, low pins that resolved
+  silently in #740, and `VersionOverride`s in six repos). A test framework should not pin its users' application
+  framework.
+- **What moves to the Wolverine repo:**
+  - The Critter Stack vocabulary and the Event Model reading go into **WolverineFx.Bobcat**, which may be renamed later.
+  - All the **samples**.
+  - **`import-event-model --specs`**.
+- **What stays:** `Bobcat.Ui` keeps its JasperFx and Wolverine coupling, since it is a tool. The generator keeps
+  recognizing Wolverine.Http attributes by name.
+- **Core owns** the resilience vocabulary, Preflight's result type and `ActTrigger`. The spec half of the Event Model
+  reaches core through a generated bridge.
+- #745 follows #744. Plan: `design/jasperfx-decoupling.md`.
