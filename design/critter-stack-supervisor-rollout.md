@@ -373,7 +373,7 @@ merged 2026-10-16, one commit per issue):
 - **[#562](https://github.com/JasperFx/bobcat/issues/562)**, Marten's DaemonTests, now its CI
   pole.
 - **[#566](https://github.com/JasperFx/bobcat/issues/566)**, the local commit-and-push gate. #565
-  named this rollout as its input.
+  named this rollout as its input. Its design note is `local-push-gates.md`.
 
 **Decided (Jeremy, 2026-10-18): the ledger's key, and whether committing it is the default
 (lessons 1 and 14).** The ledger keys an observation on the test's **display name**, which is stable
