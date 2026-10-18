@@ -2076,13 +2076,15 @@ public class CritterStackScenario
     [EventModelRole(SliceRole.ReadModel, nameof(T))]
     public async Task<T> ThenSingleReadModel<T>(object? expected = null) where T : class
     {
-        if (scenarioStreamOrNull() is null) return await theOnly<T>(expected);
-
+        // A multi-stream projection is the wrong step whether or not there is a stream, so this comes before
+        // bobcat#616's no-stream reading (bobcat#672)
         var kind = await EventStores.ProjectionKindAsync(await storeForAsync(singleText<T>(), typeof(T)), typeof(T));
         if (kind is not null && kind != SubscriptionType.SingleStreamProjection)
             throw new SpecCriticalException(
                 $"ThenSingleReadModel<{nameOf(typeof(T))}>() reads a single-stream projection, but {nameOf(typeof(T))} is a {kind}. " +
                 $"Name the document instead: ThenReadModel<{nameOf(typeof(T))}>(id, ...).");
+
+        if (scenarioStreamOrNull() is null) return await theOnly<T>(expected);
 
         await daemonsCaughtUpBefore(typeof(T));
 
