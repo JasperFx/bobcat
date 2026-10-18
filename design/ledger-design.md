@@ -59,6 +59,11 @@ it; Marten matched 2521 of 2525 once it re-keyed on display name.
 - **`KnownDurations()` is keyed the same way, and `WorkPlan` joins on it**: each discovered test
   is looked up by its ledger key (computed over the plan's tests with the same `LedgerKeys`), then
   by uid, so a hand-built uid dictionary still works. #663's matched-count report counts that join.
+- **A collapsed theory is keyed by its discovery name (#747).** Its rows report under one uid
+  (#649), each with its own display name, so the fold's last outcome named whichever row decided it
+  — the first row on one version, the failing row when one failed — while discovery, and so the
+  planner's lookup, names the method. The supervisor reports such a test under the name discovery
+  gave it, so the ledger key is the one `WorkPlan` looks up, and it does not move between runs.
 - **The uid is not kept on disk** for a test keyed by display name. It is the per-machine hash the
   key exists to get away from; a ledger read back carries the key in `Uid` for such a test.
 - **Old files are re-keyed, not discarded.** A version 1 or 2 file (keyed by uid) loads with each

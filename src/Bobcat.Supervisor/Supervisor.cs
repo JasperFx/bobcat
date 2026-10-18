@@ -505,7 +505,7 @@ public sealed class Supervisor
                 tests.Add(new TestReport
                 {
                     Uid = uid,
-                    DisplayName = history[^1].Outcome.DisplayName,
+                    DisplayName = reportNameOf(uid, history),
                     Attempts = history.ToList()
                 });
             }
@@ -715,7 +715,7 @@ public sealed class Supervisor
                 .Select(pair => new TestReport
                 {
                     Uid = pair.Key,
-                    DisplayName = pair.Value[^1].Outcome.DisplayName,
+                    DisplayName = reportNameOf(pair.Key, pair.Value),
                     Attempts = pair.Value
                 })
                 .OrderBy(t => t.DisplayName, StringComparer.Ordinal)
@@ -1251,6 +1251,19 @@ public sealed class Supervisor
         var what = outcome.ErrorType ?? outcome.State.ToString().ToLowerInvariant();
         return $" (attempt {history[^1].AttemptNumber} {(outcome.ErrorType is null ? "was" : "failed with")} {what})";
     }
+
+    /// <summary>
+    /// The name a test is reported, and so recorded in the ledger, under. A collapsed theory
+    /// (bobcat#649) reports each row's name under one uid, so its last outcome carries whichever
+    /// row decided the fold — and that moves from run to run. Discovery named the test by its
+    /// method, and that is the key <see cref="WorkPlan"/> looks its duration up by (bobcat#747).
+    /// </summary>
+    private string reportNameOf(string uid, IReadOnlyList<SupervisorAttempt> history)
+        => history.Any(a => a.Outcome.IsCollapsed) &&
+           _discoveredNames.TryGetValue(uid, out var discovered) &&
+           !string.IsNullOrWhiteSpace(discovered)
+            ? discovered
+            : history[^1].Outcome.DisplayName;
 
     private WorkerOutcome named(WorkerOutcome outcome)
         => outcome.DisplayName == outcome.Uid &&
