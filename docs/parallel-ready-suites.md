@@ -58,6 +58,36 @@ var results = await supervisor.Run();
 return results.ExitCode;
 ```
 
+### A TRX file for CI that reads one
+
+A worker in MTP server mode doesn't write its own TRX, so `--report-trx` on the host gives you
+nothing under the supervisor. If your CI reads TRX (`dorny/test-reporter`, a scoreboard), write one
+from the results:
+
+```csharp
+var startedAt = DateTimeOffset.Now;
+var results = await supervisor.Run();
+
+RunReport.WriteTrx(results, "TestResults/supervised.trx", new TrxOptions
+{
+    StartedAt = startedAt,
+    Storage = "path/to/MySpecs.dll"
+});
+```
+
+`RunReport.ToTrx(results)` returns the same XML as a string. The file has one `UnitTestResult` per
+test, so the reporter's counts match the run's. A test that took more than one attempt lists each
+attempt under `InnerResults`, with its outcome, duration, message and stack trace. TRX has no
+outcome for every case the supervisor reports, so some are written out in text:
+
+- **A pass on retry** is `Passed`. Its output starts with `PASSED ON RETRY`, and the run summary
+  has a warning `RunInfo` naming the test.
+- **An indeterminate test** (its worker died) is `Failed`, never skipped. Its message starts with
+  `INDETERMINATE`, and each worker fault gets its own `RunInfo`.
+- **An aborted run** has `ResultSummary outcome="Aborted"` and a `RunInfo` with the abort reason.
+- **A duration nobody measured** is written as zero, because readers require the attribute.
+  `RunReport.ToJson` reports it as null.
+
 ## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never

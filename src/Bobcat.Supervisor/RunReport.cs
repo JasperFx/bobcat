@@ -15,7 +15,7 @@ namespace Bobcat.Supervisor;
 /// silent green destroys CI trust; if resilience shipped without honest reporting, the feature
 /// would just be a way to launder red into green.
 /// </remarks>
-public static class RunReport
+public static partial class RunReport
 {
     /// <summary>The human view.</summary>
     public static string ToText(SupervisorResults results)
