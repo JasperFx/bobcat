@@ -146,10 +146,10 @@ against as its minimum:
 | 6.49.0-alpha.3 | 0.38.0 or later | 6.49.0 |
 | 6.48.x | 0.32.0 or later | the same version |
 
-**No `WolverineFx.Bobcat` is built against Bobcat 1.0 yet.** For Bobcat 1.0.0-alpha.1, use
-**WolverineFx.Bobcat 6.51.0-alpha.1**: it is the supported pairing until a release built against
-1.0 ships, and this table gains its row then. Reference `Bobcat`, `Bobcat.Generators` and your
-runner adapter at 1.0.0-alpha.1 directly. NuGet takes the higher Bobcat without a warning (6.51.0
+**No `WolverineFx.Bobcat` is built against Bobcat 1.0 yet.** For Bobcat 1.0.0-alpha.1 and
+1.0.0-rc.1, use **WolverineFx.Bobcat 6.51.0-alpha.1**: it is the supported pairing until a release
+built against 1.0 ships (Wolverine moves to rc.1 next), and this table gains its row then. Reference
+`Bobcat`, `Bobcat.Generators` and your runner adapter at the 1.0 prerelease directly. NuGet takes the higher Bobcat without a warning (6.51.0
 only sets a minimum, so there is no NU1608). This pairing has run in
 [CritterStackSamples](https://github.com/JasperFx/CritterStackSamples): 12 spec projects using
 `WolverineSpec` (`WhenReceived`, `WhenTracked`, `ThenMessageSent`, `ThenNoMessageSent`,
