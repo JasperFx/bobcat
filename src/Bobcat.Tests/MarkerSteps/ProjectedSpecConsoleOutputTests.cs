@@ -49,12 +49,11 @@ public class ProjectedSpecConsoleOutputTests
             ProjectedSpecConsole.OpenStandardOutput = originalOpen;
         }
 
-        var text = Encoding.UTF8.GetString(standardOutput.ToArray());
+        // Colour is Spectre's call (it turns ANSI on under GitHub Actions), so the claims are about the words.
+        var text = System.Text.RegularExpressions.Regex.Replace(
+            Encoding.UTF8.GetString(standardOutput.ToArray()), @"\x1b\[[0-9;]*m", "");
         text.ShouldContain("Feature: Captured output");
         text.ShouldContain("a report written into a captured stream");
         text.ShouldContain("specification(s)");
-
-        // A captured stream is laid out as it always was: plain text, no escape codes.
-        text.ShouldNotContain("\u001b[");
     }
 }

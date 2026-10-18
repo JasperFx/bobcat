@@ -117,7 +117,7 @@ public static class ProjectedSpecConsole
     /// <summary>
     /// A console over the raw standard output stream rather than <see cref="Console.Out"/>, so the
     /// report does not depend on which writer the process holds at exit (bobcat#676). Laid out as a
-    /// captured stream always was — no ANSI, Spectre's default width — unless
+    /// captured stream always was — ANSI and width as Spectre detects them — unless
     /// <see cref="WidthEnvironmentVariable"/> says otherwise.
     /// </summary>
     private static (IAnsiConsole Console, IDisposable? Owner) standardOutput()
@@ -137,8 +137,10 @@ public static class ProjectedSpecConsole
         var writer = new StreamWriter(OpenStandardOutput(), new System.Text.UTF8Encoding(false), 4096, leaveOpen: true);
         var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
+            // Detected, as the console's own were: plain in a pipe or a file, coloured where Spectre's
+            // enrichers know the capture renders it (GitHub Actions).
+            Ansi = AnsiSupport.Detect,
+            ColorSystem = ColorSystemSupport.Detect,
             Interactive = InteractionSupport.No,
             Out = new AnsiConsoleOutput(writer)
         });
