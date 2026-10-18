@@ -120,19 +120,33 @@ If CI runs `dotnet test` over a solution, make sure the spec project isn't part 
 `Bobcat.Supervisor` depends on `Bobcat`, and `Bobcat` requires `JasperFx` and `JasperFx.Events` at
 the minimum in [the table above](#bobcat-1-0). That minimum applies to the build project too, even
 though the supervisor only uses the retry and isolation types. If the build pins `JasperFx` below
-that minimum, restore fails with **NU1605** (a detected package downgrade).
+that minimum, restore fails with **NU1605** (a detected package downgrade). With
+`CentralPackageTransitivePinningEnabled`, `JasperFx.Events` fails as well, with **NU1109**
+(`Detected package downgrade: JasperFx.Events from 2.90.2 to centrally defined 2.90.1`), even
+though the build never references it directly.
 
-The build ships nothing, so raise its pin there and leave the product's own JasperFx dependency
-alone:
+The build ships nothing, so raise both pins there and leave the product's own JasperFx dependency
+alone. `JasperFx.Events` needs a `PackageReference` of its own, which exists only to carry the
+override:
 
 ```xml
 <!-- build/build.csproj -->
 <PackageReference Include="Bobcat.Supervisor" />
 <PackageReference Include="JasperFx" VersionOverride="2.90.2" />
+<!-- Here only to carry the override. Without it, transitive pinning fails with NU1109. -->
+<PackageReference Include="JasperFx.Events" VersionOverride="2.90.2" />
 ```
 
-Don't silence NU1605 with `NoWarn`. That runs Bobcat on a JasperFx older than it was built against,
-which is what the table above warns about.
+Override both packages, even if restore only complains about one. **A too-low direct `JasperFx`
+pin may not warn at all.** With the `JasperFx.Events` override in place and the `JasperFx` one
+left out, `dotnet restore` can succeed and resolve `JasperFx` 2.90.1 under Bobcat's `>= 2.90.2`
+with no NU1605 or NU1109. The build then fails at run time instead, for example with a
+`TypeLoadException` or `MissingMethodException` from inside Bobcat. A clean restore doesn't prove
+the pin is high enough. Check `obj/project.assets.json` (or `dotnet list build/build.csproj package
+--include-transitive`) for the `JasperFx` version that was actually resolved.
+
+Don't silence NU1605 or NU1109 with `NoWarn`. That runs Bobcat on a JasperFx older than it was
+built against, which is what the table above warns about.
 
 ## WolverineFx.Bobcat
 
