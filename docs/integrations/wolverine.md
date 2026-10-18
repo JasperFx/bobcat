@@ -112,7 +112,7 @@ exception is captured on `LastAct`, so a refusal can be asserted afterwards.
 |---|---|
 | `WhenReceived(message, configureTracking?, options?)` | `message` arrives at the application through Wolverine, and the scenario waits for everything it caused to settle -- cascades, forwarded events, local queues. `options` is Wolverine's `DeliveryOptions`, so `new DeliveryOptions { TenantId = "red" }` sends it for a tenant |
 | `WhenPublished(message, configureTracking?, options?)` | published to every subscriber, and the scenario waits for what it caused |
-| `WhenTracked(description, act, configureTracking?)` | any act that reaches the application from outside -- an HTTP call, a client SDK, a hosted service poke -- run inside the tracked session |
+| `WhenTracked(description, act, configureTracking?)` | any act that reaches the application from outside -- an HTTP call, a client SDK, a hosted service poke -- run inside the tracked session. It cannot tell the act's events from its cascades' and never records a refusal: see [HTTP without `WolverineFx.Bobcat.Http`](#http-without-wolverinefx-bobcat-http) |
 | `WhenActing(description, services => …)` | any act at all, handed a fresh service scope. In a `WolverineScenario` it runs inside the tracked session too, so it waits for what it caused and carries the messages it sent |
 | `WhenActingOn<T>(id, description?, act, params events)` | one paragraph of three sentences: capture the stream's version, run the act, and check the stream gained exactly `events` past that version |
 | `WhenPosted(command, configure?)` (`WolverineHttpSpec`) | POST `command` to the one Wolverine.HTTP endpoint that accepts its type, filling route parameters from its properties. Several candidates are refused rather than guessed |
@@ -125,6 +125,30 @@ exception is captured on `LastAct`, so a refusal can be asserted afterwards.
 success, a 4xx is a *refusal* -- an answer, captured for `ThenRefusedWith` and `ThenResponseIs` --
 and a 5xx is the act failing. The `Action<Scenario>` overloads apply Alba overrides (headers,
 authentication) on top.
+
+### HTTP without `WolverineFx.Bobcat.Http`
+
+`WolverineFx.Bobcat.Http` 6.51.0-alpha.1 depends on Alba 9.0.0-rc.2 (see
+[Compatibility](/compatibility)), so a suite on Alba 8.x often acts over HTTP with
+`WhenTracked("…", () => host.Scenario(…))` instead. That works, but two verdicts differ from
+`WhenPosted` and the other HTTP acts (bobcat#675):
+
+- **Cascades count as the act's own events.** A message-based act knows the envelope it dispatched,
+  so `ThenEvents` judges only what that message's handler appended. `WhenTracked` dispatches nothing
+  the scenario can see, so every event committed during the tracked session is the act's. When the
+  endpoint's handler cascades a message whose handler appends too, `ThenEvents(typeof(AssignmentAccepted))`
+  fails with `Expected AssignmentAccepted but the act appended AssignmentAccepted,
+  AppointmentProposed`. Judge with `ThenEmitted(...)`, which ignores what else was appended, or list
+  the cascaded events in `ThenEvents` as well.
+- **A 4xx is not a refusal.** Only the `WolverineFx.Bobcat.Http` acts read the response status, so after
+  `WhenTracked` a 400 ProblemDetails leaves `LastAct` successful and `ThenRefusedWith("…")` fails with
+  `Expected the act to be refused with "…", but it succeeded.` Assert the status and the body inside
+  the Alba scenario (`x.StatusCodeShouldBe(400)`, `x.ContentShouldContain("…")`): a failure there is
+  thrown by Alba and captured as the act's error, not as a refusal.
+
+`WhenTracked` also stamps nothing on the Event Model (see [The Event Model, from the vocabulary](#the-event-model-from-the-vocabulary)). The
+fix -- an HTTP act that does not need Alba 9, or `.Http` released against a GA Alba -- belongs to the
+Wolverine repository; until then, the `WolverineFx.Bobcat.Http` acts are the ones that attribute and refuse.
 
 `WhenActing` in a `WolverineScenario` reads the act's events from what the tracked session heard
 committed. When it heard no commit at all -- the act appended through a session Wolverine didn't
