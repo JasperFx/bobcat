@@ -222,6 +222,7 @@ The store helpers the vocabulary is built from are public, and all of them are s
 | `EventStores.FetchStreamAsync` / `AggregateStreamAsync<T>` / `FetchLatestAsync<T>` | a stream's events, the aggregate rebuilt from them, the latest projected snapshot |
 | `EventStores.QueryEventsSinceAsync` / `HighWaterSequenceAsync` | the store's tail |
 | `EventStores.ProjectionProgressAsync` | per-shard progress, for when a wait times out |
+| `EventStores.DiagnoseCatchUpTimeoutAsync(store, wait, timeout, e, readType?, id?)` | turn your own wait's `TimeoutException` (`WaitForNonStaleProjectionDataAsync`, a daemon's `WaitForNonStaleData`, a shard-state wait) into the `ProjectionCatchUpTimeoutException` the vocabulary throws, naming the shards that were behind: `catch (TimeoutException e) { throw await EventStores.DiagnoseCatchUpTimeoutAsync(store, "the daemon has caught up", timeout, e); }` |
 | `DocumentStores.LoadAsync` / `StoreAllAsync` | documents by type |
 | `EventStoreAuthoring.AppendAsync` | append arranged history |
 
