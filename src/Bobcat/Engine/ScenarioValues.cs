@@ -123,8 +123,20 @@ public static class ScenarioValues
             return $"{displayName(value.GetType())}({Format(inner)})";
         }
 
+        // bobcat#678: a collection reads as its items, as Describe reads it. Its own ToString is its
+        // CLR type name (List`1[System.String]), which is what a partial object's member, its cell
+        // and a member check's cell showed -- unless the type wrote one for itself (an F# list)
+        if (value is IEnumerable and not string && !rendersItself(value.GetType()))
+            return describe(value, 0, learnOnly: false);
+
         return CheckFormat.Of(value);
     }
+
+    private static readonly ConcurrentDictionary<Type, bool> _rendersItself = new();
+
+    private static bool rendersItself(Type type) => _rendersItself.GetOrAdd(type, static t =>
+        t.GetMethod("ToString", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes)?.DeclaringType
+            is { } declaring && declaring != typeof(object));
 
     /// <summary>
     /// <paramref name="value"/> on one line: <c>Type(Property: value, …)</c>, nested objects the same
