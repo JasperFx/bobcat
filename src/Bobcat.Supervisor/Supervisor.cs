@@ -168,6 +168,19 @@ public sealed class Supervisor
     public SpecSelection Specifications { get; set; } = SpecSelection.Everything;
 
     /// <summary>
+    /// Abort a run that has no test left to run once discovery, <see cref="Specifications"/> and
+    /// <see cref="TestFilter"/> are applied (bobcat#700). Off by default.
+    /// </summary>
+    /// <remarks>
+    /// An empty run is otherwise a clean one with exit code 0, and that is the right answer only
+    /// when nothing was supposed to match. On CI it rarely is: a shard whose namespaces were
+    /// renamed away, a filter that went stale, or a host that discovers nothing all look exactly
+    /// like a pass. Set this and such a run carries an <see cref="SupervisorResults.AbortReason"/>
+    /// saying how many tests were discovered and how many the filter kept, so its exit code is 2.
+    /// </remarks>
+    public bool FailWhenNoTests { get; set; }
+
+    /// <summary>
     /// Previously observed per-test durations, keyed by uid, used to balance the lanes.
     /// </summary>
     /// <remarks>
@@ -573,6 +586,7 @@ public sealed class Supervisor
             }
 
             var (tests, manifest) = await discover(ct);
+            var discoveredCount = tests.Count;
 
             // Before the filter, so a hint's reach is decided against everything the worker has —
             // a filter narrows what runs, not what was declared.
@@ -614,7 +628,12 @@ public sealed class Supervisor
 
             if (tests.Count == 0)
             {
-                return new SupervisorResults { Tests = [], WorkersLaunched = _workersLaunched };
+                return new SupervisorResults
+                {
+                    Tests = [],
+                    AbortReason = FailWhenNoTests ? noTestsReason(discoveredCount) : null,
+                    WorkersLaunched = _workersLaunched
+                };
             }
 
             var traits = tests.ToDictionary(t => t.Uid, t => t.Traits, StringComparer.Ordinal);
@@ -676,6 +695,17 @@ public sealed class Supervisor
             TestMemory = _sampler?.Tests ?? [],
             DurationCoverage = _durationCoverage
         };
+    }
+
+    private string noTestsReason(int discovered)
+    {
+        var reason = discovered == 0
+            ? "No tests to run: the worker discovered none."
+            : $"No tests to run: {discovered} test(s) were discovered and the selection kept none.";
+
+        reason += " FailWhenNoTests is set, so an empty run is refused rather than reported as a pass.";
+        Log?.Invoke(reason);
+        return reason;
     }
 
     private IReadOnlyList<StallKill> stallKills()

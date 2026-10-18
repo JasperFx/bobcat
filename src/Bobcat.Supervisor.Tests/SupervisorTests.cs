@@ -109,6 +109,60 @@ public class SupervisorTests
         factory.RunningWorkers.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task a_filter_keeping_nothing_aborts_the_run_when_no_tests_is_a_failure()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a"), FakeWorkerFactory.Test("b")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = build(factory);
+        supervisor.TestFilter = _ => false;
+        supervisor.FailWhenNoTests = true;
+
+        var results = await supervisor.Run();
+
+        results.Tests.ShouldBeEmpty();
+        results.AbortReason.ShouldNotBeNull();
+        results.AbortReason.ShouldContain("2 test(s) were discovered and the selection kept none");
+        results.ExitCode.ShouldBe(2);
+        factory.RunningWorkers.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_worker_discovering_nothing_aborts_the_run_when_no_tests_is_a_failure()
+    {
+        var factory = new FakeWorkerFactory { Tests = [], Outcome = (_, _, _) => WorkerTestState.Passed };
+
+        var supervisor = build(factory);
+        supervisor.FailWhenNoTests = true;
+
+        var results = await supervisor.Run();
+
+        results.AbortReason!.ShouldContain("the worker discovered none");
+        results.ExitCode.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task no_tests_is_not_a_failure_by_itself_when_something_ran()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        var supervisor = build(factory);
+        supervisor.FailWhenNoTests = true;
+
+        var results = await supervisor.Run();
+
+        results.AbortReason.ShouldBeNull();
+        results.ExitCode.ShouldBe(0);
+    }
+
     // ---------------------------------------------------------------- releasing idle lanes
 
     [Fact]

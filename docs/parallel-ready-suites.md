@@ -225,6 +225,35 @@ Rules the convention depends on (issue #414):
   recycled launches report lane 0, and the provider receives the whole `WorkerLaunchContext` if
   one of them should get something else.
 
+**`LaneDatabases` provisions a database per lane on PostgreSQL or SQL Server** (bobcat#700). It
+references no driver: pass your own ADO.NET provider, and the administrative connection string is the
+template each lane's string is built from, with the provider's connection string builder setting only
+the database:
+
+```csharp
+var lanes = LaneDatabases.Postgres(NpgsqlFactory.Instance,
+    "Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=postgres", prefix: "specs_w");
+// or LaneDatabases.SqlServer(SqlClientFactory.Instance, "...;Initial Catalog=master;...")
+
+await lanes.Recreate(workers);        // drop and create specs_w0 .. specs_w{workers-1}
+
+new MtpWorkerFactory(path)
+{
+    ConnectionStrings = new WorkerConnectionStrings().Add("postgres", lanes.ForWorker)
+}
+```
+
+- `Recreate` drops and recreates every lane database, so each run starts empty: a database carrying
+  the previous run's tables lets a schema change pass locally and fail on CI's fresh one. On
+  PostgreSQL it uses `DROP DATABASE … WITH (FORCE)` (PostgreSQL 13 or later); on SQL Server it sets
+  the catalog `SINGLE_USER WITH ROLLBACK IMMEDIATE` first. Both end the previous run's connections.
+- `EnsureCreated` creates only the lane databases that are missing, for a suite whose tests reset their
+  own schemas.
+- The prefix must be lower-case letters, digits and `_`: it goes into DDL, where a name cannot be a
+  parameter.
+- `ConnectionStringFor(lane)` is there for an `EnvironmentFor` that names its own variable
+  (`["POLECAT_TESTING_DATABASE"] = lanes.ConnectionStringFor(context.Lane)`).
+
 `EnvironmentFor` is still there for anything that is not a connection string. It is layered above
 `ConnectionStrings`, so it wins when both set the same variable.
 
