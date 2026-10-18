@@ -152,6 +152,19 @@ internal static class EventModelEmitter
         /// command; see <see cref="PatternOf"/>.
         /// </summary>
         public bool HasUnstampedAct;
+
+        /// <summary>
+        /// bobcat#681, revising #615: true once such an act went through an HTTP write (POST/PUT/PATCH/DELETE) —
+        /// a command whose type is not known, so the slice is a Command slice with no <c>CommandType</c>.
+        /// </summary>
+        public bool HasUnstampedWriteAct;
+
+        /// <summary>
+        /// bobcat#681: true when <see cref="ActCommand"/> is an event — one a specification anywhere in the
+        /// compilation emits or arranges. A slice whose act receives an event is the system reacting to it, an
+        /// Automation, the same rule Wolverine's derivation applies to a handler of another slice's event.
+        /// </summary>
+        public bool ActIsEvent;
         public readonly List<string> Events = new();
         public readonly List<string> Aggregates = new();
         public readonly List<string> ReadModels = new();
@@ -240,6 +253,13 @@ internal static class EventModelEmitter
         }
 
         foreach (var spec in all) collect(spec, slices, actsByFeature, omissions);
+
+        // bobcat#681: WhenReceived(new HomeCheckAssignmentAccepted(…)) sends an event, not a command, when some
+        // specification emits or arranges that type. Only knowable once every specification has folded in
+        var events = new HashSet<string>(slices.Values.SelectMany(x => x.Events.Concat(x.ArrangedEvents)), StringComparer.Ordinal);
+        foreach (var slice in slices.Values)
+            slice.ActIsEvent = slice.ActCommand != null && events.Contains(slice.ActCommand);
+
         return omissions;
     }
 
@@ -259,7 +279,7 @@ internal static class EventModelEmitter
     /// <c>global::Bank.Deposit</c> → <c>Deposit</c>: the slice <c>[BobcatSpec(typeof(Deposit))]</c> names, so an
     /// unbound specification of that command lands where a bound one would.
     /// </summary>
-    private static string simpleNameOf(string qualified)
+    internal static string SimpleNameOf(string qualified)
     {
         var name = qualified;
         var generic = name.IndexOf('<');
@@ -319,7 +339,7 @@ internal static class EventModelEmitter
                 {
                     if (roles.Act != null)
                     {
-                        name = simpleNameOf(roles.Act);
+                        name = SimpleNameOf(roles.Act);
                     }
                     else
                     {
@@ -366,6 +386,7 @@ internal static class EventModelEmitter
             slice.ActCommand ??= roles.Act;
             if (roles.ReadAct != null) addDistinct(slice.ReadActs, roles.ReadAct);
             if (roles.UnstampedAct != null) slice.HasUnstampedAct = true;
+            if (roles.UnstampedActWrites) slice.HasUnstampedWriteAct = true;
 
             // bobcat#501: a command act outranks a read act's trigger, whichever folds first
             if (roles.Act != null && slice.TriggerFromRead) clearTrigger(slice);
@@ -569,7 +590,10 @@ internal static class EventModelEmitter
         var query = pattern == "Query";
         // bobcat#615: on a slice whose act named no command, an arranging command is not the slice's either
         var command = query ? null : slice.ActCommand ?? (slice.HasUnstampedAct ? null : slice.Commands.FirstOrDefault());
-        var readModels = query ? EmptyTypes : slice.ReadModels;
+        // bobcat#681: a read model a Command (or Automation, or Translation) specification asserts is downstream of the
+        // slice -- a chain spec's ThenReadModel<MyAppointments> is evidence for the View producing it, not something
+        // the command produces. It stays among the specification's resolved types
+        var readModels = query || pattern is "Command" or "Automation" or "Translation" ? EmptyTypes : slice.ReadModels;
         var aggregates = query ? EmptyTypes : slice.Aggregates;
         var readsFrom = slice.ReadsFrom;
         if (query)
@@ -694,11 +718,13 @@ internal static class EventModelEmitter
     /// Which pattern this is. A declared <c>Pattern</c> settles it outright, which is how a scaffolded
     /// specification carries the curated model's answer through.
     ///
-    /// Failing that, inference: a slice whose act sends a command is a Command slice; one whose act is a
+    /// Failing that, inference: a slice whose act sends a command is a Command slice, and an Automation when that
+    /// "command" is an event some specification emits or arranges (bobcat#681); one whose act is a
     /// read-only HTTP call (GET/HEAD with a read role, bobcat#501) and none a command is a Query; one with
     /// only arranging commands is still Command; one that only asserts on a read model is a View.
-    /// Automation and Translation need a trigger the test does not express, so they stay null rather
-    /// than being guessed — a wrong pattern miscolours the canvas, a null one does not.
+    /// Translation, and an Automation whose trigger event no specification names, need a trigger the test does
+    /// not express, so they stay null rather than being guessed — a wrong pattern miscolours the canvas, a null
+    /// one does not.
     /// </summary>
     internal static string? PatternOf(SliceModel slice, Contract contract)
     {
@@ -707,13 +733,15 @@ internal static class EventModelEmitter
         // SourceDisagreement against the curated file that no change to either could resolve.
         if (slice.DeclaredPattern is { } declared) return declared;
 
-        if (slice.ActCommand != null) return "Command";
+        if (slice.ActCommand != null) return slice.ActIsEvent ? "Automation" : "Command";
         if (slice.ReadActs.Count > 0 && contract.Query) return "Query";
 
         // bobcat#615: a slice whose act named no command (a body-less DELETE, WhenActing) is not a View because it
-        // also asserts a read model, and an arranging command does not make it that command's slice. Which pattern
-        // it is cannot be known, and a null pattern does not miscolour the canvas
-        if (slice.HasUnstampedAct) return null;
+        // also asserts a read model, and an arranging command does not make it that command's slice. bobcat#681
+        // revised the rest (Jeremy, 2026-10-18): an HTTP write is a command whatever its body, so that slice is a
+        // Command slice with no command type. Any other such act's pattern cannot be known, and a null pattern does
+        // not miscolour the canvas
+        if (slice.HasUnstampedAct) return slice.HasUnstampedWriteAct ? "Command" : null;
         if (slice.Commands.Count > 0) return "Command";
         if (slice.ReadModels.Count > 0 || slice.ArrangedReadModels.Count > 0) return "View";
         return null;

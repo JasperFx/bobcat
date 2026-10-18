@@ -32,6 +32,7 @@ the usual way:
 | [BOBCAT042](#bobcat042) | error | A `[BobcatExamples]` table doesn't fit its theory |
 | [BOBCAT043](#bobcat043) | warning | A Task-returning step is called and never awaited |
 | [BOBCAT044](#bobcat044) | error | A member check is not one assertion on one member |
+| [BOBCAT045](#bobcat045) | info | A specification's act goes through a helper that declares no Event Model role |
 
 Ids that are not listed were [retired](#retired).
 
@@ -313,6 +314,36 @@ role-stamped vocabulary, so nothing says which slice it describes. Bind it to th
 **Fix:** bind it: `[BobcatSpec(typeof(PlaceOrder))]` or `[BobcatSpec(SliceName = "…")]`. A spec on no
 slice also has no coordinates for `bobcat run --slice`/`--chapter`/`--domain`/`--pattern`. See
 [An act that names no command](marker-steps.md#unstamped-act).
+
+## BOBCAT045 — an act goes through a helper that declares no Event Model role {#bobcat045}
+
+**Info.** `'WhenPosted' declares no Event Model role, but it calls 'WhenActing', which is an act, so this call is
+read as the test's act and its command is taken from the slice binding, AddBook, because the call passes one. Its
+trigger (an HTTP verb and route) is not read through it. Declare [EventModelRole(SliceRole.Command,
+nameof(command))] on 'WhenPosted' …`
+
+**When:** a projected spec's last act is a method of the project's own -- usually an HTTP helper on a spec base
+class, `WhenPosted(object command, string url)` -- that carries no `[EventModelRole]`, `[EventModelTrigger]` or
+`[EventModelAct]`, but whose body calls one that does, and the command it sends is passed in rather than named in
+its body. The second half of the message says either that the command came from `[BobcatSpec(typeof(X))]`
+(the call passes an `X`), or that which command it sends can't be known, so the slice has no command type.
+
+**Why:** info, because the slice is already right where it can be: the call is the act, so the slice is never a
+View, and it is a Command slice when the binding names the command. Before bobcat#681 the act was silently
+lost and such a spec made a View slice. What can't be recovered is the trigger: the inner act's route is the
+helper's parameter.
+
+**Fix:** put the attributes on the helper, naming its own parameters:
+
+```csharp
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(TriggerKind.Http, Route = nameof(url), HttpMethod = "POST")]
+protected Task WhenPosted(object command, string url) => WhenActing(…);
+```
+
+It is *not* reported for a helper whose own body names its command (`OpenTheAccount() =>
+WhenReceived(new OpenAccount(…))`): that command and its trigger are read through it. See
+[An act that names no command](marker-steps.md#unstamped-act), and the paragraph before it on helpers.
 
 ## BOBCAT042 — an inline examples table doesn't fit its theory {#bobcat042}
 

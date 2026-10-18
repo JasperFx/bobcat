@@ -85,8 +85,57 @@ internal static class ProjectedRoles
         /// </summary>
         public string? UnstampedAct;
 
+        /// <summary>
+        /// bobcat#681, revising #615: whether an <see cref="UnstampedAct"/> reaches the application through an HTTP
+        /// write — POST (the default verb), PUT, PATCH or DELETE. That is a command whatever it carries, so its slice
+        /// is a Command slice with no command type rather than one with no pattern.
+        /// </summary>
+        public bool UnstampedActWrites => UnstampedAct != null && TriggerKind == "Http"
+                                          && !string.Equals(HttpMethod, "GET", StringComparison.OrdinalIgnoreCase)
+                                          && !string.Equals(HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase);
+
         /// <summary>Whether the test makes an act at all, stamped or not.</summary>
         public bool HasAct => Act != null || ReadAct != null || UnstampedAct != null;
+
+        /// <summary>The name of the method the test's last act calls, stamped or not.</summary>
+        public string? ActMethod;
+
+        /// <summary>
+        /// bobcat#681: the application types the arguments of an <see cref="UnstampedAct"/> carry. One whose name is
+        /// the slice the test binds (<c>[BobcatSpec(typeof(AddBook))]</c> over <c>WhenPosted(new AddBook(…), url)</c>)
+        /// is the act's command; see <see cref="AdoptBoundCommand"/>.
+        /// </summary>
+        public readonly List<string> UnstampedActTypes = new();
+
+        /// <summary>
+        /// bobcat#681: when the last act is a project's own method that declares no role but calls an act — a
+        /// <c>WhenPosted(object command, string url)</c> wrapping <c>WhenActing</c> — the act it calls, else null.
+        /// </summary>
+        public string? WrappedAct;
+
+        /// <summary>The call of the wrapping method, where BOBCAT045 points.</summary>
+        public Location? WrappedActLocation;
+
+        /// <summary>True once <see cref="AdoptBoundCommand"/> took the act's command from the slice binding.</summary>
+        public bool CommandFromBinding;
+
+        /// <summary>
+        /// bobcat#681: an act that names no command, passing an instance of the type its slice binding names, sends
+        /// that type: <c>[BobcatSpec(typeof(AddBook))]</c> is the author stating the command, and the call hands one
+        /// over. Only the binding's own type, so an act passing some other object never becomes a command.
+        /// </summary>
+        public void AdoptBoundCommand(string? slice)
+        {
+            if (UnstampedAct is null || slice is null) return;
+
+            var command = UnstampedActTypes.FirstOrDefault(x => EventModelEmitter.SimpleNameOf(x) == slice);
+            if (command is null) return;
+
+            Act = command;
+            UnstampedAct = null;
+            CommandFromBinding = true;
+            Roles.Add((EventModelEmitter.Command, command));
+        }
 
         /// <summary>The act's <c>TriggerKind</c> member name, when its method declares one.</summary>
         public string? TriggerKind;
@@ -133,7 +182,14 @@ internal static class ProjectedRoles
         }
     }
 
+    /// <summary>How deep a chain of a project's own wrapping methods is followed to find the act it calls.</summary>
+    private const int MaxWrapperDepth = 3;
+
     public static Reading Read(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
+        => read(method, model, ct, new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default), 0);
+
+    private static Reading read(
+        MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth)
     {
         var reading = new Reading();
         SyntaxNode? body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
@@ -151,7 +207,18 @@ internal static class ProjectedRoles
             // it is one ([EventModelAct]), or declares a Command role, whether or not that role names a type here
             var declaresAct = AttributesOf(operation.TargetMethod, TriggerAttributeName).Carrier is not null
                               || AttributesOf(operation.TargetMethod, ActAttributeName).Carrier is not null;
-            if (carrier is null && !declaresAct) continue;
+            if (carrier is null && !declaresAct)
+            {
+                // bobcat#681: a project's own helper that declares nothing but calls an act IS the act. Before, the
+                // act vanished with it and a spec that only asserted afterwards read as a View
+                if (!isDeferred(invocation, body)
+                    && wrappedAct(operation.TargetMethod, compilation, ct, visiting, depth) is { } inner)
+                {
+                    adoptWrapped(operation, invocation, inner, reading, compilation);
+                }
+
+                continue;
+            }
 
             string? command = null;
             string? read = null;
@@ -177,18 +244,16 @@ internal static class ProjectedRoles
 
             if (command is not null)
             {
+                beginAct(reading, operation);
                 reading.Act = command;
-                reading.ReadAct = null;
-                reading.UnstampedAct = null;
                 readTrigger(operation, reading, compilation);
             }
             else if (read is not null && isReadTrigger(operation.TargetMethod))
             {
                 // bobcat#501: a read-only act — GET/HEAD plus a read role, no command. The trigger attribute is
                 // what tells it from an assertion: ThenReadModel<T> carries the same role and no trigger
-                reading.Act = null;
+                beginAct(reading, operation);
                 reading.ReadAct = read;
-                reading.UnstampedAct = null;
                 readTrigger(operation, reading, compilation);
             }
             else if (declaresAct)
@@ -196,14 +261,105 @@ internal static class ProjectedRoles
                 // bobcat#615: an act whose command cannot be known — an anonymous or object body, a lambda. It is
                 // still the LAST act, so an earlier arranging command must not become the slice's; its trigger
                 // (a DELETE and its route) is still a fact about the slice
-                reading.Act = null;
-                reading.ReadAct = null;
+                beginAct(reading, operation);
                 reading.UnstampedAct = operation.TargetMethod.Name;
+                addArgumentTypes(operation, reading, compilation);
                 readTrigger(operation, reading, compilation);
             }
         }
 
         return reading;
+    }
+
+    /// <summary>Forget the previous act: this call is the last one so far.</summary>
+    private static void beginAct(Reading reading, IInvocationOperation operation)
+    {
+        reading.Act = null;
+        reading.ReadAct = null;
+        reading.UnstampedAct = null;
+        reading.UnstampedActTypes.Clear();
+        reading.WrappedAct = null;
+        reading.WrappedActLocation = null;
+        reading.ActMethod = operation.TargetMethod.Name;
+    }
+
+    private static void addArgumentTypes(IInvocationOperation operation, Reading reading, Compilation compilation)
+    {
+        foreach (var argument in operation.Arguments)
+        {
+            if (argument.ArgumentKind == ArgumentKind.DefaultValue) continue;
+            foreach (var type in typesOf(argument.Value, compilation))
+                if (!reading.UnstampedActTypes.Contains(type)) reading.UnstampedActTypes.Add(type);
+        }
+    }
+
+    /// <summary>
+    /// bobcat#681: what a project's own method declaring no Event Model attribute does, when its body — in this
+    /// compilation — makes an act; null when it makes none, is not source here, or the chain is too deep or cycles.
+    /// </summary>
+    private static Reading? wrappedAct(
+        IMethodSymbol target, Compilation compilation, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth)
+    {
+        var definition = (target.ReducedFrom ?? target).OriginalDefinition;
+        if (depth >= MaxWrapperDepth || definition.DeclaringSyntaxReferences.Length == 0) return null;
+        if (!visiting.Add(definition)) return null;
+
+        try
+        {
+            foreach (var reference in definition.DeclaringSyntaxReferences)
+            {
+                if (reference.GetSyntax(ct) is not MethodDeclarationSyntax declaration) continue;
+                if (!compilation.ContainsSyntaxTree(declaration.SyntaxTree)) continue;
+
+                var inner = read(declaration, compilation.GetSemanticModel(declaration.SyntaxTree), ct, visiting, depth + 1);
+                if (inner.HasAct) return inner;
+            }
+
+            return null;
+        }
+        finally
+        {
+            visiting.Remove(definition);
+        }
+    }
+
+    /// <summary>
+    /// The wrapping call is the test's act. A command the wrapper's own body names (<c>WhenReceived(new X())</c>
+    /// with nothing passed in) is the act's; one passed through a parameter (<c>object command</c>) is not knowable
+    /// from the wrapper, so the act names none, and its arguments' types are kept for
+    /// <see cref="Reading.AdoptBoundCommand"/>. The inner trigger comes along, but never a route problem: that one
+    /// is inside the wrapper, about a parameter, and says nothing about this call.
+    /// </summary>
+    private static void adoptWrapped(
+        IInvocationOperation operation, InvocationExpressionSyntax invocation, Reading inner, Reading reading, Compilation compilation)
+    {
+        beginAct(reading, operation);
+
+        if (inner.Act is { } command)
+        {
+            reading.Act = command;
+            reading.Roles.Add((EventModelEmitter.Command, command));
+        }
+        else if (inner.ReadAct is { } read)
+        {
+            reading.ReadAct = read;
+            reading.Roles.Add((EventModelEmitter.ReadModel, read));
+        }
+        else
+        {
+            reading.UnstampedAct = operation.TargetMethod.Name;
+            reading.WrappedAct = inner.ActMethod;
+            reading.WrappedActLocation = invocation.GetLocation();
+            addArgumentTypes(operation, reading, compilation);
+        }
+
+        reading.TriggerKind = inner.TriggerKind;
+        reading.HttpMethod = inner.HttpMethod;
+        reading.TriggerRoute = inner.TriggerRoute;
+        reading.TriggerRouteReconstructed = inner.TriggerRouteReconstructed;
+        reading.TriggerRouteName = inner.TriggerRouteName;
+        reading.RouteProblem = null;
+        reading.RouteProblemLocation = null;
     }
 
     /// <summary>A BOBCAT034 finding at the attribute that names nothing.</summary>

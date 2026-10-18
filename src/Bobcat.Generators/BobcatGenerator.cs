@@ -323,6 +323,7 @@ public class BobcatGenerator : IIncrementalGenerator
                         "RecordsNothing" => Diagnostics.SpecRecordsNothing,
                         "ProseKeyword" => Diagnostics.ProseReadAsComment,
                         "UnresolvedRoute" => Diagnostics.UnresolvedTriggerRoute,
+                        "WrappedAct" => Diagnostics.UnstampedActWrapper,
                         _ => problem.IsError ? Diagnostics.SliceBindingConflict : Diagnostics.PreferSliceType
                     };
 
@@ -421,7 +422,7 @@ public class BobcatGenerator : IIncrementalGenerator
 
 internal static class Diagnostics
 {
-    // Ids are never renumbered or reused; the next new one is BOBCAT045 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's, 043 bobcat#623's, 044 bobcat#624's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
+    // Ids are never renumbered or reused; the next new one is BOBCAT046 (040 is bobcat#610's, 041 bobcat#615's, 042 bobcat#570's, 043 bobcat#623's, 044 bobcat#624's, 045 bobcat#681's). BOBCAT001-022, 030, 031 and 035 belonged to the Gherkin
     // lane and were retired with it (bobcat#471); 025/026 went with the spec-ownership manifest
     // (issue #406); 033 is an MSBuild warning (buildTransitive/Bobcat.Generators.targets). A
     // diagnostic id a consumer has suppressed or searched for must keep meaning one thing.
@@ -719,6 +720,24 @@ internal static class Diagnostics
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>
+    /// bobcat#681: a projected specification's act is a project's own helper — <c>WhenPosted(object command, string
+    /// url)</c> wrapping <c>WhenActing</c> — that declares no Event Model role, so the act is found by reading the
+    /// helper's body, but what it sends and how it reaches the application stop at its parameters.
+    /// </summary>
+    /// <remarks>
+    /// Info, because the generator already did the best it can: the call is the act (before, the act vanished and a
+    /// spec that only asserted afterwards made a View slice), and its command is the slice binding's type when the
+    /// call passes one. The trigger cannot be recovered without the helper's attributes, and the fix is two lines.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnstampedActWrapper = new(
+        "BOBCAT045",
+        "A specification's act goes through a helper that declares no Event Model role",
+        "{0}",
+        "Bobcat",
+        DiagnosticSeverity.Info,
         true);
 
     public static readonly DiagnosticDescriptor SliceBindingConflict = new(

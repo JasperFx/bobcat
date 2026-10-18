@@ -604,10 +604,12 @@ public class ProjectedEventModelRoleTests
             """);
 
         // A read role behind a POST is no read act, so no Query. Since bobcat#615 the POST is still an act -- one that
-        // names no command -- so the slice is not a View either: its pattern is left null and its trigger is the POST
+        // names no command -- so the slice is not a View either. bobcat#681 revised #615's null: an HTTP write is a
+        // command whatever it carries, so the slice is a Command slice with no command type, and a read model a
+        // Command slice's spec names is not the command's
         var searched = slices.Single(x => x.Name == "AccountSummary");
-        searched.Pattern.ShouldBeNull();
-        names(searched.ReadModelTypes).ShouldBe(["AccountSummary"]);
+        searched.Pattern.ShouldBe(SlicePattern.Command);
+        searched.ReadModelTypes.ShouldBeEmpty();
         names(searched.ConsumedEvents).ShouldBeEmpty();
         searched.CommandType.ShouldBeNull();
         searched.TriggerKind.ShouldBe(TriggerKind.Http);
@@ -1251,7 +1253,10 @@ public class ProjectedEventModelRoleTests
         var slices = GeneratedEventModel.For(load(outcome))!.Slices;
         var deposit = slices.Single(x => x.Name == "Deposit");
         names(deposit.AggregateTypes).ShouldBe(["Account"]);
-        names(deposit.ReadModelTypes).ShouldBe(["Statement"]);
+
+        // bobcat#681: a read model a Command slice's spec reads is not the command's, but it was still named
+        names(deposit.ReadModelTypes).ShouldBeEmpty();
+        names(deposit.Specifications.Single().ResolvedTypes).ShouldContain("Statement");
 
         names(slices.Single(x => x.Name == "OpenAccount").AggregateTypes).ShouldBe(["AccountSummary"]);
     }
@@ -1309,8 +1314,9 @@ public class ProjectedEventModelRoleTests
             """).Single(x => x.Name == "CloseAccount");
 
         // Before #615 the asserted read model was the only thing left to infer from, so the delete was a View
-        // consuming AccountOpened. Null is the honest answer, and the DELETE and its route are still facts
-        slice.Pattern.ShouldBeNull();
+        // consuming AccountOpened. #615 left the pattern null; bobcat#681 revised that: a DELETE is a command whatever
+        // its body, so the slice is a Command slice that names no command, and the DELETE and its route are facts
+        slice.Pattern.ShouldBe(SlicePattern.Command);
         slice.CommandType.ShouldBeNull();
         names(slice.ConsumedEvents).ShouldBeEmpty();
         slice.TriggerKind.ShouldBe(TriggerKind.Http);
@@ -1438,6 +1444,222 @@ public class ProjectedEventModelRoleTests
         slice.Specifications.Count.ShouldBe(3);
     }
 
+    // ---------------------------------------------------------------- bobcat#681: what an applied suite ran into
+
+    // A project's own HTTP helper over the vocabulary, written the way every CritterStackSamples suite first wrote
+    // it: no Event Model attribute of its own
+    private const string ProjectHelpers =
+        """
+        namespace Vocab
+        {
+            public abstract class LibraryScenario : ScenarioBase
+            {
+                public Task Post(object command, string url) => Posting(command, url);
+
+                // Two levels deep, as a helper calling a helper
+                private Task Posting(object command, string url) => WhenActing("POST " + url, () => Task.CompletedTask);
+
+                // A helper whose own body names its command
+                public Task OpenTheAccount() => WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+
+                // Calls nothing that is an act
+                public Task Settle() => Task.CompletedTask;
+            }
+        }
+
+        """;
+
+    [Fact]
+    public void a_helper_declaring_no_role_over_an_act_is_the_act_and_the_spec_binding_names_its_command()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute + ProjectHelpers +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : LibraryScenario
+            {
+                [BobcatSpec(typeof(Deposit))]
+                public async Task a_deposit()
+                {
+                    var id = Guid.NewGuid();
+                    await Post(new Deposit(id, 10m), "/deposits");
+                    await Settle();
+                    await ThenReadModel<AccountSummary>(id);
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // Before #681 the act vanished with the helper, and the asserted read model made this a View with no command
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.Single(x => x.Name == "Deposit");
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        slice.CommandType!.Name.ShouldBe("Deposit");
+        names(slice.Specifications.Single().ResolvedTypes).ShouldContain("Deposit");
+
+        // The trigger stops at the helper's parameters, so it says how to declare it
+        slice.TriggerKind.ShouldBeNull();
+        var reported = outcome.WithId("BOBCAT045").ShouldHaveSingleItem();
+        reported.Severity.ShouldBe(DiagnosticSeverity.Info);
+        reported.GetMessage().ShouldSatisfyAllConditions(
+            m => m.ShouldContain("'Post'"),
+            m => m.ShouldContain("'Posting'"),
+            m => m.ShouldContain("taken from the slice binding, Deposit"),
+            m => m.ShouldContain("[EventModelTrigger(TriggerKind.Http"));
+    }
+
+    [Fact]
+    public void a_helper_over_an_act_passing_nothing_the_binding_names_is_an_act_with_no_command_and_never_a_view()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute + ProjectHelpers +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : LibraryScenario
+            {
+                [BobcatSpec(SliceName = "ReturnBook")]
+                public async Task a_return()
+                {
+                    await Post(new Deposit(Guid.Empty, 10m), "/books/1/return");
+                    await ThenReadModel<AccountSummary>(Guid.Empty);
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.Single(x => x.Name == "ReturnBook");
+        slice.Pattern.ShouldBeNull();
+        slice.CommandType.ShouldBeNull();
+        outcome.WithId("BOBCAT045").ShouldHaveSingleItem().GetMessage().ShouldContain("cannot be known");
+    }
+
+    [Fact]
+    public void a_helper_whose_body_names_its_command_is_that_act_and_needs_no_report()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute + ProjectHelpers +
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : LibraryScenario
+            {
+                [BobcatSpec(typeof(OpenAccount))]
+                public async Task an_opening()
+                {
+                    await OpenTheAccount();
+                    ThenEvents(typeof(AccountOpened));
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.Single(x => x.Name == "OpenAccount");
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        slice.CommandType!.Name.ShouldBe("OpenAccount");
+        outcome.WithId("BOBCAT045").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_body_less_http_write_is_a_command_slice_naming_no_command_and_a_lambda_act_stays_unknown()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Returns")]
+            public class returns : ScenarioBase
+            {
+                [Fact]
+                public async Task a_book_is_returned()
+                {
+                    await WhenPosted(new { }, "/books/1/return");
+                    await ThenReadModel<AccountSummary>(Guid.Empty);
+                }
+            }
+
+            [BobcatFeature("Sweeps")]
+            public class sweeps : ScenarioBase
+            {
+                [Fact]
+                public async Task the_sweep_runs()
+                {
+                    await WhenActing("the nightly sweep", () => Task.CompletedTask);
+                    await ThenReadModel<AccountSummary>(Guid.Empty);
+                }
+            }
+            """);
+
+        // bobcat#681, revising #615: LibraryQuickstart's POST /books/{id}/return. The slice keeps the feature's name
+        var returned = slices.Single(x => x.Name == "Returns");
+        returned.Pattern.ShouldBe(SlicePattern.Command);
+        returned.CommandType.ShouldBeNull();
+        returned.ReadModelTypes.ShouldBeEmpty();
+        returned.TriggerOrigin!.HttpMethod.ShouldBe("POST");
+        returned.TriggerOrigin.HttpRoute.ShouldBe("/books/1/return");
+
+        // An act with no HTTP trigger still says nothing about its pattern
+        slices.Single(x => x.Name == "Sweeps").Pattern.ShouldBeNull();
+    }
+
+    [Fact]
+    public void receiving_an_event_another_specification_emits_is_an_automation()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit()
+                {
+                    await WhenReceived(new Deposit(Guid.Empty, 10m));
+                    ThenEvents(typeof(FundsDeposited));
+                }
+
+                [Fact, BobcatSlice(SliceName = "SendReceipt")]
+                public async Task a_receipt_follows_a_deposit()
+                {
+                    await WhenReceived(new FundsDeposited(Guid.Empty, 10m));
+                    ThenMessageSent<DepositReceipt>();
+                }
+
+                [Fact, BobcatSlice(SliceName = "DeclaredReaction", Pattern = "Command")]
+                public async Task a_declared_pattern_still_wins() => await WhenReceived(new FundsDeposited(Guid.Empty, 1m));
+            }
+            """);
+
+        slices.Single(x => x.Name == "Deposit").Pattern.ShouldBe(SlicePattern.Command);
+
+        // The trigger event stays the slice's CommandType: that is what JasperFx's EventTriggers link joins on
+        var receipt = slices.Single(x => x.Name == "SendReceipt");
+        receipt.Pattern.ShouldBe(SlicePattern.Automation);
+        receipt.CommandType!.Name.ShouldBe("FundsDeposited");
+
+        slices.Single(x => x.Name == "DeclaredReaction").Pattern.ShouldBe(SlicePattern.Command);
+    }
+
+    [Fact]
+    public void a_read_model_a_command_spec_asserts_downstream_is_not_the_command_slices()
+    {
+        var slices = describe(
+            """
+            [BobcatFeature("Accounts")]
+            public class accounts : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceType = typeof(Deposit))]
+                public async Task a_deposit_reaches_the_summary()
+                {
+                    await WhenReceived(new Deposit(Guid.Empty, 10m));
+                    await ThenReadModel<AccountSummary>(Guid.Empty);
+                }
+
+                [Fact, BobcatSlice(SliceType = typeof(AccountSummary))]
+                public async Task the_summary() => await ThenReadModel<AccountSummary>(Guid.Empty);
+            }
+            """);
+
+        var deposit = slices.Single(x => x.Name == "Deposit");
+        deposit.Pattern.ShouldBe(SlicePattern.Command);
+        deposit.ReadModelTypes.ShouldBeEmpty();
+        names(deposit.Specifications.Single().ResolvedTypes).ShouldBe(["Deposit", "AccountSummary"]);
+
+        // The View that produces it keeps it
+        names(slices.Single(x => x.Name == "AccountSummary").ReadModelTypes).ShouldBe(["AccountSummary"]);
+    }
+
     // Bobcat.Xunit's attribute, as far as these compilations need: the generator matches it by name
     private const string SpecAttribute =
         """
@@ -1447,6 +1669,7 @@ public class ProjectedEventModelRoleTests
             {
                 public BobcatSpecAttribute() { }
                 public BobcatSpecAttribute(Type slice) { }
+                public string? SliceName { get; set; }
             }
         }
 
