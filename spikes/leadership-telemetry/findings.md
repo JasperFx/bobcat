@@ -15,7 +15,8 @@ checkout was changed. Porting it into Wolverine is the follow-up described at th
 
 | What | Where | What it captures | How a failure surfaces it |
 |---|---|---|---|
-| `XUnitEventObserver` | `Wolverine.ComplianceTests/XUnitEventObserver.cs`, wired in `startHostAsync` | Every `IWolverineEvent` from each host's `runtime.Tracker`. For `AgentAssignmentsChanged`: the known nodes, then **one line per agent** (`assigned to node N`, `is unchanged on node N`, `reassigned from node A to node B`, `is not assigned`), plus `No assignment changes detected`. Everything else is the event's `ToString()` | Written to `ITestOutputHelper` **for every test, passing or not**, as the events happen. No timestamps. A leader evaluates every second, so a 30-second wait writes about thirty 13-line blocks per host, interleaved with the logger's output |
+| `XUnitEventObserver` | `Wolverine.ComplianceTests/XUnitEventObserver.cs`, wired in `startHostAsync` | Every `IWolverineEvent` from each host's `runtime.Tracker`, which today means `ListenerState` only. It has a branch for `AgentAssignmentsChanged` (one line per agent), but **nothing in Wolverine constructs or publishes that event any more** (bobcat#670): the record is declared and never raised, so the branch is dead and a failing leadership test on Wolverine `main` writes no "Agent assignments determined" line at all | Written to `ITestOutputHelper` for every test, passing or not. No assignment history reaches it |
+| `IWolverineObserver` | `runtime.Observer`, called by the node controller | **The assignment history**: `AssignmentsChanged(AssignmentGrid grid, AgentCommands commands)` on every evaluation, changed or not; `AgentStarted` / `AgentStopped` per node; `AssumedLeadership` / `LostLeadership`, `NodeStarted` / `NodeStopped`, `StaleNodes` | Not surfaced by the suite at all. This is the feed a producer subscribes to (section 4) |
 | `OutputLoggerProvider` / `XUnitLogger` | `Wolverine.ComplianceTests/Logger.cs` | Every `ILogger` line from every node, prefixed with its category | Test output, unconditionally. **`IsEnabled` returns false for `LogLevel.Error`**, so a node's error-level log lines never appear. Exceptions of two types are dropped |
 | `AssignmentWaiter` | `Wolverine/TestingExtensions.cs` (`WaitUntilAssignmentsChangeTo`) | On timeout only, `WritePersistedActualsAsync`: "According to the database…" (each node's `ActiveAgents` from `Storage.Nodes.LoadAllNodesAsync`), then "According to the runtimes" (each tracked runtime's running agents), and `(node … is not tracked by this waiter)` for a ghost row | The text is the **`TimeoutException`'s message**. It's the best diagnostic in the suite, but it's free text, it lists the two sides one after the other rather than per agent, and it has no history |
 | `LeadershipWaiter`, `WaitForAnyLeadershipAsync` | same | Nothing | `TimeoutException("Did not assume the leadership in the time allowed")` / `"No node assumed leadership within …"`: no state at all |
@@ -85,13 +86,13 @@ fake://seven/  | 2         | 1, 2       | expected 'running once, on node 2', go
 ```
 
 Read together: the leader moved six agents to node 2, the rows agree, and node 1 still runs all twelve,
-so the stop was never sent. Wolverine's suite today gives a reader the same facts as 30 untimed blocks in
-test output plus a `TimeoutException` listing two agent lists.
+so the stop was never sent. Wolverine's suite today gives a reader only a `TimeoutException` listing two
+agent lists, with no history at all (section 1).
 
 ## 3. What it showed about Bobcat
 
 1. **The ambient surfaces are silent from a background thread.** `SpecLog`, `SpecReport` and
-   `ScenarioReports.Current` are `AsyncLocal`. An `IObserver` that Wolverine's tracker calls on a node's
+   `ScenarioReports.Current` are `AsyncLocal`. An observer that Wolverine calls on a node's
    loop has no scenario, so writing a report or a log line from it **does nothing and says nothing**.
    The producer buffers into a `ConcurrentQueue` and turns it into cells on the test's side. This wasn't
    documented. The new docs page now states it.
@@ -130,12 +131,22 @@ drives, and no specification that uses WolverineFx.Bobcat's vocabulary has a clu
 
 | Spike | Wolverine |
 |---|---|
-| `IClusterEvent`, `ClusterNode.Tracker.Subscribe` | `IWolverineEvent`, `host.GetRuntime().Tracker.Subscribe` (exactly where `new XUnitEventObserver(host, _output)` is today) |
-| `AgentAssignmentsChanged(LeaderNode, Evaluation, Nodes, Assignments, Commands)` | `AgentAssignmentsChanged`: `Assignments.AllAgents` (`OriginalNode` / `AssignedNode`, `.AssignedId`), `Assignments.Nodes`, `Commands`. The evaluation number is the observer's own count |
+| `IClusterEvent`, `ClusterNode.Tracker.Subscribe` | An **`IWolverineObserver` decorator** over `runtime.Observer`, installed between `Build()` and `StartAsync()`. **Not** `runtime.Tracker`: the tracker carries `ListenerState` only (bobcat#670) |
+| `AgentAssignmentsChanged(LeaderNode, Evaluation, Nodes, Assignments, Commands)` | `IWolverineObserver.AssignmentsChanged(AssignmentGrid grid, AgentCommands commands)`, called on every evaluation, changed or not: `grid.AllAgents` (`OriginalNode` / `AssignedNode`, `.AssignedId`), `grid.Nodes`, `commands`. The evaluation number is the observer's own count. `AgentStarted` / `AgentStopped` add each node's actual starts and stops, which the spike doesn't have: that's what shows a missing stop ("evaluation 2: start on node 3" with no "stopped" on node 2) |
+| `NodeStarted`, `NodeStopped`, `LeadershipAssumed` | `IWolverineObserver.NodeStarted` / `NodeStopped`, `AssumedLeadership` / `LostLeadership`, `StaleNodes` |
 | `NodeStorage.LoadAllNodes()` | `runtime.Storage.Nodes.LoadAllNodesAsync(ct)`, so `AgentPlacementReport.Capture` becomes async |
 | `ClusterNetwork.LiveNodes`, `RunningAgents()` | `_hosts`, `host.RunningAgents()` |
 | `ClusterSteps.AgentsSettleAs("1=6, 2=6")` | `WaitUntilAssignmentsChangeTo(w => w.ExpectRunningAgents(…))`. The step gathers a check per host instead of throwing `WritePersistedActualsAsync`'s text |
 | `ClusterSteps.EveryAgentRunsOnce()` | `expectExactlyOneCopyOfEachAsync` + `expectOneCopyWithARowNamingItsNodeAsync`, gathered instead of first-throw |
+
+Two traps in installing the observer:
+
+- **`NodeAgentController` captures `runtime.Observer` in its constructor, at host start.** A decorator
+  set after `StartAsync()` (where `new XUnitEventObserver(host, _output)` is today) is never called.
+  Install it between `Build()` and `StartAsync()`.
+- **Forward every member explicitly, the default-bodied ones too** (`LostLeadership`, `AgentPaused`,
+  `EventsAppended`, …). A decorator that leaves them to the interface's default bodies silently
+  swallows the overrides of the observer it wraps (the persistence observer's).
 
 What else the conversion takes:
 
@@ -148,8 +159,8 @@ What else the conversion takes:
   `Bobcat.Xunit` session hook **and the generator**, as `spikes/leadership-telemetry/Providers` does:
   the inherited specs are bound in the subclass's compilation (#600). The library's `PrivateAssets`
   and `IsTestingPlatformApplication=false` are in `docs/spec-identities.md#base-in-a-library` (#671).
-- `XUnitEventObserver` can stay for test output while the suite moves over: the transcript keeps its
-  format.
+- `XUnitEventObserver` can stay for test output while the suite moves over, but it carries no
+  assignment history (section 1); the transcript's per-agent wording comes from the observer feed.
 - Unrelated to Bobcat, but found while reading: `XUnitLogger.IsEnabled` drops `LogLevel.Error`, which
   is probably the opposite of what a reader of a red leadership test wants.
 
