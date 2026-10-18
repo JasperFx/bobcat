@@ -104,6 +104,8 @@ what matters now is what became of it:
 - **The Wolverine-side items** (attacking CIAzureServiceBus and the broker tier, per-lane
   emulators, the `Flaky`-tag removal, scoping Marten's sibling databases) remain Wolverine's
   backlog and are tracked there, not here.
+- **The second rollout** (Marten, Polecat, Weasel and Fisher, #565) has its own lessons of record
+  in `critter-stack-supervisor-rollout.md`.
 - **Wolverine's local dev note still applies:** the user-level NuGet config maps `Bobcat.*` to a
   folder feed (`~/code/bobcat/artifacts/local-feed`) via packageSourceMapping, exclusively — keep
   it packed at the referenced version, or remove the mapping to restore from nuget.org.
