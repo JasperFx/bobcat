@@ -315,7 +315,9 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
 - **#562 closes via marten#5690**: Marten's DaemonTests on 1.0.0-alpha.1, merged, *is* the review, so
   it no longer waits for rc.1.
 - **#566 ships its design note in 1.0**; building the gate is #729 (Post-1.0).
-- **#693, a dependency-light `Bobcat.Supervisor`, is in 1.0**, while package boundaries can still move.
+- **#693, a dependency-light `Bobcat.Supervisor`: no split for 1.0.** Any split still carries a JasperFx floor
+  (JasperFx.Testing's recovery-hint attributes, #63), so the documented `VersionOverride` workaround is the answer.
+  A `Bobcat.Resilience` package stays a Post-1.0 option if a second build tool hits NU1605.
 - **Ledger** (#730, from #565's lessons 1 and 14): key on the **display name** with a uid fallback for
   duplicates, since xUnit v3 uids hash the assembly path and matched 0 tests across machines.
   **CI artifact by default; committing is opt-in**, and retention drops to about 5 runs.
