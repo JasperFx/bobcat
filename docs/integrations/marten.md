@@ -5,12 +5,16 @@ store through the **JasperFx.Events** abstractions, which Marten, Polecat and Fi
 so the same specification runs against any of them, and nothing in your test project has to name
 Marten at all.
 
-`CritterStackScenario` and `CritterStackSpec`, in `Bobcat.CritterStack` (shipped inside the `Bobcat`
-package), are the store-only Given/When/Then vocabulary: arrange events and read models, act through
+`CritterStackScenario` and `CritterStackSpec`, in `Bobcat.CritterStack`, are the store-only Given/When/Then
+vocabulary. **They ship in `WolverineFx.Bobcat` since Bobcat 1.0.0-rc.2** (bobcat#744): Bobcat itself takes no
+JasperFx dependency any more, so the vocabulary that needs JasperFx.Events moved to the package that already
+had it, under the same namespace. Reference `WolverineFx.Bobcat` beside Bobcat; your `using
+Bobcat.CritterStack;` doesn't change. The vocabulary: arrange events and read models, act through
 your application's own services, and assert what the act appended, what the aggregates and read
-models became, and how the act was refused. **No message bus is involved.** Plenty of applications use
-Marten without Wolverine, and this is the vocabulary for them. WolverineFx.Bobcat's `WolverineSpec`
-derives from it and adds acts through Wolverine's tracked session.
+models became, and how the act was refused. **No message bus is involved** in these steps. Plenty of
+applications use Marten without Wolverine, and this is the vocabulary for them -- though the package brings
+Wolverine with it as a dependency, a cost accepted for now. `WolverineSpec`, in the same package, derives from
+it and adds acts through Wolverine's tracked session.
 
 ## A specification
 
@@ -46,7 +50,7 @@ the same vocabulary as an object, and `CritterStackSpec` only delegates to one.
 **Your application configures its store however it already does.** The spec project boots it -- in an
 xUnit assembly or collection fixture, say -- and Bobcat finds the store in the container. Changing
 `Program.cs` from Marten to Fisher is the only change it takes to run the same specifications against
-the other store; `samples/BankAccountES` runs its specifications on both.
+the other store; the BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2) runs its specifications on both.
 
 ## The store-only act
 
@@ -74,7 +78,7 @@ Two consequences of reading by sequence, worth designing around:
   another test appends to *its* streams, but a stream another test *starts* while the act runs looks
   exactly like one the act started, and still counts. A whole-store step (`ThenEvents`, `ThenNoEvents`,
   `ThenStreamIsStartedWithEvents`, …) that fails while foreign events were seen says "cross-talk
-  suspected" in its message; a passing one says nothing. `samples/BankAccountES` runs serially, with
+  suspected" in its message; a passing one says nothing. The BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2) runs serially, with
   `[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None)]`. A `WolverineScenario` reads its act
   from Wolverine's tracked session, which knows exactly what the act committed.
 - **No store reads an event's tags back**, so a step that judges Dynamic Consistency Boundary tags

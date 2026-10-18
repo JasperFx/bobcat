@@ -82,7 +82,9 @@ while the generator's `BobcatEventModelSource` carries the spec identities a run
 and is invisible to the host. **A push names its SOURCE and replaces only that source; `GET`
 serves the merge** (issue #268) — latest-wins erased one producer every time. So a run that
 attaches to a console PUTs its spec assemblies' generated descriptors under a source named for the
-assembly, under the same never-slow-never-fail invariant as the event pump, and *refuses* when the
+assembly — handed to core as JSON by the generated bridge (`SpecEventModels.Register`, #744), since core
+references no JasperFx and never sees the descriptor; `SpecEventModels.For` runs the assembly's module
+initializer first, because a session hook can open the run before any spec code has executed — under the same never-slow-never-fail invariant as the event pump, and *refuses* when the
 console is serving a differently-named model: `GET` merges only the sources naming the current
 one, and publishing anyway would hide the other half rather than join it. Both halves of the merge
 are keyed on the model name, which is why setting it explicitly is load-bearing rather than

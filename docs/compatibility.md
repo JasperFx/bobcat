@@ -4,37 +4,40 @@ Which Bobcat works with which .NET, test framework, Marten, Polecat, Fisher and 
 
 ## The one rule
 
-Bobcat references **no event store and no Wolverine**. Its only Critter Stack dependency is
-`JasperFx` and `JasperFx.Events`, declared as a minimum version. Marten, Polecat, Fisher and
-Wolverine all depend on those two packages as well, so in a spec project they meet in a single
-dependency graph, and **every package must resolve the same `JasperFx.Events`**. That is what lets
-an `IEvent` from Marten be the `IEvent` Bobcat reads.
+**From 1.0.0-rc.2, Bobcat references no JasperFx, no event store and no Wolverine** (bobcat#744). The
+runtime packages — `Bobcat`, `Bobcat.Generators`, the runner adapters and `Bobcat.Supervisor` — put no
+JasperFx minimum into your restore, so they can't pin your application's Critter Stack, and they can't
+cause the NU1605 / NU1109 downgrades earlier releases did.
 
-In practice:
+The Critter Stack vocabulary (`CritterStackSpec`, `CritterStackScenario`, `EventStores` and the rest of the
+`Bobcat.CritterStack` namespace) ships in **`WolverineFx.Bobcat`** from the Wolverine repository. That
+package carries the JasperFx.Events coupling now, and the usual Critter Stack rule applies to it:
 
 - Take a Marten, Polecat, Fisher or Wolverine release **built against the JasperFx.Events that
-  Bobcat requires or newer** (the table below). NuGet resolves the highest minimum anyone asks for,
-  so an older store next to a newer Bobcat restores fine and can still fail at run time. A store
-  built against an older JasperFx.Events can hit a `TypeLoadException` (`Method '…' in type '…'
-  does not have an implementation`) the first time it opens a session.
+  WolverineFx.Bobcat requires or newer**. NuGet resolves the highest minimum anyone asks for, so an
+  older store next to a newer one restores fine and can still fail at run time. A store built against
+  an older JasperFx.Events can hit a `TypeLoadException` (`Method '…' in type '…' does not have an
+  implementation`) the first time it opens a session.
 - If you see that exception, or `IEvent` and other event types that "should" match don't, move the
-  stores and Wolverine up to releases built on the JasperFx.Events your graph resolves. Don't pin
-  JasperFx below what Bobcat asks for.
+  stores and Wolverine up to releases built on the JasperFx.Events your graph resolves.
+
+The Event Model still works without a reference: when your spec project has JasperFx.Events (through
+WolverineFx.Bobcat or directly), `Bobcat.Generators` emits the Event Model source and a small bridge that
+hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is generated, exactly as before.
 
 ## Bobcat 1.0
 
 | | Requirement | Built and tested against |
 |---|---|---|
 | .NET | `net9.0` or `net10.0` for the libraries; the `bobcat` tool needs the .NET 10 SDK | .NET 10 |
-| `JasperFx`, `JasperFx.Events` | 2.90.2 or later | 2.90.2 |
-| Marten | a release built on JasperFx.Events 2.80 or later | 9.46.0 |
-| Fisher | a release built on JasperFx.Events 2.80 or later | 1.19.0 |
-| Polecat | a release built on JasperFx.Events 2.80 or later | 5.36.0 (not run in CI; it needs SQL Server) |
-| WolverineFx | through `WolverineFx.Bobcat`, below | 6.46.0 |
-| Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 requires **9.0.0-rc.2** (below) | 8.5.2 |
+| `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.90.2 |
+| Marten, Fisher, Polecat | none from Bobcat; through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
+| WolverineFx | through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
+| Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 requires **9.0.0-rc.2** (below) | |
 
-The "built and tested against" column is what this repository's own suites and samples run on,
-against real Postgres (Marten) and SQLite (Fisher).
+The "built and tested against" column is what this repository's own suites run on. The store-backed suites
+and the samples (real Postgres for Marten, SQLite for Fisher) moved to the Wolverine repository with the
+vocabulary in #744.
 
 ### Test frameworks
 
@@ -115,10 +118,14 @@ spec project fails, so run the spec project another way:
 
 If CI runs `dotnet test` over a solution, make sure the spec project isn't part of that run.
 
-### A build tool that references `Bobcat.Supervisor` gets Bobcat's JasperFx minimum {#build-tool-jasperfx}
+### A build tool that references `Bobcat.Supervisor` gets Bobcat's JasperFx minimum (rc.1 and earlier) {#build-tool-jasperfx}
 
-`Bobcat.Supervisor` depends on `Bobcat`, and `Bobcat` requires `JasperFx` and `JasperFx.Events` at
-the minimum in [the table above](#bobcat-1-0). That minimum applies to the build project too, even
+**From 1.0.0-rc.2 this no longer happens**: `Bobcat` and `Bobcat.Supervisor` take no JasperFx dependency
+(bobcat#744, #745), so a build project referencing the supervisor needs no `VersionOverride` for it. Drop the
+overrides below when you move to rc.2.
+
+On 1.0.0-rc.1 and earlier, `Bobcat.Supervisor` depends on `Bobcat`, and `Bobcat` requires `JasperFx` and
+`JasperFx.Events` at the minimum in [the table below](#earlier-bobcat-releases). That minimum applies to the build project too, even
 though the supervisor only uses the retry and isolation types. If the build pins `JasperFx` below
 that minimum, restore fails with **NU1605** (a detected package downgrade). With
 `CentralPackageTransitivePinningEnabled`, `JasperFx.Events` fails as well, with **NU1109**
@@ -198,9 +205,13 @@ in [Bobcat with Wolverine](integrations/wolverine.md#http-without-wolverinefx-bo
 
 Otherwise, use a `WolverineFx.Bobcat` whose minimum Bobcat is the release you are on, or the closest one
 below it. A `WolverineFx.Bobcat` built against an older Bobcat may compile against a newer one but
-is not tested with it. `bobcat import-event-model --specs` writes the version into the spec
-project it generates. Pass `--wolverine-version` to choose a different one (see
-[the `bobcat` tool](/bobcat-tool)).
+is not tested with it.
+
+**From Bobcat 1.0.0-rc.2, WolverineFx.Bobcat also carries `CritterStackSpec` / `CritterStackScenario`** (the
+store-only vocabulary, for Marten, Polecat or Fisher without Wolverine messaging), under the same
+`Bobcat.CritterStack` namespace. A store-only suite therefore references WolverineFx.Bobcat, which brings
+Wolverine with it; that is accepted for now. Writing specifications from an Event Model board
+(`import-event-model --specs`) moved to a Wolverine-side command as well.
 
 ## Earlier Bobcat releases
 
@@ -208,7 +219,8 @@ The JasperFx minimum is the line that matters when you upgrade.
 
 | Bobcat | `JasperFx` / `JasperFx.Events` minimum | Test framework line |
 |---|---|---|
-| 1.0 | 2.90.2 | xUnit v3 4.x, MTP 2.x |
+| 1.0.0-rc.2 and later | none | xUnit v3 4.x, MTP 2.x |
+| 1.0.0-alpha.1 – 1.0.0-rc.1 | 2.90.2 | xUnit v3 4.x, MTP 2.x |
 | 0.60.x | 2.85.0 | xUnit v3 4.x, MTP 2.x |
 | 0.39.0 – 0.50.0 | 2.84.1 | xUnit v3 3.x, MTP 1.9 |
 | 0.37.0 – 0.38.1 | 2.82.0 | xUnit v3 3.x, MTP 1.9 |
@@ -218,3 +230,36 @@ The JasperFx minimum is the line that matters when you upgrade.
 
 Releases before 0.50.0 also carry the retired Gherkin lane. Bobcat 0.50.0 removed it (see
 [Diagnostics](/diagnostics#retired) for the diagnostics that went with it).
+
+## Migrating to 1.0.0-rc.2 {#migrating-to-rc-2}
+
+Bobcat 1.0.0-rc.2 takes no JasperFx or Wolverine dependency (bobcat#744; design:
+`design/jasperfx-decoupling.md`). Seven things change for a suite moving from rc.1:
+
+1. **The Critter Stack vocabulary moved to `WolverineFx.Bobcat`**, under the same namespace:
+   `CritterStackSpec` / `CritterStackScenario`, `EventStores`, `DocumentStores`, `SpecIdentityAudit`,
+   `Preflight.AddContainerChecks` and `services.EventStore()`. Reference `WolverineFx.Bobcat` (a release built
+   against rc.2); the `using Bobcat.CritterStack;` lines stay as they are. `RecordBuilding` stays in Bobcat.
+2. **`JasperFx.Testing.DispositionKind` and the recovery-hint attributes are now `Bobcat.Resilience.*`**:
+   `[ClearsOnRetry]`, `[ClearsOnRecycle]`, `[ClearsInFreshProcess]` and `[NeverRecovers]`, with the same
+   constructors and `Because`. Replace `using JasperFx.Testing;` with `using Bobcat.Resilience;`. The supervisor
+   reads only Bobcat's attributes now.
+3. **`Preflight.Run` returns `PreflightResults`** instead of JasperFx's `EnvironmentCheckResults`. The members
+   are the same (`Successes`, `Failures`, `Succeeded()`, `Assert()`); `Assert()` throws a `PreflightException`
+   listing every failed check.
+4. **`[EventModelTrigger(ActTrigger.Http, …)]` becomes `[EventModelTrigger(ActTrigger.Http, …)]`.** `ActTrigger`
+   is in the `Bobcat` namespace and has `TriggerKind`'s member names; the generated Event Model is unchanged.
+   This matters only to a project that writes its own scenario vocabulary.
+5. **`SpecificationBindings` and Bobcat's `SpecificationManifestAttribute` are deleted** (obsolete since
+   bobcat#528). Read a manifest with JasperFx's `SpecificationManifest.In(assembly)`.
+6. **`bobcat import-event-model --specs` is gone**, with `--specs-out`, `--specs-namespace`, `--app-project`,
+   `--store`, `--bobcat-version` and `--wolverine-version`. The import still writes the stubs and the
+   `EventModelDefinition` and merges into them on a re-import; specifications come from the Wolverine-side
+   command.
+7. **A suite that got JasperFx transitively through Bobcat and uses it directly now needs its own reference** —
+   `JasperFx`, `JasperFx.Events`, or (for the vocabulary) `WolverineFx.Bobcat`. The same goes for
+   `Microsoft.Extensions.Configuration.*` and other packages JasperFx used to bring in; Bobcat itself still
+   brings Spectre.Console and the `Microsoft.Extensions.DependencyInjection` / `Hosting` abstractions.
+
+A build project that referenced `Bobcat.Supervisor` can drop the `JasperFx` / `JasperFx.Events`
+`VersionOverride`s it needed on rc.1 ([above](#build-tool-jasperfx)).

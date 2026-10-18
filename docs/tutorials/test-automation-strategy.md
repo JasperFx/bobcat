@@ -11,7 +11,7 @@ updated where Bobcat now does what the posts describe doing by hand:
 - [Succeeding with Automated Integration Tests](https://jeremydmiller.com/2015/06/25/succeeding_with_integration_testing/) (2015)
 
 The running example is
-[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/tree/main/samples/BankAccountES), a
+[the BankAccountES sample](https://github.com/JasperFx/bobcat/tree/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2), a
 Wolverine bank account application on Marten or Fisher, and its rule that **a withdrawal may not
 overdraw the account**.
 
@@ -59,8 +59,9 @@ which is ordinary C# methods:
 - **Tables and partial objects** for data-heavy rules: a spec names only the members it is about
   ([Data Intensive Specifications](data-intensive-specifications.md),
   [Expected Objects](../expected-objects.md)).
-- **A board writes your first specs.** `bobcat import-event-model --specs` turns each example on an
-  eventmodelers.ai board into a spec bound to its slice ([`import-event-model`](../bobcat-tool.md#import-event-model)).
+- **A board writes your first specs.** A Wolverine-side command turns each example on an eventmodelers.ai
+  board into a spec bound to its slice (it was `bobcat import-event-model --specs` before Bobcat 1.0.0-rc.2;
+  `import-event-model` still writes the stubs and the definition, see [`import-event-model`](../bobcat-tool.md#import-event-model)).
 
 Keep steps declarative: `WhenPosted(new WithdrawFunds(accountId, 200), …)` and not ten lines building
 an HTTP request. The mechanics belong in a helper the next test reuses.
@@ -153,7 +154,27 @@ In Bobcat terms, pick the lowest of these that proves the behaviour:
 a pure function of the command and the loaded account. That makes the finest grain a plain unit test,
 with no host and no database:
 
-<<< ../../samples/BankAccountES/Tests/OverdraftRule.cs#overdraft-rule{cs}
+```cs
+[Fact]
+public void a_withdrawal_larger_than_the_balance_is_refused()
+{
+    var account = new Account { Balance = 100m };
+
+    var problems = WithdrawFundsEndpoint.Validate(new WithdrawFunds(Guid.NewGuid(), 200m), account);
+
+    Assert.Equal(400, problems.Status);
+}
+
+[Fact]
+public void a_withdrawal_of_the_whole_balance_is_allowed()
+{
+    var account = new Account { Balance = 100m };
+
+    var problems = WithdrawFundsEndpoint.Validate(new WithdrawFunds(Guid.NewGuid(), 100m), account);
+
+    Assert.Same(WolverineContinue.NoProblems, problems);
+}
+```
 
 The boundary cases (exactly the balance, a penny over) belong here, where each one costs
 microseconds.
@@ -162,16 +183,31 @@ microseconds.
 reached. In this application that's HTTP, because Wolverine.HTTP runs `Validate` before the endpoint.
 One spec proves the request is refused, nothing is appended, and the balance is unchanged:
 
-<<< ../../samples/BankAccountES/Tests/BankAccountEventSourcing.cs#overdraft-http{cs}
+```cs
+[BobcatSpec(typeof(WithdrawFunds), Domain = "Banking")]
+public async Task withdrawing_more_than_the_balance_leaves_the_account_untouched()
+{
+    var accountId = Guid.NewGuid();
+    await GivenEvents<Account>(accountId,
+        new AccountOpened(accountId, Guid.NewGuid(), "USD"),
+        new FundsDeposited(accountId, 100, 100));
+
+    await WhenPosted(new WithdrawFunds(accountId, 200), "/api/accounts/{accountId}/withdrawals", accountId);
+
+    ThenTheResponseStatusIs(400);
+    ThenNoEvents();
+    await ThenAggregate<Account>(accountId, Specify<Account>().With(x => x.Balance, 100m));
+}
+```
 
 There's one HTTP spec for the refusal and one for the
-[happy path](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES/Tests/BankAccountEventSourcing.cs),
+[happy path](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES/Tests/BankAccountEventSourcing.cs),
 not one per boundary case. The spec runs the whole pipeline in process through Alba, against Marten
 or Fisher, without a browser.
 
 If the same rule lived in a message handler, the middle layer would carry it: `WhenReceived(new
 WithdrawFunds(…))` followed by `ThenRefusedWith(…)` and `ThenNoEvents()`, with no HTTP at all.
-[`FreezeAccountSpecs`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES/Tests/FreezeAccountSpecs.cs)
+[`FreezeAccountSpecs`](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES/Tests/FreezeAccountSpecs.cs)
 is that layer in the same sample. A store-only `CritterStackSpec` is the layer below it, for
 applications with no Wolverine ([A specification](../integrations/marten.md#a-specification)).
 

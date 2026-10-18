@@ -43,24 +43,15 @@ is still reported as the bug it is:
 public class OrderSpecs;
 ```
 
-- **The attributes and `DispositionKind` live in JasperFx, not Bobcat** — namespace
-  `JasperFx.Testing`, from **JasperFx 2.37.0** (issue #63). Any suite already referencing JasperFx,
-  directly or through Marten/Wolverine/Polecat, can annotate itself **without referencing Bobcat**.
-  That mattered because `docs/parallel-ready-suites.md` Step 0 sells "a test project needs no
-  reference to Bobcat", and shipping the attributes as Bobcat types would quietly have spent it.
-  One enum rather than a Bobcat copy mapped at a seam: two enums meaning the same thing is how the
-  vocabulary drifts, and the drift would stay invisible until a hint silently stopped matching.
-  Everything that *acts* on a hint stays here — `RecoveryHint`, `RecoveryHintSet.Best`,
-  `HintedFailurePolicy`, the scope rule.
-  - Consequence worth knowing: **a project using `DispositionKind` must reference `JasperFx`
-    directly.** The console project did not — before it moved to Stoat — and picked up 2.36.1
-    transitively from `WolverineFx.Http`
-    — Central Package Management only pins what a project actually references, so the central
-    2.37.0 did not apply and it compiled against a JasperFx nobody chose.
-  - `ClearsOnRecycle` parses its resource list independently of `ResilienceTags.ParseResources`,
-    because JasperFx must not reference Bobcat. `ResourceParsingAgreementTests` pins the two
-    together; without it they can diverge silently and a trait and a hint naming the same brokers
-    would resolve to different names.
+- **The attributes and `DispositionKind` are Bobcat's, in `Bobcat.Resilience` (#744).** From #63 they lived
+  in JasperFx (`JasperFx.Testing`) so a suite could annotate itself without referencing Bobcat; nobody did
+  (checked across wolverine, marten, polecat, fisher, weasel and CritterWatch), and the price was a JasperFx floor
+  in every consumer's restore. Same members, same `Because`; the wire carries a disposition by name, so it did
+  not change. JasperFx's copies are to be marked `[Obsolete]` upstream. Everything that *acts* on a hint stays
+  here as before — `RecoveryHint`, `RecoveryHintSet.Best`, `HintedFailurePolicy`, the scope rule.
+  - `ClearsOnRecycle` reads its resource list through `ResilienceTags.ParseResources`, the same parser as the
+    `RecycleOnRetry` trait, so a trait and a hint naming the same brokers always resolve alike (the
+    agreement test that pinned two parsers together went with the second parser).
 - **`HintedFailurePolicy` sits between the user's policies and `DefaultFailurePolicy`** — explicit
   code still wins, and any failure no hint describes falls through to the trait-driven default
   unchanged. A run with no hints behaves exactly as it did before.
@@ -338,24 +329,16 @@ proving a process was launched. There is a control test showing the same test fa
 It is an ordinary projected xUnit v3 suite (serial, declaration-ordered, traits as plain
 `[Trait]`s).
 
-#### Environment checks reuse JasperFx — there is no Bobcat `IEnvironmentCheck`
+#### Environment checks — there is no Bobcat `IEnvironmentCheck`
 
-**Do not define one.** Issue #41's text sketched a new `IEnvironmentCheck` interface; that was
-written before checking, and JasperFx already owns the concept. Note also that the *old Oakton*
-`IEnvironmentCheck` interface no longer exists in JasperFx 2.x — what exists is:
-
-- `JasperFx.Environment.EnvironmentCheckResults` — `RegisterSuccess` / `RegisterFailure` /
-  `Succeeded()` / `Assert()`
-- `JasperFx.Environment.EnvironmentChecker.ExecuteAllEnvironmentChecks(IServiceProvider, ct)`,
-  which collects checks from `ISystemPart.AssertEnvironmentAsync`,
-  `JasperFx.Resources.IStatefulResource.Check`, and Microsoft's `IHealthCheck`
-- `EnvironmentCheckException`, `LambdaCheck`
-
-So `Bobcat.Runtime.Preflight` is a **thin collector that returns `EnvironmentCheckResults`**, and
-`ITestResource.Check(CancellationToken)` is a default interface method deliberately mirroring
-`IStatefulResource.Check` — same verb, same "throw to fail" contract — so one resource satisfies
-both without adapting. `Preflight.AddContainerChecks(...)` delegates straight to
-`EnvironmentChecker`. A Critter Stack user must never have to write their checks twice.
+**Do not define one.** A check is a delegate that throws to fail. `Bobcat.Runtime.Preflight` is a thin
+collector that returns **`PreflightResults`** (#744) — `Successes`, `Failures`, `Succeeded()`, `Assert()`
+throwing a `PreflightException` that names every failure — shaped like the JasperFx
+`EnvironmentCheckResults` it replaced, so moving across is a type rename. `ITestResource.Check(CancellationToken)`
+is a default interface method deliberately mirroring JasperFx's `IStatefulResource.Check` *by shape* — same
+verb, same "throw to fail" contract — so one resource satisfies both without adapting. The JasperFx container
+checks (`AddContainerChecks`, `EnvironmentChecker`) moved to WolverineFx.Bobcat with the rest of the Critter
+Stack coupling.
 
 #### Decided against: an `ITestHostLauncher`-style abstraction
 

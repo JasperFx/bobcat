@@ -277,10 +277,10 @@ native runner and the supervisor cannot drive it.
 
 ### Recovery hints ride along in the spec manifest
 
-A suite can say which failures recover and how, with `JasperFx.Testing`'s `[ClearsOnRetry]`,
+A suite can say which failures recover and how, with `Bobcat.Resilience`'s `[ClearsOnRetry]`,
 `[ClearsOnRecycle]`, `[ClearsInFreshProcess]` and `[NeverRecovers]` -- on the assembly, a test class
-or a single test method. The attributes live in JasperFx, not Bobcat, so anything already referencing
-JasperFx (directly, or through Marten, Wolverine or Polecat) can write them down.
+or a single test method. (Before 1.0.0-rc.2 they lived in JasperFx's `JasperFx.Testing`; see
+[Migrating to rc.2](/compatibility#migrating-to-rc-2).)
 
 The supervisor still never loads your assembly, so it can't read them itself. The suite reads them,
 in its own process, and writes them into its spec manifest -- the file a Bobcat-projected suite
@@ -706,7 +706,8 @@ supervisor.Preflight.Add("Postgres is reachable", async token =>
 });
 
 // Everything a container knows about: ISystemPart.AssertEnvironmentAsync,
-// IStatefulResource.Check and registered IHealthChecks, through JasperFx's EnvironmentChecker
+// IStatefulResource.Check and registered IHealthChecks, through JasperFx's EnvironmentChecker.
+// An extension method from WolverineFx.Bobcat since 1.0.0-rc.2 (Bobcat itself references no JasperFx).
 supervisor.Preflight.AddContainerChecks("the application", host.Services);
 ```
 
