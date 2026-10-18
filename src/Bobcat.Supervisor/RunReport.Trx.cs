@@ -287,7 +287,7 @@ public static partial class RunReport
 
         if (test.IsCollapsed)
         {
-            lines.Add($"COLLAPSED: {collapsed(test)}");
+            lines.Add($"COLLAPSED: {collapsed(test, everyRow: false)}");
         }
 
         return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);

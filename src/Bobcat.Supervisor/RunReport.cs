@@ -27,6 +27,11 @@ public static partial class RunReport
             report.AppendLine($"RUN ABORTED: {results.AbortReason}").AppendLine();
         }
 
+        if (results.CollapsedFailure is { } collapsedFailure)
+        {
+            report.AppendLine($"RUN FAILED: {collapsedFailure}").AppendLine();
+        }
+
         report.AppendLine(results.Summarize());
 
         // A plan that silently fell back to counting tests reads exactly like a balanced one
@@ -81,7 +86,7 @@ public static partial class RunReport
         // A collapsed theory is judged by its worst row, but the run still saw fewer tests than a
         // direct run would, and the fix is in the suite — so it is named even when it passed.
         section(report, "Collapsed theories (several rows reported under one test id; make the theory data serializable)",
-            results.Collapsed, collapsed);
+            results.Collapsed, test => collapsed(test, everyRow: results.CollapsedFailure is not null));
 
         section(report, "Quarantine candidates (needed more than one attempt)", results.Quarantine,
             test => $"{test.DisplayName} — {test.AttemptCount} attempts, final: {test.Outcome}");
@@ -328,13 +333,14 @@ public static partial class RunReport
         foreach (var test in tests) report.AppendLine($"  • {describe(test)}");
     }
 
-    private static string collapsed(TestReport test)
+    private static string collapsed(TestReport test, bool everyRow)
     {
         var rows = test.Attempts
             .Select(a => a.Outcome.CollapsedDisplayNames)
             .LastOrDefault(names => names is { Count: > 1 })!;
 
-        const int shown = 5;
+        // A run failing on its collapses names every row, because each one is something to fix.
+        var shown = everyRow ? rows.Count : 5;
         var named = string.Join("; ", rows.Take(shown));
         var more = rows.Count > shown ? $"; …and {rows.Count - shown} more" : "";
 
@@ -427,6 +433,8 @@ public static partial class RunReport
         {
             ["exitCode"] = results.ExitCode,
             ["abortReason"] = results.AbortReason,
+            ["failOnCollapsed"] = results.FailOnCollapsed,
+            ["collapsedFailure"] = results.CollapsedFailure,
             ["partial"] = results.IsPartial,
             ["summary"] = new JsonObject
             {

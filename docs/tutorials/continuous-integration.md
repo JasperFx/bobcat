@@ -153,7 +153,11 @@ var supervisor = new Supervisor(factory)
 
     // A run with no test left to run aborts (exit code 2) instead of passing:
     // a renamed namespace or a stale filter must not read as a green job
-    FailWhenNoTests = true
+    FailWhenNoTests = true,
+
+    // A theory whose rows collapsed under one test id fails the run (exit code 1) even when
+    // every row passed: make its data serializable, or pass a row key instead
+    FailOnCollapsed = true
 };
 
 var results = await supervisor.Run();
@@ -177,6 +181,8 @@ GitHubAnnotations.Write(results, "MyApp.Tests (net10.0)");
   one annotation. `GitHubAnnotations.For(results, project)` returns the lines without writing them.
 - `FailWhenNoTests` is off by default, because an empty run is sometimes intended. Its abort reason
   says how many tests were discovered and how many the selection kept.
+- `FailOnCollapsed` is off by default too. Its `RUN FAILED` line names each collapsed theory and the
+  fix, and lists every row; see [theory data the framework cannot serialize](../parallel-ready-suites.md#theory-data-the-framework-cannot-serialize).
 
 ## 7. Segment a heavy pipeline
 

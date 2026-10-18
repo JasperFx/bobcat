@@ -138,6 +138,12 @@ public sealed class GitHubSummary
             lines.Add("");
         }
 
+        if (results.CollapsedFailure is { } collapsedFailure)
+        {
+            lines.Add($"> **Failed on collapsed theories:** {inline(collapsedFailure)}");
+            lines.Add("");
+        }
+
         list(lines, "Failed", results.Failed, test => $"{code(test.DisplayName)} — {inline(GitHubAnnotations.ReasonFor(test))}");
         list(lines, "Indeterminate (result never established)", results.Indeterminate,
             test => $"{code(test.DisplayName)} — {inline(test.Final.Outcome.ErrorMessage ?? "no result reported")}");
@@ -238,6 +244,11 @@ public static class GitHubAnnotations
         if (results.AbortReason is not null)
         {
             lines.Add(command("error", $"{project}: run aborted", results.AbortReason));
+        }
+
+        if (results.CollapsedFailure is { } collapsedFailure)
+        {
+            lines.Add(command("error", $"{project}: {results.Collapsed.Count} collapsed theory(ies)", collapsedFailure));
         }
 
         each(lines, "error", project, "failed", results.Failed, ReasonFor);

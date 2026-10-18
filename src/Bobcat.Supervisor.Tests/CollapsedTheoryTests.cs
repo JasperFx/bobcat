@@ -66,7 +66,7 @@ public class CollapsedTheoryTests
             .State.ShouldBe(WorkerTestState.Passed);
     }
 
-    private static Task<SupervisorResults> collapsedRun(WorkerTestState state) => new Supervisor(
+    private static Task<SupervisorResults> collapsedRun(WorkerTestState state, bool failOnCollapsed = false) => new Supervisor(
         new FakeWorkerFactory
         {
             Tests = [FakeWorkerFactory.Test("reused_command_binding"), FakeWorkerFactory.Test("plain")],
@@ -74,7 +74,7 @@ public class CollapsedTheoryTests
             CollapsedRows = uid => uid == "plain"
                 ? null
                 : ["reused_command_binding(value: 1)", "reused_command_binding(value: 2)"]
-        }).Run();
+        }) { FailOnCollapsed = failOnCollapsed }.Run();
 
     [Fact]
     public async Task the_report_names_a_collapsed_theory_even_when_it_passed()
@@ -111,5 +111,68 @@ public class CollapsedTheoryTests
             .Single(t => t.GetProperty("uid").GetString() == "plain")
             .GetProperty("attemptDetail")[0].GetProperty("collapsedRows").ValueKind
             .ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task a_green_collapse_passes_by_default()
+    {
+        var results = await collapsedRun(WorkerTestState.Passed);
+
+        results.ExitCode.ShouldBe(0);
+        results.CollapsedFailure.ShouldBeNull();
+        RunReport.ToText(results).ShouldNotContain("RUN FAILED");
+    }
+
+    [Fact]
+    public async Task fail_on_collapsed_fails_a_run_whose_every_row_passed()
+    {
+        // bobcat#752: otherwise a suite can carry collapsed theories forever.
+        var results = await collapsedRun(WorkerTestState.Passed, failOnCollapsed: true);
+
+        results.Failed.ShouldBeEmpty();
+        results.ExitCode.ShouldBe(1);
+        results.CollapsedFailure.ShouldNotBeNull();
+        results.CollapsedFailure.ShouldContain("reused_command_binding");
+        results.CollapsedFailure.ShouldContain("pass a row key and look the value up inside the test");
+
+        var text = RunReport.ToText(results);
+        text.ShouldContain("RUN FAILED: 1 collapsed theory(ies)");
+        text.ShouldContain("reused_command_binding(value: 1); reused_command_binding(value: 2)");
+
+        var json = JsonDocument.Parse(RunReport.ToJson(results)).RootElement;
+        json.GetProperty("exitCode").GetInt32().ShouldBe(1);
+        json.GetProperty("failOnCollapsed").GetBoolean().ShouldBeTrue();
+        json.GetProperty("collapsedFailure").GetString().ShouldBe(results.CollapsedFailure);
+
+        GitHubAnnotations.For(results, "Specs").ShouldContain(line => line.StartsWith("::error") && line.Contains("collapsed theory"));
+    }
+
+    [Fact]
+    public async Task fail_on_collapsed_names_every_row_not_the_first_five()
+    {
+        var rows = Enumerable.Range(1, 7).Select(i => $"wide(value: {i})").ToList();
+        var results = await new Supervisor(new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("wide")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            CollapsedRows = _ => rows
+        }) { FailOnCollapsed = true }.Run();
+
+        var text = RunReport.ToText(results);
+        text.ShouldContain("wide(value: 7)");
+        text.ShouldNotContain("…and");
+    }
+
+    [Fact]
+    public async Task fail_on_collapsed_does_nothing_without_a_collapse()
+    {
+        var results = await new Supervisor(new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("plain")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        }) { FailOnCollapsed = true }.Run();
+
+        results.ExitCode.ShouldBe(0);
+        results.CollapsedFailure.ShouldBeNull();
     }
 }

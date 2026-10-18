@@ -475,7 +475,7 @@ Two things it costs, both worth knowing rather than discovering:
   orphans on one machine. Not Bobcat's bug, but Bobcat's process multiplication is what makes it
   visible.
 
-## Step 3 -- the three bugs this exposes
+## Step 3 -- the bugs this exposes
 
 All were found in real suites, all silent, and all are the reason a first parallel run goes red.
 
@@ -573,6 +573,35 @@ Wolverine's `MartenTests`: the symptom is *"the worker finished without reportin
 this test"* -- reported as indeterminate, and a retry appears to "fix" it whenever the retry
 process happens to compute the same environment discovery did, which makes it masquerade as an
 ordinary flake. Test identity must be a function of the code alone, never of the environment.
+
+### Theory data the framework cannot serialize
+
+A theory whose rows xUnit can't serialize (a `MemberData` row holding a delegate, a type with no
+serializer, an object built in the data method) is discovered as **one** test, and every row then
+reports its verdict under that one test id. The supervisor folds those verdicts worst-first, so a
+failing row still fails the run, and lists the theory and its rows under *Collapsed theories* in the
+report (`SupervisorResults.Collapsed`). But the rows can't be selected, retried or timed one by one,
+and a direct run sees more tests than the supervised one.
+
+```csharp
+// WRONG: the row is a lambda, so the theory collapses into one test
+public static IEnumerable<object[]> Cases => [[(Func<int>)(() => 1)], [(Func<int>)(() => 2)]];
+
+// RIGHT: pass a row key and look the value up inside the test
+[Theory, InlineData("one"), InlineData("two")]
+public void each_case(string key) => run(Cases[key]);
+```
+
+A collapse whose every row passes leaves the exit code at 0, so it is easy to carry forever. Set
+`FailOnCollapsed` (off by default) and such a run fails with exit code 1 and a `RUN FAILED` line
+naming each collapsed theory and the fix, with every row listed below it:
+
+```csharp
+var supervisor = new Supervisor(factory) { FailOnCollapsed = true };
+```
+
+The JSON report carries it as `failOnCollapsed` and `collapsedFailure`, and `GitHubAnnotations`
+writes it as an `::error`.
 
 ## Step 4 -- containers
 
