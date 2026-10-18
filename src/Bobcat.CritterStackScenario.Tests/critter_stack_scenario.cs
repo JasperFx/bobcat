@@ -411,6 +411,75 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         threw.GatheredFailures().ShouldNotBeNull().ShouldContain("cleanly refused, but it threw");
     }
 
+    [Fact]
+    public async Task the_act_succeeding_is_a_step_of_its_own()
+    {
+        // bobcat#683: a spec with no event step says nothing about whether the act worked unless it says so
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ivy"));
+
+        var noAct = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenTheActSucceeded();
+            return Task.CompletedTask;
+        });
+        noAct.GatheredFailures().ShouldNotBeNull().ShouldContain("no act has run");
+
+        var succeeded = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("nothing much happens", _ => Task.CompletedTask);
+            scenario.ThenTheActSucceeded();
+        });
+        succeeded.GatheredFailures().ShouldBeNull();
+        succeeded.Steps[1].Text.ShouldBe("the act succeeds");
+
+        var threw = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("the debit throws", _ => throw new WalletFrozen(id));
+            scenario.ThenTheActSucceeded();
+        });
+        threw.GatheredFailures().ShouldNotBeNull().ShouldContain("The act failed: WalletFrozen");
+        threw.Step("the act succeeds").Status.ShouldBe(ResultStatus.failed);
+    }
+
+    [Fact]
+    public async Task caused_events_are_read_from_everything_the_act_appended()
+    {
+        // bobcat#683: ThenCaused reads AllNewEvents, where a tracked scenario puts its cascades' events. This one
+        // splits a store-only act's outcome the way a tracked one does: nothing of its own, all of it cascaded
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CascadingScenario(store.Host);
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Jo"));
+        await scenario.WhenActing("a cascade credits the wallet", appending(id, new WalletCredited(id, 5)));
+        scenario.AsCascaded();
+
+        var recording = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenNoEvents();
+            scenario.ThenCaused<WalletCredited>();
+            scenario.ThenCaused(Specifications.Specify<WalletCredited>().With(x => x.Amount, 5m));
+            return Task.CompletedTask;
+        });
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps[1].Text.ShouldBe("WalletCredited is caused");
+
+        var own = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenEmitted<WalletCredited>();
+            return Task.CompletedTask;
+        });
+        own.GatheredFailures().ShouldNotBeNull();
+
+        var missing = await Recordings.RecordAsync(() =>
+        {
+            scenario.ThenCaused<WalletDebited>();
+            return Task.CompletedTask;
+        });
+        missing.GatheredFailures().ShouldNotBeNull().ShouldContain("WalletDebited");
+    }
+
     // ---- refusals ----------------------------------------------------------------------------
 
     [Fact]
@@ -1023,6 +1092,11 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
 
     private sealed class OwnSpecificationFailure(string message) : Exception(message);
 
+    private sealed class CascadingScenario(Microsoft.Extensions.Hosting.IHost host) : CritterStackScenario(host)
+    {
+        public void AsCascaded() => LastAct = LastAct with { NewEvents = [] };
+    }
+
     private sealed class OwnExceptionScenario(Microsoft.Extensions.Hosting.IHost host) : CritterStackScenario(host)
     {
         protected override Exception failureOf(string message) => new OwnSpecificationFailure(message);
@@ -1384,6 +1458,7 @@ public abstract class reading_a_document_the_system_named<THost>(THost store) wh
         several!.Message.ShouldContain("Expected exactly one Customer document, but there are 2");
         recording.Step("there is exactly one Customer").Status.ShouldBe(ResultStatus.failed);
     }
+
 }
 
 public class reading_a_document_the_system_named_on_marten(MartenStoreHost store)
@@ -1391,3 +1466,48 @@ public class reading_a_document_the_system_named_on_marten(MartenStoreHost store
 
 public class reading_a_document_the_system_named_on_fisher(FisherStoreHost store)
     : reading_a_document_the_system_named<FisherStoreHost>(store), IClassFixture<FisherStoreHost>;
+
+/// <summary>
+/// bobcat#683: several documents under ids the act chose, read with <c>TheDocuments</c> and judged with
+/// <c>ThenDocuments</c>. A class of its own, so its host's store holds only what this test puts there.
+/// </summary>
+public abstract class reading_several_documents_the_system_named<THost>(THost store) where THost : StoreHost
+{
+    private static Func<IServiceProvider, Task> storing(params Customer[] customers)
+        => services => DocumentStores.StoreAllAsync(services.EventStore(), typeof(Customer), customers);
+
+    [Fact]
+    public async Task several_documents_the_system_named_are_read_and_judged_as_a_set()
+    {
+        // More than one document under ids the act chose
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new CritterStackScenario(store.Host);
+        var marker = Guid.NewGuid().ToString("N");
+
+        await scenario.WhenActing("two customers sign up", storing(
+            new Customer { Id = Guid.NewGuid(), Name = "Lu " + marker },
+            new Customer { Id = Guid.NewGuid(), Name = "Mo " + marker }));
+
+        (await scenario.TheDocuments<Customer>()).Select(x => x.Name).OrderBy(x => x).ShouldBe(["Lu " + marker, "Mo " + marker]);
+
+        var expected = new object[]
+        {
+            Specifications.Specify<Customer>().With(c => c.Name, "Mo " + marker),
+            Specifications.Specify<Customer>().With(c => c.Name, "Lu " + marker)
+        };
+
+        var recording = await Recordings.RecordAsync(() => scenario.ThenDocuments<Customer>(expected));
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Steps.ShouldContain(x => x.Text.StartsWith("the Customer documents are "));
+
+        var wrong = await Recordings.RecordAsync(() => scenario.ThenDocuments<Customer>(
+            Specifications.Specify<Customer>().With(c => c.Name, "Nobody " + marker)));
+        wrong.GatheredFailures().ShouldNotBeNull().ShouldContain("Nobody " + marker);
+    }
+}
+
+public class reading_several_documents_the_system_named_on_marten(MartenStoreHost store)
+    : reading_several_documents_the_system_named<MartenStoreHost>(store), IClassFixture<MartenStoreHost>;
+
+public class reading_several_documents_the_system_named_on_fisher(FisherStoreHost store)
+    : reading_several_documents_the_system_named<FisherStoreHost>(store), IClassFixture<FisherStoreHost>;

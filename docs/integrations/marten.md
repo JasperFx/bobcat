@@ -90,9 +90,9 @@ Wolverine or HTTP act, a message step, a boundary step or `ThenEventuallyCaused`
 |---|---|
 | [Arrange](wolverine.md#arrange) | `GivenEvents`, `GivenContext`, `GivenNoEventsFor`, `GivenEventsOn`, `GivenReadModel`, the clock steps |
 | [Act](wolverine.md#act) | `WhenActing`, `WhenActingOn` |
-| [Events](wolverine.md#assert-events) | `ThenEvents`, `ThenEventsInAnyOrder`, `ThenEmitted`, `ThenNotEmitted`, `ThenNoEvents`, `ThenEventsOn`, `ThenStreamIsStarted`, `ThenStreamIsStartedWithEvents` |
-| [Aggregates, documents and read models](wolverine.md#assert-aggregates-documents-and-read-models) | `ThenAggregate`, `ThenDocument`, `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`, `ThenSingleDocument`, `Verify`, `ThenMatches` |
-| [Refusals](wolverine.md#assert-refusals) | `ThenValidationFails`, `ThenRefusedWith`, `ThenCommandRefused` |
+| [Events](wolverine.md#assert-events) | `ThenEvents`, `ThenEventsInAnyOrder`, `ThenEmitted`, `ThenNotEmitted`, `ThenNoEvents`, `ThenCaused`, `ThenEventsOn`, `ThenStreamIsStarted`, `ThenStreamIsStartedWithEvents` |
+| [Aggregates, documents and read models](wolverine.md#assert-aggregates-documents-and-read-models) | `ThenAggregate`, `ThenDocument`, `ThenReadModel`, `ThenNoReadModel`, `ThenSingleReadModel`, `ThenSingleDocument`, `ThenDocuments`, `TheDocuments`, `Verify`, `ThenMatches` |
+| [Refusals](wolverine.md#assert-refusals) | `ThenValidationFails`, `ThenRefusedWith`, `ThenCommandRefused`, `ThenTheActSucceeded` |
 | [DCB models](wolverine.md#dynamic-consistency-boundaries) | `ThenEventsOn(EventTagQuery, …)`, `TheDcbModel`, `ThenDcbModel` |
 
 Every step that reads a projection waits for the async daemons first, up to `ProjectionTimeout` --

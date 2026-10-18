@@ -140,6 +140,7 @@ open -- it falls back to the store's high-water read, as the store-only act does
 | `ThenEmitted(params events)` / `ThenEmitted<T>()` | these among whatever else it appended; nothing else is judged, or shown |
 | `ThenNotEmitted<T>()` / `ThenNotEmitted(params events)` | none of these. A partial object forbids only the events that agree on the members it names |
 | `ThenNoEvents()` | the act appended nothing -- the refusal half of a guard |
+| `ThenCaused(params events)` / `ThenCaused<T>()` | these among everything appended while the act ran, **its cascades included** (`LastAct.AllNewEvents`): an event a cascaded handler on a durable local queue appended. Needs no correlation ids, unlike `ThenEventuallyCaused`; for a store-only act it reads the same events as `ThenEmitted`. Stamps no Event Model role, since a cascaded event belongs to its own handler's slice |
 | `ThenEventsOn<TAggregate>(id, params events)` / `ThenNoEventsOn<TAggregate>(id)` | exactly these on that stream, for a command that decides against several. Only what the act added counts |
 | `ThenStreamIsStarted<TAggregate>(id)` | the act started that stream |
 | `ThenStreamIsStartedWithEvents<TAggregate>(params events)` | one paragraph: a stream was started, with an id the handler assigned, and these events are on it |
@@ -221,6 +222,8 @@ your own waits outside the vocabulary get the same diagnosis from `EventStores.D
 | `ThenNoReadModel<T>(id)` / `ThenNoReadModel<T>()` | no such read model -- with that id, or at all |
 | `ThenSingleReadModel<T>(expected?)` | the `T` of the stream this scenario is about -- the one the act started, else the one the givens arranged. Single-stream projections only. With no stream, the one `T` in the store, as below |
 | `ThenSingleDocument<T>(expected?)` | the `T` document stored under that stream's id. With no stream (a document app, where the act's document gets its id from the endpoint or a cascaded handler), **the one `T` in the store**: none or several is a failure naming the count |
+| `ThenDocuments<T>(params expected)` | **every** `T` document in the store is exactly these, in any order, judged as a set (MISSING and EXTRA rows named); none given means there are none. For several documents under ids the act chose. On a shared store, give them a value only this spec uses |
+| `TheDocuments<T>()` | every `T` document in the store, once projections have caught up. A query, not a step |
 | `ThenProjectionsAreCaughtUp(Type readModel)` | the projections that build it have caught up |
 | `AfterAsyncDaemonsCatchUpAsync(tenantId?)` | wait for every async daemon, on every database or one tenant's: the database the store's `FindDatabaseForTenantAsync` finds for it, else every database. Not a step |
 | `ForTenant(tenantId)` | a view whose Givens append, and whose Thens read, as one tenant of a multi-tenanted store, on the database that tenant lives in ([details](marten.md#one-tenant-of-a-multi-tenanted-store)). Send the act for the tenant yourself, with `DeliveryOptions { TenantId = … }` |
@@ -238,6 +241,7 @@ object back for further checks.
 | `ThenRefusedWith(reason)` | the same check, worded for any refusal |
 | `ThenRefusedWith(reason, params mentioning)` | and the refusal names each of these values |
 | `ThenRefusedWith<TException>(expected?)` | the act threw a `TException`, matching a partial object when one is given. Hands it back |
+| `ThenTheActSucceeded()` | the act ran, threw nothing and was not refused. Write it when no other Then step would notice a failed act -- a spec whose only claims are about what is *absent* |
 | `ThenCommandRefused()` | a *clean* refusal: the act ran, nothing threw, and it appended nothing -- a handler that stops without throwing, or an HTTP 4xx |
 | `ThenRefusedWithProblem(expected?)` (`WolverineHttpSpec`) | the last HTTP act answered with a ProblemDetails body matching `Specify<ProblemDetails>()…` |
 | `ThenResponseIs(status)` (`WolverineHttpSpec`) | the last HTTP act answered `status` |
