@@ -72,7 +72,8 @@ public static class PropertyCells
                     RowIndex = 0,
                     Note = check?.Run(mine[0].Actual)
                 }
-                : new CellResult(value.Path, ResultStatus.success, shown)
+                // A held check reads as the claim it made, as a held value does (bobcat#678)
+                : new CellResult(value.Path, ResultStatus.success, check?.Description ?? shown)
                 {
                     Expected = check?.Description ?? shown, Actual = shown, RowIndex = 0
                 });
