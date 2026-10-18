@@ -4,6 +4,7 @@ using Bobcat.Monitoring;
 using Bobcat.Engine.Verification;
 using JasperFx.Events.Tags;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Shouldly;
 
 namespace Bobcat.CritterStack.ScenarioTests;
@@ -452,6 +453,68 @@ public abstract class critter_stack_scenario<THost>(THost store) where THost : S
         });
         threw.GatheredFailures().ShouldNotBeNull().ShouldContain("The act failed: WalletFrozen");
         threw.Step("the act succeeds").Status.ShouldBe(ResultStatus.failed);
+    }
+
+    [Fact]
+    public async Task an_act_that_times_out_fails_its_own_when_step()
+    {
+        // bobcat#673: a timed-out act rendered a green When and sent the reader to the Then steps
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ivy"));
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("the wallet is credited",
+                _ => throw new AggregateException(new TimeoutException("This TrackedSession timed out before all activity completed.")));
+            scenario.ThenEvents(typeof(WalletCredited));
+        });
+
+        var when = recording.Step("the wallet is credited");
+        when.Status.ShouldBe(ResultStatus.error);
+        var failure = when.Failure.ShouldBeOfType<ActTimedOutException>();
+        failure.Message.ShouldBe("The act timed out: This TrackedSession timed out before all activity completed.");
+        failure.InnerException.ShouldBeOfType<TimeoutException>();
+        recording.GatheredFailures().ShouldNotBeNull().ShouldContain("When the wallet is credited => The act timed out:");
+
+        // The outcome still carries what the act threw, for a Then step to judge
+        scenario.LastAct.Error.ShouldBeOfType<AggregateException>();
+    }
+
+    [Fact]
+    public async Task an_act_that_throws_anything_but_a_timeout_leaves_its_when_step_to_the_then_steps()
+    {
+        // bobcat#673: a throwing refusal is what ThenRefusedWith asserts, so its When stays green
+        var scenario = newScenario();
+        var id = Guid.NewGuid();
+        await scenario.GivenEvents<Wallet>(id, new WalletOpened(id, "Ivy"));
+
+        var recording = await Recordings.RecordAsync(async () =>
+        {
+            await scenario.WhenActing("the wallet is credited", _ => throw new WalletFrozen(id));
+            scenario.ThenRefusedWith("is frozen");
+        });
+
+        recording.GatheredFailures().ShouldBeNull();
+        recording.Step("the wallet is credited").Status.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public async Task a_derived_scenario_says_why_its_act_may_have_timed_out()
+    {
+        Assert.SkipUnless(store.IsAvailable, store.SkipReason);
+        var scenario = new HintedScenario(store.Host);
+
+        var recording = await Recordings.RecordAsync(() =>
+            scenario.WhenActing("the endpoint is called", _ => throw new TimeoutException("Timed out.")));
+
+        recording.Step("the endpoint is called").Failure.ShouldBeOfType<ActTimedOutException>()
+            .Message.ShouldBe("The act timed out: Timed out. Raise Timeout: the first call compiles.");
+    }
+
+    private sealed class HintedScenario(IHost host) : CritterStackScenario(host)
+    {
+        protected override string? actTimeoutHint(TimeoutException timeout) => "Raise Timeout: the first call compiles.";
     }
 
     [Fact]

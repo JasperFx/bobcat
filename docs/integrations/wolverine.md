@@ -252,6 +252,13 @@ exception** (each of an `AggregateException`'s too), so a refusal wrapped by the
 still found. The match is a substring, **case-sensitive** (`StringComparison.Ordinal`). An empty
 reason is refused, since every refusal contains one.
 
+**A timed-out act is not a refusal** (bobcat#673). When the act throws a `TimeoutException` -- most
+often the tracked session timing out (`This TrackedSession timed out before all activity completed.`)
+-- its When step reads `error` with `The act timed out: …`, instead of a green When over red Then steps
+saying "The act failed". Two common causes: a `Timeout` shorter than the act (the default is 5 s), and
+the first request to a Wolverine.HTTP endpoint compiling its chain under dynamic code generation, which
+can take seconds under load. Raise `Timeout` in your base spec class, or pre-generate the code.
+
 ## Assert: messages
 
 | Step | |
