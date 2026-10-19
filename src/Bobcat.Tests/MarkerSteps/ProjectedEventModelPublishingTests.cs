@@ -1,7 +1,6 @@
 using System.Reflection;
 using Bobcat.Monitoring;
 using Bobcat.Tests.Monitoring;
-using JasperFx.Events.EventModeling;
 using Shouldly;
 
 namespace Bobcat.Tests.MarkerSteps;
@@ -42,12 +41,8 @@ public class ProjectedEventModelPublishingTests : IDisposable
         => new(
             "BankAccountES.Tests",
             SpecEventModelPublisher.SourceNameFor("BankAccountES.Tests"),
-            new EventModelDescriptor(model, [
-                new EventModelSliceDescriptor("EnrollClient", null, null, null, null, [], [], [])
-                {
-                    Specifications = [new SpecificationDescriptor("Bank Account Event Sourcing/Enroll a client")]
-                }
-            ]));
+            model,
+            () => SpecEventModelPublishingTests.HalfJson(model, "EnrollClient", "Bank Account Event Sourcing/Enroll a client"));
 
     /// <summary>Install <paramref name="sink"/> as the bracket's sink and a fixed half to publish.</summary>
     private void attach(IMonitorEventSink? sink, string model = "BankAccountES")

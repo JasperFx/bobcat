@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
-using JasperFx.Testing;
 using Shouldly;
 
 namespace Bobcat.Tests.Runtime;

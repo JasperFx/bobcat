@@ -876,7 +876,7 @@ The vocabulary declares its roles, one attribute per role, naming where the type
 public Task GivenEvents<TAggregate>(Guid id, params object[] events) where TAggregate : class
 
 [EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]     // the act's trigger kind and route
+[EventModelTrigger(ActTrigger.Http, Route = nameof(route))]     // the act's trigger kind and route
 public Task WhenPosted(object command, string route)
 ```
 
@@ -922,7 +922,12 @@ await WhenPosted(new CreateBooking(passenger.Id, flight.Id), "/api/bookings");  
 **A read-only act is a Query (bobcat#501).** A vocabulary method with a `GET` or `HEAD` trigger, a `ReadModel`
 role and no `Command` role is a *read act*:
 
-<<< ../samples/BankAccountES/Tests/BankAccountSpec.cs#when-reading{cs}
+```cs
+[EventModelRole(SliceRole.ReadModel, nameof(T))]
+[EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "GET")]
+public Task WhenReading<T>(string route, params object[] routeValues) where T : class
+    => send("GET", null, route, routeValues);
+```
 
 The last act a test makes -- a command or a read -- is its act. When a slice has a read act and no command
 act, and declares no `Pattern`, it's a `Query` (JasperFx 2.85.0):
@@ -982,7 +987,7 @@ Now:
 
 ```csharp
 [EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(url), HttpMethod = "POST")]
+[EventModelTrigger(ActTrigger.Http, Route = nameof(url), HttpMethod = "POST")]
 protected Task WhenPosted(object command, string url) => WhenActing(…);
 ```
 
@@ -1111,9 +1116,14 @@ all.
 A vocabulary method addresses an endpoint by name with `RouteName`. It's checked by **BOBCAT034** the same way
 `Route` is:
 
-<<< ../samples/BankAccountES/Tests/BankAccountSpec.cs#when-put-to{cs}
+```cs
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(ActTrigger.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
+public Task WhenPutTo(object command, string routeName, params object[] routeValues)
+    => send("PUT", command, templateNamed(routeName), routeValues);
+```
 
-[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
+[The BankAccountES sample](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2) uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
 `[WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]`. The slice gets
 `PUT /api/clients/{clientId}`, the same route Wolverine derives from the chain, so the two sources agree.
 
@@ -1404,7 +1414,7 @@ dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
 ```
 
 For the Critter Stack vocabulary on a real application,
-[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) runs its
+[The BankAccountES sample](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2) runs its
 specifications on `CritterStackSpec` against Marten and Fisher, with its own HTTP and message acts on
 top. `src/Bobcat.Projected.Acceptance.Tests` and `src/Bobcat.CritterStackScenario.Tests` pin the
 behaviour this page describes.

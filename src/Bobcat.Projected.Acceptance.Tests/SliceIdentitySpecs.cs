@@ -4,8 +4,8 @@ namespace Bobcat.Projected.Acceptance.Tests;
 
 /// <summary>
 /// The projected twin of <c>SliceIdentity.feature</c>: the one class in this project that binds
-/// Event Modeling slices, so the assembly carries a real generated <c>BobcatEventModelSource</c> for
-/// <see cref="SpecIdentityAuditTests"/> to audit. Deliberately trivial: the subject under test is
+/// Event Modeling slices. Its identity audit (<c>SpecIdentityAuditTests</c>) moved to the Wolverine repo with
+/// <c>SpecIdentityAudit</c> in bobcat#744; the class stays as the projected twin of the feature. Deliberately trivial: the subject under test is
 /// the identities the generator emits, not the arithmetic.
 /// </summary>
 /// <remarks>

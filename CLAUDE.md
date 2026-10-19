@@ -46,11 +46,10 @@ consuming Bobcat in another repo never sees this file or the source; the skill i
 ## Build & Test Commands
 
 ```bash
-# The Nuke build (build/) — tests.yml runs `CI`, publish.yml `CI Pack`, samples.yml `Samples`. Default target is Test.
+# The Nuke build (build/) — tests.yml runs `CI`, publish.yml `CI Pack`. Default target is Test.
 ./build.sh                          # restore → compile → test
 ./build.sh Docker CI                # start compose services, then exactly what tests.yml runs
 ./build.sh Pack                     # packages to artifacts/packages (never touches artifacts/local-feed)
-./build.sh Docker Samples           # what samples.yml runs: build every sample, run their specs (Postgres + Fisher)
 ./build.sh UiSmoke                  # what ui-smoke.yml runs: pack the tool with its UI, smoke `bobcat ui` (needs Node; BOBCAT_UI_SMOKE_SKIP_BROWSER=1 skips Chromium)
 ./build.sh --help                   # every target and parameter
 
@@ -60,9 +59,9 @@ dotnet build
 # Run unit tests
 dotnet test
 
-# Start the local Postgres the Marten integration tests use (published on 5445 so it
-# never collides with a Postgres you already run). Without it those tests SKIP locally
-# — on CI they never skip, so a missing database fails the build.
+# Start the compose services (Postgres on 5445, so it never collides with a Postgres you already
+# run). The Marten-backed tests left with the Critter Stack vocabulary for the Wolverine repo in
+# #744; the Docker target and compose file stay.
 docker compose up -d
 
 # Run a specific test class. Tests run on Microsoft.Testing.Platform, not VSTest, so the
@@ -77,8 +76,8 @@ dotnet test --project src/Bobcat.Tests/ --filter-method "*passes_on_retry*"
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console` and every test and
-sample host target net10.0 only, and
+Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console` and every test host
+targets net10.0 only, and
 `Bobcat.Generators` targets netstandard2.0 (a Roslyn analyzer). See Package Structure in `docs/agents/build-and-test.md`.
 
 Tests use **xUnit v3 + Shouldly + NSubstitute**, running on **Microsoft.Testing.Platform** rather
@@ -125,14 +124,17 @@ edit the area's file rather than this index.
 - @docs/agents/runners-and-identity.md — the xUnit/TUnit/NUnit/MSTest adapters, `[BobcatSpec]`, the per-request run bracket, spec identity, the spec manifest and running by identity. Read when touching an adapter or `SpecIdentity`/`SpecManifest`/`SpecFilterArguments`.
 - @docs/agents/engine-and-rendering.md — cell comparisons, scenario reports, test output, progress, run evidence, timing, rendering and the three failure levels. Read when working in `src/Bobcat/Engine/` or `src/Bobcat/Rendering/`.
 - @docs/agents/resilience-and-supervisor.md — dispositions, retry budgets, recovery hints, the committed ledger, the supervisor, parallel lanes, stalls, memory sampling, environment checks. Read when working in `src/Bobcat/Resilience/`, `src/Bobcat/Ledger/` or `src/Bobcat.Supervisor/`.
-- @docs/agents/critter-stack.md — the store-agnostic event-sourcing helpers, `CritterStackScenario`, store-only attribution and several event stores. Read when working in `src/Bobcat/CritterStack/`.
+- @docs/agents/critter-stack.md — where the Critter Stack vocabulary went (WolverineFx.Bobcat, #744) and what stayed in core (`RecordBuilding`). Read before adding anything that would need JasperFx or Wolverine.
 - @docs/agents/monitor-wire.md — the monitor vocabulary and environment variables, `BOBCAT_MONITOR_URL` fan-out, the spec half of the Event Model, supervised-run progress, `StepCell`. Read before changing anything in `src/Bobcat/Monitoring/`: it is a public wire contract.
 - @docs/agents/console-and-tool.md — `bobcat ui`, the `bobcat` tool and `import-event-model`, the resident runner, and the MIT/Stoat boundary. Read when working in `src/Bobcat.Console/`, `src/Bobcat.Ui*`, `src/Bobcat.EventModel/` or `src/Bobcat/Residency/`.
 
 ## Key Dependencies
 
-- **JasperFx** — Utility library (core Bobcat). Source at ~/code/jasperfx
-- **JasperFx.Events** — the store abstractions the Critter Stack helpers bind to
+- **No JasperFx and no Wolverine in core (#744)** — `Bobcat` references neither; `BobcatAssemblyReferenceTests`
+  guards it. JasperFx(.Events) is referenced only by the tools (`Bobcat.EventModel`, `Bobcat.Console`,
+  `Bobcat.Ui`, which also keeps WolverineFx.Http/SignalR) and by test hosts that compile the Event Model.
+  The Critter Stack vocabulary and the samples live in the Wolverine repo (WolverineFx.Bobcat). Design:
+  `design/jasperfx-decoupling.md`. JasperFx source at ~/code/jasperfx
 - **Spectre.Console** — Terminal rendering
 - **Microsoft.CodeAnalysis.CSharp** — Roslyn (generator only, compile time)
 
@@ -141,14 +143,14 @@ edit the area's file rather than this index.
 - `docs/` — the user-facing docs: `getting-started.md` (package setup), `marker-steps.md` (writing
   specifications), `xunit.md` / `tunit.md` / `nunit.md` / `mstest.md`, `spec-identities.md` (#391
   and #338's `SpecIdentityAudit`), `resident-runner.md`, `warm-projected-runs.md` (#394's findings),
-  `parallel-ready-suites.md`, `bobcat-tool.md`, and `monitor-design.md` (the wire contract and the
-  receiving-side folds)
+  `parallel-ready-suites.md`, `bobcat-tool.md`, `monitor-design.md` (the wire contract and the
+  receiving-side folds), and `compatibility.md` (version policy and the rc.2 migration notes)
 - `docs/tutorials/` — `specifications-with-code.md`, `data-intensive-specifications.md` (tables,
   set verification, decision tables, cell expressions and the four row markers),
   `agent-friendly-tests.md`, `event-modeling.md`, `continuous-integration.md`,
   `ide-integration.md`, `reliable-integration-testing.md`
 - `design/` — internal records: `ledger-design.md` (the committed ledger),
-  `critter-stack-interop-notes.md`, `versions.md`, `wolverine-ci-rollout.md`; `design/history/`
+  `critter-stack-interop-notes.md`, `versions.md`, `wolverine-ci-rollout.md`, `jasperfx-decoupling.md` (#744/#745); `design/history/`
   keeps the Gherkin-era records (`spec-driven-development-design.md`, `acceptance-coverage-map.md`,
   `sample-wiring-playbook.md`)
 - JasperFx source at ~/code/jasperfx

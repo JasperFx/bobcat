@@ -196,46 +196,13 @@ public class AggregateInferenceTests
     }
 
     [Fact]
-    public void a_command_drawing_on_two_streams_carries_each_ones_identity_and_the_spec_sets_both()
+    public void a_command_drawing_on_two_streams_carries_each_ones_identity()
     {
         var board = EmlangReader.Read(Shelter);
         var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
-        var specs = EmlangSpecWriter.Write(board, model, "Shelter");
-        var stubs = CSharpModelWriter.Write(model, "Shelter", specs.Additions).AllStubs();
-        var code = specs.AllCode();
+        var stubs = CSharpModelWriter.Write(model, "Shelter", null).AllStubs();
 
         stubs.ShouldContain("public record AcceptHomeCheckAssignment(Guid HomeCheckId, Guid VolunteerApplicationId);");
-        code.ShouldContain("await GivenEvents<HomeCheck>(theHomeCheck, Specify<HomeCheckRequested>());");
-        code.ShouldContain("await GivenEventsOn<VolunteerApplication>(theVolunteerApplication, Specify<VolunteerApproved>());");
-        EmlangSpecWriterTests.unindented(code).ShouldContain(EmlangSpecWriterTests.unindented("""
-            await WhenReceived(Specify<AcceptHomeCheckAssignment>()
-                .With(x => x.HomeCheckId, theHomeCheck)
-                .With(x => x.VolunteerApplicationId, theVolunteerApplication));
-            """));
-    }
-
-    [Fact]
-    public void a_command_drawing_on_two_streams_checks_each_stream_by_its_own_key()
-    {
-        // wolverine#4865: ThenEvents could only speak for one of them
-        var board = EmlangReader.Read(Shelter);
-        var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
-        var code = EmlangSpecWriter.Write(board, model, "Shelter").AllCode();
-
-        code.ShouldContain("ThenEventsOn<HomeCheck>(theHomeCheck, Specify<HomeCheckAssignmentAccepted>());");
-        code.ShouldContain("ThenNoEventsOn<VolunteerApplication>(theVolunteerApplication);");
-        code.ShouldNotContain("ThenEvents(Specify<HomeCheckAssignmentAccepted>());");
-    }
-
-    [Fact]
-    public void a_command_that_starts_a_stream_is_checked_as_one_paragraph()
-    {
-        // wolverine#4865: the handler assigns the stream's id, so the spec reads it back from the act
-        var board = EmlangReader.Read(Shelter);
-        var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
-        var code = EmlangSpecWriter.Write(board, model, "Shelter").AllCode();
-
-        code.ShouldContain("await ThenStreamIsStartedWithEvents<VolunteerApplication>(Specify<VolunteerApplicationSubmitted>());");
     }
 
     [Fact]
@@ -249,17 +216,6 @@ public class AggregateInferenceTests
         definition.ShouldContain(".Against<Appointment>()");
         definition.ShouldContain("// ⚠ inferred: starts the VolunteerApplication stream — no example gives it an earlier VolunteerApplication event");
         definition.ShouldContain("// ⚠ inferred: decides against VolunteerApplication — its examples give VolunteerApplication events before it appends");
-    }
-
-    [Fact]
-    public void the_specs_arrange_on_the_typed_aggregate_and_address_it_by_id()
-    {
-        var board = EmlangReader.Read(Shelter);
-        var code = EmlangSpecWriter.Write(board, EmlangImport.ToCurated(board, "Shelter", "Shelter").Model, "Shelter").AllCode();
-
-        code.ShouldContain("await GivenEvents<Appointment>(theAppointment, Specify<HomeCheckAppointmentProposed>());");
-        code.ShouldContain("await WhenReceived(Specify<ConfirmAppointment>().With(x => x.Id, theAppointment));");
-        code.ShouldNotContain("await GivenEvents(the");
     }
 
     [Fact]
@@ -332,18 +288,6 @@ public class AggregateInferenceTests
     }
 
     [Fact]
-    public void a_type_only_an_example_names_lands_in_the_chapter_of_the_slice_whose_example_names_it()
-    {
-        var board = EmlangReader.Read(Shelter);
-        var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
-        var specs = EmlangSpecWriter.Write(board, model, "Shelter");
-        var output = CSharpModelWriter.Write(model, "Shelter", specs.Additions);
-
-        output.Layout.FileOf("ApplicationReviewed").ShouldBe("Features/Volunteering/ApplicationReviewed.cs");
-        output.Layout.NamespaceOf("ApplicationReviewed").ShouldBe("Shelter.Volunteering");
-    }
-
-    [Fact]
     public void the_inference_is_deterministic()
     {
         var first = import(Shelter);
@@ -358,8 +302,7 @@ public class AggregateInferenceTests
     {
         var board = EmlangReader.Read(Shelter);
         var model = EmlangImport.ToCurated(board, "Shelter", "Shelter").Model;
-        var specs = EmlangSpecWriter.Write(board, model, "Shelter");
-        var output = CSharpModelWriter.Write(model, "Shelter", specs.Additions);
+        var output = CSharpModelWriter.Write(model, "Shelter", null);
 
         // One aggregate class per stream, in its chapter, every one stubbed once
         output.AllStubs().ShouldContain("public class VolunteerApplication { public Guid Id { get; set; } }");

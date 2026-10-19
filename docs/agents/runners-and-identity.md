@@ -55,10 +55,8 @@
     `SelfRegisteredExtensions` class calling `AddExtensions` on every type a
     `TestingPlatformBuilderHook` item names, so `Bobcat.Xunit` ships
     `buildTransitive/Bobcat.Xunit.props` — and **in-repo projects declare the item themselves**,
-    because a `ProjectReference` takes no build assets. **Except the samples (bobcat#484):**
-    `samples/Directory.Build.props` `<Import>`s `Bobcat.Generators.props` and `Bobcat.Xunit.props`
-    straight from `src/*/buildTransitive/` for every `Tests` project, so a sample is configured
-    exactly like a package consumer and no `Tests.csproj` restates either setting.
+    because a `ProjectReference` takes no build assets. (The samples, which imported both props from
+    `src/*/buildTransitive/` (bobcat#484), moved to the Wolverine repo in #744 and consume packages.)
   - **A missing interceptor opt-in can no longer pass vacuously (bobcat#484).** Without
     `Bobcat.Generated` in `InterceptorsNamespaces` the generator emits no interceptors and reports
     **BOBCAT037** (error) once, at the first call site, read from the same parse option the compiler

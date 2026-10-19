@@ -521,11 +521,21 @@ internal static class EventModelEmitter
     /// </summary>
     internal sealed class Contract
     {
-        public static readonly Contract Latest = new() { Query = true, RouteName = true };
+        public static readonly Contract Latest = new() { Query = true, RouteName = true, Bridge = true };
 
         public bool Query;
         public bool RouteName;
+
+        /// <summary>
+        /// Whether the compilation's Bobcat has <c>Bobcat.Monitoring.SpecEventModels</c> (bobcat#744), so the
+        /// publishing bridge can be emitted beside the source. Probed, so a consumer on an older Bobcat keeps
+        /// compiling.
+        /// </summary>
+        public bool Bridge;
     }
+
+    /// <summary>The type the publishing bridge registers with (bobcat#744).</summary>
+    public const string BridgeTypeName = "Bobcat.Monitoring.SpecEventModels";
 
     public static string EmitSource(string assemblyName, string? modelName, IReadOnlyList<SliceModel> slices, Contract contract)
     {
@@ -574,7 +584,55 @@ internal static class EventModelEmitter
         sb.AppendLine("        this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services)");
         sb.AppendLine($"        => global::{Ns}.EventModelServiceCollectionExtensions.AddEventModelSource(services, BobcatEventModelSource.Instance);");
         sb.AppendLine("}");
+
+        if (contract.Bridge) emitBridge(sb, assemblyName, modelName ?? assemblyName);
+
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The publishing bridge (bobcat#744): a module initializer handing Bobcat core this assembly's half of
+    /// the Event Model as JSON. Core references no JasperFx, so the JasperFx half — describe the source, stamp
+    /// its provenance, serialize — runs here, where the compilation has JasperFx.Events. It is exactly what
+    /// core's publisher did before: <c>TryCreateAsync</c> with an empty service provider, <c>WithProvenance</c>
+    /// with the source's own provenance, and System.Text.Json with the web defaults and PascalCase enum names
+    /// (the wire the console's <c>EventModelStore</c> reads). <c>EventModelBridgeTests</c> pins the bytes.
+    /// </summary>
+    private static void emitBridge(StringBuilder sb, string assemblyName, string modelName)
+    {
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>Hands Bobcat this assembly's Event Model half, as JSON, for a run to publish (bobcat#744).</summary>");
+        sb.AppendLine("internal static class BobcatEventModelPublication");
+        sb.AppendLine("{");
+        sb.AppendLine("    private static readonly global::System.Text.Json.JsonSerializerOptions Wire =");
+        sb.AppendLine("        new global::System.Text.Json.JsonSerializerOptions(global::System.Text.Json.JsonSerializerDefaults.Web)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            Converters = { new global::System.Text.Json.Serialization.JsonStringEnumConverter(namingPolicy: null) }");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register()");
+        sb.AppendLine($"        => global::{BridgeTypeName}.Register({literal(modelName)}, {literal(assemblyName)}, static () => Json());");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The provenance-stamped descriptor, serialized for the console's wire.</summary>");
+        sb.AppendLine("    internal static string Json()");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        global::{Ns}.IEventModelDefinitionSource source = BobcatEventModelSource.Instance;");
+        sb.AppendLine("        var descriptor = source");
+        sb.AppendLine("            .TryCreateAsync(EmptyServices.Instance, global::System.Threading.CancellationToken.None)");
+        sb.AppendLine("            .GetAwaiter().GetResult();");
+        sb.AppendLine();
+        sb.AppendLine("        return global::System.Text.Json.JsonSerializer.Serialize(descriptor?.WithProvenance(source.Provenance), Wire);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated source ignores the service provider: it is all compile-time fact.</summary>");
+        sb.AppendLine("    private sealed class EmptyServices : global::System.IServiceProvider");
+        sb.AppendLine("    {");
+        sb.AppendLine("        public static readonly EmptyServices Instance = new();");
+        sb.AppendLine();
+        sb.AppendLine("        public object? GetService(global::System.Type serviceType) => null;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
     }
 
     /// <summary>Emit one slice's builder as a member of the model class.</summary>

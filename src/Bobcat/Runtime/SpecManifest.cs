@@ -42,7 +42,7 @@ namespace Bobcat.Runtime;
 /// between two discoveries of the same suite would read as a change.
 /// </param>
 /// <param name="RecoveryHints">
-/// The recovery hints the suite declares on itself through <c>JasperFx.Testing</c>'s
+/// The recovery hints the suite declares on itself through <c>Bobcat.Resilience</c>'s
 /// <c>[ClearsOnRetry]</c>, <c>[ClearsOnRecycle]</c>, <c>[ClearsInFreshProcess]</c> and
 /// <c>[NeverRecovers]</c> (issue #469), at assembly, class and method scope. Null — and so absent
 /// from the document — when it declares none, or when the lane does not report them. Carried here

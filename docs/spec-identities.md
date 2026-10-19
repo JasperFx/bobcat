@@ -389,7 +389,8 @@ public void the_model_and_the_specs_declare_the_same_scenarios()
 }
 ```
 
-`SpecIdentityAudit` is in core `Bobcat` and compares `EventModelDescriptor`s, so any design-time
+`SpecIdentityAudit` ships in `WolverineFx.Bobcat` (namespace `Bobcat`) since 1.0.0-rc.2, because it reads
+the generated JasperFx descriptor and Bobcat itself references no JasperFx. It compares `EventModelDescriptor`s, so any design-time
 source works -- a hand-written definition as above, or an imported eventmodelers.ai board through
 `Bobcat.EventModel`'s `ImportedModelMapper.ToDescriptor`.
 

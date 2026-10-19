@@ -205,19 +205,6 @@ public class EventModelersJsonReaderTests
         EventModelersJsonReader.Read(json).Chapters.Select(x => x.Name).ShouldBe(["Initialize System", "System Version"]);
     }
 
-    [Fact]
-    public void the_generator_writes_specs_from_a_json_export()
-    {
-        var board = EventModelersJsonReader.Read(Config);
-        var model = EmlangImport.ToCurated(board, "Shop").Model;
-
-        var specs = EmlangSpecWriter.Write(board, model, "Shop");
-
-        specs.Specs.ShouldBe(2);
-        specs.AllCode().ShouldContain("ThenRefusedWith(\"Quantity over limit\");");
-        specs.AllCode().ShouldContain("await WhenReceived(Specify<AddItem>().With(x => x.CartId, theCart).With(x => x.Quantity, 2));");
-    }
-
     private sealed class EmlangRefComparer : IEqualityComparer<EmlangRef>
     {
         public bool Equals(EmlangRef? x, EmlangRef? y) => x is not null && y is not null && x.Kind == y.Kind && x.Actor == y.Actor && x.Label == y.Label;

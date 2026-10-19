@@ -11,7 +11,7 @@ namespace Bobcat.EventModel.Tests;
 
 /// <summary>
 /// The additive re-import: without <c>--force</c>, an existing file gains what the board has and it
-/// lacks — a slice declaration, a stub type, a specification — and nothing already there changes.
+/// lacks — a slice declaration or a stub type — and nothing already there changes.
 /// Each test imports a smaller board, then the full one, into the same directories, exactly as
 /// <c>bobcat import-event-model</c> does.
 /// </summary>
@@ -32,7 +32,6 @@ public sealed class ImportMergeTests : IDisposable
     }
 
     private string app => Path.Combine(_root, "Shelter");
-    private string specs => Path.Combine(_root, "Shelter.Specs");
 
     /// <summary>The Shelter board, plus a second event on Confirm appointment and a second example on Cancel appointment.</summary>
     private static readonly string Full = AggregateInferenceTests.Shelter.Replace("\r", "")
@@ -62,9 +61,6 @@ public sealed class ImportMergeTests : IDisposable
     /// <summary>The Volunteering chapter alone: the board with the whole Booking chapter gone.</summary>
     private static string volunteeringOnly() => Full[..Full.IndexOf("  Booking:", StringComparison.Ordinal)];
 
-    /// <summary>The full board less the second Cancel appointment example.</summary>
-    private static string withoutSecondCancel() => Full[..Full.IndexOf("\n      Cancelled before confirming:", StringComparison.Ordinal)] + "\n";
-
     private static string without(string yaml, params string[] parts)
     {
         foreach (var part in parts)
@@ -81,13 +77,11 @@ public sealed class ImportMergeTests : IDisposable
     {
         var board = EmlangReader.Read(yaml);
         var result = EmlangImport.ToCurated(board, "Shelter", "Shelter");
-        var generatedSpecs = EmlangSpecWriter.Write(result.Board ?? board, result.Model, "Shelter", "Shelter.Specs", "marten");
-        var generated = CSharpModelWriter.Write(result.Model, "Shelter", generatedSpecs.Additions, perChapter: true);
+        var generated = CSharpModelWriter.Write(result.Model, "Shelter", null, perChapter: true);
 
         var writer = new ImportFileWriter(force);
         writer.WriteStubs(app, generated.StubFiles);
         writer.WriteDefinitions(app, generated.DefinitionFiles, result.Model);
-        writer.WriteSpecs(specs, generatedSpecs.Files);
         return writer;
     }
 
@@ -148,9 +142,8 @@ public sealed class ImportMergeTests : IDisposable
         writer.Lines.ShouldContain($"Added 1 slice declaration (AcceptHomeCheckAssignment) and 1 aggregate declaration (HomeCheck) to {Path.Combine("Features", "Volunteering", "VolunteeringModel.cs")}.");
         writer.Files.ShouldContain(x => x.Path.EndsWith("VolunteeringModel.cs") && x.Mode == "merge");
 
-        // Its stub and specification are new files, so they are simply written
+        // Its stub is a new file, so it is simply written
         File.Exists(Path.Combine(app, "Features", "Volunteering", "AcceptHomeCheckAssignment.cs")).ShouldBeTrue();
-        File.Exists(Path.Combine(specs, "Volunteering", "AcceptHomeCheckAssignment.cs")).ShouldBeTrue();
 
         buildApp().ShouldContain(x => x.Name == "AcceptHomeCheckAssignment" && x.Chapter == "Volunteering");
     }
@@ -487,41 +480,6 @@ public sealed class ImportMergeTests : IDisposable
         File.WriteAllText(path, File.ReadAllText(path).Replace("public record ConfirmAppointment(Guid Id);", "public record ConfirmAppointment(Guid Id, DateTimeOffset At);"));
 
         import(Full).Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.TypeDiffersFromBoard);
-    }
-
-    [Fact]
-    public void a_new_example_gets_its_specification_in_the_existing_class_and_the_existing_ones_are_untouched()
-    {
-        import(withoutSecondCancel());
-        var path = Path.Combine(specs, "Booking", "CancelAppointment.cs");
-        // The user edits the existing specification; the merge must not care
-        var edited = File.ReadAllText(path).Replace("[Fact]", "[Fact] // checked by hand");
-        File.WriteAllText(path, edited);
-
-        var writer = import(Full);
-        var inserted = insertedOnly(edited, File.ReadAllText(path));
-
-        inserted.ShouldContain("public async Task cancelled_before_confirming()");
-        inserted.ShouldNotContain("public async Task cancelled()");
-        writer.Callouts.ShouldContain(x => x.Code == ImportCalloutCodes.MergedSpec && x.Slice == "CancelAppointment");
-
-        var sources = Directory.EnumerateFiles(specs, "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText);
-        var model = EmlangImport.ToCurated(EmlangReader.Read(Full), "Shelter", "Shelter").Model;
-        EmlangSpecWriter.MissingSpecs(model, sources).ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void a_specification_class_moved_to_another_file_is_still_where_the_new_example_goes()
-    {
-        import(withoutSecondCancel());
-        var original = Path.Combine(specs, "Booking", "CancelAppointment.cs");
-        var moved = Path.Combine(specs, "Booking", "Cancelling.cs");
-        File.Move(original, moved);
-
-        import(Full);
-
-        File.Exists(original).ShouldBeFalse();
-        File.ReadAllText(moved).ShouldContain("cancelled_before_confirming");
     }
 
     [Fact]

@@ -19,7 +19,7 @@ namespace Bobcat.EventModel;
 /// Two copies of the list is two opinions about the same file.
 /// </para>
 /// </remarks>
-internal static class CuratedFieldTypes
+public static class CuratedFieldTypes
 {
     /// <summary>The scenario's own stream id, expanded by the feature writer (issue #235).</summary>
     public const string StreamIdToken = "{streamId}";

@@ -8,7 +8,7 @@ public sealed record GeneratedFile(string Path, string Content);
 /// <summary>
 /// Where every type an imported model names lives: which file, and which namespace (bobcat#441).
 /// Shared by <see cref="CSharpModelWriter"/>, which writes the types there, and
-/// <c>EmlangSpecWriter</c>, which has to <c>using</c> exactly the namespaces they ended up in.
+/// the spec writer (in the Wolverine repo since bobcat#744), which has to <c>using</c> exactly the namespaces they ended up in.
 /// </summary>
 /// <remarks>
 /// <para>

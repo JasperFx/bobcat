@@ -197,7 +197,7 @@ stamped on the slice, with nothing to say so.
 
 ```csharp
 [EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]
+[EventModelTrigger(ActTrigger.Http, Route = nameof(route))]
 public Task WhenPosted<T>(string route, T command) { /* … */ }
 ```
 
@@ -337,7 +337,7 @@ helper's parameter.
 
 ```csharp
 [EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(TriggerKind.Http, Route = nameof(url), HttpMethod = "POST")]
+[EventModelTrigger(ActTrigger.Http, Route = nameof(url), HttpMethod = "POST")]
 protected Task WhenPosted(object command, string url) => WhenActing(…);
 ```
 

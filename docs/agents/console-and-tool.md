@@ -46,30 +46,13 @@ and so cannot be handed a class to host.
   file is refused with a sentence pointing at `EventModelDefinition`, which is more use than the
   "unrecognized" it would otherwise fall through to.
 
-- **`--specs` also writes the spec project when the spec directory has none (`SpecProjectWriter`,
-  2026-10-12).** The `.csproj` (xunit.v3 4.x on MTP 2, `Bobcat`/`Bobcat.Xunit`/`Bobcat.Generators`
-  pinned to the tool's own `ToolVersion` via `$(BobcatVersion)`, `WolverineFx.Bobcat` via
-  `$(WolverineFxBobcatVersion)`, Alba, the IDE bridge, the `Bobcat.Generated` interceptor opt-in, a
-  `ProjectReference` to the app), `AssemblyAttributes.cs` (`EventModelName`, serial
-  `Parallelization`, `WebApplicationFactoryContentRoot`) and `global.json`. Rules that matter:
-  - **Never overwritten, not even with `--force`.** An existing `.csproj` means the project is the
-    user's: nothing is written and it is *checked* instead (missing references, no
-    `EventModelName`), each gap a callout.
-  - **The app is checked, never edited**: no public `Program`, no `RunJasperFxCommands`, no
-    `WolverineFx.RuntimeCompilation` (every spec then dies on `TypeLoadMode.Dynamic`). Each is an
-    `app-*` callout whose `Fix` is the exact line or `dotnet add` command. Project-level callouts
-    have an empty `Slice` and carry `File`/`Fix`, which `--json` writes as `file`/`fix`.
-  - **global.json: an existing one anywhere above is checked, never shadowed**; else it goes at the
-    solution root (nearest `.sln`/`.slnx`, else git root), else beside the spec project. The SDK
-    reads the one nearest the directory `dotnet test` runs in.
-  - **No `--` inside an XML comment** in the generated csproj (MSB4025). The first cut wrote
-    "`--specs`" in its header comment and no project would load; the tests `XDocument.Parse` it.
-  - **`DefaultWolverineFxBobcatVersion` is the newest *published* WolverineFx.Bobcat**
-    (6.51.0-alpha.1, built against Bobcat 0.60.4). Move it when a WolverineFx.Bobcat paired with this
-    Bobcat ships; until then pass `--wolverine-version`.
-  - `SpecProjectWriterTests.the_generated_spec_project_builds` imports a board and `dotnet build`s the
-    result; it skips unless `BOBCAT_IMPORT_BUILD_WOLVERINE` (and `BOBCAT_IMPORT_BUILD_FEED` for a
-    local feed) is set, because it needs NuGet and a WolverineFx.Bobcat that pairs with this Bobcat.
+- **`--specs` is gone (#744).** Writing WolverineFx.Bobcat specifications and their spec project from a board
+  (`EmlangSpecWriter`, `SpecProjectWriter`, and the `--specs`, `--specs-out`, `--specs-namespace`,
+  `--app-project`, `--store`, `--bobcat-version` and `--wolverine-version` flags) moved to a Wolverine-side
+  command beside `wolverine scaffold`, because it writes Wolverine specs and checks the app's Wolverine setup.
+  What stays: `ProjectedSpecNaming.ExampleMethodName` / `ExampleScenarioTitle` (the scenario names the import
+  gives the model's examples, which the spec writer must agree with), `CSharpModelWriter.StubAdditions` (what
+  a spec writer needs of the stubs; null here), and the spec-related callout codes.
 
 - **A re-import without `--force` is additive (`ImportMerge` + `ImportFileWriter`, 2026-10-12).** The
   command used to keep every existing file whole, so a new slice got stub and spec files but no
@@ -77,8 +60,8 @@ and so cannot be handed a class to host.
   dropped. Now an existing file is merged into: missing slice declarations at the end of the chapter
   definition's `Configure` (written via `CSharpModelWriter.SliceDeclaration` against the file's own
   `InChapter`/`InDomain`/`ForAggregate`, not a fresh import's), missing stub types at the end of the
-  namespace, missing specs at the end of the `[BobcatFeature]` class, missing `global using`s.
-  Rules that matter:
+  namespace. (Missing specs at the end of the `[BobcatFeature]` class and missing `global using`s left with
+  the spec writer in #744.) Rules that matter:
   - **Never change or remove anything that exists.** A type whose board members it lacks or types
     differently is `type-differs-from-board`. Members the code ADDED are not a difference.
   - **A new role on an existing slice is a reopening statement, never an edit (import-role-additions,
@@ -148,7 +131,7 @@ and so cannot be handed a class to host.
     removed a capability: declaring *forward*, before any code exists, how a slice will be
     specified. **The intent is that this moves onto attributes, and no such attribute exists yet.**
     `[BobcatSlice]` — binding a test that already exists to a slice — is untouched, and
-    `SpecIdentityAudit` (#338) is the only gate of its kind.
+    `SpecIdentityAudit` (#338, in WolverineFx.Bobcat since #744) is the only gate of its kind.
   - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
     information at all (the board's props are intentionally omitted), so a name is the whole truth
     it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.

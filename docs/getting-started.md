@@ -77,10 +77,10 @@ Several of those lines do work that is easy to miss:
   (`<BobcatSuppressTestSdkWarning>true</BobcatSuppressTestSdkWarning>` if the suite only ever runs
   from the command line).
 
-::: tip Let the importer write it
-`bobcat import-event-model --specs` writes this project -- with `WolverineFx.Bobcat` and Alba added
-for the specs it generates -- plus the `global.json` and an `AssemblyAttributes.cs`, when the spec
-directory has none yet. See [`import-event-model`](bobcat-tool.md#import-event-model).
+::: tip Specifications from a board
+Writing this project and a specification per board example from an Event Model is a Wolverine-side
+command since Bobcat 1.0.0-rc.2 (it writes `WolverineFx.Bobcat` specs). `bobcat import-event-model`
+still writes the stubs and the `EventModelDefinition`; see [`import-event-model`](bobcat-tool.md#import-event-model).
 :::
 
 ### Referencing Bobcat by ProjectReference
@@ -90,9 +90,7 @@ packages, you lose two settings the packages carry in their `buildTransitive` pr
 `ProjectReference` takes no build assets, so the generator arrives as an analyzer without its
 interceptor opt-in, and `Bobcat.Xunit` arrives without its test-platform registration.
 
-Don't restate them by hand. Import the packages' own props, which is what
-[`samples/Directory.Build.props`](https://github.com/JasperFx/bobcat/blob/main/samples/Directory.Build.props)
-does for every sample:
+Don't restate them by hand. Import the packages' own props:
 
 ```xml
 <Import Project="path/to/src/Bobcat.Generators/buildTransitive/Bobcat.Generators.props" />
@@ -109,10 +107,31 @@ falls back to one per process (see [Warm Projected Runs](warm-projected-runs.md)
 
 Bobcat doesn't own your test lifecycle any more -- your test runner does. Boot the application in an
 xUnit assembly fixture, exactly as you would for any integration test. This one is from the
-[`samples/BankAccountES`](https://github.com/JasperFx/bobcat/blob/main/samples/BankAccountES) sample
-(the specification below calls its own fixture `AppHost`):
+BankAccountES sample, which lives in the [Wolverine repository](https://github.com/JasperFx/wolverine)
+with the other samples since Bobcat 1.0.0-rc.2 (the specification below calls its own fixture `AppHost`):
 
-<<< ../samples/BankAccountES/Tests/BankAccountHost.cs#app-host{cs}
+```cs
+public class BankAccountHost : IAsyncLifetime
+{
+    public IAlbaHost Host { get; private set; } = null!;
+
+    public async ValueTask InitializeAsync()
+    {
+        Host = await AlbaHost.For<Program>();
+
+        // Not load-bearing for correctness: every spec mints its own ids, so no run can collide
+        // with the last one. It is here so the event store does not grow without bound across runs.
+        // ResetEventStoresAsync empties every store the host registers -- documents AND streams --
+        // through JasperFx.Events.IEventStore, so it reads the same on Marten and Fisher.
+        await Host.ResetEventStoresAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Host is not null) await Host.DisposeAsync();
+    }
+}
+```
 
 The sample registers it once for the run, in its `AssemblyAttributes.cs`:
 

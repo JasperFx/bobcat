@@ -1,4 +1,4 @@
-using JasperFx.Testing;
+using Bobcat.Resilience;
 
 // Issue #469. The run-wide default for the probe failure: it clears in a fresh process. The
 // classes below override it, one at class scope and one at method scope, so a supervisor driving

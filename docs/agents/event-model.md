@@ -14,6 +14,18 @@ says so. A method's `TriggeredBy` beats its class's whatever order tests fold in
 Bobcat is the first real implementation of `IEventModelDefinitionSource` anywhere. One
 `BobcatEventModelSource.g.cs` per assembly, registered with `services.AddBobcatEventModel()`.
 
+> **The samples cited below (`samples/BankAccountES`) moved to the Wolverine repo in #744**, with their Event
+> Model pins (#300, #297, the GET-as-View disagreement). The paths are that repo's now.
+
+- **The publishing bridge (#744).** Core references no JasperFx, so the same generated file also carries
+  `BobcatEventModelPublication`: a module initializer calling `Bobcat.Monitoring.SpecEventModels.Register(modelName,
+  assemblyName, json)`, whose JSON producer describes the source (`TryCreateAsync` with an empty provider),
+  stamps `WithProvenance(source.Provenance)` and serializes with `JsonSerializerDefaults.Web` plus
+  `JsonStringEnumConverter(namingPolicy: null)` — exactly what core's publisher did. Emitted only when the
+  compilation also has `Bobcat.Monitoring.SpecEventModels` (`Contract.Bridge`, a type probe).
+  `EventModelBridgeTests` pins the JSON byte for byte against `Fixtures/bridge-event-model.json`, captured from
+  the pre-#744 code; change the descriptor shape and that file changes with it, deliberately.
+
 - **`[assembly: EventModelName("…")]` names the model; the assembly name is only the fallback
   (issue #172).** Upstream, `EventModelDiscovery.Assemble` folds descriptors together **by model
   name**, and the Wolverine-derived model is named for the *service* (`opts.ServiceName`) — so a
@@ -99,7 +111,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   they stay null unless `Pattern` declares them — a wrong pattern miscolours the canvas, a null one
   does not.
 - **A read-only act is a Query slice (bobcat#501, JasperFx 2.85.0's `SlicePattern.Query`).** A vocabulary
-  method with `[EventModelTrigger(TriggerKind.Http, HttpMethod = "GET"/"HEAD")]`, a `ReadModel` role and no
+  method with `[EventModelTrigger(ActTrigger.Http, HttpMethod = "GET"/"HEAD")]`, a `ReadModel` role and no
   `Command` role is a read act (`ProjectedRoles.isReadTrigger` → `Reading.ReadAct`); the LAST act — command or
   read — is the test's act. **Inferred, no marker**: the trigger attribute is what separates a read act from an
   assertion (`ThenReadModel<T>` carries the same role and no trigger), and the verb separates it from a write, so a
@@ -129,7 +141,7 @@ Bobcat is the first real implementation of `IEventModelDefinitionSource` anywher
   that assembly references neither — pinned by `ProjectedSpecNamingAgreementTests`.
 - **A projected spec's Event Model ROLES come off its vocabulary (bobcat#462, #463).** Scenario
   vocabulary methods carry `[EventModelRole(SliceRole.X, nameof(param or TParam))]` (and the act
-  `[EventModelTrigger(TriggerKind.Http, Route = nameof(route))]`, or `RouteName = nameof(routeName)`), both in core
+  `[EventModelTrigger(ActTrigger.Http, Route = nameof(route))]`, or `RouteName = nameof(routeName)`), both in core
   (`src/Bobcat/EventModel/EventModelRoleAttribute.cs`). `ProjectedRoles.Read` walks a test method's
   invocations through `IInvocationOperation` and reads them off the resolved symbol — **from
   metadata, never by method name**, because the vocabulary (`WolverineScenario`) lives in another

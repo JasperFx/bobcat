@@ -230,7 +230,7 @@ flattener for rendering one graph; the comparison no longer uses it.
   requirement. Worked corpus: `Bobcat.Projected.Acceptance.Tests/ExpectedObjectTests`, asserting on the
   **grid** rather than the difference list, because #456 was about what a reader could tell.
 
-**`RecordBuilding.Build`** (`src/Bobcat/CritterStack/`, public) is a thin call into this engine, and
+**`RecordBuilding.Build`** (`src/Bobcat/CritterStack/`, public, the one file left there after #744) is a thin call into this engine, and
 every build is partial (#419). It fills through the process-wide `PartialObjects.UnspecifiedValues`
 policy (#421), so an unspecified `Guid` is a fresh id rather than `Guid.Empty`; `DefaultValues`
 (`default(T)`, the #241 rule) stays for a suite that wants the old fill. A blank cell is not

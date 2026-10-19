@@ -457,7 +457,7 @@ application with several event stores -- steps go to the store that owns their t
 ## The Event Model, from the vocabulary
 
 Every step above that names a command, an aggregate, an event, a read model, a document or a message
-carries `[EventModelRole]`, and the HTTP act carries `[EventModelTrigger(TriggerKind.Http, Route =
+carries `[EventModelRole]`, and the HTTP act carries `[EventModelTrigger(ActTrigger.Http, Route =
 nameof(route))]`. So a specification bound to a slice with `[BobcatSpec]` or `[BobcatSlice]` hands the
 generator the slice's whole shape with nothing authored for the model:
 
@@ -490,14 +490,25 @@ reads them.
 A store-only scenario has no HTTP or message act of its own, and an application often wants its own
 spelling of one. Write it on your base spec class, run it through `WhenActing`, and **re-declare the
 attributes** -- the generator reads them off the method a test calls, never off what that method's
-body calls. From `samples/BankAccountES`:
+body calls. From the BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2):
 
-<<< ../../samples/BankAccountES/Tests/BankAccountSpec.cs#when-posted{cs}
+```cs
+[EventModelRole(SliceRole.Command, nameof(command))]
+[EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "POST")]
+public Task WhenPosted(object command, string route, params object[] routeValues)
+    => send("POST", command, route, routeValues);
+```
 
-<<< ../../samples/BankAccountES/Tests/BankAccountSpec.cs#when-received{cs}
+```cs
+[EventModelRole(SliceRole.Command, nameof(message))]
+[EventModelTrigger(ActTrigger.MessageHandler)]
+public Task WhenReceived(object message)
+    => WhenActing($"{message.GetType().Name} is received",
+        services => services.GetRequiredService<IMessageBus>().InvokeAsync(message));
+```
 
 An act can also address an endpoint by its route name: `[WolverinePut("/api/clients/{clientId}", RouteName =
-"UpdateClient")]` on the endpoint, and `[EventModelTrigger(TriggerKind.Http, RouteName = nameof(routeName))]` on
+"UpdateClient")]` on the endpoint, and `[EventModelTrigger(ActTrigger.Http, RouteName = nameof(routeName))]` on
 the act. The generator resolves a constant route name to the endpoint's template at compile time. It also
 matches an interpolated route against the endpoints' templates. See
 [The act's route](../marker-steps.md#act-route). The route name is stamped as `TriggerOrigin.HttpRouteName`.
@@ -506,7 +517,7 @@ An act with a `GET` or `HEAD` trigger and a `ReadModel` role makes its slice a *
 [Binding, not roles](../marker-steps.md#event-model-roles)). Until
 [wolverine#4975](https://github.com/JasperFx/wolverine/issues/4975), Wolverine derives every GET chain as a
 View, and a derived claim outranks a declared one. So the merged slice is a View with a Pattern
-`SourceDisagreement` that drops the specs' Query. `samples/BankAccountES` pins that on purpose.
+`SourceDisagreement` that drops the specs' Query. The BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2) pins that on purpose.
 
 ## Cold hosts and brokers
 

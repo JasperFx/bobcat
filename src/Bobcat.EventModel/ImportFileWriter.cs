@@ -10,12 +10,12 @@ public sealed record ImportWriteCounts(int Written, int Merged, int Kept);
 /// <summary>
 /// Writes what <c>import-event-model</c> generated to disk. A file that does not exist is written; with
 /// <c>--force</c> every file is overwritten, as it always was; otherwise an existing file is merged into
-/// additively (<see cref="ImportMerge"/>): the board's new slices, types and specifications are added and
+/// additively (<see cref="ImportMerge"/>): the board's new slices and types are added and
 /// nothing already there is changed. Running it twice changes nothing the second time.
 /// </summary>
 /// <remarks>
 /// Each output directory is indexed once (<see cref="SourceIndex"/>) and kept current as files are
-/// written, so a type, slice or specification the user moved to another file is still found, and never
+/// written, so a type or slice the user moved to another file is still found, and never
 /// declared a second time.
 /// </remarks>
 public sealed class ImportFileWriter(bool force)
@@ -113,64 +113,10 @@ public sealed class ImportFileWriter(bool force)
         return counts;
     }
 
-    /// <summary>
-    /// The specification files: an example with no specification gets one in the existing class bound to
-    /// its feature, wherever that class is. <c>TestSupport.cs</c> is never merged into, only written when
-    /// missing; <c>GlobalUsings.cs</c> gains the namespaces it lacks.
-    /// </summary>
-    public ImportWriteCounts WriteSpecs(string directory, IEnumerable<GeneratedFile> files)
-    {
-        var index = IndexOf(directory);
-        return writeEach(directory, files, (file, path, relative) =>
-        {
-            if (file.Path == EmlangSpecWriter.TestSupportFile)
-            {
-                return File.Exists(path) ? Outcome.Kept : write(path, file.Content, index);
-            }
-
-            if (file.Path == EmlangSpecWriter.GlobalUsingsFile)
-            {
-                return File.Exists(path)
-                    ? merged(path, relative, ImportMerge.MergeGlobalUsings(File.ReadAllText(path), file.Content, path), index, "global using", "global usings")
-                    : write(path, file.Content, index);
-            }
-
-            var features = CSharpSyntaxTree.ParseText(file.Content, ImportMerge.Parse).GetCompilationUnitRoot()
-                .DescendantNodes().OfType<ClassDeclarationSyntax>()
-                .Select(ImportMerge.FeatureOf).OfType<string>().ToList();
-
-            // Into the class bound to the feature, which may have been moved to another file
-            var holders = features.SelectMany(index.FilesWithFeature).Distinct(StringComparer.Ordinal).ToList();
-            var target = holders.Contains(Path.GetFullPath(path)) ? Path.GetFullPath(path) : holders.Count == 1 ? holders[0] : null;
-
-            if (target is null && holders.Count > 1)
-            {
-                Callouts.Add(new ImportCallout(features.FirstOrDefault() ?? "", ImportCalloutCodes.MergeSkippedAmbiguous, [],
-                    $"{holders.Count} files hold a class bound to [BobcatFeature(\"{features.FirstOrDefault()}\")] "
-                    + $"({string.Join(", ", holders.Select(x => Path.GetRelativePath(directory, x)))}), so where {relative}'s new specifications go is ambiguous.", null)
-                    { File = path });
-                return File.Exists(path) ? Outcome.Kept : Outcome.Skipped;
-            }
-
-            if (target is null)
-            {
-                if (!File.Exists(path)) return write(path, file.Content, index);
-                target = Path.GetFullPath(path);
-            }
-
-            var result = ImportMerge.MergeSpecs(File.ReadAllText(target), file.Content, target, index);
-            var outcome = merged(target, Path.GetRelativePath(directory, target), result, index, "specification", "specifications");
-
-            // Merged into another file: this path itself was never written
-            return target == Path.GetFullPath(path) || outcome != Outcome.Merged ? outcome : Outcome.MergedElsewhere;
-        });
-    }
-
     private enum Outcome
     {
         Written,
         Merged,
-        MergedElsewhere,
         Kept,
         Skipped
     }
@@ -200,7 +146,6 @@ public sealed class ImportFileWriter(bool force)
                     written++;
                     break;
                 case Outcome.Merged:
-                case Outcome.MergedElsewhere:
                     // merged() recorded the file it wrote, which may be another than this path
                     merged++;
                     break;

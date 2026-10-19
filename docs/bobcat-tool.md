@@ -8,7 +8,7 @@ A global .NET tool with these commands:
 | **[`preview`](#run-preview-pick-watch)** | show a spec project's specifications without running them |
 | **[`pick`](#run-preview-pick-watch)** | choose specifications from a menu, then run them |
 | **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
-| **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records, an `EventModelDefinition` per chapter, and optionally a specification per example plus the spec project around them |
+| **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records and an `EventModelDefinition` per chapter (specifications per example moved to a Wolverine-side command in 1.0.0-rc.2) |
 | **[`results-html`](#results-page)** | write the self-contained HTML results page from results files already written |
 | **[`results-schema`](#results-file)** | print or write the JSON Schema of the results file |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
@@ -340,24 +340,14 @@ public record DogLiked;
 **A stub has only what the board names, plus an `Id` where it names no identity.** An emlang export
 usually carries no field information, since the board's props are intentionally omitted. Events
 stay field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
-identity for it, because that is Wolverine's own convention: a generated specification can address
+identity for it, because that is Wolverine's own convention: a specification can address
 the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
 **A command that starts a stream gets no `Id`** (bobcat#453). Its handler mints the new stream's id,
 a sequential Guid (`Guid.CreateVersion7()`), so an `Id` on the command would be a member nothing
 reads. An example that gives the command an id keeps it. A stream keyed by a **string**, a natural
 key such as an email, is the exception: nothing can mint one, so the command carries `string Id` and
-the new stream takes it. A generated specification for a stream start reads the new stream's id back
-from the act, rather than declaring one the handler could never see:
-
-```csharp
-await WhenReceived(Specify<SubmitApplication>().With(x => x.Areas, "dogs"));
-
-var theApplication = TheStartedStream<Application>();
-await ThenStreamIsStartedWithEvents<Application>(Specify<ApplicationSubmitted>()
-    .With(x => x.Areas, "dogs")
-    .With(x => x.ApplicationId, theApplication));
-```
+the new stream takes it.
 
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
 event is stored.
@@ -451,18 +441,9 @@ that settles it:
 | `several-streams` | Draws on several streams: several `[WriteAggregate]` streams or a DCB decider | a design decision, no flag |
 | `missing-aggregate` | No aggregate could be declared or inferred | `--aggregate Slice=Type` |
 | `strong-typed-id-name-taken` | `--strong-typed-ids` was asked for and the board already names a type `{Aggregate}Id`, so that aggregate keeps a primitive identity | rename the board's element |
-| `spec-project-file-kept` | A spec project file (`.csproj`, `AssemblyAttributes.cs`) already exists and was kept | nothing; it is yours |
-| `spec-project-missing-reference` | The existing spec project lacks a package the specs need | the `fix`: a `PackageReference` |
-| `spec-project-missing-event-model-name` | The existing spec project declares no `[assembly: EventModelName]` | the `fix`: the attribute |
-| `spec-project-not-in-solution` | The spec project is not in the solution beside it | the `fix`: `dotnet sln … add …` |
-| `global-json-missing-test-runner` | The governing `global.json` does not select Microsoft.Testing.Platform | the `fix`: its `test` section |
-| `central-package-versions` | Versions are managed centrally | the `fix`: the `<PackageVersion>` lines |
-| `app-program-not-public`, `app-missing-run-jasperfx-commands`, `app-missing-runtime-compilation`, `app-project-not-found` | What the application lacks (see [The spec project](#the-spec-project)) | the `fix` |
 | `merged-slice-declaration` | A re-import declared a new slice at the end of its chapter's definition | nothing; review it |
 | `merged-aggregate-declaration` | A slice merged in names an aggregate no definition declared, so it was declared beside it | nothing; review it |
 | `merged-type` | A re-import added a type the board names to an existing stub file | nothing; review it |
-| `merged-spec` | A re-import added a spec for a new example to the existing class bound to its feature | nothing; it is red until the behaviour exists |
-| `merged-using` | A re-import added a `global using` to the spec project's `GlobalUsings.cs` | nothing |
 | `type-differs-from-board` | A type lacks a member the board names, or types it differently. The type was not touched | edit the type, if the board is right |
 | `merged-slice-roles` | The board gives an existing slice roles (`Emits`, `Publishes`, `On`, `Reads`, `Produces`, `Projects`) no declaration of it says, so a statement reopening the slice by name was added at the end of the definition's `Configure`. `roles` lists them | nothing; review it |
 | `slice-differs-from-board` | The board gives an existing slice roles no declaration says, and they could not be added: the slice is declared in a file other than its chapter's definition | the `fix`: the calls to add, and where |
@@ -483,9 +464,9 @@ about a slice's roles, and a `fix` when there is an edit to make by hand.
 The messages may be reworded; a code never is, and codes are only ever added (the same contract as
 `wolverine scaffold --json`).
 
-The generated specifications arrange events on the typed aggregate, `GivenEvents<Appointment>(…)`,
-and the act addresses it through the command's `Id`, or each `{Aggregate}Id`. A stream with no
-aggregate type, `GivenEvents(id, …)`, is left for a stream nothing names at all.
+The callouts about a spec project (`spec-project-*`, `app-*`, `global-json-missing-test-runner`,
+`central-package-versions`, `merged-spec`, `merged-using`) belong to the specification writer, which moved
+to the Wolverine repository in 1.0.0-rc.2; this command no longer raises them.
 
 Each chapter gets one `EventModelDefinition`, beside its stubs in `Features/{Chapter}/{Chapter}Model.cs`,
 declaring that chapter's slices through the JasperFx.Events fluent API. The chapter is said once at the
@@ -538,15 +519,7 @@ public readonly record struct OrderId(Guid Value) : IParsable<OrderId>
 
 Everything that addresses that stream then takes it — the aggregate's `Id`, the command's `Id` or
 `{Aggregate}Id`, the identity member of each of its events (including one the board marks, such as an
-`Email` keying a customer), the read model projected from it, and the generated specifications:
-
-```csharp
-var theOrder = new OrderId(Guid.CreateVersion7());
-
-await GivenEvents<Order>(theOrder, Specify<OrderPlaced>().With(x => x.OrderId, theOrder));
-```
-
-and the definition declares it, which is a **Declared** claim the store's own projection later agrees
+`Email` keying a customer) and the read model projected from it, and the definition declares it, which is a **Declared** claim the store's own projection later agrees
 with (jasperfx#1004):
 
 ```csharp
@@ -568,91 +541,22 @@ Three things worth knowing:
 Write your Bobcat specs against the stubs straight away. They are red until the behaviour exists,
 and that is the point.
 
-With `--specs`, the command writes them for you as well: one WolverineFx.Bobcat specification per
-example on the board. They go to the spec project, by default the sibling of `--out` named for the
-spec namespace (`--specs-out` to put them elsewhere, `--specs-namespace` to name it; the default is
-`{Namespace}.Specs`, and it should be the spec project's name):
+**Specifications from the board moved to the Wolverine repository in Bobcat 1.0.0-rc.2** (bobcat#744). The
+`--specs` option wrote one WolverineFx.Bobcat specification per example on the board, and the spec project
+around them, and checked the application's Wolverine setup -- so it belongs next to `wolverine scaffold`, and
+lives there now as a Wolverine-side command. `--specs`, `--specs-out`, `--specs-namespace`, `--store`,
+`--app-project`, `--bobcat-version` and `--wolverine-version` are gone from this command. The stubs and the
+`EventModelDefinition` it writes are unchanged, and a spec written by hand or by the Wolverine command binds to
+them the same way.
 
-```
-CritterCrush.Specs/
-  GlobalUsings.cs                        every namespace the specs use, once
-  TestSupport.cs                         the fixture, the collection, the base spec class
-  VolunteeringAndHomeChecks/
-    ReviewVolunteerApplication.cs        namespace CritterCrush.Specs.VolunteeringAndHomeChecks
-    ...
-```
-
-Each slice is one `[BobcatFeature]` class in its own file, under a folder per chapter, and each
-example is one `[Fact]` named for the example in snake case:
-
-```csharp
-[BobcatFeature("ReviewVolunteerApplication")]
-public class review_volunteer_application(AppFixture app) : CritterCrushSpec(app)
-{
-    [Fact]
-    public async Task volunteer_application_reviewed()
-    {
-        var theStream = Guid.CreateVersion7();
-        await GivenEvents(theStream, Specify<VolunteerApplicationSubmitted>());
-
-        await WhenReceived(Specify<ReviewVolunteerApplication>().With(x => x.Id, theStream));
-
-        ThenEvents(Specify<VolunteerApplicationReviewed>());
-    }
-}
-```
-
-Every id a spec mints is `Guid.CreateVersion7()`, never `Guid.NewGuid()`: generated code is copied,
-and a random v4 Guid as a stream id fragments the store's indexes.
-
-An object with more than three specified members is written as a `Property | Value` table rather
-than a `.With(...)` chain that runs off the screen. The cells are read with the same rules as any
-Bobcat table, and identities are interpolated:
-
-```csharp
-await WhenReceived(Specify<BookVisit>($$"""
-    | Property | Value        |
-    | VisitId  | {{theVisit}} |
-    | Vet      | Dr. Hollis   |
-    | Room     | 3            |
-    | Notes    | EMPTY        |
-    """));
-```
-
-`Specify<T>(table)` takes either that two-column form or the members as headers over a single row,
-and `.With(...)` still chains after it. A value with no faithful cell form, such as text holding a
-pipe, keeps the chain instead, one member to a line.
-
-An expected object can also be written as assertions on its members, for checks that are not
-plain equality:
-
-```csharp
-await ThenReadModel<VolunteerApplicationsQueue>(theQueue, Specify<VolunteerApplicationsQueue>(
-    x => x.Pending.ShouldBe(1),
-    x => x.Oldest.ShouldBeLessThan(DateTimeOffset.UtcNow)));
-```
-
-A plain `ShouldBe` is the same as `.With(...)`. Any other assertion runs against the member's actual
-value, and the spec report shows it in the same member table as it reads (`should be less than …`),
-with the assertion's own message when it fails. `.Check(...)` adds the same to a `.With(...)` chain.
-Checks only verify, so an object with one cannot be built as a command or an arranged event.
-
-**A member check needs C# 14 to read naturally**, because it is an expression tree and an expression
-tree cannot leave out an optional argument before then -- see [Expected
-Objects](expected-objects.md#member-checks-and-the-c-version-they-need) for the error, the fix, and
-every other form an expected object takes.
-
-A view example that names no identity is checked as the only one of its type, and the generated spec
-says so in a comment, so the assumption is never silent.
-
-Each generated spec class carries `[BobcatSlice(SliceType = typeof(ReviewVolunteerApplication))]`,
-or `SliceName = "…"` where no type bears the slice's name, so the IDE navigates from the spec to its
+A spec class bound with `[BobcatSlice(SliceType = typeof(ReviewVolunteerApplication))]` (or
+`SliceName = "…"` where no type bears the slice's name) lets the IDE navigate from the spec to its
 slice. Bobcat.Generators also writes a manifest of every `[BobcatFeature]` test as a JasperFx
 `SpecificationBindingDescriptor`: its `{Feature}/{Scenario}` identity, and the command its first
 `When…(Specify<T>()…)` or `When…(new T(…))` sends, or the slice `[BobcatSlice]` names. The manifest is
 marked with JasperFx's `[assembly: SpecificationManifest(…)]`, so it can be read without referencing
 Bobcat: `JasperFx.Events.EventModeling.SpecificationManifest.In(assembly)`, or `.Load(path)` for an
-assembly on disk (`SpecificationBindings.In(assembly)` forwards to it). JasperFx's
+assembly on disk (Bobcat's own `SpecificationBindings.In` was removed in 1.0.0-rc.2). JasperFx's
 `EventModelSpecifications.Link` joins those onto an assembled Event Model by command type (and domain,
 for a command several modules handle), so an `EventModelDefinition` needs no `LinksToSpecification`.
 
@@ -664,64 +568,12 @@ specifications. A command several slices could own shows up as an `UnresolvedSpe
 dotnet run -- describe-event-model --specs ../Shelter.Specs/bin/Debug/net10.0/Shelter.Specs.dll
 ```
 
-The usings live once in `GlobalUsings.cs`, so a spec file is just its specifications.
-
-`TestSupport.cs` starts the application's own host through Alba, so `Program` must be public
-(`public partial class Program;`; the import checks, see below). Pass `--store marten`, `polecat` or `fisher` to have it run that
-store's async daemon in solo mode; without it, the host names each store's way in a comment. The
-base spec class calls `ResetAsync()` before every test, which resets every event store the host registers,
-so the same specifications run on any of the three stores. They use the application's own database
-and schema, so a failing spec's data is where you would look for it.
-
-### The spec project
-
-When the spec directory holds no `.csproj`, `--specs` writes the project around the specifications
-too, so the result builds and runs with `dotnet test` and nothing written by hand:
-
-| File | What it holds |
-|---|---|
-| `{SpecsNamespace}.csproj` | an xUnit v3 (4.x) executable on Microsoft.Testing.Platform 2: `xunit.v3`, `Bobcat`, `Bobcat.Xunit`, `Bobcat.Generators` (as an analyzer, with the `Bobcat.Generated` interceptor opt-in, BOBCAT037), `WolverineFx.Bobcat`, `Alba`, `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` for IDE discovery, and a `ProjectReference` to the application. Its target framework is the application's (the newest, if it has several) |
-| `AssemblyAttributes.cs` | `[assembly: EventModelName("{Model}")]`, so the specs' slices join the application's model; `Parallelization(Mode = None)`, because every spec resets the store; and `WebApplicationFactoryContentRoot` pointing Alba at the application's directory |
-| `global.json` | `"test": { "runner": "Microsoft.Testing.Platform" }`, which `dotnet test` needs for xUnit v3 4.x on the .NET 10 SDK |
-
-**Versions.** The Bobcat packages are pinned to the tool's own version (`--bobcat-version` changes
-it). `WolverineFx.Bobcat` defaults to the newest one published; pass `--wolverine-version` for
-another, such as a local pack. Both are MSBuild properties in the csproj, `BobcatVersion` and
-`WolverineFxBobcatVersion`, so `-p:WolverineFxBobcatVersion=…` or a `Directory.Build.props`
-overrides them later. When the repository manages versions centrally (`Directory.Packages.props`),
-the references carry no versions and a `central-package-versions` callout lists the
-`<PackageVersion>` lines to add.
-
-**Where `global.json` goes.** The SDK reads the `global.json` nearest the directory `dotnet test`
-runs in. If one already exists anywhere above the spec project, it is never shadowed. It is checked
-instead, and a `global-json-missing-test-runner` callout gives the section to add. If there is none,
-one is written at the solution root (the nearest directory above holding a `.sln` or `.slnx`, else
-the git root), so `dotnet test` works from the root and from the spec project alike. With neither,
-it goes beside the spec project.
-
-**Nothing here is ever overwritten, not even with `--force`.** An existing `.csproj` means the
-project is yours: nothing is written into it, and it is checked instead. A missing package
-reference, or no `[assembly: EventModelName]`, is a callout with the line to add.
-
-**The application is checked, never edited.** The application project is the one `.csproj` in
-`--out` (`--app-project` names it otherwise). Each thing the specs need from it is a callout carrying
-the exact fix:
-
-| Code | Missing | Fix |
-|---|---|---|
-| `app-program-not-public` | a public `Program`, which Alba needs | `public partial class Program;` at the end of `Program.cs` |
-| `app-missing-run-jasperfx-commands` | `RunJasperFxCommands`, which `wolverine scaffold` and codegen run through | `return await app.RunJasperFxCommands(args);` in place of `app.Run();` |
-| `app-missing-runtime-compilation` | `WolverineFx.RuntimeCompilation`; without it a `TypeLoadMode.Dynamic` host fails to start and every spec fails | `dotnet add <app.csproj> package WolverineFx.RuntimeCompilation --version <the app's WolverineFx version>` |
-| `app-project-not-found` | no single `.csproj` in `--out`; the spec project gets a TODO in place of the reference | `--app-project <path>` |
-
-<!-- JEREMY -->
-
 The links in the definition are the identities those specs report: the slice name, then the
 method name read back as a sentence. That's why the example `ALikeIsRecorded` is linked as
 `SwipeOnDog/a like is recorded`. A projected test's scenario title *is* its method name, so linking
 the board's own spelling would bind to a scenario no run ever reports, and every slice would stay
-unproven with all of its specs green. An example that the board attaches to no slice still gets a
-spec, under a feature named for its chapter, and the report flags that it binds to nothing.
+unproven with all of its specs green. An example that the board attaches to no slice is linked under a
+feature named for its chapter, and the report flags that it binds to nothing.
 
 ### Nothing regenerates these files
 
@@ -738,10 +590,8 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 |---|---|---|
 | The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares; a statement reopening an existing slice by name with the roles the board now gives it (see below) | every existing declaration, even where the board now says something else (the `slice-*` callouts say what) |
 | A slice's stub file (`Features/{Chapter}/{Slice}.cs`) | each type the board names that no file in `--out` declares, at the end of the file's namespace, plus any `using` it needs | every existing type, even where its members differ from the board's (`type-differs-from-board`) |
-| A slice's specification file | a spec for each example that has none, at the end of the class bound to its `[BobcatFeature]`, wherever that class now lives | every existing spec method |
-| `GlobalUsings.cs` | the namespaces it lacks | the rest |
 
-- **The whole directory is checked, not just the file.** A type, slice or spec class you moved to
+- **The whole directory is checked, not just the file.** A type or slice you moved to
   another file is found there and never declared twice. A type a new stub file would declare is
   left out of it when another file already declares it.
 - **Roslyn finds the insertion point; the edit is a text insertion.** Every byte you wrote stays
@@ -755,9 +605,7 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
   (RecordAppointmentNoShow: Emits(AppointmentNoShowRecorded)) to
   Features/BookingAppointments/BookingAppointmentsModel.cs.`, and `--json` lists the file with
   `"mode": "merge"`.
-- **`--force` still overwrites**, as before. The spec project's `.csproj`, `global.json` and
-  `AssemblyAttributes.cs` are never touched, with or without it, and `TestSupport.cs` is written only
-  when it is missing.
+- **`--force` still overwrites**, as before.
 
 #### A new role on an existing slice
 
@@ -834,20 +682,13 @@ says so, and points at `EventModelDefinition`.
 | `-m, --model <name>` | Model name; defaults to the file name. It is the **merge key**, so it must match what the code-derived sources call the model (`opts.ServiceName` / `[assembly: EventModelName]`) or the import floats off as a second diagram |
 | `-n, --namespace <ns>` | Namespace for the generated stubs and definition; defaults to the model name |
 | `-o, --out <dir>` | **Directory** the generated C# is written to, normally the application project's; defaults beside the input. Created if it does not exist |
-| `--specs` | also write a WolverineFx.Bobcat specification per example, and the spec project when there is none |
-| `--specs-out <dir>` | where the specifications go; defaults to a sibling of `--out` named for the spec namespace |
-| `--specs-namespace <ns>` | root namespace of the specifications, and the spec project's name; defaults to `{Namespace}.Specs` |
-| `--store <marten\|polecat\|fisher>` | how the generated test host runs the store's async daemon |
-| `--wolverine-version <v>` | `WolverineFx.Bobcat` version for a spec project the import writes; defaults to the newest published |
-| `--bobcat-version <v>` | Bobcat package version for a spec project the import writes; defaults to the tool's own |
-| `--app-project <csproj>` | the application project the spec project references and the checks read; defaults to the one `.csproj` in `--out` |
 | `--single-definition` | one `EventModelDefinition` for the whole model instead of one per chapter |
-| `--strong-typed-ids` | give each aggregate an identity type — `OrderId` in `Identities.cs` — and write every member, specification and `IdentifiedBy` that addresses its stream with it |
+| `--strong-typed-ids` | give each aggregate an identity type — `OrderId` in `Identities.cs` — and write every member and `IdentifiedBy` that addresses its stream with it |
 | `--aggregate Slice=Type …` | the aggregate a slice decides against, over the inference |
 | `--starts-stream Slice=Type …` | the aggregate whose stream a slice starts, over the inference |
 | `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |
 | `--json` | stdout carries only JSON: callouts, report and files |
-| `--force` | overwrite generated stubs, definitions and specifications that exist, instead of [merging into them](#re-running-the-import). Never the spec project's `.csproj`, `global.json` or `AssemblyAttributes.cs` |
+| `--force` | overwrite generated stubs and definitions that exist, instead of [merging into them](#re-running-the-import) |
 | `-u, --url <base>` | Push the assembled model to a [Bobcat UI](bobcat-ui.md) at this base URL |
 
 #### `--url` takes the **base**, not the endpoint

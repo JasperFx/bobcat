@@ -61,6 +61,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Specs/SliceSpecs.cs binds slices, and the generator emits the Event Model source (and the
+         bridge that publishes it) only where the compilation has JasperFx.Events. A consumer gets it
+         through WolverineFx.Bobcat; core stopped carrying it in bobcat#744. -->
+    <PackageReference Include="JasperFx.Events" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Shouldly" />
   </ItemGroup>

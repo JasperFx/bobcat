@@ -1,4 +1,3 @@
-using JasperFx.Testing;
 using Bobcat.Resilience;
 using Shouldly;
 

@@ -147,8 +147,8 @@ public static class PropertyCells
     /// <remarks>
     /// <para>
     /// <b>Public, and here rather than in any one grammar</b>, because several callers share this
-    /// lookup: <see cref="Verify(object, StepTable)"/>, the store vocabulary, and the Wolverine side's
-    /// event and HTTP-response assertions. Solving it in one of them would leave the others
+    /// lookup: <see cref="Verify(object, StepTable)"/> and any vocabulary built on it, such as
+    /// WolverineFx.Bobcat's event and HTTP-response assertions. Solving it in one of them would leave the others
     /// with a different rule for what a column name means — the drift <see cref="ColumnNames"/> and
     /// <see cref="CellCheck"/> exist to prevent.
     /// </para>

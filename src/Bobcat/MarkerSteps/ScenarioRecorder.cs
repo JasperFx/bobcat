@@ -203,7 +203,7 @@ public static class ScenarioRecorder
     /// <remarks>
     /// <para>
     /// <b>Ambient and static for the reason <see cref="Bobcat.Engine.SpecReport"/> is (issue #408):</b> the
-    /// producer — <c>CritterStackScenario</c>, or a vocabulary in another package that derives from it — has
+    /// producer — a scenario vocabulary in another package, such as WolverineFx.Bobcat's — has
     /// no context to be handed, and must compile once against one static surface.
     /// </para>
     /// <para>
@@ -1195,8 +1195,12 @@ public static class ScenarioRecorder
         /// </summary>
         public int? DeclaredStepNumber { get; internal set; }
 
-        /// <summary>What the helper threw, when it threw. Null on a step that passed.</summary>
-        public Exception? Failure { get; internal set; }
+        /// <summary>
+        /// What the helper threw, when it threw. Null on a step that passed. Settable by a vocabulary in
+        /// another package (WolverineFx.Bobcat marks a timed-out act's open When step failed without
+        /// closing it, which <c>IStepHandle.Fail</c> would), the same as <see cref="Recording.Failure"/>.
+        /// </summary>
+        public Exception? Failure { get; set; }
 
         /// <summary>Null while the step is still running — which is what makes progress visible.</summary>
         public long? DurationMs => EndedAtMs - StartedAtMs;

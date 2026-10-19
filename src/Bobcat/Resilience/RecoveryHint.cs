@@ -1,4 +1,3 @@
-using JasperFx.Testing;
 using System.Reflection;
 
 namespace Bobcat.Resilience;

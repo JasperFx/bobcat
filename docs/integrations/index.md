@@ -6,7 +6,7 @@ framework-specific.
 
 | | Package | |
 |---|---|---|
-| [Marten, Polecat and Fisher](marten.md) | `Bobcat` | `CritterStackScenario` / `CritterStackSpec`: the store-only vocabulary, through the JasperFx.Events abstractions. No message bus, and no `Bobcat.Marten` package to add |
+| [Marten, Polecat and Fisher](marten.md) | `WolverineFx.Bobcat` (since 1.0.0-rc.2) | `CritterStackScenario` / `CritterStackSpec`: the store-only vocabulary, through the JasperFx.Events abstractions. No message bus in its steps, and no `Bobcat.Marten` package to add |
 | [Wolverine](wolverine.md) | `WolverineFx.Bobcat`, `WolverineFx.Bobcat.Http` | `WolverineSpec` and `WolverineHttpSpec`: acts through Wolverine's tracked session and Wolverine.HTTP, message assertions, Dynamic Consistency Boundary steps. Published from the Wolverine repository |
 
 Which Bobcat works with which Marten, Polecat, Fisher and Wolverine versions is on

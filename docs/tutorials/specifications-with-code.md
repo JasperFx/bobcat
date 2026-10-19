@@ -13,16 +13,35 @@ own runner, and Bobcat renders it as readable steps with their own verdicts.
 **A scenario vocabulary**, when your application is event sourced on the Critter Stack. Derive from
 `CritterStackSpec` (or WolverineFx.Bobcat's `WolverineSpec`) and every member is a step:
 
-<<< ../../samples/BankAccountES/Tests/FreezeAccountSpecs.cs#freeze-account{cs}
+```cs
+[BobcatFeature("Freeze Account")]
+public class FreezeAccountSpecs(BankAccountHost app) : BankAccountSpec(app)
+{
+    [BobcatSpec(typeof(FreezeAccount), Domain = "Banking", TriggeredBy = "The fraud desk")]
+    public async Task freezing_an_account_records_the_freeze()
+    {
+        var accountId = Guid.NewGuid();
+        await GivenEvents<Account>(accountId, new AccountOpened(accountId, Guid.NewGuid(), "USD"));
 
-That one is from `samples/BankAccountES`, whose `BankAccountSpec` base derives from `CritterStackSpec`
+        await WhenReceived(new FreezeAccount(accountId, "Suspected fraud"));
+
+        ThenEmitted<AccountFrozen>();
+        await ThenReadModel<Account>(accountId, Specify<Account>().With(x => x.IsFrozen, true));
+    }
+}
+```
+
+That one is from the BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2), whose `BankAccountSpec` base derives from `CritterStackSpec`
 and adds the application's own HTTP and message acts. `[BobcatSpec]` is the test, its slice binding
 and its recording in one attribute.
 
 **Decorated step helpers**, for any application. A step attribute on a shared helper declares it once,
 so every test that calls it reads as that step:
 
-<<< ../../samples/EcommerceMicroservices/Tests/ProductSpecs.cs#response-status{cs}
+```cs
+[Then("the response status is {status}")]
+public void ThenTheResponseStatusIs(int status) => SpecAssert.Check("status", _lastStatusCode, status);
+```
 
 **Marker comments**, for a test you'd rather not touch:
 

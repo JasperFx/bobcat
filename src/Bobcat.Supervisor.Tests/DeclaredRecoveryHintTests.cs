@@ -1,6 +1,5 @@
 using Bobcat.Resilience;
 using Bobcat.Runtime;
-using JasperFx.Testing;
 using Shouldly;
 
 namespace Bobcat.Supervisor.Tests;

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using JasperFx.Testing;
 using Bobcat.Engine;
 using Bobcat.Monitoring;
 using Bobcat.Resilience;

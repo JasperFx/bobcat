@@ -4,7 +4,7 @@ namespace Bobcat;
 
 /// <summary>
 /// The scenario vocabulary calls a projected test makes — <c>GivenEvents</c>, <c>WhenReceived</c>,
-/// <c>ThenDocument</c> and the rest of <c>CritterStackScenario</c>'s and WolverineFx.Bobcat's — in source
+/// <c>ThenDocument</c> and the rest of a vocabulary such as WolverineFx.Bobcat's — in source
 /// order, keyed by the <c>{Feature}/{Scenario}</c> identity they belong to (bobcat#625).
 /// </summary>
 /// <remarks>

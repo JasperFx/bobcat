@@ -49,7 +49,7 @@ public class UnawaitedStepDiagnosticTests
         """;
 
     private static IReadOnlyList<Diagnostic> reported(string body, string testModifiers = "async Task")
-        => GeneratorHarness.Run(specWith(body, testModifiers)).WithId("BOBCAT043").ToList();
+        => GeneratorHarness.Run(specWith(body, testModifiers), null, [CritterStackStandIn.Reference]).WithId("BOBCAT043").ToList();
 
     [Fact]
     public void a_step_helper_returning_a_task_called_as_a_statement_is_reported_at_the_call()

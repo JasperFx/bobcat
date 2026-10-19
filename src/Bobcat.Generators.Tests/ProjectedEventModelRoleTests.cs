@@ -81,11 +81,11 @@ public class ProjectedEventModelRoleTests
                 public Task WhenReceived(object message) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route))]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route))]
                 public Task WhenPosted(object command, string route) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "DELETE")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "DELETE")]
                 public Task WhenDeleted(object command, string route) => Task.CompletedTask;
 
                 // bobcat#615: an act that names no command anywhere on the call
@@ -94,16 +94,16 @@ public class ProjectedEventModelRoleTests
 
                 // bobcat#501: a read-only act -- a GET/HEAD trigger plus a read role, no command
                 [EventModelRole(SliceRole.ReadModel, nameof(T))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "GET")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "GET")]
                 public Task WhenReading<T>(string route) where T : class => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.ReadModel, nameof(T))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "HEAD")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "HEAD")]
                 public Task WhenProbing<T>(string route) where T : class => Task.CompletedTask;
 
                 // The same read role behind a POST is no read act: an unsafe verb is not a query
                 [EventModelRole(SliceRole.ReadModel, nameof(T))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "POST")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "POST")]
                 public Task WhenSearching<T>(string route) where T : class => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Event, nameof(events))]
@@ -941,7 +941,7 @@ public class ProjectedEventModelRoleTests
             """);
         outcome.CompilationErrors.ShouldBeEmpty();
 
-        var binding = SpecificationBindings.In(load(outcome)).ShouldHaveSingleItem();
+        var binding = JasperFx.Events.EventModeling.SpecificationManifest.In(load(outcome)).ShouldHaveSingleItem();
         binding.Identity.ShouldBe("Accounts/a deposit after opening");
         binding.CommandType!.Name.ShouldBe("Deposit");
         names(binding.ResolvedTypes).ShouldBe(["Account", "OpenAccount", "Deposit", "FundsDeposited"]);
@@ -970,7 +970,7 @@ public class ProjectedEventModelRoleTests
         outcome.CompilationErrors.ShouldBeEmpty();
 
         // bobcat#501: the name-based fallback would have taken OpenAccount, the arrangement, as the command
-        var binding = SpecificationBindings.In(load(outcome)).ShouldHaveSingleItem();
+        var binding = JasperFx.Events.EventModeling.SpecificationManifest.In(load(outcome)).ShouldHaveSingleItem();
         binding.CommandType.ShouldBeNull();
         binding.SliceName.ShouldBe("GET /accounts/{id}");
     }
@@ -1033,7 +1033,7 @@ public class ProjectedEventModelRoleTests
                 public Task WhenReceived(object message) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = "url")]
+                [EventModelTrigger(ActTrigger.Http, Route = "url")]
                 public Task WhenPosted(object command, string route) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]
@@ -1101,7 +1101,7 @@ public class ProjectedEventModelRoleTests
 
         // The name-based fallback for the binding's command is held to the same rule: no later When is
         // promoted, and no typeof(accounts.Withdraw) is written
-        var binding = SpecificationBindings.In(load(outcome)).ShouldHaveSingleItem();
+        var binding = JasperFx.Events.EventModeling.SpecificationManifest.In(load(outcome)).ShouldHaveSingleItem();
         binding.CommandType.ShouldBeNull();
         binding.SliceName.ShouldBe("Withdraw");
         binding.ResolvedTypes.Count.ShouldBe(2);
@@ -1133,11 +1133,11 @@ public class ProjectedEventModelRoleTests
             public class Routes : ScenarioBase
             {
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http, Route = nameof(route), HttpMethod = "PUT")]
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "PUT")]
                 public Task WhenPut(object command, string route) => Task.CompletedTask;
 
                 [EventModelRole(SliceRole.Command, nameof(command))]
-                [EventModelTrigger(TriggerKind.Http)]
+                [EventModelTrigger(ActTrigger.Http)]
                 public Task Post(object command) => Task.CompletedTask;
             }
 
@@ -1503,7 +1503,7 @@ public class ProjectedEventModelRoleTests
             m => m.ShouldContain("'Post'"),
             m => m.ShouldContain("'Posting'"),
             m => m.ShouldContain("taken from the slice binding, Deposit"),
-            m => m.ShouldContain("[EventModelTrigger(TriggerKind.Http"));
+            m => m.ShouldContain("[EventModelTrigger(ActTrigger.Http"));
     }
 
     [Fact]

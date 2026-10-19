@@ -93,7 +93,7 @@ public class SpecificationManifestTests
         return Assembly.Load(stream.ToArray());
     }
 
-    private static IReadOnlyList<SpecificationBindingDescriptor> bindings() => SpecificationBindings.In(specAssembly());
+    private static IReadOnlyList<SpecificationBindingDescriptor> bindings() => JasperFx.Events.EventModeling.SpecificationManifest.In(specAssembly());
 
     [Fact]
     public void the_manifest_is_marked_with_jasperfxs_attribute()

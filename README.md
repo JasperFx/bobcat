@@ -12,7 +12,6 @@
 
 [![Discord](https://img.shields.io/discord/1074998995086225460?color=blue&label=Chat%20on%20Discord)](https://discord.gg/WMxrvegf8H)
 [![tests](https://github.com/JasperFx/bobcat/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/JasperFx/bobcat/actions/workflows/tests.yml)
-[![samples](https://github.com/JasperFx/bobcat/actions/workflows/samples.yml/badge.svg?branch=main)](https://github.com/JasperFx/bobcat/actions/workflows/samples.yml)
 [![Nuget Package](https://badgen.net/nuget/v/bobcat)](https://www.nuget.org/packages/Bobcat/)
 [![Nuget](https://img.shields.io/nuget/dt/bobcat)](https://www.nuget.org/packages/Bobcat/)
 
@@ -29,7 +28,8 @@ systems with databases, message brokers, background processing, and many moving 
   asks for.
 - **Specify** end to end. Executable specifications still read as requirements, and they can be
   scaffolded slice by slice from an Event Model. Bobcat has first-class support for the Critter
-  Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher).
+  Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher)
+  through `WolverineFx.Bobcat`, while Bobcat itself takes no JasperFx or Wolverine dependency.
 
 Your specifications are your test framework's own tests, so they show up in `dotnet test`, your
 IDE's Test Explorer, and CI like any other test.
@@ -55,7 +55,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 
 | Package | What it is for |
 |---------|----------------|
-| [`Bobcat`](https://www.nuget.org/packages/Bobcat/) | The runtime: the projected specification engine, verification, rendering, the monitor wire, and the store-agnostic Critter Stack vocabulary (`CritterStackScenario`) |
+| [`Bobcat`](https://www.nuget.org/packages/Bobcat/) | The runtime: the projected specification engine, verification, rendering, the monitor wire and the resilience vocabulary. No JasperFx or Wolverine dependency; the Critter Stack vocabulary (`CritterStackScenario`) ships in `WolverineFx.Bobcat` from the Wolverine repository |
 | [`Bobcat.Generators`](https://www.nuget.org/packages/Bobcat.Generators/) | The source generator: step interceptors, marker-comment steps, the Event Model fold and compile-time table checks |
 | [`Bobcat.Supervisor`](https://www.nuget.org/packages/Bobcat.Supervisor/) | Drives any MTP test host as worker processes, with retry, isolation, and parallel lanes |
 | [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices. Replaces the retired `Bobcat.Wolverine` |
@@ -81,7 +81,7 @@ is a Roslyn analyzer.
 
 ### 2. Docker
 
-Some integration tests and every sample need a real PostgreSQL database. The fastest way to get one
+A few integration tests need a real PostgreSQL database. The fastest way to get one
 is the `docker-compose.yml` at the repository root:
 
 ```bash
@@ -107,18 +107,16 @@ solution file at the root, so `dotnet build` and `dotnet test` pick it up withou
 
 - **`src/`** contains the packages, their test projects, and the sample hosts the tests drive
   (`Bobcat.Xunit.Samples`, `Bobcat.Supervisor.ProjectedWorker`).
-- **`samples/`** contains complete sample applications, each with its own `.slnx` and a `Tests/`
-  spec project. They are deliberately **not** in `bobcat.slnx`. They reference Bobcat by project
-  reference, so they always build against the code in your checkout.
+- The sample applications moved to the [Wolverine repository](https://github.com/JasperFx/wolverine)
+  with the Critter Stack vocabulary in 1.0.0-rc.2 (#744).
 - **`spikes/`** contains throwaway research code, kept for reproducibility, with its own solution.
 - **`build/`** is the Nuke build project described below.
 - **`docs/`** is the documentation site.
 
 Package versions are managed centrally with NuGet's
 [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management):
-`src/Directory.Packages.props` and `samples/Directory.Packages.props` hold every version, and a
-`PackageReference` never carries its own `Version`. The Critter Stack versions in those two files
-must stay identical. The header comment in `src/Directory.Packages.props` explains why.
+`src/Directory.Packages.props` holds every version, and a `PackageReference` never carries its own
+`Version`. Its header comment says which projects may reference JasperFx (only the tools).
 
 ### Tooling
 
@@ -140,7 +138,6 @@ a green `./build.sh CI` on your machine means the same thing as a green push.
 | Everything the `tests` workflow runs | `build.cmd ci` | `build.ps1 ci` | `./build.sh ci` | `dotnet run --project build/Build.csproj -- ci` |
 | The TUnit-hosted tests CI leaves out for now ([#521](https://github.com/JasperFx/bobcat/issues/521)) | `build.cmd tunittests` | `build.ps1 tunittests` | `./build.sh tunittests` | `dotnet run --project build/Build.csproj -- tunittests` |
 | Pack every package to `artifacts/packages` | `build.cmd pack` | `build.ps1 pack` | `./build.sh pack` | `dotnet run --project build/Build.csproj -- pack` |
-| Build every sample and run its specs | `build.cmd samples` | `build.ps1 samples` | `./build.sh samples` | `dotnet run --project build/Build.csproj -- samples` |
 | List every target and parameter | `build.cmd --help` | `build.ps1 --help` | `./build.sh --help` | `dotnet run --project build/Build.csproj -- --help` |
 
 Targets combine, so `./build.sh docker ci` starts the services and then runs the full CI build.
@@ -158,8 +155,8 @@ dotnet test
 dotnet test --project src/Bobcat.Tests/ --filter-class "*PipelineTests"
 ```
 
-> Note: have the Docker services running (`./build.sh docker`) before running the tests or the
-> samples, or the database-backed tests will skip.
+> Note: `./build.sh docker` starts the compose services. The Marten-backed tests and the samples
+> that needed Postgres moved to the Wolverine repository (#744).
 
 ### Continuous Integration
 
@@ -168,14 +165,13 @@ CI is GitHub Actions only, and each workflow is a thin wrapper around the Nuke b
 | Workflow | Runs | When |
 |----------|------|------|
 | `tests.yml` | `./build.sh CI`, with a Postgres service: the suite, then the results schema checked against the last release's | every push |
-| `samples.yml` | `./build.sh Samples`, with a Postgres service | pushes touching `src/`, `samples/`, or `build/` |
 | `ui-smoke.yml` | `./build.sh UiSmoke`: packs the `bobcat` tool with its UI, starts `bobcat ui` and checks it, Chromium included | pushes touching `src/` or `build/` |
 | `ui-frontend.yml` | `./build.sh UiContracts`, then typecheck, Vitest and the Vite build of the `bobcat ui` page | pushes touching `src/Bobcat.Ui.FrontEnd/`, `src/Bobcat.Ui/Contracts/` or `build/` |
 | `publish.yml` | `./build.sh CI Pack`, then pushes to nuget.org | `v*` tags, or manually |
 | `docs.yml` | builds and deploys the documentation site | manually |
 
-To change what CI does, change `build/Build.cs`, `build/Samples.cs`, `build/UiSmoke.cs` or
-`build/Contracts.cs`, not the workflows.
+To change what CI does, change `build/Build.cs`, `build/UiSmoke.cs` or `build/Contracts.cs`, not the
+workflows.
 
 Two files are generated and never committed, so that parallel branches touching the wire do not
 conflict on them: the frontend's TypeScript contracts (`src/Bobcat.Ui.FrontEnd/src/messages/monitor-events.ts`
