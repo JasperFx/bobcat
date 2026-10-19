@@ -88,6 +88,14 @@ public class ProjectedEventModelRoleTests
                 [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "DELETE")]
                 public Task WhenDeleted(object command, string route) => Task.CompletedTask;
 
+                // wolverine#5076: body-less HTTP writes -- a trigger and a route template filled by route values, no
+                // command role at all, plus the configure form a request needing headers takes
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "POST")]
+                public Task WhenPostedTo(string route, params object[] routeValues) => Task.CompletedTask;
+
+                [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "DELETE")]
+                public Task WhenDeletedAt(string route, Action<object> configure, params object[] routeValues) => Task.CompletedTask;
+
                 // bobcat#615: an act that names no command anywhere on the call
                 [EventModelAct]
                 public Task WhenActing(string description, Func<Task> act) => Task.CompletedTask;
@@ -1592,6 +1600,57 @@ public class ProjectedEventModelRoleTests
 
         // An act with no HTTP trigger still says nothing about its pattern
         slices.Single(x => x.Name == "Sweeps").Pattern.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_body_less_act_with_route_values_is_a_command_slice_on_its_route_template()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary +
+            """
+            [BobcatFeature("Proposals")]
+            public class proposals : ScenarioBase
+            {
+                [Fact, BobcatSlice(SliceName = "AcceptProposal")]
+                public async Task a_proposal_is_accepted()
+                {
+                    var id = Guid.NewGuid();
+                    await WhenReceived(new OpenAccount(id, "Ann"));
+                    await WhenPostedTo("/proposals/{id}/accept", id);
+                    await ThenReadModel<AccountSummary>(id);
+                }
+
+                [Fact, BobcatSlice(SliceName = "WithdrawProposal")]
+                public async Task a_proposal_is_withdrawn()
+                {
+                    var id = Guid.NewGuid();
+                    await WhenDeletedAt("/proposals/{id}", _ => { }, id);
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // The template is constant, so the route is stamped as written: no BOBCAT038, and the route values are
+        // never read as a command
+        outcome.WithId("BOBCAT038").ShouldBeEmpty();
+        outcome.WithId("BOBCAT034").ShouldBeEmpty();
+
+        var slices = GeneratedEventModel.For(load(outcome))!.Slices;
+
+        // The arranging WhenReceived is not the act: the body-less POST after it is, and it names no command
+        var accepted = slices.Single(x => x.Name == "AcceptProposal");
+        accepted.Pattern.ShouldBe(SlicePattern.Command);
+        accepted.CommandType.ShouldBeNull();
+        accepted.ReadModelTypes.ShouldBeEmpty();
+        names(accepted.ConsumedEvents).ShouldBeEmpty();
+        accepted.TriggerKind.ShouldBe(TriggerKind.Http);
+        accepted.TriggerOrigin!.HttpMethod.ShouldBe("POST");
+        accepted.TriggerOrigin.HttpRoute.ShouldBe("/proposals/{id}/accept");
+
+        var withdrawn = slices.Single(x => x.Name == "WithdrawProposal");
+        withdrawn.Pattern.ShouldBe(SlicePattern.Command);
+        withdrawn.CommandType.ShouldBeNull();
+        withdrawn.TriggerOrigin!.HttpMethod.ShouldBe("DELETE");
+        withdrawn.TriggerOrigin.HttpRoute.ShouldBe("/proposals/{id}");
     }
 
     [Fact]
