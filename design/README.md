@@ -14,6 +14,7 @@ when it answers *"how do I do the thing I came here to do."*
 | `wolverine-ci-rollout.md` | Lessons of record from the first production Supervisor rollout |
 | `critter-stack-supervisor-rollout.md` | Lessons of record from the second rollout, on Marten, Polecat, Weasel and Fisher CI (#565), and where each open item landed |
 | `local-push-gates.md` | Design note for #566: the four repositories' container, port and name constraints compared, and the proposed track declaration and scheduler for a local commit-and-push gate (built in #729) |
+| `jasperfx-decoupling.md` | Design note for #744/#745: what in core and the Supervisor touches JasperFx, moving the Critter Stack vocabulary, the samples and the spec writer to the Wolverine repo, the generated Event Model publishing bridge, and the breaking changes for rc.2 |
 | `rider/` | The upstream Reqnroll.Rider patch, its PR body, and notes on what was and was not verified |
 | `history/` | Gherkin-era records kept for history (the lane was removed in 0.50.0, bobcat#471): the original `spec-driven-development-design.md` vision, the `acceptance-coverage-map.md` from the lane's removal, and the `sample-wiring-playbook.md` for wiring samples to `BobcatRunner` |
 | `storyteller-gap-analysis.md` | Living comparison of Storyteller 5 against Bobcat: the gap register, what was dropped and why, and an append-only log of decisions taken about each gap |
