@@ -163,39 +163,26 @@ against as its minimum:
 
 | WolverineFx.Bobcat | Requires Bobcat | Requires WolverineFx |
 |---|---|---|
+| the release after 6.51.1-alpha.1 (wolverine#5082) | 1.0.0-rc.2 or later | the same version |
+| 6.51.1-alpha.1 | 1.0.0-rc.1 exactly: **not** rc.2, which no longer carries the `CritterStackScenario` it derives from | the same version |
 | 6.50.0-alpha.1 – 6.51.0-alpha.1 | 0.60.4 or later (on 1.0.0-rc.1, all but `WhenActing`/`WhenActingOn`, below) | the same version |
 | 6.49.0-alpha.3 | 0.38.0 or later | 6.49.0 |
 | 6.48.x | 0.32.0 or later | the same version |
 
-**No `WolverineFx.Bobcat` is built against Bobcat 1.0 yet.** For Bobcat 1.0.0-alpha.1 and
-1.0.0-rc.1, use **WolverineFx.Bobcat 6.51.0-alpha.1**: it is the supported pairing, with one limit on
-rc.1 (below), until a release
-built against 1.0 ships (Wolverine moves to rc.1 next), and this table gains its row then. Reference
-`Bobcat`, `Bobcat.Generators` and your runner adapter at the 1.0 prerelease directly. NuGet takes the higher Bobcat without a warning (6.51.0
-only sets a minimum, so there is no NU1608). This pairing has run in
-[CritterStackSamples](https://github.com/JasperFx/CritterStackSamples): 12 spec projects using
-`WolverineSpec` (`WhenReceived`, `WhenTracked`, `ThenMessageSent`, `ThenNoMessageSent`,
-`GivenReadModel`, `ThenDocument`, `ThenSingleDocument`, `ThenEvents`, `ThenStreamIsStarted`)
-compiled and passed on net9.0 and net10.0.
+**For Bobcat 1.0.0-rc.1, use WolverineFx.Bobcat 6.51.1-alpha.1**, the first release built against
+Bobcat 1.0. For 1.0.0-rc.2, use the WolverineFx.Bobcat release that carries the Critter Stack
+vocabulary (below); 6.51.1-alpha.1 fails on rc.2 with a `TypeLoadException` for
+`Bobcat.CritterStack.CritterStackScenario`.
 
-**On Bobcat 1.0.0-rc.1, `WhenActing` and `WhenActingOn` don't work with WolverineFx.Bobcat
-6.51.0-alpha.1** (bobcat#742). Bobcat 1.0.0-rc.1 renamed `CritterStackScenario.Store` to
-`EventStore` (bobcat#709), and 6.51.0-alpha.1 was compiled against the old name. Its `WhenActing`
-reads that property once the act has appended events through a session Wolverine opened, so the
-step fails with:
+**WolverineFx.Bobcat 6.51.0-alpha.1 on Bobcat 1.0.0-rc.1: `WhenActing` and `WhenActingOn` fail**
+(bobcat#742). Bobcat 1.0.0-rc.1 renamed `CritterStackScenario.Store` to `EventStore` (bobcat#709), and
+6.51.0-alpha.1 was compiled against the old name, so the act fails with:
 
 ```text
 System.MissingMethodException: Method not found: '... Bobcat.CritterStack.CritterStackScenario.get_Store()'
 ```
 
-That happens with one event store too. `WhenActingOn` runs its act the same way and fails the same
-way. Everything else in the pairing works on rc.1, including `WhenReceived`, `WhenPosted` and
-`WhenTracked`, which don't take that path. Until a WolverineFx.Bobcat built against Bobcat 1.0 ships:
-
-- write the act as `WhenReceived(command)` or `WhenTracked(...)` instead of `WhenActing`, or
-- stay on Bobcat 1.0.0-alpha.1 (or 0.60.4), where 6.51.0-alpha.1 works in full.
-
-The Wolverine release built against Bobcat 1.0 reads `EventStore`, and it fixes this.
+The fix is to move to 6.51.1-alpha.1, which reads `EventStore`.
 
 **`WolverineFx.Bobcat.Http` 6.51.0-alpha.1 depends on Alba 9.0.0-rc.2** (bobcat#675). A test project
 that references Alba 8.x gets NU1605 (a package downgrade) and has to move to the prerelease Alba

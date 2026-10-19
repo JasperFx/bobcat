@@ -310,7 +310,7 @@ public static class EmlangReader
     }
 
     /// <summary>A prop value as one line of text: a list joins its items, a map its entries.</summary>
-    internal static string Text(object? value) => value switch
+    public static string Text(object? value) => value switch
     {
         null => string.Empty,
         List<object> items => string.Join(", ", items.Select(Text)),

@@ -1195,8 +1195,12 @@ public static class ScenarioRecorder
         /// </summary>
         public int? DeclaredStepNumber { get; internal set; }
 
-        /// <summary>What the helper threw, when it threw. Null on a step that passed.</summary>
-        public Exception? Failure { get; internal set; }
+        /// <summary>
+        /// What the helper threw, when it threw. Null on a step that passed. Settable by a vocabulary in
+        /// another package (WolverineFx.Bobcat marks a timed-out act's open When step failed without
+        /// closing it, which <c>IStepHandle.Fail</c> would), the same as <see cref="Recording.Failure"/>.
+        /// </summary>
+        public Exception? Failure { get; set; }
 
         /// <summary>Null while the step is still running — which is what makes progress visible.</summary>
         public long? DurationMs => EndedAtMs - StartedAtMs;
