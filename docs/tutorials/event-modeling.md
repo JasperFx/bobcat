@@ -7,11 +7,6 @@ and catching drift between the design and the code -- is written down end to end
 **[Event Modeling with the Critter Stack](https://wolverinefx.net/tutorials/event-modeling.html)**, in
 the Wolverine documentation.
 
-<!-- JEREMY -->
-Bobcat used to keep a second narrative here. One is better: the workflow crosses Wolverine, Marten,
-JasperFx and Bobcat, and two copies of it would drift the way the tutorial warns a board and its code
-drift.
-
 ## Bobcat's part, and where it is documented
 
 | | |
