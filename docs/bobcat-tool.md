@@ -1,6 +1,43 @@
 # The `bobcat` Tool
 
-A global .NET tool with these commands:
+## Installing it
+
+```bash
+dotnet tool install -g Bobcat.Console     # first time
+dotnet tool update -g Bobcat.Console      # after that
+```
+
+`bobcat` is a global .NET tool, and `Bobcat.Console` carries the whole free toolset in one package:
+the run commands, the Event Model import, the resident runner, the [Bobcat UI](bobcat-ui.md) and
+the queries over it. Most commands start, do their job and exit; `ui` is the one that stays up until
+you stop it.
+
+**It is an alternative to `dotnet test` for a spec project.** `dotnet test` still runs the project
+and tells you pass or fail. `bobcat run` drives the same test host and shows you the
+**specifications** it produced: the Given/When/Then tree, every step with its verdict and timing,
+every table as a grid, and the reports a failure wrote. `bobcat preview` shows the specifications a
+project declares **without running anything**, because the steps are known at build time.
+
+## What do you want to do?
+
+| You want to | Run |
+|---|---|
+| Run the specs and read them as specifications, not as a test log | `bobcat run`, or a bare `bobcat` in the spec project |
+| See what a project specifies before running it | `bobcat preview` |
+| Run only what was red last time, or the same selection again | `bobcat run --failed`, `bobcat run --repeat` |
+| Pick specifications from a menu | `bobcat pick` |
+| Rerun on every change while you work | `bobcat watch` |
+| Run one slice, chapter, domain or pattern of the Event Model | `bobcat run --slice …`, `--chapter …`, `--domain …`, `--pattern …` |
+| Keep a JSON record of the run, with its schema, for CI or a coding agent | `bobcat run --results <dir>`, or `bobcat run --json` to stdout |
+| Turn results files into one HTML page to open from a downloaded artifact | `bobcat run --html <file>`, `bobcat results-html <dir>` |
+| Retry what is allowed to be retried, or split the suite across worker processes | `bobcat run --retries N`, `bobcat run --workers N` |
+| Watch runs live and see the Event Model coloured by them | `bobcat ui` |
+| Keep an application's Event Model live in the UI as you edit it | `bobcat watch-event-model <project>` |
+| Turn an eventmodelers.ai board into C# stubs and an `EventModelDefinition` | `bobcat import-event-model <board>` |
+| Ask about a run or the model from a script or an agent, as JSON | `bobcat failing-tests`, `failing-spec`, `await-run`, `slice-coverage`, … |
+| Let the UI's run buttons drive a suite | `bobcat resident <host>` |
+
+## The commands
 
 | | |
 |---|---|
@@ -16,16 +53,6 @@ A global .NET tool with these commands:
 | **[`watch-event-model`](bobcat-ui.md#getting-a-model-onto-it)** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
 | **[`list-runs`](agent-queries.md)**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON -- see [Querying Runs from the Command Line](agent-queries.md) |
 | **[`event-model`](agent-queries.md)**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
-
-`dotnet test`, or running the test executable, still runs a spec project; the run commands are a
-friendlier view of the same test host.
-
-```bash
-dotnet tool install -g Bobcat.Console
-```
-
-`Bobcat.Console` carries the whole free toolset. Most of its commands start, do their job and exit;
-`ui` is the one that stays up, serving the [Bobcat UI](bobcat-ui.md) until you stop it.
 
 ::: tip The UI came back
 The run board and the Event Model canvas lived in [Stoat](https://github.com/JasperFx/stoat) from
