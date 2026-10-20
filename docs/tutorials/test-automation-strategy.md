@@ -12,7 +12,7 @@ overdraw the account**.
 
 ## What a strategy should give you
 
-We think that a test automation strategy succeeds when the suite gives you five things. 
+We think that a test automation strategy succeeds when the suite gives you five things.
 
 ::: tip
 We're not terribly concerned with test coverage as an official metric but instead striving
@@ -22,7 +22,7 @@ for a feedback mechanism using automated tests that's good enough to feel confid
 ### 1. Confidence to ship
 
 ::: info
-This `Acceptance` and `Regression` life cycle designations is drawn from experiences
+These `Acceptance` and `Regression` life cycle designations are drawn from experiences
 with Extreme Programming projects in the mid 2000's. This was originally part of the notion
 that developers would hopefully receive "executable specifications" as the detailed requirements. Our hope for Bobcat
 is that this fits well into newer ideas of "Spec Driven Development."
@@ -49,7 +49,7 @@ Two things in Bobcat protect what a green build means:
   [Event Modeling and Spec Driven Development](event-modeling.md).
 
 In a perfect world, you have detailed test cases in the form of specifications that you can run in a tight loop
-to "know" whether your new feature or the changes you just made are exactly correct. 
+to "know" whether your new feature or the changes you just made are exactly correct.
 
 ::: tip
 To be perfectly clear, Bobcat is perfectly usable without also using any of the rest of the Critter Stack -- but we have specific
@@ -68,7 +68,7 @@ already been tried by many other tools as is, and we didn't think that approach 
 :::
 
 A test has to be cheap to write. You can reduce the mechanical cost of building tests by investing in
-a **declarative** style: the content of the test clearly descries the business rules and expected outcomes, then leaves the mechanics to helpers.
+a **declarative** style: the content of the test clearly describes the business rules and expected outcomes, then leaves the mechanics to helpers.
 FIT, FitNesse and Gherkin did this with an external language. Bobcat does it with just ordinary C# or F# methods:
 
 - **Step helpers are the DSL.** A `[Given]`/`[When]`/`[Then]` attribute on a helper makes every call
@@ -82,7 +82,7 @@ FIT, FitNesse and Gherkin did this with an external language. Bobcat does it wit
 Keep steps declarative: `WhenPosted(new WithdrawFunds(accountId, 200), …)` and not ten lines building
 an HTTP request. The mechanics belong in a helper the next test reuses.
 
-**Test data setup is where most of the writing cost goes.** Jeremy's opinions for it, written down in
+**Test data setup is where most of the writing cost goes.** Jeremy's opinions on it, written down in
 2013 in [My Opinions on Data Setup for Functional Tests](https://jeremydmiller.com/2013/01/26/my-opinions-on-data-setup-for-functional-tests/),
 haven't changed:
 
@@ -145,13 +145,23 @@ A result you can't trust is worse than no result, because people learn to ignore
 test can't be fixed or rewritten, delete it.** A reliable suite with less coverage is more useful
 than a broad one nobody believes.
 
-**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way:
+**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way. The
+[Bobcat Supervisor](https://jasperfx.net/news/introducing-bobcat-supervisor) is the part that runs a
+large suite across worker processes and applies that rule at the only altitude that can act on it:
+it retries *selectively*, only the tests that opted in and only within a budget; it can restart a
+wedged or crashed worker process, or recycle a Docker container, before a retry; and it collects
+what it saw about flaky tests across runs, so flakiness becomes a measured rate instead of an
+impression. It runs Wolverine's own CI, and it needs no change to the tests, because it drives the
+compiled test host through Microsoft.Testing.Platform and never loads the test assembly.
 
 - **Retries are opt-in.** A test with no `Retry` trait is never retried, even when a budget is
-  configured. When a test does pass on a retry, that is reported as `PassOnRetry`, never folded into
-  the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
+  configured. A recovery hint narrows it further, to one failure class and what fixes it: retry
+  in a fresh process for this exception, recycle these containers for that one, never retry this
+  deterministic bug. When a test does pass on a retry, that is reported as `PassOnRetry`, never
+  folded into the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
 - **Flakiness has a memory.** The ledger keeps every attempt across runs, so "this test is
-  flaky" is a claim with evidence behind it.
+  flaky" is a claim with evidence behind it, and the hints it proposes are text a person accepts
+  by writing into the code. Nothing reads them back into a policy on its own.
 - **A hang is reported, not just suffered.** Stall detection names the test that stopped making
   progress, and can kill and retry it if you opt in
   ([When a parallel run hangs](../parallel-ready-suites.md#when-a-parallel-run-hangs-bloats-or-is-cut-short)).
@@ -168,9 +178,9 @@ then papering over it with a `Thread.Sleep`. Wait for the work instead of for th
 - `SpecAssert.EventuallyAsync` polls anything else, and records one cell saying how long it took
   ([Waiting for an answer that arrives later](../marker-steps.md#waiting-for-an-answer-that-arrives-later)).
 
-Nobody trusts flaky tests to the point where they can become an albatross around a team's neck as the test code often
-has to evolve with the rest of the system even though it's not providing any value. And also, our new AI centric way
-of working is also leading to more ambitious and longer running Continuous Integration runs, and there's no point in 
+Nobody trusts flaky tests, to the point where they become an albatross around a team's neck: the test code
+still has to evolve with the rest of the system even though it isn't providing any value. And our new AI-centric way
+of working is leading to more ambitious and longer-running Continuous Integration runs, so there's no point in
 making that problem worse by executing tests you don't trust anyway!
 
 ### 5. Failures that explain why and how
@@ -346,8 +356,7 @@ Bobcat's [comparison with other BDD tools](https://github.com/JasperFx/bobcat/bl
 
 Most failed test automation efforts trace back to developers and testers working apart: one group
 writes the system, the other writes tests against it from outside and can't change it to make it
-testable. Optimize the whole. Developers help with testing, testers work in the code, and either can
-change the architecture when testing calls for it.
+testable. Optimize the whole. Developers help with testing and testers work in the code.
 
 Bobcat specs help because there's one artifact for both groups. A spec is an ordinary test in the
 same solution, which a developer can debug, and it renders as Given/When/Then that a tester or
@@ -425,8 +434,8 @@ write gobs of SQL coupled to today's schema.
 A test can only expect an outcome if nobody else is feeding its inputs. A database, a schema or a
 queue shared between developers, between test environments, or between tests running at the same
 time gives false failures (someone else's data is in the way) and false passes (someone else's side
-effect satisfied your assertion). So nothing the tests write to is shared, at any of four levels,
-and setup and teardown are fully scripted at every one of them. Marten was built partly to make that
+effect just happened to satisfy your assertion). So nothing the tests write to is shared, at any of four levels,
+and setup and teardown are fully scripted at every one of them. [Marten](https://martendb.io) was built partly to make that
 cheap, and the Critter Stack stores all build their own schema from nothing.
 
 **Per developer and per environment.** Every person, every branch build and every CI job gets its
@@ -475,7 +484,13 @@ of pointing at the wrong code (item 10).
 
 ### 12. Prefer technologies with a strong local story
 
-Choose infrastructure a developer can run on a laptop: Postgres and Marten in Docker, Fisher on a
+::: tip
+Emulator projects like [LocalStack](https://www.localstack.cloud/) or the latest version of the Azure Service Bus emulator are
+changing this equation for the better and giving us more usable options -- but PostgreSQL and RabbitMQ are the undisputed champions
+for local-friendly development in my humble opinion!
+:::
+
+Choose infrastructure a developer can run on a laptop *if you can*: Postgres and Marten in Docker, Fisher on a
 file, RabbitMQ in a container. What you can run locally, you can reset, inspect and debug.
 
 When a cloud-only service is unavoidable (Azure Service Bus, say), give each developer and each test
@@ -483,6 +498,11 @@ environment their own namespace, or a prefix on every resource name. The goal is
 a test can only expect an outcome if nobody else is feeding the same queue.
 
 ### 13. Collapse a distributed system into one process for testing
+
+::: tip
+For *functional* testing, yes. For any kind of load testing or testing for resiliency, you'll need
+more black box testing, of course.
+:::
 
 Run the test harness, the web server and the database client in one process, so a test can start the
 system, drive it and observe it without deployments, ports or timing between processes. Replace
@@ -496,6 +516,11 @@ waits for all of it to settle before the first `Then`
 the whole run.
 
 ### 14. Continuous integration: fast tests and slow tests
+
+::: info
+This is old advice from the early days of Extreme Programming that's just meant to improve your
+feedback cycles.
+:::
 
 Tests nobody runs go stale, and failures found late are hard to trace because the list of suspect
 changes keeps growing. Run everything in CI, the slow end-to-end tests included. When the whole suite
