@@ -8,6 +8,13 @@ it corrosive -- the suite stops being evidence and becomes a toll.
 made it flaky isolated per worker, and with the remaining flakiness reported honestly instead of
 retried away.
 
+The tool for all of that is the **[Bobcat Supervisor](https://jasperfx.net/news/introducing-bobcat-supervisor)**,
+Bobcat's primary tool for *making* an existing suite of integration tests reliable rather than
+writing a new one: it drives your test executable as worker processes, isolates resources per
+worker, retries only what is allowed to be retried, and reports what it saw. The reference for it is
+[Making a test suite safe to run in parallel worker processes](../parallel-ready-suites.md); this
+page is the path through it.
+
 This tutorial is written from four real suites -- Wolverine's `PersistenceTests` and `Redis.Tests`,
 Polecat's `Polecat.Tests`, and Bobcat's own -- so the failure modes below are what actually broke,
 not what might.
@@ -51,7 +58,11 @@ test host as four worker processes ([Supervised runs](../bobcat-tool.md#supervis
 resources (Step 2) need a supervisor host of your own -- a small console app around `Supervisor` and
 `MtpWorkerFactory`.
 
-This changes only the entry point -- `dotnet test`, `--filter`, TRX and coverlet keep working.
+This changes only the entry point. `dotnet test` still runs the project, with the root `global.json`
+putting it in MTP mode, and the platform's own options (`--filter-class`, `--report-trx`) replace the
+VSTest ones. Under the supervisor a worker writes no TRX of its own, so a pipeline that reads one
+writes it from the results with `RunReport.WriteTrx`
+([A TRX file for CI that reads one](../parallel-ready-suites.md#a-trx-file-for-ci-that-reads-one)).
 
 > **Put the property in `Directory.Build.props`, not a per-job `-p:` override.** Same output path,
 > different entry point: a build without it silently produces a non-supervisable executable.
@@ -75,21 +86,22 @@ visible in the test list**, which is why the rule has to be conservative. You in
 ## Step 2 -- isolate resources per worker
 
 Class-level partitioning keeps a class together. It cannot stop two *different* classes that share a
-database from landing in different workers. So each worker needs its own:
+database from landing in different workers. So each worker needs its own, set on the
+`MtpWorkerFactory`:
 
-```csharp
-new MtpWorkerFactory(path)
-{
-    ConnectionStrings = new WorkerConnectionStrings()
-        .Add("postgres", worker => $"Host=localhost;Port=5433;Database=specs_w{worker.Lane};Username=postgres;Password=postgres")
-}
-```
+<<< ../../src/Bobcat.Supervisor.Tests/SupervisorEndToEndTests.cs#worker-connection-strings{cs}
 
 Each worker is launched with `ConnectionStrings__postgres`, the .NET Aspire convention, so the suite
 reads it with `configuration.GetConnectionString("postgres")` -- always a whole connection string,
-never a fragment to stitch onto a base one. `Lane` is bounded by `MaxParallelWorkers`, so you
-provision as many databases as workers you asked for. `EnvironmentFor` covers anything that is not a
-connection string ([Step 2 in full](../parallel-ready-suites.md#step-2-per-worker-resource-isolation)).
+never a fragment to stitch onto a base one. A resource every worker shares, the broker above, takes
+a plain string. `Lane` is bounded by `MaxParallelWorkers`, so you provision as many databases as
+workers you asked for, and `LaneDatabases` does that provisioning on PostgreSQL or SQL Server,
+dropping and recreating one database per lane before the run:
+
+<<< ../../src/Bobcat.Supervisor.Tests/LaneDatabasesTests.cs#lane-databases{cs}
+
+`EnvironmentFor` covers anything that is not a connection string
+([Step 2 in full](../parallel-ready-suites.md#step-2-per-worker-resource-isolation)).
 
 **Check first whether you already have this for free.** A suite that starts its own container per
 process -- Testcontainers from a `[ModuleInitializer]`, say -- already gets a private broker per
@@ -118,11 +130,11 @@ The triage order for a red first run, and what a hang or a memory bloat means, i
 Two mechanisms, and the difference between them matters.
 
 **A retry budget** lets a test pass on a second attempt. The run still exits 0, and the
-pass-on-retry is reported separately rather than folded into the pass count:
+pass-on-retry is reported separately rather than folded into the pass count. In a supervisor host
+of your own it is the `RetryBudget`; from the tool it is `bobcat run --retries 1`, which is the same
+two attempts:
 
-```csharp
-supervisor.RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 };   // bobcat run --retries 1
-```
+<<< ../../src/Bobcat.Supervisor.Tests/SupervisorObserverTests.cs#retry-budget{cs}
 
 The budget is a ceiling, not a switch: only a test carrying a `Retry` trait (`[Trait("Retry", "2")]`)
 or a recovery hint matching the failure (`[ClearsOnRetry(typeof(TimeoutException))]`) is ever
