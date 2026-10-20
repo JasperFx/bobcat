@@ -1,8 +1,5 @@
 # The Bobcat UI
 
-<!-- JEREMY: draft for your review (bobcat#524). Every flag, route, port, default and environment
-variable on this page was checked against main at 710e643; the prose is mine to be rewritten. -->
-
 ```bash
 bobcat ui
 ```
@@ -217,10 +214,10 @@ Two settings bound two different things:
 Zero or a negative number turns either one off. The **Eject** button on a card does by hand what the
 board limit does automatically, and **a live run is never ejected**.
 
-<!-- JEREMY: the same knobs also read as configuration keys (Monitor:RetentionRuns,
-Monitor:RetentionDays, Monitor:DataPath, Monitor:IdleMinutes). For the global tool the only practical
-way to set those is the environment (Monitor__RetentionDays), so the page leads with the BOBCAT_*
-variables. Keep or drop the keys as you see fit. -->
+The same four settings also read as configuration keys, `Monitor:DataPath`, `Monitor:RetentionRuns`,
+`Monitor:RetentionDays` and `Monitor:IdleMinutes`, which win over the variables when both are set.
+For the global tool the environment is the practical way to set them, so the variables above are the
+spellings to use.
 
 ## Querying it from the command line
 
@@ -242,9 +239,6 @@ is running, or a **Stoat** host, which also binds 5525 today. Stop the other one
 ```bash
 lsof -i tcp:5525          # macOS and Linux
 ```
-
-<!-- JEREMY: Stoat binding 5525 is step 5 of bobcat#524 (Stoat stops binding it and reads runs from
-bobcat ui). Drop this paragraph's Stoat clause once that ships. -->
 
 **A run never appears.** The probe happens once, at the start of the run, so a UI started afterwards
 misses that run. Check that `BOBCAT_MONITOR` is not `0` and that `BOBCAT_MONITOR_URL`, if set, names
