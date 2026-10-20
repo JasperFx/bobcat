@@ -692,8 +692,8 @@ section names that class, and that is the class to split or speed up.
 <!-- JEREMY -->
 
 The supervisor checks the environment **once, before it launches any worker** -- not even the
-discovery worker starts until every check has run. The checks are JasperFx's, not a Bobcat
-interface, and the contract is the same everywhere: a check that throws has failed.
+discovery worker starts until every check has run. The contract is the same as JasperFx's
+`IStatefulResource.Check`: a check that throws has failed.
 
 ```csharp
 var supervisor = new Supervisor(new MtpWorkerFactory(path));
@@ -704,12 +704,11 @@ supervisor.Preflight.Add("Postgres is reachable", async token =>
     await using var connection = new NpgsqlConnection(connectionString);
     await connection.OpenAsync(token);
 });
-
-// Everything a container knows about: ISystemPart.AssertEnvironmentAsync,
-// IStatefulResource.Check and registered IHealthChecks, through JasperFx's EnvironmentChecker.
-// An extension method from WolverineFx.Bobcat since 1.0.0-rc.2 (Bobcat itself references no JasperFx).
-supervisor.Preflight.AddContainerChecks("the application", host.Services);
 ```
+
+For a Critter Stack application, WolverineFx.Bobcat adds `Preflight.AddContainerChecks(...)`, which
+runs every check a host's container knows about through JasperFx's `EnvironmentChecker`; see
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs.
 
 A resource registered with `AddRecyclableResource` is checked too, through its own `Check`, without
 being added to `Preflight`. Every check runs, even after one fails, so one preflight reports

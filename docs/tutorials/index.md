@@ -29,6 +29,7 @@ is right -- tutorials link to the reference rather than restating it, precisely 
 place each fact lives and one place to fix it.
 
 The pages under **Guides** are how-to and lookup: a single task or tool, assumed context, no
-narrative. **Integrations** covers the Critter Stack vocabulary, and **Supervising** the
+narrative. The Critter Stack vocabulary is documented with Wolverine, in
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), and **Supervising** covers the
 out-of-process runner and the wire a run publishes. Several of those pages also record *why* a
 behaviour is shaped the way it is, and they are the right read when one surprises you.

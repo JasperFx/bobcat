@@ -10,30 +10,9 @@ own runner, and Bobcat renders it as readable steps with their own verdicts.
 
 ## Three ways a step arrives
 
-**A scenario vocabulary**, when your application is event sourced on the Critter Stack. Derive from
-`CritterStackSpec` (or WolverineFx.Bobcat's `WolverineSpec`) and every member is a step:
-
-```cs
-[BobcatFeature("Freeze Account")]
-public class FreezeAccountSpecs(BankAccountHost app) : BankAccountSpec(app)
-{
-    [BobcatSpec(typeof(FreezeAccount), Domain = "Banking", TriggeredBy = "The fraud desk")]
-    public async Task freezing_an_account_records_the_freeze()
-    {
-        var accountId = Guid.NewGuid();
-        await GivenEvents<Account>(accountId, new AccountOpened(accountId, Guid.NewGuid(), "USD"));
-
-        await WhenReceived(new FreezeAccount(accountId, "Suspected fraud"));
-
-        ThenEmitted<AccountFrozen>();
-        await ThenReadModel<Account>(accountId, Specify<Account>().With(x => x.IsFrozen, true));
-    }
-}
-```
-
-That one is from the BankAccountES sample (in the Wolverine repository since Bobcat 1.0.0-rc.2), whose `BankAccountSpec` base derives from `CritterStackSpec`
-and adds the application's own HTTP and message acts. `[BobcatSpec]` is the test, its slice binding
-and its recording in one attribute.
+**A scenario vocabulary**, a base class whose members are the steps. For an application on the
+Critter Stack that is WolverineFx.Bobcat's `CritterStackSpec`, `WolverineSpec` and `WolverineHttpSpec`,
+documented with Wolverine in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat).
 
 **Decorated step helpers**, for any application. A step attribute on a shared helper declares it once,
 so every test that calls it reads as that step:
@@ -85,6 +64,6 @@ The full treatment -- including binding a specification to an Event Model slice 
 
 ## Where to go next
 
-- The whole Critter Stack vocabulary -- [Bobcat with Wolverine](../integrations/wolverine.md)
+- The Critter Stack vocabulary -- [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs)
 - Bulk data setup and set verification -- [Data Intensive Specifications](data-intensive-specifications.md)
 - Putting a suite in a pipeline -- [Integrating Bobcat with CI](continuous-integration.md)

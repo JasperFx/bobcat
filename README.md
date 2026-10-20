@@ -29,7 +29,8 @@ systems with databases, message brokers, background processing, and many moving 
 - **Specify** end to end. Executable specifications still read as requirements, and they can be
   scaffolded slice by slice from an Event Model. Bobcat has first-class support for the Critter
   Stack ([Wolverine](https://wolverinefx.net), [Marten](https://martendb.io), Polecat and Fisher)
-  through `WolverineFx.Bobcat`, while Bobcat itself takes no JasperFx or Wolverine dependency.
+  through `WolverineFx.Bobcat` ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)), while Bobcat itself takes no JasperFx
+  or Wolverine dependency.
 
 Your specifications are your test framework's own tests, so they show up in `dotnet test`, your
 IDE's Test Explorer, and CI like any other test.
@@ -58,7 +59,7 @@ While Bobcat is open source, [JasperFx Software offers paid support and consulti
 | [`Bobcat`](https://www.nuget.org/packages/Bobcat/) | The runtime: the projected specification engine, verification, rendering, the monitor wire and the resilience vocabulary. No JasperFx or Wolverine dependency; the Critter Stack vocabulary (`CritterStackScenario`) ships in `WolverineFx.Bobcat` from the Wolverine repository |
 | [`Bobcat.Generators`](https://www.nuget.org/packages/Bobcat.Generators/) | The source generator: step interceptors, marker-comment steps, the Event Model fold and compile-time table checks |
 | [`Bobcat.Supervisor`](https://www.nuget.org/packages/Bobcat.Supervisor/) | Drives any MTP test host as worker processes, with retry, isolation, and parallel lanes |
-| [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices. Replaces the retired `Bobcat.Wolverine` |
+| [`WolverineFx.Bobcat`](https://www.nuget.org/packages/WolverineFx.Bobcat/) | Published from the Wolverine repository: Given/When/Then for Wolverine handlers and event-sourced slices, documented at [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat). Replaces the retired `Bobcat.Wolverine` |
 | [`Bobcat.Xunit`](https://www.nuget.org/packages/Bobcat.Xunit/) / [`Bobcat.TUnit`](https://www.nuget.org/packages/Bobcat.TUnit/) / [`Bobcat.NUnit`](https://www.nuget.org/packages/Bobcat.NUnit/) / [`Bobcat.MSTest`](https://www.nuget.org/packages/Bobcat.MSTest/) | Renders an existing xUnit.net v3, TUnit, NUnit or MSTest suite as specifications, without changing how it runs |
 | [`Bobcat.EventModel`](https://www.nuget.org/packages/Bobcat.EventModel/) | Imports the Event Modeling platform's own format and writes it as C# stub types plus an `EventModelDefinition` |
 | [`Bobcat.Console`](https://www.nuget.org/packages/Bobcat.Console/) | The `bobcat` global tool: reads, validates, and converts Event Model files, and keeps a suite Bobcat does not own available to a run console |

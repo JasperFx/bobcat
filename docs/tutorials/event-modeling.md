@@ -19,10 +19,10 @@ drift.
 | Importing an eventmodelers.ai board as C# stubs, an `EventModelDefinition`, and optionally a specification per example | [`bobcat import-event-model`](../bobcat-tool.md#import-event-model) |
 | Binding a specification to its slice -- `[BobcatSpec]`, `[BobcatSlice]`, `TriggeredBy`, `Pending = true` | [Writing Specifications](../marker-steps.md#bobcatslice) |
 | The slice's command, aggregates, events, read models and messages, read off the vocabulary's `[EventModelRole]` attributes | [Binding, not roles](../marker-steps.md#event-model-roles) |
-| The Given/When/Then vocabulary the specifications are written in | [Bobcat with Wolverine](../integrations/wolverine.md) |
+| The Given/When/Then vocabulary the specifications are written in | [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) |
 | What a specification claims about an event, an aggregate or a read model -- partial objects, collection expectations, tolerances, member checks and the C# version they need | [Expected Objects](../expected-objects.md) |
-| The gate that keeps the model and the specifications honest | [Checking Spec Identities Against the Model](../spec-identities.md#checking-identities-against-the-model) |
-| How the vocabulary maps onto the model -- the act's command, `GivenContext` as `ReadsFrom`, a read act (`WhenReading`) making a **Query** slice | [The Event Model, from the vocabulary](../integrations/wolverine.md#the-event-model-from-the-vocabulary) |
+| The gate that keeps the model and the specifications honest (`SpecIdentityAudit`, in WolverineFx.Bobcat) | [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) |
+| How the vocabulary maps onto the model -- the act's command, `GivenContext` as `ReadsFrom`, a read act (`WhenReading`) making a **Query** slice | [The Event Model, from the vocabulary](https://wolverinefx.net/guide/testing-with-bobcat#the-event-model-from-the-vocabulary) (Wolverine docs) |
 | Seeing the model, which slices have specifications, and how those specifications last ran | [The Bobcat UI](../bobcat-ui.md#the-event-model-canvas) and [`bobcat slice-coverage`](../agent-queries.md) |
 | Running one slice's specifications, a chapter's, or every `View` | [Selecting by Event Model coordinates](../bobcat-tool.md#selecting-by-coordinates) |
 
