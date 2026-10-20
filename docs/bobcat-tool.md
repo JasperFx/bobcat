@@ -650,8 +650,9 @@ Each one's `fix` is the edit to make by hand, e.g. `Delete .Emits<ReminderSchedu
 declaration of slice ConfirmAppointment in BookingModel.cs.` The board can't tell a removal from
 something you added yourself, so a role or slice you declared by hand is reported too; leave it.
 
-<!-- JEREMY: why additive -- the board keeps moving after the first import, and the files are where the
-corrections live. -->
+A re-import is additive because the board keeps moving after the first import, and the generated
+files are where the corrections live: an import that rewrote them would throw away every edit that
+made the guesses right.
 
 Two details the generated code is careful about, both of which failed loudly the first time:
 
@@ -732,10 +733,12 @@ command (`cold`), or one host held open between commands (`warm`), as the consol
 | `--list` | print what the host specifies and exit, registering with nothing |
 
 ```
-$ bobcat resident ./artifacts/MySpecs --list
-Bobcat.Xunit.Samples (projected/xunit), 41 specification(s):
-  Calculator/asserting values
-  Calculator/bad values
+$ bobcat resident ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list
+Bobcat.Xunit.Samples (projected/xunit), 90 specification(s):
+  Acceptance specifications/a wrong is gathered before the behaviour is finished
+  Acceptance specifications/an acceptance spec that passes is ready to promote
+  Acceptance specifications/the behaviour throws because it does not exist yet
+  Actions/custom logging from a step
   …
 ```
 
