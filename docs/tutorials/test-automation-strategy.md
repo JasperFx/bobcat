@@ -52,10 +52,8 @@ which is ordinary C# methods:
 
 - **Step helpers are the DSL.** A `[Given]`/`[When]`/`[Then]` attribute on a helper makes every call
   to it a rendered step ([Step helpers](../marker-steps.md#step-helpers)).
-- **The Critter Stack vocabulary is already written.** `CritterStackSpec` (store only) and
-  `WolverineSpec` / `WolverineHttpSpec` (from WolverineFx.Bobcat) give you `GivenEvents`,
-  `WhenReceived`, `WhenPosted`, `ThenEvents`, `ThenAggregate`, `ThenRefusedWith` and the rest
-  ([Bobcat with Wolverine](../integrations/wolverine.md)).
+- **The Critter Stack vocabulary is already written**, in WolverineFx.Bobcat
+  ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in the Wolverine docs).
 - **Tables and partial objects** for data-heavy rules: a spec names only the members it is about
   ([Data Intensive Specifications](data-intensive-specifications.md),
   [Expected Objects](../expected-objects.md)).
@@ -109,11 +107,8 @@ than a broad one nobody believes.
 Most flaky tests against an asynchronous system come from **asserting before the system is done**,
 then papering over it with a `Thread.Sleep`. Wait for the work instead of for the clock:
 
-- `await AfterAsyncDaemonsCatchUpAsync()` waits for the async projections, and every `ThenReadModel`
-  / `ThenDocument` step already waits before it reads ([Settings](../integrations/wolverine.md#settings)).
-- A Wolverine act (`WhenReceived`, `WhenPosted`) waits through the tracked session for every message it
-  caused, and `ThenEventuallyCaused` reaches past it to work across an asynchronous boundary
-  ([What the act eventually caused](../integrations/wolverine.md#what-the-act-eventually-caused)).
+- On the Critter Stack, WolverineFx.Bobcat's steps wait for the async projections and for every
+  message a tracked-session act caused ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in the Wolverine docs).
 - `SpecAssert.EventuallyAsync` polls anything else, and records one cell saying how long it took
   ([Waiting for an answer that arrives later](../marker-steps.md#waiting-for-an-answer-that-arrives-later)).
 
@@ -140,13 +135,14 @@ that has nothing to do with the behaviour. So:
   request would, apart from the page itself.
 - **When a coarse test is hard to debug, add a finer one under it** rather than another coarse one.
 
-In Bobcat terms, pick the lowest of these that proves the behaviour:
+In Bobcat terms, pick the lowest of these that proves the behaviour (the Critter Stack rows are
+documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)):
 
 | Layer | Vocabulary | Proves |
 |---|---|---|
 | A pure function | a plain xUnit / TUnit test, no Bobcat needed | the rule itself |
-| The store | `CritterStackSpec` | events in, aggregates and read models out, refusals ([Marten, Polecat and Fisher](../integrations/marten.md)) |
-| A message | `WolverineSpec` | the handler, its middleware, what it cascaded ([Bobcat with Wolverine](../integrations/wolverine.md)) |
+| The store | `CritterStackSpec` (WolverineFx.Bobcat) | events in, aggregates and read models out, refusals |
+| A message | `WolverineSpec` (WolverineFx.Bobcat) | the handler, its middleware, what it cascaded |
 | HTTP | `WolverineHttpSpec`, or Alba in your own base class | routing, binding, validation, status codes |
 | The browser | Playwright | what is genuinely UI |
 
@@ -209,7 +205,7 @@ If the same rule lived in a message handler, the middle layer would carry it: `W
 WithdrawFunds(…))` followed by `ThenRefusedWith(…)` and `ThenNoEvents()`, with no HTTP at all.
 [`FreezeAccountSpecs`](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES/Tests/FreezeAccountSpecs.cs)
 is that layer in the same sample. A store-only `CritterStackSpec` is the layer below it, for
-applications with no Wolverine ([A specification](../integrations/marten.md#a-specification)).
+applications with no Wolverine ([The store-only act](https://wolverinefx.net/guide/testing-with-bobcat#the-store-only-act)).
 
 **The browser is for what only a browser can show:** a page renders the refusal, a button is
 disabled, a flow spans screens. When you do need Playwright, use the **driver pattern**. Page
@@ -254,7 +250,7 @@ only runs on a CI server almost never succeeds.**
 - `docker compose up -d` for the infrastructure. BankAccountES runs on the samples' Postgres.
 - **Fisher, on a SQLite file, is the zero-infrastructure inner loop.** `EventStore=Fisher dotnet test`
   runs the same BankAccountES specs with nothing installed, because only `Program.cs` names the
-  store ([Marten, Polecat and Fisher](../integrations/marten.md)).
+  store ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)).
 - A spec is an ordinary test, so the IDE runs and debugs it like any other
   ([Integrating Bobcat with Your IDE](ide-integration.md)).
 
@@ -279,7 +275,7 @@ Set the state up **through the application's own model, declaratively and tersel
 - **A spec's events are its own.** A store-only act keeps the events on the streams the spec arranged
   or started, and sets other tests' appends aside as foreign. A whole-store assertion that fails while
   foreign events were seen says "cross-talk suspected" instead of blaming your code
-  ([The store-only act](../integrations/marten.md#the-store-only-act)).
+  ([The store-only act](https://wolverinefx.net/guide/testing-with-bobcat#the-store-only-act)).
 
 ### 10. No shared databases
 
@@ -313,7 +309,7 @@ functional tests. Register the stubs in the container.
 Wolverine's in-process tracked sessions are the modern answer. A `WolverineSpec` act runs the
 message, every handler it cascades to and every local queue it touches in the test's own process, and
 waits for all of it to settle before the first `Then`
-([Act](../integrations/wolverine.md#act)). BankAccountES's host is one `AlbaHost.For<Program>()` for
+([Act](https://wolverinefx.net/guide/testing-with-bobcat#act)). BankAccountES's host is one `AlbaHost.For<Program>()` for
 the whole run.
 
 ### 13. Continuous integration: fast tests and slow tests

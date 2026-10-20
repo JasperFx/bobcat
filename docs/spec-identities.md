@@ -361,78 +361,8 @@ name the model did not declare produces a green suite, a clean build, no diagnos
 (issue #338) -- and a check on slice names alone would pass it too, since the spec is bound to a real
 slice.
 
-`SpecIdentityAudit` is the join. Both facts already exist:
-
-| artifact | says |
-|---|---|
-| the generated `BobcatEventModelSource` | every `{Feature}/{Scenario}` the compiled tests declare |
-| your design-time Event Model | every `{Feature}/{Scenario}` the design declares |
-
-### The gate
-
-It is not a build diagnostic -- the generator holds the compiled identities but not the design
-model, which may not even live in the spec project. The spec assembly's **own test run** is where
-both can be loaded, so the whole thing is one assertion. Here the design is an `EventModelDefinition`
-whose slices name the scenarios they expect with `LinksToSpecification("{Feature}/{Scenario}")`:
-
-```csharp
-[Fact]
-public void the_model_and_the_specs_declare_the_same_scenarios()
-{
-    var builder = new EventModelBuilder();
-    new BookingModel().Configure(builder);   // your EventModelDefinition
-    var design = builder.Build("Booking");
-
-    var audit = SpecIdentityAudit.Compare(design, typeof(BookingAppointments).Assembly);
-
-    audit.Drifted.ShouldBeFalse(audit.Report());
-}
-```
-
-`SpecIdentityAudit` ships in `WolverineFx.Bobcat` (namespace `Bobcat`) since 1.0.0-rc.2, because it reads
-the generated JasperFx descriptor and Bobcat itself references no JasperFx. It compares `EventModelDescriptor`s, so any design-time
-source works -- a hand-written definition as above, or an imported eventmodelers.ai board through
-`Bobcat.EventModel`'s `ImportedModelMapper.ToDescriptor`.
-
-### What it reports
-
-Three findings, and they are not the same thing:
-
-- **Orphans** -- a test identity the model does not declare. The canvas shows a specification for
-  something nobody designed.
-- **Holes** -- a model scenario no test covers. The design declares behaviour nothing verifies.
-- **Misbound** -- an identity both sides declare, on *different slices*. The spec points at the
-  wrong behaviour; both slice names are real, which is why no slice-name check can see it.
-
-Two things are reported and are deliberately **not** drift:
-
-- **Pending** -- the identity joins, and the specification is a pending one (`[BobcatSpec(…, Pending =
-  true)]`). That is already a pending-specification hotspot on the canvas; reporting it as a hole
-  would read as a missing test when the test is right there, waiting.
-- **Excused** -- identities you named, each with a reason. A chapter-wide invariant test that binds
-  no slice, or a model scenario specified somewhere Bobcat cannot see. It carries a reason because
-  "deliberately not a spec" is a claim someone should have to make out loud:
-
-```csharp
-var audit = SpecIdentityAudit.Compare(design, new Dictionary<string, string>
-{
-    ["BookingAppointments/Counters never go negative"] = "chapter-wide invariant, bound to no slice"
-}, typeof(BookingAppointments).Assembly);
-```
-
-`Report()` is one line per finding, and a single summary line when there is nothing to say:
-
-```
-Spec identities: 41 matched, 1 orphaned, 0 uncovered, 0 misbound.
-
-Orphans — a test declares this identity and the model does not:
-  BookingAppointments/An appointment that does not exist is 404  (bound to slice ConfirmAppointment)
-```
-
-### Auditing against nothing is refused
-
-`Compare(design, assembly)` throws when no assembly you passed has a generated Event Model source.
-The generator emits one only for an assembly whose specs declare slices, so the usual causes are
-naming the wrong assembly or having no `[BobcatSpec]`, `[BobcatTheory]` or `[BobcatSlice]` binding anywhere -- and reporting every declared
-scenario as uncovered would be a confident lie, the same failure as zero-filling an unmeasured
-duration.
+The check is `SpecIdentityAudit`, an assertion in the spec assembly's own test run that joins the
+identities the generator compiled against your design-time Event Model and reports orphans, holes and
+misbound specs. It reads the generated JasperFx descriptor, and Bobcat itself references no JasperFx,
+so it ships in **WolverineFx.Bobcat** since 1.0.0-rc.2 and is documented with Wolverine, in
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat#spec-identity-audit).

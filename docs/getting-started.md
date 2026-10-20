@@ -5,8 +5,14 @@ specification is an ordinary test -- xUnit v3, TUnit, NUnit or MSTest -- that al
 Given/When/Then specification and reports itself, step by step, to whatever is watching the run.
 
 <!-- JEREMY -->
-This page gets one specification running end to end against an event sourced application on Marten,
-Polecat or Fisher. It takes about five minutes.
+This page gets one specification running end to end. It takes about five minutes.
+
+::: tip Wolverine, Marten, Polecat or Fisher?
+Bobcat's core is framework-neutral. The Critter Stack vocabulary -- `CritterStackSpec`, `WolverineSpec`,
+`WolverineHttpSpec`, `GivenEvents`, `WhenReceived`, `ThenEvents` and the rest -- ships in
+**WolverineFx.Bobcat** and is documented in the Wolverine docs: [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat). The
+project setup below applies to it unchanged.
+:::
 
 ## 1. The project
 
@@ -103,89 +109,74 @@ anyway and passed without recording a thing. Forget the second and `[BobcatFeatu
 longer records a class (the props apply `[assembly: RecordBobcatFeatures]`), and the run bracket
 falls back to one per process (see [Warm Projected Runs](warm-projected-runs.md)).
 
-## 2. Host the application once
+## 2. Host the application, if there is one
 
-Bobcat doesn't own your test lifecycle any more -- your test runner does. Boot the application in an
-xUnit assembly fixture, exactly as you would for any integration test. This one is from the
-BankAccountES sample, which lives in the [Wolverine repository](https://github.com/JasperFx/wolverine)
-with the other samples since Bobcat 1.0.0-rc.2 (the specification below calls its own fixture `AppHost`):
-
-```cs
-public class BankAccountHost : IAsyncLifetime
-{
-    public IAlbaHost Host { get; private set; } = null!;
-
-    public async ValueTask InitializeAsync()
-    {
-        Host = await AlbaHost.For<Program>();
-
-        // Not load-bearing for correctness: every spec mints its own ids, so no run can collide
-        // with the last one. It is here so the event store does not grow without bound across runs.
-        // ResetEventStoresAsync empties every store the host registers -- documents AND streams --
-        // through JasperFx.Events.IEventStore, so it reads the same on Marten and Fisher.
-        await Host.ResetEventStoresAsync();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Host is not null) await Host.DisposeAsync();
-    }
-}
-```
-
-The sample registers it once for the run, in its `AssemblyAttributes.cs`:
-
-```csharp
-[assembly: AssemblyFixture(typeof(BankAccountHost))]
-```
-
-Any `IHost` works: Alba is only here because the sample also drives HTTP endpoints. A
-`CritterStackSpec` can be built from an `IServiceProvider` instead, for a test that has a container
-and no host.
-
-::: tip Resetting between specifications
-Mint new ids in every specification and most suites never need a reset between tests. When one does,
-call `ResetAsync()` on the spec (it clears every event store and forgets the last act), or
-`host.ResetEventStoresAsync()` from your own fixture. Both pause the async daemon while the stores are
-emptied and resume it afterwards, so a host running async projections needs no store-specific reset.
-:::
+Bobcat doesn't own your test lifecycle -- your test runner does. Boot whatever the specification
+needs the way you would for any integration test: an xUnit assembly, collection or class fixture,
+`IAsyncLifetime`, TUnit's hooks. Alba is a good way to host an ASP.NET Core application in-process.
+The specification below needs nothing hosted, so it skips this step.
 
 ## 3. Your first specification
 
-Derive from `CritterStackSpec`, Bobcat's store-only Given/When/Then vocabulary, and put
-`[BobcatFeature]` on the class:
+A step is a method you decorate with `[Given]`, `[When]` or `[Then]`. Put the steps on a class of
+their own -- a *grammar* -- so every specification that calls them reads the same way:
 
 ```csharp
 using Bobcat;
-using Bobcat.CritterStack;
-using Microsoft.Extensions.DependencyInjection;
 
-[BobcatFeature("Wallets")]
-public class crediting_a_wallet(AppHost app) : CritterStackSpec(app.Host)
+public class CalculatorGrammar
 {
-    [Fact]
-    public async Task a_credit_is_recorded()
+    private readonly Calculator _calculator = new();
+
+    [Given("Start with {value}")]
+    internal void StartWith(double value) => _calculator.Value = value;
+
+    [When("Multiply by {value}")]
+    internal void MultiplyBy(double value) => _calculator.MultiplyBy(value);
+
+    [Then("The value should be {value}")]
+    internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
+
+    [Then("Adding {x} to {y} should equal {returnValue}")]
+    internal void AddingNumbersTogether(double x, double y, double returnValue)
     {
-        var id = Guid.NewGuid();
-        await GivenEvents<Wallet>(id, new WalletOpened(id, "Ann"));
-
-        await WhenActing("the wallet is credited",
-            services => services.GetRequiredService<Wallets>().Credit(id, 10));
-
-        ThenEvents(new WalletCredited(id, 10));
-        await ThenAggregate<Wallet>(id, Specify<Wallet>().With(x => x.Balance, 10m));
+        _calculator.Value = x;
+        _calculator.Add(y);
+        SpecAssert.Check("returnValue", _calculator.Value, returnValue);
     }
 }
 ```
 
-Every one of those calls is a step. `GivenEvents` appends the history, `WhenActing` runs the act in a
-fresh service scope and captures what it appended (or the exception it threw), and the `Then` steps
-judge what happened. A wrong is *gathered* on its step rather than thrown, so a specification shows
-every disagreement, and the adapter fails the test once at the end.
+Then write an ordinary test that calls them, in a class marked `[BobcatFeature]`:
 
-For a Wolverine application, derive from `WolverineSpec` (WolverineFx.Bobcat) instead and act with
-`WhenReceived(command)` through Wolverine's tracked session. Everything else reads the same. See
-[Bobcat with Wolverine](integrations/wolverine.md).
+```csharp
+using Bobcat.Xunit;
+
+[BobcatFeature("Calculator")]
+public class CalculatorSpecs
+{
+    private readonly CalculatorGrammar _calculator = new();
+
+    [Fact]
+    public void using_sentences()
+    {
+        _calculator.StartWith(3);
+        _calculator.MultiplyBy(2);
+        _calculator.TheValueShouldBe(6);
+        _calculator.AddingNumbersTogether(2, 3, 5);
+    }
+}
+```
+
+Every call to a decorated helper is a step: the generator intercepts it at build time, and each
+`{placeholder}` is filled from the argument of that name. `SpecAssert.Check` records an
+expected/actual cell on the step in progress. A wrong is *gathered* rather than thrown, so a
+specification shows every disagreement, and the adapter fails the test once at the end. The helpers
+are `internal` rather than `private` because the interceptor is an extension method, which cannot
+reach a private member ([BOBCAT039](diagnostics.md#bobcat039)).
+
+This is the Calculator sample in `src/Bobcat.Xunit.Samples`, Storyteller's own first example
+recreated as a projected test.
 
 ## 4. Run it
 
@@ -196,15 +187,15 @@ dotnet test
 In a terminal, with no run console listening, the run prints the specification it produced:
 
 ```
-Feature: Wallets
-════════════════
+Feature: Calculator
+════════════════════
 
-  a credit is recorded OK
-  ──────────────────────────────
-    ✓ Given the Wallet stream has already recorded WalletOpened(Id: …, Owner: Ann)
-    ✓ When the wallet is credited
-    ✓ Then WalletCredited(…) is emitted
-    ✓ And the Wallet matches
+  using sentences OK
+  ─────────────────────────
+    ✓ Given Start with 3 (1ms)
+    ✓ When  Multiply by 2
+    ✓ Then  The value should be 6 (3ms)
+    ✓ And   Adding 2 to 3 should equal 5
 ```
 
 Your IDE's test explorer shows each specification as the ordinary test it is, so you can run and
@@ -214,8 +205,7 @@ debug it there.
 
 - **[The Tutorials](tutorials/)** -- the documentation organized by what you are trying to accomplish
 - [Writing Specifications](marker-steps.md) -- step helpers, marker comments, `SpecAssert`, tables, and binding a spec to an Event Model slice
-- [Bobcat with Marten, Polecat and Fisher](integrations/marten.md) -- the store-only vocabulary, with no message bus
-- [Bobcat with Wolverine](integrations/wolverine.md) -- the whole Critter Stack vocabulary, step by step
+- [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) -- the Critter Stack vocabulary in WolverineFx.Bobcat, for Wolverine, Marten, Polecat and Fisher
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) -- the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) -- the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The Resident Runner](resident-runner.md) -- keeping a suite available to a run console, so specs run when somebody asks

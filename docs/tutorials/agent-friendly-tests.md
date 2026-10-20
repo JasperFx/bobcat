@@ -27,9 +27,8 @@ This is the anchor case. A tracked session knows the whole messaging story -- wh
 was handled, in what order, and what threw -- and a test that merely asserts an outcome discards all
 of it.
 
-- `WolverineFx.Bobcat` surfaces the tracked session directly: every act on a `WolverineSpec` runs
-  inside one, and `LastAct.Session` hands it back -- see
-  [Bobcat with Wolverine](../integrations/wolverine.md).
+- For Critter Stack applications, WolverineFx.Bobcat surfaces the tracked session to a
+  specification -- see [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs.
 - The session's own diagnostics -- `Status`, `AllExceptions()`, `AllRecordsInOrder()` -- are the
   material. `AllRecordsInOrder()` in particular is a causal chain, which is exactly what an agent
   cannot reconstruct from an assertion message.
@@ -76,9 +75,9 @@ and the full transcript as an attachment.
 ### 4. Generalizing past Wolverine
 
 The same argument for the event store (what was actually in the stream), for HTTP (the response
-body on an unexpected status), and for the database. `EventStores.FetchStreamAsync` and
-`EventStores.AggregateStreamAsync<T>` are the equivalents, and they are store-agnostic -- the same
-call answers for Marten, Polecat or Fisher.
+body on an unexpected status), and for the database. For the Critter Stack event stores,
+WolverineFx.Bobcat's `EventStores.FetchStreamAsync` and `EventStores.AggregateStreamAsync<T>` are
+the equivalents, and they are store-agnostic -- the same call answers for Marten, Polecat or Fisher.
 
 ### 5. Where to stop
 

@@ -9,7 +9,7 @@ The steps arrive three ways, and they compose freely in one test:
 
 | | |
 |---|---|
-| **A scenario vocabulary** | `CritterStackSpec` and WolverineFx.Bobcat's `WolverineSpec` -- a base class whose members *are* the steps: `GivenEvents`, `WhenReceived`, `ThenEvents` and the rest. See [Bobcat with Marten, Polecat and Fisher](integrations/marten.md) and [Bobcat with Wolverine](integrations/wolverine.md) |
+| **A scenario vocabulary** | A base class whose members *are* the steps. For Critter Stack applications that is WolverineFx.Bobcat, documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) |
 | **Decorated step helpers** | `[Given]`, `[When]`, `[Then]`, `[Check]` or `[Step]` on a method you write. Every call to it renders as that step, with its own timing and verdict |
 | **Marker comments** | `// Given …`, `// When …`, `// Then …` in a test body, declaring the narrative of a test that calls no decorated helper at all |
 
@@ -1413,8 +1413,7 @@ dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples
 ```
 
-For the Critter Stack vocabulary on a real application,
-[The BankAccountES sample](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2) runs its
-specifications on `CritterStackSpec` against Marten and Fisher, with its own HTTP and message acts on
-top. `src/Bobcat.Projected.Acceptance.Tests` and `src/Bobcat.CritterStackScenario.Tests` pin the
-behaviour this page describes.
+For the Critter Stack vocabulary on a real application, see
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs; its BankAccountES sample lives
+in the Wolverine repository. `src/Bobcat.Projected.Acceptance.Tests` pins the behaviour this page
+describes.

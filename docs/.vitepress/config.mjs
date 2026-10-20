@@ -20,7 +20,6 @@ export default defineConfig({
     nav: [
       { text: 'Tutorials', link: '/tutorials/' },
       { text: 'Guides', link: '/getting-started' },
-      { text: 'Integrations', link: '/integrations/' },
       { text: 'Supervising', link: '/parallel-ready-suites' },
       { text: 'Join Chat', link: 'https://discord.gg/WMxrvegf8H' }
     ],
@@ -52,6 +51,7 @@ export default defineConfig({
           { text: 'Bobcat with TUnit', link: '/tunit' },
           { text: 'Bobcat with NUnit', link: '/nunit' },
           { text: 'Bobcat with MSTest', link: '/mstest' },
+          { text: 'Integrations', link: '/integrations/' },
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
           { text: 'The Bobcat UI', link: '/bobcat-ui' },
           { text: 'Querying Runs from the CLI', link: '/agent-queries' },
@@ -59,15 +59,6 @@ export default defineConfig({
           { text: 'The Resident Runner', link: '/resident-runner' },
           { text: 'Diagnostics', link: '/diagnostics' },
           { text: 'Version Compatibility', link: '/compatibility' }
-        ]
-      },
-      {
-        text: 'Integrations',
-        collapsed: false,
-        items: [
-          { text: 'Overview', link: '/integrations/' },
-          { text: 'Marten, Polecat and Fisher', link: '/integrations/marten' },
-          { text: 'Bobcat with Wolverine', link: '/integrations/wolverine' }
         ]
       },
       {
