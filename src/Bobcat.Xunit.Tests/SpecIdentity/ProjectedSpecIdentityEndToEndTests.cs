@@ -59,7 +59,12 @@ public class ProjectedSpecIdentityEndToEndTests : IDisposable
             "the suite should have far more specifications than the 8 that declare marker steps, "
             + "or this test cannot tell the two rules apart");
 
-        manifest.Specs.Count.ShouldBe(
+        // A data-driven specification is listed once for the method and once per constant row
+        // (bobcat#569): the Event Model keys on the method, the platform runs the rows. So the
+        // method's own entry is not a test the platform lists, and is set aside here.
+        var theories = manifest.Specs.Where(x => x.IsRow).Select(x => x.Parent).Distinct().Count();
+
+        (manifest.Specs.Count - theories).ShouldBe(
             found,
             "every test [BobcatScenario] records is a specification, however its steps are declared");
     }

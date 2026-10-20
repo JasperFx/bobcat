@@ -19,106 +19,57 @@ data-heavy cases a domain expert can read and edit the rows in a pull request wi
 code around them, and the table in the test is the table in the specification.
 
 The project setup is [Getting Started](../getting-started.md): the three packages, the runner
-adapter, and `global.json`. This page assumes that and starts at the first test.
+adapter, and `global.json`. This page assumes that and starts at the first test. Every sample on it
+is compiled and run in Bobcat's own repository, in
+[`src/Bobcat.Xunit.Samples`](https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.Xunit.Samples),
+and every output block is what that run printed.
 
 ## The rule
 
 A bank account that may not be overdrawn:
 
-```csharp
-public record Transaction(string Kind, decimal Amount);
-
-public class Account
-{
-    public decimal Balance { get; private set; }
-    public List<Transaction> Transactions { get; } = new();
-
-    public void Deposit(decimal amount)
-    {
-        Balance += amount;
-        Transactions.Add(new Transaction("Deposit", amount));
-    }
-
-    public bool TryWithdraw(decimal amount)
-    {
-        if (amount > Balance) return false;
-
-        Balance -= amount;
-        Transactions.Add(new Transaction("Withdrawal", amount));
-        return true;
-    }
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Application/Account.cs#account{cs}
 
 ## Step 1: a test you already have, as a specification
 
 Here is the test as most teams would write it, with Shouldly:
 
-```csharp
-public class WithdrawalTests
-{
-    [Fact]
-    public void a_withdrawal_larger_than_the_balance_is_refused()
-    {
-        var account = new Account();
-        account.Deposit(100);
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-as-written{cs}
 
-        var accepted = account.TryWithdraw(200);
+Make it a specification without changing a line of its logic. Mark the class
+`[BobcatFeature("Withdrawals")]`, and say what each part of the body does in a comment that opens
+with `Given`, `When` or `Then`:
 
-        accepted.ShouldBeFalse();
-        account.Balance.ShouldBe(100);
-    }
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-narrated{cs}
 
-Make it a specification without changing a line of its logic. Mark the class, and say what each
-part of the body does in a comment that opens with `Given`, `When` or `Then`:
-
-```csharp
-using Bobcat.Xunit;
-
-[BobcatFeature("Withdrawals")]
-public class WithdrawalSpecs
-{
-    [Fact]
-    public void a_withdrawal_larger_than_the_balance_is_refused()
-    {
-        // Given an account with a balance of 100
-        var account = new Account();
-        account.Deposit(100);
-
-        // When 200 is withdrawn
-        var accepted = account.TryWithdraw(200);
-
-        // Then the withdrawal is refused and the balance is still 100
-        accepted.ShouldBeFalse();
-        account.Balance.ShouldBe(100);
-    }
-}
-```
-
-On xUnit `[BobcatFeature]` is all it takes: the `Bobcat.Xunit` package opens a scenario around every
+On xUnit, `[BobcatFeature]` is all it takes: the `Bobcat.Xunit` package opens a scenario around every
 test in the class and closes it with the verdict xUnit reported. On TUnit, NUnit and MSTest, put
-`[BobcatScenario]` beside it. Run `dotnet test` in a terminal and the run prints the specification it
-produced:
+`[BobcatScenario]` beside it. (The sample project references Bobcat by project rather than by
+package, so it states `[BobcatScenario]` itself.) Run `dotnet test` in a terminal and the run prints
+the specification it produced:
 
 ```
 Feature: Withdrawals
-════════════════════
+═════════════════════
 
-  a withdrawal larger than the balance is refused OK
-  ─────────────────────────────────────────────────
-    ○ Given an account with a balance of 100
-    ○ When  200 is withdrawn
-    ○ Then  the withdrawal is refused and the balance is still 100
+  a withdrawal larger than the balance is refused narrated OK
+  ────────────────────────────────────────────────────────────
+    · Given an account with a balance of 100 — declared
+    · When  200 is withdrawn — declared
+    ✓ Then  the withdrawal is refused and the balance is still 100 (3ms)
+      ✓ Then  accepted should be false (1ms)
+      ✓ And   account.Balance should be 100 (2ms)
 ```
 
-The `○` is honest. A **marker comment** declares a step; nothing observed it, so it has no duration
-and no verdict of its own. The scenario's verdict is the test's. When the Shouldly assertion throws,
-the scenario is red and the report carries the exception, but nothing narrower: no expected and
-actual pair, and the second assertion is never reached. That is the limit of this style, and also
-its whole appeal. Opting an existing suite in costs one attribute per class and some comments
-([Marker comments](../marker-steps.md#marker-comments)).
+The `declared` is honest. A **marker comment** declares a step; nothing observed the Given or the
+When, so they have no duration and no verdict of their own. The Then is different only because the
+sample project opts into projecting Shouldly assertions as steps, so the two calls under the comment
+rendered beneath it with their own verdicts. Without that opt-in the Then would read `declared` as
+well, and when a Shouldly assertion threw, the scenario would be red with the exception and nothing
+narrower: no expected and actual pair, and the second assertion never reached. That is the limit of
+this style, and also its whole appeal. Opting an existing suite in costs one attribute per class and
+some comments ([Marker comments](../marker-steps.md#marker-comments),
+[Projecting the assertions you already wrote](../marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in)).
 
 ::: tip Keep the comments, add the helpers
 The two styles compose. A comment gives a test its narrative, and a decorated helper called
@@ -130,50 +81,14 @@ Most suites end up with both.
 ## Step 2: a vocabulary
 
 The second withdrawal spec should read like the first, and the tenth like the second. Move the
-mechanics into **step helpers**: methods decorated with `[Given]`, `[When]` or `[Then]`, carrying a
-sentence whose `{placeholders}` are filled from the arguments of those names:
+mechanics into **step helpers** on a class of their own: methods decorated with `[Given]`, `[When]`
+or `[Then]`, carrying a sentence whose `{placeholders}` are filled from the arguments of those names:
 
-```csharp
-using Bobcat;
-
-public class AccountSteps
-{
-    private readonly Account _account = new();
-    private bool _accepted;
-
-    [Given("an account with a balance of {balance}")]
-    internal void AnAccountWithABalanceOf(decimal balance) => _account.Deposit(balance);
-
-    [When("{amount} is withdrawn")]
-    internal void IsWithdrawn(decimal amount) => _accepted = _account.TryWithdraw(amount);
-
-    [Then("the withdrawal is {outcome}")]
-    internal void TheWithdrawalIs(string outcome)
-        => SpecAssert.Check("outcome", _accepted ? "accepted" : "refused", outcome);
-
-    [Then("the balance is {balance}")]
-    internal void TheBalanceIs(decimal balance) => SpecAssert.Check("balance", _account.Balance, balance);
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/AccountSteps.cs#account-steps{cs}
 
 The specification is now four calls:
 
-```csharp
-[BobcatFeature("Withdrawals")]
-public class WithdrawalSpecs
-{
-    private readonly AccountSteps _steps = new();
-
-    [Fact]
-    public void a_withdrawal_larger_than_the_balance_is_refused()
-    {
-        _steps.AnAccountWithABalanceOf(100);
-        _steps.IsWithdrawn(200);
-        _steps.TheWithdrawalIs("refused");
-        _steps.TheBalanceIs(100);
-    }
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-with-steps{cs}
 
 Every call to a decorated helper is a recorded step: Bobcat's source generator intercepts the call at
 build time, so there is no reflection and no registration. Two details carry weight:
@@ -186,26 +101,29 @@ build time, so there is no reflection and no registration. Two details carry wei
   The adapter fails the test once, at the end, with all of them
   ([Checks that gather instead of throwing](../marker-steps.md#checks-that-gather-instead-of-throwing)).
 
-Now break the rule. Let `TryWithdraw` accept any amount, and the run prints:
+Now write a specification whose expectations are wrong. A withdrawal of 30 from 100 is accepted and
+leaves 70, and this spec says otherwise, twice:
+
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-wrong-expectation{cs}
 
 ```
-  a withdrawal larger than the balance is refused FAILED
-  ─────────────────────────────────────────────────────
+  a withdrawal within the balance is refused FAILED
+  ────────────────────────────────────────────────────
     ✓ Given an account with a balance of 100
-    ✓ When  200 is withdrawn
-    ✗ Then  the withdrawal is expected 'refused', got 'accepted'
-    ✗ And   the balance is expected '100', got '-100'
-  Failed with Rights: 0, Wrongs: 2, Errors: 0
+    ✓ When  30 is withdrawn
+    ✗ Then  the withdrawal is expected 'refused', got 'accepted' (1ms)
+    ✗ And   the balance is expected '100', got '70' (1ms)
+  Failed with Rights: 2, Wrongs: 2, Errors: 0
 ```
 
 Both wrongs are there. A cell named for the placeholder it belongs to renders *in* the sentence, where
 the value sits, and the test runner's own failure message says the same thing:
 
 ```
-failed WithdrawalSpecs.a_withdrawal_larger_than_the_balance_is_refused
-  SpecAssertionException : 2 specification steps failed:
+failed Bobcat.Xunit.Samples.Specs.WithdrawalSpecs.a_withdrawal_within_the_balance_is_refused (38ms)
+  Xunit.MicrosoftTestingPlatform.XunitException: Bobcat.Engine.SpecAssertionException : 2 specification steps failed:
     Then the withdrawal is refused => outcome: expected 'refused', got 'accepted'
-    And the balance is 100 => balance: expected '100', got '-100'
+    And the balance is 100 => balance: expected '100', got '70'
 ```
 
 A helper that throws is different. An exception is an **error**, not a wrong, and it stops the
@@ -220,45 +138,32 @@ over. Four specs of four lines each would say less than one table. A helper that
 `StepTable` receives the whole table from the call site, and `TableRunner.Run` calls a row method
 once per row:
 
-```csharp
-[Then("withdrawals are decided as")]
-internal Task WithdrawalsAreDecidedAs(StepTable table) => TableRunner.Run(this, nameof(decide), table);
-
-private string decide(decimal balance, decimal amount)
-{
-    var account = new Account();
-    account.Deposit(balance);
-    return account.TryWithdraw(amount) ? "accepted" : "refused";
-}
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/AccountSteps.cs#withdrawals-decided-as{cs}
 
 The `balance` and `amount` columns bind to the parameters of those names. The returned value is
 compared against the one column no parameter names, `outcome`, so the table is a **decision table**
 with a verdict per row:
 
-```csharp
-[Fact]
-public Task the_overdraft_boundary() => _steps.WithdrawalsAreDecidedAs("""
-    | balance | amount | outcome  |
-    | 100     | 99.99  | accepted |
-    | 100     | 100    | accepted |
-    | 100     | 100.01 | refused  |
-    """);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#overdraft-boundary{cs}
 
 The table is pipe-delimited text, read by an implicit conversion to `StepTable`. A markdown table
 pastes in unchanged, alignment row and all, so the table in the pull request and the table in the
-test are the same text. With the rule broken the same way as before, the grid says which row:
+test are the same text. Give one row the wrong answer and the grid says which:
+
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#overdraft-boundary-wrong-row{cs}
 
 ```
-    ✗ Then  withdrawals are decided as
-╭───┬─────────┬────────┬───────────────────────────────────┬────────╮
-│ # │ balance │ amount │ outcome                           │ Status │
-├───┼─────────┼────────┼───────────────────────────────────┼────────┤
-│ 1 │ 100     │ 99.99  │ accepted                          │   OK   │
-│ 2 │ 100     │ 100    │ accepted                          │   OK   │
-│ 3 │ 100     │ 100.01 │ expected 'refused', got 'accepted' │  FAIL  │
-╰───┴─────────┴────────┴───────────────────────────────────┴────────╯
+  the overdraft boundary with a wrong row FAILED
+  ─────────────────────────────────────────────────
+    ✗ Then  withdrawals are decided as (4ms)
+╭───┬─────────┬────────┬────────────────────────────────────┬─────────╮
+│ # │ balance │ amount │ outcome                            │ Verdict │
+├───┼─────────┼────────┼────────────────────────────────────┼─────────┤
+│ 1 │ 100     │ 99.99  │ accepted                           │   OK    │
+│ 2 │ 100     │ 100    │ expected 'refused', got 'accepted' │  FAIL   │
+│ 3 │ 100     │ 100.01 │ refused                            │   OK    │
+╰───┴─────────┴────────┴────────────────────────────────────┴─────────╯
+  Failed with Rights: 2, Wrongs: 1, Errors: 0
 ```
 
 A row that throws is that row's failure and the remaining rows still run. `out` parameters are
@@ -271,40 +176,28 @@ The account's transaction list is a collection, and a collection claim is a **se
 expected rows are a table, the system's rows are matched against them, and every row gets its own
 verdict.
 
-```csharp
-[Then("the transactions are")]
-internal void TheTransactionsAre(StepTable expected)
-    => SetVerificationComparer.Verify(_account.Transactions, expected, ordered: true);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Grammars/AccountSteps.cs#transactions-are{cs}
 
-```csharp
-[Fact]
-public void the_history_records_what_happened()
-{
-    _steps.AnAccountWithABalanceOf(100);
-    _steps.IsWithdrawn(30);
-    _steps.IsWithdrawn(200);
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#history{cs}
 
-    _steps.TheTransactionsAre("""
-        | Kind       | Amount |
-        | Deposit    | 100    |
-        | Withdrawal | 30     |
-        """);
-}
-```
+The refused withdrawal must leave no trace, and the table says so by not listing it. Now a
+specification that forgets a withdrawal that did happen:
 
-The refused withdrawal must leave no trace, and the table says so by not listing it. Suppose it did
-leave one:
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#history-extra-row{cs}
 
 ```
-    ✗ Then  the transactions are
-╭───┬────────────┬────────┬────────╮
-│ # │ Kind       │ Amount │ Status │
-├───┼────────────┼────────┼────────┤
-│ 1 │ Deposit    │ 100    │   OK   │
-│ 2 │ Withdrawal │ 30     │   OK   │
-│ 3 │ Withdrawal │ 200    │ EXTRA  │
-╰───┴────────────┴────────┴────────╯
+  the history the specification did not expect FAILED
+  ──────────────────────────────────────────────────────
+    ✓ Given an account with a balance of 100
+    ✓ When  30 is withdrawn
+    ✗ Then  the transactions are (4ms)
+╭───┬────────────┬────────┬─────────╮
+│ # │ Kind       │ Amount │ Verdict │
+├───┼────────────┼────────┼─────────┤
+│ 1 │ Deposit    │ 100    │   OK    │
+│ 2 │ Withdrawal │ 30     │  EXTRA  │
+╰───┴────────────┴────────┴─────────╯
+  Failed with Rights: 4, Wrongs: 1, Errors: 0
 ```
 
 `EXTRA` is a row the system produced that the specification does not describe. `MISSING` is a row the
@@ -320,27 +213,21 @@ something a person may want to run, see fail or track on its own, make each row 
 specification instead. `[BobcatTheory]` is xUnit's `[Theory]` plus the scenario bracket, and
 `[BobcatExamples]` writes its rows as the same table:
 
-```csharp
-[BobcatTheory]
-[BobcatExamples("""
-    | balance | amount | outcome  |
-    | 100     | 100    | accepted |
-    | 100     | 100.01 | refused  |
-    """)]
-public void a_withdrawal_is_decided(decimal balance, decimal amount, string outcome)
-{
-    _steps.AnAccountWithABalanceOf(balance);
-    _steps.IsWithdrawn(amount);
-    _steps.TheWithdrawalIs(outcome);
-}
+<<< ../../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-examples{cs}
+
+Each row runs as its own test with its own identity and its own rendered steps:
+
+```
+  a withdrawal is decided (balance: 100, amount: 100, outcome: accepted) OK
+  ────────────────────────────────────────────────────────────
+    ✓ Given an account with a balance of 100
+    ✓ When  100 is withdrawn
+    ✓ Then  the withdrawal is accepted (1ms)
 ```
 
-Each row runs as its own test with its own identity,
-`Withdrawals/a withdrawal is decided (balance: 100, amount: 100.01, outcome: refused)`, and its own
-rendered steps. Columns bind to parameters by name, and because the table is a constant, the build
-checks it: a column naming no parameter or a cell the parameter's type cannot read is a compile
-error rather than a surprise at run time
-([A theory's examples as a table](../marker-steps.md#bobcatexamples)).
+Columns bind to parameters by name, and because the table is a constant, the build checks it: a
+column naming no parameter or a cell the parameter's type cannot read is a compile error rather
+than a surprise at run time ([A theory's examples as a table](../marker-steps.md#bobcatexamples)).
 
 ## Reading and running
 
@@ -353,10 +240,6 @@ error rather than a surprise at run time
   ([The `bobcat` tool](../bobcat-tool.md#run-preview-pick-watch)).
 - **Your IDE's test explorer** shows each specification as the ordinary test it is, so you run and
   debug it there ([Integrating Bobcat with Your IDE](ide-integration.md)).
-- **The assertions you already wrote can be steps too.** With
-  `<BobcatProjectAssertions>true</BobcatProjectAssertions>`, a statement-level Shouldly call inside a
-  spec renders as a step with a cell, and a run of consecutive assertions is all evaluated before the
-  next action ([Projecting the assertions you already wrote](../marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in)).
 
 ## Three things to know before you start
 
