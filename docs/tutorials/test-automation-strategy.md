@@ -4,14 +4,14 @@
 automation strategy that holds up on a real team, and for each one, where Bobcat does the job. The
 other tutorials are the *how*. This page links to them rather than repeating them.
 
-The recommendations come from two posts by Jeremy D. Miller, restated here in the present tense and
+The recommendations come from two posts of mine, restated here in the present tense and
 updated where Bobcat now does what the posts describe doing by hand:
 
 - [My Recommendations for a Test Automation Strategy](https://jeremydmiller.com/2024/09/29/my-recommendations-for-a-test-automation-strategy/) (2024)
 - [Succeeding with Automated Integration Tests](https://jeremydmiller.com/2015/06/25/succeeding_with_integration_testing/) (2015)
 
 The running example is
-[the BankAccountES sample](https://github.com/JasperFx/bobcat/tree/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2), a
+[the BankAccountES sample](https://github.com/JasperFx/wolverine/tree/main/src/Samples/Bobcat/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2), a
 Wolverine bank account application on Marten or Fisher, and its rule that **a withdrawal may not
 overdraw the account**.
 
@@ -36,7 +36,7 @@ Two things in Bobcat protect what a green build means:
   `Lifecycle = Lifecycle.Acceptance` runs it every time and records every failing step under its own
   `acceptance: failing` verdict, while the test platform reports it skipped. A passing one says it is
   ready to promote, and `BOBCAT_LIFECYCLE=strict` makes its failures real on a branch that claims to
-  be done ("Not yet passing" in [Writing Specifications](../marker-steps.md)).
+  be done ([Not yet passing](../marker-steps.md#acceptance) in Writing Specifications).
 - **You can see what is unspecified.** A spec bound to its slice puts the Event Model and the run
   evidence side by side: `bobcat slice-coverage` lists every slice with no spec (`no-spec`) or with a
   spec that no run has exercised (`no-evidence`). See
@@ -82,6 +82,10 @@ the change that caused it. Bobcat's part:
   ([Rerunning what failed](../bobcat-tool.md#failed-repeat)).
 - **Run one slice.** `--slice`, `--chapter`, `--domain` and `--pattern` narrow a run to a corner of
   the Event Model ([Selecting by Event Model coordinates](../bobcat-tool.md#selecting-by-coordinates)).
+- **The same loop, for a coding agent.** A failure that says what the system did, read as JSON from
+  the results file or a `bobcat failing-spec` query, and a rerun of only what was red, is how an agent
+  gets from red to green without a person reading the output for it
+  ([Agent Friendly Integration Tests](agent-friendly-tests.md)).
 
 ### 4. Reliability
 
@@ -89,7 +93,7 @@ A result you can't trust is worse than no result, because people learn to ignore
 test can't be fixed or rewritten, delete it.** A reliable suite with less coverage is more useful
 than a broad one nobody believes.
 
-**Retry is a last resort** (2015), and Bobcat is built that way:
+**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way:
 
 - **Retries are opt-in.** A test with no `Retry` trait is never retried, even when a budget is
   configured. When a test does pass on a retry, that is reported as `PassOnRetry`, never folded into
@@ -122,7 +126,7 @@ through on Wolverine's leadership-election suite.
 
 ### 5. Test with the finest-grained mechanism that tells you something important
 
-This is Jeremy's Only Rule of Testing, and it carries more weight than the rest of this page. Each
+This is my Only Rule of Testing, and it carries more weight than the rest of this page. Each
 step up from a pure function adds infrastructure: a store, a message bus, an HTTP pipeline, a
 browser. Each one makes a test slower to run, harder to write and more likely to fail for a reason
 that has nothing to do with the behaviour. So:
@@ -197,14 +201,14 @@ public async Task withdrawing_more_than_the_balance_leaves_the_account_untouched
 ```
 
 There's one HTTP spec for the refusal and one for the
-[happy path](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES/Tests/BankAccountEventSourcing.cs),
+[happy path](https://github.com/JasperFx/wolverine/blob/main/src/Samples/Bobcat/BankAccountES/Tests/BankAccountEventSourcing.cs),
 not one per boundary case. The spec runs the whole pipeline in process through Alba, against Marten
 or Fisher, without a browser.
 
 If the same rule lived in a message handler, the middle layer would carry it: `WhenReceived(new
 WithdrawFunds(…))` followed by `ThenRefusedWith(…)` and `ThenNoEvents()`, with no HTTP at all.
-[`FreezeAccountSpecs`](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES/Tests/FreezeAccountSpecs.cs)
-is that layer in the same sample. A store-only `CritterStackSpec` is the layer below it, for
+[`FreezeAccountSpecs`](https://github.com/JasperFx/wolverine/blob/main/src/Samples/Bobcat/BankAccountES/Tests/FreezeAccountSpecs.cs)
+is that layer in the same sample, for a command that succeeds. A store-only `CritterStackSpec` is the layer below it, for
 applications with no Wolverine ([The store-only act](https://wolverinefx.net/guide/testing-with-bobcat#the-store-only-act)).
 
 **The browser is for what only a browser can show:** a page renders the refusal, a button is
