@@ -15,8 +15,8 @@ overdraw the account**.
 We think that a test automation strategy succeeds when the suite gives you five things. 
 
 ::: tip
-We're not terribly concerned with test coverage as an official metric but instead merely trying
-to have a feedback mechanism using automated tests that's good enough to feel confident shipping changes.
+We're not terribly concerned with test coverage as an official metric but instead striving
+for a feedback mechanism using automated tests that's good enough to feel confident shipping changes.
 :::
 
 ### 1. Confidence to ship
@@ -58,10 +58,18 @@ integrations and support for Bobcat's other Critter Stack siblings like [Wolveri
 
 ### 2. Easy to write tests
 
-A test has to be cheap to write, or nobody writes the second one. What makes it cheap is a
-**declarative** style: the test names the business situation and leaves the mechanics to helpers.
-FIT, FitNesse and Gherkin did this with an external language. Bobcat does it with an internal DSL,
-which is ordinary C# methods:
+::: info
+Bobcat was originally going to support Gherkin as an alternative mechanism for expressing
+tests (but with much more focus on table-driven testing than other Gherkin tools), but the experimentation with the current "projected" model 
+went well enough that the community decided to simplify the tool and focus strictly on its current model. 
+
+We also briefly considered a more typical .NET "Internal DSL" approach, but that's
+already been tried by many other tools as is, and we didn't think that approach added enough value.
+:::
+
+A test has to be cheap to write. You can reduce the mechanical cost of building tests by investing in
+a **declarative** style: the content of the test clearly descries the business rules and expected outcomes, then leaves the mechanics to helpers.
+FIT, FitNesse and Gherkin did this with an external language. Bobcat does it with just ordinary C# or F# methods:
 
 - **Step helpers are the DSL.** A `[Given]`/`[When]`/`[Then]` attribute on a helper makes every call
   to it a rendered step ([Step helpers](../marker-steps.md#step-helpers)).
@@ -74,7 +82,7 @@ which is ordinary C# methods:
 Keep steps declarative: `WhenPosted(new WithdrawFunds(accountId, 200), …)` and not ten lines building
 an HTTP request. The mechanics belong in a helper the next test reuses.
 
-**Test data setup is where most of the writing cost goes.** Jeremy's rules for it, written down in
+**Test data setup is where most of the writing cost goes.** Jeremy's opinions for it, written down in
 2013 in [My Opinions on Data Setup for Functional Tests](https://jeremydmiller.com/2013/01/26/my-opinions-on-data-setup-for-functional-tests/),
 haven't changed:
 
@@ -84,7 +92,7 @@ haven't changed:
   actually mattered. Everything the test does not say comes from a sensible default behind the scenes,
   which is also what makes each new test cheap to write.
 - **Decouple the input from the implementation details.** Write the setup as sentences or logical
-  tables in the domain's terms, never as SQL, JSON or raw API calls tied to today's storage. When a
+  tables in the domain's terms, never as SQL, JSON or raw API calls tied to today's storage (if you can help it). When a
   column is added, you add a default for it and no test changes. That is reversibility: the tests make
   the system easier to change rather than harder.
 - **Go in through the front door.** Set the state up with the services the application itself uses to
@@ -137,13 +145,23 @@ A result you can't trust is worse than no result, because people learn to ignore
 test can't be fixed or rewritten, delete it.** A reliable suite with less coverage is more useful
 than a broad one nobody believes.
 
-**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way:
+**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way. The
+[Bobcat Supervisor](https://jasperfx.net/news/introducing-bobcat-supervisor) is the part that runs a
+large suite across worker processes and applies that rule at the only altitude that can act on it:
+it retries *selectively*, only the tests that opted in and only within a budget; it can restart a
+wedged or crashed worker process, or recycle a Docker container, before a retry; and it collects
+what it saw about flaky tests across runs, so flakiness becomes a measured rate instead of an
+impression. It runs Wolverine's own CI, and it needs no change to the tests, because it drives the
+compiled test host through Microsoft.Testing.Platform and never loads the test assembly.
 
 - **Retries are opt-in.** A test with no `Retry` trait is never retried, even when a budget is
-  configured. When a test does pass on a retry, that is reported as `PassOnRetry`, never folded into
-  the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
+  configured. A recovery hint narrows it further, to one failure class and what fixes it: retry
+  in a fresh process for this exception, recycle these containers for that one, never retry this
+  deterministic bug. When a test does pass on a retry, that is reported as `PassOnRetry`, never
+  folded into the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
 - **Flakiness has a memory.** The ledger keeps every attempt across runs, so "this test is
-  flaky" is a claim with evidence behind it.
+  flaky" is a claim with evidence behind it, and the hints it proposes are text a person accepts
+  by writing into the code. Nothing reads them back into a policy on its own.
 - **A hang is reported, not just suffered.** Stall detection names the test that stopped making
   progress, and can kill and retry it if you opt in
   ([When a parallel run hangs](../parallel-ready-suites.md#when-a-parallel-run-hangs-bloats-or-is-cut-short)).
