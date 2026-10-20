@@ -365,4 +365,4 @@ The check is `SpecIdentityAudit`, an assertion in the spec assembly's own test r
 identities the generator compiled against your design-time Event Model and reports orphans, holes and
 misbound specs. It reads the generated JasperFx descriptor, and Bobcat itself references no JasperFx,
 so it ships in **WolverineFx.Bobcat** since 1.0.0-rc.2 and is documented with Wolverine, in
-[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat).
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat#spec-identity-audit).

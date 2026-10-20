@@ -708,7 +708,7 @@ supervisor.Preflight.Add("Postgres is reachable", async token =>
 
 For a Critter Stack application, WolverineFx.Bobcat adds `Preflight.AddContainerChecks(...)`, which
 runs every check a host's container knows about through JasperFx's `EnvironmentChecker`; see
-[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs.
+[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat#container-checks) in the Wolverine docs.
 
 A resource registered with `AddRecyclableResource` is checked too, through its own `Check`, without
 being added to `Preflight`. Every check runs, even after one fails, so one preflight reports
