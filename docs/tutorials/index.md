@@ -16,3 +16,12 @@ We advise you to start here on your first look at Bobcat.
 | Design a system as an Event Model and build from it with the Critter Stack | [Event Modeling and Spec Driven Development](event-modeling.md) |
 | Stop a large, slow integration suite from being flaky | [Reliable Integration Testing](reliable-integration-testing.md) |
 | Give a coding agent a fast feedback loop: failures that say what the system did, and a rerun of only what was red | [Agent Friendly Integration Tests](agent-friendly-tests.md) |
+
+## Bobcat's History
+
+The original goal of Bobcat was to be an improved successor to the [Storyteller](https://storyteller.github.io/) testing tool from
+the 2010's which in turn was heavily influenced by [FitNesse](https://en.wikipedia.org/wiki/FitNesse).
+
+Bobcat is obviously influenced by [Gherkin tools like Cucumber](https://cucumber.io/docs/gherkin/) as well, but the Critter Stack
+community made the decision to eschew Gherkin or any other kind of [Domain Specific Language](https://martinfowler.com/books/dsl.html) approach and instead
+focus on newer .NET tricks to "project" readable specifications out of C# or F# tests written with the testing tools we already use today.
