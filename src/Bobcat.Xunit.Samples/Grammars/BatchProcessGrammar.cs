@@ -52,12 +52,10 @@ public class BatchProcessGrammar
     /// output to the step, and the report shows it under the sentence.
     /// </summary>
     /// <remarks>
-    /// <b>There is no projected equivalent yet.</b> A recorded step carries cells and a failure, but
-    /// no logs and no diagnostics, although <c>StepRender</c> has a place for both. This
-    /// grammar exists to name the gap rather than to demonstrate a feature: the message goes to the
-    /// test output, where the specification cannot see it.
+    /// The projected equivalent is <see cref="SpecLog.Write"/> (bobcat#547): the line lands on the step
+    /// in progress and is written out for a failed scenario, or on a verbose run.
     /// </remarks>
     [When("Do something that requires custom logging")]
     internal void DoSomethingWorthLogging()
-        => TestContext.Current.TestOutputHelper?.WriteLine("I am making a custom log");
+        => SpecLog.Write("I am making a custom log");
 }

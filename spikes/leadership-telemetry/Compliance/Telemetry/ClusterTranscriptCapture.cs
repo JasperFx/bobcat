@@ -22,6 +22,7 @@ namespace Compliance.Telemetry;
 /// transcript would lose ALL of it exactly when a run went long.
 /// </para>
 /// </remarks>
+// #region transcript-capture
 public sealed class ClusterTranscriptCapture : IFailureCapture
 {
     public static readonly ClusterTranscriptCapture Instance = new();
@@ -36,3 +37,4 @@ public sealed class ClusterTranscriptCapture : IFailureCapture
             [new CapturedAttachment("cluster-transcript.txt", Encoding.UTF8.GetBytes(transcript), "text/plain")]);
     }
 }
+// #endregion transcript-capture

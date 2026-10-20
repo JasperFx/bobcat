@@ -29,7 +29,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Thirty-nine of the eighty-seven specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Forty of the eighty-nine specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 `Specs/RecoveryHintProbes.cs` is not a Storyteller sample. It's three specifications that
@@ -49,7 +49,7 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | the same, minus the throwing line | `FactSpecs.facts_in_action_without_the_throwing_line` | three wrongs, all reached |
 | `Specs/Actions/Explicit_Action.md` | `ActionSpecs.explicit_action` | green, real duration |
 | `Specs/Actions/Implicit_Action.md` | `ActionSpecs.implicit_action` | green |
-| `Fixtures/LoggingFixture.cs` | `ActionSpecs.custom_logging_from_a_step` | green (see gap 3) |
+| `Fixtures/LoggingFixture.cs` | `ActionSpecs.custom_logging_from_a_step` | green; the log line is `SpecLog.Write`, written out on failure or a verbose run |
 | `Specs/Currying/Currying.md` | `CurryingSpecs.currying` | green, nested grammar |
 | `Fixtures/AsyncOperationsFixture.cs` | `AsyncSpecs.*` | green / wrong / error |
 | `Specs/Tables/Table_with_Options.md` | `TableSpecs.a_table_of_setup_data` | green, one column left out |
@@ -61,6 +61,7 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | `Specs/Create Objects/Using_VerifyObject.md` | `ObjectSpecs.only_the_properties_the_document_names_are_compared` | green, three of six fields |
 | `StoryTeller.Samples/Specs/General/Check properties.md` | `ObjectSpecs.every_named_property_agrees` / `one_property_disagrees` / `every_property_disagrees` | green / one wrong column / every column wrong |
 | — | `NarratedSpecs.*` | the marker-comment style, for contrast |
+| — (`docs/failure-telemetry.md`) | `TelemetrySpecs.*` | a step log, a scenario report with a judged red row, and an `IFailureCapture` attachment over `DispatchSteps`; one fails on purpose so the run writes them out |
 | — (`docs/expected-objects.md`) | `ExpectedObjectSpecs.*` | every expected-object form over `OrderGrammar`, once holding and once disagreeing: partial objects, whole objects, `Expect.Value`, collection members, a keyed dictionary, member checks; eight fail on purpose |
 | — (`docs/getting-started.md`) | `GettingStartedSpecs.using_sentences` | the first specification over the cut-down `CalculatorSteps` grammar; green |
 | — (`docs/tutorials/specifications-with-code.md`) | `WithdrawalSpecs.*` | the tutorial's specs over `Account`: narrated, vocabulary, decision table, set verification, theory; three fail on purpose for the page's failure renderings |
@@ -350,9 +351,9 @@ verdict is its own exception — one failure, no expected/actual pair. Compare
 empty string as a keyword worth promoting, and the renderer collapsed "no keyword" into "unknown
 keyword" and fell back to the step's kind.
 
-**Gap 3 — a projected step has no logs and no diagnostics.** `StepRender` has a place for both;
-`ScenarioRecorder.RecordedStep` carries neither, so Storyteller's
-`Context.Reporting.Log(...)` has no equivalent. See `BatchProcessGrammar.DoSomethingWorthLogging`.
+**Gap 3 — closed (bobcat#547).** A projected step carries logs now: `SpecLog.Write` is Storyteller's
+`Context.Reporting.Log(...)`, written out for a failed scenario or a verbose run. See
+`BatchProcessGrammar.DoSomethingWorthLogging` and `DispatchSteps`.
 
 ## What a projected specification now renders
 

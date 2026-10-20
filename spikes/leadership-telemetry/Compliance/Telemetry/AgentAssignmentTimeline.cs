@@ -16,6 +16,7 @@ namespace Compliance.Telemetry;
 /// scenario's close, on the test's side -- and keeps it, so the cap and the row stamping are still
 /// <see cref="TableReport"/>'s.
 /// </remarks>
+// #region lazy-report
 public sealed class AgentAssignmentTimeline : IScenarioReport
 {
     private readonly AgentAssignmentTelemetry _telemetry;
@@ -40,6 +41,7 @@ public sealed class AgentAssignmentTimeline : IScenarioReport
     public IReadOnlyList<CellResult> Cells => _grid.Value.Cells;
 
     public int SuppressedRows => _grid.Value.SuppressedRows;
+    // #endregion lazy-report
 
     private Grid build()
     {
