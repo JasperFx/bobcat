@@ -18,6 +18,72 @@ and tells you pass or fail. `bobcat run` drives the same test host and shows you
 every table as a grid, and the reports a failure wrote. `bobcat preview` shows the specifications a
 project declares **without running anything**, because the steps are known at build time.
 
+Both below are real, over the Getting Started and Specifications with Code samples in
+`src/Bobcat.Xunit.Samples`, narrowed to one feature each. `bobcat run` prints the specifications a
+run produced, then the timing of where the run spent its time:
+
+```
+$ bobcat run src/Bobcat.Xunit.Samples --feature "Calculator, getting started"
+Listing Bobcat.Xunit.Samples…
+Running the selected specifications in Bobcat.Xunit.Samples…
+Feature: Calculator, getting started
+═════════════════════════════════════
+  using sentences OK
+  ─────────────────────────
+    ✓ Given Start with 3
+    ✓ When  Multiply by 2
+    ✓ Then  The value should be 6 (3ms)
+    ✓ And   Adding 2 to 3 should equal 5
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
+  Duration: 10ms (steps 3ms)
+1 specification(s) — all green
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
+  Timing — 10ms measured across 1 scenario(s)
+    • using sentences 10ms (100% of measured time) — steps 3ms, outside steps 7ms
+    step The value should be {number} cost 3ms across 1 occurrence(s)
+    step Start with {number} cost 0ms across 1 occurrence(s)
+    step Multiply by {number} cost 0ms across 1 occurrence(s)
+    lifecycle not measured -- fixture setup belongs to the test runner in the projected lane
+All green in 0.6s · host log: /var/folders/…/bobcat-tool/Bobcat.Xunit.Samples.log
+```
+
+`bobcat preview` prints every specification with the steps it declares, each step's template with
+its placeholders unfilled, and the helper it binds to, because nothing has run:
+
+```
+$ bobcat preview src/Bobcat.Xunit.Samples
+Feature: Withdrawals
+═════════════════════
+  a withdrawal is decided
+  ─────────────────────────────────
+      ○ Given an account with a balance of {balance}
+        ↳ AccountSteps.AnAccountWithABalanceOf
+      ○ When  {amount} is withdrawn
+        ↳ AccountSteps.IsWithdrawn
+      ○ Then  the withdrawal is {outcome}
+        ↳ AccountSteps.TheWithdrawalIs
+  a withdrawal larger than the balance is refused
+  ─────────────────────────────────────────────────────────
+      ○ Given an account with a balance of {balance}
+        ↳ AccountSteps.AnAccountWithABalanceOf
+      ○ When  {amount} is withdrawn
+        ↳ AccountSteps.IsWithdrawn
+      ○ Then  the withdrawal is {outcome}
+        ↳ AccountSteps.TheWithdrawalIs
+      ○ Then  the balance is {balance}
+        ↳ AccountSteps.TheBalanceIs
+  a withdrawal larger than the balance is refused narrated
+  ────────────────────────────────────────────────────────────
+    ○ Given an account with a balance of 100
+    ○ When  200 is withdrawn
+    ○ Then  the withdrawal is refused and the balance is still 100
+      ○ Then  accepted should be false
+        ↳ ShouldBeBooleanExtensions.ShouldBeFalse
+      ○ Then  account.Balance should be 100
+        ↳ ShouldBeTestExtensions.ShouldBe
+  …
+```
+
 ## What do you want to do?
 
 | You want to | Run |
