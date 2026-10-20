@@ -28,16 +28,20 @@ public class VerifySetTests
             => SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku");
         // #endregion inventory-should-be
 
+        // #region inventory-in-order
         [Then("the inventory in order should be")]
         internal void TheInventoryInOrderShouldBe(StepTable expected)
             => SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku", ordered: true);
+        // #endregion inventory-in-order
 
         [Given("the tags are")]
         internal void TheTagsAre(StepTable table) => _tags.AddRange(table.Rows.Select(r => r[0]));
 
         /// <summary>A one-column table over plain values needs no column named.</summary>
+        // #region tags-should-be
         [Then("the tags should be")]
         internal void TheTagsShouldBe(StepTable expected) => SetVerificationComparer.Verify(_tags, expected);
+        // #endregion tags-should-be
     }
 
     private readonly InventoryGrammar _grammar = new();
@@ -57,11 +61,13 @@ public class VerifySetTests
         var (recording, render) = Projected.Run("one grid", () =>
         {
             twoItems();
+            // #region inventory-call
             _grammar.TheInventoryShouldBe("""
                 | Sku     | ProductName | Quantity |
                 | SKU-002 | Gadget      | 12       |
                 | SKU-001 | Widget      | 90       |
                 """);
+            // #endregion inventory-call
         });
 
         recording.Step("the inventory should be").Status.ShouldBe(ResultStatus.success);

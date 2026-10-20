@@ -155,11 +155,15 @@ public class RunTableTests
     [Fact]
     public async Task a_returned_value_and_one_unclaimed_column_is_a_decision_table()
     {
-        var (recording, render) = await Projected.RunAsync("doubling", () => _grammar.DoublingGives("""
-            | input | doubled |
-            | 2     | 4       |
-            | 3     | 7       |
-            """));
+        var (recording, render) = await Projected.RunAsync("doubling", () =>
+            // #region doubling-call
+            _grammar.DoublingGives("""
+                | input | doubled |
+                | 2     | 4       |
+                | 3     | 7       |
+                """)
+            // #endregion doubling-call
+        );
 
         recording.Step("doubling gives").Status.ShouldBe(ResultStatus.failed);
 
@@ -175,11 +179,15 @@ public class RunTableTests
     [Fact]
     public void builds_one_object_per_row_with_relative_dates_and_declared_defaults()
     {
-        var (_, render) = Projected.Run("objects", () => _grammar.TheSubscriptionsAre("""
-            | Customer | Tier | RenewsOn |
-            | Ada      | Pro  | TODAY+30 |
-            | Grace    | Free | TODAY    |
-            """));
+        var (_, render) = Projected.Run("objects", () =>
+            // #region subscriptions-call
+            _grammar.TheSubscriptionsAre("""
+                | Customer | Tier | RenewsOn |
+                | Ada      | Pro  | TODAY+30 |
+                | Grace    | Free | TODAY    |
+                """)
+            // #endregion subscriptions-call
+        );
 
         _grammar.Built.Length.ShouldBe(2);
         _grammar.Built[0].Customer.ShouldBe("Ada");

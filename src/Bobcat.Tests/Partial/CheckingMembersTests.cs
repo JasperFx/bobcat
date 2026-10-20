@@ -24,7 +24,9 @@ public class CheckingMembersTests
     [Fact]
     public void any_other_assertion_is_a_check_that_runs_against_the_member()
     {
+        // #region member-checks
         var holds = Specify<Shipped>(x => x.Weight.ShouldBeGreaterThan(3m), x => x.TrackingNumber.ShouldStartWith("1Z"));
+        // #endregion member-checks
         PartialMatching.Differences(Actual, holds).ShouldBeEmpty();
 
         var fails = Specify<Shipped>(x => x.Weight.ShouldBeGreaterThan(10m));

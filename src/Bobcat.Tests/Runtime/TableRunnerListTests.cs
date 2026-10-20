@@ -15,8 +15,10 @@ public class TableRunnerListTests
     {
         public List<(string Customer, int[] Quantities, IReadOnlyList<OrderId> Ids)> Seen { get; } = [];
 
+        // #region list-cell-method
         public void Place(string customer, int[] quantities, IReadOnlyList<OrderId> ids)
             => Seen.Add((customer, quantities, ids));
+        // #endregion list-cell-method
 
         public void Split(string text, out List<string> parts)
             => parts = text.Split('-').ToList();
@@ -27,11 +29,15 @@ public class TableRunnerListTests
     [Fact]
     public async Task an_array_or_list_parameter_binds_from_a_comma_list()
     {
-        var run = await TableRunner.Run(_target, nameof(Orders.Place), """
+        var run = await TableRunner.Run(_target, nameof(Orders.Place),
+            // #region list-cell-table
+            """
             | customer | quantities | ids                                                                        |
             | ann      | 1, 2, 3    | 11111111-1111-1111-1111-111111111111, 22222222-2222-2222-2222-222222222222 |
             | bob      | EMPTY      |                                                                            |
-            """);
+            """
+            // #endregion list-cell-table
+        );
 
         run.Succeeded.ShouldBeTrue();
         _target.Seen.Count.ShouldBe(2);

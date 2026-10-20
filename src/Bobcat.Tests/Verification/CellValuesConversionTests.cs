@@ -44,7 +44,9 @@ public class CellValuesConversionTests
     [Fact]
     public void a_registration_reads_a_type_with_no_convention()
     {
+        // #region register-reader
         CellValues.Register(text => new Colour(text.ToUpperInvariant()));
+        // #endregion register-reader
         try
         {
             CellValues.Read<Colour>("red").ShouldBe(new Colour("RED"));

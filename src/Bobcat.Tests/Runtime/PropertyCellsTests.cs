@@ -142,10 +142,14 @@ public class NestedPropertyCellsTests
     [Fact]
     public void a_dotted_column_resolves_through_the_graph()
     {
-        var run = compare(_order, """
+        var run = compare(_order,
+            // #region dotted-columns
+            """
             | Id    | Customer.Name | Customer.Address.City |
             | ORD-1 | Hannah        | Austin                |
-            """);
+            """
+            // #endregion dotted-columns
+        );
 
         run.Succeeded.ShouldBeTrue();
         run.Cells.Single(c => c.Name == "Customer.Address.City").Status.ShouldBe(ResultStatus.success);

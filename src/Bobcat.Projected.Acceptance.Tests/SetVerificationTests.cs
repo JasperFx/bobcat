@@ -248,11 +248,13 @@ public class SetVerificationTests
         var (recording, render) = Projected.Run("titled", () =>
         {
             ledger();
+            // #region ledger-call
             _grammar.TheLedgerShouldBe("""
                 | Line Item | The Amount |
                 | Drill     | 200        |
                 | Cord      | 100        |
                 """);
+            // #endregion ledger-call
         });
 
         recording.Step("the ledger should be").Status.ShouldBe(ResultStatus.success);

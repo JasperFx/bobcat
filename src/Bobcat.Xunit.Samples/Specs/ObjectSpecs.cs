@@ -23,10 +23,12 @@ public class ObjectSpecs
             | 3 1st Street | EMPTY    | Dallas | TX              | US      | 75201      |
             """);
 
+        // #region address-should-be-call
         _objects.TheAddressShouldBe("""
             | Address1     | Address2 | City   |
             | 3 1st Street | EMPTY    | Dallas |
             """);
+        // #endregion address-should-be-call
     }
 
     /// <summary>StoryTeller.Samples/Specs/General/Check properties.md — all correct.</summary>
