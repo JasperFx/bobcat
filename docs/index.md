@@ -38,6 +38,6 @@ features:
     linkText: Watch a run
   - title: Built for AI agents
     details: An optimized feedback loop for AI agent development. Customize the telemetry to describe what the system actually did during a failed test run instead of just saying that it failed, CLI queries over runs and specifications, and warm re-runs in seconds -- so a coding agent can diagnose a red suite and fix it without a human reading the output for it.
-    link: /agent-queries
-    linkText: Query runs from the CLI
+    link: /tutorials/agent-friendly-tests
+    linkText: Make failures legible to an agent
 ---
