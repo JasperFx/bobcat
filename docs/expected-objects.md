@@ -14,19 +14,54 @@ Nothing here ever compares through `Equals`. A record's generated equality is si
 collection member -- it compares the collection by reference -- so the comparison walks the graph
 instead, member by member, and reports each disagreement as its own cell.
 
+Every example on this page is run end to end in
+[`src/Bobcat.Xunit.Samples`](https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.Xunit.Samples),
+once holding and once disagreeing, and every output block is what that run printed. The order under
+test is an `OrderGrammar`'s `TheOrder`: `O-1`, shipping to Austin, lines `ABC` ×2 and `DEF` ×1, headers
+`accept` and `auth`, total `30.004`, placed at 09:00:01 on 2026-10-20:
+
+<<< ../src/Bobcat.Xunit.Samples/Application/Orders.cs#placed-order{cs}
+
+The two steps the examples call are what every `Then…` in the Critter Stack vocabulary does
+underneath, over Bobcat's own engines: a partial object through `PropertyCells`, a whole or relaxed
+object through `ObjectSetVerification`:
+
+<<< ../src/Bobcat.Xunit.Samples/Grammars/OrderGrammar.cs#order-grammar{cs}
+
 ## A partial object names what the specification is about
 
 `Specify<T>()` builds one in code. A member is named by an expression, so renaming the property
 renames the specification with it -- the long-standing weakness of table-driven tools:
 
-```csharp
-ThenEvents(Specify<ShipmentConfirmed>()
-    .With(x => x.Carrier, "UPS")
-    .With(x => x.TrackingNumber, "1Z999"));
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#partial-holds{cs}
+
+```
+  a partial object names only what it is about OK
+  ──────────────────────────────────────────────────────
+    ✓ Then  the order matches
+╭───┬─────────────┬────────┬─────────╮
+│ # │ ShipTo.City │ Total  │ Verdict │
+├───┼─────────────┼────────┼─────────┤
+│ 1 │ Austin      │ 30.004 │   OK    │
+╰───┴─────────────┴────────┴─────────╯
 ```
 
-Everything else about the event is unspecified: not asserted, and not shown in the report either, so
-the member table is the claim and nothing else.
+Everything else about the order is unspecified: not asserted, and not shown in the report either, so
+the member table *is* the claim. A nested member is a dotted path, and a wrong one is one failed cell
+naming both values:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#partial-disagrees{cs}
+
+```
+  a partial object with a wrong nested member FAILED
+  ─────────────────────────────────────────────────────
+    ✗ Then  the order matches
+╭───┬─────────────────────────────────┬────────┬─────────╮
+│ # │ ShipTo.City                     │ Total  │ Verdict │
+├───┼─────────────────────────────────┼────────┼─────────┤
+│ 1 │ expected 'Dallas', got 'Austin' │ 30.004 │  FAIL   │
+╰───┴─────────────────────────────────┴────────┴─────────╯
+```
 
 A partial object can also be **built**, which is what makes it the way to write a command or an
 arranged event as well as an expectation. Members it does not name are filled by the fill policy
@@ -48,31 +83,45 @@ table](tutorials/data-intensive-specifications.md#what-a-written-cell-may-say) -
 relative times -- and a **blank cell is not specified**, which is how one table can describe objects
 of several types under the union of their members:
 
-```csharp
-await WhenReceived(Specify<BookVisit>($$"""
-    | Property | Value        |
-    | VisitId  | {{theVisit}} |
-    | Vet      | Dr. Hollis   |
-    | Room     | 3            |
-    | Notes    | EMPTY        |
-    """));
-```
+<<< ../src/Bobcat.Tests/Partial/SpecifyFromATableTests.cs#table-matches{cs}
 
 ### Member checks, and the C# version they need
 
 For a claim that is not plain equality, write the member as an assertion. Any assertion library
 works: the assertion runs against the member's actual value, and an exception is the disagreement.
+The report shows each one in the same member table, as the assertion reads:
 
-```csharp
-await ThenReadModel<ApplicationsQueue>(theQueue, Specify<ApplicationsQueue>(
-    x => x.Pending.ShouldBe(1),
-    x => x.Oldest.ShouldBeLessThan(DateTimeOffset.UtcNow)));
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#member-checks-hold{cs}
+
+```
+  a member check is a claim that is not equality OK
+  ────────────────────────────────────────────────────────
+    ✓ Then  the order matches
+╭───┬───────────────────────────┬─────────────────────┬─────────╮
+│ # │ Total                     │ Lines               │ Verdict │
+├───┼───────────────────────────┼─────────────────────┼─────────┤
+│ 1 │ should be greater than 10 │ should not be empty │   OK    │
+╰───┴───────────────────────────┴─────────────────────┴─────────╯
 ```
 
-The report shows each one in the same member table, as the assertion reads (`should be less than …`),
-with the assertion's own message when it fails. A plain `ShouldBe` is the same as `.With(…)`.
-`.Check(…)` adds the same to a `.With(…)` chain. **A check only verifies**, so an object carrying one
-cannot be built as a command or an arranged event.
+A failed check keeps the claim as written and shows the value that broke it:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#member-checks-disagree{cs}
+
+```
+  a member check that disagrees reports the assertions own message FAILED
+  ────────────────────────────────────────────────────────────
+    ✗ Then  the order matches (9ms)
+╭───┬──────────────────────────────────────────┬─────────────────────┬─────────╮
+│ # │ Total                                    │ Lines               │ Verdict │
+├───┼──────────────────────────────────────────┼─────────────────────┼─────────┤
+│ 1 │ expected 'should be greater than 100',   │ should not be empty │  FAIL   │
+│   │ got '30.004' (30.004m)                   │                     │         │
+╰───┴──────────────────────────────────────────┴─────────────────────┴─────────╯
+```
+
+A plain `ShouldBe` is the same as `.With(…)`. `.Check(…)` adds the same to a `.With(…)` chain. **A
+check only verifies**, so an object carrying one cannot be built as a command or an arranged event.
 
 **A check is one assertion on one member path** -- `x => x.Address.City.ShouldBe("Austin")`. Chained
 Shouldly reads naturally and cannot be read as one member, so it is a build error, **BOBCAT044**, at
@@ -104,20 +153,55 @@ which every Shouldly assertion has (`customMessage`). The error is
 On C# 12 or 13, prefer the `.With(…)` chain or a table unless the claim genuinely is not equality.
 :::
 
+## A whole object is judged member by member
+
+Hand a step the object itself and every member is compared, structurally, with each disagreement
+named by its path, a collection item by its position:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#whole-object-disagrees{cs}
+
+```
+  a whole object is judged member by member FAILED
+  ───────────────────────────────────────────────────
+    ✗ Then  the order is
+╭───┬─────────────┬──────────────────────────────────────────────────┬─────────╮
+│ # │ order       │ values                                           │ Verdict │
+├───┼─────────────┼──────────────────────────────────────────────────┼─────────┤
+│ 1 │ PlacedOrder │ expected 'ShipTo.City: Dallas,                   │  FAIL   │
+│   │             │ Lines[1].Quantity: 9', got 'ShipTo.City: Austin, │         │
+│   │             │ Lines[1].Quantity: 1'                            │         │
+╰───┴─────────────┴──────────────────────────────────────────────────┴─────────╯
+```
+
+Two disagreements out of nine leaves, and only those two are reported.
+
 ## `Expect.Value` relaxes a whole object
 
 The inverse of a partial object: it judges *everything except* what it names. Four refinements, each
 naming one member:
 
-```csharp
-ThenEvents(Expect.Value(confirmed)
-    .Ignoring(x => x.AssignmentId)                         // shown, never judged
-    .Approximately(x => x.Total, 0.01m)                    // within an absolute amount
-    .Within(x => x.ConfirmedAt, TimeSpan.FromSeconds(2))   // within a window of time
-    .InOrder(x => x.Lines));                               // this collection's order is the claim
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#expect-value-holds{cs}
+
+```
+  an expected value relaxes the members it names OK
+  ────────────────────────────────────────────────────────
+    ✓ Then  the order is (4ms)
+╭───┬─────────────┬──────────────────────────────────────────────────┬─────────╮
+│ # │ order       │ values                                           │ Verdict │
+├───┼─────────────┼──────────────────────────────────────────────────┼─────────┤
+│ 1 │ PlacedOrder │ Id: "O-1", ShipTo: ShippingAddress(City:         │   OK    │
+│   │             │ "Austin", Country: "US"), Lines: [OrderLine(Sku: │         │
+│   │             │ "ABC", Quantity: 2), OrderLine(Sku: "DEF",       │         │
+│   │             │ Quantity: 1)], Headers: [KeyValuePair<string,    │         │
+│   │             │ string>(Key: "accept", Value: "json"),           │         │
+│   │             │ KeyValuePair<string, string>(Key: "auth", Value: │         │
+│   │             │ "token")], Total: 30.004, PlacedAt:              │         │
+│   │             │ 2026-10-20T09:00:01.0000000+00:00                │         │
+╰───┴─────────────┴──────────────────────────────────────────────────┴─────────╯
 ```
 
-An **ignored** member is still rendered, as an unjudged value: the minted id is exactly what a reader
+That expectation says `O-2`, `30` and 09:00:00, and holds against `O-1`, `30.004` and 09:00:01. An
+**ignored** member is still rendered, as an unjudged value: the minted id is exactly what a reader
 wants to see when the spec goes red. An ignored path covers everything beneath it.
 
 A **window** is usually the real claim where `Ignoring` was the only option: the timestamp had to be
@@ -136,15 +220,41 @@ failed member rather than a missing row beside an extra one. The same reading a 
 
 **Unordered is the default and strict ordering is opt in**, because most collection members have an
 order the system happens to produce rather than one the specification is about -- and asserting it by
-accident reads as every element being wrong the first time anything reorders.
+accident reads as every element being wrong the first time anything reorders. So the lines written
+backwards still hold:
 
-```csharp
-ThenMatches(theOrder, Specify<Order>()
-    .With(x => x.Lines, Expect.Exactly(                     // ... in THIS order
-        Specify<OrderLine>().With(l => l.Sku, "ABC"),
-        Specify<OrderLine>().With(l => l.Sku, "DEF")))
-    .With(x => x.Tags, Expect.Containing("vip"))            // among whatever else
-    .With(x => x.Notes, Expect.NoItems()));                 // empty
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-reordered-holds{cs}
+
+```
+  a reordered collection member is not a disagreement OK
+  ────────────────────────────────────────────────────────────
+    ✓ Then  the order matches
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                                          │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ [OrderLine(Sku: "ABC", Quantity: 2), OrderLine(Sku: "DEF",     │   OK    │
+│   │ Quantity: 1)]                                                  │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
+```
+
+until the specification says the order is the claim:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-exactly-disagrees{cs}
+
+```
+  the order is the claim when the specification says so FAILED
+  ────────────────────────────────────────────────────────────
+    ✗ Then  the order matches (7ms)
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                                          │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ expected '[0]: OrderLine(Sku: "ABC", Quantity: 2) (Out of      │  FAIL   │
+│   │ order: OrderLine was appended at position 1, before one the    │         │
+│   │ specification writes ahead of it (position 2))', got '[0]:     │         │
+│   │ OrderLine(Sku: "ABC", Quantity: 2) (Out of order: OrderLine    │         │
+│   │ was appended at position 1, before one the specification       │         │
+│   │ writes ahead of it (position 2))'                              │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
 ```
 
 | | |
@@ -161,15 +271,61 @@ ThenMatches(theOrder, Specify<Order>()
 **An element is an expectation in its own right** -- a whole object, a `Specify<T>()`, an
 `Expect.Value(…)`, or a bare `Type` meaning "an item of this type, values unexamined". So a
 collection of partial objects judges only what each one names, and an element needing its own slack
-brings its own:
+brings its own `Expect.Value(…).Approximately(…)`. A collection of plain values works the same way:
+`Expect.Containing("vip")` over a `string[]`.
 
-```csharp
-.With(x => x.Lines, Expect.InAnyOrder(
-    Expect.Value(new OrderLine("ABC", 2)),
-    Expect.Value(new OrderLine("DEF", 1)).Approximately(x => x.Price, 0.01m)))
+### The three ways a collection disagrees
+
+The right item with a wrong member is **that member**, at the position the reader will find the
+item in:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-wrong-member{cs}
+
+```
+  the right item with a wrong member is that member FAILED
+  ───────────────────────────────────────────────────────────
+    ✗ Then  the order matches
+╭───┬───────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                             │ Verdict │
+├───┼───────────────────────────────────────────────────┼─────────┤
+│ 1 │ expected '[1].Quantity: 9', got '[1].Quantity: 1' │  FAIL   │
+╰───┴───────────────────────────────────────────────────┴─────────╯
 ```
 
-A collection of plain values works the same way: `Expect.Containing("vip")` over a `string[]`.
+An item nobody expected is **EXTRA**, and an expectation nothing satisfied is **MISSING**, reported
+with no index because it was not found anywhere:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-extra-and-missing{cs}
+
+```
+  an item nobody expected is extra FAILED
+  ──────────────────────────────────────────
+    ✗ Then  the order matches
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                                          │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ expected '[1]: NULL (EXTRA: nothing expected a OrderLine       │  FAIL   │
+│   │ here)', got '[1]: OrderLine(Sku: "DEF", Quantity: 1) (EXTRA:   │         │
+│   │ nothing expected a OrderLine here)'                            │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
+
+  an expectation nothing satisfied is missing FAILED
+  ─────────────────────────────────────────────────────
+    ✗ Then  the order matches
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                                          │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ expected 'OrderLine(Sku: "GHI") (MISSING: no OrderLine like    │  FAIL   │
+│   │ this)', got '[OrderLine(Sku: "ABC", Quantity: 2),              │         │
+│   │ OrderLine(Sku: "DEF", Quantity: 1)]'                           │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
+```
+
+An expectation with no exact match is paired with an unmatched item of the same type first, which is
+why `Quantity: 9` above is one failed member and not a MISSING beside an EXTRA, and why MISSING and
+EXTRA show up mostly when the counts differ. Ten disagreements are shown, then `…and N more`: a
+reordered fifty-element collection is a hundred disagreements, and the cap is at the rendering, so
+code reading the differences still gets every one.
 
 ### A child collection as a table
 
@@ -177,12 +333,18 @@ For a collection whose elements read better as a grid than as a chain, `Expect.R
 reads each row as one element, exactly as `Specify<T>(table)` reads one object. The element type comes
 from the member, so you never repeat it:
 
-```csharp
-ThenMatches(theOrder, Specify<Order>().With(x => x.Lines, Expect.Rows("""
-    | Sku | Quantity |
-    | ABC | 2        |
-    | DEF | 1        |
-    """)));
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-as-table{cs}
+
+```
+  a child collection may be written as a table OK
+  ──────────────────────────────────────────────────────
+    ✓ Then  the order matches (2ms)
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Lines                                                          │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ [OrderLine(Sku: "ABC", Quantity: 2), OrderLine(Sku: "DEF",     │   OK    │
+│   │ Quantity: 1)]                                                  │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
 ```
 
 The order is an argument (`Expect.Rows(table, SetMode.Ordered)`) rather than a separate method name,
@@ -208,47 +370,34 @@ Shouldly compares elements with `Equals`, which is reference equality for a clas
 A dictionary compares by key, not by position, so two dictionaries holding the same entries agree
 whatever order they enumerate in. A key one side lacks reads as that one key:
 
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#dictionary-keyed{cs}
+
 ```
-Headers[auth]   expected token   was NULL    MISSING: no entry under 'auth'
+  a dictionary member is compared by key FAILED
+  ────────────────────────────────────────────────
+    ✗ Then  the order is (1ms)
+╭───┬─────────────┬──────────────────────────────────────────────────┬─────────╮
+│ # │ order       │ values                                           │ Verdict │
+├───┼─────────────┼──────────────────────────────────────────────────┼─────────┤
+│ 1 │ PlacedOrder │ expected 'Headers[trace]: abc (MISSING: no entry │  FAIL   │
+│   │             │ under 'trace'), Headers[accept]: NULL (EXTRA: no │         │
+│   │             │ entry expected under 'accept')', got             │         │
+│   │             │ 'Headers[trace]: NULL (MISSING: no entry under   │         │
+│   │             │ 'trace'), Headers[accept]: json (EXTRA: no entry │         │
+│   │             │ expected under 'accept')'                        │         │
+╰───┴─────────────┴──────────────────────────────────────────────────┴─────────╯
 ```
 
 A `List<KeyValuePair<,>>` is deliberately **not** read this way: it is an ordered list that may hold
 one key twice, and reading it by key would lose its order and silently drop a duplicate's members.
 
-## What a failure reads like
-
-Indexes appear in **what a comparison reports** and never in what a specification writes. A whole
-object gets one cell per leaf:
-
-```
-Then the ShipmentConfirmed matches
-  ShipTo.City       expected Dallas   was Austin
-  Lines[1].Quantity expected 9        was 1
-  Lines             OrderLine(Sku: "GHI")   MISSING: no OrderLine like this
-  Lines[2]                                  EXTRA: nothing expected a OrderLine here
-```
-
-A **partial object** gets one cell per member it named -- that is the claim, so it is also the grid --
-and a collection member's cell carries everything inside it, the member's own name trimmed off:
-
-```
-Then the order matches
-  | ShipTo.City | Lines              |
-  | Dallas      | [1].Quantity: 9    |   FAILED
-  | Austin      | [1].Quantity: 1    |
-```
-
-- A **paired** element reports its own members, at the position the actual item is in -- that is where
-  the reader will find it.
-- An **unmatched** expectation reports the member itself, with no index, because it was not found
-  anywhere and no position is the one it should have been at.
-- **The right item with a wrong member is that member**, not a MISSING beside an EXTRA. An
-  expectation with no exact match is paired with an unmatched item of the same type first -- "the
-  right event with the wrong amount" is one failed member, which is also why MISSING and EXTRA show
-  up mostly when the counts differ.
-- Ten disagreements are shown, then `…and N more`. A reordered fifty-element collection is a hundred
-  disagreements and a cell holding all of them is unreadable. The cap is at the rendering, so code
-  reading the differences still gets every one.
+::: warning Through a partial object, a dictionary is still one value
+The keyed comparison runs when the dictionary is reached through a whole object or an
+`Expect.Value`, as above. A partial object naming the member directly,
+`Specify<PlacedOrder>().With(x => x.Headers, …)`, compares the dictionary as one value today and
+reports one cell with both sides written out
+([bobcat#761](https://github.com/JasperFx/bobcat/issues/761)).
+:::
 
 ## Values with their own meaning
 
@@ -280,6 +429,7 @@ Then the order matches
 
 - [Data Intensive Specifications](tutorials/data-intensive-specifications.md) -- tables, set
   verification, decision tables, and what a written cell may say
+- [Shouldly Assertions as Steps](shouldly.md) -- Shouldly inside a specification, including member checks
 - [Writing Specifications](marker-steps.md) -- the three ways a step arrives, and BOBCAT032, which
   catches a stale member path at build time
 - [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) -- the Critter Stack steps

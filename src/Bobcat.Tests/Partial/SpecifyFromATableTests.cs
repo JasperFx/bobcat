@@ -43,11 +43,13 @@ public class SpecifyFromATableTests
     {
         var actual = new Shipped(Order, "UPS", "1Z", 5m);
 
+        // #region table-matches
         PartialMatching.Differences(actual, Specify<Shipped>("""
             | Property | Value |
             | Carrier  | UPS   |
             | Weight   | 5     |
             """)).ShouldBeEmpty();
+        // #endregion table-matches
 
         PartialMatching.Differences(actual, Specify<Shipped>("""
             | Property | Value |

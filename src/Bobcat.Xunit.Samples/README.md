@@ -29,7 +29,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Thirty-one of the seventy-four specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Thirty-nine of the eighty-seven specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 `Specs/RecoveryHintProbes.cs` is not a Storyteller sample. It's three specifications that
@@ -61,6 +61,7 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | `Specs/Create Objects/Using_VerifyObject.md` | `ObjectSpecs.only_the_properties_the_document_names_are_compared` | green, three of six fields |
 | `StoryTeller.Samples/Specs/General/Check properties.md` | `ObjectSpecs.every_named_property_agrees` / `one_property_disagrees` / `every_property_disagrees` | green / one wrong column / every column wrong |
 | — | `NarratedSpecs.*` | the marker-comment style, for contrast |
+| — (`docs/expected-objects.md`) | `ExpectedObjectSpecs.*` | every expected-object form over `OrderGrammar`, once holding and once disagreeing: partial objects, whole objects, `Expect.Value`, collection members, a keyed dictionary, member checks; eight fail on purpose |
 | — (`docs/getting-started.md`) | `GettingStartedSpecs.using_sentences` | the first specification over the cut-down `CalculatorSteps` grammar; green |
 | — (`docs/tutorials/specifications-with-code.md`) | `WithdrawalSpecs.*` | the tutorial's specs over `Account`: narrated, vocabulary, decision table, set verification, theory; three fail on purpose for the page's failure renderings |
 
