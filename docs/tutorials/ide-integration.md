@@ -49,10 +49,6 @@ Step helpers, marker comments and the scenario vocabulary are all plain C#, so g
 usages and rename work on them with no plugin. A step's text lives in the attribute on the method it
 describes, one keystroke away from every call.
 
-<!-- JEREMY -->
-That is why there is no editor plugin: with no second file format, there's nothing for an editor to
-bridge.
-
 ## Where to go next
 
 - Running the same suite in a pipeline -- [Integrating Bobcat with CI](continuous-integration.md)
